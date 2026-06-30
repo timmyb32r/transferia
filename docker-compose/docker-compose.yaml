@@ -1,0 +1,54 @@
+# Docker Compose — YDB Topic → ClickHouse Replicator Test Environment
+#
+# Start:  docker-compose up -d
+# Verify: docker exec -it clickhouse clickhouse-client -q "SELECT count() FROM events"
+#
+# Prerequisites:
+#   - YDB local binary or Docker image
+#   - Test data generator (write 1000 JSON messages to YDB Topic)
+
+version: "3.8"
+
+services:
+  # YDB local instance for development/testing
+  ydb:
+    image: ghcr.io/ydb-platform/local-ydb:latest
+    container_name: ydb-local
+    hostname: ydb
+    environment:
+      YDB_USE_IN_MEMORY_PDISKS: "true"
+      GRPC_PORT: "2136"
+      GRPC_TLS_PORT: "2135"
+    ports:
+      - "2136:2136"
+      - "2135:2135"
+    volumes:
+      - ydb-data:/ydb_data
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:2136"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ClickHouse server
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: clickhouse
+    hostname: clickhouse
+    ports:
+      - "9000:9000"    # Native Protocol
+      - "8123:8123"    # HTTP Interface
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
+    volumes:
+      - ch-data:/var/lib/clickhouse
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ulimits:
+      nofile: 262144
+
+volumes:
+  ydb-data:
+  ch-data:

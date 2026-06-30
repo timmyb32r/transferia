@@ -1,0 +1,32 @@
+# YDB Topic → ClickHouse Replicator — Example Configuration
+#
+# Run with:
+#   ydb-ch-replicator --config config.yaml --total-workers 1 --worker-index 0
+
+source:
+  connection_string: "grpc://localhost:2136/local"
+  topic_path: "/local/test-topic"
+  consumer_name: "replicator"
+  auth:
+    type: anonymous
+
+schema:
+  columns:
+    - jsonpath: "$.user_id"
+      column_name: "user_id"
+      arrow_type: "Int64"
+    - jsonpath: "$.event_name"
+      column_name: "event_name"
+      arrow_type: "Utf8"
+    - jsonpath: "$.created_at"
+      column_name: "created_at"
+      arrow_type: "Timestamp(Millisecond, None)"
+
+sink:
+  connection_string: "localhost:9000"    # ClickHouse Native Protocol (NOT HTTP 8123)
+  database: "default"
+  table_name: "events"
+  dlq_table_name: "events_dlq"
+  batch_size: 1000
+  username: "default"
+  password: ""
