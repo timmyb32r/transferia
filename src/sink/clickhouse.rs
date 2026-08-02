@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures::StreamExt;
 
@@ -6,21 +7,20 @@ use crate::config::yaml::SinkConfig;
 use crate::pipeline::sink::Sink;
 use crate::types::arrow_batch::ArrowBatch;
 
-/// ClickHouse sink backed by a connection pool (`bb8`), providing concurrent
-/// INSERTs from multiple partition tasks without head-of-line blocking.
-///
-/// `ArrowClient` is `Client<ArrowFormat>`, produced by `ConnectionPoolBuilder`.
+/// ClickHouse sink backed by a connection pool (`bb8`).
 pub struct ClickHouseSink {
-    /// Pool of Arrow-format ClickHouse connections.
     pool: ConnectionPool<ArrowFormat>,
-    /// Main target table name.
+    /// Precomputed INSERT query for main table.
+    insert_main: String,
+    /// Precomputed INSERT query for DLQ table.
+    insert_dlq: String,
+    /// Main table name (for verification).
     table_name: String,
-    /// Dead-letter queue table name.
+    /// DLQ table name (for verification).
     dlq_table_name: String,
 }
 
 impl ClickHouseSink {
-    /// Create a new `ClickHouseSink` with a connection pool.
     pub async fn new(config: &SinkConfig) -> anyhow::Result<Self> {
         let pool = ConnectionPoolBuilder::<ArrowFormat>::new(
             config.connection_string.as_str(),
@@ -35,8 +35,6 @@ impl ClickHouseSink {
         .await
         .map_err(|e| anyhow::anyhow!("Failed to build ClickHouse connection pool: {}", e))?;
 
-        // Startup validation — get one connection and run SELECT 1.
-        // Pooled connection must be dropped before moving pool into Self.
         {
             let client = pool.get().await.map_err(|e| {
                 anyhow::anyhow!("ClickHouse pool connection failed: {}", e)
@@ -47,6 +45,10 @@ impl ClickHouseSink {
                 .map_err(|e| anyhow::anyhow!("ClickHouse connection failed: {}", e))?;
         }
 
+        // Precompute INSERT queries — avoids format! per write
+        let insert_main = format!("INSERT INTO {} VALUES", config.table_name);
+        let insert_dlq = format!("INSERT INTO {} VALUES", config.dlq_table_name);
+
         tracing::info!(
             "Connected to ClickHouse at {} (pool size: {})",
             config.connection_string,
@@ -54,29 +56,21 @@ impl ClickHouseSink {
         );
 
         Ok(Self {
-            pool,
+            pool, insert_main, insert_dlq,
             table_name: config.table_name.clone(),
             dlq_table_name: config.dlq_table_name.clone(),
         })
     }
 
-    /// Verify that target and DLQ tables exist at startup.
     pub async fn verify_tables(&self) -> anyhow::Result<()> {
         let client = self.pool.get().await.map_err(|e| {
             anyhow::anyhow!("ClickHouse pool get for table verification: {}", e)
         })?;
-
         for table in [&self.table_name, &self.dlq_table_name] {
             client
                 .execute(&format!("EXISTS TABLE {}", table), None)
                 .await
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Table '{}' not found or inaccessible: {}",
-                        table,
-                        e
-                    )
-                })?;
+                .map_err(|e| anyhow::anyhow!("Table '{}' not found: {}", table, e))?;
             tracing::info!("Table '{}' verified", table);
         }
         Ok(())
@@ -86,35 +80,55 @@ impl ClickHouseSink {
 #[async_trait]
 impl Sink for ClickHouseSink {
     async fn write_batch(&self, batch: &ArrowBatch) -> anyhow::Result<()> {
-        let table = if batch.meta.dlq_flag {
-            &self.dlq_table_name
-        } else {
-            &self.table_name
-        };
+        let query = if batch.meta.dlq_flag { &self.insert_dlq } else { &self.insert_main };
 
-        let query = format!("INSERT INTO {} VALUES", table);
-
-        // Get a client from the pool — this will wait if all connections are busy.
         let client = self.pool.get().await.map_err(|e| {
             anyhow::anyhow!("ClickHouse pool get for insert: {}", e)
         })?;
 
         let mut stream = client
-            .insert(&query, batch.batch.clone(), None)
+            .insert(query, batch.batch.clone(), None)
             .await
-            .map_err(|e| anyhow::anyhow!("ClickHouse insert into '{}' failed: {}", table, e))?;
+            .map_err(|e| anyhow::anyhow!("ClickHouse insert failed: {}", e))?;
 
         while let Some(item) = stream.next().await {
             item.map_err(|e| anyhow::anyhow!("ClickHouse insert stream error: {}", e))?;
         }
 
         tracing::debug!(
-            "Inserted {} rows into {} (batch_id={}, dlq={})",
+            "Inserted {} rows (batch_id={}, dlq={})",
             batch.batch.num_rows(),
-            table,
             batch.meta.batch_id,
             batch.meta.dlq_flag,
         );
+
+        Ok(())
+    }
+
+    /// Write multiple RecordBatches in a single INSERT — no `concat_batches` copy.
+    async fn write_batches(&self, batches: &[RecordBatch], dlq_flag: bool) -> anyhow::Result<()> {
+        if batches.is_empty() {
+            return Ok(());
+        }
+
+        let query = if dlq_flag { &self.insert_dlq } else { &self.insert_main };
+
+        let client = self.pool.get().await.map_err(|e| {
+            anyhow::anyhow!("ClickHouse pool get for insert_many: {}", e)
+        })?;
+
+        // clickhouse-arrow insert_many sends all blocks in one query — no client-side concat
+        let mut stream = client
+            .insert_many(query, batches.to_vec(), None)
+            .await
+            .map_err(|e| anyhow::anyhow!("ClickHouse insert_many failed: {}", e))?;
+
+        while let Some(item) = stream.next().await {
+            item.map_err(|e| anyhow::anyhow!("ClickHouse insert_many stream error: {}", e))?;
+        }
+
+        let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        tracing::debug!("Inserted {} rows via insert_many ({} blocks, dlq={})", total_rows, batches.len(), dlq_flag);
 
         Ok(())
     }

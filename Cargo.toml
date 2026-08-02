@@ -17,7 +17,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 bytes = "1"
-mimalloc = { version = "0.1", default-features = false }
+mimalloc = { version = "0.1", features = ["v2"] }
 chrono = "0.4"
 shellexpand = "3"
 futures = "0.3"
@@ -27,6 +27,6 @@ tracing-subscriber = "0.3"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"

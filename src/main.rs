@@ -21,7 +21,6 @@ static GLOBAL: MiMalloc = MiMalloc;
 use crate::config::yaml::{build_credentials, Config};
 use crate::middleware::filter::FilterMiddleware;
 use crate::parser::JsonParser;
-use crate::partition::discover_my_partitions;
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::run_partition_pipeline;
 use crate::sink::clickhouse::ClickHouseSink;
@@ -30,8 +29,6 @@ use crate::source::ydb_topic::YdbTopicSource;
 /// Monotonic batch-id counter — `u64` avoids heap allocation per batch.
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Zero-allocation batch-id. `tracing` formats `u64` via `write!` without
-/// an intermediate `String`.
 pub(crate) fn batch_id() -> u64 {
     BATCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
@@ -60,36 +57,34 @@ async fn main() -> anyhow::Result<()> {
         cli.total_workers,
     );
 
-    // 1. Load YAML config
+    // 1. Load config
     let config = Config::from_file(&cli.config)?;
 
-    // 2. Discover partitions
-    let discovery_creds = build_credentials(&config.source.auth)?;
-    let client = ydb::ClientBuilder::new_from_connection_string(&config.source.connection_string)?
-        .with_credentials(discovery_creds)
-        .client()?;
-    let mut topic_client = client.topic_client();
-    let my_partitions = discover_my_partitions(
-        &mut topic_client,
-        &config.source.topic_path,
-        cli.total_workers,
-        cli.worker_index,
-    )
-    .await?;
+    // 2. Discover partitions — scope-drop YDB client immediately after
+    let my_partitions = {
+        let discovery_creds = build_credentials(&config.source.auth)?;
+        let client = ydb::ClientBuilder::new_from_connection_string(&config.source.connection_string)?
+            .with_credentials(discovery_creds)
+            .client()?;
+        let mut topic_client = client.topic_client();
+        crate::partition::discover_my_partitions(
+            &mut topic_client,
+            &config.source.topic_path,
+            cli.total_workers,
+            cli.worker_index,
+        )
+        .await?
+    };
 
     if my_partitions.is_empty() {
         tracing::warn!("No partitions assigned. Exiting.");
         return Ok(());
     }
 
-    // 3. Build shared parser (stateless, can be Arc'd)
-    let parser = Arc::new(JsonParser::new(
-        &config.schema,
-        &config.sink.table_name,
-        &config.sink.dlq_table_name,
-    )?);
+    // 3. Shared parser
+    let parser = Arc::new(JsonParser::new(&config.schema)?);
 
-    // Build middlewares from config
+    // 4. Middlewares
     let middlewares: Vec<Box<dyn Middleware>> = config.middlewares.iter().map(|mc| {
         match mc.mw_type.as_str() {
             "filter" => {
@@ -104,12 +99,12 @@ async fn main() -> anyhow::Result<()> {
     }).collect::<anyhow::Result<_>>()?;
     let middlewares = Arc::new(middlewares);
 
-    // 4. Build shared sink (single ClickHouse connection)
+    // 5. Shared sink (connection pool)
     let sink = ClickHouseSink::new(&config.sink).await?;
     sink.verify_tables().await?;
     let sink = Arc::new(sink);
 
-    // 5. Graceful shutdown: wire ctrl_c to CancellationToken
+    // 6. Graceful shutdown
     let cancel_token = CancellationToken::new();
     let ct_clone = cancel_token.clone();
     tokio::spawn(async move {
@@ -118,27 +113,25 @@ async fn main() -> anyhow::Result<()> {
         ct_clone.cancel();
     });
 
-    // 6. Clone config parts needed inside spawned tasks
+    // 7. Spawn one task per partition
     let conn_string = config.source.connection_string.clone();
     let topic_path = config.source.topic_path.clone();
     let consumer_name = config.source.consumer_name.clone();
     let auth_config = config.source.auth.clone();
     let partition_ids = my_partitions.clone();
+    let batch_size = config.sink.batch_size;
+    let max_linger_ms = config.sink.max_linger_ms;
 
-    // 7. Spawn one task per partition with retry wrapper
     let mut handles = Vec::new();
     for partition_id in partition_ids {
         let conn = conn_string.clone();
         let tpath = topic_path.clone();
         let consumer = consumer_name.clone();
         let auth = auth_config.clone();
-
         let parser = parser.clone();
         let mw = middlewares.clone();
         let snk = sink.clone();
         let token = cancel_token.clone();
-        let batch_size = config.sink.batch_size;
-        let max_linger_ms = config.sink.max_linger_ms;
 
         handles.push(tokio::spawn(async move {
             let mut retry_count = 0u32;
@@ -148,17 +141,14 @@ async fn main() -> anyhow::Result<()> {
                     return;
                 }
 
-                // Create a fresh source for each attempt (staged pipeline takes ownership).
                 let source = match build_credentials(&auth) {
-                    Ok(creds) => {
-                        match YdbTopicSource::new(&conn, &tpath, &consumer, partition_id, creds).await {
-                            Ok(s) => s,
-                            Err(e) => {
-                                tracing::error!("Failed to create YDB source for partition {}: {}", partition_id, e);
-                                break;
-                            }
+                    Ok(creds) => match YdbTopicSource::new(&conn, &tpath, &consumer, partition_id, creds).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!("Failed to create YDB source for partition {}: {}", partition_id, e);
+                            break;
                         }
-                    }
+                    },
                     Err(e) => {
                         tracing::error!("Failed to build credentials: {}", e);
                         break;
@@ -166,13 +156,8 @@ async fn main() -> anyhow::Result<()> {
                 };
 
                 match run_partition_pipeline(
-                    source,
-                    parser.clone(),
-                    mw.clone(),
-                    snk.clone(),
-                    batch_size,
-                    max_linger_ms,
-                    token.clone(),
+                    source, parser.clone(), mw.clone(), snk.clone(),
+                    batch_size, max_linger_ms, token.clone(),
                 )
                 .await
                 {
@@ -194,9 +179,8 @@ async fn main() -> anyhow::Result<()> {
         }));
     }
 
-    // 8. Wait for all partition tasks
+    // Wait for all partition tasks
     futures::future::join_all(handles).await;
-
     tracing::info!("All partition tasks completed. Exiting.");
     Ok(())
 }

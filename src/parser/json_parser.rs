@@ -15,7 +15,6 @@ use std::fmt;
 use std::sync::{Arc, LazyLock};
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig};
-use crate::pipeline::parser::Parser;
 use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
 use crate::types::message::Message;
 
@@ -24,9 +23,7 @@ use crate::types::message::Message;
 // ---------------------------------------------------------------------------
 
 enum CompiledPath {
-    /// `$.field_name` — direct map lookup.
     RootField(String),
-    /// Arbitrary JSONPath — falls back to `jsonpath_lib::select`.
     Complex(String),
 }
 
@@ -40,25 +37,20 @@ fn compile_path(raw: &str) -> CompiledPath {
 }
 
 // ---------------------------------------------------------------------------
-// Parse mode — all-RootField schemas take a fast streaming path
+// Parse mode
 // ---------------------------------------------------------------------------
 
 struct RootFieldInfo {
-    /// Field names in column order (for row building).
-    names: Vec<String>,
-    /// field_name → column index (O(1) lookup).
     index: HashMap<String, usize>,
 }
 
 enum ParseMode {
-    /// Every column is a `$.field` — use streaming JSON deserializer.
     AllRootField(RootFieldInfo),
-    /// At least one column uses a complex JSONPath — fall back to full parsing.
     Mixed,
 }
 
 // ---------------------------------------------------------------------------
-// Stack-allocated Arrow builder enum
+// Arrow builder enum
 // ---------------------------------------------------------------------------
 
 enum AnyBuilder {
@@ -117,7 +109,6 @@ impl ColumnKind {
 
 #[inline]
 fn make_builder(kind: ColumnKind, n: usize) -> AnyBuilder {
-    /// String byte-width estimate, tuned for typical YDB JSON payloads (~128B/field).
     const STR_BYTES_PER_ROW: usize = 128usize;
     match kind {
         ColumnKind::Utf8 => AnyBuilder::Utf8(StringBuilder::with_capacity(n, n * STR_BYTES_PER_ROW)),
@@ -228,152 +219,7 @@ impl DlqReason {
 }
 
 // ---------------------------------------------------------------------------
-// Direct typed deserializer — writes JSON values straight into Arrow builders
-// without an intermediate `serde_json::Value` allocation.
-// ---------------------------------------------------------------------------
-
-/// A [`de::DeserializeSeed`] that deserializes a JSON value directly into the
-/// target `AnyBuilder` according to the column's `ColumnKind`.
-struct TypedValueWriter<'a> {
-    kind: ColumnKind,
-    builder: &'a mut AnyBuilder,
-}
-
-impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter<'a> {
-    type Value = ();
-
-    fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
-        use serde::Deserialize;
-        match self.kind {
-            ColumnKind::Utf8 => {
-                let s = <&str>::deserialize(d)?;
-                if let AnyBuilder::Utf8(b) = self.builder { b.append_value(s); }
-            }
-            ColumnKind::LargeUtf8 => {
-                let s = <&str>::deserialize(d)?;
-                if let AnyBuilder::LargeUtf8(b) = self.builder { b.append_value(s); }
-            }
-            ColumnKind::Int64 => {
-                let n = i64::deserialize(d)?;
-                if let AnyBuilder::Int64(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Int32 => {
-                let n = i32::deserialize(d)?;
-                if let AnyBuilder::Int32(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Int16 => {
-                let n = i16::deserialize(d)?;
-                if let AnyBuilder::Int16(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Int8 => {
-                let n = i8::deserialize(d)?;
-                if let AnyBuilder::Int8(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::UInt64 => {
-                let n = u64::deserialize(d)?;
-                if let AnyBuilder::UInt64(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::UInt32 => {
-                let n = u32::deserialize(d)?;
-                if let AnyBuilder::UInt32(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::UInt16 => {
-                let n = u16::deserialize(d)?;
-                if let AnyBuilder::UInt16(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::UInt8 => {
-                let n = u8::deserialize(d)?;
-                if let AnyBuilder::UInt8(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Float64 => {
-                let n = f64::deserialize(d)?;
-                if let AnyBuilder::Float64(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Float32 => {
-                let n = f32::deserialize(d)?;
-                if let AnyBuilder::Float32(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Boolean => {
-                let b = bool::deserialize(d)?;
-                if let AnyBuilder::Boolean(bb) = self.builder { bb.append_value(b); }
-            }
-            ColumnKind::Date32 => {
-                let n = i32::deserialize(d)?;
-                if let AnyBuilder::Date32(b) = self.builder { b.append_value(n); }
-            }
-            ColumnKind::Date64 | ColumnKind::TimestampMillisecond
-            | ColumnKind::TimestampMicrosecond | ColumnKind::TimestampNanosecond
-            | ColumnKind::TimestampSecond => {
-                let n = i64::deserialize(d)?;
-                match self.builder {
-                    AnyBuilder::Date64(b) => b.append_value(n),
-                    AnyBuilder::TimestampMillisecond(b) => b.append_value(n),
-                    AnyBuilder::TimestampMicrosecond(b) => b.append_value(n),
-                    AnyBuilder::TimestampNanosecond(b) => b.append_value(n),
-                    AnyBuilder::TimestampSecond(b) => b.append_value(n),
-                    _ => {}
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Deserializes field values directly into Arrow builders, avoiding `Value` allocations.
-///
-/// Returns `true` if **all** expected fields were found and successfully written.
-struct DirectFieldExtractor<'a> {
-    index: &'a HashMap<String, usize>,
-    builders: &'a mut [AnyBuilder],
-    kinds: &'a [ColumnKind],
-    filled: u64,
-}
-
-impl<'de, 'a> de::Visitor<'de> for &'a mut DirectFieldExtractor<'a> {
-    type Value = bool;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a JSON object")
-    }
-
-    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
-        while let Some(key) = map.next_key::<&str>()? {
-            if let Some(&idx) = self.index.get(key) {
-                let seed = TypedValueWriter {
-                    kind: self.kinds[idx],
-                    builder: &mut self.builders[idx],
-                };
-                map.next_value_seed(seed)?;
-                self.filled |= 1u64 << idx;
-            } else {
-                map.next_value::<de::IgnoredAny>()?;
-            }
-        }
-        let n_cols = self.kinds.len() as u64;
-        Ok(self.filled == (1u64 << n_cols) - 1)
-    }
-}
-
-/// Streaming parse with direct builder writes — no `Value` allocations.
-/// Returns `true` if all fields were successfully extracted.
-fn parse_root_fields_into_builders(
-    bytes: &[u8],
-    info: &RootFieldInfo,
-    builders: &mut [AnyBuilder],
-    kinds: &[ColumnKind],
-) -> anyhow::Result<bool> {
-    let mut de = serde_json::Deserializer::from_slice(bytes);
-    let mut extractor = DirectFieldExtractor {
-        index: &info.index,
-        builders,
-        kinds,
-        filled: 0,
-    };
-    de.deserialize_map(&mut extractor).map_err(Into::into)
-}
-
-// ---------------------------------------------------------------------------
-// Legacy streaming extractor — kept for Mixed mode, builds `Value`
+// Streaming JSON field extractor (Value-based — correct two-phase)
 // ---------------------------------------------------------------------------
 
 struct FieldExtractor<'a> {
@@ -400,8 +246,7 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut FieldExtractor<'a> {
     }
 }
 
-/// Streaming parse: extracts named fields into `Value`. Used in Mixed mode and as
-/// fallback for type mismatches.
+/// Streaming parse: extracts named fields into `Value`. Returns true if ALL fields found.
 fn parse_root_fields(bytes: &[u8], info: &RootFieldInfo, values: &mut [Option<Value>]) -> anyhow::Result<bool> {
     let mut de = serde_json::Deserializer::from_slice(bytes);
     let mut extractor = FieldExtractor { index: &info.index, values };
@@ -417,8 +262,6 @@ pub struct JsonParser {
     mappings: Vec<ColumnMappingExt>,
     kinds: Vec<ColumnKind>,
     arrow_schema: Arc<Schema>,
-    table_name: Arc<str>,
-    dlq_table_name: Arc<str>,
     mode: ParseMode,
 }
 
@@ -427,11 +270,7 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
-    pub fn new(
-        config: &SchemaConfig,
-        table_name: &str,
-        dlq_table_name: &str,
-    ) -> anyhow::Result<Self> {
+    pub fn new(config: &SchemaConfig) -> anyhow::Result<Self> {
         let n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
@@ -452,16 +291,14 @@ impl JsonParser {
         }
 
         let mode = if all_root {
-            let names: Vec<String> = mappings.iter()
-                .map(|m| match &m.path {
-                    CompiledPath::RootField(f) => f.clone(),
+            let index: HashMap<String, usize> = mappings.iter()
+                .enumerate()
+                .map(|(i, m)| match &m.path {
+                    CompiledPath::RootField(f) => (f.clone(), i),
                     _ => unreachable!(),
                 })
                 .collect();
-            let index: HashMap<String, usize> = names.iter().enumerate()
-                .map(|(i, n)| (n.clone(), i))
-                .collect();
-            ParseMode::AllRootField(RootFieldInfo { names, index })
+            ParseMode::AllRootField(RootFieldInfo { index })
         } else {
             ParseMode::Mixed
         };
@@ -474,7 +311,7 @@ impl JsonParser {
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, table_name: Arc::from(table_name), dlq_table_name: Arc::from(dlq_table_name), mode })
+        Ok(Self { mappings, kinds, arrow_schema, mode })
     }
 
     #[inline]
@@ -500,11 +337,13 @@ impl JsonParser {
         let mut pid_builder = Int64Builder::with_capacity(n);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
 
+        let ts = now.to_rfc3339(); // compute once, not per row
+
         for (raw_bytes, reason) in dlq_payloads {
             raw_builder.append_value(&String::from_utf8_lossy(raw_bytes));
             err_builder.append_value(reason.as_str());
             pid_builder.append_value(partition_id);
-            ts_builder.append_value(now.to_rfc3339());
+            ts_builder.append_value(&ts);
         }
 
         let arrays: Vec<ArrayRef> = vec![
@@ -515,45 +354,30 @@ impl JsonParser {
 
         Ok(ArrowBatch {
             batch,
-            meta: BatchMeta {
-                table_name: self.dlq_table_name.clone(),
-                partition_id, dlq_flag: true,
-                batch_id: crate::batch_id(),
-                created_at: now,
-            },
+            meta: BatchMeta { dlq_flag: true, batch_id: crate::batch_id() },
         })
     }
 }
 
 // ---------------------------------------------------------------------------
-// Reusable per-partition workspace — avoids Vec allocations on every batch
+// Reusable per-partition workspace
 // ---------------------------------------------------------------------------
 
-/// Scratch space reused across `parse_into` calls within a single partition task.
-///
-/// Arrow builders are re-created per batch (their internal buffers are taken by
-/// `finish`), but the outer `Vec` allocation is reused, saving 1–2 heap
-/// allocations per batch in the hot path.
 pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
 }
 
 impl ParserWorkspace {
     pub fn new() -> Self {
-        Self {
-            builders: Vec::new(),
-        }
+        Self { builders: Vec::new() }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Parser impl — two code paths: streaming (all-RootField) vs general
+// parse_into — main hot path
 // ---------------------------------------------------------------------------
 
 impl JsonParser {
-    /// Parse a batch using a reusable workspace, avoiding per-call Vec allocations.
-    ///
-    /// Prefer this over [`Parser::parse`] in long-lived partition tasks.
     pub fn parse_into(
         &self,
         messages: Vec<Message>,
@@ -563,7 +387,6 @@ impl JsonParser {
         let n_msgs = messages.len();
         let now = chrono::Utc::now();
 
-        // Rebuild builders in-place — avoids allocating a new Vec every call.
         ws.builders.clear();
         for &k in &self.kinds {
             ws.builders.push(make_builder(k, n_msgs));
@@ -573,19 +396,23 @@ impl JsonParser {
 
         match &self.mode {
             ParseMode::AllRootField(info) => {
-                for msg in messages {
-                    match parse_root_fields_into_builders(
-                        &msg.value,
-                        info,
-                        &mut ws.builders,
-                        &self.kinds,
-                    ) {
-                        Ok(true) => { /* all fields written directly to builders */ }
+                let n_cols = info.index.len();
+                let mut values = vec![None; n_cols];
+
+                for mut msg in messages {
+                    values.fill(None);
+                    match parse_root_fields(&msg.value, info, &mut values) {
+                        Ok(true) => {
+                            for (builder, v) in ws.builders.iter_mut().zip(values.iter_mut()) {
+                                append_value(builder, v.take().as_ref().unwrap());
+                            }
+                        }
                         Ok(false) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
+                            // mem::take avoids Bytes::clone atomic ops
+                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                         }
                         Err(e) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
+                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse(e.to_string())));
                         }
                     }
                 }
@@ -594,29 +421,27 @@ impl JsonParser {
                 let n_cols = self.mappings.len();
                 let mut row: Vec<Value> = Vec::with_capacity(n_cols);
 
-                for msg in messages {
+                for mut msg in messages {
                     match serde_json::from_slice::<Value>(&msg.value) {
                         Ok(json) => {
                             row.clear();
                             let mut all_ok = true;
-
                             for m in &self.mappings {
                                 match self.extract_value(&json, m) {
                                     Some(val) => row.push(val),
                                     None => { all_ok = false; break; }
                                 }
                             }
-
                             if all_ok {
                                 for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
                                     append_value(builder, val);
                                 }
                             } else {
-                                dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
+                                dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                             }
                         }
                         Err(e) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
+                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse(e.to_string())));
                         }
                     }
                 }
@@ -628,106 +453,7 @@ impl JsonParser {
 
         let valid_batch = ArrowBatch {
             batch,
-            meta: BatchMeta {
-                table_name: self.table_name.clone(),
-                partition_id, dlq_flag: false,
-                batch_id: crate::batch_id(),
-                created_at: now,
-            },
-        };
-
-        let dlq_batch = if !dlq_payloads.is_empty() {
-            Some(self.build_dlq_batch(&dlq_payloads, partition_id, now)?)
-        } else {
-            None
-        };
-
-        Ok((valid_batch, dlq_batch))
-    }
-}
-
-impl Parser for JsonParser {
-    fn parse(
-        &self,
-        messages: Vec<Message>,
-        partition_id: i64,
-    ) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
-        let n_msgs = messages.len();
-        let now = chrono::Utc::now();
-        let mut builders: Vec<AnyBuilder> = self.kinds.iter().map(|&k| make_builder(k, n_msgs)).collect();
-        let mut dlq_payloads: Vec<(Bytes, DlqReason)> = Vec::new();
-
-        match &self.mode {
-            ParseMode::AllRootField(info) => {
-                // Fast path: streaming JSON parser — no full Value tree
-                let n_cols = info.names.len();
-                let mut values = vec![None; n_cols];
-
-                for msg in messages {
-                    values.fill(None);
-                    match parse_root_fields(&msg.value, info, &mut values) {
-                        Ok(true) => {
-                            // Append directly from the values scratch buffer —
-                            // no intermediate row Vec.
-                            for (builder, v) in builders.iter_mut().zip(values.iter_mut()) {
-                                // Safety: Ok(true) guarantees all values are Some
-                                append_value(builder, v.take().as_ref().unwrap());
-                            }
-                        }
-                        Ok(false) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
-                        }
-                        Err(e) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
-                        }
-                    }
-                }
-            }
-            ParseMode::Mixed => {
-                // General path: full Value tree for Complex JSONPath support
-                let n_cols = self.mappings.len();
-                let mut row: Vec<Value> = Vec::with_capacity(n_cols);
-
-                for msg in messages {
-                    match serde_json::from_slice::<Value>(&msg.value) {
-                        Ok(json) => {
-                            row.clear();
-                            let mut all_ok = true;
-
-                            for m in &self.mappings {
-                                match self.extract_value(&json, m) {
-                                    Some(val) => row.push(val),
-                                    None => { all_ok = false; break; }
-                                }
-                            }
-
-                            if all_ok {
-                                for (builder, val) in builders.iter_mut().zip(row.iter()) {
-                                    append_value(builder, val);
-                                }
-                            } else {
-                                dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
-                            }
-                        }
-                        Err(e) => {
-                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
-                        }
-                    }
-                }
-            }
-        }
-
-        let arrays: Vec<ArrayRef> = builders.iter_mut().map(|b| b.finish()).collect();
-        let batch = RecordBatch::try_new(self.arrow_schema.clone(), arrays)?;
-
-        let valid_batch = ArrowBatch {
-            batch,
-            meta: BatchMeta {
-                table_name: self.table_name.clone(),
-                partition_id, dlq_flag: false,
-                batch_id: crate::batch_id(),
-                created_at: now,
-            },
+            meta: BatchMeta { dlq_flag: false, batch_id: crate::batch_id() },
         };
 
         let dlq_batch = if !dlq_payloads.is_empty() {
