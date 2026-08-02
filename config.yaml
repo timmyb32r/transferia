@@ -22,6 +22,11 @@ schema:
       column_name: "created_at"
       arrow_type: "Timestamp(Millisecond, None)"
 
+middlewares:
+  - type: filter
+    field: event_name
+    value: page_view
+
 sink:
   connection_string: "localhost:9000"    # ClickHouse Native Protocol (NOT HTTP 8123)
   database: "default"

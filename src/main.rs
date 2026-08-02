@@ -1,5 +1,6 @@
 mod config;
 mod middleware;
+mod parser;
 mod partition;
 mod pipeline;
 mod sink;
@@ -13,8 +14,10 @@ use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::yaml::{build_credentials, Config};
-use crate::middleware::json_arrow::JsonArrowMiddleware;
+use crate::middleware::filter::FilterMiddleware;
+use crate::parser::JsonParser;
 use crate::partition::discover_my_partitions;
+use crate::pipeline::middleware::Middleware;
 use crate::pipeline::run_partition_pipeline;
 use crate::sink::clickhouse::ClickHouseSink;
 use crate::source::ydb_topic::YdbTopicSource;
@@ -65,12 +68,27 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // 3. Build shared middleware (stateless, can be Arc'd)
-    let middleware = Arc::new(JsonArrowMiddleware::new(
+    // 3. Build shared parser (stateless, can be Arc'd)
+    let parser = Arc::new(JsonParser::new(
         &config.schema,
         &config.sink.table_name,
         &config.sink.dlq_table_name,
     )?);
+
+    // Build middlewares from config
+    let middlewares: Vec<Box<dyn Middleware>> = config.middlewares.iter().map(|mc| {
+        match mc.mw_type.as_str() {
+            "filter" => {
+                let mw = FilterMiddleware::new(
+                    mc.field.clone().unwrap_or_default(),
+                    mc.value.clone().unwrap_or_default(),
+                )?;
+                Ok(Box::new(mw) as Box<dyn Middleware>)
+            }
+            other => anyhow::bail!("Unknown middleware type: {}", other),
+        }
+    }).collect::<anyhow::Result<_>>()?;
+    let middlewares = Arc::new(middlewares);
 
     // 4. Build shared sink (single ClickHouse connection)
     let sink = ClickHouseSink::new(&config.sink).await?;
@@ -106,7 +124,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-        let mid = middleware.clone();
+        let parser = parser.clone();
+        let mw = middlewares.clone();
         let snk = sink.clone();
         let token = cancel_token.clone();
         let conn = conn_string.clone();
@@ -121,8 +140,14 @@ async fn main() -> anyhow::Result<()> {
                 if token.is_cancelled() {
                     return;
                 }
-                match run_partition_pipeline(&mut source, mid.as_ref(), snk.as_ref(), token.clone())
-                    .await
+                match run_partition_pipeline(
+                    &mut source,
+                    parser.as_ref(),
+                    mw.as_ref(),
+                    snk.as_ref(),
+                    token.clone(),
+                )
+                .await
                 {
                     Ok(()) => break,
                     Err(e) => {

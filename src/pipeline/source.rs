@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use crate::types::MessageBatch;
+
 // ---------------------------------------------------------------------------
 // CommitMarker
 // ---------------------------------------------------------------------------
@@ -29,49 +31,22 @@ impl std::fmt::Debug for CommitMarker {
 }
 
 // ---------------------------------------------------------------------------
-// RawBatch
-// ---------------------------------------------------------------------------
-
-/// A batch of raw bytes read from a source (e.g., YDB topic partition).
-pub struct RawBatch {
-    /// Raw message bytes (one per message).
-    pub data: Vec<Vec<u8>>,
-    /// (partition_id, offset) pairs for traceability.
-    pub offsets: Vec<(i64, i64)>,
-    /// Source partition ID.
-    pub partition_id: i64,
-    /// Opaque commit marker from the SDK, if any.
-    pub commit_marker: Option<CommitMarker>,
-}
-
-impl std::fmt::Debug for RawBatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RawBatch")
-            .field("data.len", &self.data.len())
-            .field("data_total_bytes", &self.data.iter().map(|d| d.len()).sum::<usize>())
-            .field("offsets", &self.offsets)
-            .field("partition_id", &self.partition_id)
-            .field("has_commit_marker", &self.commit_marker.is_some())
-            .finish()
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Source trait
 // ---------------------------------------------------------------------------
 
-/// The Source trait represents a data source that produces batches of raw bytes.
+/// The Source trait represents a data source that produces batches of messages.
 ///
 /// Implementations are per-partition (one Source instance per partition).
 /// The trait is async and fallible, with the caller responsible for retries.
 #[async_trait]
 pub trait Source: Send {
-    /// Read the next batch of raw bytes from the source.
+    /// Read the next batch of messages from the source.
     ///
-    /// Returns a `RawBatch`. An empty `RawBatch` (`data.is_empty()`) indicates
-    /// that no messages were available (the underlying SDK returned an empty batch).
-    /// This is **not** an error -- the caller should retry after a short sleep.
-    async fn read_batch(&mut self) -> anyhow::Result<RawBatch>;
+    /// Returns a `MessageBatch`. An empty `MessageBatch` (`messages.is_empty()`)
+    /// indicates that no messages were available (the underlying SDK returned an
+    /// empty batch). This is **not** an error -- the caller should retry after a
+    /// short sleep.
+    async fn read_batch(&mut self) -> anyhow::Result<MessageBatch>;
 
     /// Commit offsets using the marker obtained during `read_batch()`.
     ///
@@ -85,7 +60,7 @@ pub trait Source: Send {
 
 #[async_trait]
 impl<T: Source + ?Sized> Source for &mut T {
-    async fn read_batch(&mut self) -> anyhow::Result<RawBatch> {
+    async fn read_batch(&mut self) -> anyhow::Result<MessageBatch> {
         (**self).read_batch().await
     }
 
@@ -96,7 +71,7 @@ impl<T: Source + ?Sized> Source for &mut T {
 
 #[async_trait]
 impl<T: Source + Send + Sync + ?Sized> Source for Box<T> {
-    async fn read_batch(&mut self) -> anyhow::Result<RawBatch> {
+    async fn read_batch(&mut self) -> anyhow::Result<MessageBatch> {
         (**self).read_batch().await
     }
 

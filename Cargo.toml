@@ -16,6 +16,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
+bytes = "1"
 thiserror = "2"
 chrono = "0.4"
 shellexpand = "3"

@@ -3654,6 +3654,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "async-trait",
+ "bytes",
  "chrono",
  "clap",
  "clickhouse-arrow",

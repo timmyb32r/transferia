@@ -1,6 +1,11 @@
-use async_trait::async_trait;
+use std::collections::HashMap;
 
-use crate::pipeline::source::{CommitMarker, RawBatch, Source};
+use async_trait::async_trait;
+use bytes::Bytes;
+use chrono::{DateTime, Utc};
+
+use crate::pipeline::source::{CommitMarker, Source};
+use crate::types::{Message, MessageBatch};
 
 /// YDB Topic source — reads messages from a single YDB topic partition.
 ///
@@ -52,7 +57,11 @@ impl Source for YdbTopicSource {
     /// - Store `get_commit_marker()` BEFORE consuming messages via `read_and_take()`
     /// - `&mut batch.messages` for the `read_and_take()` loop
     /// - `read_and_take()` returns `Option<Vec<u8>>` — `if let Some(bytes) = ...`
-    async fn read_batch(&mut self) -> anyhow::Result<RawBatch> {
+    ///
+    /// ydb-0.13.5 `TopicReaderMessage` exposes only `offset: i64`,
+    /// `created_at: Option<SystemTime>` and `written_at: SystemTime` (no key or
+    /// headers), so `key`/`headers` are filled with empty defaults.
+    async fn read_batch(&mut self) -> anyhow::Result<MessageBatch> {
         let mut batch = self.reader.read_batch().await?;
 
         // Store commit marker BEFORE consuming messages
@@ -62,18 +71,25 @@ impl Source for YdbTopicSource {
             None
         };
 
-        let mut data = Vec::new();
+        let mut messages = Vec::new();
         let mut offsets = Vec::new();
 
         for msg in &mut batch.messages {
             if let Some(bytes) = msg.read_and_take().await? {
                 offsets.push((self.partition_id, msg.offset));
-                data.push(bytes);
+                messages.push(Message {
+                    offset: msg.offset as u64,
+                    key: Vec::new(),
+                    value: Bytes::from(bytes),
+                    create_time: msg.created_at.map(DateTime::<Utc>::from),
+                    write_time: Some(DateTime::<Utc>::from(msg.written_at)),
+                    headers: HashMap::new(),
+                });
             }
         }
 
-        Ok(RawBatch {
-            data,
+        Ok(MessageBatch {
+            messages,
             offsets,
             partition_id: self.partition_id,
             commit_marker,

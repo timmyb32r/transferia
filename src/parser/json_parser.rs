@@ -13,13 +13,13 @@ use arrow::record_batch::RecordBatch;
 use serde_json::Value;
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig};
-use crate::pipeline::middleware::Middleware;
-use crate::pipeline::source::RawBatch;
+use crate::pipeline::parser::Parser;
 use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
+use crate::types::message::Message;
 
-/// Middleware that transforms JSON messages into Arrow record batches using
+/// Parser that transforms JSON messages into Arrow record batches using
 /// JSONPath column mappings.
-pub struct JsonArrowMiddleware {
+pub struct JsonParser {
     mappings: Vec<ColumnMappingExt>,
     arrow_schema: Arc<Schema>,
     table_name: String,
@@ -34,8 +34,8 @@ struct ColumnMappingExt {
     col_index: usize,
 }
 
-impl JsonArrowMiddleware {
-    /// Create a new middleware from the schema configuration.
+impl JsonParser {
+    /// Create a new parser from the schema configuration.
     ///
     /// Parses Arrow type strings via `config::yaml::parse_arrow_type` and
     /// builds an Arrow `Schema` for the output batches.
@@ -186,19 +186,25 @@ impl JsonArrowMiddleware {
 }
 
 #[async_trait]
-impl Middleware for JsonArrowMiddleware {
-    /// Process a raw batch of JSON bytes through the JSONPath mappings.
+impl Parser for JsonParser {
+    /// Parse a batch of JSON messages through the JSONPath mappings.
     ///
     /// Returns `(valid_batch, optional_dlq_batch)`:
     /// - `valid_batch` contains rows where all JSONPath extractions succeeded.
     /// - `dlq_batch` is `Some(...)` when one or more rows failed parsing or
     ///   extraction; `None` otherwise.
-    async fn process(&self, raw: RawBatch) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
+    async fn parse(
+        &self,
+        messages: Vec<Message>,
+        partition_id: i64,
+        offsets: Vec<(i64, i64)>,
+    ) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
         let mut valid_rows: Vec<Vec<Option<Value>>> = Vec::new();
         let mut dlq_payloads: Vec<(Vec<u8>, String)> = Vec::new();
 
-        for bytes in &raw.data {
-            match serde_json::from_slice::<Value>(bytes) {
+        for msg in messages {
+            // Bytes implements Deref<Target=[u8]> — &msg.value coerces to &[u8].
+            match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
                     let mut row = Vec::with_capacity(self.mappings.len());
                     let mut all_ok = true;
@@ -217,22 +223,19 @@ impl Middleware for JsonArrowMiddleware {
                         valid_rows.push(row);
                     } else {
                         dlq_payloads.push((
-                            bytes.clone(),
+                            msg.value.to_vec(),
                             "JSONPath extraction failed for one or more columns".to_string(),
                         ));
                     }
                 }
                 Err(e) => {
                     dlq_payloads.push((
-                        bytes.clone(),
+                        msg.value.to_vec(),
                         format!("JSON parse error: {}", e),
                     ));
                 }
             }
         }
-
-        let offsets = raw.offsets.clone();
-        let partition_id = raw.partition_id;
 
         // Build valid batch (may be empty)
         let valid_batch =

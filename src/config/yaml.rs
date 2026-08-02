@@ -8,6 +8,8 @@ pub struct Config {
     pub source: SourceConfig,
     pub schema: SchemaConfig,
     pub sink: SinkConfig,
+    #[serde(default)]
+    pub middlewares: Vec<MiddlewareConfig>,
 }
 
 impl Config {
@@ -53,6 +55,33 @@ impl Config {
         for col in &self.schema.columns {
             parse_arrow_type(&col.arrow_type)
                 .map_err(|e| anyhow::anyhow!("Column '{}' has invalid arrow_type: {}", col.column_name, e))?;
+        }
+        // Validate middleware configuration
+        for (i, mw) in self.middlewares.iter().enumerate() {
+            match mw.mw_type.as_str() {
+                "filter" => {
+                    if mw.field.as_ref().is_none_or(|f| f.is_empty()) {
+                        anyhow::bail!("middlewares[{}]: filter requires non-empty 'field'", i);
+                    }
+                    if mw.value.as_ref().is_none_or(|v| v.is_empty()) {
+                        anyhow::bail!("middlewares[{}]: filter requires non-empty 'value'", i);
+                    }
+                    let col = self.schema.columns.iter()
+                        .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
+                        .ok_or_else(|| anyhow::anyhow!(
+                            "middlewares[{}]: filter field '{}' not found in schema.columns",
+                            i, mw.field.as_deref().unwrap_or("")
+                        ))?;
+                    let dt = parse_arrow_type(&col.arrow_type)?;
+                    if dt != DataType::Utf8 && dt != DataType::LargeUtf8 {
+                        anyhow::bail!(
+                            "middlewares[{}]: filter field '{}' is {:?}, only Utf8/LargeUtf8 supported",
+                            i, col.column_name, dt
+                        );
+                    }
+                }
+                other => anyhow::bail!("middlewares[{}]: unknown middleware type '{}'", i, other),
+            }
         }
         Ok(())
     }
@@ -108,6 +137,20 @@ pub struct ColumnMapping {
     /// Whether the column is nullable
     #[serde(default)]
     pub nullable: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Middleware configuration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MiddlewareConfig {
+    #[serde(rename = "type")]
+    pub mw_type: String,
+    #[serde(default)]
+    pub field: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +341,7 @@ mod tests {
                 username: "default".into(),
                 password: "".into(),
             },
+            middlewares: vec![],
         };
         assert!(cfg.validate().is_err());
     }
