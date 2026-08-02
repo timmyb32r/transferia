@@ -13,15 +13,14 @@ serde_yaml = "0.9"
 serde_json = "1"
 jsonpath_lib = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util = "0.7"
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 bytes = "1"
 mimalloc = { version = "0.1", features = ["v2"] }
 chrono = "0.4"
 shellexpand = "3"
-futures = "0.3"
-async-trait = "0.1"
+futures-util = "0.3"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
@@ -30,3 +29,4 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+strip = "symbols"

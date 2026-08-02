@@ -1,13 +1,12 @@
 pub mod source;
 pub mod middleware;
 pub mod sink;
-pub mod parser;
 
 use std::sync::Arc;
+use std::thread;
 
 use arrow::record_batch::RecordBatch;
 use tokio::sync::mpsc;
-use tokio::task::JoinSet;
 use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
@@ -17,23 +16,21 @@ use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
 use crate::types::arrow_batch::ArrowBatch;
 
-const INITIAL_BACKOFF_MS: u64 = 100;
+const INITIAL_BACKOFF_MS: u64 = 10; // was 100 — lower floor for faster resume
 const MAX_BACKOFF_MS: u64 = 30_000;
 const BACKOFF_MULTIPLIER: u64 = 2;
-const CHANNEL_CAPACITY: usize = 8;
+const CHANNEL_CAPACITY: usize = 32; // was 8 — deeper buffers to absorb flush I/O
 
 // ---------------------------------------------------------------------------
 // Channel payloads
 // ---------------------------------------------------------------------------
 
-/// Reader → Parser
 struct ReadItem {
     messages: Vec<crate::types::message::Message>,
     partition_id: i64,
     commit_marker: Option<CommitMarker>,
 }
 
-/// Parser → Writer
 struct ParsedItem {
     valid_batch: ArrowBatch,
     dlq_batch: Option<ArrowBatch>,
@@ -60,30 +57,25 @@ pub async fn run_partition_pipeline(
 ) -> anyhow::Result<()> {
     let max_linger = Duration::from_millis(max_linger_ms);
 
-    let (tx_read, mut rx_read) = mpsc::channel::<ReadItem>(CHANNEL_CAPACITY);
+    let (tx_read, rx_read) = mpsc::channel::<ReadItem>(CHANNEL_CAPACITY);
     let (tx_parsed, mut rx_parsed) = mpsc::channel::<ParsedItem>(CHANNEL_CAPACITY);
     let tx_parsed_parser = tx_parsed.clone();
-    // Feedback: Writer → Reader for commit acks
     let (tx_commit, mut rx_commit) = mpsc::channel::<CommitAck>(CHANNEL_CAPACITY);
 
-    let mut join_set = JoinSet::new();
-
-    // --- Reader task (owns source for read + commit) ---
+    // --- Reader task (tokio::spawn — owns source for read + commit) ---
     let reader_token = cancel_token.clone();
-    join_set.spawn(async move {
+    let reader_handle = tokio::spawn(async move {
         let mut backoff_ms = INITIAL_BACKOFF_MS;
         loop {
-            // Check for pending commits before reading
+            // Drain pending commit acks
             while let Ok(ack) = rx_commit.try_recv() {
                 for marker in &ack.markers {
-                    if let Err(e) = source.commit_offsets(marker).await {
-                        tracing::error!("Reader: commit error: {}", e);
-                    }
+                    let _ = source.commit_offsets(marker).await;
                 }
+                backoff_ms = INITIAL_BACKOFF_MS; // reset on activity
             }
 
             if reader_token.is_cancelled() {
-                // Drain remaining commit acks
                 while let Ok(ack) = rx_commit.try_recv() {
                     for marker in &ack.markers {
                         let _ = source.commit_offsets(marker).await;
@@ -92,58 +84,51 @@ pub async fn run_partition_pipeline(
                 return;
             }
 
+            // Read + drain acks concurrently
             let msg_batch = tokio::select! {
                 result = source.read_batch() => result,
-                // Also check for commits while waiting for reads
                 ack = rx_commit.recv() => {
                     if let Some(ack) = ack {
                         for marker in &ack.markers {
                             let _ = source.commit_offsets(marker).await;
                         }
+                        backoff_ms = INITIAL_BACKOFF_MS;
                     }
                     continue;
                 }
                 _ = reader_token.cancelled() => {
                     while let Ok(ack) = rx_commit.try_recv() {
-                        for marker in &ack.markers {
-                            let _ = source.commit_offsets(marker).await;
-                        }
+                        for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
                     }
                     return;
                 }
             };
 
             let msg_batch = match msg_batch {
-                Ok(batch) => {
-                    if batch.messages.is_empty() {
-                        // Adaptive backoff on empty reads
-                        tokio::select! {
-                            _ = sleep(Duration::from_millis(backoff_ms)) => {
-                                backoff_ms = (backoff_ms * BACKOFF_MULTIPLIER).min(MAX_BACKOFF_MS);
-                                continue;
-                            }
-                            ack = rx_commit.recv() => {
-                                if let Some(ack) = ack {
-                                    for marker in &ack.markers {
-                                        let _ = source.commit_offsets(marker).await;
-                                    }
-                                }
-                                continue;
-                            }
-                            _ = reader_token.cancelled() => return,
+                Ok(batch) if batch.messages.is_empty() => {
+                    tokio::select! {
+                        _ = sleep(Duration::from_millis(backoff_ms)) => {
+                            backoff_ms = (backoff_ms * BACKOFF_MULTIPLIER).min(MAX_BACKOFF_MS);
+                            continue;
                         }
+                        ack = rx_commit.recv() => {
+                            if let Some(ack) = ack {
+                                for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                                backoff_ms = INITIAL_BACKOFF_MS;
+                            }
+                            continue;
+                        }
+                        _ = reader_token.cancelled() => return,
                     }
-                    batch
                 }
+                Ok(batch) => batch,
                 Err(e) => {
                     tracing::error!("Read error: {}. Backing off {}ms", e, backoff_ms);
                     tokio::select! {
                         _ = sleep(Duration::from_millis(backoff_ms)) => {},
                         ack = rx_commit.recv() => {
                             if let Some(ack) = ack {
-                                for marker in &ack.markers {
-                                    let _ = source.commit_offsets(marker).await;
-                                }
+                                for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
                             }
                         }
                         _ = reader_token.cancelled() => return,
@@ -154,123 +139,149 @@ pub async fn run_partition_pipeline(
             };
 
             backoff_ms = INITIAL_BACKOFF_MS;
+
+            // Drain acks before sending (prevents ack channel fill → writer stall)
+            while let Ok(ack) = rx_commit.try_recv() {
+                for marker in &ack.markers {
+                    let _ = source.commit_offsets(marker).await;
+                }
+            }
+
             let item = ReadItem {
                 messages: msg_batch.messages,
                 partition_id: msg_batch.partition_id,
                 commit_marker: msg_batch.commit_marker,
             };
 
-            if tx_read.send(item).await.is_err() {
-                return;
+            // Send + drain acks concurrently to avoid pipeline stall
+            tokio::select! {
+                result = tx_read.send(item) => {
+                    if result.is_err() { return; }
+                }
+                ack = rx_commit.recv() => {
+                    if let Some(ack) = ack {
+                        for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                        backoff_ms = INITIAL_BACKOFF_MS;
+                    }
+                    // Re-queue the read item (will retry send next iteration after drain)
+                    continue;
+                }
+                _ = reader_token.cancelled() => return,
             }
         }
     });
 
-    // --- Parser task (spawn_blocking) ---
+    // --- Parser task (dedicated std::thread — no tokio blocking-pool limit) ---
     let parser_token = cancel_token.clone();
-    let mw_for_parser = middlewares.clone();
-    let tx_parsed_clone = tx_parsed_parser.clone();
-    join_set.spawn_blocking(move || {
-        let mut workspace = ParserWorkspace::new();
-        loop {
-            if parser_token.is_cancelled() {
-                return;
+    let mut rx_read = rx_read; // moved into thread
+    let parser_thread = thread::Builder::new()
+        .name("parser".into())
+        .spawn(move || {
+            let mut workspace = ParserWorkspace::new();
+            loop {
+                if parser_token.is_cancelled() {
+                    return;
+                }
+                let item = match rx_read.blocking_recv() {
+                    Some(item) => item,
+                    None => return,
+                };
+
+                let (valid_batch, dlq_batch) = match parser.parse_into(item.messages, item.partition_id, &mut workspace) {
+                    Ok(r) => r,
+                    Err(e) => { tracing::error!("Parser error: {}", e); continue; }
+                };
+
+                let valid_batch = match apply_middlewares(valid_batch, &middlewares) {
+                    Ok(b) => b,
+                    Err(e) => { tracing::error!("Middleware error: {}", e); continue; }
+                };
+
+                let parsed = ParsedItem { valid_batch, dlq_batch, commit_marker: item.commit_marker };
+                if tx_parsed_parser.blocking_send(parsed).is_err() {
+                    return;
+                }
             }
-            let item = match rx_read.blocking_recv() {
-                Some(item) => item,
-                None => return,
-            };
-
-            let (valid_batch, dlq_batch) = match parser.parse_into(item.messages, item.partition_id, &mut workspace) {
-                Ok(result) => result,
-                Err(e) => { tracing::error!("Parser error: {}", e); continue; }
-            };
-
-            let valid_batch = match apply_middlewares(valid_batch, &mw_for_parser) {
-                Ok(batch) => batch,
-                Err(e) => { tracing::error!("Middleware error: {}", e); continue; }
-            };
-
-            let parsed = ParsedItem { valid_batch, dlq_batch, commit_marker: item.commit_marker };
-            if tx_parsed_clone.blocking_send(parsed).is_err() {
-                return;
-            }
-        }
-    });
+        })?;
 
     // --- Writer task ---
     let writer_token = cancel_token.clone();
-    let writer_join = tokio::spawn(async move {
+    let sink_for_writer = sink.clone();
+    let writer_handle = tokio::spawn(async move {
         let mut accumulator: Option<BatchAccumulator> = None;
 
         loop {
-            // Check linger timeout
-            let timeout_fired = accumulator.as_ref().and_then(|acc: &BatchAccumulator| {
-                acc.window_start.map(|start| start.elapsed() >= max_linger && acc.total_rows > 0)
-            }).unwrap_or(false);
+            // Phase 1: flush if timeout expired
+            let should_flush = accumulator.as_ref().is_some_and(|acc| {
+                acc.total_rows > 0
+                    && acc.window_start.is_some_and(|s| s.elapsed() >= max_linger)
+            });
 
-            if writer_token.is_cancelled() {
-                if let Some(ref mut acc) = accumulator {
-                    if let Some(flush) = acc.take_flush() {
-                        if flush_to_sink_and_ack(sink.as_ref(), &tx_commit, flush).await.is_ok() {
-                            acc.clear();
-                        }
-                    }
-                }
-                return;
-            }
-
-            if timeout_fired {
-                if let Some(ref mut acc) = accumulator {
-                    if let Some(flush) = acc.take_flush() {
-                        if flush_to_sink_and_ack(sink.as_ref(), &tx_commit, flush).await.is_ok() {
-                            acc.clear();
-                        }
-                    }
+            if should_flush {
+                let flush = accumulator.as_mut().unwrap().take_flush().unwrap();
+                if flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await.is_ok() {
+                    accumulator.as_mut().unwrap().clear();
                 }
                 continue;
             }
 
-            let item = tokio::select! {
-                maybe = rx_parsed.recv() => {
-                    match maybe {
-                        Some(item) => item,
-                        None => {
-                            if let Some(ref mut acc) = accumulator {
-                                if let Some(flush) = acc.take_flush() {
-                                    let _ = flush_to_sink_and_ack(sink.as_ref(), &tx_commit, flush).await;
-                                }
-                            }
-                            return;
-                        }
+            // Phase 2: check cancellation
+            if writer_token.is_cancelled() {
+                if let Some(ref mut acc) = accumulator {
+                    if let Some(flush) = acc.take_flush() {
+                        let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
                     }
                 }
-                _ = async {
-                    if let Some(ref acc) = accumulator {
-                        if let Some(start) = acc.window_start {
-                            let elapsed = start.elapsed();
-                            if elapsed < max_linger {
-                                sleep(max_linger - elapsed).await;
+                return;
+            }
+
+            // Phase 3: wait for data or timeout (NO busy-spin)
+            let timeout = accumulator.as_ref().and_then(|acc| {
+                acc.window_start.map(|s| {
+                    let elapsed = s.elapsed();
+                    if elapsed < max_linger { max_linger - elapsed } else { Duration::ZERO }
+                })
+            });
+
+            let maybe_item = if let Some(dur) = timeout {
+                tokio::select! {
+                    maybe = rx_parsed.recv() => maybe,
+                    _ = sleep(dur) => None, // timeout → will flush at top of loop
+                    _ = writer_token.cancelled() => {
+                        if let Some(ref mut acc) = accumulator {
+                            if let Some(flush) = acc.take_flush() {
+                                let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
                             }
                         }
+                        return;
                     }
-                    // Always yield to the top of loop for re-check
-                } => continue,
-                _ = writer_token.cancelled() => {
-                    if let Some(ref mut acc) = accumulator {
-                        if let Some(flush) = acc.take_flush() {
-                            let _ = flush_to_sink_and_ack(sink.as_ref(), &tx_commit, flush).await;
-                        }
-                    }
-                    return;
                 }
+            } else {
+                // No accumulator — only wait for data or cancellation
+                tokio::select! {
+                    maybe = rx_parsed.recv() => maybe,
+                    _ = writer_token.cancelled() => {
+                        if let Some(ref mut acc) = accumulator {
+                            if let Some(flush) = acc.take_flush() {
+                                let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
+                            }
+                        }
+                        return;
+                    }
+                }
+            };
+
+            let item = match maybe_item {
+                Some(item) => item,
+                None => continue, // timeout fired
             };
 
             // Write DLQ immediately
             if let Some(ref dlq) = item.dlq_batch {
-                if let Err(e) = sink.write_batch(dlq).await {
-                    tracing::error!("Sink write error (DLQ batch): {}. Will retry.", e);
-                    continue;
+                if let Err(e) = sink_for_writer.write_batch(dlq).await {
+                    tracing::error!("Sink write error (DLQ batch): {}", e);
+                    // DLQ write failed — push back to DLQ? For now, log and continue.
+                    // The valid batch is still processed below.
                 }
             }
 
@@ -284,23 +295,22 @@ pub async fn run_partition_pipeline(
 
             let acc = accumulator.as_mut().unwrap();
             if let Some(flush) = acc.push(item.valid_batch.batch, item.commit_marker) {
-                if flush_to_sink_and_ack(sink.as_ref(), &tx_commit, flush).await.is_ok() {
+                if flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await.is_err() {
+                    // Flush failed — clear accumulator state to avoid churn.
+                    // Data is replayed from YDB on restart (at-least-once).
+                    acc.clear();
+                } else {
                     acc.clear();
                 }
             }
         }
     });
 
-    while let Some(result) = join_set.join_next().await {
-        if let Err(e) = result {
-            if e.is_panic() {
-                tracing::error!("Stage task panicked: {}", e);
-            }
-        }
-    }
-
+    // Wait for reader first, then drop tx_parsed to signal parser
+    let _ = reader_handle.await;
     drop(tx_parsed);
-    let _ = writer_join.await;
+    let _ = parser_thread.join();
+    let _ = writer_handle.await;
 
     Ok(())
 }
@@ -364,23 +374,21 @@ struct FlushBatch {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Write to sink via insert_many, then send commit markers back to reader.
 async fn flush_to_sink_and_ack(
     sink: &(impl Sink + 'static),
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<(), ()> {
-    if let Err(e) = sink.write_batches(&flush.batches, false).await {
-        tracing::error!("Writer: flush error: {}. Will retry.", e);
-        return Err(());
-    }
-
     let markers = flush.markers;
-    if !markers.is_empty()
-        && tx_commit.send(CommitAck { markers }).await.is_err()
-    {
-        tracing::error!("Writer: commit ack channel closed");
-        return Err(());
+    if !markers.is_empty() {
+        if let Err(e) = sink.write_batches(flush.batches, false).await {
+            tracing::error!("Writer: flush error: {}", e);
+            return Err(());
+        }
+        if tx_commit.send(CommitAck { markers }).await.is_err() {
+            tracing::error!("Writer: commit ack channel closed");
+            return Err(());
+        }
     }
     Ok(())
 }

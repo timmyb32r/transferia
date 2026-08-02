@@ -180,7 +180,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Wait for all partition tasks
-    futures::future::join_all(handles).await;
+    for handle in handles {
+        let _ = handle.await;
+    }
     tracing::info!("All partition tasks completed. Exiting.");
     Ok(())
 }

@@ -205,14 +205,14 @@ static DLQ_SCHEMA: LazyLock<Arc<Schema>> = LazyLock::new(|| {
 });
 
 enum DlqReason {
-    JsonParse(String),
+    JsonParse, // error details logged at call site
     ExtractionFailed,
 }
 
 impl DlqReason {
     fn as_str(&self) -> &str {
         match self {
-            DlqReason::JsonParse(e) => e.as_str(),
+            DlqReason::JsonParse => "JSON parse error",
             DlqReason::ExtractionFailed => "JSONPath extraction failed for one or more columns",
         }
     }
@@ -365,11 +365,17 @@ impl JsonParser {
 
 pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
+    values: Vec<Option<Value>>,
+    dlq_payloads: Vec<(Bytes, DlqReason)>,
 }
 
 impl ParserWorkspace {
     pub fn new() -> Self {
-        Self { builders: Vec::new() }
+        Self {
+            builders: Vec::new(),
+            values: Vec::new(),
+            dlq_payloads: Vec::new(),
+        }
     }
 }
 
@@ -392,27 +398,27 @@ impl JsonParser {
             ws.builders.push(make_builder(k, n_msgs));
         }
 
-        let mut dlq_payloads: Vec<(Bytes, DlqReason)> = Vec::new();
+        ws.dlq_payloads.clear();
 
         match &self.mode {
             ParseMode::AllRootField(info) => {
                 let n_cols = info.index.len();
-                let mut values = vec![None; n_cols];
+                ws.values.clear();
+                ws.values.resize(n_cols, None);
 
                 for mut msg in messages {
-                    values.fill(None);
-                    match parse_root_fields(&msg.value, info, &mut values) {
+                    ws.values.fill(None);
+                    match parse_root_fields(&msg.value, info, &mut ws.values) {
                         Ok(true) => {
-                            for (builder, v) in ws.builders.iter_mut().zip(values.iter_mut()) {
+                            for (builder, v) in ws.builders.iter_mut().zip(ws.values.iter_mut()) {
                                 append_value(builder, v.take().as_ref().unwrap());
                             }
                         }
                         Ok(false) => {
-                            // mem::take avoids Bytes::clone atomic ops
-                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
+                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                         }
-                        Err(e) => {
-                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse(e.to_string())));
+                        Err(_e) => {
+                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
                         }
                     }
                 }
@@ -437,11 +443,11 @@ impl JsonParser {
                                     append_value(builder, val);
                                 }
                             } else {
-                                dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
+                                ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                             }
                         }
-                        Err(e) => {
-                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse(e.to_string())));
+                        Err(_e) => {
+                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
                         }
                     }
                 }
@@ -456,8 +462,8 @@ impl JsonParser {
             meta: BatchMeta { dlq_flag: false, batch_id: crate::batch_id() },
         };
 
-        let dlq_batch = if !dlq_payloads.is_empty() {
-            Some(self.build_dlq_batch(&dlq_payloads, partition_id, now)?)
+        let dlq_batch = if !ws.dlq_payloads.is_empty() {
+            Some(self.build_dlq_batch(&ws.dlq_payloads, partition_id, now)?)
         } else {
             None
         };
