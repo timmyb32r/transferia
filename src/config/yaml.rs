@@ -1,6 +1,5 @@
 use arrow::datatypes::{DataType, TimeUnit};
 use serde::Deserialize;
-use std::collections::HashMap;
 
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
@@ -104,6 +103,7 @@ pub struct SourceConfig {
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct AuthConfig {
     /// Auth type: "anonymous" (default), "access_token", "service_account"
     #[serde(rename = "type")]
@@ -119,6 +119,7 @@ pub struct AuthConfig {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SchemaConfig {
     pub columns: Vec<ColumnMapping>,
     /// Optional: custom field name for the raw JSON payload (for DLQ)
@@ -127,6 +128,7 @@ pub struct SchemaConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ColumnMapping {
     /// JSONPath expression, e.g. "$.payload.user.id"
     pub jsonpath: String,
@@ -158,6 +160,7 @@ pub struct MiddlewareConfig {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SinkConfig {
     /// ClickHouse connection string (Native Protocol port), e.g. "localhost:9000"
     pub connection_string: String,
@@ -259,17 +262,6 @@ pub fn build_credentials(auth: &AuthConfig) -> anyhow::Result<ydb::AnonymousCred
         // TODO: expand for access_token, service_account, etc.
         other => anyhow::bail!("Unsupported auth type '{}' (PoC supports only anonymous)", other),
     }
-}
-
-/// Convert schemas to HashMap for Arrow schema construction.
-/// Returns a map of column_name -> DataType.
-pub fn column_types_to_map(columns: &[ColumnMapping]) -> anyhow::Result<HashMap<String, DataType>> {
-    let mut map = HashMap::new();
-    for col in columns {
-        let dt = parse_arrow_type(&col.arrow_type)?;
-        map.insert(col.column_name.clone(), dt);
-    }
-    Ok(map)
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ use arrow::record_batch::RecordBatch;
 
 /// Metadata carried alongside Arrow record batches through the pipeline.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BatchMeta {
     /// Target ClickHouse table name (set by sink based on dlq_flag)
     pub table_name: String,
@@ -20,6 +21,7 @@ pub struct BatchMeta {
 /// The universal transport object flowing source -> middleware -> sink.
 /// RecordBatch uses Arc internally - cloning is cheap (ref-count bump).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ArrowBatch {
     pub batch: RecordBatch,
     pub meta: BatchMeta,

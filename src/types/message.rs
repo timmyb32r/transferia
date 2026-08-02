@@ -6,6 +6,7 @@ use crate::pipeline::source::CommitMarker;
 
 /// A single message read from a source (e.g., YDB topic partition).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Message {
     pub offset: u64,
     pub key: Vec<u8>,

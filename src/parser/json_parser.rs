@@ -31,6 +31,7 @@ struct ColumnMappingExt {
     jsonpath: String,
     column_name: String,
     arrow_type: DataType,
+    #[allow(dead_code)]
     col_index: usize,
 }
 
@@ -158,7 +159,7 @@ impl JsonParser {
             raw_builder.append_value(&raw_str);
             err_builder.append_value(error_msg);
             pid_builder.append_value(partition_id);
-            ts_builder.append_value(&now.to_rfc3339());
+            ts_builder.append_value(now.to_rfc3339());
         }
 
         // Wrap concrete arrays in Arc<dyn Array> to match ArrayRef type
