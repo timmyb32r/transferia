@@ -8,7 +8,7 @@ use crate::pipeline::source::CommitMarker;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Message {
-    pub offset: u64,
+    pub offset: i64,
     pub key: Vec<u8>,
     pub value: Bytes,
     pub create_time: Option<DateTime<Utc>>,

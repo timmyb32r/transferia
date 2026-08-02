@@ -24,7 +24,13 @@ use crate::sink::clickhouse::ClickHouseSink;
 use crate::source::ydb_topic::YdbTopicSource;
 
 /// Monotonic batch-id counter — replaces `Uuid::new_v4()` syscall per batch.
-pub(crate) static BATCH_ID: AtomicU64 = AtomicU64::new(1);
+static BATCH_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Stack-allocated batch-id. Uses `itoa` for no-heap formatting.
+pub(crate) fn batch_id() -> String {
+    let n = BATCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    n.to_string()
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "ydb-ch-replicator", about = "YDB Topic to ClickHouse replicator")]

@@ -78,7 +78,7 @@ impl Source for YdbTopicSource {
         for msg in &mut batch.messages {
             if let Some(bytes) = msg.read_and_take().await? {
                 messages.push(Message {
-                    offset: msg.offset as u64,
+                    offset: msg.offset,
                     key: Vec::new(),
                     value: Bytes::from(bytes),
                     create_time: msg.created_at.map(DateTime::<Utc>::from),

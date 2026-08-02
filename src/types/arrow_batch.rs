@@ -1,16 +1,17 @@
 use arrow::record_batch::RecordBatch;
+use std::sync::Arc;
 
 /// Metadata carried alongside Arrow record batches through the pipeline.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct BatchMeta {
-    /// Target ClickHouse table name (set by sink based on dlq_flag)
-    pub table_name: String,
+    /// Target ClickHouse table name (Arc<str> — cheap ref-counted clone)
+    pub table_name: Arc<str>,
     /// Source YDB partition ID
     pub partition_id: i64,
     /// When true, route to DLQ table instead of main table
     pub dlq_flag: bool,
-    /// UUID for exactly-once deduplication
+    /// Monotonic batch identifier for tracing
     pub batch_id: String,
     /// (partition_id, offset) pairs for offset commit tracking
     pub offsets: Vec<(i64, i64)>,
