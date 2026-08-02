@@ -27,13 +27,13 @@ use crate::pipeline::run_partition_pipeline;
 use crate::sink::clickhouse::ClickHouseSink;
 use crate::source::ydb_topic::YdbTopicSource;
 
-/// Monotonic batch-id counter — replaces `Uuid::new_v4()` syscall per batch.
+/// Monotonic batch-id counter — `u64` avoids heap allocation per batch.
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Stack-allocated batch-id. Uses `itoa` for no-heap formatting.
-pub(crate) fn batch_id() -> String {
-    let n = BATCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    n.to_string()
+/// Zero-allocation batch-id. `tracing` formats `u64` via `write!` without
+/// an intermediate `String`.
+pub(crate) fn batch_id() -> u64 {
+    BATCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Parser, Debug)]
@@ -128,24 +128,17 @@ async fn main() -> anyhow::Result<()> {
     // 7. Spawn one task per partition with retry wrapper
     let mut handles = Vec::new();
     for partition_id in partition_ids {
-        let partition_creds = build_credentials(&auth_config)?;
-        let mut source = YdbTopicSource::new(
-            &conn_string,
-            &topic_path,
-            &consumer_name,
-            partition_id,
-            partition_creds,
-        )
-        .await?;
+        let conn = conn_string.clone();
+        let tpath = topic_path.clone();
+        let consumer = consumer_name.clone();
+        let auth = auth_config.clone();
 
         let parser = parser.clone();
         let mw = middlewares.clone();
         let snk = sink.clone();
         let token = cancel_token.clone();
-        let conn = conn_string.clone();
-        let tpath = topic_path.clone();
-        let consumer = consumer_name.clone();
-        let auth = auth_config.clone();
+        let batch_size = config.sink.batch_size;
+        let max_linger_ms = config.sink.max_linger_ms;
 
         handles.push(tokio::spawn(async move {
             let mut retry_count = 0u32;
@@ -154,11 +147,31 @@ async fn main() -> anyhow::Result<()> {
                 if token.is_cancelled() {
                     return;
                 }
+
+                // Create a fresh source for each attempt (staged pipeline takes ownership).
+                let source = match build_credentials(&auth) {
+                    Ok(creds) => {
+                        match YdbTopicSource::new(&conn, &tpath, &consumer, partition_id, creds).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::error!("Failed to create YDB source for partition {}: {}", partition_id, e);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to build credentials: {}", e);
+                        break;
+                    }
+                };
+
                 match run_partition_pipeline(
-                    &mut source,
-                    parser.as_ref(),
-                    mw.as_ref(),
-                    snk.as_ref(),
+                    source,
+                    parser.clone(),
+                    mw.clone(),
+                    snk.clone(),
+                    batch_size,
+                    max_linger_ms,
                     token.clone(),
                 )
                 .await
@@ -173,21 +186,6 @@ async fn main() -> anyhow::Result<()> {
                         if retry_count >= max_retries {
                             tracing::error!("Partition {} exhausted retries. Aborting.", partition_id);
                             break;
-                        }
-                        match build_credentials(&auth) {
-                            Ok(creds) => {
-                                match YdbTopicSource::new(&conn, &tpath, &consumer, partition_id, creds).await {
-                                    Ok(new_source) => source = new_source,
-                                    Err(e2) => {
-                                        tracing::error!("Failed to re-create source: {}", e2);
-                                        break;
-                                    }
-                                }
-                            }
-                            Err(e2) => {
-                                tracing::error!("Failed to build credentials: {}", e2);
-                                break;
-                            }
                         }
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }

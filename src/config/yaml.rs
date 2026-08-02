@@ -173,6 +173,12 @@ pub struct SinkConfig {
     /// Rows per batch insert (default: 10000)
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    /// Max milliseconds to wait before flushing a partial batch (default: 500)
+    #[serde(default = "default_max_linger_ms")]
+    pub max_linger_ms: u64,
+    /// Max ClickHouse connections in the pool (default: 4)
+    #[serde(default = "default_max_connections")]
+    pub max_connections: usize,
     /// ClickHouse username (default: "default")
     #[serde(default = "default_username")]
     pub username: String,
@@ -183,6 +189,14 @@ pub struct SinkConfig {
 
 fn default_batch_size() -> usize {
     10000
+}
+
+fn default_max_linger_ms() -> u64 {
+    500
+}
+
+fn default_max_connections() -> usize {
+    4
 }
 
 fn default_username() -> String {
@@ -330,6 +344,8 @@ mod tests {
                 table_name: "events".into(),
                 dlq_table_name: "events_dlq".into(),
                 batch_size: 1000,
+                max_linger_ms: 500,
+                max_connections: 4,
                 username: "default".into(),
                 password: "".into(),
             },

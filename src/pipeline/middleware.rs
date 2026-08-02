@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::types::arrow_batch::ArrowBatch;
@@ -8,33 +7,32 @@ use crate::types::arrow_batch::ArrowBatch;
 /// Implementations filter, enrich, or otherwise transform the batch. The
 /// result carries the same `meta` (dlq_flag, table_name, batch_id) unless
 /// the implementation intentionally changes it.
-#[async_trait]
+///
+/// This trait is **synchronous** — implementations are CPU-bound (filtering,
+/// column manipulation). No heap-allocated future per call.
 pub trait Middleware: Send + Sync {
     /// Transform a batch into a (possibly filtered/transformed) batch.
-    async fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch>;
+    fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch>;
 }
 
 // ---------------------------------------------------------------------------
-// Blanket impl for &T
+// Blanket impls
 // ---------------------------------------------------------------------------
 
-#[async_trait]
 impl<T: Middleware + ?Sized> Middleware for &T {
-    async fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
-        (**self).process(batch).await
+    fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
+        (**self).process(batch)
     }
 }
 
-#[async_trait]
 impl<T: Middleware + Send + Sync + ?Sized> Middleware for Box<T> {
-    async fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
-        (**self).process(batch).await
+    fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
+        (**self).process(batch)
     }
 }
 
-#[async_trait]
 impl<T: Middleware + ?Sized> Middleware for Arc<T> {
-    async fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
-        (**self).process(batch).await
+    fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
+        (**self).process(batch)
     }
 }
