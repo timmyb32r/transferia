@@ -12,12 +12,12 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 jsonpath_lib = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 bytes = "1"
-thiserror = "2"
+mimalloc = { version = "0.1", default-features = false }
 chrono = "0.4"
 shellexpand = "3"
 futures = "0.3"

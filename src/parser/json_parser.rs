@@ -8,7 +8,9 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
+use serde::{de, Deserializer};
 use serde_json::Value;
+use std::fmt;
 use std::sync::{Arc, LazyLock};
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig};
@@ -17,13 +19,13 @@ use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
 use crate::types::message::Message;
 
 // ---------------------------------------------------------------------------
-// Compiled JSONPath — avoids jsonpath_lib overhead for simple $.field paths
+// Compiled JSONPath
 // ---------------------------------------------------------------------------
 
 enum CompiledPath {
-    /// `$.field_name` — direct map lookup, O(1), no allocations.
+    /// `$.field_name` — direct map lookup.
     RootField(String),
-    /// Arbitrary JSONPath — fallback to `jsonpath_lib::select`.
+    /// Arbitrary JSONPath — falls back to `jsonpath_lib::select`.
     Complex(String),
 }
 
@@ -37,7 +39,19 @@ fn compile_path(raw: &str) -> CompiledPath {
 }
 
 // ---------------------------------------------------------------------------
-// Stack-allocated Arrow builder enum — no Box<dyn ArrayBuilder> heap allocs
+// Parse mode — all-RootField schemas take a fast streaming path
+// ---------------------------------------------------------------------------
+
+enum ParseMode {
+    /// Every column is a `$.field` — use streaming JSON deserializer.
+    /// Stores only the field names; no full `Value` tree is built.
+    AllRootField(Vec<String>),
+    /// At least one column uses a complex JSONPath — fall back to full parsing.
+    Mixed,
+}
+
+// ---------------------------------------------------------------------------
+// Stack-allocated Arrow builder enum
 // ---------------------------------------------------------------------------
 
 enum AnyBuilder {
@@ -120,6 +134,7 @@ fn make_builder(kind: ColumnKind) -> AnyBuilder {
 }
 
 impl AnyBuilder {
+    #[inline]
     fn finish(&mut self) -> ArrayRef {
         match self {
             Self::Utf8(b) => Arc::new(b.finish()),
@@ -145,8 +160,6 @@ impl AnyBuilder {
     }
 }
 
-/// Append a non-null `serde_json::Value` to the correct builder.
-/// Valid rows always have a value for every column (missing path → DLQ).
 #[inline]
 fn append_value(builder: &mut AnyBuilder, val: &Value) {
     match builder {
@@ -173,7 +186,7 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) {
 }
 
 // ---------------------------------------------------------------------------
-// DLQ schema + reason
+// DLQ
 // ---------------------------------------------------------------------------
 
 static DLQ_SCHEMA: LazyLock<Arc<Schema>> = LazyLock::new(|| {
@@ -200,6 +213,43 @@ impl DlqReason {
 }
 
 // ---------------------------------------------------------------------------
+// Streaming JSON field extractor — avoids full Value tree for RootField schemas
+// ---------------------------------------------------------------------------
+
+struct FieldExtractor<'a> {
+    field_names: &'a [String],
+    values: &'a mut [Option<Value>],
+}
+
+impl<'de, 'a> de::Visitor<'de> for &'a mut FieldExtractor<'a> {
+    type Value = ();
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON object")
+    }
+
+    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        while let Some(key) = map.next_key::<&str>()? {
+            if let Some(idx) = self.field_names.iter().position(|f| f.as_str() == key) {
+                self.values[idx] = Some(map.next_value()?);
+            } else {
+                // Ignore fields we don't care about — no heap allocations
+                map.next_value::<de::IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Streaming parse: only extracts the named fields. Returns true if ALL fields were found.
+fn parse_root_fields(bytes: &[u8], field_names: &[String], values: &mut [Option<Value>]) -> anyhow::Result<bool> {
+    let mut de = serde_json::Deserializer::from_slice(bytes);
+    let mut extractor = FieldExtractor { field_names, values };
+    de.deserialize_map(&mut extractor)?;
+    Ok(values.iter().all(|v| v.is_some()))
+}
+
+// ---------------------------------------------------------------------------
 // JsonParser
 // ---------------------------------------------------------------------------
 
@@ -209,6 +259,7 @@ pub struct JsonParser {
     arrow_schema: Arc<Schema>,
     table_name: Arc<str>,
     dlq_table_name: Arc<str>,
+    mode: ParseMode,
 }
 
 struct ColumnMappingExt {
@@ -224,6 +275,7 @@ impl JsonParser {
         let n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
+        let mut all_root = true;
 
         for col in &config.columns {
             let arrow_type = parse_arrow_type(&col.arrow_type)?;
@@ -231,11 +283,25 @@ impl JsonParser {
                 .ok_or_else(|| anyhow::anyhow!(
                     "Column '{}': unsupported Arrow type {:?}", col.column_name, arrow_type
                 ))?;
+            let path = compile_path(&col.jsonpath);
+            if matches!(&path, CompiledPath::Complex(_)) {
+                all_root = false;
+            }
             kinds.push(kind);
-            mappings.push(ColumnMappingExt {
-                path: compile_path(&col.jsonpath),
-            });
+            mappings.push(ColumnMappingExt { path });
         }
+
+        let mode = if all_root {
+            let fields: Vec<String> = mappings.iter()
+                .map(|m| match &m.path {
+                    CompiledPath::RootField(f) => f.clone(),
+                    _ => unreachable!(),
+                })
+                .collect();
+            ParseMode::AllRootField(fields)
+        } else {
+            ParseMode::Mixed
+        };
 
         let fields: Vec<Field> = config.columns.iter()
             .map(|col| {
@@ -245,10 +311,9 @@ impl JsonParser {
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, table_name: Arc::from(table_name), dlq_table_name: Arc::from(dlq_table_name) })
+        Ok(Self { mappings, kinds, arrow_schema, table_name: Arc::from(table_name), dlq_table_name: Arc::from(dlq_table_name), mode })
     }
 
-    /// Extract a value using either direct map lookup or jsonpath_lib.
     #[inline]
     fn extract_value(&self, json: &Value, mapping: &ColumnMappingExt) -> Option<Value> {
         match &mapping.path {
@@ -299,7 +364,7 @@ impl JsonParser {
 }
 
 // ---------------------------------------------------------------------------
-// Parser impl — direct-to-Arrow (no intermediate Vec<Vec<Option<Value>>>)
+// Parser impl — two code paths: streaming (all-RootField) vs general
 // ---------------------------------------------------------------------------
 
 impl Parser for JsonParser {
@@ -312,34 +377,68 @@ impl Parser for JsonParser {
             .map(|m| (partition_id, m.offset))
             .collect();
 
-        // Build Arrow arrays directly — no intermediate row storage.
         let mut builders: Vec<AnyBuilder> = self.kinds.iter().map(|&k| make_builder(k)).collect();
         let mut dlq_payloads: Vec<(Bytes, DlqReason)> = Vec::new();
 
-        for msg in messages {
-            match serde_json::from_slice::<Value>(&msg.value) {
-                Ok(json) => {
-                    let n = self.mappings.len();
-                    let mut row = Vec::with_capacity(n);
-                    let mut all_ok = true;
+        match &self.mode {
+            ParseMode::AllRootField(field_names) => {
+                // Fast path: streaming JSON parser — no full Value tree
+                let n_cols = field_names.len();
+                let mut values = vec![None; n_cols];
+                let mut row: Vec<Value> = Vec::with_capacity(n_cols);
 
-                    for m in &self.mappings {
-                        match self.extract_value(&json, m) {
-                            Some(val) => row.push(val),
-                            None => { all_ok = false; break; }
+                for msg in messages {
+                    values.fill(None);
+                    match parse_root_fields(&msg.value, field_names, &mut values) {
+                        Ok(true) => {
+                            row.clear();
+                            for v in values.iter_mut() {
+                                // Safety: Ok(true) means all values are Some
+                                row.push(v.take().unwrap());
+                            }
+                            for (builder, val) in builders.iter_mut().zip(row.iter()) {
+                                append_value(builder, val);
+                            }
                         }
-                    }
-
-                    if all_ok {
-                        for (builder, val) in builders.iter_mut().zip(row.iter()) {
-                            append_value(builder, val);
+                        Ok(false) => {
+                            dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
                         }
-                    } else {
-                        dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
+                        Err(e) => {
+                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
+                        }
                     }
                 }
-                Err(e) => {
-                    dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
+            }
+            ParseMode::Mixed => {
+                // General path: full Value tree for Complex JSONPath support
+                let n_cols = self.mappings.len();
+                let mut row: Vec<Value> = Vec::with_capacity(n_cols);
+
+                for msg in messages {
+                    match serde_json::from_slice::<Value>(&msg.value) {
+                        Ok(json) => {
+                            row.clear();
+                            let mut all_ok = true;
+
+                            for m in &self.mappings {
+                                match self.extract_value(&json, m) {
+                                    Some(val) => row.push(val),
+                                    None => { all_ok = false; break; }
+                                }
+                            }
+
+                            if all_ok {
+                                for (builder, val) in builders.iter_mut().zip(row.iter()) {
+                                    append_value(builder, val);
+                                }
+                            } else {
+                                dlq_payloads.push((msg.value.clone(), DlqReason::ExtractionFailed));
+                            }
+                        }
+                        Err(e) => {
+                            dlq_payloads.push((msg.value.clone(), DlqReason::JsonParse(e.to_string())));
+                        }
+                    }
                 }
             }
         }

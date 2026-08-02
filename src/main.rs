@@ -11,8 +11,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use clap::Parser;
+use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 use crate::config::yaml::{build_credentials, Config};
 use crate::middleware::filter::FilterMiddleware;
