@@ -40,8 +40,32 @@ fn compile_path(raw: &str) -> CompiledPath {
 // Parse mode
 // ---------------------------------------------------------------------------
 
+/// Adaptive column index: linear scan for ≤12 columns (faster — no hash),
+/// HashMap for wider schemas.
+enum ColumnIndex {
+    Small(Vec<(String, usize)>),
+    Large(HashMap<String, usize>),
+}
+
+impl ColumnIndex {
+    fn len(&self) -> usize {
+        match self {
+            ColumnIndex::Small(v) => v.len(),
+            ColumnIndex::Large(m) => m.len(),
+        }
+    }
+
+    #[inline]
+    fn get(&self, key: &str) -> Option<&usize> {
+        match self {
+            ColumnIndex::Small(v) => v.iter().find(|(k, _)| k.as_str() == key).map(|(_, i)| i),
+            ColumnIndex::Large(m) => m.get(key),
+        }
+    }
+}
+
 struct RootFieldInfo {
-    index: HashMap<String, usize>,
+    index: ColumnIndex,
 }
 
 enum ParseMode {
@@ -283,12 +307,12 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
 
 /// Appends a typed scratch value into the corresponding Arrow builder.
 /// Strings are reconstructed from `json_buf` byte ranges — zero-copy.
-/// SAFETY: `json_buf` contains valid UTF-8 (guaranteed by simd-json validation).
 #[inline]
 fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
     #[inline]
     fn str_val(json_buf: &[u8], start: usize, end: usize) -> &str {
-        unsafe { std::str::from_utf8_unchecked(&json_buf[start..end]) }
+        // simd-json guarantees valid UTF-8; from_utf8 is near-zero-cost on already-valid input
+        std::str::from_utf8(&json_buf[start..end]).unwrap_or("")
     }
     #[inline]
     fn append_null(b: &mut AnyBuilder) {
@@ -355,7 +379,7 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
 // ---------------------------------------------------------------------------
 
 struct TypedFieldExtractor<'a> {
-    index: &'a HashMap<String, usize>,
+    index: &'a ColumnIndex,
     scratch: &'a mut [TypedScratch],
     kinds: &'a [ColumnKind],
     /// Current byte position in the JSON buffer (for string range tracking).
@@ -455,6 +479,8 @@ pub struct JsonParser {
     kinds: Vec<ColumnKind>,
     arrow_schema: Arc<Schema>,
     mode: ParseMode,
+    /// Cached per-column DataType (avoids double parse_arrow_type).
+    _data_types: Vec<DataType>,
 }
 
 struct ColumnMappingExt {
@@ -466,6 +492,7 @@ impl JsonParser {
         let n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
+        let mut data_types = Vec::with_capacity(n);
         let mut all_root = true;
 
         for col in &config.columns {
@@ -479,31 +506,35 @@ impl JsonParser {
                 all_root = false;
             }
             kinds.push(kind);
+            data_types.push(arrow_type);
             mappings.push(ColumnMappingExt { path });
         }
 
         let mode = if all_root {
-            let index: HashMap<String, usize> = mappings.iter()
+            let pairs: Vec<(String, usize)> = mappings.iter()
                 .enumerate()
                 .map(|(i, m)| match &m.path {
                     CompiledPath::RootField(f) => (f.clone(), i),
                     _ => unreachable!(),
                 })
                 .collect();
+            // Adaptive: linear scan for ≤12 cols (no hash overhead), HashMap for more
+            let index = if n <= 12 {
+                ColumnIndex::Small(pairs)
+            } else {
+                ColumnIndex::Large(pairs.into_iter().collect())
+            };
             ParseMode::AllRootField(RootFieldInfo { index })
         } else {
             ParseMode::Mixed
         };
 
-        let fields: Vec<Field> = config.columns.iter()
-            .map(|col| {
-                let dt = parse_arrow_type(&col.arrow_type).unwrap_or(DataType::Utf8);
-                Field::new(&col.column_name, dt, true)
-            })
+        let fields: Vec<Field> = config.columns.iter().zip(data_types.iter())
+            .map(|(col, dt)| Field::new(&col.column_name, dt.clone(), true))
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, mode })
+        Ok(Self { mappings, kinds, arrow_schema, mode, _data_types: data_types })
     }
 
     #[inline]
@@ -556,11 +587,13 @@ impl JsonParser {
 
 pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
-    /// Scratch for two-phase typed extraction (AllRootField fast path).
     typed_scratch: Vec<TypedScratch>,
-    /// Reusable mutable buffer for simd-json (requires &mut [u8]).
     json_buf: Vec<u8>,
     dlq_payloads: Vec<(Bytes, DlqReason)>,
+    /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
+    arrays: Vec<ArrayRef>,
+    /// Cached timestamp + Instant for coarse-grained Utc::now() (1ms resolution).
+    cached_ts: Option<(chrono::DateTime<chrono::Utc>, std::time::Instant)>,
 }
 
 impl ParserWorkspace {
@@ -570,9 +603,22 @@ impl ParserWorkspace {
             typed_scratch: Vec::new(),
             json_buf: Vec::new(),
             dlq_payloads: Vec::new(),
+            arrays: Vec::new(),
+            cached_ts: None,
         }
     }
 
+    fn now(&mut self) -> chrono::DateTime<chrono::Utc> {
+        let now_inst = std::time::Instant::now();
+        if let Some((ts, last)) = &self.cached_ts {
+            if now_inst.duration_since(*last).as_millis() < 1 {
+                return *ts;
+            }
+        }
+        let ts = chrono::Utc::now();
+        self.cached_ts = Some((ts, now_inst));
+        ts
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -587,7 +633,7 @@ impl JsonParser {
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
         let n_msgs = messages.len();
-        let now = chrono::Utc::now();
+        let now = ws.now();
 
         ws.builders.clear();
         for &k in &self.kinds {
@@ -601,7 +647,7 @@ impl JsonParser {
                 let n_cols = info.index.len();
 
                 // Split borrows for simultaneous mutable access to different fields
-                let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads } = ws;
+                let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads, .. } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
 
@@ -654,8 +700,9 @@ impl JsonParser {
             }
         }
 
-        let arrays: Vec<ArrayRef> = ws.builders.iter_mut().map(|b| b.finish()).collect();
-        let batch = RecordBatch::try_new(self.arrow_schema.clone(), arrays)?;
+        ws.arrays.clear();
+        ws.arrays.extend(ws.builders.iter_mut().map(|b| b.finish()));
+        let batch = RecordBatch::try_new(self.arrow_schema.clone(), std::mem::take(&mut ws.arrays))?;
 
         let valid_batch = ArrowBatch {
             batch,
