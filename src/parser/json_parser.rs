@@ -160,6 +160,10 @@ impl AnyBuilder {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Value-based append (fallback for Mixed mode)
+// ---------------------------------------------------------------------------
+
 #[inline]
 fn append_value(builder: &mut AnyBuilder, val: &Value) {
     match builder {
@@ -192,6 +196,230 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) {
 }
 
 // ---------------------------------------------------------------------------
+// Zero-copy typed scratch — no String allocations for Utf8 columns
+// ---------------------------------------------------------------------------
+
+/// Per-field scratch value. Strings are stored as byte ranges into the
+/// reusable `json_buf` — zero heap allocations. UTF-8 is guaranteed by
+/// simd-json's validation pass.
+#[derive(Clone, Copy)]
+enum TypedScratch {
+    Empty,
+    Str { start: usize, end: usize },
+    I64(i64),
+    U64(u64),
+    F64(f64),
+    Bool(bool),
+}
+
+/// Writes a deserialized value directly into `TypedScratch` according to `ColumnKind`.
+/// Strings are stored as byte-range indices — no `String` allocation.
+struct TypedValueWriter2<'a> {
+    target: &'a mut TypedScratch,
+    /// Byte offset of the start of the current value in the JSON buffer.
+    /// Set by the caller before deserialization.
+    value_start: usize,
+    kind: ColumnKind,
+}
+
+impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
+    type Value = ();
+
+    fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+        use serde::Deserialize;
+        match self.kind {
+            ColumnKind::Utf8 | ColumnKind::LargeUtf8 => {
+                let s = <&str>::deserialize(d)?;
+                let end = self.value_start + s.len();
+                *self.target = TypedScratch::Str { start: self.value_start, end };
+            }
+            ColumnKind::Int64 => {
+                *self.target = TypedScratch::I64(i64::deserialize(d)?);
+            }
+            ColumnKind::Int32 => {
+                *self.target = TypedScratch::I64(i32::deserialize(d)? as i64);
+            }
+            ColumnKind::Int16 => {
+                *self.target = TypedScratch::I64(i16::deserialize(d)? as i64);
+            }
+            ColumnKind::Int8 => {
+                *self.target = TypedScratch::I64(i8::deserialize(d)? as i64);
+            }
+            ColumnKind::UInt64 => {
+                *self.target = TypedScratch::U64(u64::deserialize(d)?);
+            }
+            ColumnKind::UInt32 => {
+                *self.target = TypedScratch::U64(u32::deserialize(d)? as u64);
+            }
+            ColumnKind::UInt16 => {
+                *self.target = TypedScratch::U64(u16::deserialize(d)? as u64);
+            }
+            ColumnKind::UInt8 => {
+                *self.target = TypedScratch::U64(u8::deserialize(d)? as u64);
+            }
+            ColumnKind::Float64 => {
+                *self.target = TypedScratch::F64(f64::deserialize(d)?);
+            }
+            ColumnKind::Float32 => {
+                *self.target = TypedScratch::F64(f32::deserialize(d)? as f64);
+            }
+            ColumnKind::Boolean => {
+                *self.target = TypedScratch::Bool(bool::deserialize(d)?);
+            }
+            ColumnKind::Date32 => {
+                *self.target = TypedScratch::I64(i32::deserialize(d)? as i64);
+            }
+            ColumnKind::Date64
+            | ColumnKind::TimestampMillisecond
+            | ColumnKind::TimestampMicrosecond
+            | ColumnKind::TimestampNanosecond
+            | ColumnKind::TimestampSecond => {
+                *self.target = TypedScratch::I64(i64::deserialize(d)?);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Appends a typed scratch value into the corresponding Arrow builder.
+/// Strings are reconstructed from `json_buf` byte ranges — zero-copy.
+/// SAFETY: `json_buf` contains valid UTF-8 (guaranteed by simd-json validation).
+#[inline]
+fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
+    #[inline]
+    fn str_val(json_buf: &[u8], start: usize, end: usize) -> &str {
+        unsafe { std::str::from_utf8_unchecked(&json_buf[start..end]) }
+    }
+    #[inline]
+    fn append_null(b: &mut AnyBuilder) {
+        match b {
+            AnyBuilder::Utf8(x) => x.append_null(), AnyBuilder::LargeUtf8(x) => x.append_null(),
+            AnyBuilder::Int64(x) => x.append_null(), AnyBuilder::Int32(x) => x.append_null(),
+            AnyBuilder::Int16(x) => x.append_null(), AnyBuilder::Int8(x) => x.append_null(),
+            AnyBuilder::UInt64(x) => x.append_null(), AnyBuilder::UInt32(x) => x.append_null(),
+            AnyBuilder::UInt16(x) => x.append_null(), AnyBuilder::UInt8(x) => x.append_null(),
+            AnyBuilder::Float64(x) => x.append_null(), AnyBuilder::Float32(x) => x.append_null(),
+            AnyBuilder::Boolean(x) => x.append_null(),
+            AnyBuilder::Date32(x) => x.append_null(), AnyBuilder::Date64(x) => x.append_null(),
+            AnyBuilder::TimestampSecond(x) => x.append_null(),
+            AnyBuilder::TimestampMillisecond(x) => x.append_null(),
+            AnyBuilder::TimestampMicrosecond(x) => x.append_null(),
+            AnyBuilder::TimestampNanosecond(x) => x.append_null(),
+        }
+    }
+
+    match scratch {
+        TypedScratch::Str { start, end } => {
+            let s = str_val(json_buf, *start, *end);
+            match builder {
+                AnyBuilder::Utf8(b) => b.append_value(s),
+                AnyBuilder::LargeUtf8(b) => b.append_value(s),
+                _ => append_null(builder),
+            }
+        }
+        TypedScratch::I64(n) => match builder {
+            AnyBuilder::Int64(b) => b.append_value(*n),
+            AnyBuilder::Int32(b) => b.append_value(*n as i32),
+            AnyBuilder::Int16(b) => b.append_value(*n as i16),
+            AnyBuilder::Int8(b) => b.append_value(*n as i8),
+            AnyBuilder::Date32(b) => b.append_value(*n as i32),
+            AnyBuilder::Date64(b) => b.append_value(*n),
+            AnyBuilder::TimestampSecond(b) => b.append_value(*n),
+            AnyBuilder::TimestampMillisecond(b) => b.append_value(*n),
+            AnyBuilder::TimestampMicrosecond(b) => b.append_value(*n),
+            AnyBuilder::TimestampNanosecond(b) => b.append_value(*n),
+            _ => append_null(builder),
+        },
+        TypedScratch::U64(n) => match builder {
+            AnyBuilder::UInt64(b) => b.append_value(*n),
+            AnyBuilder::UInt32(b) => b.append_value(*n as u32),
+            AnyBuilder::UInt16(b) => b.append_value(*n as u16),
+            AnyBuilder::UInt8(b) => b.append_value(*n as u8),
+            _ => append_null(builder),
+        },
+        TypedScratch::F64(n) => match builder {
+            AnyBuilder::Float64(b) => b.append_value(*n),
+            AnyBuilder::Float32(b) => b.append_value(*n as f32),
+            _ => append_null(builder),
+        },
+        TypedScratch::Bool(v) => match builder {
+            AnyBuilder::Boolean(b) => b.append_value(*v),
+            _ => append_null(builder),
+        },
+        TypedScratch::Empty => append_null(builder),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Two-phase typed field extractor — writes to scratch, not builders
+// ---------------------------------------------------------------------------
+
+struct TypedFieldExtractor<'a> {
+    index: &'a HashMap<String, usize>,
+    scratch: &'a mut [TypedScratch],
+    kinds: &'a [ColumnKind],
+    /// Current byte position in the JSON buffer (for string range tracking).
+    pos: usize,
+    filled_count: usize,
+}
+
+impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
+    type Value = bool;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a JSON object")
+    }
+
+    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
+        let n = self.scratch.len();
+        while let Some(key) = map.next_key::<&str>()? {
+            if let Some(&idx) = self.index.get(key) {
+                let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
+                let seed = TypedValueWriter2 {
+                    target: &mut self.scratch[idx],
+                    value_start: self.pos,
+                    kind: self.kinds[idx],
+                };
+                map.next_value_seed(seed)?;
+                if let TypedScratch::Str { end, .. } = &self.scratch[idx] {
+                    self.pos = *end;
+                }
+                if was_empty {
+                    self.filled_count += 1;
+                }
+            } else {
+                map.next_value::<de::IgnoredAny>()?;
+            }
+        }
+        Ok(self.filled_count == n)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// simd-json accelerated parse + zero-copy typed extraction
+// ---------------------------------------------------------------------------
+
+fn parse_root_fields_typed(
+    bytes: &[u8],
+    buf: &mut Vec<u8>,
+    info: &RootFieldInfo,
+    scratch: &mut [TypedScratch],
+    kinds: &[ColumnKind],
+) -> anyhow::Result<bool> {
+    buf.clear();
+    buf.extend_from_slice(bytes);
+    let mut de = simd_json::Deserializer::from_slice(buf).map_err(anyhow::Error::from)?;
+    let mut extractor = TypedFieldExtractor {
+        index: &info.index,
+        scratch,
+        kinds,
+        pos: 0,
+        filled_count: 0,
+    };
+    de.deserialize_map(&mut extractor).map_err(Into::into)
+}
+
+// ---------------------------------------------------------------------------
 // DLQ
 // ---------------------------------------------------------------------------
 
@@ -205,7 +433,7 @@ static DLQ_SCHEMA: LazyLock<Arc<Schema>> = LazyLock::new(|| {
 });
 
 enum DlqReason {
-    JsonParse, // error details logged at call site
+    JsonParse,
     ExtractionFailed,
 }
 
@@ -216,42 +444,6 @@ impl DlqReason {
             DlqReason::ExtractionFailed => "JSONPath extraction failed for one or more columns",
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// Streaming JSON field extractor (Value-based — correct two-phase)
-// ---------------------------------------------------------------------------
-
-struct FieldExtractor<'a> {
-    index: &'a HashMap<String, usize>,
-    values: &'a mut [Option<Value>],
-}
-
-impl<'de, 'a> de::Visitor<'de> for &'a mut FieldExtractor<'a> {
-    type Value = ();
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a JSON object")
-    }
-
-    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        while let Some(key) = map.next_key::<&str>()? {
-            if let Some(&idx) = self.index.get(key) {
-                self.values[idx] = Some(map.next_value()?);
-            } else {
-                map.next_value::<de::IgnoredAny>()?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Streaming parse: extracts named fields into `Value`. Returns true if ALL fields found.
-fn parse_root_fields(bytes: &[u8], info: &RootFieldInfo, values: &mut [Option<Value>]) -> anyhow::Result<bool> {
-    let mut de = serde_json::Deserializer::from_slice(bytes);
-    let mut extractor = FieldExtractor { index: &info.index, values };
-    de.deserialize_map(&mut extractor)?;
-    Ok(values.iter().all(|v| v.is_some()))
 }
 
 // ---------------------------------------------------------------------------
@@ -336,8 +528,7 @@ impl JsonParser {
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
         let mut pid_builder = Int64Builder::with_capacity(n);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
-
-        let ts = now.to_rfc3339(); // compute once, not per row
+        let ts = now.to_rfc3339();
 
         for (raw_bytes, reason) in dlq_payloads {
             raw_builder.append_value(&String::from_utf8_lossy(raw_bytes));
@@ -360,12 +551,15 @@ impl JsonParser {
 }
 
 // ---------------------------------------------------------------------------
-// Reusable per-partition workspace
+// ParserWorkspace — reusable buffers per partition
 // ---------------------------------------------------------------------------
 
 pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
-    values: Vec<Option<Value>>,
+    /// Scratch for two-phase typed extraction (AllRootField fast path).
+    typed_scratch: Vec<TypedScratch>,
+    /// Reusable mutable buffer for simd-json (requires &mut [u8]).
+    json_buf: Vec<u8>,
     dlq_payloads: Vec<(Bytes, DlqReason)>,
 }
 
@@ -373,10 +567,12 @@ impl ParserWorkspace {
     pub fn new() -> Self {
         Self {
             builders: Vec::new(),
-            values: Vec::new(),
+            typed_scratch: Vec::new(),
+            json_buf: Vec::new(),
             dlq_payloads: Vec::new(),
         }
     }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -403,22 +599,26 @@ impl JsonParser {
         match &self.mode {
             ParseMode::AllRootField(info) => {
                 let n_cols = info.index.len();
-                ws.values.clear();
-                ws.values.resize(n_cols, None);
+
+                // Split borrows for simultaneous mutable access to different fields
+                let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads } = ws;
+                typed_scratch.clear();
+                typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
 
                 for mut msg in messages {
-                    ws.values.fill(None);
-                    match parse_root_fields(&msg.value, info, &mut ws.values) {
+                    for s in typed_scratch.iter_mut() { *s = TypedScratch::Empty; }
+
+                    match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
                         Ok(true) => {
-                            for (builder, v) in ws.builders.iter_mut().zip(ws.values.iter_mut()) {
-                                append_value(builder, v.take().as_ref().unwrap());
+                            for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
+                                append_typed(builder, s, json_buf);
                             }
                         }
                         Ok(false) => {
-                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
+                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                         }
                         Err(_e) => {
-                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
+                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
                         }
                     }
                 }
