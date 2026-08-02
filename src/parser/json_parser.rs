@@ -10,6 +10,7 @@ use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use serde::{de, Deserializer};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, LazyLock};
 
@@ -42,10 +43,16 @@ fn compile_path(raw: &str) -> CompiledPath {
 // Parse mode — all-RootField schemas take a fast streaming path
 // ---------------------------------------------------------------------------
 
+struct RootFieldInfo {
+    /// Field names in column order (for row building).
+    names: Vec<String>,
+    /// field_name → column index (O(1) lookup).
+    index: HashMap<String, usize>,
+}
+
 enum ParseMode {
     /// Every column is a `$.field` — use streaming JSON deserializer.
-    /// Stores only the field names; no full `Value` tree is built.
-    AllRootField(Vec<String>),
+    AllRootField(RootFieldInfo),
     /// At least one column uses a complex JSONPath — fall back to full parsing.
     Mixed,
 }
@@ -217,7 +224,7 @@ impl DlqReason {
 // ---------------------------------------------------------------------------
 
 struct FieldExtractor<'a> {
-    field_names: &'a [String],
+    index: &'a HashMap<String, usize>,
     values: &'a mut [Option<Value>],
 }
 
@@ -230,10 +237,9 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut FieldExtractor<'a> {
 
     fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         while let Some(key) = map.next_key::<&str>()? {
-            if let Some(idx) = self.field_names.iter().position(|f| f.as_str() == key) {
+            if let Some(&idx) = self.index.get(key) {
                 self.values[idx] = Some(map.next_value()?);
             } else {
-                // Ignore fields we don't care about — no heap allocations
                 map.next_value::<de::IgnoredAny>()?;
             }
         }
@@ -242,9 +248,9 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut FieldExtractor<'a> {
 }
 
 /// Streaming parse: only extracts the named fields. Returns true if ALL fields were found.
-fn parse_root_fields(bytes: &[u8], field_names: &[String], values: &mut [Option<Value>]) -> anyhow::Result<bool> {
+fn parse_root_fields(bytes: &[u8], info: &RootFieldInfo, values: &mut [Option<Value>]) -> anyhow::Result<bool> {
     let mut de = serde_json::Deserializer::from_slice(bytes);
-    let mut extractor = FieldExtractor { field_names, values };
+    let mut extractor = FieldExtractor { index: &info.index, values };
     de.deserialize_map(&mut extractor)?;
     Ok(values.iter().all(|v| v.is_some()))
 }
@@ -292,13 +298,16 @@ impl JsonParser {
         }
 
         let mode = if all_root {
-            let fields: Vec<String> = mappings.iter()
+            let names: Vec<String> = mappings.iter()
                 .map(|m| match &m.path {
                     CompiledPath::RootField(f) => f.clone(),
                     _ => unreachable!(),
                 })
                 .collect();
-            ParseMode::AllRootField(fields)
+            let index: HashMap<String, usize> = names.iter().enumerate()
+                .map(|(i, n)| (n.clone(), i))
+                .collect();
+            ParseMode::AllRootField(RootFieldInfo { names, index })
         } else {
             ParseMode::Mixed
         };
@@ -330,13 +339,13 @@ impl JsonParser {
         dlq_payloads: &[(Bytes, DlqReason)],
         partition_id: i64,
         offsets: &[(i64, i64)],
+        now: chrono::DateTime<chrono::Utc>,
     ) -> anyhow::Result<ArrowBatch> {
         let n = dlq_payloads.len();
         let mut raw_builder = StringBuilder::with_capacity(n, n * 64);
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
         let mut pid_builder = Int64Builder::with_capacity(n);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
-        let now = chrono::Utc::now();
 
         for (raw_bytes, reason) in dlq_payloads {
             raw_builder.append_value(&String::from_utf8_lossy(raw_bytes));
@@ -377,19 +386,20 @@ impl Parser for JsonParser {
             .map(|m| (partition_id, m.offset))
             .collect();
 
+        let now = chrono::Utc::now();
         let mut builders: Vec<AnyBuilder> = self.kinds.iter().map(|&k| make_builder(k)).collect();
         let mut dlq_payloads: Vec<(Bytes, DlqReason)> = Vec::new();
 
         match &self.mode {
-            ParseMode::AllRootField(field_names) => {
+            ParseMode::AllRootField(info) => {
                 // Fast path: streaming JSON parser — no full Value tree
-                let n_cols = field_names.len();
+                let n_cols = info.names.len();
                 let mut values = vec![None; n_cols];
                 let mut row: Vec<Value> = Vec::with_capacity(n_cols);
 
                 for msg in messages {
                     values.fill(None);
-                    match parse_root_fields(&msg.value, field_names, &mut values) {
+                    match parse_root_fields(&msg.value, info, &mut values) {
                         Ok(true) => {
                             row.clear();
                             for v in values.iter_mut() {
@@ -452,12 +462,12 @@ impl Parser for JsonParser {
                 table_name: self.table_name.clone(),
                 partition_id, dlq_flag: false,
                 batch_id: crate::batch_id(), offsets: offsets.clone(),
-                created_at: chrono::Utc::now(),
+                created_at: now,
             },
         };
 
         let dlq_batch = if !dlq_payloads.is_empty() {
-            Some(self.build_dlq_batch(&dlq_payloads, partition_id, &offsets)?)
+            Some(self.build_dlq_batch(&dlq_payloads, partition_id, &offsets, now)?)
         } else {
             None
         };
