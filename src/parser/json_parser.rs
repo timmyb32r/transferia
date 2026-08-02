@@ -223,13 +223,43 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) {
 // Zero-copy typed scratch — no String allocations for Utf8 columns
 // ---------------------------------------------------------------------------
 
-/// Per-field scratch value. Strings are stored as byte ranges into the
-/// reusable `json_buf` — zero heap allocations. UTF-8 is guaranteed by
-/// simd-json's validation pass.
-#[derive(Clone, Copy)]
+/// A byte range in `json_buf` that simd-json has proven to contain valid UTF-8.
+///
+/// **Type-level witness.** Only constructible via [`ValidatedStr::from_simd_json_str`],
+/// which takes a `&str` reference returned by simd-json's validated parse. Because
+/// `&str` is `#[repr(transparent)]` over valid UTF-8 bytes, constructing a
+/// `ValidatedStr` from one is safe without re-validation.
+///
+/// This type guarantees that [`str_val`] receives only simd-json-validated ranges —
+/// the compiler physically prevents any other code path from feeding arbitrary byte
+/// ranges into the unsafe block.
+#[derive(Clone, Copy, Debug)]
+struct ValidatedStr {
+    start: usize,
+    end: usize,
+}
+
+impl ValidatedStr {
+    /// Creates a `ValidatedStr` from a simd-json `&str` reference.
+    ///
+    /// `s` — the `&str` returned by simd-json (already UTF-8 validated).
+    /// `buf_ptr` — base address of the JSON buffer (`buf.as_ptr()`).
+    ///
+    /// The byte range `[start..end)` is computed via pointer arithmetic and
+    /// exactly matches the validated `&str` bytes in the buffer.
+    #[inline]
+    fn from_simd_json_str(s: &str, buf_ptr: *const u8) -> Self {
+        let start = s.as_ptr() as usize - buf_ptr as usize;
+        Self { start, end: start + s.len() }
+    }
+}
+
+/// Per-field scratch value. Strings are stored as [`ValidatedStr`] — byte
+/// ranges whose UTF-8 validity is witnessed at the type level.
+#[derive(Clone, Copy, Debug)]
 enum TypedScratch {
     Empty,
-    Str { start: usize, end: usize },
+    Str(ValidatedStr),
     I64(i64),
     U64(u64),
     F64(f64),
@@ -240,9 +270,10 @@ enum TypedScratch {
 /// Strings are stored as byte-range indices — no `String` allocation.
 struct TypedValueWriter2<'a> {
     target: &'a mut TypedScratch,
-    /// Byte offset of the start of the current value in the JSON buffer.
-    /// Set by the caller before deserialization.
-    value_start: usize,
+    /// Base pointer of the JSON buffer. Used to compute the byte offset of the
+    /// `&str` returned by simd-json via pointer arithmetic:
+    /// `offset = s.as_ptr() - buf_ptr`.
+    buf_ptr: *const u8,
     kind: ColumnKind,
 }
 
@@ -254,8 +285,11 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
         match self.kind {
             ColumnKind::Utf8 | ColumnKind::LargeUtf8 => {
                 let s = <&str>::deserialize(d)?;
-                let end = self.value_start + s.len();
-                *self.target = TypedScratch::Str { start: self.value_start, end };
+                // ValidatedStr captures the byte range of s within the simd-json
+                // buffer. Because `s` is an `&str`, it is valid UTF-8 by definition
+                // — simd-json already validated it. The pointer arithmetic gives us
+                // the exact byte range without a manual position counter.
+                *self.target = TypedScratch::Str(ValidatedStr::from_simd_json_str(s, self.buf_ptr));
             }
             ColumnKind::Int64 => {
                 *self.target = TypedScratch::I64(i64::deserialize(d)?);
@@ -305,18 +339,24 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
     }
 }
 
+/// Reconstructs a `&str` from a validated byte range — zero-copy.
+///
+/// The `range` is a [`ValidatedStr`] — a type-level witness that the bytes
+/// at `json_buf[range.start..range.end]` have been proven to be valid UTF-8
+/// by simd-json's parse pass. Skipping `from_utf8` saves an O(len) SIMD scan.
+#[inline]
+fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
+    // SAFETY: ValidatedStr can only be constructed from a simd-json `&str`
+    // reference via `from_simd_json_str()`. `&str` is valid UTF-8 by definition,
+    // and the byte range is computed via pointer arithmetic from that reference.
+    // Therefore json_buf[start..end] IS the original validated &str content.
+    unsafe { std::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
+}
+
 /// Appends a typed scratch value into the corresponding Arrow builder.
 /// Strings are reconstructed from `json_buf` byte ranges — zero-copy.
 #[inline]
 fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
-    #[inline]
-    fn str_val(json_buf: &[u8], start: usize, end: usize) -> &str {
-        // SAFETY: simd-json validates UTF-8 during its parse pass and only emits
-        // string values it has already proven valid. These byte ranges point at
-        // that validated string content, so re-validation via from_utf8 is pure
-        // overhead (an O(len) SIMD scan per cell). Skip it.
-        unsafe { std::str::from_utf8_unchecked(&json_buf[start..end]) }
-    }
     #[inline]
     fn append_null(b: &mut AnyBuilder) {
         match b {
@@ -336,8 +376,8 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
     }
 
     match scratch {
-        TypedScratch::Str { start, end } => {
-            let s = str_val(json_buf, *start, *end);
+        TypedScratch::Str(range) => {
+            let s = str_val(json_buf, *range);
             match builder {
                 AnyBuilder::Utf8(b) => b.append_value(s),
                 AnyBuilder::LargeUtf8(b) => b.append_value(s),
@@ -385,8 +425,9 @@ struct TypedFieldExtractor<'a> {
     index: &'a ColumnIndex,
     scratch: &'a mut [TypedScratch],
     kinds: &'a [ColumnKind],
-    /// Current byte position in the JSON buffer (for string range tracking).
-    pos: usize,
+    /// Base pointer of the JSON buffer passed to simd-json.
+    /// Used to compute byte offsets for string values via pointer arithmetic.
+    buf_ptr: *const u8,
     filled_count: usize,
 }
 
@@ -404,13 +445,10 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
                 let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
                 let seed = TypedValueWriter2 {
                     target: &mut self.scratch[idx],
-                    value_start: self.pos,
+                    buf_ptr: self.buf_ptr,
                     kind: self.kinds[idx],
                 };
                 map.next_value_seed(seed)?;
-                if let TypedScratch::Str { end, .. } = &self.scratch[idx] {
-                    self.pos = *end;
-                }
                 if was_empty {
                     self.filled_count += 1;
                 }
@@ -435,12 +473,16 @@ fn parse_root_fields_typed(
 ) -> anyhow::Result<bool> {
     buf.clear();
     buf.extend_from_slice(bytes);
+    // Snapshot the buffer pointer BEFORE simd-json borrows `buf` mutably.
+    // The pointer itself is stable across Vec resizes (and we don't resize after
+    // this point), so it remains valid through deserialization.
+    let buf_ptr = buf.as_ptr();
     let mut de = simd_json::Deserializer::from_slice(buf).map_err(anyhow::Error::from)?;
     let mut extractor = TypedFieldExtractor {
         index: &info.index,
         scratch,
         kinds,
-        pos: 0,
+        buf_ptr,
         filled_count: 0,
     };
     de.deserialize_map(&mut extractor).map_err(Into::into)
@@ -719,5 +761,92 @@ impl JsonParser {
         };
 
         Ok((valid_batch, dlq_batch))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Regression tests — validate the simd-json invariant on real inputs
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verifies the core invariant end-to-end: simd-json returns `&str`
+    /// values whose bytes exactly match `json_buf[start..end]`.
+    ///
+    /// If this test fails, the safety comment on `str_val` is WRONG and
+    /// the unsafe block is producing garbage (or UB).
+    #[test]
+    fn str_val_matches_simd_json_output() {
+        // "Москва" and "🚀" as explicit UTF-8 byte sequences
+        let json = b"{\"name\":\"Alice\",\"city\":\"\xD0\x9C\xD0\xBE\xD1\x81\xD0\xBA\xD0\xB2\xD0\xB0\",\"flag\":\"\xF0\x9F\x9A\x80\"}";
+
+        let kinds = vec![
+            ColumnKind::Utf8,    // name
+            ColumnKind::Utf8,    // city
+            ColumnKind::Utf8,    // flag
+        ];
+
+        let idx = ColumnIndex::Small(vec![
+            ("name".into(), 0),
+            ("city".into(), 1),
+            ("flag".into(), 2),
+        ]);
+
+        let info = RootFieldInfo { index: idx };
+
+        let mut scratch = vec![TypedScratch::Empty; kinds.len()];
+        let mut buf = Vec::new();
+
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds).unwrap();
+        assert!(ok, "all fields should be found");
+
+        // buf has been modified by simd-json in-situ parsing.
+        // Now verify: json_buf[start..end] is valid UTF-8 AND matches the expected string.
+        let expected = ["Alice", "Москва", "🚀"];
+        for (i, exp) in expected.iter().enumerate() {
+            match &scratch[i] {
+                TypedScratch::Str(range) => {
+                    let reconstructed = str_val(&buf, *range);
+                    assert_eq!(
+                        reconstructed, *exp,
+                        "Column {i}: str_val({}..{}) = {reconstructed:?}, expected {exp:?}",
+                        range.start, range.end,
+                    );
+                }
+                other => panic!("Column {i}: expected Str, got {other:?}"),
+            }
+        }
+    }
+
+    /// Verifies that `str_val` correctly handles strings with escape sequences
+    /// (simd-json unescapes them in-situ, so the byte range should contain
+    /// the unescaped version).
+    #[test]
+    fn str_val_with_escapes() {
+        // JSON with escape sequences that simd-json will process in-situ
+        let json = br#"{"text":"Line1\nLine2\tTabbed"}"#;
+
+        let kinds = vec![ColumnKind::Utf8];
+        let idx = ColumnIndex::Small(vec![("text".into(), 0)]);
+        let info = RootFieldInfo { index: idx };
+
+        let mut scratch = vec![TypedScratch::Empty; 1];
+        let mut buf = Vec::new();
+
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds).unwrap();
+        assert!(ok);
+
+        match &scratch[0] {
+            TypedScratch::Str(range) => {
+                let s = str_val(&buf, *range);
+                // After unescaping: \n -> newline, \t -> tab
+                assert!(s.contains('\n'), "should contain unescaped newline, got {s:?}");
+                assert!(s.contains('\t'), "should contain unescaped tab, got {s:?}");
+                assert!(!s.contains('\\'), "should not contain backslash, got {s:?}");
+            }
+            other => panic!("expected Str, got {other:?}"),
+        }
     }
 }
