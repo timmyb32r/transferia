@@ -58,12 +58,11 @@ pub async fn run_partition_pipeline(
         backoff_ms = INITIAL_BACKOFF_MS;
         let commit_marker = msg_batch.commit_marker.clone();
 
-        // Parser: Message -> Arrow
+        // Parser: Message -> Arrow (sync — CPU-bound, no .await overhead)
         let (valid_batch, dlq_batch) = match parser.parse(
             msg_batch.messages,
             msg_batch.partition_id,
-            msg_batch.offsets,
-        ).await {
+        ) {
             Ok(result) => result,
             Err(e) => {
                 tracing::error!("Parser error: {}", e);

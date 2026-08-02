@@ -8,6 +8,7 @@ mod source;
 mod types;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use clap::Parser;
 use tokio::signal;
@@ -21,6 +22,9 @@ use crate::pipeline::middleware::Middleware;
 use crate::pipeline::run_partition_pipeline;
 use crate::sink::clickhouse::ClickHouseSink;
 use crate::source::ydb_topic::YdbTopicSource;
+
+/// Monotonic batch-id counter — replaces `Uuid::new_v4()` syscall per batch.
+pub(crate) static BATCH_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Parser, Debug)]
 #[command(name = "ydb-ch-replicator", about = "YDB Topic to ClickHouse replicator")]

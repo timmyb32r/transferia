@@ -71,12 +71,12 @@ impl Source for YdbTopicSource {
             None
         };
 
-        let mut messages = Vec::new();
-        let mut offsets = Vec::new();
+        // Estimate capacity from SDK batch size (default ~1000)
+        let estimated = batch.messages.len();
+        let mut messages = Vec::with_capacity(estimated);
 
         for msg in &mut batch.messages {
             if let Some(bytes) = msg.read_and_take().await? {
-                offsets.push((self.partition_id, msg.offset));
                 messages.push(Message {
                     offset: msg.offset as u64,
                     key: Vec::new(),
@@ -90,7 +90,6 @@ impl Source for YdbTopicSource {
 
         Ok(MessageBatch {
             messages,
-            offsets,
             partition_id: self.partition_id,
             commit_marker,
         })

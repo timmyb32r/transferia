@@ -20,7 +20,6 @@ pub struct Message {
 #[derive(Debug, Clone)]
 pub struct MessageBatch {
     pub messages: Vec<Message>,
-    pub offsets: Vec<(i64, i64)>,
     pub partition_id: i64,
     pub commit_marker: Option<CommitMarker>,
 }
