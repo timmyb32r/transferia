@@ -311,8 +311,11 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
 fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
     #[inline]
     fn str_val(json_buf: &[u8], start: usize, end: usize) -> &str {
-        // simd-json guarantees valid UTF-8; from_utf8 is near-zero-cost on already-valid input
-        std::str::from_utf8(&json_buf[start..end]).unwrap_or("")
+        // SAFETY: simd-json validates UTF-8 during its parse pass and only emits
+        // string values it has already proven valid. These byte ranges point at
+        // that validated string content, so re-validation via from_utf8 is pure
+        // overhead (an O(len) SIMD scan per cell). Skip it.
+        unsafe { std::str::from_utf8_unchecked(&json_buf[start..end]) }
     }
     #[inline]
     fn append_null(b: &mut AnyBuilder) {
@@ -652,7 +655,7 @@ impl JsonParser {
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
 
                 for mut msg in messages {
-                    for s in typed_scratch.iter_mut() { *s = TypedScratch::Empty; }
+                    typed_scratch.fill(TypedScratch::Empty);
 
                     match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
                         Ok(true) => {
