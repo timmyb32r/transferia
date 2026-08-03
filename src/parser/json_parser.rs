@@ -66,6 +66,11 @@ impl ColumnIndex {
 
 struct RootFieldInfo {
     index: ColumnIndex,
+    /// Per-column requiredness (`true` == non-nullable). Indexed by column position.
+    required: Vec<bool>,
+    /// Number of `true` entries in `required` — the count that must be filled
+    /// for a row to be valid (missing nullable fields become NULL, not DLQ).
+    required_total: usize,
 }
 
 enum ParseMode {
@@ -190,6 +195,10 @@ impl AnyBuilder {
 
 #[inline]
 fn append_value(builder: &mut AnyBuilder, val: &Value) {
+    if val.is_null() {
+        append_null(builder);
+        return;
+    }
     match builder {
         AnyBuilder::Utf8(b) => match val.as_str() {
             Some(s) => b.append_value(s),
@@ -355,26 +364,27 @@ fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
 
 /// Appends a typed scratch value into the corresponding Arrow builder.
 /// Strings are reconstructed from `json_buf` byte ranges — zero-copy.
+/// Appends a NULL to any builder variant.
+#[inline]
+fn append_null(b: &mut AnyBuilder) {
+    match b {
+        AnyBuilder::Utf8(x) => x.append_null(), AnyBuilder::LargeUtf8(x) => x.append_null(),
+        AnyBuilder::Int64(x) => x.append_null(), AnyBuilder::Int32(x) => x.append_null(),
+        AnyBuilder::Int16(x) => x.append_null(), AnyBuilder::Int8(x) => x.append_null(),
+        AnyBuilder::UInt64(x) => x.append_null(), AnyBuilder::UInt32(x) => x.append_null(),
+        AnyBuilder::UInt16(x) => x.append_null(), AnyBuilder::UInt8(x) => x.append_null(),
+        AnyBuilder::Float64(x) => x.append_null(), AnyBuilder::Float32(x) => x.append_null(),
+        AnyBuilder::Boolean(x) => x.append_null(),
+        AnyBuilder::Date32(x) => x.append_null(), AnyBuilder::Date64(x) => x.append_null(),
+        AnyBuilder::TimestampSecond(x) => x.append_null(),
+        AnyBuilder::TimestampMillisecond(x) => x.append_null(),
+        AnyBuilder::TimestampMicrosecond(x) => x.append_null(),
+        AnyBuilder::TimestampNanosecond(x) => x.append_null(),
+    }
+}
+
 #[inline]
 fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
-    #[inline]
-    fn append_null(b: &mut AnyBuilder) {
-        match b {
-            AnyBuilder::Utf8(x) => x.append_null(), AnyBuilder::LargeUtf8(x) => x.append_null(),
-            AnyBuilder::Int64(x) => x.append_null(), AnyBuilder::Int32(x) => x.append_null(),
-            AnyBuilder::Int16(x) => x.append_null(), AnyBuilder::Int8(x) => x.append_null(),
-            AnyBuilder::UInt64(x) => x.append_null(), AnyBuilder::UInt32(x) => x.append_null(),
-            AnyBuilder::UInt16(x) => x.append_null(), AnyBuilder::UInt8(x) => x.append_null(),
-            AnyBuilder::Float64(x) => x.append_null(), AnyBuilder::Float32(x) => x.append_null(),
-            AnyBuilder::Boolean(x) => x.append_null(),
-            AnyBuilder::Date32(x) => x.append_null(), AnyBuilder::Date64(x) => x.append_null(),
-            AnyBuilder::TimestampSecond(x) => x.append_null(),
-            AnyBuilder::TimestampMillisecond(x) => x.append_null(),
-            AnyBuilder::TimestampMicrosecond(x) => x.append_null(),
-            AnyBuilder::TimestampNanosecond(x) => x.append_null(),
-        }
-    }
-
     match scratch {
         TypedScratch::Str(range) => {
             let s = str_val(json_buf, *range);
@@ -425,10 +435,15 @@ struct TypedFieldExtractor<'a> {
     index: &'a ColumnIndex,
     scratch: &'a mut [TypedScratch],
     kinds: &'a [ColumnKind],
+    /// Per-column requiredness (non-nullable), indexed by column position.
+    required: &'a [bool],
     /// Base pointer of the JSON buffer passed to simd-json.
     /// Used to compute byte offsets for string values via pointer arithmetic.
     buf_ptr: *const u8,
-    filled_count: usize,
+    /// How many *required* columns have been filled so far.
+    required_filled: usize,
+    /// Total number of required columns — a row is valid once all are filled.
+    required_total: usize,
 }
 
 impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
@@ -439,7 +454,6 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
     }
 
     fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
-        let n = self.scratch.len();
         while let Some(key) = map.next_key::<&str>()? {
             if let Some(&idx) = self.index.get(key) {
                 let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
@@ -449,14 +463,16 @@ impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
                     kind: self.kinds[idx],
                 };
                 map.next_value_seed(seed)?;
-                if was_empty {
-                    self.filled_count += 1;
+                if was_empty && self.required[idx] {
+                    self.required_filled += 1;
                 }
             } else {
                 map.next_value::<de::IgnoredAny>()?;
             }
         }
-        Ok(self.filled_count == n)
+        // Row is valid iff every *required* (non-nullable) column was found.
+        // Missing nullable columns stay `TypedScratch::Empty` → appended as NULL.
+        Ok(self.required_filled == self.required_total)
     }
 }
 
@@ -482,8 +498,10 @@ fn parse_root_fields_typed(
         index: &info.index,
         scratch,
         kinds,
+        required: &info.required,
         buf_ptr,
-        filled_count: 0,
+        required_filled: 0,
+        required_total: info.required_total,
     };
     de.deserialize_map(&mut extractor).map_err(Into::into)
 }
@@ -530,6 +548,8 @@ pub struct JsonParser {
 
 struct ColumnMappingExt {
     path: CompiledPath,
+    /// `true` when the column is non-nullable (a missing value routes the row to DLQ).
+    required: bool,
 }
 
 impl JsonParser {
@@ -552,8 +572,11 @@ impl JsonParser {
             }
             kinds.push(kind);
             data_types.push(arrow_type);
-            mappings.push(ColumnMappingExt { path });
+            mappings.push(ColumnMappingExt { path, required: !col.nullable });
         }
+
+        let required: Vec<bool> = config.columns.iter().map(|c| !c.nullable).collect();
+        let required_total = required.iter().filter(|r| **r).count();
 
         let mode = if all_root {
             let pairs: Vec<(String, usize)> = mappings.iter()
@@ -569,7 +592,7 @@ impl JsonParser {
             } else {
                 ColumnIndex::Large(pairs.into_iter().collect())
             };
-            ParseMode::AllRootField(RootFieldInfo { index })
+            ParseMode::AllRootField(RootFieldInfo { index, required, required_total })
         } else {
             ParseMode::Mixed
         };
@@ -732,6 +755,8 @@ impl JsonParser {
                             for m in &self.mappings {
                                 match self.extract_value(&json, m) {
                                     Some(val) => row.push(val),
+                                    // Missing nullable column → NULL; missing required → DLQ.
+                                    None if !m.required => row.push(Value::Null),
                                     None => { all_ok = false; break; }
                                 }
                             }
@@ -800,7 +825,7 @@ mod tests {
             ("flag".into(), 2),
         ]);
 
-        let info = RootFieldInfo { index: idx };
+        let info = RootFieldInfo { index: idx, required: vec![true, true, true], required_total: 3 };
 
         let mut scratch = vec![TypedScratch::Empty; kinds.len()];
         let mut buf = Vec::new();
@@ -836,7 +861,7 @@ mod tests {
 
         let kinds = vec![ColumnKind::Utf8];
         let idx = ColumnIndex::Small(vec![("text".into(), 0)]);
-        let info = RootFieldInfo { index: idx };
+        let info = RootFieldInfo { index: idx, required: vec![true], required_total: 1 };
 
         let mut scratch = vec![TypedScratch::Empty; 1];
         let mut buf = Vec::new();

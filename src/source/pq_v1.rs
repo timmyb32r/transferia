@@ -344,7 +344,10 @@ impl PqV1Client {
                             let cookie = pd.cookie.clone();
                             for batch in &pd.batches {
                                 for md in &batch.message_data {
-                                    let data = match decompress(&md.data, md.codec, md.uncompressed_size) { Ok(d) => d, Err(e) => { tracing::error!("Decompress: {}", e); continue; } };
+                                    let data = match decompress(&md.data, md.codec, md.uncompressed_size) {
+                                        Ok(d) => d,
+                                        Err(e) => { tracing::error!("PQv1 decompress failed: codec={} raw_len={} offset={}: {}", md.codec, md.data.len(), md.offset, e); continue; }
+                                    };
                                     if let Some(tx) = queues.get(&pid) {
                                         let _ = tx.send(DecodedMessage { offset: md.offset, seq_no: md.seq_no, create_timestamp_ms: md.create_timestamp_ms, data, partition_id: pid, cookie: cookie.clone() });
                                     }

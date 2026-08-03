@@ -301,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Shared sink
     let sink = ClickHouseSink::new(&config.sink).await?;
+    sink.create_tables(&config.schema).await?;
     sink.verify_tables().await?;
     let sink = Arc::new(sink);
 

@@ -4,9 +4,38 @@ use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::StreamExt;
 
-use crate::config::yaml::SinkConfig;
+use arrow::datatypes::{DataType, TimeUnit};
+
+use crate::config::yaml::{parse_arrow_type, SchemaConfig, SinkConfig};
 use crate::pipeline::sink::Sink;
 use crate::types::arrow_batch::ArrowBatch;
+
+/// Map an Arrow `DataType` to the equivalent ClickHouse column type.
+fn arrow_to_clickhouse(dt: &DataType) -> anyhow::Result<String> {
+    Ok(match dt {
+        DataType::Utf8 | DataType::LargeUtf8 => "String".into(),
+        DataType::Int8 => "Int8".into(),
+        DataType::Int16 => "Int16".into(),
+        DataType::Int32 => "Int32".into(),
+        DataType::Int64 => "Int64".into(),
+        DataType::UInt8 => "UInt8".into(),
+        DataType::UInt16 => "UInt16".into(),
+        DataType::UInt32 => "UInt32".into(),
+        DataType::UInt64 => "UInt64".into(),
+        DataType::Float32 => "Float32".into(),
+        DataType::Float64 => "Float64".into(),
+        DataType::Boolean => "Bool".into(),
+        DataType::Date32 => "Date32".into(),
+        DataType::Date64 => "DateTime64(3)".into(),
+        DataType::Timestamp(unit, _) => match unit {
+            TimeUnit::Second => "DateTime".into(),
+            TimeUnit::Millisecond => "DateTime64(3)".into(),
+            TimeUnit::Microsecond => "DateTime64(6)".into(),
+            TimeUnit::Nanosecond => "DateTime64(9)".into(),
+        },
+        other => anyhow::bail!("No ClickHouse type mapping for Arrow type {:?}", other),
+    })
+}
 
 pub struct ClickHouseSink {
     pool: ConnectionPool<ArrowFormat>,
@@ -44,11 +73,70 @@ impl ClickHouseSink {
         })
     }
 
+    /// Create the main and DLQ tables if they don't exist.
+    ///
+    /// The main table schema is derived from `schema.columns` (name + arrow_type,
+    /// wrapped in `Nullable(...)` when the column is nullable). The DLQ table schema
+    /// is fixed and MUST stay in sync with `parser::json_parser::DLQ_SCHEMA`
+    /// (raw_bytes, error_message, partition_id, timestamp).
+    pub async fn create_tables(&self, schema: &SchemaConfig) -> anyhow::Result<()> {
+        let client = self.pool.get().await
+            .map_err(|e| anyhow::anyhow!("ClickHouse pool get for create_tables: {}", e))?;
+
+        // Opt-in for dev/bench: drop existing tables so schema changes (e.g. a column
+        // becoming Nullable) actually take effect. CREATE TABLE IF NOT EXISTS alone
+        // never alters an existing table. Off by default — never drops in production.
+        let recreate = std::env::var("RECREATE_TABLES")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if recreate {
+            for table in [&self.table_name, &self.dlq_table_name] {
+                tracing::warn!("RECREATE_TABLES set — dropping table '{}'", table);
+                client.execute(&format!("DROP TABLE IF EXISTS {}", table), None).await
+                    .map_err(|e| anyhow::anyhow!("Failed to drop table '{}': {}", table, e))?;
+            }
+        }
+
+        let mut cols = Vec::with_capacity(schema.columns.len());
+        for c in &schema.columns {
+            let dt = parse_arrow_type(&c.arrow_type)?;
+            let mut ty = arrow_to_clickhouse(&dt)?;
+            if c.nullable {
+                ty = format!("Nullable({})", ty);
+            }
+            cols.push(format!("`{}` {}", c.column_name, ty));
+        }
+        let main_ddl = format!(
+            "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE = MergeTree ORDER BY tuple()",
+            self.table_name, cols.join(", "),
+        );
+        client.execute(&main_ddl, None).await
+            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", self.table_name, e))?;
+        tracing::info!("Ensured table '{}'", self.table_name);
+
+        // DLQ schema is fixed — see parser::json_parser::DLQ_SCHEMA.
+        let dlq_ddl = format!(
+            "CREATE TABLE IF NOT EXISTS {} (\
+                `raw_bytes` String, `error_message` String, \
+                `partition_id` Int64, `timestamp` String\
+            ) ENGINE = MergeTree ORDER BY tuple()",
+            self.dlq_table_name,
+        );
+        client.execute(&dlq_ddl, None).await
+            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", self.dlq_table_name, e))?;
+        tracing::info!("Ensured table '{}'", self.dlq_table_name);
+
+        Ok(())
+    }
+
     pub async fn verify_tables(&self) -> anyhow::Result<()> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for verify: {}", e))?;
+        // NOTE: `EXISTS TABLE` does NOT error on a missing table — it returns 0/1, so it
+        // can't be used for verification via execute(). `DESCRIBE TABLE` raises
+        // UnknownTable server-side when the table is absent, which surfaces as an error here.
         for table in [&self.table_name, &self.dlq_table_name] {
-            client.execute(&format!("EXISTS TABLE {}", table), None).await
+            client.execute(&format!("DESCRIBE TABLE {}", table), None).await
                 .map_err(|e| anyhow::anyhow!("Table '{}' not found: {}", table, e))?;
             tracing::info!("Table '{}' verified", table);
         }
