@@ -230,6 +230,7 @@ pub struct MiddlewareConfig {
 #[allow(dead_code)]
 pub struct SinkConfig {
     /// ClickHouse connection string (Native Protocol port), e.g. "localhost:9000"
+    /// For Yandex Cloud Managed ClickHouse, use port 9440 (native TLS), NOT 8443 (HTTPS).
     pub connection_string: String,
     /// ClickHouse database name
     pub database: String,
@@ -248,6 +249,15 @@ pub struct SinkConfig {
     /// ClickHouse password (default: empty)
     #[serde(default)]
     pub password: String,
+    /// Enable TLS for ClickHouse native protocol connections (default: true).
+    /// Set to false if connecting without encryption (e.g. local dev or same-VPC).
+    #[serde(default = "default_use_tls")]
+    pub use_tls: bool,
+    /// Override the SNI/TLS domain name for certificate validation.
+    /// If unset, the host from `connection_string` is used.
+    /// Yandex Cloud users: this should match your cluster's FQDN.
+    #[serde(default)]
+    pub tls_domain: Option<String>,
     /// Opt-in for dev/bench: DROP + recreate tables on startup so schema changes
     /// (e.g. a column becoming Nullable, or a new ORDER BY) take effect.
     /// NEVER enable in production — existing data IS LOST.
@@ -269,6 +279,10 @@ fn default_max_connections() -> usize {
 
 fn default_username() -> String {
     "default".to_string()
+}
+
+fn default_use_tls() -> bool {
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -494,6 +508,8 @@ mod tests {
                 max_connections: 4,
                 username: "default".into(),
                 password: "".into(),
+                use_tls: true,
+                tls_domain: None,
                 recreate_tables: false,
             },
             middlewares: vec![],

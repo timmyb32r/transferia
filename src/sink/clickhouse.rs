@@ -52,10 +52,14 @@ impl ClickHouseSink {
         let pool = ConnectionPoolBuilder::<ArrowFormat>::new(config.connection_string.as_str())
             .configure_pool(|p| p.max_size(config.max_connections as u32))
             .configure_client(|b| {
-                b.with_database(config.database.as_str())
+                let mut b = b.with_database(config.database.as_str())
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
-                    .with_tls(true)
+                    .with_tls(config.use_tls);
+                if let Some(ref domain) = config.tls_domain {
+                    b = b.with_domain(domain.as_str());
+                }
+                b
             })
             .build().await
             .map_err(|e| anyhow::anyhow!("Failed to build ClickHouse pool: {}", e))?;

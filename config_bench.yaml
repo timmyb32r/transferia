@@ -78,6 +78,8 @@ source:
 middlewares: []
 
 sink:
+  # ClickHouse Native Protocol (TLS): порт 9440, НЕ 8443 (8443 — это HTTPS).
+  # Пример для Yandex Cloud: "klg-xxxx.db.yandex.net:9440"
   connection_string: ""
   database: "db1"
   batch_size: 10000
@@ -85,4 +87,10 @@ sink:
   max_connections: 4
   username: "user1"
   password: ""
+  # TLS-настройки:
+  # use_tls: true         # включить TLS (по умолчанию true)
+  # tls_domain: ""        # переопределить SNI-домен (если нужно)
+  # Если сервер с самоподписанным сертификатом и ошибка UnknownIssuer
+  # не уходит даже с новыми настройками — попробуй use_tls: false
+  # (только если ClickHouse разрешает нешифрованные соединения).
   recreate_tables: true
