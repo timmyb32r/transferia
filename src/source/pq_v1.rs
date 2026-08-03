@@ -78,6 +78,10 @@ async fn connect_http2_prior_knowledge(uri: &Uri) -> anyhow::Result<H2Service> {
 use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::{Message, MessageBatch};
 
+/// YDB `Ydb.StatusIds.SUCCESS`. Status codes live in the reserved range
+/// [400000, 400999]; SUCCESS is 400000 (NOT 0 — 0 is STATUS_CODE_UNSPECIFIED).
+const YDB_STATUS_SUCCESS: i32 = 400000;
+
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
     migration_streaming_read_server_message::{self},
@@ -214,7 +218,8 @@ async fn discover_proxy(main_uri: &Uri, database: &str, token: &str) -> anyhow::
     let op = resp.operation.ok_or_else(|| anyhow!("no operation"))?;
     tracing::info!("[PQV1-DIAG] ListEndpoints: ready={} status={}", op.ready, op.status);
     if !op.ready { anyhow::bail!("not ready"); }
-    if op.status != 0 { anyhow::bail!("status={}", op.status); }
+    // SUCCESS is 400000, not 0. 0 (UNSPECIFIED) also passes for forward-compat.
+    if op.status != 0 && op.status != YDB_STATUS_SUCCESS { anyhow::bail!("status={}", op.status); }
 
     let result = op.result.ok_or_else(|| anyhow!("no result"))?;
     let eps: crate::Ydb::discovery::ListEndpointsResult = Message::decode(result.value.as_slice())?;
@@ -272,7 +277,10 @@ impl PqV1Client {
         req.metadata_mut().insert("user-agent", AsciiMetadataValue::from_static("grpc-go/1.80.0"));
 
         tracing::info!("[PQV1-DIAG] Calling MigrationStreamingRead (with reorder codec)...");
-        let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri);
+        // Logbroker DataBatch messages can exceed tonic's 4 MiB default decode cap.
+        let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
+            .max_decoding_message_size(128 * 1024 * 1024)
+            .max_encoding_message_size(128 * 1024 * 1024);
         grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {}", e))?;
         let path = tonic::codegen::http::uri::PathAndQuery::from_static("/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead");
         grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {}", e))?;
@@ -304,7 +312,11 @@ impl PqV1Client {
                     Ok(Some(m)) => m, Ok(None) => { tracing::warn!("PQv1 stream closed"); break; }
                     Err(e) => { tracing::error!("PQv1 stream error: {}", e); break; }
                 };
-                if msg.status != 0 { tracing::error!("PQv1 status: {}, issues: {:?}", msg.status, msg.issues); break; }
+                // SUCCESS is 400000, not 0 (0 == UNSPECIFIED, sent on streaming data msgs).
+                // Only a real error code (not SUCCESS, not UNSPECIFIED) aborts the stream.
+                if msg.status != 0 && msg.status != YDB_STATUS_SUCCESS {
+                    tracing::error!("PQv1 status: {}, issues: {:?}", msg.status, msg.issues); break;
+                }
                 match msg.response {
                     Some(migration_streaming_read_server_message::Response::InitResponse(r)) => {
                         session = r.session_id.clone(); init_done = true;

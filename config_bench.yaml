@@ -5,11 +5,11 @@
 
 source:
   source_type: "pqv1"
-  connection_string: ""
+  connection_string: "grpc://sas.logbroker.yandex.net:2135"
   database: "/Root"
   topic_path: "/cdc/prod/logs"
   consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
-  discovery_endpoint: ""
+  discovery_endpoint: "grpc://sas.logbroker.yandex.net:2135"
   partition_ids: [0]
   auth:
     type: access_token
@@ -60,7 +60,7 @@ schema:
 middlewares: []
 
 sink:
-  connection_string: ""
+  connection_string: "klg-v4c8sf9k2aejn05u.db.yandex.net:9440"
   database: "db1"
   table_name: "cdc_log"
   dlq_table_name: "cdc_log_dlq"
@@ -68,4 +68,4 @@ sink:
   max_linger_ms: 500
   max_connections: 4
   username: "user1"
-  password: ""
+  password: "l%5v~gV?PSa{L1q#"
