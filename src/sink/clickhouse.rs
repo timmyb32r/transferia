@@ -153,7 +153,7 @@ impl Sink for ClickHouseSink {
             while let Some(item) = stream.next().await {
                 item.map_err(|e| anyhow::anyhow!("ClickHouse insert stream error: {}", e))?;
             }
-            tracing::debug!("Inserted {} rows (batch_id={})", batch.batch.num_rows(), batch.meta.batch_id);
+            tracing::info!("Inserted {} rows (batch_id={})", batch.batch.num_rows(), batch.meta.batch_id);
             Ok(())
         }
         do_write(self, batch)
@@ -177,7 +177,7 @@ impl Sink for ClickHouseSink {
             while let Some(item) = stream.next().await {
                 item.map_err(|e| anyhow::anyhow!("ClickHouse insert_many error: {}", e))?;
             }
-            tracing::debug!("Inserted {} rows via insert_many ({} blocks)", total, n);
+            tracing::info!("Inserted {} rows via insert_many ({} blocks)", total, n);
             Ok(())
         }
         do_write_many(self, batches, table, dlq_flag)

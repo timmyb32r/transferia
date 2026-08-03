@@ -106,6 +106,7 @@ fn spawn_pqv1_task(
             match run_partition_pipeline(
                 source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
                 deps.batch_size, deps.max_linger_ms, deps.token.clone(),
+                partition_id,
             )
             .await
             {
@@ -170,6 +171,7 @@ fn spawn_ydb_task(
             match run_partition_pipeline(
                 source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
                 deps.batch_size, deps.max_linger_ms, deps.token.clone(),
+                partition_id,
             )
             .await
             {

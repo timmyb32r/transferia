@@ -46,6 +46,7 @@ struct CommitAck {
 // Staged pipeline: Reader ∥ Parser ∥ Writer, with commit feedback
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_partition_pipeline(
     mut source: impl Source + 'static,
     parser: Arc<JsonParser>,
@@ -54,6 +55,7 @@ pub async fn run_partition_pipeline(
     batch_size: usize,
     max_linger_ms: u64,
     cancel_token: CancellationToken,
+    partition_id: i64,
 ) -> anyhow::Result<()> {
     let max_linger = Duration::from_millis(max_linger_ms);
 
@@ -209,6 +211,7 @@ pub async fn run_partition_pipeline(
     let sink_for_writer = sink.clone();
     let writer_handle = tokio::spawn(async move {
         let mut accumulator: Option<BatchAccumulator> = None;
+        let mut total_flushed: u64 = 0; // cumulative rows flushed to ClickHouse
 
         loop {
             // Phase 1: flush if timeout expired
@@ -218,8 +221,17 @@ pub async fn run_partition_pipeline(
             });
 
             if should_flush {
+                let table = accumulator.as_ref().and_then(|a| a.table.clone());
                 let flush = accumulator.as_mut().unwrap().take_flush().unwrap();
-                if flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await.is_ok() {
+                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                    total_flushed += rows as u64;
+                    tracing::info!(
+                        "flush: partition={} table={} rows={} total_flushed={} (linger)",
+                        partition_id,
+                        table.as_deref().unwrap_or("?"),
+                        rows,
+                        total_flushed,
+                    );
                     accumulator.as_mut().unwrap().clear();
                 }
                 continue;
@@ -229,9 +241,15 @@ pub async fn run_partition_pipeline(
             if writer_token.is_cancelled() {
                 if let Some(ref mut acc) = accumulator {
                     if let Some(flush) = acc.take_flush() {
-                        let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
+                        if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                            total_flushed += rows as u64;
+                        }
                     }
                 }
+                tracing::info!(
+                    "partition={} finished: total_flushed={}",
+                    partition_id, total_flushed,
+                );
                 return;
             }
 
@@ -250,9 +268,15 @@ pub async fn run_partition_pipeline(
                     _ = writer_token.cancelled() => {
                         if let Some(ref mut acc) = accumulator {
                             if let Some(flush) = acc.take_flush() {
-                                let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
+                                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                                    total_flushed += rows as u64;
+                                }
                             }
                         }
+                        tracing::info!(
+                            "partition={} finished: total_flushed={}",
+                            partition_id, total_flushed,
+                        );
                         return;
                     }
                 }
@@ -263,9 +287,15 @@ pub async fn run_partition_pipeline(
                     _ = writer_token.cancelled() => {
                         if let Some(ref mut acc) = accumulator {
                             if let Some(flush) = acc.take_flush() {
-                                let _ = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await;
+                                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                                    total_flushed += rows as u64;
+                                }
                             }
                         }
+                        tracing::info!(
+                            "partition={} finished: total_flushed={}",
+                            partition_id, total_flushed,
+                        );
                         return;
                     }
                 }
@@ -278,10 +308,14 @@ pub async fn run_partition_pipeline(
 
             // Write DLQ immediately
             if let Some(ref dlq) = item.dlq_batch {
+                let dlq_rows = dlq.batch.num_rows();
                 if let Err(e) = sink_for_writer.write_batch(dlq).await {
                     tracing::error!("Sink write error (DLQ batch): {}", e);
-                    // DLQ write failed — push back to DLQ? For now, log and continue.
-                    // The valid batch is still processed below.
+                } else {
+                    tracing::info!(
+                        "dlq: partition={} rows={} table={}.dlq",
+                        partition_id, dlq_rows, dlq.meta.table,
+                    );
                 }
             }
 
@@ -296,11 +330,20 @@ pub async fn run_partition_pipeline(
 
             let acc = accumulator.as_mut().unwrap();
             if let Some(flush) = acc.push(batch, meta.table, item.commit_marker) {
-                if flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await.is_err() {
-                    // Flush failed — clear accumulator state to avoid churn.
-                    // Data is replayed from YDB on restart (at-least-once).
+                let table = acc.table.clone();
+                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                    total_flushed += rows as u64;
+                    tracing::info!(
+                        "flush: partition={} table={} rows={} total_flushed={} (batch full)",
+                        partition_id,
+                        table.as_deref().unwrap_or("?"),
+                        rows,
+                        total_flushed,
+                    );
                     acc.clear();
                 } else {
+                    // Flush failed — clear accumulator state to avoid churn.
+                    // Data is replayed from YDB on restart (at-least-once).
                     acc.clear();
                 }
             }
@@ -384,12 +427,14 @@ struct FlushBatch {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Returns the number of rows flushed, or an error.
 async fn flush_to_sink_and_ack(
     sink: &(impl Sink + 'static),
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
-) -> Result<(), ()> {
+) -> Result<usize, ()> {
     let FlushBatch { batches, markers, table } = flush;
+    let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
     if !markers.is_empty() {
         if let Err(e) = sink.write_batches(batches, table, false).await {
             tracing::error!("Writer: flush error: {}", e);
@@ -400,7 +445,7 @@ async fn flush_to_sink_and_ack(
             return Err(());
         }
     }
-    Ok(())
+    Ok(total_rows)
 }
 
 fn apply_middlewares(
