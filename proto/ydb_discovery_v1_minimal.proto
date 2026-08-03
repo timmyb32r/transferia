@@ -1,0 +1,8 @@
+syntax = "proto3";
+package Ydb.Discovery.V1;
+
+import "ydb_discovery.proto";
+
+service DiscoveryService {
+    rpc ListEndpoints(Ydb.Discovery.ListEndpointsRequest) returns (Ydb.Discovery.ListEndpointsResponse);
+}

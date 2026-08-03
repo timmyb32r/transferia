@@ -16,11 +16,19 @@ impl YdbTopicSource {
         topic_path: &str,
         consumer_name: &str,
         partition_id: i64,
-        credentials: ydb::AnonymousCredentials,
+        credentials: crate::config::yaml::YdbCredentials,
+        discovery_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
-        let client = ydb::ClientBuilder::new_from_connection_string(connection_string)?
-            .with_credentials(credentials)
-            .client()?;
+        let mut builder = ydb::ClientBuilder::new_from_connection_string(connection_string)?
+            .with_credentials(credentials);
+
+        if let Some(endpoint) = discovery_endpoint {
+            let discovery = ydb::StaticDiscovery::new_from_str(endpoint)
+                .map_err(|e| anyhow::anyhow!("Failed to create StaticDiscovery from '{}': {}", endpoint, e))?;
+            builder = builder.with_discovery(discovery);
+        }
+
+        let client = builder.client()?;
         let mut topic_client = client.topic_client();
         let selector = ydb::TopicSelector {
             path: topic_path.to_string(),

@@ -1,0 +1,45 @@
+syntax = "proto3";
+package Ydb.PersQueue.ClusterDiscovery;
+
+// Minimal ClusterDiscovery service for PQv1.
+
+message DiscoverClustersRequest {
+    repeated WriteSessionParams write_sessions = 1;
+}
+
+message WriteSessionParams {
+    string topic = 1;
+    string source_id = 2;
+    int32 partition_group = 3;
+    string preferred_cluster_name = 4;
+}
+
+message DiscoverClustersResponse {
+    Operation operation = 1;
+}
+
+message Operation {
+    bool ready = 2;
+    int64 status = 3;
+    // google.protobuf.Any result = 5 with DiscoverClustersResult
+    bytes result_value = 5;
+}
+
+// Result type decoded from Any
+message DiscoverClustersResult {
+    repeated WriteSessionClusters write_sessions_clusters = 1;
+}
+
+message WriteSessionClusters {
+    repeated ClusterInfo clusters = 1;
+}
+
+message ClusterInfo {
+    string endpoint = 1;
+    string name = 2;
+    bool available = 3;
+}
+
+service ClusterDiscoveryService {
+    rpc DiscoverClusters(DiscoverClustersRequest) returns (DiscoverClustersResponse);
+}

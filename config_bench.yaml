@@ -1,0 +1,71 @@
+# YDB Topic (CDC) → ClickHouse Replicator — Benchmark Configuration
+#
+# Запуск:
+#   ydb-ch-replicator --config config_bench.yaml --total-workers 1 --worker-index 0
+
+source:
+  source_type: "pqv1"
+  connection_string: ""
+  database: "/Root"
+  topic_path: "/cdc/prod/logs"
+  consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
+  discovery_endpoint: ""
+  partition_ids: [0]
+  auth:
+    type: access_token
+    token_file: "~/.logbroker/token"
+
+schema:
+  columns:
+    - jsonpath: "$.id"
+      column_name: "id"
+      arrow_type: "Utf8"
+      nullable: false
+    - jsonpath: "$.task_id"
+      column_name: "task_id"
+      arrow_type: "Utf8"
+      nullable: false
+    - jsonpath: "$.ts"
+      column_name: "ts"
+      arrow_type: "Utf8"
+      nullable: false
+    - jsonpath: "$.level"
+      column_name: "level"
+      arrow_type: "Utf8"
+    - jsonpath: "$.msg"
+      column_name: "msg"
+      arrow_type: "Utf8"
+    - jsonpath: "$.caller"
+      column_name: "caller"
+      arrow_type: "Utf8"
+    - jsonpath: "$.error"
+      column_name: "error"
+      arrow_type: "Utf8"
+    - jsonpath: "$.runtime"
+      column_name: "runtime"
+      arrow_type: "Utf8"
+    - jsonpath: "$.host"
+      column_name: "host"
+      arrow_type: "Utf8"
+    - jsonpath: "$.job_index"
+      column_name: "job_index"
+      arrow_type: "Int32"
+    - jsonpath: "$.src_type"
+      column_name: "src_type"
+      arrow_type: "Utf8"
+    - jsonpath: "$.dst_type"
+      column_name: "dst_type"
+      arrow_type: "Utf8"
+
+middlewares: []
+
+sink:
+  connection_string: ""
+  database: "db1"
+  table_name: "cdc_log"
+  dlq_table_name: "cdc_log_dlq"
+  batch_size: 10000
+  max_linger_ms: 500
+  max_connections: 4
+  username: "user1"
+  password: ""

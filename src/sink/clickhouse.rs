@@ -24,6 +24,7 @@ impl ClickHouseSink {
                 b.with_database(config.database.as_str())
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
+                    .with_tls(true)
             })
             .build().await
             .map_err(|e| anyhow::anyhow!("Failed to build ClickHouse pool: {}", e))?;

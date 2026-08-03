@@ -641,6 +641,12 @@ pub struct ParserWorkspace {
     cached_ts: Option<(chrono::DateTime<chrono::Utc>, std::time::Instant)>,
 }
 
+impl Default for ParserWorkspace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ParserWorkspace {
     pub fn new() -> Self {
         Self {

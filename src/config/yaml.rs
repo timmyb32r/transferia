@@ -92,6 +92,10 @@ impl Config {
 
 #[derive(Debug, Deserialize)]
 pub struct SourceConfig {
+    /// Source type: "topic" (default, YDB Topic API via ydb crate) or
+    /// "pqv1" (Logbroker PQv1 — MigrationStreamingRead gRPC).
+    #[serde(default = "default_source_type")]
+    pub source_type: String,
     /// YDB connection string, e.g. "grpc://localhost:2136/local"
     pub connection_string: String,
     /// YDB topic path, e.g. "/local/test-topic"
@@ -100,6 +104,27 @@ pub struct SourceConfig {
     pub consumer_name: String,
     #[serde(default)]
     pub auth: AuthConfig,
+    /// YDB database for metadata header (x-ydb-database). Defaults to "/Root".
+    /// NOTE: this is NOT the topic path — it's the YDB cluster database for discovery/routing.
+    #[serde(default = "default_database")]
+    pub database: String,
+    /// Optional: static discovery endpoint URI (e.g. "grpcs://sas.logbroker.yandex.net:2135").
+    /// When set, bypasses YDB's normal endpoint discovery and routes all gRPC services
+    /// through this single endpoint — needed for Logbroker-backed YDB topics.
+    #[serde(default)]
+    pub discovery_endpoint: Option<String>,
+    /// Optional: static partition IDs for PQv1 (fallback when DescribeTopic unavailable).
+    /// When set AND source_type == "pqv1", partition discovery is skipped entirely.
+    #[serde(default)]
+    pub partition_ids: Option<Vec<i64>>,
+}
+
+fn default_database() -> String {
+    "/Root".to_string()
+}
+
+fn default_source_type() -> String {
+    "topic".to_string()
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -108,9 +133,13 @@ pub struct AuthConfig {
     /// Auth type: "anonymous" (default), "access_token", "service_account"
     #[serde(rename = "type")]
     pub auth_type: String,
-    /// Token for access_token auth
+    /// Token string for access_token auth (plain text)
     pub token: Option<String>,
-    /// Path to service account JSON key file
+    /// Path to file containing the token for access_token auth.
+    /// The file is read at startup and its trimmed contents used as the token.
+    /// Supports ~ for home directory expansion.
+    pub token_file: Option<String>,
+    /// Path to service account JSON key file (for service_account auth)
     pub sa_file: Option<String>,
 }
 
@@ -267,14 +296,90 @@ pub fn parse_arrow_type(s: &str) -> anyhow::Result<DataType> {
 // YDB credentials builder
 // ---------------------------------------------------------------------------
 
+/// Unified YDB credentials enum — wraps all supported credential types.
+pub enum YdbCredentials {
+    Anonymous(ydb::AnonymousCredentials),
+    AccessToken(ydb::AccessTokenCredentials),
+    ServiceAccount(ydb::ServiceAccountCredentials),
+}
+
+impl ydb::Credentials for YdbCredentials {
+    fn create_token(&self) -> ydb::YdbResult<ydb::TokenInfo> {
+        match self {
+            YdbCredentials::Anonymous(c) => c.create_token(),
+            YdbCredentials::AccessToken(c) => c.create_token(),
+            YdbCredentials::ServiceAccount(c) => c.create_token(),
+        }
+    }
+}
+
 /// Build YDB credentials from the auth config section.
-/// Build YDB credentials from the auth config section.
-/// Returns a concrete credential type that implements `ydb::Credentials`.
-pub fn build_credentials(auth: &AuthConfig) -> anyhow::Result<ydb::AnonymousCredentials> {
+///
+/// Supported auth types:
+/// - `anonymous` (default) — no credentials
+/// - `access_token` — static IAM token via `token` field
+/// - `service_account` — service account JSON key via `sa_file` field
+///
+/// Returns `YdbCredentials` which implements `ydb::Credentials`.
+/// Build credentials AND extract raw token string for PQv1 auth.
+pub fn build_credentials_with_token(auth: &AuthConfig) -> anyhow::Result<(YdbCredentials, Option<String>)> {
     match auth.auth_type.as_str() {
-        "" | "anonymous" => Ok(ydb::AnonymousCredentials::new()),
-        // TODO: expand for access_token, service_account, etc.
-        other => anyhow::bail!("Unsupported auth type '{}' (PoC supports only anonymous)", other),
+        "" | "anonymous" => Ok((YdbCredentials::Anonymous(ydb::AnonymousCredentials::new()), None)),
+        "access_token" => {
+            let token = if let Some(path) = auth.token_file.as_deref() {
+                let expanded = shellexpand::full(path)
+                    .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{}': {}", path, e))?;
+                std::fs::read_to_string(expanded.as_ref())
+                    .map_err(|e| anyhow::anyhow!("Failed to read token from '{}': {}", expanded, e))?
+                    .trim()
+                    .to_string()
+            } else if let Some(tok) = auth.token.as_deref() {
+                tok.to_string()
+            } else {
+                anyhow::bail!("access_token auth requires either 'token' or 'token_file' field");
+            };
+            Ok((YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token.clone())), Some(token)))
+        }
+        "service_account" => {
+            let path = auth.sa_file.as_deref()
+                .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
+            let creds = ydb::ServiceAccountCredentials::from_file(path)
+                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
+            Ok((YdbCredentials::ServiceAccount(creds), None))
+        }
+        other => anyhow::bail!("Unsupported auth type '{}'. Supported: anonymous, access_token, service_account", other),
+    }
+}
+
+pub fn build_credentials(auth: &AuthConfig) -> anyhow::Result<YdbCredentials> {
+    match auth.auth_type.as_str() {
+        "" | "anonymous" => Ok(YdbCredentials::Anonymous(ydb::AnonymousCredentials::new())),
+        "access_token" => {
+            let token = if let Some(path) = auth.token_file.as_deref() {
+                let expanded = shellexpand::full(path)
+                    .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{}': {}", path, e))?;
+                std::fs::read_to_string(expanded.as_ref())
+                    .map_err(|e| anyhow::anyhow!("Failed to read token from '{}': {}", expanded, e))?
+                    .trim()
+                    .to_string()
+            } else if let Some(tok) = auth.token.as_deref() {
+                tok.to_string()
+            } else {
+                anyhow::bail!("access_token auth requires either 'token' or 'token_file' field");
+            };
+            Ok(YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token)))
+        }
+        "service_account" => {
+            let path = auth.sa_file.as_deref()
+                .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
+            let creds = ydb::ServiceAccountCredentials::from_file(path)
+                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
+            Ok(YdbCredentials::ServiceAccount(creds))
+        }
+        other => anyhow::bail!(
+            "Unsupported auth type '{}'. Supported: anonymous, access_token, service_account",
+            other
+        ),
     }
 }
 
@@ -329,10 +434,14 @@ mod tests {
     fn test_config_validate_empty_columns_fails() {
         let cfg = Config {
             source: SourceConfig {
+                source_type: "topic".into(),
                 connection_string: "grpc://localhost:2136".into(),
                 topic_path: "/test".into(),
                 consumer_name: "c".into(),
                 auth: AuthConfig::default(),
+                database: "/Root".into(),
+                discovery_endpoint: None,
+                partition_ids: None,
             },
             schema: SchemaConfig {
                 columns: vec![],
