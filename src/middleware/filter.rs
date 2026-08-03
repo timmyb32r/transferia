@@ -40,10 +40,17 @@ impl FilterMiddleware {
 impl Middleware for FilterMiddleware {
     fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
         let schema = batch.batch.schema();
-        let col_idx = *self.col_idx.get_or_init(|| {
-            schema.index_of(&self.field)
-                .unwrap_or_else(|_| panic!("FilterMiddleware: column '{}' not found", self.field))
-        });
+        let col_idx = match self.col_idx.get() {
+            Some(&i) => i,
+            None => {
+                let i = schema.index_of(&self.field).map_err(|_| {
+                    anyhow::anyhow!("FilterMiddleware: column '{}' not found in schema", self.field)
+                })?;
+                // set() races harmlessly — same value from same (field, schema) pair.
+                let _ = self.col_idx.set(i);
+                i
+            }
+        };
 
         let field_dt = schema.field(col_idx).data_type();
         let col = batch.batch.column(col_idx);

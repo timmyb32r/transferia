@@ -347,8 +347,15 @@ impl PqV1Client {
         Ok((Self { inner }, prs))
     }
 
+    /// PQv1 (Logbroker) does not expose a DescribeTopic gRPC method.
+    ///
+    /// This always returns `Err` with guidance to configure `partition_ids` in the
+    /// source config. The caller in `main` treats this as a signal to try the static
+    /// `partition_ids` fallback path.
     pub async fn describe_topic(_endpoint: &str, _topic_path: &str, _token: &str) -> anyhow::Result<i32> {
-        anyhow::bail!("describe_topic: use partition_ids in config")
+        Err(anyhow::anyhow!(
+            "PQv1 DescribeTopic is not supported; configure partition_ids in source config"
+        ))
     }
 
     pub async fn commit(&self, _partition_id: i64, cookie: CommitCookie) -> anyhow::Result<()> {

@@ -5,10 +5,10 @@
 
 source:
   source_type: "pqv1"
-  connection_string: ""
+  connection_string: "grpc://sas.logbroker.yandex.net:2135"
   topic_path: "/cdc/prod/logs"
   consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
-  discovery_endpoint: ""
+  discovery_endpoint: "grpc://sas.logbroker.yandex.net:2135"
   partition_ids: [0]
   auth:
     type: access_token
@@ -22,6 +22,7 @@ source:
       name: "logs"
     parser_type: "json_parser"
     settings:
+      order_by: ["id", "ts"]
       columns:
         # Required — есть практически в каждой строке лога. Отсутствие → строка в DLQ.
         - jsonpath: "$.id"
@@ -77,10 +78,11 @@ source:
 middlewares: []
 
 sink:
-  connection_string: ""
+  connection_string: "klg-v4c8sf9k2aejn05u.db.yandex.net:9440"
   database: "db1"
   batch_size: 10000
   max_linger_ms: 500
   max_connections: 4
   username: "user1"
-  password: ""
+  password: "l%5v~gV?PSa{L1q#"
+  recreate_tables: true

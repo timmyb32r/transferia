@@ -74,19 +74,19 @@ impl ClickHouseSink {
     /// The main schema is derived from `settings.columns` (name + arrow_type, wrapped in
     /// `Nullable(...)` for nullable columns). The DLQ schema is fixed and MUST stay in sync
     /// with `parser::json_parser::DLQ_SCHEMA` (raw_bytes, error_message, partition_id, timestamp).
-    pub async fn create_tables(&self, settings: &SchemaConfig, table: &str) -> anyhow::Result<()> {
+    ///
+    /// When `recreate` is true (opt-in via config, off by default), existing tables are
+    /// dropped first — useful in dev/bench so schema changes take effect. NEVER enable
+    /// in production: existing data IS LOST.
+    pub async fn create_tables(
+        &self, settings: &SchemaConfig, table: &str, recreate: bool,
+    ) -> anyhow::Result<()> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for create_tables: {}", e))?;
 
         let main = target_table(table, false);
         let dlq = target_table(table, true);
 
-        // Opt-in for dev/bench: drop existing tables so schema changes (e.g. a column
-        // becoming Nullable) actually take effect. CREATE TABLE IF NOT EXISTS alone
-        // never alters an existing table. Off by default — never drops in production.
-        let recreate = std::env::var("RECREATE_TABLES")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
         if recreate {
             for t in [&main, &dlq] {
                 tracing::warn!("RECREATE_TABLES set — dropping table '{}'", t);
@@ -104,9 +104,17 @@ impl ClickHouseSink {
             }
             cols.push(format!("`{}` {}", c.column_name, ty));
         }
+        let order_clause = if settings.order_by.is_empty() {
+            "tuple()".to_string()
+        } else {
+            settings.order_by.iter()
+                .map(|c| format!("`{}`", c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
         let main_ddl = format!(
-            "CREATE TABLE IF NOT EXISTS `{}` ({}) ENGINE = MergeTree ORDER BY tuple()",
-            main, cols.join(", "),
+            "CREATE TABLE IF NOT EXISTS `{}` ({}) ENGINE = MergeTree ORDER BY ({})",
+            main, cols.join(", "), order_clause,
         );
         client.execute(&main_ddl, None).await
             .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", main, e))?;

@@ -40,72 +40,43 @@ struct PipelineDeps {
     token: CancellationToken,
 }
 
-fn spawn_pqv1_task(
-    conn: String,
-    tpath: String,
-    consumer: String,
-    auth: ydb_ch_replicator::config::yaml::AuthConfig,
+/// Generic partition task: creates a source via the async `make_source` factory,
+/// then runs the pipeline with retry/backoff. Shared by both PQv1 and YDB Topic sources.
+fn spawn_partition_task<S, F, Fut>(
     partition_id: i64,
     deps: PipelineDeps,
-) -> tokio::task::JoinHandle<()> {
+    source_label: &'static str,
+    mut make_source: F,
+) -> tokio::task::JoinHandle<()>
+where
+    S: ydb_ch_replicator::pipeline::source::Source + 'static,
+    F: FnMut() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<S>> + Send,
+{
+    let max_retries = 5u32;
     tokio::spawn(async move {
         let mut retry_count = 0u32;
-        let max_retries = 5u32;
         loop {
             if deps.token.is_cancelled() {
                 return;
             }
 
-            let (_, raw_token) = match build_credentials_with_token(&auth) {
-                Ok(t) => t,
+            let source = match make_source().await {
+                Ok(s) => s,
                 Err(e) => {
-                    tracing::error!("PQv1 credentials: {}", e);
+                    tracing::error!("{} source creation for partition {}: {}", source_label, partition_id, e);
                     break;
                 }
             };
-            let token_str = match raw_token {
-                Some(t) => t,
-                None => {
-                    tracing::error!("PQv1 requires access_token auth");
-                    break;
-                }
-            };
-
-            let (scheme, host, _db_from_conn) = match parse_endpoint(&conn) {
-                Ok(p) => p,
-                Err(e) => {
-                    tracing::error!("PQv1 parse_endpoint: {}", e);
-                    break;
-                }
-            };
-            let endpoint = format!("{}://{}", scheme, host);
-            let pg_id = partition_to_group(partition_id);
-
-            let (client, mut queues) = match PqV1Client::connect(
-                &endpoint, &tpath, &consumer, &token_str, &[pg_id],
-            )
-            .await
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::error!("PQv1 connect for partition {}: {}", partition_id, e);
-                    break;
-                }
-            };
-
-            let rx = match queues.remove(&partition_id) {
-                Some(rx) => rx,
-                None => {
-                    tracing::error!("No queue for partition {}", partition_id);
-                    break;
-                }
-            };
-
-            let source = PqV1Source::new(client, rx, partition_id);
 
             match run_partition_pipeline(
-                source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
-                deps.batch_size, deps.max_linger_ms, deps.token.clone(),
+                source,
+                deps.parser.clone(),
+                deps.mw.clone(),
+                deps.snk.clone(),
+                deps.batch_size,
+                deps.max_linger_ms,
+                deps.token.clone(),
                 partition_id,
             )
             .await
@@ -114,16 +85,54 @@ fn spawn_pqv1_task(
                 Err(e) => {
                     retry_count += 1;
                     tracing::error!(
-                        "Partition {} fatal error (retry {}/{}): {}",
-                        partition_id, retry_count, max_retries, e,
+                        "Partition {} ({}) fatal error (retry {}/{}): {}",
+                        partition_id, source_label, retry_count, max_retries, e,
                     );
                     if retry_count >= max_retries {
-                        tracing::error!("Partition {} exhausted retries.", partition_id);
+                        tracing::error!(
+                            "Partition {} ({}) exhausted retries.",
+                            partition_id, source_label
+                        );
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
+        }
+    })
+}
+
+fn spawn_pqv1_task(
+    conn: String,
+    tpath: String,
+    consumer: String,
+    auth: ydb_ch_replicator::config::yaml::AuthConfig,
+    partition_id: i64,
+    deps: PipelineDeps,
+) -> tokio::task::JoinHandle<()> {
+    spawn_partition_task::<PqV1Source, _, _>(partition_id, deps, "PQv1", move || {
+        let conn = conn.clone();
+        let tpath = tpath.clone();
+        let consumer = consumer.clone();
+        let auth = auth.clone();
+        async move {
+            let (_, raw_token) = build_credentials_with_token(&auth)?;
+            let token_str = raw_token
+                .ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
+            let (scheme, host, _) = parse_endpoint(&conn)?;
+            let endpoint = format!("{}://{}", scheme, host);
+            let pg_id = partition_to_group(partition_id);
+
+            let (client, mut queues) = PqV1Client::connect(
+                &endpoint, &tpath, &consumer, &token_str, &[pg_id],
+            )
+            .await?;
+
+            let rx = queues
+                .remove(&partition_id)
+                .ok_or_else(|| anyhow::anyhow!("No queue for partition {}", partition_id))?;
+
+            Ok(PqV1Source::new(client, rx, partition_id))
         }
     })
 }
@@ -137,58 +146,18 @@ fn spawn_ydb_task(
     partition_id: i64,
     deps: PipelineDeps,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut retry_count = 0u32;
-        let max_retries = 5u32;
-        loop {
-            if deps.token.is_cancelled() {
-                return;
-            }
-
-            let source = match build_credentials(&auth) {
-                Ok(creds) => {
-                    match YdbTopicSource::new(
-                        &conn, &tpath, &consumer, partition_id, creds, disc_ep.as_deref(),
-                    )
-                    .await
-                    {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to create YDB source for partition {}: {}",
-                                partition_id, e
-                            );
-                            break;
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to build credentials: {}", e);
-                    break;
-                }
-            };
-
-            match run_partition_pipeline(
-                source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
-                deps.batch_size, deps.max_linger_ms, deps.token.clone(),
-                partition_id,
+    spawn_partition_task::<YdbTopicSource, _, _>(partition_id, deps, "YDB", move || {
+        let conn = conn.clone();
+        let tpath = tpath.clone();
+        let consumer = consumer.clone();
+        let auth = auth.clone();
+        let disc_ep = disc_ep.clone();
+        async move {
+            let creds = build_credentials(&auth)?;
+            YdbTopicSource::new(
+                &conn, &tpath, &consumer, partition_id, creds, disc_ep.as_deref(),
             )
             .await
-            {
-                Ok(()) => break,
-                Err(e) => {
-                    retry_count += 1;
-                    tracing::error!(
-                        "Partition {} fatal error (retry {}/{}): {}",
-                        partition_id, retry_count, max_retries, e,
-                    );
-                    if retry_count >= max_retries {
-                        tracing::error!("Partition {} exhausted retries.", partition_id);
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                }
-            }
         }
     })
 }
@@ -303,7 +272,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Shared sink
     let sink = ClickHouseSink::new(&config.sink).await?;
-    sink.create_tables(&config.source.parser.settings, &table).await?;
+    sink.create_tables(&config.source.parser.settings, &table, config.sink.recreate_tables).await?;
     sink.verify_tables(&table).await?;
     let sink = Arc::new(sink);
 

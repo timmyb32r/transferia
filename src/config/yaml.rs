@@ -188,6 +188,10 @@ pub struct SchemaConfig {
     /// Optional: custom field name for the raw JSON payload (for DLQ)
     #[serde(default)]
     pub raw_payload_field: Option<String>,
+    /// Optional: column names for the ClickHouse `ORDER BY` clause.
+    /// When empty/omitted, defaults to `ORDER BY tuple()`.
+    #[serde(default)]
+    pub order_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -244,6 +248,11 @@ pub struct SinkConfig {
     /// ClickHouse password (default: empty)
     #[serde(default)]
     pub password: String,
+    /// Opt-in for dev/bench: DROP + recreate tables on startup so schema changes
+    /// (e.g. a column becoming Nullable, or a new ORDER BY) take effect.
+    /// NEVER enable in production — existing data IS LOST.
+    #[serde(default)]
+    pub recreate_tables: bool,
 }
 
 fn default_batch_size() -> usize {
@@ -472,7 +481,7 @@ mod tests {
                 parser: ParserConfig {
                     table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
                     parser_type: "json_parser".into(),
-                    settings: SchemaConfig { columns: vec![], raw_payload_field: None },
+                    settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![] },
                 },
                 discovery_endpoint: None,
                 partition_ids: None,
@@ -485,6 +494,7 @@ mod tests {
                 max_connections: 4,
                 username: "default".into(),
                 password: "".into(),
+                recreate_tables: false,
             },
             middlewares: vec![],
         };

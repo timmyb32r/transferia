@@ -19,7 +19,7 @@ clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
 bytes = "1"
 mimalloc = { version = "0.1", features = ["v2"] }
-chrono = "0.4"
+time = "0.3"
 shellexpand = "3"
 futures-util = "0.3"
 tracing = "0.1"

@@ -13,6 +13,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, LazyLock};
+use time::format_description::well_known::Rfc3339;
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig};
 use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
@@ -353,12 +354,24 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
 /// The `range` is a [`ValidatedStr`] — a type-level witness that the bytes
 /// at `json_buf[range.start..range.end]` have been proven to be valid UTF-8
 /// by simd-json's parse pass. Skipping `from_utf8` saves an O(len) SIMD scan.
+///
+/// # SAFETY
+///
+/// The caller must ensure that `json_buf[range.start..range.end]` is valid UTF-8.
+/// This invariant is upheld by the [`ValidatedStr`] type, which can **only** be
+/// constructed via [`ValidatedStr::from_simd_json_str`]. That method receives a
+/// `&str` from simd-json — a reference that is valid UTF-8 by definition
+/// (`&str` is `#[repr(transparent)]` over `[u8]` with a UTF-8 validity
+/// invariant). The byte range is computed via pointer arithmetic from that `&str`,
+/// so `json_buf[start..end]` IS the exact same memory as the original `&str`.
+///
+/// There is no other public constructor for `ValidatedStr`, and the field is
+/// private to this module. The compiler physically prevents any other code path
+/// from calling this function with arbitrary byte ranges.
 #[inline]
 fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
-    // SAFETY: ValidatedStr can only be constructed from a simd-json `&str`
-    // reference via `from_simd_json_str()`. `&str` is valid UTF-8 by definition,
-    // and the byte range is computed via pointer arithmetic from that reference.
-    // Therefore json_buf[start..end] IS the original validated &str content.
+    // SAFETY: see doc comment above — ValidatedStr acts as a type-level
+    // witness that the byte range has already been UTF-8-validated by simd-json.
     unsafe { std::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
 }
 
@@ -622,14 +635,15 @@ impl JsonParser {
         &self,
         dlq_payloads: &[(Bytes, DlqReason)],
         partition_id: i64,
-        now: chrono::DateTime<chrono::Utc>,
+        now: time::OffsetDateTime,
     ) -> anyhow::Result<ArrowBatch> {
         let n = dlq_payloads.len();
         let mut raw_builder = StringBuilder::with_capacity(n, n * 64);
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
         let mut pid_builder = Int64Builder::with_capacity(n);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
-        let ts = now.to_rfc3339();
+        let ts = now.format(&Rfc3339)
+            .map_err(|e| anyhow::anyhow!("time format: {}", e))?;
 
         for (raw_bytes, reason) in dlq_payloads {
             raw_builder.append_value(&String::from_utf8_lossy(raw_bytes));
@@ -663,7 +677,7 @@ pub struct ParserWorkspace {
     /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
     arrays: Vec<ArrayRef>,
     /// Cached timestamp + Instant for coarse-grained Utc::now() (1ms resolution).
-    cached_ts: Option<(chrono::DateTime<chrono::Utc>, std::time::Instant)>,
+    cached_ts: Option<(time::OffsetDateTime, std::time::Instant)>,
 }
 
 impl Default for ParserWorkspace {
@@ -684,14 +698,14 @@ impl ParserWorkspace {
         }
     }
 
-    fn now(&mut self) -> chrono::DateTime<chrono::Utc> {
+    fn now(&mut self) -> time::OffsetDateTime {
         let now_inst = std::time::Instant::now();
         if let Some((ts, last)) = &self.cached_ts {
             if now_inst.duration_since(*last).as_millis() < 1 {
                 return *ts;
             }
         }
-        let ts = chrono::Utc::now();
+        let ts = time::OffsetDateTime::now_utc();
         self.cached_ts = Some((ts, now_inst));
         ts
     }
