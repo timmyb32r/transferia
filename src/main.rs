@@ -29,25 +29,30 @@ struct Cli {
     worker_index: u32,
 }
 
-fn spawn_pqv1_task(
-    conn: String,
-    tpath: String,
-    consumer: String,
-    database_str: String,
-    auth: ydb_ch_replicator::config::yaml::AuthConfig,
-    partition_id: i64,
+/// Shared dependencies handed to every partition task. Cheap to clone (Arcs + token).
+#[derive(Clone)]
+struct PipelineDeps {
     parser: Arc<JsonParser>,
     mw: Arc<Vec<Box<dyn Middleware>>>,
     snk: Arc<ClickHouseSink>,
     batch_size: usize,
     max_linger_ms: u64,
     token: CancellationToken,
+}
+
+fn spawn_pqv1_task(
+    conn: String,
+    tpath: String,
+    consumer: String,
+    auth: ydb_ch_replicator::config::yaml::AuthConfig,
+    partition_id: i64,
+    deps: PipelineDeps,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut retry_count = 0u32;
         let max_retries = 5u32;
         loop {
-            if token.is_cancelled() {
+            if deps.token.is_cancelled() {
                 return;
             }
 
@@ -74,16 +79,10 @@ fn spawn_pqv1_task(
                 }
             };
             let endpoint = format!("{}://{}", scheme, host);
-            let database = &database_str;
             let pg_id = partition_to_group(partition_id);
 
-            tracing::info!(
-                "[PQV1-DIAG] spawn_pqv1_task: endpoint={} database={} topic={} consumer={} partition={}",
-                endpoint, database, tpath, consumer, partition_id
-            );
-
             let (client, mut queues) = match PqV1Client::connect(
-                &endpoint, &database, &tpath, &consumer, &token_str, &[pg_id],
+                &endpoint, &tpath, &consumer, &token_str, &[pg_id],
             )
             .await
             {
@@ -105,8 +104,8 @@ fn spawn_pqv1_task(
             let source = PqV1Source::new(client, rx, partition_id);
 
             match run_partition_pipeline(
-                source, parser.clone(), mw.clone(), snk.clone(),
-                batch_size, max_linger_ms, token.clone(),
+                source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
+                deps.batch_size, deps.max_linger_ms, deps.token.clone(),
             )
             .await
             {
@@ -135,18 +134,13 @@ fn spawn_ydb_task(
     auth: ydb_ch_replicator::config::yaml::AuthConfig,
     disc_ep: Option<String>,
     partition_id: i64,
-    parser: Arc<JsonParser>,
-    mw: Arc<Vec<Box<dyn Middleware>>>,
-    snk: Arc<ClickHouseSink>,
-    batch_size: usize,
-    max_linger_ms: u64,
-    token: CancellationToken,
+    deps: PipelineDeps,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut retry_count = 0u32;
         let max_retries = 5u32;
         loop {
-            if token.is_cancelled() {
+            if deps.token.is_cancelled() {
                 return;
             }
 
@@ -174,8 +168,8 @@ fn spawn_ydb_task(
             };
 
             match run_partition_pipeline(
-                source, parser.clone(), mw.clone(), snk.clone(),
-                batch_size, max_linger_ms, token.clone(),
+                source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
+                deps.batch_size, deps.max_linger_ms, deps.token.clone(),
             )
             .await
             {
@@ -225,9 +219,9 @@ async fn main() -> anyhow::Result<()> {
                 .copied()
                 .collect()
         } else {
-            let (scheme, host, database) = parse_endpoint(&config.source.connection_string)?;
+            let (scheme, host, _) = parse_endpoint(&config.source.connection_string)?;
             let endpoint = format!("{}://{}", scheme, host);
-            match PqV1Client::describe_topic(&endpoint, &database, &config.source.topic_path, &token)
+            match PqV1Client::describe_topic(&endpoint, &config.source.topic_path, &token)
                 .await
             {
                 Ok(count) => {
@@ -279,8 +273,14 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("My partitions: {:?}", my_partitions);
 
-    // 3. Shared parser
-    let parser = Arc::new(JsonParser::new(&config.schema)?);
+    // 3. Shared parser — resolves the destination table name and stamps it into batches.
+    let table: Arc<str> = config
+        .source
+        .parser
+        .resolve_table_name(&config.source.topic_path)?
+        .into();
+    tracing::info!("Destination table: {}", table);
+    let parser = Arc::new(JsonParser::new(&config.source.parser.settings, table.clone())?);
 
     // 4. Middlewares
     let middlewares: Vec<Box<dyn Middleware>> = config
@@ -301,8 +301,8 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Shared sink
     let sink = ClickHouseSink::new(&config.sink).await?;
-    sink.create_tables(&config.schema).await?;
-    sink.verify_tables().await?;
+    sink.create_tables(&config.source.parser.settings, &table).await?;
+    sink.verify_tables(&table).await?;
     let sink = Arc::new(sink);
 
     // 6. Graceful shutdown
@@ -315,8 +315,14 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // 7. Spawn tasks — PQv1 or YDB
-    let batch_size = config.sink.batch_size;
-    let max_linger_ms = config.sink.max_linger_ms;
+    let deps = PipelineDeps {
+        parser,
+        mw: middlewares,
+        snk: sink,
+        batch_size: config.sink.batch_size,
+        max_linger_ms: config.sink.max_linger_ms,
+        token: cancel_token.clone(),
+    };
     let mut handles = Vec::new();
 
     if is_pqv1 {
@@ -325,15 +331,9 @@ async fn main() -> anyhow::Result<()> {
                 config.source.connection_string.clone(),
                 config.source.topic_path.clone(),
                 config.source.consumer_name.clone(),
-                config.source.database.clone(),
                 config.source.auth.clone(),
                 partition_id,
-                parser.clone(),
-                middlewares.clone(),
-                sink.clone(),
-                batch_size,
-                max_linger_ms,
-                cancel_token.clone(),
+                deps.clone(),
             ));
         }
     } else {
@@ -345,12 +345,7 @@ async fn main() -> anyhow::Result<()> {
                 config.source.auth.clone(),
                 config.source.discovery_endpoint.clone(),
                 partition_id,
-                parser.clone(),
-                middlewares.clone(),
-                sink.clone(),
-                batch_size,
-                max_linger_ms,
-                cancel_token.clone(),
+                deps.clone(),
             ));
         }
     }

@@ -1,5 +1,7 @@
 use std::sync::atomic::AtomicU64;
 
+// Named `Ydb` (not `ydb`) to mirror the proto package `Ydb` and its generated paths.
+#[allow(non_snake_case)]
 pub mod Ydb {
     // Rust module names MUST be lowercase to match proto package names:
     // package Ydb → include!("ydb.rs")

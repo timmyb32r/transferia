@@ -1,10 +1,10 @@
 use std::future::Future;
+use std::sync::Arc;
 
+use arrow::datatypes::{DataType, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::StreamExt;
-
-use arrow::datatypes::{DataType, TimeUnit};
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig, SinkConfig};
 use crate::pipeline::sink::Sink;
@@ -37,12 +37,14 @@ fn arrow_to_clickhouse(dt: &DataType) -> anyhow::Result<String> {
     })
 }
 
+/// Resolve the concrete target table name: `<table>` or `<table>.dlq`.
+#[inline]
+fn target_table(table: &str, dlq: bool) -> String {
+    if dlq { format!("{table}.dlq") } else { table.to_string() }
+}
+
 pub struct ClickHouseSink {
     pool: ConnectionPool<ArrowFormat>,
-    insert_main: String,
-    insert_dlq: String,
-    table_name: String,
-    dlq_table_name: String,
 }
 
 impl ClickHouseSink {
@@ -64,24 +66,20 @@ impl ClickHouseSink {
                 .map_err(|e| anyhow::anyhow!("ClickHouse connection failed: {}", e))?;
         }
         tracing::info!("Connected to ClickHouse at {} (pool: {})", config.connection_string, config.max_connections);
-        Ok(Self {
-            pool,
-            insert_main: format!("INSERT INTO {} VALUES", config.table_name),
-            insert_dlq: format!("INSERT INTO {} VALUES", config.dlq_table_name),
-            table_name: config.table_name.clone(),
-            dlq_table_name: config.dlq_table_name.clone(),
-        })
+        Ok(Self { pool })
     }
 
-    /// Create the main and DLQ tables if they don't exist.
+    /// Create the main (`table`) and DLQ (`table.dlq`) tables if they don't exist.
     ///
-    /// The main table schema is derived from `schema.columns` (name + arrow_type,
-    /// wrapped in `Nullable(...)` when the column is nullable). The DLQ table schema
-    /// is fixed and MUST stay in sync with `parser::json_parser::DLQ_SCHEMA`
-    /// (raw_bytes, error_message, partition_id, timestamp).
-    pub async fn create_tables(&self, schema: &SchemaConfig) -> anyhow::Result<()> {
+    /// The main schema is derived from `settings.columns` (name + arrow_type, wrapped in
+    /// `Nullable(...)` for nullable columns). The DLQ schema is fixed and MUST stay in sync
+    /// with `parser::json_parser::DLQ_SCHEMA` (raw_bytes, error_message, partition_id, timestamp).
+    pub async fn create_tables(&self, settings: &SchemaConfig, table: &str) -> anyhow::Result<()> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for create_tables: {}", e))?;
+
+        let main = target_table(table, false);
+        let dlq = target_table(table, true);
 
         // Opt-in for dev/bench: drop existing tables so schema changes (e.g. a column
         // becoming Nullable) actually take effect. CREATE TABLE IF NOT EXISTS alone
@@ -90,15 +88,15 @@ impl ClickHouseSink {
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         if recreate {
-            for table in [&self.table_name, &self.dlq_table_name] {
-                tracing::warn!("RECREATE_TABLES set — dropping table '{}'", table);
-                client.execute(&format!("DROP TABLE IF EXISTS {}", table), None).await
-                    .map_err(|e| anyhow::anyhow!("Failed to drop table '{}': {}", table, e))?;
+            for t in [&main, &dlq] {
+                tracing::warn!("RECREATE_TABLES set — dropping table '{}'", t);
+                client.execute(&format!("DROP TABLE IF EXISTS `{}`", t), None).await
+                    .map_err(|e| anyhow::anyhow!("Failed to drop table '{}': {}", t, e))?;
             }
         }
 
-        let mut cols = Vec::with_capacity(schema.columns.len());
-        for c in &schema.columns {
+        let mut cols = Vec::with_capacity(settings.columns.len());
+        for c in &settings.columns {
             let dt = parse_arrow_type(&c.arrow_type)?;
             let mut ty = arrow_to_clickhouse(&dt)?;
             if c.nullable {
@@ -107,38 +105,38 @@ impl ClickHouseSink {
             cols.push(format!("`{}` {}", c.column_name, ty));
         }
         let main_ddl = format!(
-            "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE = MergeTree ORDER BY tuple()",
-            self.table_name, cols.join(", "),
+            "CREATE TABLE IF NOT EXISTS `{}` ({}) ENGINE = MergeTree ORDER BY tuple()",
+            main, cols.join(", "),
         );
         client.execute(&main_ddl, None).await
-            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", self.table_name, e))?;
-        tracing::info!("Ensured table '{}'", self.table_name);
+            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", main, e))?;
+        tracing::info!("Ensured table '{}'", main);
 
         // DLQ schema is fixed — see parser::json_parser::DLQ_SCHEMA.
         let dlq_ddl = format!(
-            "CREATE TABLE IF NOT EXISTS {} (\
+            "CREATE TABLE IF NOT EXISTS `{}` (\
                 `raw_bytes` String, `error_message` String, \
                 `partition_id` Int64, `timestamp` String\
             ) ENGINE = MergeTree ORDER BY tuple()",
-            self.dlq_table_name,
+            dlq,
         );
         client.execute(&dlq_ddl, None).await
-            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", self.dlq_table_name, e))?;
-        tracing::info!("Ensured table '{}'", self.dlq_table_name);
+            .map_err(|e| anyhow::anyhow!("Failed to create table '{}': {}", dlq, e))?;
+        tracing::info!("Ensured table '{}'", dlq);
 
         Ok(())
     }
 
-    pub async fn verify_tables(&self) -> anyhow::Result<()> {
+    pub async fn verify_tables(&self, table: &str) -> anyhow::Result<()> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for verify: {}", e))?;
         // NOTE: `EXISTS TABLE` does NOT error on a missing table — it returns 0/1, so it
         // can't be used for verification via execute(). `DESCRIBE TABLE` raises
         // UnknownTable server-side when the table is absent, which surfaces as an error here.
-        for table in [&self.table_name, &self.dlq_table_name] {
-            client.execute(&format!("DESCRIBE TABLE {}", table), None).await
-                .map_err(|e| anyhow::anyhow!("Table '{}' not found: {}", table, e))?;
-            tracing::info!("Table '{}' verified", table);
+        for t in [target_table(table, false), target_table(table, true)] {
+            client.execute(&format!("DESCRIBE TABLE `{}`", t), None).await
+                .map_err(|e| anyhow::anyhow!("Table '{}' not found: {}", t, e))?;
+            tracing::info!("Table '{}' verified", t);
         }
         Ok(())
     }
@@ -147,10 +145,10 @@ impl ClickHouseSink {
 impl Sink for ClickHouseSink {
     fn write_batch(&self, batch: &ArrowBatch) -> impl Future<Output = anyhow::Result<()>> + Send {
         async fn do_write(slf: &ClickHouseSink, batch: &ArrowBatch) -> anyhow::Result<()> {
-            let query = if batch.meta.dlq_flag { &slf.insert_dlq } else { &slf.insert_main };
+            let query = format!("INSERT INTO `{}` VALUES", target_table(&batch.meta.table, batch.meta.dlq_flag));
             let client = slf.pool.get().await
                 .map_err(|e| anyhow::anyhow!("ClickHouse pool get: {}", e))?;
-            let mut stream = client.insert(query, batch.batch.clone(), None).await
+            let mut stream = client.insert(&query, batch.batch.clone(), None).await
                 .map_err(|e| anyhow::anyhow!("ClickHouse insert failed: {}", e))?;
             while let Some(item) = stream.next().await {
                 item.map_err(|e| anyhow::anyhow!("ClickHouse insert stream error: {}", e))?;
@@ -164,16 +162,17 @@ impl Sink for ClickHouseSink {
     fn write_batches(
         &self,
         batches: Vec<RecordBatch>,
+        table: Arc<str>,
         dlq_flag: bool,
     ) -> impl Future<Output = anyhow::Result<()>> + Send {
-        async fn do_write_many(slf: &ClickHouseSink, batches: Vec<RecordBatch>, dlq_flag: bool) -> anyhow::Result<()> {
+        async fn do_write_many(slf: &ClickHouseSink, batches: Vec<RecordBatch>, table: Arc<str>, dlq_flag: bool) -> anyhow::Result<()> {
             if batches.is_empty() { return Ok(()); }
-            let query = if dlq_flag { &slf.insert_dlq } else { &slf.insert_main };
+            let query = format!("INSERT INTO `{}` VALUES", target_table(&table, dlq_flag));
             let client = slf.pool.get().await
                 .map_err(|e| anyhow::anyhow!("ClickHouse pool get: {}", e))?;
             let total: usize = batches.iter().map(|b| b.num_rows()).sum();
             let n = batches.len();
-            let mut stream = client.insert_many(query, batches, None).await
+            let mut stream = client.insert_many(&query, batches, None).await
                 .map_err(|e| anyhow::anyhow!("ClickHouse insert_many failed: {}", e))?;
             while let Some(item) = stream.next().await {
                 item.map_err(|e| anyhow::anyhow!("ClickHouse insert_many error: {}", e))?;
@@ -181,6 +180,6 @@ impl Sink for ClickHouseSink {
             tracing::debug!("Inserted {} rows via insert_many ({} blocks)", total, n);
             Ok(())
         }
-        do_write_many(self, batches, dlq_flag)
+        do_write_many(self, batches, table, dlq_flag)
     }
 }

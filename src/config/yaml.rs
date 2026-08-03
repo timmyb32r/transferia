@@ -1,11 +1,14 @@
 use arrow::datatypes::{DataType, TimeUnit};
 use serde::Deserialize;
 
+/// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
+/// Always `/Root` in our deployment — hardcoded rather than configured.
+pub const YDB_DATABASE: &str = "/Root";
+
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub source: SourceConfig,
-    pub schema: SchemaConfig,
     pub sink: SinkConfig,
     #[serde(default)]
     pub middlewares: Vec<MiddlewareConfig>,
@@ -26,9 +29,15 @@ impl Config {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
-        if self.schema.columns.is_empty() {
-            anyhow::bail!("schema.columns must not be empty");
+        let parser = &self.source.parser;
+        if parser.parser_type != "json_parser" {
+            anyhow::bail!("source.parser.parser_type '{}' unsupported (only 'json_parser')", parser.parser_type);
         }
+        if parser.settings.columns.is_empty() {
+            anyhow::bail!("source.parser.settings.columns must not be empty");
+        }
+        // Validate table naming (also surfaces a missing name for from_config early).
+        parser.resolve_table_name(&self.source.topic_path)?;
         if self.source.connection_string.is_empty() {
             anyhow::bail!("source.connection_string must not be empty");
         }
@@ -44,14 +53,8 @@ impl Config {
         if self.sink.database.is_empty() {
             anyhow::bail!("sink.database must not be empty");
         }
-        if self.sink.table_name.is_empty() {
-            anyhow::bail!("sink.table_name must not be empty");
-        }
-        if self.sink.dlq_table_name.is_empty() {
-            anyhow::bail!("sink.dlq_table_name must not be empty");
-        }
         // Validate arrow types for all column mappings
-        for col in &self.schema.columns {
+        for col in &parser.settings.columns {
             parse_arrow_type(&col.arrow_type)
                 .map_err(|e| anyhow::anyhow!("Column '{}' has invalid arrow_type: {}", col.column_name, e))?;
         }
@@ -65,10 +68,10 @@ impl Config {
                     if mw.value.as_ref().is_none_or(|v| v.is_empty()) {
                         anyhow::bail!("middlewares[{}]: filter requires non-empty 'value'", i);
                     }
-                    let col = self.schema.columns.iter()
+                    let col = parser.settings.columns.iter()
                         .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
                         .ok_or_else(|| anyhow::anyhow!(
-                            "middlewares[{}]: filter field '{}' not found in schema.columns",
+                            "middlewares[{}]: filter field '{}' not found in parser columns",
                             i, mw.field.as_deref().unwrap_or("")
                         ))?;
                     let dt = parse_arrow_type(&col.arrow_type)?;
@@ -104,10 +107,8 @@ pub struct SourceConfig {
     pub consumer_name: String,
     #[serde(default)]
     pub auth: AuthConfig,
-    /// YDB database for metadata header (x-ydb-database). Defaults to "/Root".
-    /// NOTE: this is NOT the topic path — it's the YDB cluster database for discovery/routing.
-    #[serde(default = "default_database")]
-    pub database: String,
+    /// Parser configuration: table naming + concrete parser settings.
+    pub parser: ParserConfig,
     /// Optional: static discovery endpoint URI (e.g. "grpcs://sas.logbroker.yandex.net:2135").
     /// When set, bypasses YDB's normal endpoint discovery and routes all gRPC services
     /// through this single endpoint — needed for Logbroker-backed YDB topics.
@@ -119,12 +120,45 @@ pub struct SourceConfig {
     pub partition_ids: Option<Vec<i64>>,
 }
 
-fn default_database() -> String {
-    "/Root".to_string()
-}
-
 fn default_source_type() -> String {
     "topic".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Parser configuration (table naming + concrete parser settings)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct ParserConfig {
+    /// How the destination table name is chosen.
+    pub table_naming: TableNaming,
+    /// Concrete parser kind (currently only "json_parser").
+    pub parser_type: String,
+    /// Parser-specific settings (for json_parser: column mappings).
+    pub settings: SchemaConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TableNaming {
+    /// "from_config" — use `name`; "from_topic" — use the topic path verbatim.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// Explicit table name; required when `kind == "from_config"`.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+impl ParserConfig {
+    /// Resolve the destination table name from the naming strategy.
+    /// `from_config` → configured `name`; `from_topic` → `topic_path` as-is.
+    pub fn resolve_table_name(&self, topic_path: &str) -> anyhow::Result<String> {
+        match self.table_naming.kind.as_str() {
+            "from_config" => self.table_naming.name.clone().filter(|n| !n.is_empty())
+                .ok_or_else(|| anyhow::anyhow!("table_naming.name is required for type 'from_config'")),
+            "from_topic" => Ok(topic_path.to_string()),
+            other => anyhow::bail!("unknown table_naming.type '{}' (use from_config | from_topic)", other),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -195,10 +229,6 @@ pub struct SinkConfig {
     pub connection_string: String,
     /// ClickHouse database name
     pub database: String,
-    /// Main target table
-    pub table_name: String,
-    /// Dead letter queue table
-    pub dlq_table_name: String,
     /// Rows per batch insert (default: 10000)
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
@@ -439,19 +469,17 @@ mod tests {
                 topic_path: "/test".into(),
                 consumer_name: "c".into(),
                 auth: AuthConfig::default(),
-                database: "/Root".into(),
+                parser: ParserConfig {
+                    table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
+                    parser_type: "json_parser".into(),
+                    settings: SchemaConfig { columns: vec![], raw_payload_field: None },
+                },
                 discovery_endpoint: None,
                 partition_ids: None,
-            },
-            schema: SchemaConfig {
-                columns: vec![],
-                raw_payload_field: None,
             },
             sink: SinkConfig {
                 connection_string: "localhost:9000".into(),
                 database: "default".into(),
-                table_name: "events".into(),
-                dlq_table_name: "events_dlq".into(),
                 batch_size: 1000,
                 max_linger_ms: 500,
                 max_connections: 4,

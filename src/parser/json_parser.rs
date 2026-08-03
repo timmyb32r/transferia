@@ -542,6 +542,8 @@ pub struct JsonParser {
     kinds: Vec<ColumnKind>,
     arrow_schema: Arc<Schema>,
     mode: ParseMode,
+    /// Base destination table name, stamped into every produced batch's meta.
+    table: Arc<str>,
     /// Cached per-column DataType (avoids double parse_arrow_type).
     _data_types: Vec<DataType>,
 }
@@ -553,7 +555,7 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
-    pub fn new(config: &SchemaConfig) -> anyhow::Result<Self> {
+    pub fn new(config: &SchemaConfig, table: Arc<str>) -> anyhow::Result<Self> {
         let n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
@@ -602,7 +604,7 @@ impl JsonParser {
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, mode, _data_types: data_types })
+        Ok(Self { mappings, kinds, arrow_schema, mode, table, _data_types: data_types })
     }
 
     #[inline]
@@ -644,7 +646,7 @@ impl JsonParser {
 
         Ok(ArrowBatch {
             batch,
-            meta: BatchMeta { dlq_flag: true, batch_id: crate::batch_id() },
+            meta: BatchMeta { dlq_flag: true, batch_id: crate::batch_id(), table: self.table.clone() },
         })
     }
 }
@@ -782,7 +784,7 @@ impl JsonParser {
 
         let valid_batch = ArrowBatch {
             batch,
-            meta: BatchMeta { dlq_flag: false, batch_id: crate::batch_id() },
+            meta: BatchMeta { dlq_flag: false, batch_id: crate::batch_id(), table: self.table.clone() },
         };
 
         let dlq_batch = if !ws.dlq_payloads.is_empty() {

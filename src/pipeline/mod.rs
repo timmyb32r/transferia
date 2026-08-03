@@ -285,7 +285,8 @@ pub async fn run_partition_pipeline(
                 }
             }
 
-            if item.valid_batch.batch.num_rows() == 0 {
+            let ArrowBatch { batch, meta } = item.valid_batch;
+            if batch.num_rows() == 0 {
                 continue;
             }
 
@@ -294,7 +295,7 @@ pub async fn run_partition_pipeline(
             }
 
             let acc = accumulator.as_mut().unwrap();
-            if let Some(flush) = acc.push(item.valid_batch.batch, item.commit_marker) {
+            if let Some(flush) = acc.push(batch, meta.table, item.commit_marker) {
                 if flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await.is_err() {
                     // Flush failed — clear accumulator state to avoid churn.
                     // Data is replayed from YDB on restart (at-least-once).
@@ -325,16 +326,21 @@ struct BatchAccumulator {
     total_rows: usize,
     batch_size: usize,
     window_start: Option<Instant>,
+    /// Destination table for this accumulation window (one topic → one table).
+    table: Option<Arc<str>>,
 }
 
 impl BatchAccumulator {
     fn new(batch_size: usize) -> Self {
-        Self { batches: Vec::new(), markers: Vec::new(), total_rows: 0, batch_size, window_start: None }
+        Self { batches: Vec::new(), markers: Vec::new(), total_rows: 0, batch_size, window_start: None, table: None }
     }
 
-    fn push(&mut self, batch: RecordBatch, marker: Option<CommitMarker>) -> Option<FlushBatch> {
+    fn push(&mut self, batch: RecordBatch, table: Arc<str>, marker: Option<CommitMarker>) -> Option<FlushBatch> {
         if self.window_start.is_none() {
             self.window_start = Some(Instant::now());
+        }
+        if self.table.is_none() {
+            self.table = Some(table);
         }
         self.total_rows += batch.num_rows();
         self.batches.push(batch);
@@ -352,9 +358,11 @@ impl BatchAccumulator {
         if self.total_rows == 0 {
             return None;
         }
+        // total_rows > 0 guarantees at least one push happened, so `table` is set.
+        let table = self.table.clone().expect("table set when rows > 0");
         let batches = std::mem::take(&mut self.batches);
         let markers = std::mem::take(&mut self.markers);
-        Some(FlushBatch { batches, markers })
+        Some(FlushBatch { batches, markers, table })
     }
 
     fn clear(&mut self) {
@@ -362,12 +370,14 @@ impl BatchAccumulator {
         self.markers.clear();
         self.total_rows = 0;
         self.window_start = None;
+        self.table = None;
     }
 }
 
 struct FlushBatch {
     batches: Vec<RecordBatch>,
     markers: Vec<CommitMarker>,
+    table: Arc<str>,
 }
 
 // ---------------------------------------------------------------------------
@@ -379,9 +389,9 @@ async fn flush_to_sink_and_ack(
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<(), ()> {
-    let markers = flush.markers;
+    let FlushBatch { batches, markers, table } = flush;
     if !markers.is_empty() {
-        if let Err(e) = sink.write_batches(flush.batches, false).await {
+        if let Err(e) = sink.write_batches(batches, table, false).await {
             tracing::error!("Writer: flush error: {}", e);
             return Err(());
         }
