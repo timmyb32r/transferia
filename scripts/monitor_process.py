@@ -89,7 +89,13 @@ def parse_elapsed(elapsed: str) -> int:
     parts = elapsed.split("-")
     days = int(parts[0]) if len(parts) == 2 else 0
     rest = parts[-1]
-    h, m, s = rest.split(":")
+    ts = rest.split(":")
+    if len(ts) == 3:
+        h, m, s = ts
+    elif len(ts) == 2:
+        h, m, s = 0, ts[0], ts[1]
+    else:
+        return 0
     return days * 86400 + int(h) * 3600 + int(m) * 60 + int(s)
 
 
