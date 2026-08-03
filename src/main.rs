@@ -192,30 +192,16 @@ async fn main() -> anyhow::Result<()> {
         } else {
             let (scheme, host, _) = parse_endpoint(&config.source.connection_string)?;
             let endpoint = format!("{}://{}", scheme, host);
-            match PqV1Client::describe_topic(&endpoint, &config.source.topic_path, &token)
-                .await
-            {
-                Ok(count) => {
-                    let all: Vec<i64> = (0..count as i64).collect();
-                    all.into_iter()
-                        .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
-                        .collect()
-                }
-                Err(e) => {
-                    tracing::warn!("DescribeTopic failed ({}), trying static partition_ids", e);
-                    if let Some(ref static_ids) = config.source.partition_ids {
-                        static_ids
-                            .iter()
-                            .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
-                            .copied()
-                            .collect()
-                    } else {
-                        anyhow::bail!(
-                            "PQv1: DescribeTopic failed and no partition_ids in config"
-                        );
-                    }
-                }
-            }
+            PqV1Client::discover_partitions(
+                &endpoint,
+                &config.source.topic_path,
+                &config.source.consumer_name,
+                &token,
+            )
+            .await?
+            .into_iter()
+            .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
+            .collect()
         }
     } else {
         let discovery_creds = build_credentials(&config.source.auth)?;

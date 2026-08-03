@@ -358,6 +358,131 @@ impl PqV1Client {
         ))
     }
 
+    /// Discover available partition IDs by doing a short-lived handshake with the
+    /// PQv1 proxy. Opens a bidi stream, sends `InitRequest`, collects partition IDs
+    /// from `Assigned` server messages, then closes the connection.
+    ///
+    /// Used when `partition_ids` is omitted from the source config — the caller gets
+    /// the full partition list and then distributes them across workers via modulo.
+    pub async fn discover_partitions(
+        endpoint: &str,
+        topic_path: &str,
+        consumer: &str,
+        token: &str,
+    ) -> anyhow::Result<Vec<i64>> {
+        let (scheme, main_host, _) = parse_endpoint(endpoint)?;
+        let main_uri = http_uri(&scheme, &main_host)?;
+
+        // Step 1: proxy discovery
+        let proxy = match discover_proxy(&main_uri, token).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("Proxy discovery failed: {}. Using main endpoint.", e);
+                main_host
+            }
+        };
+        let target_uri = http_uri(&scheme, &proxy)?;
+        tracing::info!("PQv1 discover_partitions: proxy={} topic={}", proxy, topic_path);
+
+        // Step 2: open bidi stream, send InitRequest
+        let h2_service = connect_http2_prior_knowledge(&target_uri).await?;
+        let (request_tx, request_rx) = mpsc::unbounded_channel();
+        request_tx.send(MigrationStreamingReadClientMessage {
+            request: Some(migration_streaming_read_client_message::Request::InitRequest(InitRequest {
+                topics_read_settings: vec![TopicReadSettings {
+                    topic: topic_path.to_string(),
+                    partition_group_ids: vec![],
+                    start_from_written_at_ms: 0,
+                }],
+                consumer: consumer.to_string(),
+                read_only_original: false,
+                max_lag_duration_ms: 0,
+                start_from_written_at_ms: 0,
+                max_supported_block_format_version: 0,
+                max_meta_cache_size: 0,
+                read_params: Some(ReadParams {
+                    max_read_messages_count: 0,
+                    max_read_size: 1048576,
+                }),
+                session_id: String::new(),
+                connection_attempt: 0,
+                state: None,
+                idle_timeout_ms: 0,
+                ranges_mode: false,
+            })),
+            token: token.as_bytes().to_vec(),
+        })?;
+
+        let mut req = Request::new(RequestStream { rx: request_rx });
+        set_ydb_headers(req.metadata_mut(), token);
+
+        let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
+            .max_decoding_message_size(MAX_MESSAGE_SIZE)
+            .max_encoding_message_size(MAX_MESSAGE_SIZE);
+        grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {}", e))?;
+        let path = tonic::codegen::http::uri::PathAndQuery::from_static(
+            "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
+        );
+        let codec = tonic_prost::ProstCodec::<
+            MigrationStreamingReadClientMessage,
+            MigrationStreamingReadServerMessage,
+        >::default();
+        let mut stream = grpc
+            .streaming(req, path, codec)
+            .await
+            .map_err(|e| anyhow!("MigrationStreamingRead failed: {}", e))?
+            .into_inner();
+
+        // Step 3: collect Assigned partition IDs
+        let mut partition_ids: Vec<i64> = Vec::new();
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(30);
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!("discover_partitions: timed out waiting for Assigned messages");
+            }
+            let msg = match stream.message().await {
+                Ok(Some(m)) => m,
+                Ok(None) => break,
+                Err(e) => anyhow::bail!("discover_partitions stream error: {}", e),
+            };
+            if msg.status != 0 && msg.status != YDB_STATUS_SUCCESS {
+                anyhow::bail!(
+                    "discover_partitions: server status={}, issues={:?}",
+                    msg.status,
+                    msg.issues
+                );
+            }
+            match msg.response {
+                Some(migration_streaming_read_server_message::Response::InitResponse(r)) => {
+                    tracing::info!("discover_partitions: session={}", r.session_id);
+                    let _ = request_tx.send(read_request());
+                }
+                Some(migration_streaming_read_server_message::Response::Assigned(a)) => {
+                    let pid = a.partition as i64;
+                    tracing::debug!("discover_partitions: found partition={}", pid);
+                    partition_ids.push(pid);
+                }
+                // Once we start getting DataBatch we've seen all Assigned messages
+                Some(migration_streaming_read_server_message::Response::DataBatch(_)) => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        if partition_ids.is_empty() {
+            anyhow::bail!("discover_partitions: no partitions discovered");
+        }
+        partition_ids.sort_unstable();
+        tracing::info!(
+            "discover_partitions: found {} partitions: {:?}",
+            partition_ids.len(),
+            partition_ids,
+        );
+        Ok(partition_ids)
+    }
+
     pub async fn commit(&self, _partition_id: i64, cookie: CommitCookie) -> anyhow::Result<()> {
         let _ = self.inner.request_tx.send(MigrationStreamingReadClientMessage {
             request: Some(migration_streaming_read_client_message::Request::Commit(
