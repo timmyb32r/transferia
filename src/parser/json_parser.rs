@@ -15,7 +15,7 @@ use std::fmt;
 use std::sync::{Arc, LazyLock};
 use time::format_description::well_known::Rfc3339;
 
-use crate::config::yaml::{parse_arrow_type, SchemaConfig};
+use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
 use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
 use crate::types::message::Message;
 
@@ -559,6 +559,8 @@ pub struct JsonParser {
     table: Arc<str>,
     /// Cached per-column DataType (avoids double parse_arrow_type).
     _data_types: Vec<DataType>,
+    /// How to split incoming message bytes into individual JSON objects.
+    chunk_splitter: ChunkSplitter,
 }
 
 struct ColumnMappingExt {
@@ -617,7 +619,7 @@ impl JsonParser {
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, mode, table, _data_types: data_types })
+        Ok(Self { mappings, kinds, arrow_schema, mode, table, _data_types: data_types, chunk_splitter: config.chunk_splitter })
     }
 
     #[inline]
@@ -722,12 +724,20 @@ impl JsonParser {
         partition_id: i64,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
-        let n_msgs = messages.len();
         let now = ws.now();
+
+        // Pre-count rows for exact builder pre-allocation.
+        let n_rows: usize = match self.chunk_splitter {
+            ChunkSplitter::NewLine => messages.iter()
+                .flat_map(|msg| msg.value.split(|&b| b == b'\n'))
+                .filter(|line| !line.is_empty())
+                .count(),
+            ChunkSplitter::NoSplit => messages.len(),
+        };
 
         ws.builders.clear();
         for &k in &self.kinds {
-            ws.builders.push(make_builder(k, n_msgs));
+            ws.builders.push(make_builder(k, n_rows));
         }
 
         ws.dlq_payloads.clear();
@@ -735,26 +745,48 @@ impl JsonParser {
         match &self.mode {
             ParseMode::AllRootField(info) => {
                 let n_cols = info.index.len();
-
-                // Split borrows for simultaneous mutable access to different fields
                 let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads, .. } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
 
-                for mut msg in messages {
-                    typed_scratch.fill(TypedScratch::Empty);
-
-                    match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
-                        Ok(true) => {
-                            for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
-                                append_typed(builder, s, json_buf);
+                match self.chunk_splitter {
+                    ChunkSplitter::NewLine => {
+                        for msg in messages {
+                            for line in msg.value.split(|&b| b == b'\n') {
+                                if line.is_empty() { continue; }
+                                typed_scratch.fill(TypedScratch::Empty);
+                                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
+                                    Ok(true) => {
+                                        for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
+                                            append_typed(builder, s, json_buf);
+                                        }
+                                    }
+                                    Ok(false) => {
+                                        dlq_payloads.push((Bytes::copy_from_slice(line), DlqReason::ExtractionFailed));
+                                    }
+                                    Err(_e) => {
+                                        dlq_payloads.push((Bytes::copy_from_slice(line), DlqReason::JsonParse));
+                                    }
+                                }
                             }
                         }
-                        Ok(false) => {
-                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
-                        }
-                        Err(_e) => {
-                            dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
+                    }
+                    ChunkSplitter::NoSplit => {
+                        for mut msg in messages {
+                            typed_scratch.fill(TypedScratch::Empty);
+                            match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
+                                Ok(true) => {
+                                    for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
+                                        append_typed(builder, s, json_buf);
+                                    }
+                                }
+                                Ok(false) => {
+                                    dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
+                                }
+                                Err(_e) => {
+                                    dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
+                                }
+                            }
                         }
                     }
                 }
@@ -763,29 +795,62 @@ impl JsonParser {
                 let n_cols = self.mappings.len();
                 let mut row: Vec<Value> = Vec::with_capacity(n_cols);
 
-                for mut msg in messages {
-                    match serde_json::from_slice::<Value>(&msg.value) {
-                        Ok(json) => {
-                            row.clear();
-                            let mut all_ok = true;
-                            for m in &self.mappings {
-                                match self.extract_value(&json, m) {
-                                    Some(val) => row.push(val),
-                                    // Missing nullable column → NULL; missing required → DLQ.
-                                    None if !m.required => row.push(Value::Null),
-                                    None => { all_ok = false; break; }
+                match self.chunk_splitter {
+                    ChunkSplitter::NewLine => {
+                        for msg in messages {
+                            for line in msg.value.split(|&b| b == b'\n') {
+                                if line.is_empty() { continue; }
+                                match serde_json::from_slice::<Value>(line) {
+                                    Ok(json) => {
+                                        row.clear();
+                                        let mut all_ok = true;
+                                        for m in &self.mappings {
+                                            match self.extract_value(&json, m) {
+                                                Some(val) => row.push(val),
+                                                None if !m.required => row.push(Value::Null),
+                                                None => { all_ok = false; break; }
+                                            }
+                                        }
+                                        if all_ok {
+                                            for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
+                                                append_value(builder, val);
+                                            }
+                                        } else {
+                                            ws.dlq_payloads.push((Bytes::copy_from_slice(line), DlqReason::ExtractionFailed));
+                                        }
+                                    }
+                                    Err(_e) => {
+                                        ws.dlq_payloads.push((Bytes::copy_from_slice(line), DlqReason::JsonParse));
+                                    }
                                 }
-                            }
-                            if all_ok {
-                                for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
-                                    append_value(builder, val);
-                                }
-                            } else {
-                                ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
                             }
                         }
-                        Err(_e) => {
-                            ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
+                    }
+                    ChunkSplitter::NoSplit => {
+                        for mut msg in messages {
+                            match serde_json::from_slice::<Value>(&msg.value) {
+                                Ok(json) => {
+                                    row.clear();
+                                    let mut all_ok = true;
+                                    for m in &self.mappings {
+                                        match self.extract_value(&json, m) {
+                                            Some(val) => row.push(val),
+                                            None if !m.required => row.push(Value::Null),
+                                            None => { all_ok = false; break; }
+                                        }
+                                    }
+                                    if all_ok {
+                                        for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
+                                            append_value(builder, val);
+                                        }
+                                    } else {
+                                        ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::ExtractionFailed));
+                                    }
+                                }
+                                Err(_e) => {
+                                    ws.dlq_payloads.push((std::mem::take(&mut msg.value), DlqReason::JsonParse));
+                                }
+                            }
                         }
                     }
                 }
@@ -895,5 +960,54 @@ mod tests {
             }
             other => panic!("expected Str, got {other:?}"),
         }
+    }
+
+    /// Verifies that `chunk_splitter: new-line` correctly splits multi-line
+    /// messages and parses each line as a separate JSON row.
+    #[test]
+    fn newline_chunk_splitter() {
+        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+
+        let config = SchemaConfig {
+            columns: vec![
+                ColumnMapping {
+                    jsonpath: "$.id".into(),
+                    column_name: "id".into(),
+                    arrow_type: "Utf8".into(),
+                    nullable: false,
+                },
+                ColumnMapping {
+                    jsonpath: "$.val".into(),
+                    column_name: "val".into(),
+                    arrow_type: "Int64".into(),
+                    nullable: true,
+                },
+            ],
+            raw_payload_field: None,
+            order_by: vec![],
+            chunk_splitter: ChunkSplitter::NewLine,
+        };
+
+        let parser = JsonParser::new(&config, "test".into()).unwrap();
+        let mut ws = ParserWorkspace::new();
+
+        // 3 JSONs separated by \n, one empty line
+        let payload = b"{\"id\":\"a\",\"val\":1}\n{\"id\":\"b\",\"val\":2}\n\n{\"id\":\"c\"}";
+        let msgs = vec![Message { value: Bytes::copy_from_slice(payload) }];
+
+        let (good, dlq) = parser.parse_into(msgs, 0, &mut ws).unwrap();
+
+        assert_eq!(good.batch.num_rows(), 3, "3 valid JSON lines → 3 rows");
+        assert!(dlq.is_none(), "all 3 lines are valid JSON, no DLQ");
+
+        // Check column values
+        let id_col = good.batch.column(0);
+        let val_col = good.batch.column(1);
+        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(0), "a");
+        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(1), "b");
+        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(2), "c");
+        assert_eq!(val_col.as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(0), 1);
+        assert_eq!(val_col.as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(1), 2);
+        assert!(val_col.is_null(2));
     }
 }

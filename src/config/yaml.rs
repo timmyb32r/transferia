@@ -192,6 +192,19 @@ pub struct SchemaConfig {
     /// When empty/omitted, defaults to `ORDER BY tuple()`.
     #[serde(default)]
     pub order_by: Vec<String>,
+    /// How to split incoming message bytes into individual JSON objects.
+    /// - `no-split` (default): each message is one JSON
+    /// - `new-line`:  split by `\n`, each non-empty line is one JSON
+    #[serde(default)]
+    pub chunk_splitter: ChunkSplitter,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChunkSplitter {
+    #[default]
+    NoSplit,
+    NewLine,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -495,7 +508,7 @@ mod tests {
                 parser: ParserConfig {
                     table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
                     parser_type: "json_parser".into(),
-                    settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![] },
+                    settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
                 },
                 discovery_endpoint: None,
                 partition_ids: None,

@@ -22,6 +22,7 @@ source:
       name: "logs"
     parser_type: "json_parser"
     settings:
+      chunk_splitter: "new-line"
       order_by: ["id", "ts"]
       columns:
         # Required — есть практически в каждой строке лога. Отсутствие → строка в DLQ.
