@@ -6,7 +6,7 @@ use arrow::compute::kernels::cmp::eq;
 use arrow::datatypes::DataType;
 
 use crate::pipeline::middleware::Middleware;
-use crate::types::arrow_batch::ArrowBatch;
+use crate::types::table_data::TableData;
 
 /// Middleware that keeps only rows where the given string column equals `value`.
 ///
@@ -38,8 +38,8 @@ impl FilterMiddleware {
 }
 
 impl Middleware for FilterMiddleware {
-    fn process(&self, batch: ArrowBatch) -> anyhow::Result<ArrowBatch> {
-        let schema = batch.batch.schema();
+    fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+        let schema = data.batch.schema();
         let col_idx = match self.col_idx.get() {
             Some(&i) => i,
             None => {
@@ -53,7 +53,7 @@ impl Middleware for FilterMiddleware {
         };
 
         let field_dt = schema.field(col_idx).data_type();
-        let col = batch.batch.column(col_idx);
+        let col = data.batch.column(col_idx);
 
         let mask = match field_dt {
             DataType::Utf8 => {
@@ -76,7 +76,7 @@ impl Middleware for FilterMiddleware {
             ),
         };
 
-        let filtered = compute::filter_record_batch(&batch.batch, &mask)?;
-        Ok(ArrowBatch { batch: filtered, meta: batch.meta.clone() })
+        let filtered = compute::filter_record_batch(&data.batch, &mask)?;
+        Ok(TableData { batch: filtered, ..data })
     }
 }

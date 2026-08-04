@@ -3,21 +3,18 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
-use crate::types::arrow_batch::ArrowBatch;
-
+/// Sink trait: writes Arrow batches to a destination.
+///
+/// The table name is **pre-resolved** by the caller — the sink does not
+/// transform or suffix it. For DLQ data the caller passes `"my_table.dlq"`;
+/// for main data it passes `"my_table"`. The sink is entirely unaware of
+/// DLQ semantics.
 pub trait Sink: Send + Sync {
-    /// Write a single batch. The destination table is taken from `batch.meta`
-    /// (`table` + `dlq_flag`).
-    fn write_batch(
-        &self,
-        batch: &ArrowBatch,
-    ) -> impl Future<Output = anyhow::Result<()>> + Send;
-
-    /// Write many batches into `table` (or `table.dlq` when `dlq_flag`).
+    /// Write many batches into a **pre-resolved** table name.
+    /// One call = one `INSERT` operation (typically `insert_many`).
     fn write_batches(
         &self,
         batches: Vec<RecordBatch>,
         table: Arc<str>,
-        dlq_flag: bool,
     ) -> impl Future<Output = anyhow::Result<()>> + Send;
 }

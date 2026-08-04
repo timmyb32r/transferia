@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 use ydb_ch_replicator::config::yaml::{build_credentials, build_credentials_with_token, Config};
 use ydb_ch_replicator::middleware::filter::FilterMiddleware;
 use ydb_ch_replicator::parser::JsonParser;
+use ydb_ch_replicator::types::table_data::dlq_name;
 use ydb_ch_replicator::pipeline::middleware::Middleware;
 use ydb_ch_replicator::pipeline::run_partition_pipeline;
 use ydb_ch_replicator::sink::clickhouse::ClickHouseSink;
@@ -263,8 +264,18 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Shared sink
     let sink = ClickHouseSink::new(&config.sink).await?;
-    sink.create_tables(&config.source.parser.settings, &table, config.sink.recreate_tables).await?;
-    sink.verify_tables(&table).await?;
+    let main_cols = ClickHouseSink::schema_columns(&config.source.parser.settings)?;
+    sink.create_table(&table, &main_cols, &config.source.parser.settings.order_by, config.sink.recreate_tables).await?;
+    // DLQ table
+    let dlq_table = dlq_name(&table);
+    let dlq_cols: Vec<(String, String)> = ydb_ch_replicator::parser::json_parser::DLQ_CH_COLUMNS
+        .iter()
+        .map(|(n, t)| ((*n).to_string(), (*t).to_string()))
+        .collect();
+    sink.create_table(&dlq_table, &dlq_cols, &[], config.sink.recreate_tables).await?;
+    // Verify
+    sink.verify_table(&table).await?;
+    sink.verify_table(&dlq_table).await?;
     let sink = Arc::new(sink);
 
     // 6. Graceful shutdown

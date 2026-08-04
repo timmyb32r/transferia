@@ -16,8 +16,8 @@ use std::sync::{Arc, LazyLock};
 use time::format_description::well_known::Rfc3339;
 
 use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
-use crate::types::arrow_batch::{ArrowBatch, BatchMeta};
 use crate::types::message::Message;
+use crate::types::table_data::{dlq_name, TableData};
 
 // ---------------------------------------------------------------------------
 // Compiled JSONPath
@@ -532,6 +532,15 @@ static DLQ_SCHEMA: LazyLock<Arc<Schema>> = LazyLock::new(|| {
     ]))
 });
 
+/// ClickHouse column definitions for the DLQ table, kept in sync with `DLQ_SCHEMA`.
+/// Used by `main.rs` to create the DLQ table.
+pub const DLQ_CH_COLUMNS: &[(&str, &str)] = &[
+    ("raw_bytes", "String"),
+    ("error_message", "String"),
+    ("partition_id", "Int64"),
+    ("timestamp", "String"),
+];
+
 enum DlqReason {
     JsonParse,
     ExtractionFailed,
@@ -557,6 +566,8 @@ pub struct JsonParser {
     mode: ParseMode,
     /// Base destination table name, stamped into every produced batch's meta.
     table: Arc<str>,
+    /// Pre-resolved DLQ table name (`<table>.dlq`).
+    dlq_table: Arc<str>,
     /// Cached per-column DataType (avoids double parse_arrow_type).
     _data_types: Vec<DataType>,
     /// How to split incoming message bytes into individual JSON objects.
@@ -619,7 +630,7 @@ impl JsonParser {
             .collect();
         let arrow_schema = Arc::new(Schema::new(fields));
 
-        Ok(Self { mappings, kinds, arrow_schema, mode, table, _data_types: data_types, chunk_splitter: config.chunk_splitter })
+        Ok(Self { mappings, kinds, arrow_schema, mode, table: table.clone(), dlq_table: dlq_name(&table).into(), _data_types: data_types, chunk_splitter: config.chunk_splitter })
     }
 
     #[inline]
@@ -638,7 +649,7 @@ impl JsonParser {
         dlq_payloads: &[(Bytes, DlqReason)],
         partition_id: i64,
         now: time::OffsetDateTime,
-    ) -> anyhow::Result<ArrowBatch> {
+    ) -> anyhow::Result<TableData> {
         let n = dlq_payloads.len();
         let mut raw_builder = StringBuilder::with_capacity(n, n * 64);
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
@@ -660,9 +671,11 @@ impl JsonParser {
         ];
         let batch = RecordBatch::try_new(DLQ_SCHEMA.clone(), arrays)?;
 
-        Ok(ArrowBatch {
+        Ok(TableData {
             batch,
-            meta: BatchMeta { dlq_flag: true, batch_id: crate::batch_id(), table: self.table.clone() },
+            table: self.dlq_table.clone(),
+            is_dlq: true,
+            batch_id: crate::batch_id(),
         })
     }
 }
@@ -723,7 +736,7 @@ impl JsonParser {
         messages: Vec<Message>,
         partition_id: i64,
         ws: &mut ParserWorkspace,
-    ) -> anyhow::Result<(ArrowBatch, Option<ArrowBatch>)> {
+    ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let now = ws.now();
 
         // Pre-count rows for exact builder pre-allocation.
@@ -861,9 +874,11 @@ impl JsonParser {
         ws.arrays.extend(ws.builders.iter_mut().map(|b| b.finish()));
         let batch = RecordBatch::try_new(self.arrow_schema.clone(), std::mem::take(&mut ws.arrays))?;
 
-        let valid_batch = ArrowBatch {
+        let valid_batch = TableData {
             batch,
-            meta: BatchMeta { dlq_flag: false, batch_id: crate::batch_id(), table: self.table.clone() },
+            table: self.table.clone(),
+            is_dlq: false,
+            batch_id: crate::batch_id(),
         };
 
         let dlq_batch = if !ws.dlq_payloads.is_empty() {

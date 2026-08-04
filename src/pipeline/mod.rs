@@ -2,6 +2,7 @@ pub mod source;
 pub mod middleware;
 pub mod sink;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 
@@ -14,12 +15,17 @@ use crate::parser::{JsonParser, ParserWorkspace};
 use crate::pipeline::source::{CommitMarker, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
-use crate::types::arrow_batch::ArrowBatch;
+use crate::types::table_data::TableData;
 
 const INITIAL_BACKOFF_MS: u64 = 10; // was 100 — lower floor for faster resume
 const MAX_BACKOFF_MS: u64 = 30_000;
 const BACKOFF_MULTIPLIER: u64 = 2;
 const CHANNEL_CAPACITY: usize = 32; // was 8 — deeper buffers to absorb flush I/O
+
+/// Guardrail: max consecutive middleware errors on valid data before treating the partition
+/// as permanently broken. Prevents a livelock where every valid batch is rejected by a
+/// misconfigured middleware.
+const MAX_CONSECUTIVE_MW_ERRORS: u32 = 100;
 
 // ---------------------------------------------------------------------------
 // Channel payloads
@@ -31,14 +37,127 @@ struct ReadItem {
     commit_marker: Option<CommitMarker>,
 }
 
+/// After parsing, a batch of messages becomes one or two `TableData` objects
+/// (valid + optional DLQ), sharing a single commit marker.
 struct ParsedItem {
-    valid_batch: ArrowBatch,
-    dlq_batch: Option<ArrowBatch>,
+    valid: TableData,
+    dlq: Option<TableData>,
     commit_marker: Option<CommitMarker>,
+}
+
+/// Sentinel: too many consecutive middleware errors. Tells the writer to
+/// abort the partition so main.rs can retry (or give up after retries).
+enum ParsedMsg {
+    Item(ParsedItem),
+    Fatal,
 }
 
 /// Writer → Reader: commit these markers (flush succeeded)
 struct CommitAck {
+    markers: Vec<CommitMarker>,
+}
+
+// ---------------------------------------------------------------------------
+// Multi-table batch accumulator
+// ---------------------------------------------------------------------------
+
+struct TableBuffer {
+    batches: Vec<RecordBatch>,
+    total_rows: usize,
+}
+
+impl TableBuffer {
+    fn new() -> Self {
+        Self { batches: Vec::new(), total_rows: 0 }
+    }
+}
+
+struct BatchAccumulator {
+    tables: HashMap<Arc<str>, TableBuffer>,
+    /// Insertion order — guarantees deterministic flush order (main before dlq).
+    order: Vec<Arc<str>>,
+    markers: Vec<CommitMarker>,
+    /// Global threshold: total rows across **all** tables.
+    batch_size: usize,
+    window_start: Option<Instant>,
+}
+
+impl BatchAccumulator {
+    fn new(batch_size: usize) -> Self {
+        Self {
+            tables: HashMap::new(),
+            order: Vec::new(),
+            markers: Vec::new(),
+            batch_size,
+            window_start: None,
+        }
+    }
+
+    /// Push a `TableData` into the accumulator. Never triggers a flush (invariant A1).
+    /// Empty batches (0 rows) are silently skipped.
+    fn push(&mut self, td: TableData, marker: Option<CommitMarker>) {
+        if td.batch.num_rows() == 0 {
+            return;
+        }
+        if self.window_start.is_none() {
+            self.window_start = Some(Instant::now());
+        }
+        let entry = self.tables.entry(td.table.clone()).or_insert_with(|| {
+            self.order.push(td.table.clone());
+            TableBuffer::new()
+        });
+        entry.total_rows += td.batch.num_rows();
+        entry.batches.push(td.batch);
+        if let Some(m) = marker {
+            self.markers.push(m);
+        }
+    }
+
+    fn total_rows(&self) -> usize {
+        self.tables.values().map(|b| b.total_rows).sum()
+    }
+
+    fn should_flush(&self) -> bool {
+        self.total_rows() >= self.batch_size
+    }
+
+    fn is_empty(&self) -> bool {
+        self.total_rows() == 0
+    }
+
+    /// Take ALL buffered data + all markers. Returns `None` when empty.
+    fn take_flush(&mut self) -> Option<FlushBatch> {
+        if self.is_empty() {
+            return None;
+        }
+        let tables: Vec<(Arc<str>, Vec<RecordBatch>)> = self
+            .order
+            .iter()
+            .filter_map(|name| {
+                let buf = self.tables.remove(name.as_ref())?;
+                if buf.batches.is_empty() {
+                    None
+                } else {
+                    Some((name.clone(), buf.batches))
+                }
+            })
+            .collect();
+        let markers = std::mem::take(&mut self.markers);
+        self.order.clear();
+        self.tables.clear();
+        Some(FlushBatch { tables, markers })
+    }
+
+    fn clear(&mut self) {
+        self.tables.clear();
+        self.order.clear();
+        self.markers.clear();
+        self.window_start = None;
+    }
+}
+
+struct FlushBatch {
+    tables: Vec<(Arc<str>, Vec<RecordBatch>)>,
     markers: Vec<CommitMarker>,
 }
 
@@ -60,7 +179,7 @@ pub async fn run_partition_pipeline(
     let max_linger = Duration::from_millis(max_linger_ms);
 
     let (tx_read, rx_read) = mpsc::channel::<ReadItem>(CHANNEL_CAPACITY);
-    let (tx_parsed, mut rx_parsed) = mpsc::channel::<ParsedItem>(CHANNEL_CAPACITY);
+    let (tx_parsed, mut rx_parsed) = mpsc::channel::<ParsedMsg>(CHANNEL_CAPACITY);
     let tx_parsed_parser = tx_parsed.clone();
     let (tx_commit, mut rx_commit) = mpsc::channel::<CommitAck>(CHANNEL_CAPACITY);
 
@@ -72,7 +191,9 @@ pub async fn run_partition_pipeline(
             // Drain pending commit acks
             while let Ok(ack) = rx_commit.try_recv() {
                 for marker in &ack.markers {
-                    let _ = source.commit_offsets(marker).await;
+                    if let Err(e) = source.commit_offsets(marker).await {
+                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                    }
                 }
                 backoff_ms = INITIAL_BACKOFF_MS; // reset on activity
             }
@@ -80,7 +201,9 @@ pub async fn run_partition_pipeline(
             if reader_token.is_cancelled() {
                 while let Ok(ack) = rx_commit.try_recv() {
                     for marker in &ack.markers {
-                        let _ = source.commit_offsets(marker).await;
+                        if let Err(e) = source.commit_offsets(marker).await {
+                            tracing::warn!("Reader: commit_offsets error on cancel: {}", e);
+                        }
                     }
                 }
                 return;
@@ -92,7 +215,9 @@ pub async fn run_partition_pipeline(
                 ack = rx_commit.recv() => {
                     if let Some(ack) = ack {
                         for marker in &ack.markers {
-                            let _ = source.commit_offsets(marker).await;
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error: {}", e);
+                            }
                         }
                         backoff_ms = INITIAL_BACKOFF_MS;
                     }
@@ -100,7 +225,11 @@ pub async fn run_partition_pipeline(
                 }
                 _ = reader_token.cancelled() => {
                     while let Ok(ack) = rx_commit.try_recv() {
-                        for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                        for marker in &ack.markers {
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error on cancel: {}", e);
+                            }
+                        }
                     }
                     return;
                 }
@@ -115,7 +244,11 @@ pub async fn run_partition_pipeline(
                         }
                         ack = rx_commit.recv() => {
                             if let Some(ack) = ack {
-                                for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                                for marker in &ack.markers {
+                                    if let Err(e) = source.commit_offsets(marker).await {
+                                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                                    }
+                                }
                                 backoff_ms = INITIAL_BACKOFF_MS;
                             }
                             continue;
@@ -130,7 +263,11 @@ pub async fn run_partition_pipeline(
                         _ = sleep(Duration::from_millis(backoff_ms)) => {},
                         ack = rx_commit.recv() => {
                             if let Some(ack) = ack {
-                                for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                                for marker in &ack.markers {
+                                    if let Err(e) = source.commit_offsets(marker).await {
+                                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                                    }
+                                }
                             }
                         }
                         _ = reader_token.cancelled() => return,
@@ -145,7 +282,9 @@ pub async fn run_partition_pipeline(
             // Drain acks before sending (prevents ack channel fill → writer stall)
             while let Ok(ack) = rx_commit.try_recv() {
                 for marker in &ack.markers {
-                    let _ = source.commit_offsets(marker).await;
+                    if let Err(e) = source.commit_offsets(marker).await {
+                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                    }
                 }
             }
 
@@ -162,7 +301,11 @@ pub async fn run_partition_pipeline(
                 }
                 ack = rx_commit.recv() => {
                     if let Some(ack) = ack {
-                        for marker in &ack.markers { let _ = source.commit_offsets(marker).await; }
+                        for marker in &ack.markers {
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error: {}", e);
+                            }
+                        }
                         backoff_ms = INITIAL_BACKOFF_MS;
                     }
                     // Re-queue the read item (will retry send next iteration after drain)
@@ -180,6 +323,7 @@ pub async fn run_partition_pipeline(
         .name("parser".into())
         .spawn(move || {
             let mut workspace = ParserWorkspace::new();
+            let mut mw_error_count: u32 = 0;
             loop {
                 if parser_token.is_cancelled() {
                     return;
@@ -189,18 +333,37 @@ pub async fn run_partition_pipeline(
                     None => return,
                 };
 
-                let (valid_batch, dlq_batch) = match parser.parse_into(item.messages, item.partition_id, &mut workspace) {
+                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, &mut workspace) {
                     Ok(r) => r,
-                    Err(e) => { tracing::error!("Parser error: {}", e); continue; }
+                    Err(e) => {
+                        tracing::error!("Parser error: {}", e);
+                        continue;
+                    }
                 };
 
-                let valid_batch = match apply_middlewares(valid_batch, &middlewares) {
-                    Ok(b) => b,
-                    Err(e) => { tracing::error!("Middleware error: {}", e); continue; }
+                // Only valid data goes through middlewares; DLQ short-circuits.
+                let valid = match apply_middlewares(valid, &middlewares) {
+                    Ok(b) => {
+                        mw_error_count = 0;
+                        b
+                    }
+                    Err(e) => {
+                        mw_error_count += 1;
+                        tracing::error!("Middleware error (consecutive={}): {}", mw_error_count, e);
+                        if mw_error_count >= MAX_CONSECUTIVE_MW_ERRORS {
+                            tracing::error!(
+                                "Aborting partition {}: {} consecutive middleware errors",
+                                item.partition_id, mw_error_count,
+                            );
+                            let _ = tx_parsed_parser.blocking_send(ParsedMsg::Fatal);
+                            return;
+                        }
+                        continue;
+                    }
                 };
 
-                let parsed = ParsedItem { valid_batch, dlq_batch, commit_marker: item.commit_marker };
-                if tx_parsed_parser.blocking_send(parsed).is_err() {
+                let parsed = ParsedItem { valid, dlq, commit_marker: item.commit_marker };
+                if tx_parsed_parser.blocking_send(ParsedMsg::Item(parsed)).is_err() {
                     return;
                 }
             }
@@ -209,42 +372,54 @@ pub async fn run_partition_pipeline(
     // --- Writer task ---
     let writer_token = cancel_token.clone();
     let sink_for_writer = sink.clone();
+    let fatal_error: Arc<std::sync::Mutex<Option<anyhow::Error>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let fatal_error_ref = fatal_error.clone();
     let writer_handle = tokio::spawn(async move {
-        let mut accumulator: Option<BatchAccumulator> = None;
-        let mut total_flushed: u64 = 0; // cumulative rows flushed to ClickHouse
+        let mut acc = BatchAccumulator::new(batch_size);
+        let mut total_flushed: u64 = 0;
+
+        /// Common drain-and-ack helper used by the main loop and all cancel branches.
+        /// Flushes all accumulated data; commits only on success.
+        async fn drain_and_ack(
+            sink: &(impl Sink + 'static),
+            tx_commit: &mpsc::Sender<CommitAck>,
+            acc: &mut BatchAccumulator,
+        ) -> Option<usize> {
+            let flush = acc.take_flush()?;
+            match flush_to_sink_and_ack(sink, tx_commit, flush).await {
+                Ok(rows) => {
+                    acc.clear();
+                    Some(rows)
+                }
+                Err(_) => {
+                    acc.clear();
+                    None
+                }
+            }
+        }
 
         loop {
             // Phase 1: flush if timeout expired
-            let should_flush = accumulator.as_ref().is_some_and(|acc| {
-                acc.total_rows > 0
-                    && acc.window_start.is_some_and(|s| s.elapsed() >= max_linger)
+            let should_flush = acc.window_start.is_some_and(|s| {
+                acc.total_rows() > 0 && s.elapsed() >= max_linger
             });
 
             if should_flush {
-                let table = accumulator.as_ref().and_then(|a| a.table.clone());
-                let flush = accumulator.as_mut().unwrap().take_flush().unwrap();
-                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
                     total_flushed += rows as u64;
                     tracing::info!(
-                        "flush: partition={} table={} rows={} total_flushed={} (linger)",
-                        partition_id,
-                        table.as_deref().unwrap_or("?"),
-                        rows,
-                        total_flushed,
+                        "flush: partition={} total_flushed={} (linger)",
+                        partition_id, total_flushed,
                     );
-                    accumulator.as_mut().unwrap().clear();
                 }
                 continue;
             }
 
             // Phase 2: check cancellation
             if writer_token.is_cancelled() {
-                if let Some(ref mut acc) = accumulator {
-                    if let Some(flush) = acc.take_flush() {
-                        if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
-                            total_flushed += rows as u64;
-                        }
-                    }
+                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                    total_flushed += rows as u64;
                 }
                 tracing::info!(
                     "partition={} finished: total_flushed={}",
@@ -254,97 +429,80 @@ pub async fn run_partition_pipeline(
             }
 
             // Phase 3: wait for data or timeout (NO busy-spin)
-            let timeout = accumulator.as_ref().and_then(|acc| {
-                acc.window_start.map(|s| {
-                    let elapsed = s.elapsed();
-                    if elapsed < max_linger { max_linger - elapsed } else { Duration::ZERO }
-                })
+            let timeout = acc.window_start.map(|s| {
+                let elapsed = s.elapsed();
+                if elapsed < max_linger { max_linger - elapsed } else { Duration::ZERO }
             });
 
             let maybe_item = if let Some(dur) = timeout {
                 tokio::select! {
                     maybe = rx_parsed.recv() => maybe,
-                    _ = sleep(dur) => None, // timeout → will flush at top of loop
+                    _ = sleep(dur) => None,
                     _ = writer_token.cancelled() => {
-                        if let Some(ref mut acc) = accumulator {
-                            if let Some(flush) = acc.take_flush() {
-                                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
-                                    total_flushed += rows as u64;
-                                }
-                            }
+                        if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                            total_flushed += rows as u64;
                         }
-                        tracing::info!(
-                            "partition={} finished: total_flushed={}",
-                            partition_id, total_flushed,
-                        );
+                        tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
                         return;
                     }
                 }
             } else {
-                // No accumulator — only wait for data or cancellation
                 tokio::select! {
                     maybe = rx_parsed.recv() => maybe,
                     _ = writer_token.cancelled() => {
-                        if let Some(ref mut acc) = accumulator {
-                            if let Some(flush) = acc.take_flush() {
-                                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
-                                    total_flushed += rows as u64;
-                                }
-                            }
+                        if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                            total_flushed += rows as u64;
                         }
-                        tracing::info!(
-                            "partition={} finished: total_flushed={}",
-                            partition_id, total_flushed,
-                        );
+                        tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
                         return;
                     }
                 }
             };
 
-            let item = match maybe_item {
-                Some(item) => item,
-                None => continue, // timeout fired
+            let msg = match maybe_item {
+                Some(msg) => msg,
+                None => {
+                    // Timeout fired with empty or no accumulator — just loop.
+                    continue;
+                }
             };
 
-            // Write DLQ immediately
-            if let Some(ref dlq) = item.dlq_batch {
-                let dlq_rows = dlq.batch.num_rows();
-                if let Err(e) = sink_for_writer.write_batch(dlq).await {
-                    tracing::error!("Sink write error (DLQ batch): {}", e);
-                } else {
-                    tracing::info!(
-                        "dlq: partition={} rows={} table={}.dlq",
-                        partition_id, dlq_rows, dlq.meta.table,
+            // Handle fatal sentinel from parser
+            let item = match msg {
+                ParsedMsg::Fatal => {
+                    tracing::error!(
+                        "partition={}: parser middleware guard triggered — aborting",
+                        partition_id,
                     );
+                    // Flush whatever we have (best-effort) then signal fatal.
+                    let _ = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await;
+                    *fatal_error_ref.lock().unwrap() = Some(anyhow::anyhow!(
+                        "Parser middleware error limit ({}) exceeded",
+                        MAX_CONSECUTIVE_MW_ERRORS,
+                    ));
+                    return;
+                }
+                ParsedMsg::Item(item) => item,
+            };
+
+            // Push all tables of this item, attaching the marker once.
+            let mut marker = item.commit_marker;
+            if item.valid.batch.num_rows() > 0 {
+                acc.push(item.valid, marker.take());
+            }
+            if let Some(dlq) = item.dlq {
+                if dlq.batch.num_rows() > 0 {
+                    acc.push(dlq, marker.take());
                 }
             }
-
-            let ArrowBatch { batch, meta } = item.valid_batch;
-            if batch.num_rows() == 0 {
-                continue;
-            }
-
-            if accumulator.is_none() {
-                accumulator = Some(BatchAccumulator::new(batch_size));
-            }
-
-            let acc = accumulator.as_mut().unwrap();
-            if let Some(flush) = acc.push(batch, meta.table, item.commit_marker) {
-                let table = acc.table.clone();
-                if let Ok(rows) = flush_to_sink_and_ack(sink_for_writer.as_ref(), &tx_commit, flush).await {
+            // Item fully pushed — safe to check flush.
+            if acc.should_flush() {
+                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
                     total_flushed += rows as u64;
                     tracing::info!(
-                        "flush: partition={} table={} rows={} total_flushed={} (batch full)",
-                        partition_id,
-                        table.as_deref().unwrap_or("?"),
-                        rows,
-                        total_flushed,
+                        "flush: partition={} total_flushed={} (batch full)",
+                        partition_id, total_flushed,
                     );
-                    acc.clear();
-                } else {
-                    // Flush failed — clear accumulator state to avoid churn.
-                    // Data is replayed from YDB on restart (at-least-once).
-                    acc.clear();
                 }
             }
         }
@@ -356,71 +514,10 @@ pub async fn run_partition_pipeline(
     let _ = parser_thread.join();
     let _ = writer_handle.await;
 
+    if let Some(e) = fatal_error.lock().unwrap().take() {
+        return Err(e);
+    }
     Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// Batch accumulator
-// ---------------------------------------------------------------------------
-
-struct BatchAccumulator {
-    batches: Vec<RecordBatch>,
-    markers: Vec<CommitMarker>,
-    total_rows: usize,
-    batch_size: usize,
-    window_start: Option<Instant>,
-    /// Destination table for this accumulation window (one topic → one table).
-    table: Option<Arc<str>>,
-}
-
-impl BatchAccumulator {
-    fn new(batch_size: usize) -> Self {
-        Self { batches: Vec::new(), markers: Vec::new(), total_rows: 0, batch_size, window_start: None, table: None }
-    }
-
-    fn push(&mut self, batch: RecordBatch, table: Arc<str>, marker: Option<CommitMarker>) -> Option<FlushBatch> {
-        if self.window_start.is_none() {
-            self.window_start = Some(Instant::now());
-        }
-        if self.table.is_none() {
-            self.table = Some(table);
-        }
-        self.total_rows += batch.num_rows();
-        self.batches.push(batch);
-        if let Some(m) = marker {
-            self.markers.push(m);
-        }
-        if self.total_rows >= self.batch_size {
-            self.take_flush()
-        } else {
-            None
-        }
-    }
-
-    fn take_flush(&mut self) -> Option<FlushBatch> {
-        if self.total_rows == 0 {
-            return None;
-        }
-        // total_rows > 0 guarantees at least one push happened, so `table` is set.
-        let table = self.table.clone().expect("table set when rows > 0");
-        let batches = std::mem::take(&mut self.batches);
-        let markers = std::mem::take(&mut self.markers);
-        Some(FlushBatch { batches, markers, table })
-    }
-
-    fn clear(&mut self) {
-        self.batches.clear();
-        self.markers.clear();
-        self.total_rows = 0;
-        self.window_start = None;
-        self.table = None;
-    }
-}
-
-struct FlushBatch {
-    batches: Vec<RecordBatch>,
-    markers: Vec<CommitMarker>,
-    table: Arc<str>,
 }
 
 // ---------------------------------------------------------------------------
@@ -428,32 +525,145 @@ struct FlushBatch {
 // ---------------------------------------------------------------------------
 
 /// Returns the number of rows flushed, or an error.
+/// **Writes all tables unconditionally, commits markers only after all succeed.**
 async fn flush_to_sink_and_ack(
     sink: &(impl Sink + 'static),
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<usize, ()> {
-    let FlushBatch { batches, markers, table } = flush;
-    let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-    if !markers.is_empty() {
-        if let Err(e) = sink.write_batches(batches, table, false).await {
-            tracing::error!("Writer: flush error: {}", e);
+    let FlushBatch { tables, markers } = flush;
+    let total_rows: usize = tables.iter()
+        .flat_map(|(_, bs)| bs.iter().map(|b| b.num_rows()))
+        .sum();
+
+    // 1. Write ALL tables unconditionally (fixes L1: data without markers must be written).
+    for (table, batches) in &tables {
+        if batches.is_empty() {
+            continue;
+        }
+        if let Err(e) = sink.write_batches(batches.clone(), table.clone()).await {
+            tracing::error!("Writer: flush error table={}: {}", table, e);
             return Err(());
         }
-        if tx_commit.send(CommitAck { markers }).await.is_err() {
-            tracing::error!("Writer: commit ack channel closed");
-            return Err(());
-        }
+    }
+
+    // 2. Ack only after ALL tables succeeded (at-least-once invariant).
+    if !markers.is_empty()
+        && tx_commit.send(CommitAck { markers }).await.is_err()
+    {
+        tracing::error!("Writer: commit ack channel closed");
+        return Err(());
     }
     Ok(total_rows)
 }
 
+/// Applies middlewares to a `TableData`. DLQ batches (is_dlq == true) are
+/// returned unchanged — middleware implementations are NOT called for DLQ
+/// data (avoids schema mismatch panics in `FilterMiddleware`).
 fn apply_middlewares(
-    mut batch: ArrowBatch,
+    data: TableData,
     middlewares: &[Box<dyn Middleware>],
-) -> anyhow::Result<ArrowBatch> {
-    for mw in middlewares {
-        batch = mw.process(batch)?;
+) -> anyhow::Result<TableData> {
+    if data.is_dlq {
+        return Ok(data);
     }
-    Ok(batch)
+    let mut data = data;
+    for mw in middlewares {
+        data = mw.process(data)?;
+    }
+    Ok(data)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------- accumulator ----------
+
+    fn make_td(table: &str, rows: usize, dlq: bool) -> TableData {
+        use arrow::array::Int64Array;
+        use arrow::datatypes::{DataType, Field, Schema};
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
+        let arr = Int64Array::from(vec![1i64; rows]);
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
+        TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1 }
+    }
+
+    #[test]
+    fn accumulator_single_marker_for_two_tables() {
+        let mut acc = BatchAccumulator::new(1000);
+        let marker = CommitMarker::new(42usize);
+        acc.push(make_td("t", 5, false), Some(marker.clone()));
+        acc.push(make_td("t.dlq", 3, true), None); // marker already taken
+        assert_eq!(acc.markers.len(), 1);
+        let flush = acc.take_flush().unwrap();
+        assert_eq!(flush.tables.len(), 2);
+        assert_eq!(flush.markers.len(), 1);
+    }
+
+    #[test]
+    fn accumulator_global_threshold() {
+        let mut acc = BatchAccumulator::new(10);
+        acc.push(make_td("t", 6, false), None);
+        acc.push(make_td("t.dlq", 5, true), None);
+        assert!(acc.should_flush()); // 11 >= 10
+    }
+
+    #[test]
+    fn accumulator_deterministic_order() {
+        let mut acc = BatchAccumulator::new(100);
+        acc.push(make_td("main", 1, false), None);
+        acc.push(make_td("main.dlq", 1, true), None);
+        let flush = acc.take_flush().unwrap();
+        assert_eq!(flush.tables[0].0.as_ref(), "main");
+        assert_eq!(flush.tables[1].0.as_ref(), "main.dlq");
+    }
+
+    #[test]
+    fn accumulator_empty_batch_skipped() {
+        let mut acc = BatchAccumulator::new(100);
+        acc.push(make_td("t", 0, false), None); // 0 rows
+        assert!(acc.is_empty());
+        assert!(acc.take_flush().is_none());
+    }
+
+    // ---------- middleware short-circuit ----------
+
+    struct CountingMw {
+        count: std::sync::atomic::AtomicU32,
+    }
+    impl Middleware for CountingMw {
+        fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+            self.count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(data)
+        }
+    }
+
+    #[test]
+    fn middleware_skips_dlq() {
+        let mw = Arc::new(CountingMw { count: 0.into() });
+        let count_ref = mw.clone();
+        let _mws: Vec<Box<dyn Middleware>> = vec![Box::new(count_ref.clone())];
+
+        let dlq = make_td("t.dlq", 5, true);
+        let _ = apply_middlewares(dlq, &_mws).unwrap();
+        assert_eq!(count_ref.count.load(std::sync::atomic::Ordering::Relaxed), 0,
+            "DLQ must NOT trigger middleware");
+    }
+
+    #[test]
+    fn middleware_runs_on_valid() {
+        let mw = Arc::new(CountingMw { count: 0.into() });
+        let count_ref = mw.clone();
+        let mws: Vec<Box<dyn Middleware>> = vec![Box::new(mw)];
+
+        let valid = make_td("t", 5, false);
+        let _ = apply_middlewares(valid, &mws).unwrap();
+        assert_eq!(count_ref.count.load(std::sync::atomic::Ordering::Relaxed), 1,
+            "Valid batch MUST trigger middleware");
+    }
 }
