@@ -10,11 +10,11 @@ use ydb_ch_replicator::parser::JsonParser;
 use ydb_ch_replicator::types::table_data::dlq_name;
 use ydb_ch_replicator::pipeline::middleware::Middleware;
 use ydb_ch_replicator::pipeline::run_partition_pipeline;
-use ydb_ch_replicator::sink::clickhouse::ClickHouseSink;
-use ydb_ch_replicator::source::pq_v1::{parse_endpoint, partition_to_group, PqV1Client, PqV1Source};
-use ydb_ch_replicator::source::s3::S3Source;
-use ydb_ch_replicator::source::s3_config::build_object_store;
-use ydb_ch_replicator::source::ydb_topic::YdbTopicSource;
+use ydb_ch_replicator::providers::clickhouse::ClickHouseSink;
+use ydb_ch_replicator::providers::yds::pq_v1::{parse_endpoint, partition_to_group, PqV1Client, PqV1Source};
+use ydb_ch_replicator::providers::s3::source::S3Source;
+use ydb_ch_replicator::providers::s3::config::build_object_store;
+use ydb_ch_replicator::providers::yds::ydb_topic::YdbTopicSource;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

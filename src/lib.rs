@@ -40,8 +40,7 @@ pub mod middleware;
 pub mod parser;
 pub mod partition;
 pub mod pipeline;
-pub mod sink;
-pub mod source;
+pub mod providers;
 pub mod types;
 
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);

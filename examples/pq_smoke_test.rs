@@ -1,7 +1,7 @@
 //! PQv1 smoke test: connect (proxy discovery is internal) and read one batch.
 use ydb_ch_replicator::config::yaml::{build_credentials_with_token, Config, SourceConfig};
 use ydb_ch_replicator::pipeline::source::Source;
-use ydb_ch_replicator::source::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
+use ydb_ch_replicator::providers::yds::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

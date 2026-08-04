@@ -125,7 +125,7 @@ impl Config {
 pub enum SourceConfig {
     Topic(YdbSourceConfig),
     Pqv1(YdbSourceConfig),
-    S3(crate::source::s3_config::S3SourceConfig),
+    S3(crate::providers::s3::config::S3SourceConfig),
 }
 
 impl SourceConfig {
