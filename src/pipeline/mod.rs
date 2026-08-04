@@ -5,8 +5,6 @@ pub mod sink;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
-
-use arrow::record_batch::RecordBatch;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
@@ -15,7 +13,7 @@ use crate::parser::{JsonParser, ParserWorkspace};
 use crate::pipeline::source::{CommitMarker, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
-use crate::types::table_data::TableData;
+use crate::types::table_data::{TableData, TableWrite};
 
 const INITIAL_BACKOFF_MS: u64 = 10; // was 100 — lower floor for faster resume
 const MAX_BACKOFF_MS: u64 = 30_000;
@@ -61,22 +59,13 @@ struct CommitAck {
 // Multi-table batch accumulator
 // ---------------------------------------------------------------------------
 
-struct TableBuffer {
-    batches: Vec<RecordBatch>,
-    total_rows: usize,
-}
-
-impl TableBuffer {
-    fn new() -> Self {
-        Self { batches: Vec::new(), total_rows: 0 }
-    }
-}
-
 struct BatchAccumulator {
-    tables: HashMap<Arc<str>, TableBuffer>,
+    /// Per-table writes. `TableWrite::batches` is accumulated in push order.
+    tables: HashMap<Arc<str>, TableWrite>,
     /// Insertion order — guarantees deterministic flush order (main before dlq).
     order: Vec<Arc<str>>,
     markers: Vec<CommitMarker>,
+    total_rows: usize,
     /// Global threshold: total rows across **all** tables.
     batch_size: usize,
     window_start: Option<Instant>,
@@ -88,6 +77,7 @@ impl BatchAccumulator {
             tables: HashMap::new(),
             order: Vec::new(),
             markers: Vec::new(),
+            total_rows: 0,
             batch_size,
             window_start: None,
         }
@@ -102,27 +92,24 @@ impl BatchAccumulator {
         if self.window_start.is_none() {
             self.window_start = Some(Instant::now());
         }
+        let rows = td.batch.num_rows();
         let entry = self.tables.entry(td.table.clone()).or_insert_with(|| {
             self.order.push(td.table.clone());
-            TableBuffer::new()
+            TableWrite { table: td.table.clone(), batches: Vec::new() }
         });
-        entry.total_rows += td.batch.num_rows();
         entry.batches.push(td.batch);
+        self.total_rows += rows;
         if let Some(m) = marker {
             self.markers.push(m);
         }
     }
 
-    fn total_rows(&self) -> usize {
-        self.tables.values().map(|b| b.total_rows).sum()
-    }
-
     fn should_flush(&self) -> bool {
-        self.total_rows() >= self.batch_size
+        self.total_rows >= self.batch_size
     }
 
     fn is_empty(&self) -> bool {
-        self.total_rows() == 0
+        self.total_rows == 0
     }
 
     /// Take ALL buffered data + all markers. Returns `None` when empty.
@@ -130,34 +117,30 @@ impl BatchAccumulator {
         if self.is_empty() {
             return None;
         }
-        let tables: Vec<(Arc<str>, Vec<RecordBatch>)> = self
+        let writes: Vec<TableWrite> = self
             .order
             .iter()
-            .filter_map(|name| {
-                let buf = self.tables.remove(name.as_ref())?;
-                if buf.batches.is_empty() {
-                    None
-                } else {
-                    Some((name.clone(), buf.batches))
-                }
-            })
+            .filter_map(|name| self.tables.remove(name.as_ref()))
+            .filter(|w| !w.batches.is_empty())
             .collect();
         let markers = std::mem::take(&mut self.markers);
         self.order.clear();
         self.tables.clear();
-        Some(FlushBatch { tables, markers })
+        self.total_rows = 0;
+        Some(FlushBatch { writes, markers })
     }
 
     fn clear(&mut self) {
         self.tables.clear();
         self.order.clear();
         self.markers.clear();
+        self.total_rows = 0;
         self.window_start = None;
     }
 }
 
 struct FlushBatch {
-    tables: Vec<(Arc<str>, Vec<RecordBatch>)>,
+    writes: Vec<TableWrite>,
     markers: Vec<CommitMarker>,
 }
 
@@ -402,7 +385,7 @@ pub async fn run_partition_pipeline(
         loop {
             // Phase 1: flush if timeout expired
             let should_flush = acc.window_start.is_some_and(|s| {
-                acc.total_rows() > 0 && s.elapsed() >= max_linger
+                acc.total_rows > 0 && s.elapsed() >= max_linger
             });
 
             if should_flush {
@@ -531,18 +514,18 @@ async fn flush_to_sink_and_ack(
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<usize, ()> {
-    let FlushBatch { tables, markers } = flush;
-    let total_rows: usize = tables.iter()
-        .flat_map(|(_, bs)| bs.iter().map(|b| b.num_rows()))
+    let FlushBatch { writes, markers } = flush;
+    let total_rows: usize = writes.iter()
+        .flat_map(|w| w.batches.iter().map(|b| b.num_rows()))
         .sum();
 
     // 1. Write ALL tables unconditionally (fixes L1: data without markers must be written).
-    for (table, batches) in &tables {
-        if batches.is_empty() {
+    for write in &writes {
+        if write.batches.is_empty() {
             continue;
         }
-        if let Err(e) = sink.write_batches(batches.clone(), table.clone()).await {
-            tracing::error!("Writer: flush error table={}: {}", table, e);
+        if let Err(e) = sink.write(write.clone()).await {
+            tracing::error!("Writer: flush error table={}: {}", write.table, e);
             return Err(());
         }
     }
@@ -581,6 +564,7 @@ fn apply_middlewares(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::record_batch::RecordBatch;
 
     // ---------- accumulator ----------
 
@@ -601,7 +585,7 @@ mod tests {
         acc.push(make_td("t.dlq", 3, true), None); // marker already taken
         assert_eq!(acc.markers.len(), 1);
         let flush = acc.take_flush().unwrap();
-        assert_eq!(flush.tables.len(), 2);
+        assert_eq!(flush.writes.len(), 2);
         assert_eq!(flush.markers.len(), 1);
     }
 
@@ -619,8 +603,8 @@ mod tests {
         acc.push(make_td("main", 1, false), None);
         acc.push(make_td("main.dlq", 1, true), None);
         let flush = acc.take_flush().unwrap();
-        assert_eq!(flush.tables[0].0.as_ref(), "main");
-        assert_eq!(flush.tables[1].0.as_ref(), "main.dlq");
+        assert_eq!(flush.writes[0].table.as_ref(), "main");
+        assert_eq!(flush.writes[1].table.as_ref(), "main.dlq");
     }
 
     #[test]

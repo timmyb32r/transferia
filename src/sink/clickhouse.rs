@@ -1,13 +1,12 @@
 use std::future::Future;
-use std::sync::Arc;
 
 use arrow::datatypes::{DataType, TimeUnit};
-use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::StreamExt;
 
 use crate::config::yaml::{parse_arrow_type, SchemaConfig};
 use crate::pipeline::sink::Sink;
+use crate::types::table_data::TableWrite;
 
 /// Map an Arrow `DataType` to the equivalent ClickHouse column type.
 fn arrow_to_clickhouse(dt: &DataType) -> anyhow::Result<String> {
@@ -136,26 +135,25 @@ impl ClickHouseSink {
 }
 
 impl Sink for ClickHouseSink {
-    fn write_batches(
+    fn write(
         &self,
-        batches: Vec<RecordBatch>,
-        table: Arc<str>,
+        write: TableWrite,
     ) -> impl Future<Output = anyhow::Result<()>> + Send {
-        async fn do_write_many(slf: &ClickHouseSink, batches: Vec<RecordBatch>, table: Arc<str>) -> anyhow::Result<()> {
-            if batches.is_empty() { return Ok(()); }
-            let query = format!("INSERT INTO `{}` VALUES", table);
+        async fn do_write(slf: &ClickHouseSink, write: TableWrite) -> anyhow::Result<()> {
+            if write.batches.is_empty() { return Ok(()); }
+            let query = format!("INSERT INTO `{}` VALUES", write.table);
             let client = slf.pool.get().await
                 .map_err(|e| anyhow::anyhow!("ClickHouse pool get: {}", e))?;
-            let total: usize = batches.iter().map(|b| b.num_rows()).sum();
-            let n = batches.len();
-            let mut stream = client.insert_many(&query, batches, None).await
+            let total: usize = write.batches.iter().map(|b| b.num_rows()).sum();
+            let n = write.batches.len();
+            let mut stream = client.insert_many(&query, write.batches, None).await
                 .map_err(|e| anyhow::anyhow!("ClickHouse insert_many failed: {}", e))?;
             while let Some(item) = stream.next().await {
                 item.map_err(|e| anyhow::anyhow!("ClickHouse insert_many error: {}", e))?;
             }
-            tracing::info!("Inserted {} rows via insert_many ({} blocks)", total, n);
+            tracing::info!("Inserted {} rows via insert_many ({} blocks) into '{}'", total, n, write.table);
             Ok(())
         }
-        do_write_many(self, batches, table)
+        do_write(self, write)
     }
 }

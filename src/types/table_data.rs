@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
-/// Single transport object for the pipeline: parser → middlewares → accumulator → sink.
-/// `table` is already resolved to the concrete target name ("my_table" or "my_table.dlq")
-/// — there is no `dlq_flag` indirection for the sink.
+/// Pipeline unit: one Arrow batch destined for one pre-resolved table.
+///
+/// Flows: **parser → middlewares → accumulator**.
+/// `table` is already resolved to the concrete target name
+/// (`"my_table"` or `"my_table.dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
 pub struct TableData {
     /// Resolved target table: `"my_table"` or `"my_table.dlq"`.
@@ -15,6 +17,18 @@ pub struct TableData {
     pub batch: RecordBatch,
     /// Monotonic batch id for tracing.
     pub batch_id: u64,
+}
+
+/// Accumulated write for a single table. Built by [`BatchAccumulator`] from one or
+/// more [`TableData`]s sharing the same `table`. Consumed by [`Sink::write`].
+///
+/// **Invariant:** all batches in `batches` share the schema of `table`.
+#[derive(Debug, Clone)]
+pub struct TableWrite {
+    /// Resolved table name (pre-resolved by the parser — no DLQ indirection).
+    pub table: Arc<str>,
+    /// Arrow batches to insert (one or more).
+    pub batches: Vec<RecordBatch>,
 }
 
 /// Canonical `<table>.dlq` naming convention. The only place that formats this suffix.
