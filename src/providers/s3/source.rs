@@ -31,10 +31,6 @@ pub enum S3ReadError {
     Transport { op: &'static str, file: Arc<str>, source: anyhow::Error },
     /// Bad / corrupt / too-large record — non-retryable, abort snapshot.
     Data { file: Arc<str>, reason: String },
-    /// Invalid configuration — abort immediately.
-    Config { reason: String },
-    /// Invariant violation — abort immediately.
-    Fatal { reason: String },
     /// File vanished between list and read — abort (incomplete snapshot).
     NoSuchFile { file: Arc<str> },
 }
@@ -44,8 +40,6 @@ impl std::fmt::Display for S3ReadError {
         match self {
             Self::Transport { op, file, source } => write!(f, "S3 transport {op} {file}: {source}"),
             Self::Data { file, reason } => write!(f, "S3 data error {file}: {reason}"),
-            Self::Config { reason } => write!(f, "S3 config: {reason}"),
-            Self::Fatal { reason } => write!(f, "S3 fatal: {reason}"),
             Self::NoSuchFile { file } => write!(f, "S3 NoSuchFile: {file}"),
         }
     }
@@ -92,7 +86,10 @@ impl ChunkedReader {
         Self { stream: result.into_stream(), eof: false }
     }
 
-    /// Read more bytes into `buf`, growing it by at most `target` bytes.
+    /// Read enough bytes from the stream so that `buf` grows by approximately
+    /// `target` bytes, or until EOF. The actual growth may exceed `target`
+    /// because the underlying S3 chunks are appended whole.
+    ///
     /// Returns the number of bytes added. 0 means EOF.
     async fn read_more(&mut self, buf: &mut BytesMut, target: usize) -> anyhow::Result<usize> {
         if self.eof { return Ok(0); }
@@ -114,8 +111,7 @@ impl ChunkedReader {
 // S3Source
 // ---------------------------------------------------------------------------
 
-const READ_MORE_GRANULARITY: usize = 1024 * 1024;              // 1 MiB — progress for giant records
-const MAX_PENDING_BYTES: usize = 33_554_432 + READ_MORE_GRANULARITY; // 2×chunk + 1 MiB
+const READ_MORE_GRANULARITY: usize = 1024 * 1024; // 1 MiB — progress for giant records
 const LOG_EVERY_ROWS: u64 = 10_000;
 
 pub struct S3Source {
@@ -177,6 +173,10 @@ impl S3Source {
         let resume = self.framed + self.pending.len();
 
         let get = if resume > 0 {
+            tracing::debug!(
+                "S3: resuming {} at offset {}",
+                path, resume,
+            );
             let opts = object_store::GetOptions {
                 range: Some(object_store::GetRange::from(resume as u64..)),
                 ..Default::default()
@@ -203,10 +203,7 @@ impl S3Source {
     }
 
     /// Helper: maps the outcome of `try_read_records` into a `ReadResult`.
-    fn outcome_to_result(
-        messages: Option<Vec<Message>>,
-        partition_id: i64,
-    ) -> ReadResult {
+    fn outcome_to_result(messages: Option<Vec<Message>>, partition_id: i64) -> ReadResult {
         match messages {
             Some(msgs) => ReadResult::Batch(MessageBatch {
                 messages: msgs, partition_id, commit_marker: None,
@@ -219,7 +216,6 @@ impl S3Source {
     /// Returns `None` when all files are exhausted.
     async fn try_read_records(&mut self) -> Result<Option<Vec<Message>>, S3ReadError> {
         loop {
-            // Open next file if needed
             if self.current_reader.is_none() {
                 if self.current_idx >= self.files.len() {
                     return Ok(None);
@@ -229,23 +225,23 @@ impl S3Source {
                 self.open_current().await?;
             }
 
-            let fname: Arc<str> = self.files[self.current_idx].location.to_string().into();
             let reader = self.current_reader.as_mut().unwrap();
             let boundary = if reader.eof {
-                self.pending.len() // EOF: emit whatever is left as a final record
+                self.pending.len() // EOF: emit remainder as final record
             } else {
                 self.framer.safe_split_at(&self.pending)
             };
 
             if boundary == 0 && !reader.eof {
-                // No delimiter yet — read more.
-                if self.pending.len() > MAX_PENDING_BYTES {
+                // No delimiter yet — need more bytes.
+                let max = 2 * self.chunk_size + READ_MORE_GRANULARITY;
+                if self.pending.len() > max {
                     return Err(S3ReadError::Data {
-                        file: fname,
+                        file: self.files[self.current_idx].location.to_string().into(),
                         reason: format!(
-                            "pending buffer exceeded {} MiB without a record boundary — \
-                             corrupt file or record > chunk_size",
-                            MAX_PENDING_BYTES / (1024 * 1024),
+                            "pending buffer exceeded {} MiB without record boundary — \
+                             corrupt file or single record > chunk_size",
+                            max / (1024 * 1024),
                         ),
                     });
                 }
@@ -256,7 +252,9 @@ impl S3Source {
                 };
                 reader.read_more(&mut self.pending, target).await
                     .map_err(|e| S3ReadError::Transport {
-                        op: "read", file: fname, source: e,
+                        op: "read",
+                        file: self.files[self.current_idx].location.to_string().into(),
+                        source: e,
                     })?;
                 continue;
             }
@@ -287,7 +285,7 @@ impl S3Source {
                 })
                 .collect();
 
-            // Progress logging — milestone-based, no off-by-one.
+            // Progress logging — milestone-based.
             let n = messages.len() as u64;
             let prev_stone = self.rows_produced / LOG_EVERY_ROWS;
             self.rows_produced += n;
@@ -316,29 +314,33 @@ impl Source for S3Source {
             Err(ref first_err) => match classify(first_err) {
                 S3Retry::Retry => {
                     let mut attempt = 0u32;
+                    let mut last_msg = format!("{first_err}");
                     loop {
                         attempt += 1;
                         if attempt > self.max_retries {
                             tracing::error!(
-                                "{first_err} — {} retries exhausted; aborting snapshot",
+                                "{} retries exhausted (last: {last_msg}); aborting snapshot",
                                 self.max_retries,
                             );
-                            return Ok(ReadResult::Failed(anyhow::anyhow!("{first_err}")));
+                            return Ok(ReadResult::Failed(anyhow::anyhow!("{last_msg}")));
                         }
-                        tracing::warn!("{first_err} — retry {}/{}", attempt, self.max_retries);
+                        tracing::warn!("attempt {}/{} — {last_msg}", attempt, self.max_retries);
                         tokio::time::sleep(backoff_ms(attempt)).await;
                         self.current_reader = None; // force re-open with resume offset
                         match self.try_read_records().await {
                             Ok(messages) => {
                                 return Ok(Self::outcome_to_result(messages, self.partition_id));
                             }
-                            Err(e2) => match classify(&e2) {
-                                S3Retry::Retry => continue,
-                                S3Retry::Return => {
-                                    tracing::error!("{e2} — non-retryable, aborting");
-                                    return Ok(ReadResult::Failed(anyhow::anyhow!("{e2}")));
+                            Err(e2) => {
+                                last_msg = format!("{e2}");
+                                match classify(&e2) {
+                                    S3Retry::Retry => continue,
+                                    S3Retry::Return => {
+                                        tracing::error!("{e2} — non-retryable, aborting");
+                                        return Ok(ReadResult::Failed(anyhow::anyhow!("{e2}")));
+                                    }
                                 }
-                            },
+                            }
                         }
                     }
                 }
