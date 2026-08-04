@@ -12,8 +12,7 @@
 
 use std::sync::Arc;
 
-use bytes::Bytes;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{GetResult, ObjectStore};
 
@@ -125,6 +124,9 @@ pub struct S3Source {
     partition_id: i64,
     /// Un-framed bytes: read-cursor via `BytesMut` (O(1) split_to).
     pending: BytesMut,
+    /// Prefix of `pending` already known to contain no `\n`.
+    /// `safe_split_at` only scans `pending[pending_scanned..]`.
+    pending_scanned: usize,
     /// Bytes already framed into messages (for resume offset).
     framed: usize,
     /// Files fully ingested.
@@ -161,7 +163,7 @@ impl S3Source {
         Ok(Self {
             store, files, current_idx: 0, current_reader: None, framer,
             chunk_size, max_retries, partition_id,
-            pending: BytesMut::new(), framed: 0, files_done: 0, rows_produced: 0,
+            pending: BytesMut::new(), pending_scanned: 0, framed: 0, files_done: 0, rows_produced: 0,
         })
     }
 
@@ -222,14 +224,24 @@ impl S3Source {
                 }
                 self.framed = 0;
                 self.pending.clear();
+                self.pending_scanned = 0;
                 self.open_current().await?;
             }
 
             let reader = self.current_reader.as_mut().unwrap();
             let boundary = if reader.eof {
                 self.pending.len() // EOF: emit remainder as final record
+            } else if self.pending_scanned < self.pending.len() {
+                // Incremental scan: only check the new tail since last scan.
+                let tail = &self.pending[self.pending_scanned..];
+                if let Some(i) = tail.iter().rposition(|&b| b == b'\n') {
+                    self.pending_scanned + i + 1  // boundary in full pending coords
+                } else {
+                    self.pending_scanned = self.pending.len();
+                    0
+                }
             } else {
-                self.framer.safe_split_at(&self.pending)
+                0 // already scanned, no boundary found
             };
 
             if boundary == 0 && !reader.eof {
@@ -273,6 +285,7 @@ impl S3Source {
 
             // Split framed bytes into records — zero-copy via Bytes::slice.
             let chunk = Bytes::from(self.pending.split_to(boundary));
+            self.pending_scanned = self.pending_scanned.saturating_sub(boundary);
             let base_ptr = chunk.as_ptr() as usize;
             self.framed += boundary;
 
