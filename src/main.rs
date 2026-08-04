@@ -4,7 +4,7 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use ydb_ch_replicator::config::yaml::{build_credentials, build_credentials_with_token, Config};
+use ydb_ch_replicator::config::yaml::{build_credentials, build_credentials_with_token, Config, SourceConfig};
 use ydb_ch_replicator::middleware::filter::FilterMiddleware;
 use ydb_ch_replicator::parser::JsonParser;
 use ydb_ch_replicator::types::table_data::dlq_name;
@@ -12,6 +12,8 @@ use ydb_ch_replicator::pipeline::middleware::Middleware;
 use ydb_ch_replicator::pipeline::run_partition_pipeline;
 use ydb_ch_replicator::sink::clickhouse::ClickHouseSink;
 use ydb_ch_replicator::source::pq_v1::{parse_endpoint, partition_to_group, PqV1Client, PqV1Source};
+use ydb_ch_replicator::source::s3::S3Source;
+use ydb_ch_replicator::source::s3_config::build_object_store;
 use ydb_ch_replicator::source::ydb_topic::YdbTopicSource;
 
 #[global_allocator]
@@ -163,6 +165,24 @@ fn spawn_ydb_task(
     })
 }
 
+fn spawn_s3_task(
+    store: Arc<dyn object_store::ObjectStore>,
+    prefix: String,
+    framer: ydb_ch_replicator::config::yaml::ChunkSplitter,
+    chunk_size: usize,
+    max_retries: u32,
+    partition_id: i64,
+    deps: PipelineDeps,
+) -> tokio::task::JoinHandle<()> {
+    spawn_partition_task::<S3Source, _, _>(partition_id, deps, "S3", move || {
+        let store = store.clone();
+        let prefix = prefix.clone();
+        async move {
+            S3Source::new(store, &prefix, framer, chunk_size, max_retries, partition_id).await
+        }
+    })
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -181,53 +201,63 @@ async fn main() -> anyhow::Result<()> {
 
     // 1. Load config
     let config = Config::from_file(&cli.config)?;
-    let is_pqv1 = config.source.source_type == "pqv1";
-    tracing::info!("Source type: {}", config.source.source_type);
-
-    // 2. Discover partitions
-    let my_partitions: Vec<i64> = if is_pqv1 {
-        let (_creds, token) = build_credentials_with_token(&config.source.auth)?;
-        let token = token.ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
-
-        if let Some(ref static_ids) = config.source.partition_ids {
-            static_ids
-                .iter()
-                .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
-                .copied()
-                .collect()
-        } else {
-            let (scheme, host, _) = parse_endpoint(&config.source.connection_string)?;
-            let endpoint = format!("{}://{}", scheme, host);
-            PqV1Client::discover_partitions(
-                &endpoint,
-                &config.source.topic_path,
-                &config.source.consumer_name,
-                &token,
-            )
-            .await?
-            .into_iter()
-            .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
-            .collect()
+    tracing::info!(
+        "Source type: {}",
+        match &config.source {
+            SourceConfig::Topic(_) => "topic",
+            SourceConfig::Pqv1(_) => "pqv1",
+            SourceConfig::S3(_) => "s3",
         }
-    } else {
-        let discovery_creds = build_credentials(&config.source.auth)?;
-        let mut builder =
-            ydb::ClientBuilder::new_from_connection_string(&config.source.connection_string)?
-                .with_credentials(discovery_creds);
-        if let Some(ref endpoint) = config.source.discovery_endpoint {
-            let discovery = ydb::StaticDiscovery::new_from_str(endpoint.as_str())
-                .map_err(|e| anyhow::anyhow!("StaticDiscovery: {}", e))?;
-            builder = builder.with_discovery(discovery);
+    );
+
+    // 2. Discover partitions + resolve table name
+    let (table, parser_cfg, my_partitions) = match &config.source {
+        SourceConfig::Pqv1(p) => {
+            let (_creds, token) = build_credentials_with_token(&p.auth)?;
+            let token = token.ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
+            let parts = if let Some(ref static_ids) = p.partition_ids {
+                static_ids.iter()
+                    .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
+                    .copied()
+                    .collect()
+            } else {
+                let (scheme, host, _) = parse_endpoint(&p.connection_string)?;
+                let endpoint = format!("{}://{}", scheme, host);
+                PqV1Client::discover_partitions(&endpoint, &p.topic_path, &p.consumer_name, &token)
+                    .await?
+                    .into_iter()
+                    .filter(|id| id.unsigned_abs() as u32 % cli.total_workers == cli.worker_index)
+                    .collect()
+            };
+            let table: Arc<str> = p.parser.resolve_table_name(&p.topic_path)?.into();
+            (table, &p.parser, parts)
         }
-        let client = builder.client()?;
-        let mut topic_client = client.topic_client();
-        ydb_ch_replicator::partition::discover_my_partitions(
-            &mut topic_client,
-            &config.source.topic_path,
-            cli.total_workers,
-            cli.worker_index,
-        )
-        .await?
+        SourceConfig::Topic(t) => {
+            let creds = build_credentials(&t.auth)?;
+            let mut builder = ydb::ClientBuilder::new_from_connection_string(&t.connection_string)?
+                .with_credentials(creds);
+            if let Some(ref ep) = t.discovery_endpoint {
+                let discovery = ydb::StaticDiscovery::new_from_str(ep.as_str())
+                    .map_err(|e| anyhow::anyhow!("StaticDiscovery: {}", e))?;
+                builder = builder.with_discovery(discovery);
+            }
+            let client = builder.client()?;
+            let mut topic_client = client.topic_client();
+            let parts = ydb_ch_replicator::partition::discover_my_partitions(
+                &mut topic_client, &t.topic_path, cli.total_workers, cli.worker_index,
+            ).await?;
+            let table: Arc<str> = t.parser.resolve_table_name(&t.topic_path)?.into();
+            (table, &t.parser, parts)
+        }
+        SourceConfig::S3(s) => {
+            if cli.worker_index != 0 {
+                tracing::info!("S3 snapshot runs on worker 0 only — worker {} exiting", cli.worker_index);
+                return Ok(());
+            }
+            let table: Arc<str> = s.parser.resolve_table_name(&s.prefix)?.into();
+            // S3: synthetic partition [0]
+            (table, &s.parser, vec![0])
+        }
     };
 
     if my_partitions.is_empty() {
@@ -235,28 +265,19 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     tracing::info!("My partitions: {:?}", my_partitions);
-
-    // 3. Shared parser — resolves the destination table name and stamps it into batches.
-    let table: Arc<str> = config
-        .source
-        .parser
-        .resolve_table_name(&config.source.topic_path)?
-        .into();
     tracing::info!("Destination table: {}", table);
-    let parser = Arc::new(JsonParser::new(&config.source.parser.settings, table.clone())?);
+
+    // 3. Shared parser
+    let parser = Arc::new(JsonParser::new(&parser_cfg.settings, table.clone())?);
 
     // 4. Middlewares
     let middlewares: Vec<Box<dyn Middleware>> = config
-        .middlewares
-        .iter()
+        .middlewares.iter()
         .map(|mc| match mc.mw_type.as_str() {
-            "filter" => {
-                let mw = FilterMiddleware::new(
-                    mc.field.clone().unwrap_or_default(),
-                    mc.value.clone().unwrap_or_default(),
-                )?;
-                Ok(Box::new(mw) as Box<dyn Middleware>)
-            }
+            "filter" => Ok(Box::new(FilterMiddleware::new(
+                mc.field.clone().unwrap_or_default(),
+                mc.value.clone().unwrap_or_default(),
+            )?) as Box<dyn Middleware>),
             other => anyhow::bail!("Unknown middleware type: {}", other),
         })
         .collect::<anyhow::Result<_>>()?;
@@ -264,16 +285,12 @@ async fn main() -> anyhow::Result<()> {
 
     // 5. Shared sink
     let sink = ClickHouseSink::new(&config.sink).await?;
-    let main_cols = ClickHouseSink::schema_columns(&config.source.parser.settings)?;
-    sink.create_table(&table, &main_cols, &config.source.parser.settings.order_by, config.sink.recreate_tables).await?;
-    // DLQ table
+    let main_cols = ClickHouseSink::schema_columns(&parser_cfg.settings)?;
+    sink.create_table(&table, &main_cols, &parser_cfg.settings.order_by, config.sink.recreate_tables).await?;
     let dlq_table = dlq_name(&table);
     let dlq_cols: Vec<(String, String)> = ydb_ch_replicator::parser::json_parser::DLQ_CH_COLUMNS
-        .iter()
-        .map(|(n, t)| ((*n).to_string(), (*t).to_string()))
-        .collect();
+        .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
     sink.create_table(&dlq_table, &dlq_cols, &[], config.sink.recreate_tables).await?;
-    // Verify
     sink.verify_table(&table).await?;
     sink.verify_table(&dlq_table).await?;
     let sink = Arc::new(sink);
@@ -287,38 +304,38 @@ async fn main() -> anyhow::Result<()> {
         ct_clone.cancel();
     });
 
-    // 7. Spawn tasks — PQv1 or YDB
+    // 7. Spawn tasks
     let deps = PipelineDeps {
-        parser,
-        mw: middlewares,
-        snk: sink,
+        parser, mw: middlewares, snk: sink,
         batch_size: config.sink.batch_size,
         max_linger_ms: config.sink.max_linger_ms,
         token: cancel_token.clone(),
     };
     let mut handles = Vec::new();
 
-    if is_pqv1 {
-        for partition_id in my_partitions {
-            handles.push(spawn_pqv1_task(
-                config.source.connection_string.clone(),
-                config.source.topic_path.clone(),
-                config.source.consumer_name.clone(),
-                config.source.auth.clone(),
-                partition_id,
-                deps.clone(),
-            ));
+    match &config.source {
+        SourceConfig::Pqv1(p) => {
+            for pid in my_partitions {
+                handles.push(spawn_pqv1_task(
+                    p.connection_string.clone(), p.topic_path.clone(),
+                    p.consumer_name.clone(), p.auth.clone(), pid, deps.clone(),
+                ));
+            }
         }
-    } else {
-        for partition_id in my_partitions {
-            handles.push(spawn_ydb_task(
-                config.source.connection_string.clone(),
-                config.source.topic_path.clone(),
-                config.source.consumer_name.clone(),
-                config.source.auth.clone(),
-                config.source.discovery_endpoint.clone(),
-                partition_id,
-                deps.clone(),
+        SourceConfig::Topic(t) => {
+            for pid in my_partitions {
+                handles.push(spawn_ydb_task(
+                    t.connection_string.clone(), t.topic_path.clone(),
+                    t.consumer_name.clone(), t.auth.clone(),
+                    t.discovery_endpoint.clone(), pid, deps.clone(),
+                ));
+            }
+        }
+        SourceConfig::S3(s) => {
+            let store = build_object_store(s)?;
+            handles.push(spawn_s3_task(
+                store, s.prefix.clone(), s.parser.settings.chunk_splitter,
+                s.chunk_size_bytes, s.max_retries, 0, deps.clone(),
             ));
         }
     }

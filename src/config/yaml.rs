@@ -29,35 +29,62 @@ impl Config {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
-        let parser = &self.source.parser;
+        // Common parser validation
+        let parser = self.source.parser();
         if parser.parser_type != "json_parser" {
             anyhow::bail!("source.parser.parser_type '{}' unsupported (only 'json_parser')", parser.parser_type);
         }
         if parser.settings.columns.is_empty() {
             anyhow::bail!("source.parser.settings.columns must not be empty");
         }
-        // Validate table naming (also surfaces a missing name for from_config early).
-        parser.resolve_table_name(&self.source.topic_path)?;
-        if self.source.connection_string.is_empty() {
-            anyhow::bail!("source.connection_string must not be empty");
+        for col in &parser.settings.columns {
+            parse_arrow_type(&col.arrow_type)
+                .map_err(|e| anyhow::anyhow!("Column '{}' has invalid arrow_type: {}", col.column_name, e))?;
         }
-        if self.source.topic_path.is_empty() {
-            anyhow::bail!("source.topic_path must not be empty");
+
+        // Per-source-type validation
+        match &self.source {
+            SourceConfig::Topic(t) | SourceConfig::Pqv1(t) => {
+                if t.connection_string.is_empty() {
+                    anyhow::bail!("source.topic/pqv1.connection_string must not be empty");
+                }
+                if t.topic_path.is_empty() {
+                    anyhow::bail!("source.topic/pqv1.topic_path must not be empty");
+                }
+                if t.consumer_name.is_empty() {
+                    anyhow::bail!("source.topic/pqv1.consumer_name must not be empty");
+                }
+                parser.resolve_table_name(&t.topic_path)?;
+            }
+            SourceConfig::S3(s) => {
+                if s.bucket.is_empty() {
+                    anyhow::bail!("source.s3.bucket must not be empty");
+                }
+                if s.parser.settings.chunk_splitter == ChunkSplitter::NoSplit {
+                    anyhow::bail!(
+                        "source.s3: chunk_splitter 'no-split' is not supported for S3 — \
+                         use 'new-line'. With 'no-split' each 16 MiB chunk becomes one \
+                         JSON document, sending all data to DLQ."
+                    );
+                }
+                if s.parser.table_naming.kind != "from_config" {
+                    anyhow::bail!(
+                        "source.s3: table_naming.type must be 'from_config' \
+                         (S3 has no topic path for 'from_topic')"
+                    );
+                }
+                parser.resolve_table_name(&s.prefix)?; // just checks from_config has a name
+            }
         }
-        if self.source.consumer_name.is_empty() {
-            anyhow::bail!("source.consumer_name must not be empty");
-        }
+
+        // Sink validation
         if self.sink.connection_string.is_empty() {
             anyhow::bail!("sink.connection_string must not be empty");
         }
         if self.sink.database.is_empty() {
             anyhow::bail!("sink.database must not be empty");
         }
-        // Validate arrow types for all column mappings
-        for col in &parser.settings.columns {
-            parse_arrow_type(&col.arrow_type)
-                .map_err(|e| anyhow::anyhow!("Column '{}' has invalid arrow_type: {}", col.column_name, e))?;
-        }
+
         // Validate middleware configuration
         for (i, mw) in self.middlewares.iter().enumerate() {
             match mw.mw_type.as_str() {
@@ -90,38 +117,40 @@ impl Config {
 }
 
 // ---------------------------------------------------------------------------
-// Source configuration
+// Source configuration — tagged enum
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
-pub struct SourceConfig {
-    /// Source type: "topic" (default, YDB Topic API via ydb crate) or
-    /// "pqv1" (Logbroker PQv1 — MigrationStreamingRead gRPC).
-    #[serde(default = "default_source_type")]
-    pub source_type: String,
-    /// YDB connection string, e.g. "grpc://localhost:2136/local"
+#[serde(rename_all = "kebab-case")]
+pub enum SourceConfig {
+    Topic(YdbSourceConfig),
+    Pqv1(YdbSourceConfig),
+    S3(crate::source::s3_config::S3SourceConfig),
+}
+
+impl SourceConfig {
+    /// Common accessor: every source variant carries a parser.
+    pub fn parser(&self) -> &ParserConfig {
+        match self {
+            SourceConfig::Topic(t) | SourceConfig::Pqv1(t) => &t.parser,
+            SourceConfig::S3(s) => &s.parser,
+        }
+    }
+}
+
+/// Shared YDB-source config (topic / pqv1).
+#[derive(Debug, Deserialize)]
+pub struct YdbSourceConfig {
     pub connection_string: String,
-    /// YDB topic path, e.g. "/local/test-topic"
     pub topic_path: String,
-    /// YDB consumer name
     pub consumer_name: String,
     #[serde(default)]
     pub auth: AuthConfig,
-    /// Parser configuration: table naming + concrete parser settings.
     pub parser: ParserConfig,
-    /// Optional: static discovery endpoint URI (e.g. "grpcs://sas.logbroker.yandex.net:2135").
-    /// When set, bypasses YDB's normal endpoint discovery and routes all gRPC services
-    /// through this single endpoint — needed for Logbroker-backed YDB topics.
     #[serde(default)]
     pub discovery_endpoint: Option<String>,
-    /// Optional: static partition IDs for PQv1 (fallback when DescribeTopic unavailable).
-    /// When set AND source_type == "pqv1", partition discovery is skipped entirely.
     #[serde(default)]
     pub partition_ids: Option<Vec<i64>>,
-}
-
-fn default_source_type() -> String {
-    "topic".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -199,12 +228,40 @@ pub struct SchemaConfig {
     pub chunk_splitter: ChunkSplitter,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChunkSplitter {
     #[default]
     NoSplit,
     NewLine,
+}
+
+impl ChunkSplitter {
+    /// Last safe split point in `buf` — never cuts a record in half.
+    /// `NoSplit`: entire buffer is one record → `buf.len()`.
+    /// `NewLine`: position after last `\n`; `0` when no delimiter found
+    /// (caller should accumulate more data or treat as EOF remainder).
+    pub fn safe_split_at(&self, buf: &[u8]) -> usize {
+        match self {
+            ChunkSplitter::NoSplit => buf.len(),
+            ChunkSplitter::NewLine => buf
+                .iter()
+                .rposition(|&b| b == b'\n')
+                .map_or(0, |i| i + 1),
+        }
+    }
+
+    /// Split a completed chunk into non-empty records.
+    /// Trailing empty records (from a final `\n`) are discarded.
+    pub fn split_into_records<'a>(&self, buf: &'a [u8]) -> Vec<&'a [u8]> {
+        match self {
+            ChunkSplitter::NoSplit => vec![buf],
+            ChunkSplitter::NewLine => buf
+                .split(|&b| b == b'\n')
+                .filter(|line| !line.is_empty())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -499,8 +556,7 @@ mod tests {
     #[test]
     fn test_config_validate_empty_columns_fails() {
         let cfg = Config {
-            source: SourceConfig {
-                source_type: "topic".into(),
+            source: SourceConfig::Topic(YdbSourceConfig {
                 connection_string: "grpc://localhost:2136".into(),
                 topic_path: "/test".into(),
                 consumer_name: "c".into(),
@@ -512,7 +568,7 @@ mod tests {
                 },
                 discovery_endpoint: None,
                 partition_ids: None,
-            },
+            }),
             sink: SinkConfig {
                 connection_string: "localhost:9000".into(),
                 database: "default".into(),

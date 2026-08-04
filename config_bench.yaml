@@ -4,16 +4,16 @@
 #   ydb-ch-replicator --config config_bench.yaml --total-workers 1 --worker-index 0
 
 source:
-  source_type: "pqv1"
-  connection_string: ""
-  topic_path: "/cdc/prod/logs"
-  consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
-  discovery_endpoint: ""
-  partition_ids: [0]
-  auth:
-    type: access_token
-    token_file: "~/.logbroker/token"
-  parser:
+  pqv1:
+    connection_string: ""
+    topic_path: "/cdc/prod/logs"
+    consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
+    discovery_endpoint: ""
+    partition_ids: [0]
+    auth:
+      type: access_token
+      token_file: "~/.logbroker/token"
+    parser:
     # Как выбирается имя целевой таблицы:
     #   from_config — берётся table_naming.name (напр. "logs")
     #   from_topic  — берётся topic_path как есть (напр. "/cdc/prod/logs")

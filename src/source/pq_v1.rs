@@ -19,7 +19,7 @@ use tonic::transport::Uri;
 use tonic::Request;
 
 use crate::config::yaml::YDB_DATABASE;
-use crate::pipeline::source::{CommitMarker, Source};
+use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::types::message::{Message, MessageBatch};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
@@ -533,11 +533,11 @@ impl PqV1Source {
 }
 
 impl Source for PqV1Source {
-    async fn read_batch(&mut self) -> anyhow::Result<MessageBatch> {
+    async fn read_batch(&mut self) -> anyhow::Result<ReadResult> {
         // Block for the first message, then drain whatever else is queued.
         let first = match self.rx.recv().await {
             Some(msg) => msg,
-            None => return Ok(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None }),
+            None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None })),
         };
         // `cookie` is Copy; `data` moves out of the owned message — no clone.
         let mut last_cookie: Option<CommitCookie> = first.cookie;
@@ -549,7 +549,7 @@ impl Source for PqV1Source {
         let commit_marker = last_cookie.map(|cookie| {
             CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
         });
-        Ok(MessageBatch { messages, partition_id: self.partition_id, commit_marker })
+        Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
     }
 
     async fn commit_offsets(&mut self, marker: &CommitMarker) -> anyhow::Result<()> {

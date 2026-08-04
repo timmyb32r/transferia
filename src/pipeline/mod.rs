@@ -10,7 +10,7 @@ use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::parser::{JsonParser, ParserWorkspace};
-use crate::pipeline::source::{CommitMarker, Source};
+use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
 use crate::types::table_data::{TableData, TableWrite};
@@ -166,8 +166,13 @@ pub async fn run_partition_pipeline(
     let tx_parsed_parser = tx_parsed.clone();
     let (tx_commit, mut rx_commit) = mpsc::channel::<CommitAck>(CHANNEL_CAPACITY);
 
+    // Shared fatal-error slot: reader (Failed) or writer (sink error / middleware guard).
+    let fatal_error: Arc<std::sync::Mutex<Option<anyhow::Error>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
     // --- Reader task (tokio::spawn — owns source for read + commit) ---
     let reader_token = cancel_token.clone();
+    let reader_fatal = fatal_error.clone();
     let reader_handle = tokio::spawn(async move {
         let mut backoff_ms = INITIAL_BACKOFF_MS;
         loop {
@@ -219,7 +224,7 @@ pub async fn run_partition_pipeline(
             };
 
             let msg_batch = match msg_batch {
-                Ok(batch) if batch.messages.is_empty() => {
+                Ok(ReadResult::Batch(batch)) if batch.messages.is_empty() => {
                     tokio::select! {
                         _ = sleep(Duration::from_millis(backoff_ms)) => {
                             backoff_ms = (backoff_ms * BACKOFF_MULTIPLIER).min(MAX_BACKOFF_MS);
@@ -239,7 +244,31 @@ pub async fn run_partition_pipeline(
                         _ = reader_token.cancelled() => return,
                     }
                 }
-                Ok(batch) => batch,
+                Ok(ReadResult::Batch(batch)) => batch,
+                Ok(ReadResult::Exhausted) => {
+                    while let Ok(ack) = rx_commit.try_recv() {
+                        for marker in &ack.markers {
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error on exhausted: {}", e);
+                            }
+                        }
+                    }
+                    tracing::info!("Reader: source exhausted — terminating pipeline");
+                    return;
+                }
+                Ok(ReadResult::Failed(e)) => {
+                    while let Ok(ack) = rx_commit.try_recv() {
+                        for marker in &ack.markers {
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error before fail: {}", e);
+                            }
+                        }
+                    }
+                    tracing::error!("Reader: source failed — {}. Terminating pipeline.", e);
+                    // Store fatal error for run_partition_pipeline to propagate.
+                    *reader_fatal.lock().unwrap() = Some(e);
+                    return;
+                }
                 Err(e) => {
                     tracing::error!("Read error: {}. Backing off {}ms", e, backoff_ms);
                     tokio::select! {
@@ -355,9 +384,7 @@ pub async fn run_partition_pipeline(
     // --- Writer task ---
     let writer_token = cancel_token.clone();
     let sink_for_writer = sink.clone();
-    let fatal_error: Arc<std::sync::Mutex<Option<anyhow::Error>>> =
-        Arc::new(std::sync::Mutex::new(None));
-    let fatal_error_ref = fatal_error.clone();
+    let writer_fatal = fatal_error.clone();
     let writer_handle = tokio::spawn(async move {
         let mut acc = BatchAccumulator::new(batch_size);
         let mut total_flushed: u64 = 0;
@@ -459,7 +486,7 @@ pub async fn run_partition_pipeline(
                     );
                     // Flush whatever we have (best-effort) then signal fatal.
                     let _ = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await;
-                    *fatal_error_ref.lock().unwrap() = Some(anyhow::anyhow!(
+                    *writer_fatal.lock().unwrap() = Some(anyhow::anyhow!(
                         "Parser middleware error limit ({}) exceeded",
                         MAX_CONSECUTIVE_MW_ERRORS,
                     ));

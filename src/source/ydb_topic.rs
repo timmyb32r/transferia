@@ -2,7 +2,7 @@ use std::future::Future;
 
 use bytes::Bytes;
 
-use crate::pipeline::source::{CommitMarker, Source};
+use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::types::{Message, MessageBatch};
 
 pub struct YdbTopicSource {
@@ -42,8 +42,8 @@ impl YdbTopicSource {
 }
 
 impl Source for YdbTopicSource {
-    fn read_batch(&mut self) -> impl Future<Output = anyhow::Result<MessageBatch>> + Send {
-        async fn do_read(slf: &mut YdbTopicSource) -> anyhow::Result<MessageBatch> {
+    fn read_batch(&mut self) -> impl Future<Output = anyhow::Result<ReadResult>> + Send {
+        async fn do_read(slf: &mut YdbTopicSource) -> anyhow::Result<ReadResult> {
             let mut batch = slf.reader.read_batch().await?;
             let commit_marker = if !batch.messages.is_empty() {
                 Some(CommitMarker::new(batch.get_commit_marker()))
@@ -57,7 +57,7 @@ impl Source for YdbTopicSource {
                     messages.push(Message { value: Bytes::from(bytes) });
                 }
             }
-            Ok(MessageBatch { messages, partition_id: slf.partition_id, commit_marker })
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: slf.partition_id, commit_marker }))
         }
         do_read(self)
     }
