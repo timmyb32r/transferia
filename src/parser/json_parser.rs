@@ -742,9 +742,8 @@ impl JsonParser {
         // Pre-count rows for exact builder pre-allocation.
         let n_rows: usize = match self.chunk_splitter {
             ChunkSplitter::NewLine => messages.iter()
-                .flat_map(|msg| msg.value.split(|&b| b == b'\n'))
-                .filter(|line| !line.is_empty())
-                .count(),
+                .map(|msg| self.chunk_splitter.count_records(&msg.value))
+                .sum(),
             ChunkSplitter::NoSplit => messages.len(),
         };
 
@@ -765,8 +764,7 @@ impl JsonParser {
                 match self.chunk_splitter {
                     ChunkSplitter::NewLine => {
                         for msg in messages {
-                            for line in msg.value.split(|&b| b == b'\n') {
-                                if line.is_empty() { continue; }
+                            for line in self.chunk_splitter.split_into_records(&msg.value) {
                                 typed_scratch.fill(TypedScratch::Empty);
                                 match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
                                     Ok(true) => {
@@ -811,8 +809,7 @@ impl JsonParser {
                 match self.chunk_splitter {
                     ChunkSplitter::NewLine => {
                         for msg in messages {
-                            for line in msg.value.split(|&b| b == b'\n') {
-                                if line.is_empty() { continue; }
+                            for line in self.chunk_splitter.split_into_records(&msg.value) {
                                 match serde_json::from_slice::<Value>(line) {
                                     Ok(json) => {
                                         row.clear();

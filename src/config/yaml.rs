@@ -253,13 +253,37 @@ impl ChunkSplitter {
 
     /// Split a completed chunk into non-empty records.
     /// Trailing empty records (from a final `\n`) are discarded.
+    ///
+    /// Fast-path for `NewLine` without `\n`: returns `vec![buf]` immediately
+    /// (no iteration, no allocation beyond the single-element Vec).
     pub fn split_into_records<'a>(&self, buf: &'a [u8]) -> Vec<&'a [u8]> {
         match self {
             ChunkSplitter::NoSplit => vec![buf],
-            ChunkSplitter::NewLine => buf
-                .split(|&b| b == b'\n')
-                .filter(|line| !line.is_empty())
-                .collect(),
+            ChunkSplitter::NewLine => {
+                // Fast-path: no delimiter → one record, no split iteration
+                if !buf.contains(&b'\n') {
+                    return if buf.is_empty() { Vec::new() } else { vec![buf] };
+                }
+                buf.split(|&b| b == b'\n')
+                    .filter(|line| !line.is_empty())
+                    .collect()
+            }
+        }
+    }
+
+    /// Count records without allocating a `Vec`. Semantics match
+    /// `split_into_records` — non-empty lines, trailing delimiter discarded.
+    pub fn count_records(&self, buf: &[u8]) -> usize {
+        match self {
+            ChunkSplitter::NoSplit => if buf.is_empty() { 0 } else { 1 },
+            ChunkSplitter::NewLine => {
+                if buf.is_empty() { return 0; }
+                // Fast-path: no delimiter → one record
+                if !buf.contains(&b'\n') { return 1; }
+                buf.split(|&b| b == b'\n')
+                    .filter(|line| !line.is_empty())
+                    .count()
+            }
         }
     }
 }
