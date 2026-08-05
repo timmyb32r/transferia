@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;

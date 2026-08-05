@@ -392,7 +392,7 @@ pub async fn run_partition_pipeline(
         /// Common drain-and-ack helper used by the main loop and all cancel branches.
         /// Flushes all accumulated data; commits only on success.
         async fn drain_and_ack(
-            sink: &(dyn Sink),
+            sink: &dyn Sink,
             tx_commit: &mpsc::Sender<CommitAck>,
             acc: &mut BatchAccumulator,
         ) -> Option<usize> {
@@ -537,7 +537,7 @@ pub async fn run_partition_pipeline(
 /// Returns the number of rows flushed, or an error.
 /// **Writes all tables unconditionally, commits markers only after all succeed.**
 async fn flush_to_sink_and_ack(
-    sink: &(dyn Sink),
+    sink: &dyn Sink,
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<usize, ()> {

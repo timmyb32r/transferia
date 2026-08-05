@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_yaml::Value;
@@ -8,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::yaml::{validate_parser, AuthConfig, ParserConfig};
 use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
-use crate::providers::yds::credentials::{build_credentials, build_credentials_with_token, YdbCredentials};
+use crate::providers::yds::credentials::{build_credentials, build_credentials_with_token};
 use crate::providers::yds::pq_v1::{parse_endpoint, partition_to_group, PqV1Client, PqV1Source};
 use crate::providers::yds::ydb_topic::YdbTopicSource;
 

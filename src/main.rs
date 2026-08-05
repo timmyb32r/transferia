@@ -11,7 +11,7 @@ use ch_loader::types::table_data::dlq_name;
 use ch_loader::pipeline::middleware::Middleware;
 use ch_loader::pipeline::run_partition_pipeline;
 use ch_loader::pipeline::source::Source;
-use ch_loader::providers::traits::{ProviderRegistry, SourceProvider, SinkProvider};
+use ch_loader::providers::traits::ProviderRegistry;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -111,9 +111,12 @@ async fn main() -> anyhow::Result<()> {
         Ok(Box::new(ch_loader::providers::s3::provider::S3SourceProvider::from_config(v)?))
     });
 
-    // Register sink provider
+    // Register sink providers
     registry.register_sink("clickhouse", |v| {
         Ok(Box::new(ch_loader::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(v)?))
+    });
+    registry.register_sink("empty", |v| {
+        Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
 
     let source_kind = config.source.kind()?.to_string();

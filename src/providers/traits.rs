@@ -5,7 +5,7 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ParserConfig, MiddlewareConfig, SchemaConfig};
+use crate::config::yaml::{ParserConfig, SchemaConfig};
 use crate::pipeline::source::Source;
 use crate::pipeline::sink::Sink;
 
@@ -56,9 +56,18 @@ pub trait SinkProvider: Send + Sync {
 // Registry
 // ---------------------------------------------------------------------------
 
+type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
+type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
+
 pub struct ProviderRegistry {
-    sources: HashMap<&'static str, Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>>,
-    sinks: HashMap<&'static str, Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>>,
+    sources: HashMap<&'static str, SourceFactory>,
+    sinks: HashMap<&'static str, SinkFactory>,
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProviderRegistry {
