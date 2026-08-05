@@ -12,6 +12,8 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 simd-json = "0.17"
+itoa = "1"
+ryu = "1"
 jsonpath_lib = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
 tokio-util = "0.7"

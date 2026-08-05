@@ -118,6 +118,12 @@ async fn main() -> anyhow::Result<()> {
     registry.register_sink("empty", |v| {
         Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
+    registry.register_sink("s3", |v| {
+        Ok(Box::new(ch_loader::providers::s3::sink::provider::S3SinkProvider::from_config(v)?))
+    });
+    registry.register_sink("yds", |v| {
+        Ok(Box::new(ch_loader::providers::yds::sink::provider::YdsSinkProvider::from_config(v)?))
+    });
 
     let source_kind = config.source.kind()?.to_string();
     let source_provider = registry.build_source(&source_kind, config.source.raw()?.clone())?;

@@ -41,6 +41,7 @@ pub mod parser;
 pub mod partition;
 pub mod pipeline;
 pub mod providers;
+pub mod serializer;
 pub mod types;
 
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);
