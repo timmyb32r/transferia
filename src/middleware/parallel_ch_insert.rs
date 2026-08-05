@@ -7,13 +7,16 @@ use crate::types::table_data::TableWrite;
 /// Parallel ClickHouse insert sink: fans out writes across N independent
 /// ClickHouse connections for higher throughput.
 ///
+/// **Architecture note**: This type lives in `middleware/` but implements `Sink`,
+/// not `Middleware`. It's a **Sink decorator**, not a data transformer.
+/// The `middleware/` crate location is intentional — this component is an
+/// optional pipeline plug-in, conceptually sitting between the accumulator
+/// and the destination, like other middleware. The naming prioritizes the
+/// user's mental model (optional pipeline stage = middleware) over strict
+/// type-level taxonomy.
+///
 /// **Weakened guarantee**: assumes all keys in the incoming stream are unique,
 /// so parallel out-of-order inserts don't cause consistency issues.
-///
-/// Not a `Middleware` in the traditional sense — this is a **Sink decorator**
-/// that wraps the N connection pools and dispatches writes round-robin across
-/// them. The middleware module hosts it because it's an optional pipeline
-/// component that sits between the accumulator and the actual ClickHouse I/O.
 pub struct ParallelChInsertSink {
     pools: Vec<ConnectionPool<ArrowFormat>>,
     next: std::sync::atomic::AtomicUsize,

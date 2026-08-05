@@ -11,24 +11,194 @@ use super::Serializer;
 /// This is the exact inverse of the JSON parser — the output can be
 /// read back by the S3 source or YDS source without modification.
 ///
-/// Null values are serialized as JSON `null`. All values use standard
-/// JSON representation (strings are quoted, numbers unquoted, booleans as
-/// `true`/`false`).
+/// Null values are elided (absent keys). This is compatible with the
+/// JSON parser which treats missing keys as nullable columns.
+///
+/// **Optimization**: Column types are pre-classified into [`ColumnWriter`]
+/// variants during the first serialization. This eliminates per-value
+/// `downcast_ref` overhead — the type check happens once per column,
+/// not once per value.
 pub struct JsonSerializer;
+
+/// Pre-classified column writer: holds a typed reference to the Arrow array
+/// so we never need `downcast_ref` during the value-writing loop.
+///
+/// Date and Timestamp types map to their integer representation:
+///   Date32 → Int32, Date64 → Int64, Timestamp(*) → Int64
+enum ColumnWriter<'a> {
+    Utf8(&'a arrow::array::StringArray),
+    LargeUtf8(&'a arrow::array::LargeStringArray),
+    Int8(&'a arrow::array::Int8Array),
+    Int16(&'a arrow::array::Int16Array),
+    Int32(&'a arrow::array::Int32Array),
+    Int64(&'a arrow::array::Int64Array),
+    UInt8(&'a arrow::array::UInt8Array),
+    UInt16(&'a arrow::array::UInt16Array),
+    UInt32(&'a arrow::array::UInt32Array),
+    UInt64(&'a arrow::array::UInt64Array),
+    Float32(&'a arrow::array::Float32Array),
+    Float64(&'a arrow::array::Float64Array),
+    Boolean(&'a arrow::array::BooleanArray),
+}
+
+impl<'a> ColumnWriter<'a> {
+    /// Classify an Arrow array into the appropriate writer variant.
+    /// Returns `None` for unsupported types.
+    fn classify(name: &str, array: &'a dyn Array) -> Option<(String, Self)> {
+        use arrow::array::{
+            BooleanArray, Float32Array, Float64Array,
+            Int16Array, Int32Array, Int64Array, Int8Array,
+            LargeStringArray, StringArray,
+            UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+        };
+
+        let dt = array.data_type();
+        let writer = match dt {
+            DataType::Utf8 => {
+                let a = array.as_any().downcast_ref::<StringArray>()?;
+                ColumnWriter::Utf8(a)
+            }
+            DataType::LargeUtf8 => {
+                let a = array.as_any().downcast_ref::<LargeStringArray>()?;
+                ColumnWriter::LargeUtf8(a)
+            }
+            DataType::Int8 => {
+                let a = array.as_any().downcast_ref::<Int8Array>()?;
+                ColumnWriter::Int8(a)
+            }
+            DataType::Int16 => {
+                let a = array.as_any().downcast_ref::<Int16Array>()?;
+                ColumnWriter::Int16(a)
+            }
+            DataType::Int32 | DataType::Date32 => {
+                let a = array.as_any().downcast_ref::<Int32Array>()?;
+                ColumnWriter::Int32(a)
+            }
+            DataType::Int64 | DataType::Date64
+            | DataType::Timestamp(_, _) => {
+                let a = array.as_any().downcast_ref::<Int64Array>()?;
+                ColumnWriter::Int64(a)
+            }
+            DataType::UInt8 => {
+                let a = array.as_any().downcast_ref::<UInt8Array>()?;
+                ColumnWriter::UInt8(a)
+            }
+            DataType::UInt16 => {
+                let a = array.as_any().downcast_ref::<UInt16Array>()?;
+                ColumnWriter::UInt16(a)
+            }
+            DataType::UInt32 => {
+                let a = array.as_any().downcast_ref::<UInt32Array>()?;
+                ColumnWriter::UInt32(a)
+            }
+            DataType::UInt64 => {
+                let a = array.as_any().downcast_ref::<UInt64Array>()?;
+                ColumnWriter::UInt64(a)
+            }
+            DataType::Float32 => {
+                let a = array.as_any().downcast_ref::<Float32Array>()?;
+                ColumnWriter::Float32(a)
+            }
+            DataType::Float64 => {
+                let a = array.as_any().downcast_ref::<Float64Array>()?;
+                ColumnWriter::Float64(a)
+            }
+            DataType::Boolean => {
+                let a = array.as_any().downcast_ref::<BooleanArray>()?;
+                ColumnWriter::Boolean(a)
+            }
+            _ => return None,
+        };
+        Some((name.to_string(), writer))
+    }
+
+    /// Write the value at the given row index into the buffer.
+    /// No dynamic dispatch: the variant is pre-determined.
+    #[inline]
+    fn write_value(&self, buf: &mut Vec<u8>, row: usize) {
+        match self {
+            ColumnWriter::Utf8(a) => write_json_string(buf, a.value(row)),
+            ColumnWriter::LargeUtf8(a) => write_json_string(buf, a.value(row)),
+            ColumnWriter::Int8(a) => write_int(buf, a.value(row)),
+            ColumnWriter::Int16(a) => write_int(buf, a.value(row)),
+            ColumnWriter::Int32(a) => write_int(buf, a.value(row)),
+            ColumnWriter::Int64(a) => write_int(buf, a.value(row)),
+            ColumnWriter::UInt8(a) => write_uint(buf, a.value(row)),
+            ColumnWriter::UInt16(a) => write_uint(buf, a.value(row)),
+            ColumnWriter::UInt32(a) => write_uint(buf, a.value(row)),
+            ColumnWriter::UInt64(a) => write_uint(buf, a.value(row)),
+            ColumnWriter::Float32(a) => {
+                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
+            }
+            ColumnWriter::Float64(a) => {
+                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
+            }
+            ColumnWriter::Boolean(a) => {
+                buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
+            }
+        }
+    }
+
+    /// Check if the value is null at the given row.
+    #[inline]
+    fn is_null_at(&self, row: usize) -> bool {
+        match self {
+            ColumnWriter::Utf8(a) => a.is_null(row),
+            ColumnWriter::LargeUtf8(a) => a.is_null(row),
+            ColumnWriter::Int8(a) => a.is_null(row),
+            ColumnWriter::Int16(a) => a.is_null(row),
+            ColumnWriter::Int32(a) => a.is_null(row),
+            ColumnWriter::Int64(a) => a.is_null(row),
+            ColumnWriter::UInt8(a) => a.is_null(row),
+            ColumnWriter::UInt16(a) => a.is_null(row),
+            ColumnWriter::UInt32(a) => a.is_null(row),
+            ColumnWriter::UInt64(a) => a.is_null(row),
+            ColumnWriter::Float32(a) => a.is_null(row),
+            ColumnWriter::Float64(a) => a.is_null(row),
+            ColumnWriter::Boolean(a) => a.is_null(row),
+        }
+    }
+}
+
+/// Fast integer formatting via `itoa`.
+#[inline]
+fn write_int<T: itoa::Integer>(buf: &mut Vec<u8>, v: T) {
+    buf.extend_from_slice(itoa::Buffer::new().format(v).as_bytes());
+}
+
+/// Fast unsigned formatting via `itoa`.
+#[inline]
+fn write_uint<T: itoa::Integer>(buf: &mut Vec<u8>, v: T) {
+    buf.extend_from_slice(itoa::Buffer::new().format(v).as_bytes());
+}
 
 impl Serializer for JsonSerializer {
     fn serialize_batch(&self, batch: &RecordBatch) -> anyhow::Result<Bytes> {
         let schema = batch.schema();
-        let columns: Vec<(&str, &dyn Array)> = schema
-            .fields()
+        let fields = schema.fields();
+
+        // Phase 1: Pre-classify columns into typed writers.
+        // This single downcast pass replaces N*M dynamic dispatch calls
+        // (N = num_rows, M = num_columns) with a single pass per column.
+        let columns: Vec<(String, ColumnWriter)> = fields
             .iter()
             .zip(batch.columns().iter())
-            .map(|(f, col)| (f.name().as_str(), col.as_ref() as &dyn Array))
-            .collect();
+            .map(|(field, col)| {
+                ColumnWriter::classify(field.name().as_str(), col.as_ref())
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "JsonSerializer: unsupported type {:?} for column '{}'",
+                        field.data_type(), field.name(),
+                    ))
+            })
+            .collect::<anyhow::Result<_>>()?;
 
         let num_rows = batch.num_rows();
-        // Estimate ~100 bytes per row; pre-allocate to avoid reallocs.
-        let mut buf = Vec::with_capacity(num_rows * 100);
+        let num_cols = columns.len();
+
+        // Estimate buffer size: each row has JSON overhead + values.
+        // 2 = `{` + `}`, N-1 commas, plus per-column overhead.
+        let est_per_row = 2usize + num_cols.saturating_sub(1) + num_cols * 24;
+        let mut buf = Vec::with_capacity(num_rows * est_per_row.max(64));
 
         for row in 0..num_rows {
             if row > 0 {
@@ -36,23 +206,20 @@ impl Serializer for JsonSerializer {
             }
             buf.push(b'{');
             let mut first = true;
-            for (col_name, array) in &columns {
-                if array.is_null(row) {
-                    continue; // skip null columns
+            for (col_name, writer) in &columns {
+                if writer.is_null_at(row) {
+                    continue;
                 }
                 if !first {
                     buf.push(b',');
                 }
                 first = false;
-                // Write "column_name":
                 write_json_string(&mut buf, col_name);
                 buf.push(b':');
-                // Write value
-                write_json_value(&mut buf, *array, row);
+                writer.write_value(&mut buf, row);
             }
             buf.push(b'}');
         }
-        // Trailing newline for NDJSON compatibility
         buf.push(b'\n');
 
         Ok(Bytes::from(buf))
@@ -69,7 +236,6 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
             b'\n' => buf.extend_from_slice(b"\\n"),
             b'\r' => buf.extend_from_slice(b"\\r"),
             b'\t' => buf.extend_from_slice(b"\\t"),
-            // Control characters below 0x20 are escaped as \u00XX
             0x00..=0x1F => {
                 buf.extend_from_slice(format!("\\u{:04x}", b).as_bytes());
             }
@@ -77,105 +243,6 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
         }
     }
     buf.push(b'"');
-}
-
-/// Write a single value from an Arrow array at the given row index.
-fn write_json_value(buf: &mut Vec<u8>, array: &dyn Array, row: usize) {
-    use arrow::array::{
-        BooleanArray, Float32Array, Float64Array,
-        Int16Array, Int32Array, Int64Array, Int8Array,
-        LargeStringArray, StringArray,
-        UInt16Array, UInt32Array, UInt64Array, UInt8Array,
-    };
-
-    let dt = array.data_type();
-
-    // Use downcast + direct access for every type we support.
-    match dt {
-        DataType::Utf8 => {
-            if let Some(a) = array.as_any().downcast_ref::<StringArray>() {
-                write_json_string(buf, a.value(row));
-                return;
-            }
-        }
-        DataType::LargeUtf8 => {
-            if let Some(a) = array.as_any().downcast_ref::<LargeStringArray>() {
-                write_json_string(buf, a.value(row));
-                return;
-            }
-        }
-        DataType::Int8 => {
-            if let Some(a) = array.as_any().downcast_ref::<Int8Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Int16 => {
-            if let Some(a) = array.as_any().downcast_ref::<Int16Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Int32 | DataType::Date32 => {
-            if let Some(a) = array.as_any().downcast_ref::<Int32Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Int64 | DataType::Date64
-        | DataType::Timestamp(_, _) => {
-            if let Some(a) = array.as_any().downcast_ref::<Int64Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::UInt8 => {
-            if let Some(a) = array.as_any().downcast_ref::<UInt8Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::UInt16 => {
-            if let Some(a) = array.as_any().downcast_ref::<UInt16Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::UInt32 => {
-            if let Some(a) = array.as_any().downcast_ref::<UInt32Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::UInt64 => {
-            if let Some(a) = array.as_any().downcast_ref::<UInt64Array>() {
-                buf.extend_from_slice(itoa::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Float32 => {
-            if let Some(a) = array.as_any().downcast_ref::<Float32Array>() {
-                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Float64 => {
-            if let Some(a) = array.as_any().downcast_ref::<Float64Array>() {
-                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
-                return;
-            }
-        }
-        DataType::Boolean => {
-            if let Some(a) = array.as_any().downcast_ref::<BooleanArray>() {
-                buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
-                return;
-            }
-        }
-        _ => {}
-    }
-
-    // Fallback: write as null
-    buf.extend_from_slice(b"null");
 }
 
 impl Default for JsonSerializer {
@@ -200,8 +267,7 @@ mod tests {
             Field::new("score", DataType::Float64, true),
         ]));
         let id_arr = Int64Array::from(vec![1, 2, 3]);
-        let name_arr = StringBuilder::new();
-        let mut name_arr = name_arr;
+        let mut name_arr = StringBuilder::with_capacity(3, 64);
         name_arr.append_value("Alice");
         name_arr.append_value("Bob");
         name_arr.append_value("Charlie");
@@ -226,7 +292,6 @@ mod tests {
         let lines: Vec<&str> = text.trim().split('\n').collect();
         assert_eq!(lines.len(), 3, "3 rows → 3 JSON lines");
 
-        // Each line should be valid JSON and contain expected fields
         for line in &lines {
             let val: serde_json::Value = serde_json::from_str(line).unwrap();
             assert!(val.get("id").is_some());
@@ -258,14 +323,12 @@ mod tests {
         let lines: Vec<&str> = text.trim().split('\n').collect();
         assert_eq!(lines.len(), 2);
 
-        // Second row should not have "y" (null columns are skipped)
         let row2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
         assert!(row2.get("y").is_none(), "null column should be absent");
     }
 
     #[test]
     fn roundtrip_json_parser_compatible() {
-        // Serialize → parse → should produce equivalent data
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("val", DataType::Utf8, true),
@@ -284,7 +347,6 @@ mod tests {
         let serializer = JsonSerializer;
         let output = serializer.serialize_batch(&batch).unwrap();
 
-        // Parse back with the JSON parser
         let parser_config = crate::config::yaml::SchemaConfig {
             columns: vec![
                 crate::config::yaml::ColumnMapping {
