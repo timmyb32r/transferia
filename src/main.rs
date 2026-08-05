@@ -110,6 +110,9 @@ async fn main() -> anyhow::Result<()> {
     registry.register_source("s3", |v| {
         Ok(Box::new(ch_loader::providers::s3::provider::S3SourceProvider::from_config(v)?))
     });
+    registry.register_source("clickhouse", |v| {
+        Ok(Box::new(ch_loader::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(v)?))
+    });
 
     // Register sink providers
     registry.register_sink("clickhouse", |v| {
