@@ -11,6 +11,7 @@ use std::task::{Context, Poll};
 
 use anyhow::anyhow;
 use bytes::Bytes;
+use futures_util::future::BoxFuture;
 use futures_util::Stream;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
@@ -533,27 +534,29 @@ impl PqV1Source {
 }
 
 impl Source for PqV1Source {
-    async fn read_batch(&mut self) -> anyhow::Result<ReadResult> {
-        // Block for the first message, then drain whatever else is queued.
-        let first = match self.rx.recv().await {
-            Some(msg) => msg,
-            None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None })),
-        };
-        // `cookie` is Copy; `data` moves out of the owned message — no clone.
-        let mut last_cookie: Option<CommitCookie> = first.cookie;
-        let mut messages = vec![Message { value: first.data }];
-        while let Ok(msg) = self.rx.try_recv() {
-            last_cookie = msg.cookie;
-            messages.push(Message { value: msg.data });
-        }
-        let commit_marker = last_cookie.map(|cookie| {
-            CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
-        });
-        Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
+    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> {
+        Box::pin(async move {
+            let first = match self.rx.recv().await {
+                Some(msg) => msg,
+                None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None })),
+            };
+            let mut last_cookie: Option<CommitCookie> = first.cookie;
+            let mut messages = vec![Message { value: first.data }];
+            while let Ok(msg) = self.rx.try_recv() {
+                last_cookie = msg.cookie;
+                messages.push(Message { value: msg.data });
+            }
+            let commit_marker = last_cookie.map(|cookie| {
+                CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
+            });
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
+        })
     }
 
-    async fn commit_offsets(&mut self, marker: &CommitMarker) -> anyhow::Result<()> {
-        let m = marker.downcast_ref::<PqV1CommitMarker>().ok_or_else(|| anyhow!("Invalid commit marker"))?;
-        self.client.commit(m.partition_id, m.cookie).await
+    fn commit_offsets<'a>(&'a mut self, marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            let m = marker.downcast_ref::<PqV1CommitMarker>().ok_or_else(|| anyhow!("Invalid commit marker"))?;
+            self.client.commit(m.partition_id, m.cookie).await
+        })
     }
 }

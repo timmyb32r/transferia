@@ -13,6 +13,7 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use futures_util::future::BoxFuture;
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{GetResult, ObjectStore};
 
@@ -316,7 +317,7 @@ impl S3Source {
 }
 
 impl Source for S3Source {
-    async fn read_batch(&mut self) -> anyhow::Result<ReadResult> {
+    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> { Box::pin(async move {
         let outcome = self.try_read_records().await;
         match outcome {
             Ok(messages) => Ok(Self::outcome_to_result(messages, self.partition_id)),
@@ -363,9 +364,9 @@ impl Source for S3Source {
                 }
             },
         }
-    }
+    })}
 
-    async fn commit_offsets(&mut self, _marker: &CommitMarker) -> anyhow::Result<()> {
-        Ok(()) // snapshot — no offsets to commit
+    fn commit_offsets<'a>(&'a mut self, _marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move { Ok(()) })
     }
 }

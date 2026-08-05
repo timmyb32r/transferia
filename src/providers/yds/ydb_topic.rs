@@ -1,6 +1,5 @@
-use std::future::Future;
-
 use bytes::Bytes;
+use futures_util::future::BoxFuture;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::types::{Message, MessageBatch};
@@ -16,7 +15,7 @@ impl YdbTopicSource {
         topic_path: &str,
         consumer_name: &str,
         partition_id: i64,
-        credentials: crate::config::yaml::YdbCredentials,
+        credentials: crate::providers::yds::credentials::YdbCredentials,
         discovery_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
         let mut builder = ydb::ClientBuilder::new_from_connection_string(connection_string)?
@@ -42,9 +41,9 @@ impl YdbTopicSource {
 }
 
 impl Source for YdbTopicSource {
-    fn read_batch(&mut self) -> impl Future<Output = anyhow::Result<ReadResult>> + Send {
-        async fn do_read(slf: &mut YdbTopicSource) -> anyhow::Result<ReadResult> {
-            let mut batch = slf.reader.read_batch().await?;
+    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> {
+        Box::pin(async move {
+            let mut batch = self.reader.read_batch().await?;
             let commit_marker = if !batch.messages.is_empty() {
                 Some(CommitMarker::new(batch.get_commit_marker()))
             } else {
@@ -57,21 +56,19 @@ impl Source for YdbTopicSource {
                     messages.push(Message { value: Bytes::from(bytes) });
                 }
             }
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: slf.partition_id, commit_marker }))
-        }
-        do_read(self)
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
+        })
     }
 
-    fn commit_offsets(&mut self, marker: &CommitMarker) -> impl Future<Output = anyhow::Result<()>> + Send {
-        async fn do_commit(slf: &mut YdbTopicSource, marker: &CommitMarker) -> anyhow::Result<()> {
+    fn commit_offsets<'a>(&'a mut self, marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
             if let Some(ydb_marker) = marker.downcast_ref::<ydb::TopicReaderCommitMarker>() {
-                slf.reader.commit(ydb_marker.clone())
+                self.reader.commit(ydb_marker.clone())
                     .map_err(|e| anyhow::anyhow!("Commit failed: {}", e))?;
             } else {
                 anyhow::bail!("Invalid commit marker type");
             }
             Ok(())
-        }
-        do_commit(self, marker)
+        })
     }
 }

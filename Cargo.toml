@@ -1,8 +1,8 @@
 [package]
-name = "ydb-ch-replicator"
+name = "ch-loader"
 version = "0.1.0"
 edition = "2021"
-description = "YDB Topic to ClickHouse replicator (PoC)"
+description = "Multi-source ClickHouse loader: YDB Topic, PQv1, S3 → Arrow → ClickHouse"
 
 [dependencies]
 ydb = { version = "0.13", features = ["force-exhaustive-all"] }

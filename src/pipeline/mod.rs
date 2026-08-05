@@ -150,10 +150,10 @@ struct FlushBatch {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_partition_pipeline(
-    mut source: impl Source + 'static,
+    mut source: Box<dyn Source>,
     parser: Arc<JsonParser>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
-    sink: Arc<impl Sink + 'static>,
+    sink: Arc<dyn Sink>,
     batch_size: usize,
     max_linger_ms: u64,
     cancel_token: CancellationToken,
@@ -392,7 +392,7 @@ pub async fn run_partition_pipeline(
         /// Common drain-and-ack helper used by the main loop and all cancel branches.
         /// Flushes all accumulated data; commits only on success.
         async fn drain_and_ack(
-            sink: &(impl Sink + 'static),
+            sink: &(dyn Sink),
             tx_commit: &mpsc::Sender<CommitAck>,
             acc: &mut BatchAccumulator,
         ) -> Option<usize> {
@@ -537,7 +537,7 @@ pub async fn run_partition_pipeline(
 /// Returns the number of rows flushed, or an error.
 /// **Writes all tables unconditionally, commits markers only after all succeed.**
 async fn flush_to_sink_and_ack(
-    sink: &(impl Sink + 'static),
+    sink: &(dyn Sink),
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<usize, ()> {

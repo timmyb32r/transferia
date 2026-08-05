@@ -8,10 +8,19 @@ pub const YDB_DATABASE: &str = "/Root";
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
 pub struct Config {
-    pub source: SourceConfig,
-    pub sink: SinkConfig,
+    pub source: SourceEntry,
+    pub sink: SinkEntry,
     #[serde(default)]
     pub middlewares: Vec<MiddlewareConfig>,
+    /// Drop+recreate tables on start (dev/bench only, off by default).
+    #[serde(default)]
+    pub recreate_tables: bool,
+    /// Pipeline: flush batch size (rows).
+    #[serde(default = "default_batch_size")]
+    pub sink_batch_size: usize,
+    /// Pipeline: max linger before flushing partial batch (ms).
+    #[serde(default = "default_max_linger_ms")]
+    pub sink_max_linger_ms: u64,
 }
 
 impl Config {
@@ -19,145 +28,118 @@ impl Config {
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read config file '{}': {}", path, e))?;
-        // Expand ${VAR} and $VAR environment variables in the YAML text
         let expanded = shellexpand::env(&contents)
             .map_err(|e| anyhow::anyhow!("Failed to expand env vars in config: {}", e))?;
         let config: Self = serde_yaml::from_str(&expanded)
             .map_err(|e| anyhow::anyhow!("Failed to parse YAML config: {}", e))?;
-        config.validate()?;
         Ok(config)
     }
+}
 
-    fn validate(&self) -> anyhow::Result<()> {
-        // Common parser validation
-        let parser = self.source.parser();
-        if parser.parser_type != "json_parser" {
-            anyhow::bail!("source.parser.parser_type '{}' unsupported (only 'json_parser')", parser.parser_type);
-        }
-        if parser.settings.columns.is_empty() {
-            anyhow::bail!("source.parser.settings.columns must not be empty");
-        }
-        for col in &parser.settings.columns {
-            parse_arrow_type(&col.arrow_type)
-                .map_err(|e| anyhow::anyhow!("Column '{}' has invalid arrow_type: {}", col.column_name, e))?;
-        }
+// ---------------------------------------------------------------------------
+// Provider-agnostic source/sink entries (opaque to common code)
+// ---------------------------------------------------------------------------
 
-        // Per-source-type validation
-        match &self.source {
-            SourceConfig::Topic(t) | SourceConfig::Pqv1(t) => {
-                if t.connection_string.is_empty() {
-                    anyhow::bail!("source.topic/pqv1.connection_string must not be empty");
-                }
-                if t.topic_path.is_empty() {
-                    anyhow::bail!("source.topic/pqv1.topic_path must not be empty");
-                }
-                if t.consumer_name.is_empty() {
-                    anyhow::bail!("source.topic/pqv1.consumer_name must not be empty");
-                }
-                parser.resolve_table_name(&t.topic_path)?;
-            }
-            SourceConfig::S3(s) => {
-                if s.bucket.is_empty() {
-                    anyhow::bail!("source.s3.bucket must not be empty");
-                }
-                if s.parser.settings.chunk_splitter == ChunkSplitter::NoSplit {
-                    anyhow::bail!(
-                        "source.s3: chunk_splitter 'no-split' is not supported for S3 — \
-                         use 'new-line'. With 'no-split' each 16 MiB chunk becomes one \
-                         JSON document, sending all data to DLQ."
-                    );
-                }
-                if s.parser.table_naming.kind != "from_config" {
-                    anyhow::bail!(
-                        "source.s3: table_naming.type must be 'from_config' \
-                         (S3 has no topic path for 'from_topic')"
-                    );
-                }
-                parser.resolve_table_name(&s.prefix)?; // just checks from_config has a name
-            }
-        }
+/// Source config entry: `source: { <kind>: { ... } }` — exactly one key.
+#[derive(Debug, Deserialize)]
+pub struct SourceEntry {
+    #[serde(flatten)]
+    pub inner: std::collections::HashMap<String, serde_yaml::Value>,
+}
 
-        // Sink validation
-        if self.sink.connection_string.is_empty() {
-            anyhow::bail!("sink.connection_string must not be empty");
+impl SourceEntry {
+    pub fn kind(&self) -> anyhow::Result<&str> {
+        let keys: Vec<&str> = self.inner.keys().map(|s| s.as_str()).collect();
+        match keys.as_slice() {
+            [single] => Ok(single),
+            [] => anyhow::bail!("source: no provider key found (expected 'topic', 'pqv1', or 's3')"),
+            _ => anyhow::bail!("source: expected exactly one provider key, got {:?}", keys),
         }
-        if self.sink.database.is_empty() {
-            anyhow::bail!("sink.database must not be empty");
-        }
-
-        // Validate middleware configuration
-        for (i, mw) in self.middlewares.iter().enumerate() {
-            match mw.mw_type.as_str() {
-                "filter" => {
-                    if mw.field.as_ref().is_none_or(|f| f.is_empty()) {
-                        anyhow::bail!("middlewares[{}]: filter requires non-empty 'field'", i);
-                    }
-                    if mw.value.as_ref().is_none_or(|v| v.is_empty()) {
-                        anyhow::bail!("middlewares[{}]: filter requires non-empty 'value'", i);
-                    }
-                    let col = parser.settings.columns.iter()
-                        .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
-                        .ok_or_else(|| anyhow::anyhow!(
-                            "middlewares[{}]: filter field '{}' not found in parser columns",
-                            i, mw.field.as_deref().unwrap_or("")
-                        ))?;
-                    let dt = parse_arrow_type(&col.arrow_type)?;
-                    if dt != DataType::Utf8 && dt != DataType::LargeUtf8 {
-                        anyhow::bail!(
-                            "middlewares[{}]: filter field '{}' is {:?}, only Utf8/LargeUtf8 supported",
-                            i, col.column_name, dt
-                        );
-                    }
-                }
-                other => anyhow::bail!("middlewares[{}]: unknown middleware type '{}'", i, other),
-            }
-        }
-        Ok(())
     }
+
+    pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
+        let kind = self.kind()?;
+        Ok(&self.inner[kind])
+    }
+}
+
+/// Sink config entry: `sink: { <kind>: { ... } }` — exactly one key.
+#[derive(Debug, Deserialize)]
+pub struct SinkEntry {
+    #[serde(flatten)]
+    pub inner: std::collections::HashMap<String, serde_yaml::Value>,
+}
+
+impl SinkEntry {
+    pub fn kind(&self) -> anyhow::Result<&str> {
+        let keys: Vec<&str> = self.inner.keys().map(|s| s.as_str()).collect();
+        match keys.as_slice() {
+            [single] => Ok(single),
+            [] => anyhow::bail!("sink: no provider key found"),
+            _ => anyhow::bail!("sink: expected exactly one provider key, got {:?}", keys),
+        }
+    }
+
+    pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
+        let kind = self.kind()?;
+        Ok(&self.inner[kind])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Common parser validation (called by every source provider)
+// ---------------------------------------------------------------------------
+
+/// Common parser checks every source provider must call.
+/// Validates: parser_type, columns non-empty, arrow_types, middleware↔columns.
+pub fn validate_parser(
+    parser: &ParserConfig,
+    middlewares: &[MiddlewareConfig],
+) -> anyhow::Result<()> {
+    if parser.parser_type != "json_parser" {
+        anyhow::bail!("parser_type '{}' unsupported (only 'json_parser')", parser.parser_type);
+    }
+    if parser.settings.columns.is_empty() {
+        anyhow::bail!("columns must not be empty");
+    }
+    for col in &parser.settings.columns {
+        parse_arrow_type(&col.arrow_type)
+            .map_err(|e| anyhow::anyhow!("Column '{}' invalid arrow_type: {}", col.column_name, e))?;
+    }
+    for (i, mw) in middlewares.iter().enumerate() {
+        if mw.mw_type != "filter" { continue; }
+        if mw.field.as_ref().is_none_or(|f| f.is_empty()) {
+            anyhow::bail!("middlewares[{}]: filter requires non-empty 'field'", i);
+        }
+        if mw.value.as_ref().is_none_or(|v| v.is_empty()) {
+            anyhow::bail!("middlewares[{}]: filter requires non-empty 'value'", i);
+        }
+        let col = parser.settings.columns.iter()
+            .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
+            .ok_or_else(|| anyhow::anyhow!(
+                "middlewares[{}]: filter field '{}' not found in columns",
+                i, mw.field.as_deref().unwrap_or("")
+            ))?;
+        let dt = parse_arrow_type(&col.arrow_type)?;
+        if dt != DataType::Utf8 && dt != DataType::LargeUtf8 {
+            anyhow::bail!(
+                "middlewares[{}]: filter field '{}' is {:?}, only Utf8/LargeUtf8",
+                i, col.column_name, dt
+            );
+        }
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // Source configuration — tagged enum
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SourceConfig {
-    Topic(YdbSourceConfig),
-    Pqv1(YdbSourceConfig),
-    S3(crate::providers::s3::config::S3SourceConfig),
-}
-
-impl SourceConfig {
-    /// Common accessor: every source variant carries a parser.
-    pub fn parser(&self) -> &ParserConfig {
-        match self {
-            SourceConfig::Topic(t) | SourceConfig::Pqv1(t) => &t.parser,
-            SourceConfig::S3(s) => &s.parser,
-        }
-    }
-}
-
-/// Shared YDB-source config (topic / pqv1).
-#[derive(Debug, Deserialize)]
-pub struct YdbSourceConfig {
-    pub connection_string: String,
-    pub topic_path: String,
-    pub consumer_name: String,
-    #[serde(default)]
-    pub auth: AuthConfig,
-    pub parser: ParserConfig,
-    #[serde(default)]
-    pub discovery_endpoint: Option<String>,
-    #[serde(default)]
-    pub partition_ids: Option<Vec<i64>>,
-}
-
 // ---------------------------------------------------------------------------
 // Parser configuration (table naming + concrete parser settings)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ParserConfig {
     /// How the destination table name is chosen.
     pub table_naming: TableNaming,
@@ -167,7 +149,7 @@ pub struct ParserConfig {
     pub settings: SchemaConfig,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TableNaming {
     /// "from_config" — use `name`; "from_topic" — use the topic path verbatim.
     #[serde(rename = "type")]
@@ -210,7 +192,7 @@ pub struct AuthConfig {
 // Schema / column mapping configuration
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct SchemaConfig {
     pub columns: Vec<ColumnMapping>,
@@ -439,96 +421,6 @@ pub fn parse_arrow_type(s: &str) -> anyhow::Result<DataType> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// YDB credentials builder
-// ---------------------------------------------------------------------------
-
-/// Unified YDB credentials enum — wraps all supported credential types.
-pub enum YdbCredentials {
-    Anonymous(ydb::AnonymousCredentials),
-    AccessToken(ydb::AccessTokenCredentials),
-    ServiceAccount(ydb::ServiceAccountCredentials),
-}
-
-impl ydb::Credentials for YdbCredentials {
-    fn create_token(&self) -> ydb::YdbResult<ydb::TokenInfo> {
-        match self {
-            YdbCredentials::Anonymous(c) => c.create_token(),
-            YdbCredentials::AccessToken(c) => c.create_token(),
-            YdbCredentials::ServiceAccount(c) => c.create_token(),
-        }
-    }
-}
-
-/// Build YDB credentials from the auth config section.
-///
-/// Supported auth types:
-/// - `anonymous` (default) — no credentials
-/// - `access_token` — static IAM token via `token` field
-/// - `service_account` — service account JSON key via `sa_file` field
-///
-/// Returns `YdbCredentials` which implements `ydb::Credentials`.
-/// Build credentials AND extract raw token string for PQv1 auth.
-pub fn build_credentials_with_token(auth: &AuthConfig) -> anyhow::Result<(YdbCredentials, Option<String>)> {
-    match auth.auth_type.as_str() {
-        "" | "anonymous" => Ok((YdbCredentials::Anonymous(ydb::AnonymousCredentials::new()), None)),
-        "access_token" => {
-            let token = if let Some(path) = auth.token_file.as_deref() {
-                let expanded = shellexpand::full(path)
-                    .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{}': {}", path, e))?;
-                std::fs::read_to_string(expanded.as_ref())
-                    .map_err(|e| anyhow::anyhow!("Failed to read token from '{}': {}", expanded, e))?
-                    .trim()
-                    .to_string()
-            } else if let Some(tok) = auth.token.as_deref() {
-                tok.to_string()
-            } else {
-                anyhow::bail!("access_token auth requires either 'token' or 'token_file' field");
-            };
-            Ok((YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token.clone())), Some(token)))
-        }
-        "service_account" => {
-            let path = auth.sa_file.as_deref()
-                .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
-            let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
-            Ok((YdbCredentials::ServiceAccount(creds), None))
-        }
-        other => anyhow::bail!("Unsupported auth type '{}'. Supported: anonymous, access_token, service_account", other),
-    }
-}
-
-pub fn build_credentials(auth: &AuthConfig) -> anyhow::Result<YdbCredentials> {
-    match auth.auth_type.as_str() {
-        "" | "anonymous" => Ok(YdbCredentials::Anonymous(ydb::AnonymousCredentials::new())),
-        "access_token" => {
-            let token = if let Some(path) = auth.token_file.as_deref() {
-                let expanded = shellexpand::full(path)
-                    .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{}': {}", path, e))?;
-                std::fs::read_to_string(expanded.as_ref())
-                    .map_err(|e| anyhow::anyhow!("Failed to read token from '{}': {}", expanded, e))?
-                    .trim()
-                    .to_string()
-            } else if let Some(tok) = auth.token.as_deref() {
-                tok.to_string()
-            } else {
-                anyhow::bail!("access_token auth requires either 'token' or 'token_file' field");
-            };
-            Ok(YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token)))
-        }
-        "service_account" => {
-            let path = auth.sa_file.as_deref()
-                .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
-            let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
-            Ok(YdbCredentials::ServiceAccount(creds))
-        }
-        other => anyhow::bail!(
-            "Unsupported auth type '{}'. Supported: anonymous, access_token, service_account",
-            other
-        ),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -578,36 +470,13 @@ mod tests {
     }
 
     #[test]
-    fn test_config_validate_empty_columns_fails() {
-        let cfg = Config {
-            source: SourceConfig::Topic(YdbSourceConfig {
-                connection_string: "grpc://localhost:2136".into(),
-                topic_path: "/test".into(),
-                consumer_name: "c".into(),
-                auth: AuthConfig::default(),
-                parser: ParserConfig {
-                    table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
-                    parser_type: "json_parser".into(),
-                    settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
-                },
-                discovery_endpoint: None,
-                partition_ids: None,
-            }),
-            sink: SinkConfig {
-                connection_string: "localhost:9000".into(),
-                database: "default".into(),
-                batch_size: 1000,
-                max_linger_ms: 500,
-                max_connections: 4,
-                username: "default".into(),
-                password: "".into(),
-                use_tls: true,
-                tls_domain: None,
-                recreate_tables: false,
-            },
-            middlewares: vec![],
+    fn test_validate_parser_empty_columns_fails() {
+        let parser = ParserConfig {
+            table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
+            parser_type: "json_parser".into(),
+            settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
         };
-        assert!(cfg.validate().is_err());
+        assert!(validate_parser(&parser, &[]).is_err());
     }
 
     #[test]
