@@ -90,6 +90,7 @@ mod tests {
         let write = TableWrite {
             table: "test".into(),
             batches: vec![batch],
+            dedup_token: None,
         };
 
         sink.write(write).await.unwrap();
@@ -104,7 +105,7 @@ mod tests {
         for n in 1..=5 {
             let arr = Int64Array::from(vec![1i64; n]);
             let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(arr)]).unwrap();
-            let write = TableWrite { table: "t".into(), batches: vec![batch] };
+            let write = TableWrite { table: "t".into(), batches: vec![batch], dedup_token: None };
             sink.write(write).await.unwrap();
         }
         // 1+2+3+4+5 = 15
@@ -117,7 +118,7 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
         let arr = Int64Array::from(vec![1i64; 10]);
         let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
-        sink.write(TableWrite { table: "t".into(), batches: vec![batch] }).await.unwrap();
+        sink.write(TableWrite { table: "t".into(), batches: vec![batch], dedup_token: None }).await.unwrap();
         assert_eq!(sink.rows_written(), 10);
         sink.reset();
         assert_eq!(sink.rows_written(), 0);

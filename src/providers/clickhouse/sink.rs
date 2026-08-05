@@ -113,7 +113,8 @@ impl ClickHouseSink {
                 .join(", ")
         };
         let ddl = format!(
-            "CREATE TABLE IF NOT EXISTS `{}` ({}) ENGINE = MergeTree ORDER BY ({})",
+            "CREATE TABLE IF NOT EXISTS `{}` ({}) ENGINE = MergeTree ORDER BY ({}) \
+             SETTINGS non_replicated_deduplication_window = 10000",
             name, cols, order_clause,
         );
         client.execute(&ddl, None).await
@@ -137,9 +138,20 @@ impl Sink for ClickHouseSink {
     fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async move {
             if write.batches.is_empty() { return Ok(()); }
-            let query = format!("INSERT INTO `{}` VALUES", write.table);
             let client = self.pool.get().await
                 .map_err(|e| anyhow::anyhow!("ClickHouse pool get: {}", e))?;
+
+            // Exactly-once via insert_deduplication_token.
+            // Set on the session before INSERT so ClickHouse uses our token
+            // instead of the content hash. Replayed batches produce the same
+            // token → ClickHouse silently drops the duplicate.
+            if let Some(ref token) = write.dedup_token {
+                let set_query = format!("SET insert_deduplication_token = '{}'", token);
+                client.execute(&set_query, None).await
+                    .map_err(|e| anyhow::anyhow!("ClickHouse SET dedup token failed: {}", e))?;
+            }
+
+            let query = format!("INSERT INTO `{}` VALUES", write.table);
             let total: usize = write.batches.iter().map(|b| b.num_rows()).sum();
             let n = write.batches.len();
             let mut stream = client.insert_many(&query, write.batches, None).await

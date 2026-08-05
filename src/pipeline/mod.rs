@@ -33,6 +33,7 @@ struct ReadItem {
     messages: Vec<crate::types::message::Message>,
     partition_id: i64,
     commit_marker: Option<CommitMarker>,
+    dedup_token: Option<String>,
 }
 
 /// After parsing, a batch of messages becomes one or two `TableData` objects
@@ -46,7 +47,7 @@ struct ParsedItem {
 /// Sentinel: too many consecutive middleware errors. Tells the writer to
 /// abort the partition so main.rs can retry (or give up after retries).
 enum ParsedMsg {
-    Item(ParsedItem),
+    Item(Box<ParsedItem>),
     Fatal,
 }
 
@@ -69,6 +70,8 @@ struct BatchAccumulator {
     /// Global threshold: total rows across **all** tables.
     batch_size: usize,
     window_start: Option<Instant>,
+    /// Dedup token aggregated across pushes.
+    dedup_token: Option<String>,
 }
 
 impl BatchAccumulator {
@@ -80,6 +83,7 @@ impl BatchAccumulator {
             total_rows: 0,
             batch_size,
             window_start: None,
+            dedup_token: None,
         }
     }
 
@@ -92,10 +96,18 @@ impl BatchAccumulator {
         if self.window_start.is_none() {
             self.window_start = Some(Instant::now());
         }
+        // Keep the first non-None dedup token; all items in a flush share the same
+        // source batch and therefore the same token.
+        if self.dedup_token.is_none() {
+            self.dedup_token = td.dedup_token.clone();
+        }
         let rows = td.batch.num_rows();
         let entry = self.tables.entry(td.table.clone()).or_insert_with(|| {
             self.order.push(td.table.clone());
-            TableWrite { table: td.table.clone(), batches: Vec::new() }
+            TableWrite {
+                table: td.table.clone(), batches: Vec::new(),
+                dedup_token: None,
+            }
         });
         entry.batches.push(td.batch);
         self.total_rows += rows;
@@ -117,16 +129,19 @@ impl BatchAccumulator {
         if self.is_empty() {
             return None;
         }
+        let token = self.dedup_token.take();
         let writes: Vec<TableWrite> = self
             .order
             .iter()
             .filter_map(|name| self.tables.remove(name.as_ref()))
             .filter(|w| !w.batches.is_empty())
+            .map(|w| TableWrite { dedup_token: token.clone(), ..w })
             .collect();
         let markers = std::mem::take(&mut self.markers);
         self.order.clear();
         self.tables.clear();
         self.total_rows = 0;
+        self.dedup_token = None;
         Some(FlushBatch { writes, markers })
     }
 
@@ -136,6 +151,7 @@ impl BatchAccumulator {
         self.markers.clear();
         self.total_rows = 0;
         self.window_start = None;
+        self.dedup_token = None;
     }
 }
 
@@ -304,6 +320,7 @@ pub async fn run_partition_pipeline(
                 messages: msg_batch.messages,
                 partition_id: msg_batch.partition_id,
                 commit_marker: msg_batch.commit_marker,
+                dedup_token: msg_batch.dedup_token.clone(),
             };
 
             // Send + drain acks concurrently to avoid pipeline stall
@@ -345,7 +362,7 @@ pub async fn run_partition_pipeline(
                     None => return,
                 };
 
-                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, &mut workspace) {
+                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, item.dedup_token, &mut workspace) {
                     Ok(r) => r,
                     Err(e) => {
                         tracing::error!("Parser error: {}", e);
@@ -375,7 +392,7 @@ pub async fn run_partition_pipeline(
                 };
 
                 let parsed = ParsedItem { valid, dlq, commit_marker: item.commit_marker };
-                if tx_parsed_parser.blocking_send(ParsedMsg::Item(parsed)).is_err() {
+                if tx_parsed_parser.blocking_send(ParsedMsg::Item(Box::new(parsed))).is_err() {
                     return;
                 }
             }
@@ -492,7 +509,7 @@ pub async fn run_partition_pipeline(
                     ));
                     return;
                 }
-                ParsedMsg::Item(item) => item,
+                ParsedMsg::Item(item) => *item,
             };
 
             // Push all tables of this item, attaching the marker once.
@@ -541,7 +558,7 @@ async fn flush_to_sink_and_ack(
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
 ) -> Result<usize, ()> {
-    let FlushBatch { writes, markers } = flush;
+    let FlushBatch { writes, markers, .. } = flush;
     let total_rows: usize = writes.iter()
         .flat_map(|w| w.batches.iter().map(|b| b.num_rows()))
         .sum();
@@ -601,7 +618,7 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
         let arr = Int64Array::from(vec![1i64; rows]);
         let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
-        TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1 }
+        TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1, dedup_token: None }
     }
 
     #[test]

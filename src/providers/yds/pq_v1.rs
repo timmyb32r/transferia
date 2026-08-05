@@ -538,7 +538,7 @@ impl Source for PqV1Source {
         Box::pin(async move {
             let first = match self.rx.recv().await {
                 Some(msg) => msg,
-                None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None })),
+                None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None, dedup_token: None })),
             };
             let mut last_cookie: Option<CommitCookie> = first.cookie;
             let mut messages = vec![Message { value: first.data }];
@@ -549,7 +549,8 @@ impl Source for PqV1Source {
             let commit_marker = last_cookie.map(|cookie| {
                 CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
             });
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
+            let dedup_token = super::ydb_topic::compute_dedup_token(self.partition_id, &messages);
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker, dedup_token }))
         })
     }
 

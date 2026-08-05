@@ -210,6 +210,7 @@ impl S3Source {
         match messages {
             Some(msgs) => ReadResult::Batch(MessageBatch {
                 messages: msgs, partition_id, commit_marker: None,
+                dedup_token: None,
             }),
             None => ReadResult::Exhausted,
         }

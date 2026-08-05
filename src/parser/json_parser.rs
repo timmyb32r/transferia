@@ -676,6 +676,7 @@ impl JsonParser {
             table: self.dlq_table.clone(),
             is_dlq: true,
             batch_id: crate::batch_id(),
+            dedup_token: None,
         })
     }
 }
@@ -735,6 +736,7 @@ impl JsonParser {
         &self,
         messages: Vec<Message>,
         partition_id: i64,
+        dedup_token: Option<String>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let now = ws.now();
@@ -876,6 +878,7 @@ impl JsonParser {
             table: self.table.clone(),
             is_dlq: false,
             batch_id: crate::batch_id(),
+            dedup_token,
         };
 
         let dlq_batch = if !ws.dlq_payloads.is_empty() {
@@ -1007,7 +1010,7 @@ mod tests {
         let payload = b"{\"id\":\"a\",\"val\":1}\n{\"id\":\"b\",\"val\":2}\n\n{\"id\":\"c\"}";
         let msgs = vec![Message { value: Bytes::copy_from_slice(payload) }];
 
-        let (good, dlq) = parser.parse_into(msgs, 0, &mut ws).unwrap();
+        let (good, dlq) = parser.parse_into(msgs, 0, None, &mut ws).unwrap();
 
         assert_eq!(good.batch.num_rows(), 3, "3 valid JSON lines → 3 rows");
         assert!(dlq.is_none(), "all 3 lines are valid JSON, no DLQ");
