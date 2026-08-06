@@ -32,10 +32,7 @@ impl JsonParserConfig {
     pub fn to_schema_config(&self) -> SchemaConfig {
         SchemaConfig {
             columns: self.columns.clone(),
-            raw_payload_field: self.raw_payload_field.clone(),
             order_by: self.order_by.clone(),
-            chunk_splitter: self.chunk_splitter,
-            skip_null_columns: self.skip_null_columns,
         }
     }
 }

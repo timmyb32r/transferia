@@ -171,10 +171,7 @@ impl ClickHouseSourceProvider {
         let mappings: Vec<ColumnMapping> = columns.into_iter().map(ColumnMapping::from).collect();
         Ok(SchemaConfig {
             columns: mappings,
-            raw_payload_field: None,
             order_by: vec![],
-            chunk_splitter: crate::config::yaml::ChunkSplitter::NoSplit,
-            skip_null_columns: false,
         })
     }
 }

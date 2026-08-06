@@ -185,39 +185,25 @@ pub struct AuthConfig {
 // Schema / column mapping configuration
 // ---------------------------------------------------------------------------
 
+/// Column names, Arrow types, nullability, and `ORDER BY` clause — the common
+/// denominator for DDL generation across all source types.
+///
+/// Parser-specific concerns live in the parser's own config
+/// (e.g. [`crate::parsers::json_parser::JsonParserConfig`]).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[non_exhaustive]
 pub struct SchemaConfig {
     pub columns: Vec<ColumnMapping>,
-    /// Optional: custom field name for the raw JSON payload (for DLQ).
-    #[serde(default)]
-    pub raw_payload_field: Option<String>,
     /// Optional: column names for the `ClickHouse` `ORDER BY` clause.
     /// When empty/omitted, defaults to `ORDER BY tuple()`.
-    #[serde(default)]
     pub order_by: Vec<String>,
-    /// How to split incoming message bytes into individual JSON objects.
-    /// - `no-split` (default): each message is one JSON
-    /// - `new-line`:  split by `\n`, each non-empty line is one JSON
-    #[serde(default)]
-    pub chunk_splitter: ChunkSplitter,
-    /// When `true`, null-valued columns are elided (absent keys) in serialized
-    /// JSON output. When `false` (default), nulls are emitted as `"col": null`.
-    #[serde(default)]
-    pub skip_null_columns: bool,
 }
 
 impl SchemaConfig {
-    /// Creates a schema from the given column mappings (all other fields default).
+    /// Creates a schema from the given column mappings.
     #[must_use]
     pub const fn new(columns: Vec<ColumnMapping>) -> Self {
-        Self {
-            columns,
-            raw_payload_field: None,
-            order_by: Vec::new(),
-            chunk_splitter: ChunkSplitter::NoSplit,
-            skip_null_columns: false,
-        }
+        Self { columns, order_by: Vec::new() }
     }
 
     /// Column definitions for DDL — drops `JSONPath`, keeps only name + type.

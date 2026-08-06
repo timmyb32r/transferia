@@ -823,6 +823,11 @@ impl JsonParser {
         self.config.to_schema_config()
     }
 
+    #[must_use]
+    pub fn order_by(&self) -> &[String] {
+        &self.config.order_by
+    }
+
     pub fn new(
         config: &JsonParserConfig,
         table: Arc<str>,
