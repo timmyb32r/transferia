@@ -15,9 +15,6 @@ pub struct Config {
     /// Pipeline: flush batch size (rows).
     #[serde(default = "default_batch_size")]
     pub sink_batch_size: usize,
-    /// Pipeline: max linger before flushing partial batch (ms).
-    #[serde(default = "default_max_linger_ms")]
-    pub sink_max_linger_ms: u64,
 }
 
 impl Config {
@@ -348,10 +345,6 @@ pub struct MiddlewareConfig {
 
 const fn default_batch_size() -> usize {
     10000
-}
-
-const fn default_max_linger_ms() -> u64 {
-    500
 }
 
 // ---------------------------------------------------------------------------

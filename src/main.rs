@@ -38,7 +38,6 @@ struct PipelineDeps {
     mw: Arc<Vec<Box<dyn Middleware>>>,
     snk: Arc<dyn transferia::pipeline::sink::Sink>,
     batch_size: usize,
-    max_linger_ms: u64,
     token: CancellationToken,
 }
 
@@ -68,7 +67,7 @@ where
             match run_partition_pipeline(
                 source, deps.parser.clone(), Arc::clone(&deps.table),
                 Arc::clone(&deps.mw), Arc::clone(&deps.snk),
-                deps.batch_size, deps.max_linger_ms, deps.token.clone(), partition_id,
+                deps.batch_size, deps.token.clone(), partition_id,
             ).await {
                 Ok(()) => break,
                 Err(e) => {
@@ -258,7 +257,6 @@ async fn main() -> anyhow::Result<()> {
     let deps = PipelineDeps {
         parser, table: Arc::clone(&table), mw: middlewares, snk: sink,
         batch_size: config.sink_batch_size,
-        max_linger_ms: config.sink_max_linger_ms,
         token: cancel_token.clone(),
     };
     let source_provider_arc = Arc::new(source_provider);

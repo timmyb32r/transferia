@@ -78,6 +78,7 @@ pub struct ClickHouseSink {
     /// Exactly-once waterline (per-partition for YDS, multi-key LRU for S3).
     /// Arc<Mutex<>> for interior mutability — `Sink::write` takes &self.
     waterline: Arc<Mutex<Waterline>>,
+    max_linger_ms: u64,
 }
 
 impl ClickHouseSink {
@@ -109,6 +110,7 @@ impl ClickHouseSink {
         Ok(Self {
             pool,
             waterline: Arc::new(Mutex::new(Waterline::new(waterline_cap))),
+            max_linger_ms: config.max_linger_ms,
         })
     }
 
@@ -320,6 +322,10 @@ impl Sink for ClickHouseSink {
     }
 
     fn as_any(&self) -> &dyn core::any::Any { self }
+
+    fn max_linger_ms(&self) -> Option<u64> {
+        Some(self.max_linger_ms)
+    }
 }
 
 // ── Exactly-once helpers ───────────────────────────────────────────────

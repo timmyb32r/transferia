@@ -222,7 +222,6 @@ pub async fn run_partition_pipeline(
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     sink: Arc<dyn Sink>,
     batch_size: usize,
-    max_linger_ms: u64,
     cancel_token: CancellationToken,
     partition_id: i64,
 ) -> anyhow::Result<()> {
@@ -250,7 +249,7 @@ pub async fn run_partition_pipeline(
         Err(anyhow::anyhow!("commit_offsets failed after 10 retries: {last_err:?}"))
     }
 
-    let max_linger = Duration::from_millis(max_linger_ms);
+    let max_linger: Option<Duration> = sink.max_linger_ms().map(Duration::from_millis);
 
     let (tx_read, rx_read) = mpsc::channel::<ReadItem>(CHANNEL_CAPACITY);
     let (tx_parsed, mut rx_parsed) = mpsc::channel::<ParsedMsg>(CHANNEL_CAPACITY);
@@ -555,9 +554,11 @@ pub async fn run_partition_pipeline(
         let mut total_flushed: u64 = 0;
 
         loop {
-            // Phase 1: flush if timeout expired
-            let should_flush = acc.window_start.is_some_and(|s| {
-                acc.total_rows > 0 && s.elapsed() >= max_linger
+            // Phase 1: flush if timeout expired (only for sinks that have a linger)
+            let should_flush = max_linger.is_some_and(|linger| {
+                acc.window_start.is_some_and(|s| {
+                    acc.total_rows > 0 && s.elapsed() >= linger
+                })
             });
 
             if should_flush {
@@ -584,13 +585,15 @@ pub async fn run_partition_pipeline(
             }
 
             // Phase 3: wait for data or timeout (NO busy-spin)
-            let timeout = acc.window_start.map(|s| {
-                let elapsed = s.elapsed();
-                if elapsed < max_linger {
-                    max_linger.saturating_sub(elapsed)
-                } else {
-                    Duration::ZERO
-                }
+            let timeout = max_linger.and_then(|linger| {
+                acc.window_start.map(|s| {
+                    let elapsed = s.elapsed();
+                    if elapsed < linger {
+                        linger.saturating_sub(elapsed)
+                    } else {
+                        Duration::ZERO
+                    }
+                })
             });
 
             let maybe_item = if let Some(dur) = timeout {

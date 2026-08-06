@@ -49,4 +49,8 @@ impl Sink for PoisoningSink {
     }
 
     fn as_any(&self) -> &dyn core::any::Any { self }
+
+    fn max_linger_ms(&self) -> Option<u64> {
+        self.inner.max_linger_ms()
+    }
 }

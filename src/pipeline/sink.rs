@@ -16,6 +16,13 @@ pub trait Sink: Send + Sync {
     /// Downcast to concrete type for startup checks. Override in concrete sinks.
     /// Default panics — only `ClickHouseSink` and `PoisoningSink` override this.
     fn as_any(&self) -> &dyn core::any::Any;
+
+    /// Max flush linger in milliseconds. `None` means the pipeline never flushes
+    /// on idle timeout — only on batch-size threshold. ClickHouse sinks return
+    /// `Some(...)` (default 500ms); other sinks return `None`.
+    fn max_linger_ms(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Delegating impl: `Arc<dyn Sink>` is itself a `Sink`.
@@ -25,5 +32,8 @@ impl Sink for Arc<dyn Sink> {
     }
     fn as_any(&self) -> &dyn core::any::Any {
         (**self).as_any()
+    }
+    fn max_linger_ms(&self) -> Option<u64> {
+        (**self).max_linger_ms()
     }
 }
