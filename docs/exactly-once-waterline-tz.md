@@ -2,10 +2,11 @@
 
 ## Техническое задание для реализации
 
-> Версия 3. Переработана после двух раундов ревью. Механизм exactly-once обобщён с
-> «YDS partition+offset» до **произвольного составного ключа уникальности**, задаваемого
-> источником. Waterline загружается **лениво** из ClickHouse (source of truth); ошибка
-> вставки инвалидирует синк и роняет процесс (восстановление — через рестарт).
+> Версия 5. Четвёртый раунд ревью: 12 дыр из gap analysis —
+> I5/Arrow IPC framing, ReplicatedMergeTree insert_quorum + select_sequential_consistency,
+> S3 row number спецификация, LRU cap изменение, ручная миграция DEFAULT, CH-мутации,
+> граница флеша аккумулятора, Replacing полный коллапс, backtick валидация,
+> NULL offset, graceful drain таймаут, CH-source TODO.
 
 ---
 
@@ -31,7 +32,11 @@
 - **I2. Waterline растёт только на подтверждённом успехе.** `mark_committed` вызывается
   строго после успешного INSERT. Никакого продвижения «наперёд».
 - **I3. Commit источника — только после полного успеха флеша.** Офсет в источнике коммитится
-  строго после того, как **все** таблицы флеша (main + DLQ) записаны.
+  строго после того, как **все** таблицы флеша (main + DLQ) записаны. **Механизм:**
+  writer-таск для каждого батча формирует `TableWrite` для main и (если есть) DLQ,
+  вызывает `sink.write(main)` затем `sink.write(dlq)`, и **только после успеха обоих**
+  дёргает `source.commit()`. Отдельный коммит после каждого `TableWrite` — ошибка
+  (при падении между ними потеряются строки незакоммиченной таблицы, см. §7).
 - **I4. Сериализация и монотонность записи в пределах партиции.** Записи одной партиции
   сериализованы (следующий флеш не стартует до завершения предыдущего) и коммитятся строго
   по возрастанию offset — никакой старший offset не поднимается в waterline раньше, чем
@@ -46,6 +51,17 @@
   в одном `RecordBatch` (P2) + блок = батч, сервер только склеивает блоки, не дробит (P3).
   Без I5 частичный сбой `insert_many` мог бы записать часть строк одного offset, поднять
   waterline до него и потерять остаток на реплее (§6.1).
+
+  **Почему P3 выполняется:** Arrow IPC stream фреймит каждый `RecordBatch` как отдельное
+  length-prefixed IPC-сообщение — на проводе это одна атомарная единица. ClickHouse при
+  `FORMAT ArrowStream` принимает одно IPC-сообщение как один INSERT-блок и **не дробит**
+  его: настройка `max_insert_block_size` применяется только к строковым форматам
+  (TSV/CSV/JSONEachRow), для Arrow она неактивна. Клиент `clickhouse-arrow` внутри
+  `insert_many` также не чанкует `RecordBatch` — каждый батч уходит ровно одним IPC-
+  сообщением. Таким образом граница `RecordBatch` ≡ граница INSERT-блока ≡ граница
+  атомарности. Проверка в реализации: **не включать**
+  `input_format_arrow_allow_multiple_batches_in_one_block` (при появлении в CH) и
+  **не разбивать** `RecordBatch` явно перед `insert_many`.
 
 Из I2+I3: **любой неопределённый исход записи откатывается через рестарт** — waterline
 пересоздаётся из ClickHouse, источник переотдаёт всё незакоммиченное, оно примиряется с
@@ -140,10 +156,19 @@ impl PartitionKey {
 | YDS topic  | `__system_partition` | `__system_offset` | Int64                |
 | YDS pqv1   | `__system_partition` | `__system_offset` | Int64                |
 | S3         | `__system_filename`  | `__system_offset` | Utf8                 |
-| CH-source  | (если есть стабильный ключ) | …          | по ситуации          |
+| CH-source  | (если есть стабильный ключ) | …          | по ситуации (TODO: не специфицирован в v4 — out of scope) |
 
 **Именование:** префикс `__` зарезервирован под системные колонки; пользовательские колонки
 с `__` запрещаются валидацией конфига.
+
+**Защита от коллизии в данных (runtime):** валидация конфига проверяет только сконфигурированные
+колонки. Если в данных (JSON/YDS-сообщении) приходит поле с префиксом `__` (например,
+`__system_partition` от пользователя), **не объявленное в конфиге**, парсер может создать
+колонку с таким именем, а затем попытаться добавить системную колонку с тем же именем →
+дубликат в Arrow Schema → panic/ошибка. Поэтому парсер при `exactly_once` **перед созданием
+батча** проверяет, что имена системных колонок (`__system_partition`, `__system_offset`,
+`__system_filename`) отсутствуют среди DataFusion-колонок данных. При конфликте — **fatal**
+с читаемым сообщением: `"Column '__system_partition' conflicts with a user data field; rename the field or disable exactly_once"`.
 
 **Опт-ин:** булев флаг `add_exactly_once_key: true` в конфиге источника. При `false` источник не
 выставляет ключ → at-least-once (§11).
@@ -195,6 +220,16 @@ Message — разные офсеты. `partition` — **константа на
 из `TableData` в `TableWrite`. Ни `min_offset`, ни `max_offset`, ни `single_partition` не
 вычисляются — синк сам читает колонки и принимает решения.
 
+**Граница флеша — только по границе Message.** При exactly-once аккумулятор **не имеет права**
+разрезать Message между двумя `TableWrite`. Flush происходит либо после завершения полного
+`RecordBatch` одного Message, либо при достижении лимита по размеру — но в этом случае
+**текущий** Message доводится до конца и флешится целиком (даже с превышением лимита),
+а следующий Message начинает новый батч. Если Message настолько велик, что не помещается
+в памяти, — это ошибка конфигурации («message too large for exactly-once batch» → fatal).
+Нарушение этого правила = разрезание offset'а между флешами = waterline поднят для части
+строк → потеря хвоста Message при падении на втором `TableWrite` (I5 закрывает атомарность
+внутри одного флеша, но не между флешами).
+
 ---
 
 ## 4. Waterline (in-memory, ленивая загрузка)
@@ -215,9 +250,14 @@ pub struct Waterline {
 
 impl Waterline {
     /// Гарантирует, что waterline (таблицы, партиции) загружен в кеш. Разово ходит в CH.
-    /// Double-checked: сначала read-lock проверка (снаружи), при промахе — этот async путь.
+    /// Double-checked: сначала быстрая проверка кеша (снаружи, до вызова), при промахе —
+    /// этот async путь.
+    ///
+    /// **API note:** `&mut self` — Waterline single-owner (§4.1), конкурентного доступа нет.
+    /// Ни `RwLock`, ни `tokio::Mutex` не нужны. Синк вызывает `write()` строго последовательно,
+    /// writer ждёт завершения каждого флеша перед следующим.
     async fn ensure_loaded(
-        &mut self,                     // single-owner; interior lock (если есть) не держим через await — §4.1
+        &mut self,
         client: &Client,
         table: &Arc<str>,
         key: &ExactlyOnceKey,
@@ -225,15 +265,18 @@ impl Waterline {
     ) -> anyhow::Result<()> {
         let wk: WaterlineKey = (table.clone(), pid.clone());
         if self.committed.contains_key(&wk) { return Ok(()); }
-        let q = format!(
+        let mut q = format!(
             "SELECT max({o}) FROM `{t}` WHERE {p} = {val} \
              HAVING count() > 0",
             o = key.offset.name, t = table, p = key.partition.name,
             val = pid.to_sql_literal(),
         );
-        // Ходим в конкретный хост (не Distributed, не мульти-реплика) → staleness между
-        // репликами невозможен, поэтому select_sequential_consistency не нужен. Мульти-хост
-        // Replicated — вне гарантий (§13).
+        // ReplicatedMergeTree: включаем select_sequential_consistency, чтобы чтение
+        // (возможно, с другой реплики после рестарта) видело все кворумно-закоммиченные
+        // вставки. Для plain MergeTree накладные расходы нулевые — настройка игнорируется
+        // не-Replicated таблицами, поэтому применяем unconditionally (без ветвления по
+        // флагу is_replicated).
+        q.push_str(" SETTINGS select_sequential_consistency = 1");
         // ВАЖНО: без `HAVING count() > 0` ClickHouse на пустой выборке вернёт НЕ пусто, а одну
         // строку со значением 0 (проверено на MergeTree 25.4) → query_one_scalar дал бы Some(0),
         // а не None → первое сообщение партиции (offset 0) отфильтровалось бы. С `HAVING`:
@@ -270,6 +313,13 @@ impl Waterline {
 бы в `Some(0)` и первое сообщение (offset 0) потерялось бы. Именно этот `HAVING` делает
 комментарий «`None` ⟺ строк нет» правдой.
 
+**`__system_offset = NULL` в данных:** если в таблице есть строки с `NULL` в колонке offset
+(ручная вставка, миграция с незаполненной колонкой), `max(offset)` возвращает `NULL` (все
+ненулевые значения > NULL, но функция `max` игнорирует NULL'ы и возвращает максимум среди
+non-NULL; если все строки NULL — `max` возвращает NULL). `query_one_scalar` → `None` →
+`ensure_loaded` не кеширует → партиция «не виденная» → все строки при реплее проходят —
+безопасная деградация до at-least-once.
+
 **Почему lazy, а не eager-скан на старте:** синк не знает списка партиций заранее в общем
 случае (S3-файлы раскрываются в рантайме), и не должен зависеть от ключа/партиций до первого
 батча. Ленивая загрузка единообразна для всех источников. Плата: на рестарте YDS — по одному
@@ -283,6 +333,10 @@ bulk-preload одним `GROUP BY`.
 ходим в конкретный хост → staleness нет) → ни дублей, ни потерь. Для YDS кеш мал и до
 cap не доходит; эвикт реально работает только для потока S3-filenames.
 
+**Изменение `cap` между рестартами безопасно в любую сторону.** Уменьшение → чаще эвикт,
+увеличение → реже; оба варианта корректны, потому что эвикция всегда перечитывает актуальное
+состояние из CH, а не теряет данные.
+
 ### 4.1. Владение синком и waterline (по партиции, без общего лока)
 
 **Один синк на партицию.** Для YDS каждая партиция получает **собственный** экземпляр
@@ -291,17 +345,16 @@ cap не доходит; эвикт реально работает только
 пайплайна нет — один `S3Source` = один пайплайн = один синк, внутри которого `Waterline`
 держит много ключей (по `filename`) с bounded-LRU.
 
-**Общий на весь воркер — только poison-флаг** (`Arc<AtomicBool>`, §6.1), чтобы падение
-одной партиции роняло весь процесс. Коннект и waterline — приватные для синка. (Пул
-коннектов как общий ресурс — опциональная будущая оптимизация; в базовом дизайне один
-коннект на партиционный синк, что согласовано с fail-fast: обрыв = фатал = рестарт.)
+**Общего мутабельного состояния между партициями нет.** Коннект, waterline и poison —
+приватные для синка. Глобальное выключение при отказе одной партиции координирует
+task supervisor (CancellationToken / abort), а не poison-флаг (§6.1). (Пул коннектов
+как общий ресурс — опциональная будущая оптимизация; в базовом дизайне один коннект на
+партиционный синк, что согласовано с fail-fast: обрыв = фатал = рестарт.)
 
 **Лока нет.** Каждый синк принадлежит ровно одному writer-таску, а `write()` вызывается
 строго последовательно (writer ждёт завершения каждого флеша перед следующим). Значит
-`Waterline` — single-owner: конкурентного доступа к нему не бывает, `RwLock` не нужен.
-Достаточно interior mutability (напр. `tokio::Mutex`, фактически без контенции) с одним
-правилом: **лок не удерживается через `.await`** в `ensure_loaded`
-(lock → проверка → unlock → async-запрос в CH → lock → вставка).
+`Waterline` — single-owner: конкурентного доступа к нему не бывает, никакой `Mutex`/`RwLock`
+не нужен. `&mut self` достаточно.
 
 **Cross-partition гонок нет by construction.** Раз waterline у каждой партиции свой,
 исчезает гонка «эвикт одной партиции ломает чтение другой»: LRU-эвикт вообще возможен
@@ -336,6 +389,9 @@ write(TableWrite w):
         min_off = min(row.offset for row in rows)
 
         # 5.b.1: все строки ≤ waterline → дубликат
+        # INSERT не делается, mark_committed не нужен (waterline уже ≥ max_off).
+        # write() возвращает Ok(()) → источник закоммитит офсет.
+        # Это корректно: данные гарантированно в CH (waterline — тому подтверждение).
         if wl is Some(v) and max_off <= v:
             continue
 
@@ -351,6 +407,11 @@ write(TableWrite w):
         filtered_rows = [r for r in rows if keep_mask[r.row_idx]]
         if filtered_rows not empty:
             insert_rows(w.batches, filtered_rows)
+        # mark_committed от исходного max_off вызывается ВСЕГДА — даже если
+        # filtered_rows пуст (все строки ≤ waterline, как в 5.b.1). Это поднимает
+        # waterline → на следующем реплее батч уйдёт в 5.b.1 (continue без лишней
+        # фильтрации). Асимметрия с 5.b.1 (где mark_committed не вызывается)
+        # объясняется тем, что в 5.b.1 waterline УЖЕ ≥ max_off, а здесь — нет.
         waterline.mark_committed(w.table, pid, max_off)
 ```
 
@@ -419,12 +480,11 @@ offset < 40 → `ensure_loaded` даёт waterline=45 → [40..45] фильтр�
 Ни потери, ни дубля.
 
 **Разбор корректен в силу I5:** граница блока всегда совпадает с границей группы
-`(partition, offset)` (весь Message — в одном `RecordBatch` = одном блоке), поэтому частичный
-сбой `insert_many` теряет только **целые** группы, а не половину offset'а. Отсюда требование
-к синку: **не дробить `RecordBatch` на под-блоки мельче Message** — не выставлять серверный
-сплит блока и не чанковать батч по строкам; если `insert_many` чанкует, граница чанка обязана
-совпадать с границей батча. Тогда «поднять waterline до частично записанного offset»
-невозможно.
+`(partition, offset)` — весь Message в одном `RecordBatch` = одном Arrow IPC-сообщении =
+одном INSERT-блоке (см. обоснование P3 в §0). Частичный сбой `insert_many` теряет только
+**целые** блоки, не фрагменты offset'а. Поэтому «поднять waterline до частично записанного
+offset» невозможно: либо весь блок записан → `mark_committed` вызывается, либо нет → ошибка
+→ waterline не сдвинут.
 
 **Удаляется из текущего кода:** in-process ретрай партиции с переиспользованием того же синка
 (`main.rs:53-82`, до 5 попыток) — на нём дыра выживала бы. Ошибка синка = сразу fatal.
@@ -434,14 +494,12 @@ offset < 40 → `ensure_loaded` даёт waterline=45 → [40..45] фильтр�
 
 ### 6.1. `PoisoningSink`
 
-Синк и waterline — на партицию (§4.1), но **poison-флаг общий на весь воркер**
-(`Arc<AtomicBool>`, шарится во все партиционные синки). Если у партиции A запись упала,
-партиции B/C **не должны** продолжать писать/двигать waterline/коммитить источник, пока
-процесс умирает. Общий флаг `poisoned` мгновенно роняет записи всех партиций:
+Poison — **per-sink**: каждый экземпляр синка (каждая партиция) держит **собственный**
+`AtomicBool`. После ошибки INSERT флаг взводится — этот конкретный синк больше не
+принимает `write()`:
 
 ```rust
-// poisoned — общий Arc на весь воркер (один и тот же клонируется во все партиционные синки).
-pub struct PoisoningSink { inner: Arc<dyn Sink>, poisoned: Arc<AtomicBool> }
+pub struct PoisoningSink { inner: Arc<dyn Sink>, poisoned: AtomicBool }
 
 impl Sink for PoisoningSink {
     fn write(&self, w: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
@@ -458,8 +516,42 @@ impl Sink for PoisoningSink {
 }
 ```
 
+**Координация между партициями — через task supervisor, не через poison.** Poison защищает
+от повторного использования **своего** синка после ошибки. Когда задача партиции возвращает
+`Err`, task supervisor (рантайм пайплайна, `main.rs`) отменяет **все** остальные партиционные
+задачи через CancellationToken / abort JoinHandle. Это даёт тот же эффект — процесс выходит
+целиком, — но механизм разделён: poison = защита синка от reuse, supervisor = глобальное
+выключение.
+
 In-process enforcement инварианта «после ошибки записи синк не зовётся»; выход процесса — уже
 восстановление.
+
+### 6.3. Graceful drain in-flight операций при exit
+
+Когда задача партиции возвращает `Err`, task supervisor инициирует глобальное выключение:
+отменяет остальные задачи (CancellationToken) и ждёт завершения in-flight `write()`-вызовов
+(graceful drain с таймаутом, например 30 сек). Отмена через CancellationToken останавливает
+**новые** вызовы `write()`, но не прерывает уже выполняющиеся (например, тяжёлый INSERT
+другой партиции). Корректность **не требует** drain — даже при hard kill (SIGKILL)
+сохраняется гарантия exactly-once:
+
+- Если in-flight INSERT успел закоммититься в CH **и** `mark_committed` вызван → waterline
+  обновлён, источник закоммичен — всё корректно.
+- Если in-flight INSERT успел закоммититься в CH, но `mark_committed` **не** вызван (убиты
+  до) → данные в CH, waterline не обновлён, источник не закоммичен (I3) → на рестарте
+  `ensure_loaded` прочитает реальный max из CH → дубли отфильтруются — корректно.
+- Если in-flight INSERT **не** успел → данные не в CH, waterline не обновлён, источник
+  переотдаст — корректно.
+
+Вывод: graceful drain — best-effort (уменьшает холостую работу на рестарте), но
+корректность гарантирована в любом случае.
+
+**Поведение при превышении таймаута drain:** если in-flight flush'ы не завершились за
+отведённое время (например, 30 сек) → форсированный выход: `WARN` в лог
+(«graceful drain timed out with N pending flushes — forcing exit, correctness unaffected»)
+→ `exit(1)`. Незавершённые INSERT'ы либо закоммичены в CH (тогда `max(offset)` покроет
+их при рестарте), либо отброшены сервером (тогда источник переотдаст). Оба варианта
+корректны — см. выше.
 
 ### 6.2. `ParallelChInsertSink` несовместим с exactly-once
 
@@ -493,8 +585,30 @@ DLQ дедуплицируется **тем же ключом**, что и main.
 
 **Независимые waterline main и DLQ самокорректируют неатомарность между таблицами.** Крах между
 INSERT в main и INSERT в DLQ: на рестарте каждая таблица перечитывается отдельно; источник
-переотдаёт незакоммиченное (I3); строки допишутся ровно туда, где их нет. При `exactly_once:
-false` DLQ — как сейчас, без ключа.
+переотдаёт незакоммиченное (I3); строки допишутся ровно туда, где их нет.
+
+**Координация коммита источника (main + DLQ).** Writer-таск формирует оба `TableWrite`
+(main + DLQ) из одного батча, затем последовательно вызывает `sink.write(main)` и
+`sink.write(dlq)`. Коммит источника происходит **единожды после успеха обоих**, а не после
+каждого `TableWrite`. Сценарий:
+
+```
+sink.write(main)  → OK, waterline(main) обновлён
+sink.write(dlq)   → FAIL → poison → fatal → restart
+```
+
+На рестарте:
+- `ensure_loaded(main)` → актуальный max (main-строки в CH)
+- `ensure_loaded(dlq)` → отсутствуют (DLQ-строки не попали)
+- Источник переотдаёт (I3 — коммита не было, т.к. не полный успех)
+- Main фильтрует дубли (waterline корректен)
+- DLQ дописывает недостающее
+
+Если бы коммит происходил после каждого `TableWrite` независимо, то при падении DLQ
+коммит main уже прошёл бы → источник не переотдал → DLQ-строки **потеряны**. Поэтому
+коммит — только после полного успеха всей группы таблиц.
+
+При `exactly_once: false` DLQ — как сейчас, без ключа.
 
 ---
 
@@ -516,44 +630,64 @@ false` DLQ — как сейчас, без ключа.
    Recreate the table with these columns or disable exactly_once. Auto-migration is not performed.
    ```
    Миграцию существующей таблицы делает пользователь осознанно; молча не чиним.
-3. **Никаких `ALTER TABLE ADD COLUMN`.**
+3. **Никаких `ALTER TABLE ADD COLUMN`.** Даже если пользователь делает это вручную —
+   **опасность DEFAULT:** `ALTER TABLE ADD COLUMN __system_offset Int64 DEFAULT 0` заполнит
+   все легаси-строки значением `0` → `ensure_loaded` вернёт `Some(0)` → первое настоящее
+   сообщение с offset 0 будет отфильтровано и **потеряно**. Безопасный путь миграции:
+   создать новую таблицу с колонками ключа в `CREATE TABLE` и перезалить данные, либо
+   использовать `DEFAULT -1` (offset'ы неотрицательны, waterline просядет до -1 → все строки
+   пройдут). Проверка при старте **не покрывает** этот случай (колонки есть, типы верны), поэтому
+   документируем.
 4. То же для DLQ-таблицы (её всегда создаём мы → колонки будут).
-5. **Проверка движка (fatal или warn):**
-   - `SummingMergeTree` / `AggregatingMergeTree` → **fatal** (арифметически ломают `__system_offset`)
-   - `ReplacingMergeTree` → проверить `ORDER BY` (из `system.tables`): если он **не содержит** колонок ключа `(__system_partition, __system_offset)` → **`WARN`** («Replacing схлопывает по ORDER BY; без ключа в ORDER BY возможна потеря разных логических строк — §9»); если содержит → `INFO` (waterline — оптимизация, Replacing — финальная защита)
-   - `MergeTree` / `ReplicatedMergeTree` → ок
-   - В `engine_full` найдена `TTL`-клауза → `WARN`
+5. **Проверка движка:**
+   - `MergeTree` → ок
+   - `ReplicatedMergeTree` → проверить `insert_quorum` (из `system.tables`): если `< 2` **и** пользователь не установил `replicated_insert_quorum_override` в конфиге синка → **`FATAL`** («ReplicatedMergeTree requires insert_quorum ≥ 2 for exactly-once. Set it in the table definition or set sink.replicated_insert_quorum_override: 1 to degrade to at-least-once (duplicates possible on replica failover — see §13).»). Если `replicated_insert_quorum_override: 1` → `WARN` + гарантия деградирует до `AT_LEAST_ONCE`
+   - `Distributed` → **деградация до `AT_LEAST_ONCE`** + `WARN` («Distributed table detected: async block forwarding breaks waterline consistency → exactly-once disabled. Write directly to the underlying MergeTree table instead.»)
+   - **Любой другой движок** (`ReplacingMergeTree`, `CollapsingMergeTree`, `VersionedCollapsingMergeTree`, `SummingMergeTree`, `AggregatingMergeTree`, `Buffer`, etc.) → **`FATAL`** («engine '{}' is not supported for exactly-once. Only MergeTree and ReplicatedMergeTree are supported.»). Схлопывающие/суммирующие движки арифметически изменяют или схлопывают `__system_offset` → waterline необратимо сломан. Никаких корнеркейсов — просто запрещены
+   - В `engine_full` найдена `TTL`-клауза → `INFO` («TTL will delete key columns → waterline may be lowered for affected offsets; at-least-once on replayed tail»)
+6. **Проверка имени таблицы:**
+   - Backtick (`` ` ``) в имени → **fatal** («table name contains backtick — incompatible with exactly-once SQL queries»).
+   - Точка (`.`) в имени → **fatal** («table name contains '.': use the ClickHouse connection default database instead of `db.table` syntax»). CH-клиент уже подключён к целевой БД через DSN — квалифицировать таблицу базой в имени не нужно и вредно: `` FROM `db.table` `` — это одно имя с точкой, а не `db`.`table`.
+   
+   Имена таблиц из конфига, не из пользовательских данных → риск низкий, но валидация дёшева и страхует от SQL-ошибок в `ensure_loaded`.
 
-Итог: **отсутствие колонок ключа → fatal**; **движок/TTL → WARN**.
+Итог: **отсутствие колонок ключа → fatal**; **неподдерживаемый движок → fatal**; **backtick/точка в имени таблицы → fatal**.
 
 ---
 
 ## 9. Поддерживаемые движки ClickHouse и retention
 
-`ensure_loaded` (`SELECT max(offset) WHERE partition=P`) корректен на движках, где строки
-**не мутируют и не схлопывают числовые колонки**.
+`ensure_loaded` (`SELECT max(offset) WHERE partition=P`) корректен только на движках, где строки
+**не мутируют и не схлопывают числовые колонки**. Поддерживаются ровно два движка:
 
 | Движок | Статус | Комментарий |
 |--------|--------|-------------|
-| `MergeTree` / `ReplicatedMergeTree` | ✅ | Строки не схлопываются → `max(offset)` = истинный максимум. `FINAL` не нужен. Чтение с конкретного хоста (см. §13 про мульти-реплику). |
-| `ReplacingMergeTree` (+Replicated) | ⚠️ | После фонового мержа `max(__system_offset)` может **занизиться** (Replacing схлопнул строки и оставил одну версию на каждый ORDER BY-ключ; у оставшейся — её оригинальный offset, не максимальный из схлопнутых). Waterline просядет → часть дубликатов просочится мимо фильтра. Replacing добивает их **только если `ORDER BY` уникально идентифицирует логическую запись** — тогда результирующий набор строк корректен. **Если ORDER BY грубее ключа — Replacing схлопнет РАЗНЫЕ логические строки → потеря данных.** Для exactly-once обязательно включать `(__system_partition, __system_offset)` (или иной уникальный на запись ключ) в `ORDER BY`. Waterline здесь — оптимизация (отсекает 99.9% реплеев); Replacing добивает остаток при корректном ORDER BY. |
-| `SummingMergeTree` / `AggregatingMergeTree` | ❌ | Суммирующие/агрегирующие движки арифметически изменяют ВСЕ числовые колонки, включая `__system_offset` → waterline необратимо сломан. Стартовый `FATAL`. |
+| `MergeTree` | ✅ | Строки не схлопываются → `max(offset)` = истинный максимум. `FINAL` не нужен. |
+| `ReplicatedMergeTree` | ⚠️ | Строки не схлопываются, **но** при `insert_quorum=1` (дефолт) и отказе реплики между INSERT и рестартом — записанные строки могут не успеть асинхронно реплицироваться на другие реплики. При рестарте на другой реплике `ensure_loaded` вернёт заниженный `max(offset)` → дубли. **Требуется `insert_quorum ≥ 2`** — стартовый `FATAL` при меньшем значении; пользователь может явно понизить через `replicated_insert_quorum_override` → деградация до `AT_LEAST_ONCE` (см. §8, §11). `select_sequential_consistency = 1` в `ensure_loaded` даёт дополнительную страховку при чтении с другой реплики после рестарта (для не-Replicated таблиц SETTINGS игнорируется сервером → накладных расходов нет). |
+| **Всё остальное** | ❌ | `ReplacingMergeTree`, `CollapsingMergeTree`, `VersionedCollapsingMergeTree`, `SummingMergeTree`, `AggregatingMergeTree`, `Buffer`, etc. — стартовый `FATAL`. Эти движки арифметически изменяют или схлопывают `__system_offset` → waterline необратимо сломан. |
 
-**Про `FINAL`:** не нужен. На plain MergeTree схлопывать нечего. На ReplacingMergeTree waterline — оптимизация, а Replacing даёт итоговую консистентность без участия `FINAL` в SELECT-ах.
+**Про Replicated и staleness:** `ensure_loaded` **всегда** включает
+`SETTINGS select_sequential_consistency = 1` (см. §4). В steady state процесс ходит в один и тот же
+хост → чтение-своих-записей выполняется тривиально, настройка не нужна, но и не вредит. При
+**рестарте на другой реплике** (A упала → супервизор поднял процесс на B) запрос идёт на B, которая
+могла не успеть получить последние кворумно-закоммиченные вставки с A — здесь
+`select_sequential_consistency = 1` заставляет B дождаться всех подтверждённых записей, предотвращая
+занижение `max(offset)` → дубли. Для не-Replicated таблиц (MergeTree) сервер игнорирует эту
+настройку → накладных расходов нет. Поэтому она применяется **безусловно**, без ветвления по флагу
+`is_replicated`.
 
-**Про Replicated и staleness:** `ensure_loaded` ходит в **конкретный хост** (не Distributed,
-не балансировщик реплик), поэтому чтение-своих-записей выполняется тривиально и staleness не
-возникает — `select_sequential_consistency` **не используется**. Если exactly-once поднимут на
-мульти-реплике с чтением через балансировщик, INSERT на реплику A + чтение с отставшей реплики B
-может занизить `max(offset)` → дубли; это **вне гарантий** и требует кворумной записи
-(`insert_quorum`) + `select_sequential_consistency` на чтении — см. §13. Экзотика с
-`Distributed`-шардированием не по партиции — тоже §13.
+Если exactly-once поднимут на мульти-реплике с чтением через **балансировщик** (вместо конкретного
+хоста) — `select_sequential_consistency` не поможет, т.к. балансировщик может увести запрос на
+отставшую реплику; это **вне гарантий** и требует кворумной записи (`insert_quorum ≥ 2`) как
+основной защиты. Экзотика с `Distributed`-шардированием не по партиции — тоже §13.
 
-**Про retention/TTL:** waterline хранит состояние дедупа **в тех же данных, что чистятся**.
-Инвариант: **CH-retention ≥ retention источника** для exactly-once таблиц. Если TTL/`TRUNCATE`/
-`DROP PARTITION` вытеснят строки, которые источник ещё может переотдать, waterline занизится →
-деградация до at-least-once на затронутых офсетах. TTL на exactly-once таблице — не рекомендуется
-(стартовый `WARN`).
+**Про retention/TTL:** waterline хранит состояние дедупа **в тех же данных, что чистятся** —
+TTL/`TRUNCATE`/`DROP PARTITION` в ClickHouse не влияют на корректность. Источник переотдаёт
+только незакоммиченный хвост (от last committed offset), и если retention источника настроен
+корректно, TTL-чистка ClickHouse не пересекается с окном реплея. Пересечение возможно только
+при агрессивном TTL (короче retention источника) — тогда waterline занизится, дубли пройдут →
+at-least-once на затронутых офсетах. Это ожидаемое поведение, специальной защиты не требуется.
+| CH-мутации по системным колонкам | `ALTER TABLE ... UPDATE __system_offset = ...` или `DELETE WHERE __system_partition = ...` искажают `max(offset)` → waterline необратимо сломан → дубли или потеря | Не выполнять мутации, затрагивающие `__system_offset`/`__system_partition`, на exactly-once таблицах |
 
 ---
 
@@ -584,10 +718,19 @@ at-least-once (§11).
 - **`__system_filename`** = `self.files[current_idx].location` — имя текущего файла, кладётся в
   `Message.partition = Str(filename)`.
 - **`__system_offset`** = номер строки от начала файла (row number, начиная с 0). Инкрементится
-  для каждой записи внутри файла. Детерминирован при неизменном файле и **не зависит** от
-  границ чанков (в отличие от байтовой позиции, которая сдвигается при переменном размере чанка
-  и `safe_split_at` с переносом остатка). Источник должен вести счётчик строк на файл и
-  сбрасывать при переходе к следующему файлу.
+  для каждой **полной** строки после сборки из чанков. Разделитель строк — newline (`\n`).
+  `safe_split_at` на границе чанка переносит остаток разорванной строки в следующий чанк;
+  счётчик строк инкрементится только после того, как все части строки склеены, — поэтому
+  row number **не зависит** от границ чанков и размера буфера, в отличие от байтовой позиции.
+  Счётчик сбрасывается в 0 при переходе к следующему файлу.
+- **Чтение всегда с начала файла.** При exactly-once S3-источник **не может** возобновлять
+  чтение с середины файла (байтовая позиция после рестарта) — это сломало бы row number и
+  нарушило I1. Вместо этого файл перечитывается с начала, а waterline отфильтровывает уже
+  записанные строки (5.b.1/5.b.3). Цена — повторное скачивание файла при рестарте; это
+  корректно, пока retention источника ≥ времени обработки файла.
+- **Пустые файлы пропускаются.** S3-источник при обнаружении файла нулевого размера не создаёт
+  `Message`-ов, не выставляет ключ и переходит к следующему файлу. Waterline для пустого файла не
+  загружается — это корректно (нечего дедуплицировать).
 - Файл под тем же именем не должен переписываться другим содержимым (иначе row number
   перестают соответствовать записям) — I1.
 
@@ -598,27 +741,38 @@ at-least-once (§11).
 
 ## 11. Вывод режима гарантий на старте
 
-Режим выводится из `(источник выставляет ключ?) && (синк умеет waterline-dedup?)` и **логируется**:
+Режим выводится из `(источник выставляет ключ?) && (синк умеет waterline-dedup?) && (ReplicatedMergeTree quorum OK?) && (не Distributed?)` и **логируется**:
+
+- `EXACTLY_ONCE`: источник выставил ключ И синк = clickhouse И (движок ≠ ReplicatedMergeTree ИЛИ `insert_quorum ≥ 2`)
+- `AT_LEAST_ONCE`: иначе — с actionable-подсказкой, что включить / исправить
 
 ```
-EXACTLY_ONCE, если источник выставил exactly_once_key И синк = clickhouse.
-AT_LEAST_ONCE иначе — с actionable-подсказкой, что включить.
+Guarantee mode: EXACTLY_ONCE  (key: __system_partition + __system_offset, sink: clickhouse, engine: MergeTree)
 ```
-
-Примеры:
 ```
-Guarantee mode: EXACTLY_ONCE  (key: __system_partition + __system_offset, sink: clickhouse)
+Guarantee mode: AT_LEAST_ONCE
+  reason: ReplicatedMergeTree with insert_quorum < 2 and no replicated_insert_quorum_override
+  → to enable EXACTLY_ONCE: ALTER TABLE ... MODIFY SETTING insert_quorum = 2
+    OR set sink.replicated_insert_quorum_override: 1 to accept risk (duplicates on replica failover, §13)
 ```
 ```
 Guarantee mode: AT_LEAST_ONCE
   reason: source 'topic' has exactly_once disabled
   → to enable EXACTLY_ONCE set source.<...>.add_exactly_once_key: true
-    (adds __system_partition/__system_offset; table must be created with these columns;
-     engine MergeTree/ReplacingMergeTree)
+    (adds __system_partition/__system_offset; table must be created with these columns)
 ```
 ```
 Guarantee mode: AT_LEAST_ONCE
   reason: sink 'yds' does not support offset-based dedup
+```
+```
+Guarantee mode: AT_LEAST_ONCE
+  reason: user set replicated_insert_quorum_override: 1 (risk accepted)
+```
+```
+Guarantee mode: AT_LEAST_ONCE
+  reason: table 'events_dist' has engine Distributed — async block forwarding breaks waterline consistency
+  → to enable EXACTLY_ONCE: write directly to the underlying MergeTree table instead
 ```
 
 At-least-once — легитимный режим: ключ не выставлен → синк делает обычный INSERT.
@@ -649,17 +803,21 @@ At-least-once — легитимный режим: ключ не выставл�
 
 | Ограничение | Пояснение | Митигизация |
 |-------------|-----------|-------------|
-| CH-retention ≥ source-retention | TTL/TRUNCATE/DROP PARTITION занижают waterline → at-least-once на затронутых офсетах | Не использовать TTL на exactly-once таблицах; стартовый `WARN` |
-| Существующая таблица без колонок ключа | `ADD COLUMN` не делаем | Fatal на старте (§8); миграцию делает пользователь |
+| CH-retention ≥ source-retention | TTL/TRUNCATE/DROP PARTITION занижают waterline, если чистка затронула офсеты в окне реплея → at-least-once на затронутых офсетах. Источник переотдаёт только незакоммиченный хвост, поэтому при стандартных настройках retention пересечения нет | Не настраивать TTL короче retention источника; при нормальной эксплуатации проблема не возникает |
+| Существующая таблица без колонок ключа | `ADD COLUMN` не делаем; ручное `ALTER TABLE ADD COLUMN ... DEFAULT 0` создаст фантомные offset=0 → потеря первого настоящего сообщения | Fatal на старте (§8); миграция — только новым CREATE TABLE или `DEFAULT -1` |
 | Схлопывающие/суммирующие движки | Summing/Aggregating арифметически изменяют `__system_offset` | Стартовый `FATAL` |
 | Distributed-шардирование не по партиции | Партиция размазана по шардам → `max(offset)` неконсистентен | Модель «партиция→один воркер→одна таблица»; экзотику не поддерживаем |
-| Мульти-реплика с чтением через балансировщик | INSERT на реплику A + чтение с отставшей реплики B → `max(offset)` занижен → дубли | **Вне гарантий.** Штатно: `ensure_loaded` ходит в **конкретный хост** → staleness нет, `select_sequential_consistency` не используется. Для мульти-реплики нужен `insert_quorum≥2` + `select_sequential_consistency=1` (конфликтует с «один коннект + fail-fast») |
+| Мульти-реплика: отказ реплики между INSERT и рестартом | INSERT на реплику A с `insert_quorum=1` → OK, `mark_committed(P, 42)`, реплика A падает до асинхронной репликации на B/C. Процесс рестартует на реплике B (A недоступна) → `ensure_loaded` → `max` = 35 (не 42!) → waterline занижен → источник переотдаёт [36..42] → **дубли**. Сценарий: (1) INSERT на A, (2) `mark_committed`, (3) A падает до репликации, (4) рестарт → B, (5) `max` занижен → дубли | **По дефолту FATAL при `insert_quorum < 2`** (§8). Пользователь может явно понизить через `replicated_insert_quorum_override: 1` → деградация до `AT_LEAST_ONCE`. `select_sequential_consistency = 1` в `ensure_loaded` страхует от staleness при чтении с другой реплики. Надёжнее всего: не-Replicated таблицы (данные и так реплицируются на уровне Kafka/YDS) |
+| Мульти-реплика: перманентный отказ **кворумных** реплик | `insert_quorum = 2`, 3 реплики A,B,C. INSERT подтверждён A+B → `mark_committed`. A и B **оба** перманентно падают до репликации на C → рестарт процесса на C → `ensure_loaded` + `select_sequential_consistency = 1` на C — данные с A/B никогда не придут → `max(offset)` занижен → источник переотдаёт → **дубли**. Сценарий экстремальный: потеря 2 из 3 реплик одновременно — проблема уровня ClickHouse, не exactly-once | `select_sequential_consistency` бессилен при перманентном отказе кворума; деградация до `AT_LEAST_ONCE` на затронутых офсетах. Восстановление: ручной `UNDROP` реплики, либо принять дубли и положиться на ReplacingMergeTree/`FINAL` для зачистки |
 | Перекрытие записи одной партиции двумя процессами | Waterline — per-process, не общий. Rolling update без drain или смена `total_workers` на лету могут дать окно, когда старый и новый процесс пишут одну партицию → дубли (CH их не отсекает, dedup_token удалён) | Штатно закрыто **эксклюзивной арендой партиции YDS-ридером** (один консюмер на партицию, §0). Остаточный риск — только в окне перекрытия при деплое: drain старого процесса перед стартом нового (k8s: preStop/`maxUnavailable`), не менять `total_workers` без полной остановки |
 | S3: переписывание файла под тем же именем | Row number перестаёт соответствовать записям | I1: файлы иммутабельны под своим именем |
 | Много партиций на воркер × огромная таблица | N ленивых сканов на рестарте | Обычно N мало; при необходимости — bulk-preload одним `GROUP BY` |
-| Crash-loop при флапающем CH | Каждый рестарт = новые ленивые запросы | Безопасно; backoff супервизора |
+| Crash-loop при флапающем CH | Любая ошибка `ensure_loaded` или `INSERT` → poison → fatal → рестарт → снова ошибка → цикл. Каждый рестарт = новые ленивые запросы + повторная попытка вставки | Безопасно (данные не портятся); backoff супервизора (k8s: `restartPolicy: OnFailure` + `backoffLimit`). CH-данные — source of truth; каждый цикл читает актуальное состояние |
 | Две системные колонки в `SELECT *` | ~доли % overhead | `SELECT * EXCEPT(__system_*)` / документирование |
 | `clickhouse-arrow 0.2.1`: binding параметров экранирует только `'`, не `\` | `encode_field_dump` (`query.rs:161`) + сам `{p:String}` разэкранирует значение → backslash в S3-filename терялся бы | Не используем binding для ключа; подставляем `unhex('<hex>')` (§2) — экранирование не нужно вовсе. Проверено на CH 25.4 |
+| `Distributed`-движок | Distributed принимает INSERT и асинхронно пересылает блоки на шарды. `ensure_loaded` читает из Distributed и не видит блоки, ещё не доставленные на целевые шарды → waterline занижен → дубли | Стартовая деградация до `AT_LEAST_ONCE` + `WARN` (§8). Exactly-once с Distributed невозможен: пишите напрямую в целевую MergeTree |
+| Неподдерживаемый движок (ReplacingMergeTree, CollapsingMergeTree, SummingMergeTree, Buffer, etc.) | Схлопывают/суммируют/модифицируют `__system_offset` → waterline необратимо сломан | Стартовый `FATAL` (§8). Поддерживаются только MergeTree и ReplicatedMergeTree (§9) |
+| `ON CLUSTER` DDL | `CREATE TABLE IF NOT EXISTS` без `ON CLUSTER` создаст таблицу только на одной реплике. На кластерных инсталляциях пользователь должен создать таблицу на всех репликах самостоятельно | TODO: поддержка `ON CLUSTER` в конфиге — будет добавлена отдельно. Пока что DDL через `ON CLUSTER` — зона ответственности пользователя; verify-проверка колонок ключа поймает отсутствие таблицы на реплике с читаемым fatal |
 
 ---
 
@@ -682,16 +840,18 @@ At-least-once — легитимный режим: ключ не выставл�
 ### Шаг 3 — Парсер
 - [ ] `JsonParser::new`: при exactly_once расширить `arrow_schema` колонками ключа
 - [ ] `parse_into`: per-row `offset` + const `partition` во все 4 ветки
+- [ ] **Защита от коллизии имён (§2):** перед созданием батча проверить, что `__system_partition`/`__system_offset`/`__system_filename` отсутствуют среди имён data-колонок; при конфликте → fatal с читаемым сообщением
 - [ ] DLQ: колонки ключа в `DLQ_SCHEMA`/`DLQ_CH_COLUMNS`; `dlq_payloads` тащит offset+partition
 
 ### Шаг 4 — Аккумулятор
 - [ ] `BatchAccumulator`: **только копит батчи**, без агрегации метаданных. `TableWrite` содержит только `batches` и `exactly_once_key`
+- [ ] **Граница флеша = граница Message** (§3.1): flush только после полного `RecordBatch` одного Message; при лимите размера — текущий Message завершается и флешится целиком; слишком большой Message → fatal
 - [ ] Пустые батчи (0 rows) с ключом отсеиваются, не доходят до синка
 
 ### Шаг 5 — Waterline (lazy)
 - [ ] `Waterline { HashMap<(Arc<str>, PartitionKey), i64>, bounded-LRU, cap }`: `committed(table, pid)->Option`, `mark_committed(table, pid, offset)`, `ensure_loaded(table, pid)`
-- [ ] `ensure_loaded`: `SELECT max(offset) WHERE partition=P HAVING count()>0` (ходим в конкретный хост → `select_sequential_consistency` не нужен, §9/§13); отдельный loaded-set. **`HAVING count()>0` обязателен** — иначе CH вернёт `0` (не пусто) на несуществующей партиции → `Some(0)` вместо `None` → потеря offset 0 (§4)
-- [ ] Waterline — **приватное поле пер-партиционного синка**, single-owner, **без `RwLock`**. Interior mutability (`tokio::Mutex`) без контенции; лок не держать через `.await` (lock→проверка→unlock→запрос→lock→вставка)
+- [ ] `ensure_loaded`: `SELECT max(offset) WHERE partition=P HAVING count()>0 SETTINGS select_sequential_consistency = 1` (SETTINGS игнорируется не-Replicated таблицами → без накладных расходов; для Replicated страхует от staleness при чтении с другой реплики после рестарта, §4/§13); отдельный loaded-set. **`HAVING count()>0` обязателен** — иначе CH вернёт `0` (не пусто) на несуществующей партиции → `Some(0)` вместо `None` → потеря offset 0 (§4)
+- [ ] Waterline — **приватное поле пер-партиционного синка**, single-owner, **без `RwLock`/`Mutex`**. `&mut self` достаточно — writer серийный (§4.1)
 - [ ] Синк НЕ инициализирует waterline на старте
 
 ### Шаг 6 — Синк: запись
@@ -700,11 +860,11 @@ At-least-once — легитимный режим: ключ не выставл�
 - [ ] Для каждой группы: `ensure_loaded` → `min_off`/`max_off` из колонки offset → 5.b.1/5.b.2/5.b.3
 - [ ] `mark_committed` от исходного `max_off` группы (не отфильтрованного)
 - [ ] `insert_rows`: собрать `RecordBatch` из подмножества отобранных row_idx
-- [ ] **I5**: не дробить `RecordBatch` на под-блоки мельче Message (не включать серверный сплит блока; если `insert_many` чанкует — граница чанка = граница батча). Иначе частичный сбой на multi-row offset → потеря
+- [ ] **I5**: не дробить `RecordBatch` на под-блоки мельче Message (клиент не делает, сервер не делает для Arrow — см. обоснование P3 в §0); не включать `input_format_arrow_allow_multiple_batches_in_one_block`
 
 ### Шаг 7 — Fail-fast + poisoning
-- [ ] **Синк строится на партицию**: убрать единый `build_sink()` из `main.rs` до цикла; строить синк внутри спавна на каждую `pid` (YDS → N синков; S3 → один синк на пайплайн). `deps` больше не несёт готовый `snk` — держит фабрику (`Arc<dyn SinkProvider>`) + общий `poisoned`
-- [ ] `PoisoningSink` (`AtomicBool`): флаг `Arc<AtomicBool>` **один на воркер**, шарится во все партиционные синки (waterline и коннект — приватные)
+- [ ] **Синк строится на партицию**: убрать единый `build_sink()` из `main.rs` до цикла; строить синк внутри спавна на каждую `pid` (YDS → N синков; S3 → один синк на пайплайн). `deps` больше не несёт готовый `snk` — вместо этого `main.rs` создаёт CancellationToken для глобального выключения и передаёт его в партиционные таски; каждый таск сам создаёт свой синк (коннект + Waterline) при старте
+- [ ] `PoisoningSink` (`AtomicBool`): флаг **per-sink** (приватный для каждого экземпляра); глобальное выключение при отказе партиции — task supervisor (CancellationToken / abort JoinHandle) (§6.1)
 - [ ] Ошибка INSERT → poison → fatal → **процесс выходит с ненулевым кодом** (сейчас `main` возвращает `Ok(())` даже при фатале — исправить: фатал таска → `Err`/`exit(1)`, иначе супервизор не рестартует)
 - [ ] Убрать in-process ретрай синка в `main.rs` (`spawn_partition_task`, retry до 5); commit источника только после полного успеха флеша (I3)
 
@@ -712,6 +872,9 @@ At-least-once — легитимный режим: ключ не выставл�
 - [ ] `CREATE TABLE` с колонками ключа (main + DLQ), только при exactly_once; **без `ADD COLUMN`**
 - [ ] verify колонок ключа → **fatal** при отсутствии
 - [ ] Проверка движка/TTL через `system.tables` → `WARN`
+- [ ] `ReplicatedMergeTree` + `insert_quorum < 2` и нет `replicated_insert_quorum_override` → **`FATAL`**; с override → `WARN` + деградация до `AT_LEAST_ONCE` (§8, §11, §13)
+- [ ] Конфиг синка: поле `replicated_insert_quorum_override: Option<u8>` — явное понижение кворума с принятием риска (§8). Допустимое значение: только `1` (любое другое → ошибка конфига)
+- [ ] `Buffer`-обёртка → `WARN` (§13)
 - [ ] `add_exactly_once_key: true` + sink = `ParallelChInsertSink` → **fatal** (несовместим, §6.2)
 - [ ] Вывод и лог режима гарантий (§11)
 
@@ -720,14 +883,19 @@ At-least-once — легитимный режим: ключ не выставл�
 - [ ] Интеграция: **`ensure_loaded` на несуществующей партиции возвращает `None`, а не `Some(0)`** (проверка `HAVING count()>0`; регрессия на реальном CH — §4/#1)
 - [ ] Юнит: `ensure_loaded` — загрузка/кеш/отсутствие партиции/эвикт+reload
 - [ ] Юнит: фильтрация 5.b.1/5.b.2/5.b.3, single vs multi-partition
-- [ ] Юнит: `PoisoningSink` — после Err не зовёт inner; общий `Arc<AtomicBool>` роняет **все** партиционные синки
+- [ ] Юнит: `PoisoningSink` — после Err не зовёт inner (per-sink poison); интеграция: отказ одной партиции → глобальное выключение через task supervisor → процесс выходит с ненулевым кодом
 - [ ] Интеграция: запись → фильтрация дублей; рестарт → ленивая перезагрузка → нет дублей/потерь
 - [ ] Интеграция: частичный/сбойный INSERT → fatal → **ненулевой код выхода** → рестарт → нет дублей/потерь
 - [ ] Интеграция: newline-splitter — N строк с одним offset; DLQ с ключом
 - [ ] Интеграция (**I5**): newline-Message из N строк (один offset) + сбой после части блоков → рестарт → ровно N строк, без потерь и дублей
 - [ ] Интеграция: существующая таблица без колонок ключа → fatal на старте
+- [ ] Интеграция: CH недоступен при `ensure_loaded` → fatal → процесс выходит с ненулевым кодом
 - [ ] Старт: `ParallelChInsertSink` + exactly_once → fatal (§6.2)
 - [ ] Юнит+интеграция (**#7**): `to_sql_literal` = `unhex(hex(bytes))` для S3-filename с `\` и `'` → `ensure_loaded` находит реальную строку (регрессия на CH: имя с backslash матчится; без экранирования)
-- [ ] Интеграция: ReplacingMergeTree с ключом в ORDER BY — занижение waterline самокорректируется (дубли схлопываются)
-- [ ] Старт (**#8**): ReplacingMergeTree с ORDER BY **без** колонок ключа → `WARN` (§8)
+- [ ] Старт: неподдерживаемый движок (ReplacingMergeTree, CollapsingMergeTree, SummingMergeTree, Buffer, etc.) → `FATAL` (§8/§9)
+- [ ] Старт: Distributed-движок → деградация до `AT_LEAST_ONCE` + `WARN` (§8)
+
+### Шаг 10 — Observability (TODO: отдельным PR)
+- [ ] Метрики: `waterline_cache_hit` (counter), `waterline_rows_filtered` (counter), `waterline_rows_inserted` (counter), `waterline_guarantee_mode` (gauge: 1 = EXACTLY_ONCE, 0 = AT_LEAST_ONCE)
+- [ ] Лог режима гарантий на старте (§11)
 ```
