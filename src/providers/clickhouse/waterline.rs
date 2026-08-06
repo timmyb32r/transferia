@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use arrow::array::{Array, Int64Array};
+use arrow::array::{Array as _, Int64Array};
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, Client};
 
@@ -29,6 +29,7 @@ pub struct Waterline {
 }
 
 impl Waterline {
+    #[must_use]
     pub fn new(cap: usize) -> Self {
         Self {
             committed: HashMap::new(),
@@ -39,7 +40,7 @@ impl Waterline {
     }
 
     /// Ensures the waterline for (table, partition) is loaded into the cache.
-    /// Makes a single round-trip to ClickHouse. Double-checked: fast cache check
+    /// Makes a single round-trip to `ClickHouse`. Double-checked: fast cache check
     /// first, then async path on miss.
     ///
     /// **API note:** `&mut self` — Waterline is single-owner, no concurrent access.
@@ -50,7 +51,7 @@ impl Waterline {
         key: &ExactlyOnceKey,
         pid: &PartitionKey,
     ) -> anyhow::Result<()> {
-        let wk: WaterlineKey = (table.clone(), pid.clone());
+        let wk: WaterlineKey = (Arc::clone(table), pid.clone());
 
         // Check cache (including negative caching — already know the partition is empty).
         if self.committed.contains_key(&wk) || self.loaded_also_empty.contains(&wk) {
@@ -93,15 +94,16 @@ impl Waterline {
 
     /// Maximum written offset. `None` = haven't seen (or partition is empty).
     #[inline]
+    #[must_use]
     pub fn committed(&self, table: &Arc<str>, pid: &PartitionKey) -> Option<i64> {
-        self.committed.get(&(table.clone(), pid.clone())).copied()
+        self.committed.get(&(Arc::clone(table), pid.clone())).copied()
     }
 
     /// Update after a successful INSERT. Monotonic (max) — cheap safeguard.
     /// On first data appearance, removes the key from `loaded_also_empty`.
     #[inline]
     pub fn mark_committed(&mut self, table: &Arc<str>, pid: PartitionKey, offset: i64) {
-        let wk = (table.clone(), pid);
+        let wk = (Arc::clone(table), pid);
         self.loaded_also_empty.remove(&wk);
         // Use insert_lru for unified LRU management and eviction
         let current = self.committed.get(&wk).copied().unwrap_or(i64::MIN);
@@ -148,14 +150,14 @@ mod tests {
     }
 
     #[test]
-    fn test_committed_none_for_unknown_key() {
+    fn committed_none_for_unknown_key() {
         let wl = Waterline::new(100);
         let table: Arc<str> = "events".into();
         assert_eq!(wl.committed(&table, &pk_int(0)), None);
     }
 
     #[test]
-    fn test_mark_committed_and_committed() {
+    fn mark_committed_and_committed() {
         let mut wl = Waterline::new(100);
         let table: Arc<str> = "events".into();
 
@@ -172,10 +174,10 @@ mod tests {
     }
 
     #[test]
-    fn test_mark_committed_removes_from_loaded_also_empty() {
+    fn mark_committed_removes_from_loaded_also_empty() {
         let mut wl = Waterline::new(100);
         let table: Arc<str> = "events".into();
-        let wk: WaterlineKey = (table.clone(), pk_int(0));
+        let wk: WaterlineKey = (Arc::clone(&table), pk_int(0));
 
         // simulate negative cache
         wl.loaded_also_empty.insert(wk.clone());
@@ -187,7 +189,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lru_eviction() {
+    fn lru_eviction() {
         let mut wl = Waterline::new(2); // cap = 2
         let table: Arc<str> = "events".into();
 
@@ -204,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_different_tables_independent_waterlines() {
+    fn different_tables_independent_waterlines() {
         let mut wl = Waterline::new(100);
         let main: Arc<str> = "events".into();
         let dlq: Arc<str> = "events.dlq".into();
@@ -215,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_partition_key() {
+    fn str_partition_key() {
         let mut wl = Waterline::new(100);
         let table: Arc<str> = "events".into();
 
@@ -226,14 +228,14 @@ mod tests {
     }
 
     #[test]
-    fn test_to_sql_literal_int() {
+    fn to_sql_literal_int() {
         assert_eq!(pk_int(42).to_sql_literal(), "42");
         assert_eq!(pk_int(-1).to_sql_literal(), "-1");
         assert_eq!(pk_int(0).to_sql_literal(), "0");
     }
 
     #[test]
-    fn test_to_sql_literal_str_is_hex_encoded() {
+    fn to_sql_literal_str_is_hex_encoded() {
         let lit = pk_str("hello world").to_sql_literal();
         assert!(lit.starts_with("unhex('"));
         assert!(lit.ends_with("')"));
@@ -242,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn test_to_sql_literal_str_special_chars() {
+    fn to_sql_literal_str_special_chars() {
         // backslash and single quote — must survive roundtrip via hex
         let lit = pk_str("dir\\batch").to_sql_literal();
         assert!(lit.starts_with("unhex('"));

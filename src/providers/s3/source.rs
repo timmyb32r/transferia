@@ -2,7 +2,7 @@
 //!
 //! Streaming architecture:
 //!   list objects → open file → read chunk (16 MiB) → `safe_split_at` →
-//!   `split_into_records` → `Vec<Message>` → `ReadResult::Batch`
+//!   `split_into_records` → `Vec<Message>` → `ReadResult::Batch`.
 //!
 //! Chunk boundaries never split records. Remainder after the last delimiter
 //! is carried to the next chunk. EOF remainder (no trailing `\n`) is emitted
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::future::BoxFuture;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use object_store::{GetResult, ObjectStore};
 
 use crate::config::yaml::ChunkSplitter;
@@ -26,6 +26,7 @@ use crate::types::message::{Message, MessageBatch};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum S3ReadError {
     /// Network, S3 API, stream interruption — retry with backoff.
     Transport { op: &'static str, file: Arc<str>, source: anyhow::Error },
@@ -35,41 +36,64 @@ pub enum S3ReadError {
     NoSuchFile { file: Arc<str> },
 }
 
-impl std::fmt::Display for S3ReadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Transport { op, file, source } => write!(f, "S3 transport {op} {file}: {source}"),
-            Self::Data { file, reason } => write!(f, "S3 data error {file}: {reason}"),
-            Self::NoSuchFile { file } => write!(f, "S3 NoSuchFile: {file}"),
+impl core::fmt::Display for S3ReadError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::Transport { op, ref file, ref source } => {
+                write!(f, "S3 transport {op} {file}: {source}")
+            }
+            Self::Data { ref file, ref reason } => write!(f, "S3 data error {file}: {reason}"),
+            Self::NoSuchFile { ref file } => write!(f, "S3 NoSuchFile: {file}"),
         }
     }
 }
 
-impl std::error::Error for S3ReadError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Transport { source, .. } => Some(source.as_ref()),
-            _ => None,
+#[expect(
+    clippy::missing_trait_methods,
+    reason = "`provide` and `type_id` require unstable features (`error_generic_member_access`, `error_type_id`) and cannot be implemented on stable Rust"
+)]
+impl core::error::Error for S3ReadError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match *self {
+            Self::Transport { ref source, .. } => Some(source.as_ref()),
+            Self::Data { .. } | Self::NoSuchFile { .. } => None,
         }
+    }
+
+    fn description(&self) -> &str {
+        match *self {
+            Self::Transport { .. } => "S3 transport error",
+            Self::Data { .. } => "S3 data error",
+            Self::NoSuchFile { .. } => "S3 NoSuchFile error",
+        }
+    }
+
+    fn cause(&self) -> Option<&dyn core::error::Error> {
+        self.source()
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum S3Retry {
     Retry,
     Return,
 }
 
 /// Single classification point — maps every `S3ReadError` to a retry decision.
-pub fn classify(err: &S3ReadError) -> S3Retry {
-    match err {
+#[must_use]
+pub const fn classify(err: &S3ReadError) -> S3Retry {
+    match *err {
         S3ReadError::Transport { .. } => S3Retry::Retry,
-        _ => S3Retry::Return,
+        S3ReadError::Data { .. } | S3ReadError::NoSuchFile { .. } => S3Retry::Return,
     }
 }
 
-fn backoff_ms(attempt: u32) -> std::time::Duration {
-    std::time::Duration::from_millis((100u64 * 2u64.pow(attempt.saturating_sub(1))).min(5_000))
+#[expect(clippy::unseparated_literal_suffix, reason = "crate style: no underscore between digits and type suffix")]
+fn backoff_ms(attempt: u32) -> core::time::Duration {
+    core::time::Duration::from_millis(
+        100u64.saturating_mul(2u64.pow(attempt.saturating_sub(1))).min(5000),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +147,7 @@ pub struct S3Source {
     chunk_size: usize,
     max_retries: u32,
     partition_id: i64,
-    /// Un-framed bytes: read-cursor via `BytesMut` (O(1) split_to).
+    /// Un-framed bytes: read-cursor via `BytesMut` (O(1) `split_to`).
     pending: BytesMut,
     /// Prefix of `pending` already known to contain no `\n`.
     /// `safe_split_at` only scans `pending[pending_scanned..]`.
@@ -149,12 +173,11 @@ impl S3Source {
             .list(Some(&object_store::path::Path::from(prefix)))
             .try_collect()
             .await
-            .map_err(|e| anyhow::anyhow!("S3 list '{}' failed: {e}", prefix))?;
+            .map_err(|e| anyhow::anyhow!("S3 list '{prefix}' failed: {e}"))?;
         files.sort_by(|a, b| a.location.cmp(&b.location));
         if files.is_empty() {
             anyhow::bail!(
-                "S3 source: no objects found under prefix '{}' — refusing empty snapshot",
-                prefix
+                "S3 source: no objects found under prefix '{prefix}' — refusing empty snapshot"
             );
         }
         tracing::info!(
@@ -207,12 +230,12 @@ impl S3Source {
 
     /// Helper: maps the outcome of `try_read_records` into a `ReadResult`.
     fn outcome_to_result(messages: Option<Vec<Message>>, partition_id: i64) -> ReadResult {
-        match messages {
-            Some(msgs) => ReadResult::Batch(MessageBatch {
+        messages.map_or_else(
+            || ReadResult::Exhausted,
+            |msgs| ReadResult::Batch(MessageBatch {
                 messages: msgs, partition_id, commit_marker: None,
             }),
-            None => ReadResult::Exhausted,
-        }
+        )
     }
 
     /// Core loop: read chunks until we have ≥1 framed record, or EOF.
@@ -229,7 +252,11 @@ impl S3Source {
                 self.open_current().await?;
             }
 
-            let reader = self.current_reader.as_mut().unwrap();
+            let file: Arc<str> = self.files[self.current_idx].location.to_string().into();
+            let reader = self.current_reader.as_mut().ok_or_else(|| S3ReadError::Data {
+                file,
+                reason: "reader missing after open".into(),
+            })?;
             let boundary = if reader.eof {
                 self.pending.len() // EOF: emit remainder as final record
             } else if self.pending_scanned < self.pending.len() {
@@ -317,17 +344,17 @@ impl S3Source {
 }
 
 impl Source for S3Source {
-    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> { Box::pin(async move {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> { Box::pin(async move {
         let outcome = self.try_read_records().await;
         match outcome {
             Ok(messages) => Ok(Self::outcome_to_result(messages, self.partition_id)),
             Err(ref e @ S3ReadError::NoSuchFile { .. }) => {
-                tracing::error!("{e} — file vanished, aborting snapshot");
+                tracing::error!("{e} \u{2014} file vanished, aborting snapshot");
                 Ok(ReadResult::Failed(anyhow::anyhow!("{e}")))
             }
             Err(ref first_err) => match classify(first_err) {
                 S3Retry::Retry => {
-                    let mut attempt = 0u32;
+                    let mut attempt: u32 = 0;
                     let mut last_msg = format!("{first_err}");
                     loop {
                         attempt += 1;
@@ -338,7 +365,7 @@ impl Source for S3Source {
                             );
                             return Ok(ReadResult::Failed(anyhow::anyhow!("{last_msg}")));
                         }
-                        tracing::warn!("attempt {}/{} — {last_msg}", attempt, self.max_retries);
+                        tracing::warn!("attempt {}/{} \u{2014} {last_msg}", attempt, self.max_retries);
                         tokio::time::sleep(backoff_ms(attempt)).await;
                         self.current_reader = None; // force re-open with resume offset
                         match self.try_read_records().await {
@@ -348,9 +375,9 @@ impl Source for S3Source {
                             Err(e2) => {
                                 last_msg = format!("{e2}");
                                 match classify(&e2) {
-                                    S3Retry::Retry => continue,
+                                    S3Retry::Retry => {}
                                     S3Retry::Return => {
-                                        tracing::error!("{e2} — non-retryable, aborting");
+                                        tracing::error!("{e2} \u{2014} non-retryable, aborting");
                                         return Ok(ReadResult::Failed(anyhow::anyhow!("{e2}")));
                                     }
                                 }
@@ -359,14 +386,14 @@ impl Source for S3Source {
                     }
                 }
                 S3Retry::Return => {
-                    tracing::error!("{first_err} — non-retryable, aborting snapshot");
+                    tracing::error!("{first_err} \u{2014} non-retryable, aborting snapshot");
                     Ok(ReadResult::Failed(anyhow::anyhow!("{first_err}")))
                 }
             },
         }
     })}
 
-    fn commit_offsets<'a>(&'a mut self, _marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(&'ctx mut self, _marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move { Ok(()) })
     }
 }

@@ -8,8 +8,9 @@ use crate::pipeline::sink::Sink;
 use crate::providers::clickhouse::sink::ClickHouseSink;
 use crate::providers::traits::SinkProvider;
 
-/// ClickHouse sink config.
+/// `ClickHouse` sink config.
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct SinkConfig {
     pub connection_string: String,
     #[serde(default = "default_database")]
@@ -32,10 +33,10 @@ pub struct SinkConfig {
 
 fn default_database() -> String { "default".into() }
 fn default_username() -> String { "default".into() }
-fn default_batch() -> usize { 10000 }
-fn default_linger() -> u64 { 500 }
-fn default_connections() -> usize { 4 }
-fn default_tls() -> bool { true }
+const fn default_batch() -> usize { 10000 }
+const fn default_linger() -> u64 { 500 }
+const fn default_connections() -> usize { 4 }
+const fn default_tls() -> bool { true }
 
 pub struct ClickHouseSinkProvider {
     cfg: SinkConfig,
@@ -44,7 +45,7 @@ pub struct ClickHouseSinkProvider {
 impl ClickHouseSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
         let cfg: SinkConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse ClickHouse sink config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse ClickHouse sink config: {e}"))?;
         if cfg.connection_string.is_empty() {
             anyhow::bail!("clickhouse.connection_string must not be empty");
         }
@@ -56,7 +57,7 @@ impl ClickHouseSinkProvider {
 }
 
 impl SinkProvider for ClickHouseSinkProvider {
-    fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
+    fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>> {
         Box::pin(async move {
             let sink = ClickHouseSink::new(&self.cfg, 10_000).await?;
             Ok(Arc::new(sink) as Arc<dyn Sink>)

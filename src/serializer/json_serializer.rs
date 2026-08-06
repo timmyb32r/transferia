@@ -18,33 +18,34 @@ use super::Serializer;
 /// variants during the first serialization. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
+#[non_exhaustive]
 pub struct JsonSerializer;
 
 /// Pre-classified column writer: holds a typed reference to the Arrow array
 /// so we never need `downcast_ref` during the value-writing loop.
 ///
 /// Date and Timestamp types map to their integer representation:
-///   Date32 → Int32, Date64 → Int64, Timestamp(*) → Int64
-enum ColumnWriter<'a> {
-    Utf8(&'a arrow::array::StringArray),
-    LargeUtf8(&'a arrow::array::LargeStringArray),
-    Int8(&'a arrow::array::Int8Array),
-    Int16(&'a arrow::array::Int16Array),
-    Int32(&'a arrow::array::Int32Array),
-    Int64(&'a arrow::array::Int64Array),
-    UInt8(&'a arrow::array::UInt8Array),
-    UInt16(&'a arrow::array::UInt16Array),
-    UInt32(&'a arrow::array::UInt32Array),
-    UInt64(&'a arrow::array::UInt64Array),
-    Float32(&'a arrow::array::Float32Array),
-    Float64(&'a arrow::array::Float64Array),
-    Boolean(&'a arrow::array::BooleanArray),
+///   Date32 → Int32, Date64 → Int64, Timestamp(*) → Int64.
+enum ColumnWriter<'array> {
+    Utf8(&'array arrow::array::StringArray),
+    LargeUtf8(&'array arrow::array::LargeStringArray),
+    Int8(&'array arrow::array::Int8Array),
+    Int16(&'array arrow::array::Int16Array),
+    Int32(&'array arrow::array::Int32Array),
+    Int64(&'array arrow::array::Int64Array),
+    UInt8(&'array arrow::array::UInt8Array),
+    UInt16(&'array arrow::array::UInt16Array),
+    UInt32(&'array arrow::array::UInt32Array),
+    UInt64(&'array arrow::array::UInt64Array),
+    Float32(&'array arrow::array::Float32Array),
+    Float64(&'array arrow::array::Float64Array),
+    Boolean(&'array arrow::array::BooleanArray),
 }
 
-impl<'a> ColumnWriter<'a> {
+impl<'array> ColumnWriter<'array> {
     /// Classify an Arrow array into the appropriate writer variant.
     /// Returns `None` for unsupported types.
-    fn classify(name: &str, array: &'a dyn Array) -> Option<(String, Self)> {
+    fn classify(name: &str, array: &'array dyn Array) -> Option<(String, Self)> {
         use arrow::array::{
             BooleanArray, Float32Array, Float64Array,
             Int16Array, Int32Array, Int64Array, Int8Array,
@@ -53,7 +54,7 @@ impl<'a> ColumnWriter<'a> {
         };
 
         let dt = array.data_type();
-        let writer = match dt {
+        let writer = match *dt {
             DataType::Utf8 => {
                 let a = array.as_any().downcast_ref::<StringArray>()?;
                 ColumnWriter::Utf8(a)
@@ -107,7 +108,31 @@ impl<'a> ColumnWriter<'a> {
                 let a = array.as_any().downcast_ref::<BooleanArray>()?;
                 ColumnWriter::Boolean(a)
             }
-            _ => return None,
+            DataType::Null
+            | DataType::Float16
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::Duration(_)
+            | DataType::Interval(_)
+            | DataType::Binary
+            | DataType::FixedSizeBinary(_)
+            | DataType::LargeBinary
+            | DataType::BinaryView
+            | DataType::Utf8View
+            | DataType::List(_)
+            | DataType::ListView(_)
+            | DataType::FixedSizeList(..)
+            | DataType::LargeList(_)
+            | DataType::LargeListView(_)
+            | DataType::Struct(_)
+            | DataType::Union(..)
+            | DataType::Dictionary(..)
+            | DataType::Decimal32(..)
+            | DataType::Decimal64(..)
+            | DataType::Decimal128(..)
+            | DataType::Decimal256(..)
+            | DataType::Map(..)
+            | DataType::RunEndEncoded(..) => return None,
         };
         Some((name.to_string(), writer))
     }
@@ -197,7 +222,7 @@ impl Serializer for JsonSerializer {
 
         // Estimate buffer size: each row has JSON overhead + values.
         // 2 = `{` + `}`, N-1 commas, plus per-column overhead.
-        let est_per_row = 2usize + num_cols.saturating_sub(1) + num_cols * 24;
+        let est_per_row = 2 + num_cols.saturating_sub(1) + num_cols * 24;
         let mut buf = Vec::with_capacity(num_rows * est_per_row.max(64));
 
         for row in 0..num_rows {
@@ -237,7 +262,7 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
             b'\r' => buf.extend_from_slice(b"\\r"),
             b'\t' => buf.extend_from_slice(b"\\t"),
             0x00..=0x1F => {
-                buf.extend_from_slice(format!("\\u{:04x}", b).as_bytes());
+                buf.extend_from_slice(format!("\\u{b:04x}").as_bytes());
             }
             _ => buf.push(b),
         }
@@ -258,8 +283,10 @@ mod tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc;
 
+    use crate::parser::Parser as _;
+
     #[test]
-    fn serialize_simple_batch() {
+    fn serialize_simple_batch() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, true),
             Field::new("name", DataType::Utf8, true),
@@ -272,7 +299,8 @@ mod tests {
         name_arr.append_value("Bob");
         name_arr.append_value("Charlie");
         let bool_arr = BooleanArray::from(vec![true, false, true]);
-        let float_arr = Float64Array::from(vec![1.5, 2.5, 3.5]);
+        let floats: Vec<f64> = vec![1.5, 2.5, 3.5];
+        let float_arr = Float64Array::from(floats);
 
         let batch = RecordBatch::try_new(
             schema,
@@ -282,25 +310,25 @@ mod tests {
                 Arc::new(bool_arr),
                 Arc::new(float_arr),
             ],
-        )
-        .unwrap();
+        )?;
 
         let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch).unwrap();
-        let text = String::from_utf8(output.to_vec()).unwrap();
+        let output = serializer.serialize_batch(&batch)?;
+        let text = String::from_utf8(output.to_vec())?;
 
-        let lines: Vec<&str> = text.trim().split('\n').collect();
-        assert_eq!(lines.len(), 3, "3 rows → 3 JSON lines");
+        let lines: Vec<&str> = text.lines().collect();
+        anyhow::ensure!(lines.len() == 3, "3 rows \u{2192} 3 JSON lines");
 
         for line in &lines {
-            let val: serde_json::Value = serde_json::from_str(line).unwrap();
-            assert!(val.get("id").is_some());
-            assert!(val.get("name").is_some());
+            let val: serde_json::Value = serde_json::from_str(line)?;
+            anyhow::ensure!(val.get("id").is_some(), "id missing in {val}");
+            anyhow::ensure!(val.get("name").is_some(), "name missing in {val}");
         }
+        Ok(())
     }
 
     #[test]
-    fn serialize_with_nulls() {
+    fn serialize_with_nulls() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("x", DataType::Int64, true),
             Field::new("y", DataType::Utf8, true),
@@ -313,22 +341,22 @@ mod tests {
         let batch = RecordBatch::try_new(
             schema,
             vec![Arc::new(x_arr), Arc::new(y_builder.finish())],
-        )
-        .unwrap();
+        )?;
 
         let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch).unwrap();
-        let text = String::from_utf8(output.to_vec()).unwrap();
+        let output = serializer.serialize_batch(&batch)?;
+        let text = String::from_utf8(output.to_vec())?;
 
-        let lines: Vec<&str> = text.trim().split('\n').collect();
-        assert_eq!(lines.len(), 2);
+        let lines: Vec<&str> = text.lines().collect();
+        anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
 
-        let row2: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert!(row2.get("y").is_none(), "null column should be absent");
+        let row2: serde_json::Value = serde_json::from_str(lines[1])?;
+        anyhow::ensure!(row2.get("y").is_none(), "null column should be absent");
+        Ok(())
     }
 
     #[test]
-    fn roundtrip_json_parser_compatible() {
+    fn roundtrip_json_parser_compatible() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false),
             Field::new("val", DataType::Utf8, true),
@@ -341,11 +369,10 @@ mod tests {
         let batch = RecordBatch::try_new(
             schema,
             vec![Arc::new(id_arr), Arc::new(val_builder.finish())],
-        )
-        .unwrap();
+        )?;
 
         let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch).unwrap();
+        let output = serializer.serialize_batch(&batch)?;
 
         let parser_config = crate::config::yaml::SchemaConfig {
             columns: vec![
@@ -367,19 +394,22 @@ mod tests {
             chunk_splitter: crate::config::yaml::ChunkSplitter::NewLine,
         };
 
-        let parser = crate::parser::JsonParser::new(&parser_config, "test".into(), None).unwrap();
-        let mut ws = crate::parser::ParserWorkspace::new();
-        let msgs = vec![crate::types::Message { value: output, offset: None, partition: None }];
+        let parser = crate::parser::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
+        let mut ws = crate::parser::json_parser::ParserWorkspace::new();
+        let msgs = vec![crate::types::message::Message { value: output, offset: None, partition: None }];
 
-        let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws).unwrap();
-        assert_eq!(good.batch.num_rows(), 2, "roundtrip: 2 rows in → 2 rows out");
-        assert_eq!(
-            good.batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
-            10,
-        );
-        assert_eq!(
-            good.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap().value(1),
-            "bar",
-        );
+        let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws)?;
+        anyhow::ensure!(good.batch.num_rows() == 2, "roundtrip: 2 rows in \u{2192} 2 rows out");
+        let parsed_id_arr = good.batch.column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .ok_or_else(|| anyhow::anyhow!("column 0 is not Int64Array"))?;
+        let val_arr = good.batch.column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("column 1 is not StringArray"))?;
+        anyhow::ensure!(parsed_id_arr.value(0) == 10);
+        anyhow::ensure!(val_arr.value(1) == "bar");
+        Ok(())
     }
 }

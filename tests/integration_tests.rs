@@ -7,11 +7,9 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use serde_yaml::Value;
 
-use transferia::config::yaml::{ColumnMapping, SchemaConfig, ChunkSplitter};
+use transferia::config::yaml::{ColumnMapping, SchemaConfig};
 use transferia::pipeline::sink::Sink;
 use transferia::providers::traits::ProviderRegistry;
-use transferia::serializer::Serializer;
-use transferia::serializer::json_serializer::JsonSerializer;
 use transferia::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 use transferia::types::table_data::{TableData, TableWrite};
 
@@ -41,13 +39,9 @@ fn empty_sink_through_registry() {
     let raw: Value = serde_yaml::from_str("batch_size: 100").unwrap();
     let provider = registry.build_sink("empty", raw).unwrap();
     // build_sink yields an EmptySink
-    let _schema = SchemaConfig {
-        columns: vec![ColumnMapping {
-            jsonpath: "$.id".into(), column_name: "id".into(),
-            arrow_type: "Int64".into(), nullable: false,
-        }],
-        raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit,
-    };
+    let _schema = SchemaConfig::new(vec![ColumnMapping::new(
+        "$.id".into(), "id".into(), "Int64".into(), false,
+    )]);
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let _sink = provider.build_sink().await.unwrap();
@@ -59,10 +53,10 @@ fn empty_sink_through_registry() {
 // ---------------------------------------------------------------------------
 
 fn test_exactly_once_key() -> ExactlyOnceKey {
-    ExactlyOnceKey {
-        partition: ExactlyOnceColumn { name: "_yds_partition".into() },
-        offset: ExactlyOnceColumn { name: "_yds_offset".into() },
-    }
+    ExactlyOnceKey::new(
+        ExactlyOnceColumn::new("_yds_partition".into()),
+        ExactlyOnceColumn::new("_yds_offset".into()),
+    )
 }
 
 #[test]
@@ -72,19 +66,16 @@ fn exactly_once_key_flows_to_table_write() {
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
     let key = test_exactly_once_key();
-    let td = TableData {
-        table: "events".into(), is_dlq: false, batch,
-        batch_id: 1, exactly_once_key: Some(key),
-    };
+    let td = TableData::new("events".into(), false, batch, 1, Some(key));
 
     assert_eq!(td.exactly_once_key.as_ref().map(|k| k.offset.name.as_ref()), Some("_yds_offset"));
     assert!(!td.is_dlq);
 
-    let tw = TableWrite {
-        table: "events".into(),
-        batches: vec![td.batch.clone()],
-        exactly_once_key: td.exactly_once_key.clone(),
-    };
+    let tw = TableWrite::new(
+        "events".into(),
+        vec![td.batch.clone()],
+        td.exactly_once_key.clone(),
+    );
     assert!(tw.exactly_once_key.is_some());
 }
 
@@ -94,17 +85,10 @@ fn exactly_once_key_none_for_non_streaming() {
     let arr = Int64Array::from(vec![1i64]);
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
-    let td = TableData {
-        table: "snapshots".into(), is_dlq: false, batch,
-        batch_id: 1, exactly_once_key: None,
-    };
+    let td = TableData::new("snapshots".into(), false, batch, 1, None);
     assert!(td.exactly_once_key.is_none());
 
-    let tw = TableWrite {
-        table: "snapshots".into(),
-        batches: vec![td.batch.clone()],
-        exactly_once_key: None,
-    };
+    let tw = TableWrite::new("snapshots".into(), vec![td.batch.clone()], None);
     assert!(tw.exactly_once_key.is_none());
 }
 
@@ -145,7 +129,7 @@ fn serializer_roundtrip_many_types() {
         Arc::new(bool_arr), Arc::new(float_arr),
     ]).unwrap();
 
-    let ser = JsonSerializer;
+    let ser = transferia::serializer::build_serializer("json").unwrap();
     let output = ser.serialize_batch(&batch).unwrap();
     let text = String::from_utf8(output.to_vec()).unwrap();
     let lines: Vec<&str> = text.trim().split('\n').collect();
@@ -213,8 +197,8 @@ fn ch_source_explicit_tables() {
     use transferia::providers::clickhouse::source::{TableRef, TableSelection};
 
     let tables = vec![
-        TableRef { schema_name: "db1".into(), table_name: "events".into() },
-        TableRef { schema_name: "db1".into(), table_name: "users".into() },
+        TableRef::new("db1".into(), "events".into()),
+        TableRef::new("db1".into(), "users".into()),
     ];
     let sel = TableSelection::Explicit(tables);
     match sel {

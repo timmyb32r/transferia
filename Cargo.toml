@@ -43,6 +43,47 @@ object_store = { version = "0.12", default-features = false, features = ["aws"] 
 [build-dependencies]
 tonic-prost-build = "0.14"
 
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+restriction = { level = "warn", priority = -1 }
+
+# === muted: anti-idiomatic restriction lints ===
+cast_possible_truncation = "allow"        # data-pipeline code casts sizes (len, batch) to u32 for Arrow — value always fits
+too_many_arguments = "allow"              # extracting config structs for internal helpers is overkill
+wildcard_imports = "allow"                # use super::* in mod tests is the standard Rust pattern
+question_mark_used = "allow"              # `?` operator is the foundation of Rust error handling
+absolute_paths = "allow"                  # super:: / self:: are idiomatic and survive module moves
+as_conversions = "allow"                  # `as` casts (e.g. usize as u32) are standard, banning them is overly strict
+std_instead_of_alloc = "allow"            # std re-exports alloc items; importing from alloc manually has no practical benefit
+single_call_fn = "allow"                  # extracting a function called once is a valid readability/documentation choice
+arbitrary_source_item_ordering = "allow"  # item ordering is often semantic/logical, not alphabetical
+min_ident_chars = "allow"                 # short names (i, j, x, y) are idiomatic in loops and closures
+integer_division = "allow"                # integer division is a normal operation, banning it is too strict
+integer_division_remainder_used = "allow" # modulo is a normal operation, banning it is too strict
+missing_inline_in_public_items = "allow"  # inline decisions belong to the compiler, not manual annotation
+mod_module_files = "allow"                # mod.rs is a valid and accepted Rust module style
+module_name_repetitions = "allow"         # sometimes intentional for clarity (e.g. clickhouse::clickhouse_client)
+rc_buffer = "allow"                       # Rc<Vec<T>> is fine, not always worth the refactor to Rc<[T]>
+ref_patterns = "allow"                    # `ref` is sometimes needed in match ergonomics edge cases
+return_and_then = "allow"                 # `return x.and_then(...)` is normal, readable code
+single_match_else = "allow"               # match with one arm can be more readable than if-let-else
+str_to_string = "allow"                   # both str.to_string() and str.to_owned() are equally acceptable
+too_many_lines = "allow"                  # file size is dictated by the problem domain, not a lint
+missing_docs_in_private_items = "allow"   # private helpers don't always need full documentation
+similar_names = "allow"                   # handle / handler etc. are often intentionally similar
+missing_panics_doc = "allow"              # overkill for internal/private functions
+missing_errors_doc = "allow"              # overkill for internal/private functions
+decimal_literal_representation = "allow"  # 0.0 is fine, _f64 suffix is visual noise
+unused_self = "allow"                     # &self in method signature is sometimes required by a trait
+used_underscore_binding = "allow"         # `_name` for "will be used later" is an accepted Rust idiom
+implicit_return = "allow"                 # conflicts with needless_return — both cannot be satisfied simultaneously
+arithmetic_side_effects = "allow"         # data-pipeline: batch sizes/indices are guaranteed to fit, wrapping is noise
+pattern_type_mismatch = "allow"           # overly strict with third-party types (arrow DataType, etc.)
+indexing_slicing = "allow"                # indices verified by surrounding logic; .get() for every access is noise
+
 [profile.release]
 opt-level = 3
 lto = "fat"

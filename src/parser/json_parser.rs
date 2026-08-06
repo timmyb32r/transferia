@@ -16,6 +16,7 @@ use std::sync::Arc;
 use time::format_description::well_known::Rfc3339;
 
 use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
+use crate::parser::Parser;
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
 use crate::types::message::Message;
 use crate::types::table_data::{dlq_name, TableData};
@@ -43,7 +44,7 @@ fn compile_path(raw: &str) -> CompiledPath {
 // ---------------------------------------------------------------------------
 
 /// Adaptive column index: linear scan for ≤12 columns (faster — no hash),
-/// HashMap for wider schemas.
+/// `HashMap` for wider schemas.
 enum ColumnIndex {
     Small(Vec<(String, usize)>),
     Large(HashMap<String, usize>),
@@ -51,17 +52,20 @@ enum ColumnIndex {
 
 impl ColumnIndex {
     fn len(&self) -> usize {
-        match self {
-            ColumnIndex::Small(v) => v.len(),
-            ColumnIndex::Large(m) => m.len(),
+        match *self {
+            Self::Small(ref v) => v.len(),
+            Self::Large(ref m) => m.len(),
         }
     }
 
     #[inline]
     fn get(&self, key: &str) -> Option<&usize> {
-        match self {
-            ColumnIndex::Small(v) => v.iter().find(|(k, _)| k.as_str() == key).map(|(_, i)| i),
-            ColumnIndex::Large(m) => m.get(key),
+        match *self {
+            Self::Small(ref v) => v
+                .iter()
+                .find(|item| item.0.as_str() == key)
+                .map(|item| &item.1),
+            Self::Large(ref m) => m.get(key),
         }
     }
 }
@@ -118,7 +122,7 @@ enum ColumnKind {
 }
 
 impl ColumnKind {
-    fn from_data_type(dt: &DataType) -> Option<Self> {
+    const fn from_data_type(dt: &DataType) -> Option<Self> {
         Some(match dt {
             DataType::Utf8 => Self::Utf8,
             DataType::LargeUtf8 => Self::LargeUtf8,
@@ -133,14 +137,41 @@ impl ColumnKind {
             DataType::Timestamp(TimeUnit::Millisecond, _) => Self::TimestampMillisecond,
             DataType::Timestamp(TimeUnit::Microsecond, _) => Self::TimestampMicrosecond,
             DataType::Timestamp(TimeUnit::Nanosecond, _) => Self::TimestampNanosecond,
-            _ => return None,
+            DataType::Null
+            | DataType::Float16
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::Duration(_)
+            | DataType::Interval(_)
+            | DataType::Binary
+            | DataType::FixedSizeBinary(_)
+            | DataType::LargeBinary
+            | DataType::BinaryView
+            | DataType::Utf8View
+            | DataType::List(_)
+            | DataType::ListView(_)
+            | DataType::FixedSizeList(..)
+            | DataType::LargeList(_)
+            | DataType::LargeListView(_)
+            | DataType::Struct(_)
+            | DataType::Union(..)
+            | DataType::Dictionary(..)
+            | DataType::Decimal32(..)
+            | DataType::Decimal64(..)
+            | DataType::Decimal128(..)
+            | DataType::Decimal256(..)
+            | DataType::Map(..)
+            | DataType::RunEndEncoded(..) => return None,
         })
     }
 }
 
+/// Fallback value appended for non-numeric JSON values in float columns.
+const FALLBACK_F64: f64 = 0.0;
+
 #[inline]
 fn make_builder(kind: ColumnKind, n: usize) -> AnyBuilder {
-    const STR_BYTES_PER_ROW: usize = 128usize;
+    const STR_BYTES_PER_ROW: usize = 128;
     match kind {
         ColumnKind::Utf8 => AnyBuilder::Utf8(StringBuilder::with_capacity(n, n * STR_BYTES_PER_ROW)),
         ColumnKind::LargeUtf8 => AnyBuilder::LargeUtf8(LargeStringBuilder::with_capacity(n, n * STR_BYTES_PER_ROW)),
@@ -218,8 +249,8 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) {
         AnyBuilder::UInt32(b) => b.append_value(val.as_u64().unwrap_or(0) as u32),
         AnyBuilder::UInt16(b) => b.append_value(val.as_u64().unwrap_or(0) as u16),
         AnyBuilder::UInt8(b) => b.append_value(val.as_u64().unwrap_or(0) as u8),
-        AnyBuilder::Float64(b) => b.append_value(val.as_f64().unwrap_or(0.0)),
-        AnyBuilder::Float32(b) => b.append_value(val.as_f64().unwrap_or(0.0) as f32),
+        AnyBuilder::Float64(b) => b.append_value(val.as_f64().unwrap_or(FALLBACK_F64)),
+        AnyBuilder::Float32(b) => b.append_value(val.as_f64().unwrap_or(FALLBACK_F64) as f32),
         AnyBuilder::Boolean(b) => b.append_value(val.as_bool().unwrap_or(false)),
         AnyBuilder::TimestampMillisecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
         AnyBuilder::TimestampMicrosecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
@@ -279,8 +310,8 @@ enum TypedScratch {
 
 /// Writes a deserialized value directly into `TypedScratch` according to `ColumnKind`.
 /// Strings are stored as byte-range indices — no `String` allocation.
-struct TypedValueWriter2<'a> {
-    target: &'a mut TypedScratch,
+struct TypedValueWriter2<'ctx> {
+    target: &'ctx mut TypedScratch,
     /// Base pointer of the JSON buffer. Used to compute the byte offset of the
     /// `&str` returned by simd-json via pointer arithmetic:
     /// `offset = s.as_ptr() - buf_ptr`.
@@ -288,62 +319,57 @@ struct TypedValueWriter2<'a> {
     kind: ColumnKind,
 }
 
-impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
+impl<'de> de::DeserializeSeed<'de> for TypedValueWriter2<'_> {
     type Value = ();
 
-    fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
-        use serde::Deserialize;
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+        use serde::Deserialize as _;
         match self.kind {
             ColumnKind::Utf8 | ColumnKind::LargeUtf8 => {
-                let s = <&str>::deserialize(d)?;
+                let s = <&str>::deserialize(deserializer)?;
                 // ValidatedStr captures the byte range of s within the simd-json
                 // buffer. Because `s` is an `&str`, it is valid UTF-8 by definition
                 // — simd-json already validated it. The pointer arithmetic gives us
                 // the exact byte range without a manual position counter.
                 *self.target = TypedScratch::Str(ValidatedStr::from_simd_json_str(s, self.buf_ptr));
             }
-            ColumnKind::Int64 => {
-                *self.target = TypedScratch::I64(i64::deserialize(d)?);
-            }
-            ColumnKind::Int32 => {
-                *self.target = TypedScratch::I64(i32::deserialize(d)? as i64);
+            ColumnKind::Int32 | ColumnKind::Date32 => {
+                *self.target = TypedScratch::I64(i64::from(i32::deserialize(deserializer)?));
             }
             ColumnKind::Int16 => {
-                *self.target = TypedScratch::I64(i16::deserialize(d)? as i64);
+                *self.target = TypedScratch::I64(i64::from(i16::deserialize(deserializer)?));
             }
             ColumnKind::Int8 => {
-                *self.target = TypedScratch::I64(i8::deserialize(d)? as i64);
+                *self.target = TypedScratch::I64(i64::from(i8::deserialize(deserializer)?));
             }
             ColumnKind::UInt64 => {
-                *self.target = TypedScratch::U64(u64::deserialize(d)?);
+                *self.target = TypedScratch::U64(u64::deserialize(deserializer)?);
             }
             ColumnKind::UInt32 => {
-                *self.target = TypedScratch::U64(u32::deserialize(d)? as u64);
+                *self.target = TypedScratch::U64(u64::from(u32::deserialize(deserializer)?));
             }
             ColumnKind::UInt16 => {
-                *self.target = TypedScratch::U64(u16::deserialize(d)? as u64);
+                *self.target = TypedScratch::U64(u64::from(u16::deserialize(deserializer)?));
             }
             ColumnKind::UInt8 => {
-                *self.target = TypedScratch::U64(u8::deserialize(d)? as u64);
+                *self.target = TypedScratch::U64(u64::from(u8::deserialize(deserializer)?));
             }
             ColumnKind::Float64 => {
-                *self.target = TypedScratch::F64(f64::deserialize(d)?);
+                *self.target = TypedScratch::F64(f64::deserialize(deserializer)?);
             }
             ColumnKind::Float32 => {
-                *self.target = TypedScratch::F64(f32::deserialize(d)? as f64);
+                *self.target = TypedScratch::F64(f64::from(f32::deserialize(deserializer)?));
             }
             ColumnKind::Boolean => {
-                *self.target = TypedScratch::Bool(bool::deserialize(d)?);
+                *self.target = TypedScratch::Bool(bool::deserialize(deserializer)?);
             }
-            ColumnKind::Date32 => {
-                *self.target = TypedScratch::I64(i32::deserialize(d)? as i64);
-            }
-            ColumnKind::Date64
+            ColumnKind::Int64
+            | ColumnKind::Date64
             | ColumnKind::TimestampMillisecond
             | ColumnKind::TimestampMicrosecond
             | ColumnKind::TimestampNanosecond
             | ColumnKind::TimestampSecond => {
-                *self.target = TypedScratch::I64(i64::deserialize(d)?);
+                *self.target = TypedScratch::I64(i64::deserialize(deserializer)?);
             }
         }
         Ok(())
@@ -373,7 +399,7 @@ impl<'de, 'a> de::DeserializeSeed<'de> for TypedValueWriter2<'a> {
 fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
     // SAFETY: see doc comment above — ValidatedStr acts as a type-level
     // witness that the byte range has already been UTF-8-validated by simd-json.
-    unsafe { std::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
+    unsafe { core::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
 }
 
 /// Appends a typed scratch value into the corresponding Arrow builder.
@@ -405,7 +431,23 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
             match builder {
                 AnyBuilder::Utf8(b) => b.append_value(s),
                 AnyBuilder::LargeUtf8(b) => b.append_value(s),
-                _ => append_null(builder),
+                AnyBuilder::Int8(_)
+                | AnyBuilder::Int16(_)
+                | AnyBuilder::Int32(_)
+                | AnyBuilder::Int64(_)
+                | AnyBuilder::UInt8(_)
+                | AnyBuilder::UInt16(_)
+                | AnyBuilder::UInt32(_)
+                | AnyBuilder::UInt64(_)
+                | AnyBuilder::Float32(_)
+                | AnyBuilder::Float64(_)
+                | AnyBuilder::Boolean(_)
+                | AnyBuilder::Date32(_)
+                | AnyBuilder::Date64(_)
+                | AnyBuilder::TimestampSecond(_)
+                | AnyBuilder::TimestampMillisecond(_)
+                | AnyBuilder::TimestampMicrosecond(_)
+                | AnyBuilder::TimestampNanosecond(_) => append_null(builder),
             }
         }
         TypedScratch::I64(n) => match builder {
@@ -419,23 +461,78 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
             AnyBuilder::TimestampMillisecond(b) => b.append_value(*n),
             AnyBuilder::TimestampMicrosecond(b) => b.append_value(*n),
             AnyBuilder::TimestampNanosecond(b) => b.append_value(*n),
-            _ => append_null(builder),
+            AnyBuilder::Utf8(_)
+            | AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::UInt8(_)
+            | AnyBuilder::UInt16(_)
+            | AnyBuilder::UInt32(_)
+            | AnyBuilder::UInt64(_)
+            | AnyBuilder::Float32(_)
+            | AnyBuilder::Float64(_)
+            | AnyBuilder::Boolean(_) => append_null(builder),
         },
         TypedScratch::U64(n) => match builder {
             AnyBuilder::UInt64(b) => b.append_value(*n),
             AnyBuilder::UInt32(b) => b.append_value(*n as u32),
             AnyBuilder::UInt16(b) => b.append_value(*n as u16),
             AnyBuilder::UInt8(b) => b.append_value(*n as u8),
-            _ => append_null(builder),
+            AnyBuilder::Utf8(_)
+            | AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::Int8(_)
+            | AnyBuilder::Int16(_)
+            | AnyBuilder::Int32(_)
+            | AnyBuilder::Int64(_)
+            | AnyBuilder::Float32(_)
+            | AnyBuilder::Float64(_)
+            | AnyBuilder::Boolean(_)
+            | AnyBuilder::Date32(_)
+            | AnyBuilder::Date64(_)
+            | AnyBuilder::TimestampSecond(_)
+            | AnyBuilder::TimestampMillisecond(_)
+            | AnyBuilder::TimestampMicrosecond(_)
+            | AnyBuilder::TimestampNanosecond(_) => append_null(builder),
         },
         TypedScratch::F64(n) => match builder {
             AnyBuilder::Float64(b) => b.append_value(*n),
             AnyBuilder::Float32(b) => b.append_value(*n as f32),
-            _ => append_null(builder),
+            AnyBuilder::Utf8(_)
+            | AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::Int8(_)
+            | AnyBuilder::Int16(_)
+            | AnyBuilder::Int32(_)
+            | AnyBuilder::Int64(_)
+            | AnyBuilder::UInt8(_)
+            | AnyBuilder::UInt16(_)
+            | AnyBuilder::UInt32(_)
+            | AnyBuilder::UInt64(_)
+            | AnyBuilder::Boolean(_)
+            | AnyBuilder::Date32(_)
+            | AnyBuilder::Date64(_)
+            | AnyBuilder::TimestampSecond(_)
+            | AnyBuilder::TimestampMillisecond(_)
+            | AnyBuilder::TimestampMicrosecond(_)
+            | AnyBuilder::TimestampNanosecond(_) => append_null(builder),
         },
         TypedScratch::Bool(v) => match builder {
             AnyBuilder::Boolean(b) => b.append_value(*v),
-            _ => append_null(builder),
+            AnyBuilder::Utf8(_)
+            | AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::Int8(_)
+            | AnyBuilder::Int16(_)
+            | AnyBuilder::Int32(_)
+            | AnyBuilder::Int64(_)
+            | AnyBuilder::UInt8(_)
+            | AnyBuilder::UInt16(_)
+            | AnyBuilder::UInt32(_)
+            | AnyBuilder::UInt64(_)
+            | AnyBuilder::Float32(_)
+            | AnyBuilder::Float64(_)
+            | AnyBuilder::Date32(_)
+            | AnyBuilder::Date64(_)
+            | AnyBuilder::TimestampSecond(_)
+            | AnyBuilder::TimestampMillisecond(_)
+            | AnyBuilder::TimestampMicrosecond(_)
+            | AnyBuilder::TimestampNanosecond(_) => append_null(builder),
         },
         TypedScratch::Empty => append_null(builder),
     }
@@ -454,7 +551,23 @@ fn append_partition_value(builder: &mut AnyBuilder, pk: &PartitionKey) {
             PartitionKey::Str(v) => b.append_value(v),
             PartitionKey::Int(_) => b.append_null(),
         },
-        _ => unreachable!("partition column is Int64 (YDS) or Utf8 (S3)"),
+        other @ (AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::Int8(_)
+            | AnyBuilder::Int16(_)
+            | AnyBuilder::Int32(_)
+            | AnyBuilder::UInt8(_)
+            | AnyBuilder::UInt16(_)
+            | AnyBuilder::UInt32(_)
+            | AnyBuilder::UInt64(_)
+            | AnyBuilder::Float32(_)
+            | AnyBuilder::Float64(_)
+            | AnyBuilder::Boolean(_)
+            | AnyBuilder::Date32(_)
+            | AnyBuilder::Date64(_)
+            | AnyBuilder::TimestampSecond(_)
+            | AnyBuilder::TimestampMillisecond(_)
+            | AnyBuilder::TimestampMicrosecond(_)
+            | AnyBuilder::TimestampNanosecond(_)) => append_null(other),
     }
 }
 
@@ -469,7 +582,24 @@ fn append_key_columns(builders: &mut [AnyBuilder], msg: &Message) {
     append_partition_value(&mut builders[n - 2], msg.partition.as_ref().unwrap_or(&PartitionKey::Int(0)));
     match &mut builders[n - 1] {
         AnyBuilder::Int64(b) => b.append_value(msg.offset.unwrap_or(0)),
-        _ => unreachable!("offset column is Int64"),
+        other @ (AnyBuilder::Utf8(_)
+            | AnyBuilder::LargeUtf8(_)
+            | AnyBuilder::Int8(_)
+            | AnyBuilder::Int16(_)
+            | AnyBuilder::Int32(_)
+            | AnyBuilder::UInt8(_)
+            | AnyBuilder::UInt16(_)
+            | AnyBuilder::UInt32(_)
+            | AnyBuilder::UInt64(_)
+            | AnyBuilder::Float32(_)
+            | AnyBuilder::Float64(_)
+            | AnyBuilder::Boolean(_)
+            | AnyBuilder::Date32(_)
+            | AnyBuilder::Date64(_)
+            | AnyBuilder::TimestampSecond(_)
+            | AnyBuilder::TimestampMillisecond(_)
+            | AnyBuilder::TimestampMicrosecond(_)
+            | AnyBuilder::TimestampNanosecond(_)) => append_null(other),
     }
 }
 
@@ -490,12 +620,12 @@ fn dlq_tuple(raw: Bytes, reason: DlqReason, msg: &Message) -> (Bytes, DlqReason,
 // Two-phase typed field extractor — writes to scratch, not builders
 // ---------------------------------------------------------------------------
 
-struct TypedFieldExtractor<'a> {
-    index: &'a ColumnIndex,
-    scratch: &'a mut [TypedScratch],
-    kinds: &'a [ColumnKind],
+struct TypedFieldExtractor<'ctx> {
+    index: &'ctx ColumnIndex,
+    scratch: &'ctx mut [TypedScratch],
+    kinds: &'ctx [ColumnKind],
     /// Per-column requiredness (non-nullable), indexed by column position.
-    required: &'a [bool],
+    required: &'ctx [bool],
     /// Base pointer of the JSON buffer passed to simd-json.
     /// Used to compute byte offsets for string values via pointer arithmetic.
     buf_ptr: *const u8,
@@ -505,11 +635,12 @@ struct TypedFieldExtractor<'a> {
     required_total: usize,
 }
 
-impl<'de, 'a> de::Visitor<'de> for &'a mut TypedFieldExtractor<'a> {
+#[expect(clippy::missing_trait_methods, reason = "default impls are sufficient")]
+impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
     type Value = bool;
 
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a JSON object")
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a JSON object")
     }
 
     fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
@@ -574,8 +705,14 @@ fn parse_root_fields_typed(
 /// The key descriptor carries only column names (spec §2 defaults:
 /// YDS = `__system_partition`, S3 = `__system_filename`); the partition
 /// type follows that source convention.
+/// `true` when the partition column of the exactly-once key is `Utf8`
+/// (S3 `__system_filename`); `false` → Int64 (YDS `__system_partition`).
+fn partition_is_utf8(key: &ExactlyOnceKey) -> bool {
+    key.partition.name.as_ref() == "__system_filename"
+}
+
 fn partition_data_type(key: &ExactlyOnceKey) -> DataType {
-    if key.partition.name.as_ref() == "__system_filename" {
+    if partition_is_utf8(key) {
         DataType::Utf8
     } else {
         DataType::Int64
@@ -583,7 +720,7 @@ fn partition_data_type(key: &ExactlyOnceKey) -> DataType {
 }
 
 /// Arrow schema of the DLQ table — **dynamic**, built from the parser's
-/// `ExactlyOnceKey` (spec §7; not a static LazyLock anymore).
+/// `ExactlyOnceKey` (spec §7; not a static `LazyLock` anymore).
 ///
 /// - `None` (at-least-once): `raw_bytes, error_message, partition_id, timestamp`.
 /// - `Some` (exactly-once): `partition_id` is replaced by the key columns
@@ -608,8 +745,9 @@ fn dlq_schema(exactly_once: Option<&ExactlyOnceKey>) -> Schema {
     Schema::new(fields)
 }
 
-/// ClickHouse column definitions for the DLQ table, kept in sync with [`dlq_schema`].
+/// `ClickHouse` column definitions for the DLQ table, kept in sync with [`dlq_schema`].
 /// Used by `create_tables` to create the DLQ table.
+#[must_use]
 pub fn dlq_ch_columns(exactly_once: Option<&ExactlyOnceKey>) -> Vec<(&str, &str)> {
     let mut cols = vec![
         ("raw_bytes", "String"),
@@ -620,10 +758,7 @@ pub fn dlq_ch_columns(exactly_once: Option<&ExactlyOnceKey>) -> Vec<(&str, &str)
             cols.push(("timestamp", "String"));
             cols.push((
                 key.partition.name.as_ref(),
-                match partition_data_type(key) {
-                    DataType::Int64 => "Int64",
-                    _ => "String",
-                },
+                if partition_is_utf8(key) { "String" } else { "Int64" },
             ));
             cols.push((key.offset.name.as_ref(), "Int64"));
         }
@@ -641,10 +776,10 @@ enum DlqReason {
 }
 
 impl DlqReason {
-    fn as_str(&self) -> &str {
+    const fn as_str(&self) -> &str {
         match self {
-            DlqReason::JsonParse => "JSON parse error",
-            DlqReason::ExtractionFailed => "JSONPath extraction failed for one or more columns",
+            Self::JsonParse => "JSON parse error",
+            Self::ExtractionFailed => "JSONPath extraction failed for one or more columns",
         }
     }
 }
@@ -662,7 +797,7 @@ pub struct JsonParser {
     table: Arc<str>,
     /// Pre-resolved DLQ table name (`<table>.dlq`).
     dlq_table: Arc<str>,
-    /// Cached per-column DataType (avoids double parse_arrow_type).
+    /// Cached per-column `DataType` (avoids double `parse_arrow_type`).
     _data_types: Vec<DataType>,
     /// How to split incoming message bytes into individual JSON objects.
     chunk_splitter: ChunkSplitter,
@@ -712,9 +847,9 @@ impl JsonParser {
         let mode = if all_root {
             let pairs: Vec<(String, usize)> = mappings.iter()
                 .enumerate()
-                .map(|(i, m)| match &m.path {
-                    CompiledPath::RootField(f) => (f.clone(), i),
-                    _ => unreachable!(),
+                .filter_map(|(i, m)| match &m.path {
+                    CompiledPath::RootField(f) => Some((f.clone(), i)),
+                    CompiledPath::Complex(_) => None,
                 })
                 .collect();
             // Adaptive: linear scan for ≤12 cols (no hash overhead), HashMap for more
@@ -739,8 +874,9 @@ impl JsonParser {
             schema_fields.push(Field::new(key.offset.name.as_ref(), DataType::Int64, false));
         }
         let arrow_schema = Arc::new(Schema::new(schema_fields));
+        let dlq_table: Arc<str> = dlq_name(&table).into();
 
-        Ok(Self { mappings, kinds, arrow_schema, mode, table: table.clone(), dlq_table: dlq_name(&table).into(), _data_types: data_types, chunk_splitter: config.chunk_splitter, exactly_once_key })
+        Ok(Self { mappings, kinds, arrow_schema, mode, table, dlq_table, _data_types: data_types, chunk_splitter: config.chunk_splitter, exactly_once_key })
     }
 
     #[inline]
@@ -765,15 +901,18 @@ impl JsonParser {
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
         let ts = now.format(&Rfc3339)
-            .map_err(|e| anyhow::anyhow!("time format: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("time format: {e}"))?;
 
         let key = self.exactly_once_key.as_ref();
         // Exactly-once: the DLQ's own key columns (partition + offset per payload).
         // At-least-once: the legacy `partition_id` (per-batch constant).
-        let mut partition_builder: Option<AnyBuilder> = key.map(|k| match partition_data_type(k) {
-                DataType::Int64 => AnyBuilder::Int64(Int64Builder::with_capacity(n)),
-                _ => AnyBuilder::Utf8(StringBuilder::with_capacity(n, n * 64)),
-            });
+        let mut partition_builder: Option<AnyBuilder> = key.map(|k| {
+            if partition_is_utf8(k) {
+                AnyBuilder::Utf8(StringBuilder::with_capacity(n, n * 64))
+            } else {
+                AnyBuilder::Int64(Int64Builder::with_capacity(n))
+            }
+        });
         let mut offset_builder = Int64Builder::with_capacity(n);
         let mut pid_builder = Int64Builder::with_capacity(n);
 
@@ -810,12 +949,226 @@ impl JsonParser {
 
         Ok(TableData {
             batch,
-            table: self.dlq_table.clone(),
+            table: Arc::clone(&self.dlq_table),
             is_dlq: true,
             batch_id: crate::batch_id(),
             // DLQ is deduplicated with the same key as main (spec §7).
             exactly_once_key: self.exactly_once_key.clone(),
         })
+    }
+
+    /// Exactly-once preconditions (fatal before batch construction, §3.1):
+    /// every Message must carry offset+partition, and no user data column may
+    /// collide with the system column names.
+    fn check_exactly_once_preconditions(&self, messages: &[Message]) -> anyhow::Result<()> {
+        // System column names must not collide with user data columns.
+        const SYSTEM_COLUMNS: [&str; 3] = ["__system_partition", "__system_offset", "__system_filename"];
+        for msg in messages {
+            if msg.offset.is_none() {
+                anyhow::bail!(
+                    "exactly-once requires Message.offset to be set (got None); \
+                     the source must fill offset when exactly_once is enabled"
+                );
+            }
+            if msg.partition.is_none() {
+                anyhow::bail!(
+                    "exactly-once requires Message.partition to be set (got None); \
+                     the source must fill partition when exactly_once is enabled"
+                );
+            }
+        }
+        let data_names: Vec<&str> = self.arrow_schema.fields().iter()
+            .take(self.mappings.len())
+            .map(|f| f.name().as_str())
+            .collect();
+        for sys in SYSTEM_COLUMNS {
+            if data_names.contains(&sys) {
+                anyhow::bail!(
+                    "Column '{sys}' conflicts with a user data field; rename the field or disable exactly_once"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Appends one successfully parsed typed row into `builders` (plus the
+    /// exactly-once key columns when enabled).
+    fn append_root_line(
+        builders: &mut [AnyBuilder],
+        typed_scratch: &[TypedScratch],
+        json_buf: &[u8],
+        msg: &Message,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+    ) {
+        for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
+            append_typed(builder, s, json_buf);
+        }
+        if exactly_once_key.is_some() {
+            append_key_columns(builders, msg);
+        }
+    }
+
+    fn parse_all_root_newline(
+        &self,
+        messages: Vec<Message>,
+        info: &RootFieldInfo,
+        builders: &mut [AnyBuilder],
+        typed_scratch: &mut [TypedScratch],
+        json_buf: &mut Vec<u8>,
+        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+    ) {
+        for msg in messages {
+            for line in self.chunk_splitter.split_into_records(&msg.value) {
+                typed_scratch.fill(TypedScratch::Empty);
+                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
+                    Ok(true) => Self::append_root_line(builders, typed_scratch, json_buf, &msg, exactly_once_key),
+                    Ok(false) => {
+                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, &msg));
+                    }
+                    Err(_e) => {
+                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, &msg));
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_all_root_nosplit(
+        &self,
+        messages: Vec<Message>,
+        info: &RootFieldInfo,
+        builders: &mut [AnyBuilder],
+        typed_scratch: &mut [TypedScratch],
+        json_buf: &mut Vec<u8>,
+        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+    ) {
+        for mut msg in messages {
+            typed_scratch.fill(TypedScratch::Empty);
+            match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
+                Ok(true) => Self::append_root_line(builders, typed_scratch, json_buf, &msg, exactly_once_key),
+                Ok(false) => {
+                    dlq_payloads.push(dlq_tuple(core::mem::take(&mut msg.value), DlqReason::ExtractionFailed, &msg));
+                }
+                Err(_e) => {
+                    dlq_payloads.push(dlq_tuple(core::mem::take(&mut msg.value), DlqReason::JsonParse, &msg));
+                }
+            }
+        }
+    }
+
+    fn parse_all_root_field(
+        &self,
+        messages: Vec<Message>,
+        info: &RootFieldInfo,
+        builders: &mut [AnyBuilder],
+        typed_scratch: &mut [TypedScratch],
+        json_buf: &mut Vec<u8>,
+        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+    ) {
+        match self.chunk_splitter {
+            ChunkSplitter::NewLine => self.parse_all_root_newline(
+                messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key,
+            ),
+            ChunkSplitter::NoSplit => self.parse_all_root_nosplit(
+                messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key,
+            ),
+        }
+    }
+
+    /// Fills `row` from one parsed JSON object. Returns `false` when a required
+    /// column is missing (row goes to DLQ).
+    fn fill_row(&self, json: &Value, row: &mut Vec<Value>) -> bool {
+        row.clear();
+        let mut all_ok = true;
+        for m in &self.mappings {
+            match self.extract_value(json, m) {
+                Some(val) => row.push(val),
+                None if !m.required => row.push(Value::Null),
+                None => { all_ok = false; break; }
+            }
+        }
+        all_ok
+    }
+
+    fn parse_mixed_newline(
+        &self,
+        messages: Vec<Message>,
+        builders: &mut [AnyBuilder],
+        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+        row: &mut Vec<Value>,
+    ) {
+        for msg in messages {
+            for line in self.chunk_splitter.split_into_records(&msg.value) {
+                match serde_json::from_slice::<Value>(line) {
+                    Ok(json) => {
+                        if self.fill_row(&json, row) {
+                            for (builder, val) in builders.iter_mut().zip(row.iter()) {
+                                append_value(builder, val);
+                            }
+                            if exactly_once_key.is_some() {
+                                append_key_columns(builders, &msg);
+                            }
+                        } else {
+                            dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, &msg));
+                        }
+                    }
+                    Err(_e) => {
+                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, &msg));
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_mixed_nosplit(
+        &self,
+        messages: Vec<Message>,
+        builders: &mut [AnyBuilder],
+        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+        row: &mut Vec<Value>,
+    ) {
+        for mut msg in messages {
+            match serde_json::from_slice::<Value>(&msg.value) {
+                Ok(json) => {
+                    if self.fill_row(&json, row) {
+                        for (builder, val) in builders.iter_mut().zip(row.iter()) {
+                            append_value(builder, val);
+                        }
+                        if exactly_once_key.is_some() {
+                            append_key_columns(builders, &msg);
+                        }
+                    } else {
+                        dlq_payloads.push(dlq_tuple(core::mem::take(&mut msg.value), DlqReason::ExtractionFailed, &msg));
+                    }
+                }
+                Err(_e) => {
+                    dlq_payloads.push(dlq_tuple(core::mem::take(&mut msg.value), DlqReason::JsonParse, &msg));
+                }
+            }
+        }
+    }
+
+    fn parse_mixed(
+        &self,
+        messages: Vec<Message>,
+        ws: &mut ParserWorkspace,
+        exactly_once_key: Option<&ExactlyOnceKey>,
+    ) {
+        let n_cols = self.mappings.len();
+        let mut row: Vec<Value> = Vec::with_capacity(n_cols);
+        match self.chunk_splitter {
+            ChunkSplitter::NewLine => self.parse_mixed_newline(
+                messages, &mut ws.builders, &mut ws.dlq_payloads, exactly_once_key, &mut row,
+            ),
+            ChunkSplitter::NoSplit => self.parse_mixed_nosplit(
+                messages, &mut ws.builders, &mut ws.dlq_payloads, exactly_once_key, &mut row,
+            ),
+        }
     }
 }
 
@@ -832,7 +1185,7 @@ pub struct ParserWorkspace {
     dlq_payloads: Vec<(Bytes, DlqReason, i64, PartitionKey)>,
     /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
     arrays: Vec<ArrayRef>,
-    /// Cached timestamp + Instant for coarse-grained Utc::now() (1ms resolution).
+    /// Cached timestamp + Instant for coarse-grained `Utc::now()` (1ms resolution).
     cached_ts: Option<(time::OffsetDateTime, std::time::Instant)>,
 }
 
@@ -843,6 +1196,7 @@ impl Default for ParserWorkspace {
 }
 
 impl ParserWorkspace {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             builders: Vec::new(),
@@ -871,8 +1225,8 @@ impl ParserWorkspace {
 // parse_into — main hot path
 // ---------------------------------------------------------------------------
 
-impl JsonParser {
-    pub fn parse_into(
+impl Parser for JsonParser {
+    fn parse_into(
         &self,
         messages: Vec<Message>,
         partition_id: i64,
@@ -881,37 +1235,9 @@ impl JsonParser {
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let now = ws.now();
 
-        // ── Exactly-once preconditions (fatal before batch construction, §3.1) ──
+        // Exactly-once preconditions (fatal before batch construction, §3.1).
         if exactly_once_key.is_some() {
-            // The source must fill offset+partition on every message.
-            for msg in &messages {
-                if msg.offset.is_none() {
-                    anyhow::bail!(
-                        "exactly-once requires Message.offset to be set (got None); \
-                         the source must fill offset when exactly_once is enabled"
-                    );
-                }
-                if msg.partition.is_none() {
-                    anyhow::bail!(
-                        "exactly-once requires Message.partition to be set (got None); \
-                         the source must fill partition when exactly_once is enabled"
-                    );
-                }
-            }
-            // System column names must not collide with user data columns.
-            const SYSTEM_COLUMNS: [&str; 3] = ["__system_partition", "__system_offset", "__system_filename"];
-            let data_names: Vec<&str> = self.arrow_schema.fields().iter()
-                .take(self.mappings.len())
-                .map(|f| f.name().as_str())
-                .collect();
-            for sys in SYSTEM_COLUMNS {
-                if data_names.contains(&sys) {
-                    anyhow::bail!(
-                        "Column '{}' conflicts with a user data field; rename the field or disable exactly_once",
-                        sys
-                    );
-                }
-            }
+            self.check_exactly_once_preconditions(&messages)?;
         }
 
         // Pre-count rows for exact builder pre-allocation.
@@ -931,9 +1257,10 @@ impl JsonParser {
         // done in `new()` (the same key), so `RecordBatch::try_new` below stays
         // consistent. DLQ rows never append here (spec §3.1).
         if let Some(key) = &exactly_once_key {
-            match partition_data_type(key) {
-                DataType::Int64 => ws.builders.push(AnyBuilder::Int64(Int64Builder::with_capacity(n_rows))),
-                _ => ws.builders.push(AnyBuilder::Utf8(StringBuilder::with_capacity(n_rows, n_rows * 128))),
+            if partition_is_utf8(key) {
+                ws.builders.push(AnyBuilder::Utf8(StringBuilder::with_capacity(n_rows, n_rows * 128)));
+            } else {
+                ws.builders.push(AnyBuilder::Int64(Int64Builder::with_capacity(n_rows)));
             }
             ws.builders.push(AnyBuilder::Int64(Int64Builder::with_capacity(n_rows)));
         }
@@ -946,148 +1273,42 @@ impl JsonParser {
                 let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads, .. } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
-
-                match self.chunk_splitter {
-                    ChunkSplitter::NewLine => {
-                        for msg in messages {
-                            for line in self.chunk_splitter.split_into_records(&msg.value) {
-                                typed_scratch.fill(TypedScratch::Empty);
-                                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
-                                    Ok(true) => {
-                                        for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
-                                            append_typed(builder, s, json_buf);
-                                        }
-                                        if exactly_once_key.is_some() {
-                                            append_key_columns(builders, &msg);
-                                        }
-                                    }
-                                    Ok(false) => {
-                                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, &msg));
-                                    }
-                                    Err(_e) => {
-                                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, &msg));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ChunkSplitter::NoSplit => {
-                        for mut msg in messages {
-                            typed_scratch.fill(TypedScratch::Empty);
-                            match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
-                                Ok(true) => {
-                                    for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
-                                        append_typed(builder, s, json_buf);
-                                    }
-                                    if exactly_once_key.is_some() {
-                                        append_key_columns(builders, &msg);
-                                    }
-                                }
-                                Ok(false) => {
-                                    dlq_payloads.push(dlq_tuple(std::mem::take(&mut msg.value), DlqReason::ExtractionFailed, &msg));
-                                }
-                                Err(_e) => {
-                                    dlq_payloads.push(dlq_tuple(std::mem::take(&mut msg.value), DlqReason::JsonParse, &msg));
-                                }
-                            }
-                        }
-                    }
-                }
+                self.parse_all_root_field(
+                    messages,
+                    info,
+                    builders,
+                    typed_scratch,
+                    json_buf,
+                    dlq_payloads,
+                    exactly_once_key.as_ref(),
+                );
             }
             ParseMode::Mixed => {
-                let n_cols = self.mappings.len();
-                let mut row: Vec<Value> = Vec::with_capacity(n_cols);
-
-                match self.chunk_splitter {
-                    ChunkSplitter::NewLine => {
-                        for msg in messages {
-                            for line in self.chunk_splitter.split_into_records(&msg.value) {
-                                match serde_json::from_slice::<Value>(line) {
-                                    Ok(json) => {
-                                        row.clear();
-                                        let mut all_ok = true;
-                                        for m in &self.mappings {
-                                            match self.extract_value(&json, m) {
-                                                Some(val) => row.push(val),
-                                                None if !m.required => row.push(Value::Null),
-                                                None => { all_ok = false; break; }
-                                            }
-                                        }
-                                        if all_ok {
-                                            for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
-                                                append_value(builder, val);
-                                            }
-                                            if exactly_once_key.is_some() {
-                                                append_key_columns(&mut ws.builders, &msg);
-                                            }
-                                        } else {
-                                            ws.dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, &msg));
-                                        }
-                                    }
-                                    Err(_e) => {
-                                        ws.dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, &msg));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ChunkSplitter::NoSplit => {
-                        for mut msg in messages {
-                            match serde_json::from_slice::<Value>(&msg.value) {
-                                Ok(json) => {
-                                    row.clear();
-                                    let mut all_ok = true;
-                                    for m in &self.mappings {
-                                        match self.extract_value(&json, m) {
-                                            Some(val) => row.push(val),
-                                            None if !m.required => row.push(Value::Null),
-                                            None => { all_ok = false; break; }
-                                        }
-                                    }
-                                    if all_ok {
-                                        for (builder, val) in ws.builders.iter_mut().zip(row.iter()) {
-                                            append_value(builder, val);
-                                        }
-                                        if exactly_once_key.is_some() {
-                                            append_key_columns(&mut ws.builders, &msg);
-                                        }
-                                    } else {
-                                        ws.dlq_payloads.push(dlq_tuple(std::mem::take(&mut msg.value), DlqReason::ExtractionFailed, &msg));
-                                    }
-                                }
-                                Err(_e) => {
-                                    ws.dlq_payloads.push(dlq_tuple(std::mem::take(&mut msg.value), DlqReason::JsonParse, &msg));
-                                }
-                            }
-                        }
-                    }
-                }
+                self.parse_mixed(messages, ws, exactly_once_key.as_ref());
             }
         }
 
         ws.arrays.clear();
-        ws.arrays.extend(ws.builders.iter_mut().map(|b| b.finish()));
-        let batch = RecordBatch::try_new(self.arrow_schema.clone(), std::mem::take(&mut ws.arrays))?;
+        ws.arrays.extend(ws.builders.iter_mut().map(AnyBuilder::finish));
+        let batch = RecordBatch::try_new(Arc::clone(&self.arrow_schema), core::mem::take(&mut ws.arrays))?;
 
         let valid_batch = TableData {
             batch,
-            table: self.table.clone(),
+            table: Arc::clone(&self.table),
             is_dlq: false,
             batch_id: crate::batch_id(),
             exactly_once_key,
         };
 
-        let dlq_batch = if !ws.dlq_payloads.is_empty() {
-            Some(self.build_dlq_batch(&ws.dlq_payloads, partition_id, now)?)
-        } else {
+        let dlq_batch = if ws.dlq_payloads.is_empty() {
             None
+        } else {
+            Some(self.build_dlq_batch(&ws.dlq_payloads, partition_id, now)?)
         };
 
         Ok((valid_batch, dlq_batch))
     }
 }
-
-// ---------------------------------------------------------------------------
 // Regression tests — validate the simd-json invariant on real inputs
 // ---------------------------------------------------------------------------
 
@@ -1101,7 +1322,7 @@ mod tests {
     /// If this test fails, the safety comment on `str_val` is WRONG and
     /// the unsafe block is producing garbage (or UB).
     #[test]
-    fn str_val_matches_simd_json_output() {
+    fn str_val_matches_simd_json_output() -> anyhow::Result<()> {
         // "Moscow" and "🚀" as explicit UTF-8 byte sequences
         let json = b"{\"name\":\"Alice\",\"city\":\"Moscow\",\"flag\":\"\xF0\x9F\x9A\x80\"}";
 
@@ -1122,32 +1343,31 @@ mod tests {
         let mut scratch = vec![TypedScratch::Empty; kinds.len()];
         let mut buf = Vec::new();
 
-        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds).unwrap();
-        assert!(ok, "all fields should be found");
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds)?;
+        anyhow::ensure!(ok, "all fields should be found");
 
         // buf has been modified by simd-json in-situ parsing.
         // Now verify: json_buf[start..end] is valid UTF-8 AND matches the expected string.
-        let expected = ["Alice", "Moscow", "🚀"];
+        let expected = ["Alice", "Moscow", "\u{1F680}"];
         for (i, exp) in expected.iter().enumerate() {
-            match &scratch[i] {
-                TypedScratch::Str(range) => {
-                    let reconstructed = str_val(&buf, *range);
-                    assert_eq!(
-                        reconstructed, *exp,
-                        "Column {i}: str_val({}..{}) = {reconstructed:?}, expected {exp:?}",
-                        range.start, range.end,
-                    );
-                }
-                other => panic!("Column {i}: expected Str, got {other:?}"),
-            }
+            let TypedScratch::Str(range) = scratch[i] else {
+                anyhow::bail!("Column {i}: expected Str, got {:?}", scratch[i]);
+            };
+            let reconstructed = str_val(&buf, range);
+            anyhow::ensure!(
+                reconstructed == *exp,
+                "Column {i}: str_val({}..{}) = {reconstructed:?}, expected {exp:?}",
+                range.start, range.end,
+            );
         }
+        Ok(())
     }
 
     /// Verifies that `str_val` correctly handles strings with escape sequences
     /// (simd-json unescapes them in-situ, so the byte range should contain
     /// the unescaped version).
     #[test]
-    fn str_val_with_escapes() {
+    fn str_val_with_escapes() -> anyhow::Result<()> {
         // JSON with escape sequences that simd-json will process in-situ
         let json = br#"{"text":"Line1\nLine2\tTabbed"}"#;
 
@@ -1158,25 +1378,24 @@ mod tests {
         let mut scratch = vec![TypedScratch::Empty; 1];
         let mut buf = Vec::new();
 
-        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds).unwrap();
-        assert!(ok);
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds)?;
+        anyhow::ensure!(ok, "parse should succeed");
 
-        match &scratch[0] {
-            TypedScratch::Str(range) => {
-                let s = str_val(&buf, *range);
-                // After unescaping: \n -> newline, \t -> tab
-                assert!(s.contains('\n'), "should contain unescaped newline, got {s:?}");
-                assert!(s.contains('\t'), "should contain unescaped tab, got {s:?}");
-                assert!(!s.contains('\\'), "should not contain backslash, got {s:?}");
-            }
-            other => panic!("expected Str, got {other:?}"),
-        }
+        let TypedScratch::Str(range) = scratch[0] else {
+            anyhow::bail!("expected Str, got {:?}", scratch[0]);
+        };
+        let s = str_val(&buf, range);
+        // After unescaping: \n -> newline, \t -> tab
+        anyhow::ensure!(s.contains('\n'), "should contain unescaped newline, got {s:?}");
+        anyhow::ensure!(s.contains('\t'), "should contain unescaped tab, got {s:?}");
+        anyhow::ensure!(!s.contains('\\'), "should not contain backslash, got {s:?}");
+        Ok(())
     }
 
     /// Verifies that `chunk_splitter: new-line` correctly splits multi-line
     /// messages and parses each line as a separate JSON row.
     #[test]
-    fn newline_chunk_splitter() {
+    fn newline_chunk_splitter() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
 
         let config = SchemaConfig {
@@ -1199,34 +1418,35 @@ mod tests {
             chunk_splitter: ChunkSplitter::NewLine,
         };
 
-        let parser = JsonParser::new(&config, "test".into(), None).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), None)?;
         let mut ws = ParserWorkspace::new();
 
         // 3 JSONs separated by \n, one empty line
         let payload = b"{\"id\":\"a\",\"val\":1}\n{\"id\":\"b\",\"val\":2}\n\n{\"id\":\"c\"}";
         let msgs = vec![Message { value: Bytes::copy_from_slice(payload), offset: None, partition: None }];
 
-        let (good, dlq) = parser.parse_into(msgs, 0, None, &mut ws).unwrap();
+        let (good, dlq) = parser.parse_into(msgs, 0, None, &mut ws)?;
 
-        assert_eq!(good.batch.num_rows(), 3, "3 valid JSON lines → 3 rows");
-        assert!(dlq.is_none(), "all 3 lines are valid JSON, no DLQ");
+        anyhow::ensure!(good.batch.num_rows() == 3, "3 valid JSON lines \u{2192} 3 rows");
+        anyhow::ensure!(dlq.is_none(), "all 3 lines are valid JSON, no DLQ");
 
         // Check column values
-        let id_col = good.batch.column(0);
-        let val_col = good.batch.column(1);
-        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(0), "a");
-        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(1), "b");
-        assert_eq!(id_col.as_any().downcast_ref::<arrow::array::StringArray>().unwrap().value(2), "c");
-        assert_eq!(val_col.as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(0), 1);
-        assert_eq!(val_col.as_any().downcast_ref::<arrow::array::Int64Array>().unwrap().value(1), 2);
-        assert!(val_col.is_null(2));
+        let id_col = string_col(&good.batch, 0)?;
+        let val_col = int64_col(&good.batch, 1)?;
+        anyhow::ensure!(id_col.value(0) == "a");
+        anyhow::ensure!(id_col.value(1) == "b");
+        anyhow::ensure!(id_col.value(2) == "c");
+        anyhow::ensure!(val_col.value(0) == 1);
+        anyhow::ensure!(val_col.value(1) == 2);
+        anyhow::ensure!(good.batch.column(1).is_null(2));
+        Ok(())
     }
 
     /// YDS-style exactly-once key (spec §3.1): the batch gains the two key columns
     /// at the end — `__system_partition` (const per Message) + `__system_offset`
     /// (per-row). DLQ rows do not append to the main offset column.
     #[test]
-    fn exactly_once_yts_key_columns_filled() {
+    fn exactly_once_yts_key_columns_filled() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1247,34 +1467,35 @@ mod tests {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
             offset: ExactlyOnceColumn { name: "__system_offset".into() },
         };
-        let parser = JsonParser::new(&config, "test".into(), Some(key.clone())).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), Some(key.clone()))?;
         let mut ws = ParserWorkspace::new();
 
         let msgs = vec![
             Message { value: Bytes::copy_from_slice(b"{\"id\":\"a\"}"), offset: Some(10), partition: Some(PartitionKey::Int(7)) },
             Message { value: Bytes::copy_from_slice(b"{\"id\":\"b\"}"), offset: Some(11), partition: Some(PartitionKey::Int(7)) },
         ];
-        let (good, dlq) = parser.parse_into(msgs, 7, Some(key), &mut ws).unwrap();
-        assert!(dlq.is_none(), "both rows valid → no DLQ");
-        assert_eq!(good.batch.num_rows(), 2);
-        assert_eq!(good.batch.num_columns(), 3, "id + partition + offset");
+        let (good, dlq) = parser.parse_into(msgs, 7, Some(key), &mut ws)?;
+        anyhow::ensure!(dlq.is_none(), "both rows valid \u{2192} no DLQ");
+        anyhow::ensure!(good.batch.num_rows() == 2, "expected 2 rows");
+        anyhow::ensure!(good.batch.num_columns() == 3, "id + partition + offset");
 
-        let part = good.batch.column(1).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
-        let off = good.batch.column(2).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
-        assert_eq!(part.value(0), 7);
-        assert_eq!(part.value(1), 7, "partition is const per Message");
-        assert_eq!(off.value(0), 10);
-        assert_eq!(off.value(1), 11, "offset is per-row");
+        let part = int64_col(&good.batch, 1)?;
+        let off = int64_col(&good.batch, 2)?;
+        anyhow::ensure!(part.value(0) == 7);
+        anyhow::ensure!(part.value(1) == 7, "partition is const per Message");
+        anyhow::ensure!(off.value(0) == 10);
+        anyhow::ensure!(off.value(1) == 11, "offset is per-row");
 
         // Key columns are non-nullable in the schema.
-        assert!(!good.batch.schema().field(1).is_nullable());
-        assert!(!good.batch.schema().field(2).is_nullable());
+        anyhow::ensure!(!good.batch.schema().field(1).is_nullable());
+        anyhow::ensure!(!good.batch.schema().field(2).is_nullable());
+        Ok(())
     }
 
     /// S3-style key: partition column is Utf8 (`__system_filename`), filled from
     /// `Message.partition = Str(full S3 key)`.
     #[test]
-    fn exactly_once_s3_key_columns_filled() {
+    fn exactly_once_s3_key_columns_filled() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1295,7 +1516,7 @@ mod tests {
             partition: ExactlyOnceColumn { name: "__system_filename".into() },
             offset: ExactlyOnceColumn { name: "__system_offset".into() },
         };
-        let parser = JsonParser::new(&config, "test".into(), Some(key.clone())).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), Some(key.clone()))?;
         let mut ws = ParserWorkspace::new();
 
         let msgs = vec![Message {
@@ -1303,18 +1524,19 @@ mod tests {
             offset: Some(3),
             partition: Some(PartitionKey::Str("prefix-a/2024/data.json".into())),
         }];
-        let (good, _dlq) = parser.parse_into(msgs, 0, Some(key), &mut ws).unwrap();
+        let (good, _dlq) = parser.parse_into(msgs, 0, Some(key), &mut ws)?;
 
-        let part = good.batch.column(1).as_any().downcast_ref::<arrow::array::StringArray>().unwrap();
-        let off = good.batch.column(2).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
-        assert_eq!(part.value(0), "prefix-a/2024/data.json");
-        assert_eq!(off.value(0), 3);
+        let part = string_col(&good.batch, 1)?;
+        let off = int64_col(&good.batch, 2)?;
+        anyhow::ensure!(part.value(0) == "prefix-a/2024/data.json");
+        anyhow::ensure!(off.value(0) == 3);
+        Ok(())
     }
 
     /// DLQ batch gets its own key columns (spec §7): offset + partition from the
     /// Message that produced the DLQ row — YDS Int64 partition.
     #[test]
-    fn exactly_once_dlq_has_key_columns() {
+    fn exactly_once_dlq_has_key_columns() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1335,7 +1557,7 @@ mod tests {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
             offset: ExactlyOnceColumn { name: "__system_offset".into() },
         };
-        let parser = JsonParser::new(&config, "test".into(), Some(key.clone())).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), Some(key.clone()))?;
         let mut ws = ParserWorkspace::new();
 
         // One valid line + one line that is not valid JSON.
@@ -1345,22 +1567,23 @@ mod tests {
             offset: Some(5),
             partition: Some(PartitionKey::Int(3)),
         }];
-        let (good, dlq) = parser.parse_into(msgs, 3, Some(key), &mut ws).unwrap();
+        let (good, dlq) = parser.parse_into(msgs, 3, Some(key), &mut ws)?;
 
-        assert_eq!(good.batch.num_rows(), 1, "valid line → main batch");
-        let dlq = dlq.expect("invalid line → DLQ batch");
+        anyhow::ensure!(good.batch.num_rows() == 1, "valid line \u{2192} main batch");
+        let dlq_batch = dlq.ok_or_else(|| anyhow::anyhow!("invalid line produced no DLQ batch"))?;
         // raw_bytes, error_message, timestamp, __system_partition, __system_offset
-        assert_eq!(dlq.batch.num_columns(), 5, "DLQ carries its own key columns");
-        let part = dlq.batch.column(3).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
-        let off = dlq.batch.column(4).as_any().downcast_ref::<arrow::array::Int64Array>().unwrap();
-        assert_eq!(part.value(0), 3, "partition from the Message");
-        assert_eq!(off.value(0), 5, "offset from the Message");
+        anyhow::ensure!(dlq_batch.batch.num_columns() == 5, "DLQ carries its own key columns");
+        let part = int64_col(&dlq_batch.batch, 3)?;
+        let off = int64_col(&dlq_batch.batch, 4)?;
+        anyhow::ensure!(part.value(0) == 3, "partition from the Message");
+        anyhow::ensure!(off.value(0) == 5, "offset from the Message");
+        Ok(())
     }
 
     /// `Message.offset == None` (or partition None) with exactly-once → fatal
     /// before batch construction (spec §3.1).
     #[test]
-    fn exactly_once_missing_offset_fails() {
+    fn exactly_once_missing_offset_fails() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1381,7 +1604,7 @@ mod tests {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
             offset: ExactlyOnceColumn { name: "__system_offset".into() },
         };
-        let parser = JsonParser::new(&config, "test".into(), Some(key.clone())).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), Some(key.clone()))?;
         let mut ws = ParserWorkspace::new();
 
         // offset missing → bail with a readable message
@@ -1390,23 +1613,30 @@ mod tests {
             offset: None,
             partition: Some(PartitionKey::Int(1)),
         }];
-        let err = parser.parse_into(msgs, 1, Some(key.clone()), &mut ws).unwrap_err();
-        assert!(err.to_string().contains("Message.offset"), "got: {err}");
+        let err = parser
+            .parse_into(msgs, 1, Some(key.clone()), &mut ws)
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected parse_into to fail when offset is missing"))?;
+        anyhow::ensure!(err.to_string().contains("Message.offset"), "got: {err}");
 
         // partition missing → bail as well (rules are symmetric)
-        let msgs = vec![Message {
+        let msgs_no_partition = vec![Message {
             value: Bytes::copy_from_slice(b"{\"id\":\"a\"}"),
             offset: Some(1),
             partition: None,
         }];
-        let err = parser.parse_into(msgs, 1, Some(key), &mut ws).unwrap_err();
-        assert!(err.to_string().contains("Message.partition"), "got: {err}");
+        let err_partition = parser
+            .parse_into(msgs_no_partition, 1, Some(key), &mut ws)
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected parse_into to fail when partition is missing"))?;
+        anyhow::ensure!(err_partition.to_string().contains("Message.partition"), "got: {err_partition}");
+        Ok(())
     }
 
     /// User data column named like a system column + exactly-once → fatal with a
     /// readable message (spec §2, runtime collision guard).
     #[test]
-    fn exactly_once_system_column_collision_fails() {
+    fn exactly_once_system_column_collision_fails() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1427,7 +1657,7 @@ mod tests {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
             offset: ExactlyOnceColumn { name: "__system_offset".into() },
         };
-        let parser = JsonParser::new(&config, "test".into(), Some(key.clone())).unwrap();
+        let parser = JsonParser::new(&config, "test".into(), Some(key.clone()))?;
         let mut ws = ParserWorkspace::new();
 
         let msgs = vec![Message {
@@ -1435,7 +1665,25 @@ mod tests {
             offset: Some(1),
             partition: Some(PartitionKey::Int(1)),
         }];
-        let err = parser.parse_into(msgs, 1, Some(key), &mut ws).unwrap_err();
-        assert!(err.to_string().contains("conflicts"), "got: {err}");
+        let err = parser
+            .parse_into(msgs, 1, Some(key), &mut ws)
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected parse_into to fail on system column collision"))?;
+        anyhow::ensure!(err.to_string().contains("conflicts"), "got: {err}");
+        Ok(())
+    }
+
+    fn string_col(batch: &RecordBatch, idx: usize) -> anyhow::Result<&arrow::array::StringArray> {
+        batch.column(idx)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("column {idx} is not StringArray"))
+    }
+
+    fn int64_col(batch: &RecordBatch, idx: usize) -> anyhow::Result<&arrow::array::Int64Array> {
+        batch.column(idx)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .ok_or_else(|| anyhow::anyhow!("column {idx} is not Int64Array"))
     }
 }

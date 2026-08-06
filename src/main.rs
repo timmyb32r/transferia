@@ -4,7 +4,7 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use transferia::config::yaml::{validate_parser, Config, SchemaConfig};
+use transferia::config::yaml::{validate_parser, Config};
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
@@ -48,15 +48,15 @@ fn spawn_partition_task<F, Fut>(
 ) -> tokio::task::JoinHandle<()>
 where
     F: FnMut() -> Fut + Send + 'static,
-    Fut: std::future::Future<Output = anyhow::Result<Box<dyn Source>>> + Send,
+    Fut: core::future::Future<Output = anyhow::Result<Box<dyn Source>>> + Send,
 {
-    let max_retries = 5u32;
+    let max_retries: u32 = 5;
     tokio::spawn(async move {
-        let mut retry_count = 0u32;
-        let mut make_source = make_source;
+        let mut retry_count: u32 = 0;
+        let mut make_source_fn = make_source;
         loop {
             if deps.token.is_cancelled() { return; }
-            let source = match make_source().await {
+            let source = match make_source_fn().await {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!("{} source creation for partition {}: {}", &source_label, partition_id, e);
@@ -64,20 +64,20 @@ where
                 }
             };
             match run_partition_pipeline(
-                source, deps.parser.clone(), deps.table.clone(),
-                deps.mw.clone(), deps.snk.clone(),
+                source, deps.parser.clone(), Arc::clone(&deps.table),
+                Arc::clone(&deps.mw), Arc::clone(&deps.snk),
                 deps.batch_size, deps.max_linger_ms, deps.token.clone(), partition_id,
             ).await {
                 Ok(()) => break,
                 Err(e) => {
-                    retry_count += 1;
+                    retry_count = retry_count.saturating_add(1);
                     tracing::error!("Partition {} ({}) fatal error (retry {}/{}): {}",
                         partition_id, source_label, retry_count, max_retries, e);
                     if retry_count >= max_retries {
                         tracing::error!("Partition {} ({}) exhausted retries.", partition_id, source_label);
                         break;
                     }
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    tokio::time::sleep(core::time::Duration::from_secs(5)).await;
                 }
             }
         }
@@ -170,16 +170,17 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Destination table: {}, partitions: {:?}", table, my_partitions);
 
     // 5. Middlewares
-    let middlewares: Vec<Box<dyn Middleware>> = config.middlewares.iter()
-        .map(|mc| match mc.mw_type.as_str() {
-            "filter" => Ok(Box::new(FilterMiddleware::new(
-                mc.field.clone().unwrap_or_default(),
-                mc.value.clone().unwrap_or_default(),
-            )?) as Box<dyn Middleware>),
-            other => anyhow::bail!("Unknown middleware type: {}", other),
-        })
-        .collect::<anyhow::Result<_>>()?;
-    let middlewares = Arc::new(middlewares);
+    let middlewares: Arc<Vec<Box<dyn Middleware>>> = Arc::new(
+        config.middlewares.iter()
+            .map(|mc| match mc.mw_type.as_str() {
+                "filter" => Ok(Box::new(FilterMiddleware::new(
+                    mc.field.clone().unwrap_or_default(),
+                    mc.value.clone().unwrap_or_default(),
+                )?) as Box<dyn Middleware>),
+                other => anyhow::bail!("Unknown middleware type: {other}"),
+            })
+            .collect::<anyhow::Result<_>>()?,
+    );
 
     // 6. Sink + startup checks + DDL
     let sink = sink_provider.build_sink().await?;
@@ -189,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
         // CH version ≥ 22.8
         ch_sink.check_ch_version().await?;
-        tracing::info!("ClickHouse version check passed (≥ 22.8)");
+        tracing::info!("ClickHouse version check passed (\u{2265} 22.8)");
     }
 
     // 6b. DDL: create tables (ClickHouse only — other sinks don't need DDL).
@@ -197,12 +198,7 @@ async fn main() -> anyhow::Result<()> {
         let schema_for_ddl = source_provider.schema_config()
             .cloned()
             .or_else(|| source_provider.parser_config().map(|pc| pc.settings.clone()))
-            .unwrap_or_else(|| SchemaConfig {
-                columns: vec![],
-                raw_payload_field: None,
-                order_by: vec![],
-                chunk_splitter: transferia::config::yaml::ChunkSplitter::NoSplit,
-            });
+            .unwrap_or_default();
         let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
         ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
 
@@ -221,29 +217,27 @@ async fn main() -> anyhow::Result<()> {
             let majority = (replicas / 2) + 1;
             if quorum < majority {
                 anyhow::bail!(
-                    "ReplicatedMergeTree table '{}' has insert_quorum={} but needs ≥ {} \
-                     (majority of {} replicas). ALTER TABLE ... MODIFY SETTING insert_quorum = {} \
+                    "ReplicatedMergeTree table '{table}' has insert_quorum={quorum} but needs ≥ {majority} \
+                     (majority of {replicas} replicas). ALTER TABLE ... MODIFY SETTING insert_quorum = {majority} \
                      OR use a non-Replicated table.",
-                    table, quorum, majority, replicas, majority,
                 );
             }
             if replicas < quorum {
                 anyhow::bail!(
-                    "ReplicatedMergeTree table '{}' has {} replicas < insert_quorum={}. \
+                    "ReplicatedMergeTree table '{table}' has {replicas} replicas < insert_quorum={quorum}. \
                      Every INSERT would timeout. Reduce insert_quorum or add replicas.",
-                    table, replicas, quorum,
                 );
             }
         }
         if engine.contains("Distributed") {
-            tracing::warn!("Table '{}' uses Distributed engine — async forwarding breaks waterline. \
+            tracing::warn!("Table '{}' uses Distributed engine \u{2014} async forwarding breaks waterline. \
                            Write directly to the underlying MergeTree table. Degrading to AT_LEAST_ONCE.", table);
         }
         if engine.contains("Replacing") || engine.contains("Collapsing") || engine.contains("Summing")
             || engine.contains("Aggregating") || engine.contains("Versioned") {
             anyhow::bail!(
-                "Table '{}' uses unsupported engine '{}'. Only MergeTree and ReplicatedMergeTree \
-                 are supported for exactly-once.", table, engine,
+                "Table '{table}' uses unsupported engine '{engine}'. Only MergeTree and ReplicatedMergeTree \
+                 are supported for exactly-once.",
             );
         }
     }
@@ -251,29 +245,38 @@ async fn main() -> anyhow::Result<()> {
     // 7. Graceful shutdown
     let cancel_token = CancellationToken::new();
     let ct = cancel_token.clone();
-    tokio::spawn(async move { signal::ctrl_c().await.ok(); ct.cancel(); });
+    tokio::spawn(async move {
+        if let Err(e) = signal::ctrl_c().await {
+            tracing::error!("Failed to await ctrl-c signal: {e}");
+        }
+        ct.cancel();
+    });
 
     // 8. Spawn tasks
     let deps = PipelineDeps {
-        parser, table: table.clone(), mw: middlewares, snk: sink,
+        parser, table: Arc::clone(&table), mw: middlewares, snk: sink,
         batch_size: config.sink_batch_size,
         max_linger_ms: config.sink_max_linger_ms,
         token: cancel_token.clone(),
     };
-    let source_provider = Arc::new(source_provider);
+    let source_provider_arc = Arc::new(source_provider);
     let mut handles = Vec::new();
 
     for pid in my_partitions {
-        let sp = source_provider.clone();
+        let sp = Arc::clone(&source_provider_arc);
         let d = deps.clone();
         let label = source_kind.clone();
         handles.push(spawn_partition_task(pid, d, label, move || {
-            let sp = sp.clone();
-            async move { sp.build_source(pid, CancellationToken::new()).await }
+            let sp_inner = Arc::clone(&sp);
+            async move { return sp_inner.build_source(pid, CancellationToken::new()).await }
         }));
     }
 
-    for h in handles { let _ = h.await; }
+    for h in handles {
+        if let Err(e) = h.await {
+            tracing::error!("Partition task failed: {e}");
+        }
+    }
     tracing::info!("All partition tasks completed. Exiting.");
     Ok(())
 }

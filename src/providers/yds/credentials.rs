@@ -1,3 +1,4 @@
+#[non_exhaustive]
 pub enum YdbCredentials {
     Anonymous(ydb::AnonymousCredentials),
     AccessToken(ydb::AccessTokenCredentials),
@@ -6,15 +7,23 @@ pub enum YdbCredentials {
 
 impl ydb::Credentials for YdbCredentials {
     fn create_token(&self) -> ydb::YdbResult<ydb::TokenInfo> {
+        match *self {
+            Self::Anonymous(ref c) => c.create_token(),
+            Self::AccessToken(ref c) => c.create_token(),
+            Self::ServiceAccount(ref c) => c.create_token(),
+        }
+    }
+
+    fn debug_string(&self) -> String {
         match self {
-            YdbCredentials::Anonymous(c) => c.create_token(),
-            YdbCredentials::AccessToken(c) => c.create_token(),
-            YdbCredentials::ServiceAccount(c) => c.create_token(),
+            Self::Anonymous(_) => "anonymous".to_string(),
+            Self::AccessToken(_) => "access_token".to_string(),
+            Self::ServiceAccount(_) => "service_account".to_string(),
         }
     }
 }
 
-/// Build credentials AND extract raw token string for PQv1 auth.
+/// Build credentials AND extract raw token string for `PQv1` auth.
 pub fn build_credentials_with_token(
     auth: &crate::config::yaml::AuthConfig,
 ) -> anyhow::Result<(YdbCredentials, Option<String>)> {
@@ -28,10 +37,10 @@ pub fn build_credentials_with_token(
             let path = auth.sa_file.as_deref()
                 .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
             let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{path}': {e}"))?;
             Ok((YdbCredentials::ServiceAccount(creds), None))
         }
-        other => anyhow::bail!("Unsupported auth type '{}'", other),
+        other => anyhow::bail!("Unsupported auth type '{other}'"),
     }
 }
 
@@ -46,19 +55,19 @@ pub fn build_credentials(auth: &crate::config::yaml::AuthConfig) -> anyhow::Resu
             let path = auth.sa_file.as_deref()
                 .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
             let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{}': {}", path, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{path}': {e}"))?;
             Ok(YdbCredentials::ServiceAccount(creds))
         }
-        other => anyhow::bail!("Unsupported auth type '{}'", other),
+        other => anyhow::bail!("Unsupported auth type '{other}'"),
     }
 }
 
 fn read_token(auth: &crate::config::yaml::AuthConfig) -> anyhow::Result<String> {
     if let Some(path) = auth.token_file.as_deref() {
         let expanded = shellexpand::full(path)
-            .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{}': {}", path, e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{path}': {e}"))?;
         Ok(std::fs::read_to_string(expanded.as_ref())
-            .map_err(|e| anyhow::anyhow!("Failed to read token from '{}': {}", expanded, e))?
+            .map_err(|e| anyhow::anyhow!("Failed to read token from '{expanded}': {e}"))?
             .trim()
             .to_string())
     } else if let Some(tok) = auth.token.as_deref() {

@@ -18,8 +18,8 @@ impl EmptySinkProvider {
 }
 
 impl SinkProvider for EmptySinkProvider {
-    fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
-        let sink = self.sink.clone();
+    fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>> {
+        let sink = Arc::clone(&self.sink);
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }
 }

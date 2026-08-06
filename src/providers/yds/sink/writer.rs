@@ -13,26 +13,26 @@ use crate::types::table_data::TableWrite;
 pub struct YdsSink {
     serializer: Arc<dyn Serializer>,
     /// Track total rows for logging / metrics.
-    _total_rows: std::sync::atomic::AtomicU64,
+    _total_rows: core::sync::atomic::AtomicU64,
 }
 
 impl YdsSink {
     pub fn new(serializer: Arc<dyn Serializer>) -> Self {
         Self {
             serializer,
-            _total_rows: std::sync::atomic::AtomicU64::new(0),
+            _total_rows: core::sync::atomic::AtomicU64::new(0),
         }
     }
 }
 
 impl Sink for YdsSink {
-    fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             if write.batches.is_empty() {
                 return Ok(());
             }
 
-            let total_rows: usize = write.batches.iter().map(|b| b.num_rows()).sum();
+            let total_rows: usize = write.batches.iter().map(arrow::array::RecordBatch::num_rows).sum();
 
             // Serialize all batches into NDJSON
             let mut payload = Vec::new();
@@ -41,7 +41,7 @@ impl Sink for YdsSink {
                 payload.extend_from_slice(&serialized);
             }
 
-            self._total_rows.fetch_add(total_rows as u64, std::sync::atomic::Ordering::Relaxed);
+            self._total_rows.fetch_add(total_rows as u64, core::sync::atomic::Ordering::Relaxed);
 
             tracing::info!(
                 "YDS sink: wrote {} rows to topic ({} bytes, exactly_once={})",
@@ -53,10 +53,10 @@ impl Sink for YdsSink {
             // TODO: actual YDS write via ydb topic client
             // For now, the serialized payload is ready; the actual YDS API call
             // requires a ydb::TopicWriter which will be connected in a future iteration.
-            let _ = payload;
+            let _: Vec<u8> = payload;
             Ok(())
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 }

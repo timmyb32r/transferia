@@ -1,11 +1,12 @@
 use futures_util::future::BoxFuture;
+use futures_util::StreamExt as _;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 
 use crate::pipeline::sink::Sink;
 use crate::types::table_data::TableWrite;
 
-/// Parallel ClickHouse insert sink: fans out writes across N independent
-/// ClickHouse connections for higher throughput.
+/// Parallel `ClickHouse` insert sink: fans out writes across N independent
+/// `ClickHouse` connections for higher throughput.
 ///
 /// **Architecture note**: This type lives in `middleware/` but implements `Sink`,
 /// not `Middleware`. It's a **Sink decorator**, not a data transformer.
@@ -19,13 +20,13 @@ use crate::types::table_data::TableWrite;
 /// so parallel out-of-order inserts don't cause consistency issues.
 pub struct ParallelChInsertSink {
     pools: Vec<ConnectionPool<ArrowFormat>>,
-    next: std::sync::atomic::AtomicUsize,
+    next: core::sync::atomic::AtomicUsize,
 }
 
 impl ParallelChInsertSink {
     /// Create a parallel insert sink with `workers` independent connection pools.
     /// Each pool gets `pool_size` connections.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "connection pool builder takes many config knobs; extracting a config struct is overkill")]
     pub async fn new(
         connection_string: &str,
         database: &str,
@@ -40,26 +41,26 @@ impl ParallelChInsertSink {
         for i in 0..workers {
             let pool = ConnectionPoolBuilder::<ArrowFormat>::new(connection_string)
                 .configure_pool(|p| p.max_size(pool_size as u32))
-                .configure_client(|b| {
-                    let mut b = b.with_database(database)
+                .configure_client(|builder| {
+                    let mut configured = builder.with_database(database)
                         .with_username(username)
                         .with_password(password)
                         .with_tls(use_tls);
                     if let Some(domain) = tls_domain {
-                        b = b.with_domain(domain);
+                        configured = configured.with_domain(domain);
                     }
-                    b
+                    configured
                 })
                 .build().await
-                .map_err(|e| anyhow::anyhow!("Parallel CH pool {} failed: {}", i, e))?;
+                .map_err(|e| anyhow::anyhow!("Parallel CH pool {i} failed: {e}"))?;
 
             // Verify connectivity (scoped to drop client before moving pool)
             {
                 let client = pool.get().await
-                    .map_err(|e| anyhow::anyhow!("Parallel CH pool {} get: {}", i, e))?;
+                    .map_err(|e| anyhow::anyhow!("Parallel CH pool {i} get: {e}"))?;
                 client.execute("SELECT 1", None).await
-                    .map_err(|e| anyhow::anyhow!("Parallel CH pool {} health check: {}", i, e))?;
-            }
+                    .map_err(|e| anyhow::anyhow!("Parallel CH pool {i} health check: {e}"))?;
+            };
 
             pools.push(pool);
         }
@@ -67,23 +68,26 @@ impl ParallelChInsertSink {
             "ParallelChInsert: {} workers with {} connections each",
             workers, pool_size,
         );
-        Ok(Self { pools, next: std::sync::atomic::AtomicUsize::new(0) })
+        Ok(Self { pools, next: core::sync::atomic::AtomicUsize::new(0) })
     }
 }
 
 impl Sink for ParallelChInsertSink {
-    fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             if write.batches.is_empty() {
                 return Ok(());
             }
 
             // Round-robin across pools for even distribution.
-            let idx = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % self.pools.len();
-            let pool = &self.pools[idx];
+            let idx = self.next
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+                .rem_euclid(self.pools.len());
+            let pool = self.pools.get(idx)
+                .ok_or_else(|| anyhow::anyhow!("Parallel CH: pool index {idx} out of bounds"))?;
 
             let client = pool.get().await
-                .map_err(|e| anyhow::anyhow!("Parallel CH worker {} pool get: {}", idx, e))?;
+                .map_err(|e| anyhow::anyhow!("Parallel CH worker {idx} pool get: {e}"))?;
 
             // Exactly-once: the ExactlyOnceKey descriptor (partition/offset column
             // names in the batch) cannot be converted into an
@@ -97,15 +101,14 @@ impl Sink for ParallelChInsertSink {
             }
 
             let query = format!("INSERT INTO `{}` VALUES", write.table);
-            let total: usize = write.batches.iter().map(|b| b.num_rows()).sum();
+            let total: usize = write.batches.iter().map(arrow::array::RecordBatch::num_rows).sum();
             let n = write.batches.len();
 
             let mut stream = client.insert_many(&query, write.batches, None).await
-                .map_err(|e| anyhow::anyhow!("Parallel CH worker {} insert_many: {}", idx, e))?;
+                .map_err(|e| anyhow::anyhow!("Parallel CH worker {idx} insert_many: {e}"))?;
 
-            use futures_util::StreamExt;
             while let Some(item) = stream.next().await {
-                item.map_err(|e| anyhow::anyhow!("Parallel CH worker {} insert error: {}", idx, e))?;
+                item.map_err(|e| anyhow::anyhow!("Parallel CH worker {idx} insert error: {e}"))?;
             }
 
             tracing::info!(
@@ -116,5 +119,5 @@ impl Sink for ParallelChInsertSink {
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 }

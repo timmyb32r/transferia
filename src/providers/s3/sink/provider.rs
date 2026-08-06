@@ -11,10 +11,11 @@ use crate::providers::traits::SinkProvider;
 use crate::serializer::Serializer;
 
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct S3SinkConfig {
     /// S3 bucket name.
     pub bucket: String,
-    /// Object key prefix (e.g. "snapshots/my_table/").
+    /// Object key prefix (e.g. "`snapshots/my_table`/").
     #[serde(default)]
     pub prefix: String,
     /// AWS region.
@@ -46,13 +47,13 @@ pub struct S3SinkProvider {
 impl S3SinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
         let cfg: S3SinkConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse S3 sink config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse S3 sink config: {e}"))?;
         if cfg.bucket.is_empty() {
             anyhow::bail!("s3 sink: bucket must not be empty");
         }
 
         let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
-            .map_err(|e| anyhow::anyhow!("S3 sink: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("S3 sink: {e}"))?;
 
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&cfg.bucket)
@@ -70,7 +71,7 @@ impl S3SinkProvider {
         }
 
         let store = builder.build()
-            .map_err(|e| anyhow::anyhow!("Failed to build S3 client: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to build S3 client: {e}"))?;
 
         tracing::info!(
             "S3 sink: bucket={} prefix={} serializer={}",
@@ -86,11 +87,11 @@ impl S3SinkProvider {
 }
 
 impl SinkProvider for S3SinkProvider {
-    fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
+    fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>> {
         let sink = Arc::new(S3Sink::new(
-            self.store.clone(),
+            Arc::clone(&self.store),
             self.prefix.clone(),
-            self.serializer.clone(),
+            Arc::clone(&self.serializer),
         ));
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }

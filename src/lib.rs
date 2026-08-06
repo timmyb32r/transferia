@@ -1,8 +1,9 @@
-use std::sync::atomic::AtomicU64;
+use core::sync::atomic::AtomicU64;
 
 // Named `Ydb` (not `ydb`) to mirror the proto package `Ydb` and its generated paths.
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 pub mod Ydb {
+    #![allow(clippy::pedantic, clippy::nursery, clippy::restriction)]
     // Rust module names MUST be lowercase to match proto package names:
     // package Ydb → include!("ydb.rs")
     // package Ydb.Issue → include!("ydb.issue.rs") → mod issue (lowercase!)
@@ -46,6 +47,9 @@ pub mod types;
 
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);
 
-pub(crate) fn batch_id() -> u64 {
-    BATCH_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+// `pub(in crate)` is required: `pub_with_shorthand`/`pub_without_shorthand`
+// are conflicting restriction lints, so either spelling needs an expect.
+#[expect(clippy::pub_without_shorthand, reason = "explicit `in` visibility per pub_with_shorthand")]
+pub(in crate) fn batch_id() -> u64 {
+    BATCH_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
 }

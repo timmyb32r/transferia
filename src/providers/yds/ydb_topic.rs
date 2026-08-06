@@ -3,7 +3,7 @@ use futures_util::future::BoxFuture;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::types::exactly_once::PartitionKey;
-use crate::types::{Message, MessageBatch};
+use crate::types::message::{Message, MessageBatch};
 
 pub struct YdbTopicSource {
     reader: ydb::TopicReader,
@@ -24,7 +24,7 @@ impl YdbTopicSource {
 
         if let Some(endpoint) = discovery_endpoint {
             let discovery = ydb::StaticDiscovery::new_from_str(endpoint)
-                .map_err(|e| anyhow::anyhow!("Failed to create StaticDiscovery from '{}': {}", endpoint, e))?;
+                .map_err(|e| anyhow::anyhow!("Failed to create StaticDiscovery from '{endpoint}': {e}"))?;
             builder = builder.with_discovery(discovery);
         }
 
@@ -42,14 +42,10 @@ impl YdbTopicSource {
 }
 
 impl Source for YdbTopicSource {
-    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
         Box::pin(async move {
             let mut batch = self.reader.read_batch().await?;
-            let commit_marker = if !batch.messages.is_empty() {
-                Some(CommitMarker::new(batch.get_commit_marker()))
-            } else {
-                None
-            };
+            let commit_marker = (!batch.messages.is_empty()).then(|| CommitMarker::new(batch.get_commit_marker()));
             let estimated = batch.messages.len();
             let mut messages = Vec::with_capacity(estimated);
             for msg in &mut batch.messages {
@@ -65,11 +61,11 @@ impl Source for YdbTopicSource {
         })
     }
 
-    fn commit_offsets<'a>(&'a mut self, marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(&'ctx mut self, marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move {
             if let Some(ydb_marker) = marker.downcast_ref::<ydb::TopicReaderCommitMarker>() {
                 self.reader.commit(ydb_marker.clone())
-                    .map_err(|e| anyhow::anyhow!("Commit failed: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("Commit failed: {e}"))?;
             } else {
                 anyhow::bail!("Invalid commit marker type");
             }

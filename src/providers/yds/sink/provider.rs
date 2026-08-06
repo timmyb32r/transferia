@@ -10,8 +10,9 @@ use crate::providers::yds::sink::writer::YdsSink;
 use crate::serializer::Serializer;
 
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct YdsSinkConfig {
-    /// YDB connection string (e.g. "grpc://localhost:2135/local").
+    /// YDB connection string (e.g. "<grpc://localhost:2135/local>").
     pub connection_string: String,
     /// YDS topic path.
     pub topic_path: String,
@@ -34,7 +35,7 @@ pub struct YdsSinkProvider {
 impl YdsSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
         let cfg: YdsSinkConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse YDS sink config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse YDS sink config: {e}"))?;
         if cfg.connection_string.is_empty() {
             anyhow::bail!("yds sink: connection_string must not be empty");
         }
@@ -43,7 +44,7 @@ impl YdsSinkProvider {
         }
 
         let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
-            .map_err(|e| anyhow::anyhow!("YDS sink: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("YDS sink: {e}"))?;
 
         tracing::info!(
             "YDS sink: topic={} serializer={}",
@@ -58,8 +59,8 @@ impl YdsSinkProvider {
 }
 
 impl SinkProvider for YdsSinkProvider {
-    fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
-        let sink = Arc::new(YdsSink::new(self.serializer.clone()));
+    fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>> {
+        let sink = Arc::new(YdsSink::new(Arc::clone(&self.serializer)));
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }
 

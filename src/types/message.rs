@@ -5,6 +5,7 @@ use crate::types::exactly_once::PartitionKey;
 
 /// A single message from the source.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Message {
     pub value: Bytes,
     /// Exactly-once offset (None = source does not support exactly-once).
@@ -15,6 +16,7 @@ pub struct Message {
 
 /// A batch of messages read from a source partition.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct MessageBatch {
     pub messages: Vec<Message>,
     pub partition_id: i64,

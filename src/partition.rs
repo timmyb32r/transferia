@@ -17,12 +17,12 @@ pub async fn discover_my_partitions(
     // Use DescribeTopicOptionsBuilder — NOT ::default() on DescribeTopicOptions
     let options = ydb::DescribeTopicOptionsBuilder::default()
         .build()
-        .map_err(|e| anyhow::anyhow!("Failed to build DescribeTopicOptions: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to build DescribeTopicOptions: {e}"))?;
 
     let description = topic_client
         .describe_topic(topic_path.to_string(), options)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to describe topic '{}': {}", topic_path, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to describe topic '{topic_path}': {e}"))?;
 
     // Collect all active partition IDs
     let all_partitions: Vec<i64> = description
@@ -39,7 +39,7 @@ pub async fn discover_my_partitions(
     let my_partitions: Vec<i64> = all_partitions
         .into_iter()
         .filter(|id| {
-            let id_mod = id.unsigned_abs() as u32 % total_workers;
+            let id_mod = (id.unsigned_abs() as u32).rem_euclid(total_workers);
             id_mod == worker_index
         })
         .collect();

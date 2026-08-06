@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct Config {
     pub source: SourceEntry,
     pub sink: SinkEntry,
@@ -23,11 +24,11 @@ impl Config {
     /// Load configuration from a YAML file, expanding ${VAR} and $VAR patterns.
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read config file '{}': {}", path, e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to read config file '{path}': {e}"))?;
         let expanded = shellexpand::env(&contents)
-            .map_err(|e| anyhow::anyhow!("Failed to expand env vars in config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to expand env vars in config: {e}"))?;
         let config: Self = serde_yaml::from_str(&expanded)
-            .map_err(|e| anyhow::anyhow!("Failed to parse YAML config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse YAML config: {e}"))?;
         Ok(config)
     }
 }
@@ -38,6 +39,7 @@ impl Config {
 
 /// Source config entry: `source: { <kind>: { ... } }` — exactly one key.
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct SourceEntry {
     #[serde(flatten)]
     pub inner: std::collections::HashMap<String, serde_yaml::Value>,
@@ -45,22 +47,24 @@ pub struct SourceEntry {
 
 impl SourceEntry {
     pub fn kind(&self) -> anyhow::Result<&str> {
-        let keys: Vec<&str> = self.inner.keys().map(|s| s.as_str()).collect();
-        match keys.as_slice() {
+        let keys: Vec<&str> = self.inner.keys().map(String::as_str).collect();
+        match *keys.as_slice() {
             [single] => Ok(single),
             [] => anyhow::bail!("source: no provider key found (expected 'topic', 'pqv1', or 's3')"),
-            _ => anyhow::bail!("source: expected exactly one provider key, got {:?}", keys),
+            _ => anyhow::bail!("source: expected exactly one provider key, got {keys:?}"),
         }
     }
 
     pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
         let kind = self.kind()?;
-        Ok(&self.inner[kind])
+        self.inner.get(kind)
+            .ok_or_else(|| anyhow::anyhow!("source: provider key '{kind}' missing from config"))
     }
 }
 
 /// Sink config entry: `sink: { <kind>: { ... } }` — exactly one key.
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct SinkEntry {
     #[serde(flatten)]
     pub inner: std::collections::HashMap<String, serde_yaml::Value>,
@@ -68,17 +72,18 @@ pub struct SinkEntry {
 
 impl SinkEntry {
     pub fn kind(&self) -> anyhow::Result<&str> {
-        let keys: Vec<&str> = self.inner.keys().map(|s| s.as_str()).collect();
-        match keys.as_slice() {
+        let keys: Vec<&str> = self.inner.keys().map(String::as_str).collect();
+        match *keys.as_slice() {
             [single] => Ok(single),
             [] => anyhow::bail!("sink: no provider key found"),
-            _ => anyhow::bail!("sink: expected exactly one provider key, got {:?}", keys),
+            _ => anyhow::bail!("sink: expected exactly one provider key, got {keys:?}"),
         }
     }
 
     pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
         let kind = self.kind()?;
-        Ok(&self.inner[kind])
+        self.inner.get(kind)
+            .ok_or_else(|| anyhow::anyhow!("sink: provider key '{kind}' missing from config"))
     }
 }
 
@@ -87,12 +92,13 @@ impl SinkEntry {
 // ---------------------------------------------------------------------------
 
 /// Common parser checks every source provider must call.
-/// Validates: parser_type, columns non-empty, arrow_types, middleware↔columns.
+///
+/// Validates: `parser_type`, columns non-empty, `arrow_types`, middleware↔columns.
 /// `allowed_parsers` — set of registered parser names (e.g. `{"json_parser"}`).
-pub fn validate_parser(
+pub fn validate_parser<S: core::hash::BuildHasher>(
     parser: &ParserConfig,
     middlewares: &[MiddlewareConfig],
-    allowed_parsers: &std::collections::HashSet<&str>,
+    allowed_parsers: &std::collections::HashSet<&str, S>,
 ) -> anyhow::Result<()> {
     if !allowed_parsers.contains(parser.parser_type.as_str()) {
         anyhow::bail!(
@@ -110,11 +116,11 @@ pub fn validate_parser(
     }
     for (i, mw) in middlewares.iter().enumerate() {
         if mw.mw_type != "filter" { continue; }
-        if mw.field.as_ref().is_none_or(|f| f.is_empty()) {
-            anyhow::bail!("middlewares[{}]: filter requires non-empty 'field'", i);
+        if mw.field.as_ref().is_none_or(String::is_empty) {
+            anyhow::bail!("middlewares[{i}]: filter requires non-empty 'field'");
         }
-        if mw.value.as_ref().is_none_or(|v| v.is_empty()) {
-            anyhow::bail!("middlewares[{}]: filter requires non-empty 'value'", i);
+        if mw.value.as_ref().is_none_or(String::is_empty) {
+            anyhow::bail!("middlewares[{i}]: filter requires non-empty 'value'");
         }
         let col = parser.settings.columns.iter()
             .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
@@ -142,18 +148,20 @@ pub fn validate_parser(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct ParserConfig {
     /// How the destination table name is chosen.
     pub table_naming: TableNaming,
-    /// Concrete parser kind (currently only "json_parser").
+    /// Concrete parser kind (currently only "`json_parser`").
     pub parser_type: String,
-    /// Parser-specific settings (for json_parser: column mappings).
+    /// Parser-specific settings (for `json_parser`: column mappings).
     pub settings: SchemaConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct TableNaming {
-    /// "from_config" — use `name`; "from_topic" — use the topic path verbatim.
+    /// "`from_config`" — use `name`; "`from_topic`" — use the topic path verbatim.
     #[serde(rename = "type")]
     pub kind: String,
     /// Explicit table name; required when `kind == "from_config"`.
@@ -169,24 +177,24 @@ impl ParserConfig {
             "from_config" => self.table_naming.name.clone().filter(|n| !n.is_empty())
                 .ok_or_else(|| anyhow::anyhow!("table_naming.name is required for type 'from_config'")),
             "from_topic" => Ok(topic_path.to_string()),
-            other => anyhow::bail!("unknown table_naming.type '{}' (use from_config | from_topic)", other),
+            other => anyhow::bail!("unknown table_naming.type '{other}' (use from_config | from_topic)"),
         }
     }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
-#[allow(dead_code)]
+#[non_exhaustive]
 pub struct AuthConfig {
-    /// Auth type: "anonymous" (default), "access_token", "service_account"
+    /// Auth type: "anonymous" (default), "`access_token`", "`service_account`".
     #[serde(rename = "type")]
     pub auth_type: String,
-    /// Token string for access_token auth (plain text)
+    /// Token string for `access_token` auth (plain text).
     pub token: Option<String>,
-    /// Path to file containing the token for access_token auth.
+    /// Path to file containing the token for `access_token` auth.
     /// The file is read at startup and its trimmed contents used as the token.
     /// Supports ~ for home directory expansion.
     pub token_file: Option<String>,
-    /// Path to service account JSON key file (for service_account auth)
+    /// Path to service account JSON key file (for `service_account` auth).
     pub sa_file: Option<String>,
 }
 
@@ -194,14 +202,14 @@ pub struct AuthConfig {
 // Schema / column mapping configuration
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[non_exhaustive]
 pub struct SchemaConfig {
     pub columns: Vec<ColumnMapping>,
-    /// Optional: custom field name for the raw JSON payload (for DLQ)
+    /// Optional: custom field name for the raw JSON payload (for DLQ).
     #[serde(default)]
     pub raw_payload_field: Option<String>,
-    /// Optional: column names for the ClickHouse `ORDER BY` clause.
+    /// Optional: column names for the `ClickHouse` `ORDER BY` clause.
     /// When empty/omitted, defaults to `ORDER BY tuple()`.
     #[serde(default)]
     pub order_by: Vec<String>,
@@ -213,14 +221,27 @@ pub struct SchemaConfig {
 }
 
 impl SchemaConfig {
-    /// Column definitions for DDL — drops JSONPath, keeps only name + type.
+    /// Creates a schema from the given column mappings (all other fields default).
+    #[must_use]
+    pub const fn new(columns: Vec<ColumnMapping>) -> Self {
+        Self {
+            columns,
+            raw_payload_field: None,
+            order_by: Vec::new(),
+            chunk_splitter: ChunkSplitter::NoSplit,
+        }
+    }
+
+    /// Column definitions for DDL — drops `JSONPath`, keeps only name + type.
+    #[must_use]
     pub fn column_defs(&self) -> Vec<ColumnDef> {
-        self.columns.iter().map(|c| c.to_column_def()).collect()
+        self.columns.iter().map(ColumnMapping::to_column_def).collect()
     }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ChunkSplitter {
     #[default]
     NoSplit,
@@ -232,10 +253,11 @@ impl ChunkSplitter {
     /// `NoSplit`: entire buffer is one record → `buf.len()`.
     /// `NewLine`: position after last `\n`; `0` when no delimiter found
     /// (caller should accumulate more data or treat as EOF remainder).
+    #[must_use]
     pub fn safe_split_at(&self, buf: &[u8]) -> usize {
         match self {
-            ChunkSplitter::NoSplit => buf.len(),
-            ChunkSplitter::NewLine => buf
+            Self::NoSplit => buf.len(),
+            Self::NewLine => buf
                 .iter()
                 .rposition(|&b| b == b'\n')
                 .map_or(0, |i| i + 1),
@@ -247,10 +269,11 @@ impl ChunkSplitter {
     ///
     /// Fast-path for `NewLine` without `\n`: returns `vec![buf]` immediately
     /// (no iteration, no allocation beyond the single-element Vec).
-    pub fn split_into_records<'a>(&self, buf: &'a [u8]) -> Vec<&'a [u8]> {
+    #[must_use]
+    pub fn split_into_records<'buf>(&self, buf: &'buf [u8]) -> Vec<&'buf [u8]> {
         match self {
-            ChunkSplitter::NoSplit => vec![buf],
-            ChunkSplitter::NewLine => {
+            Self::NoSplit => vec![buf],
+            Self::NewLine => {
                 // Fast-path: no delimiter → one record, no split iteration
                 if !buf.contains(&b'\n') {
                     return if buf.is_empty() { Vec::new() } else { vec![buf] };
@@ -264,10 +287,11 @@ impl ChunkSplitter {
 
     /// Count records without allocating a `Vec`. Semantics match
     /// `split_into_records` — non-empty lines, trailing delimiter discarded.
+    #[must_use]
     pub fn count_records(&self, buf: &[u8]) -> usize {
         match self {
-            ChunkSplitter::NoSplit => if buf.is_empty() { 0 } else { 1 },
-            ChunkSplitter::NewLine => {
+            Self::NoSplit => usize::from(!buf.is_empty()),
+            Self::NewLine => {
                 if buf.is_empty() { return 0; }
                 // Fast-path: no delimiter → one record
                 if !buf.contains(&b'\n') { return 1; }
@@ -281,6 +305,7 @@ impl ChunkSplitter {
 
 /// Column definition for DDL — name and type only, no parser-specific fields.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ColumnDef {
     pub column_name: String,
     pub arrow_type: String,
@@ -290,21 +315,28 @@ pub struct ColumnDef {
 /// Column mapping for JSON parser config — includes a `jsonpath` expression
 /// for extracting values from incoming JSON objects.
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
+#[non_exhaustive]
 pub struct ColumnMapping {
-    /// JSONPath expression, e.g. "$.payload.user.id"
+    /// `JSONPath` expression, e.g. "$.payload.user.id".
     pub jsonpath: String,
-    /// Arrow/ClickHouse column name
+    /// Arrow/ClickHouse column name.
     pub column_name: String,
     /// Arrow type string: "Utf8", "Int64", "Float64", "Timestamp(Millisecond, None)", etc.
     pub arrow_type: String,
-    /// Whether the column is nullable
+    /// Whether the column is nullable.
     #[serde(default)]
     pub nullable: bool,
 }
 
 impl ColumnMapping {
-    /// Drop the JSONPath — only the DDL-relevant fields remain.
+    /// Creates a column mapping with explicit `JSONPath`, name, type and nullability.
+    #[must_use]
+    pub const fn new(jsonpath: String, column_name: String, arrow_type: String, nullable: bool) -> Self {
+        Self { jsonpath, column_name, arrow_type, nullable }
+    }
+
+    /// Drop the `JSONPath` — only the DDL-relevant fields remain.
+    #[must_use]
     pub fn to_column_def(&self) -> ColumnDef {
         ColumnDef {
             column_name: self.column_name.clone(),
@@ -330,6 +362,7 @@ impl From<ColumnDef> for ColumnMapping {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct MiddlewareConfig {
     #[serde(rename = "type")]
     pub mw_type: String,
@@ -339,11 +372,11 @@ pub struct MiddlewareConfig {
     pub value: Option<String>,
 }
 
-fn default_batch_size() -> usize {
+const fn default_batch_size() -> usize {
     10000
 }
 
-fn default_max_linger_ms() -> u64 {
+const fn default_max_linger_ms() -> u64 {
     500
 }
 
@@ -382,27 +415,21 @@ pub fn parse_arrow_type(s: &str) -> anyhow::Result<DataType> {
             let inner = s
                 .trim_start_matches("Timestamp(")
                 .trim_end_matches(')');
-            let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
+            let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
             let unit = match parts.first().copied().unwrap_or("Microsecond") {
                 "Second" => TimeUnit::Second,
                 "Millisecond" => TimeUnit::Millisecond,
                 "Microsecond" => TimeUnit::Microsecond,
                 "Nanosecond" => TimeUnit::Nanosecond,
                 other => anyhow::bail!(
-                    "Unsupported Timestamp unit '{}'. Use Second, Millisecond, Microsecond, or Nanosecond.",
-                    other
+                    "Unsupported Timestamp unit '{other}'. Use Second, Millisecond, Microsecond, or Nanosecond."
                 ),
             };
-            let tz: Option<String> = if parts.len() > 1 && parts[1] != "None" {
-                Some(parts[1].to_string())
-            } else {
-                None
-            };
+            let tz: Option<String> = (parts.len() > 1 && parts[1] != "None").then(|| parts[1].to_string());
             Ok(DataType::Timestamp(unit, tz.map(Into::into)))
         }
         other => anyhow::bail!(
-            "Unsupported arrow_type: '{}'. Supported: Utf8, String, LargeUtf8, Int64, Int32, Int16, Int8, UInt64, UInt32, UInt16, UInt8, Float64, Float32, Boolean, Date32, Date64, Timestamp(unit, tz)",
-            other
+            "Unsupported arrow_type: '{other}'. Supported: Utf8, String, LargeUtf8, Int64, Int32, Int16, Int8, UInt64, UInt32, UInt16, UInt8, Float64, Float32, Boolean, Date32, Date64, Timestamp(unit, tz)"
         ),
     }
 }
@@ -413,62 +440,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_arrow_type_utf8() {
-        assert_eq!(parse_arrow_type("Utf8").unwrap(), DataType::Utf8);
-        assert_eq!(parse_arrow_type("String").unwrap(), DataType::Utf8);
+    fn parse_arrow_type_utf8() -> anyhow::Result<()> {
+        anyhow::ensure!(parse_arrow_type("Utf8")? == DataType::Utf8);
+        anyhow::ensure!(parse_arrow_type("String")? == DataType::Utf8);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_int64() {
-        assert_eq!(parse_arrow_type("Int64").unwrap(), DataType::Int64);
-        assert_eq!(parse_arrow_type("int64").unwrap(), DataType::Int64);
+    fn parse_arrow_type_int64() -> anyhow::Result<()> {
+        anyhow::ensure!(parse_arrow_type("Int64")? == DataType::Int64);
+        anyhow::ensure!(parse_arrow_type("int64")? == DataType::Int64);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_float64() {
-        assert_eq!(parse_arrow_type("Float64").unwrap(), DataType::Float64);
+    fn parse_arrow_type_float64() -> anyhow::Result<()> {
+        anyhow::ensure!(parse_arrow_type("Float64")? == DataType::Float64);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_boolean() {
-        assert_eq!(parse_arrow_type("Boolean").unwrap(), DataType::Boolean);
-        assert_eq!(parse_arrow_type("bool").unwrap(), DataType::Boolean);
+    fn parse_arrow_type_boolean() -> anyhow::Result<()> {
+        anyhow::ensure!(parse_arrow_type("Boolean")? == DataType::Boolean);
+        anyhow::ensure!(parse_arrow_type("bool")? == DataType::Boolean);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_timestamp_millisecond() {
-        let parsed = parse_arrow_type("Timestamp(Millisecond, None)").unwrap();
-        assert_eq!(parsed, DataType::Timestamp(TimeUnit::Millisecond, None));
+    fn parse_arrow_type_timestamp_millisecond() -> anyhow::Result<()> {
+        let parsed = parse_arrow_type("Timestamp(Millisecond, None)")?;
+        anyhow::ensure!(parsed == DataType::Timestamp(TimeUnit::Millisecond, None));
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_timestamp_tz() {
-        let parsed = parse_arrow_type("Timestamp(Microsecond, UTC)").unwrap();
-        assert_eq!(
-            parsed,
-            DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into()))
-        );
+    fn parse_arrow_type_timestamp_tz() -> anyhow::Result<()> {
+        let parsed = parse_arrow_type("Timestamp(Microsecond, UTC)")?;
+        anyhow::ensure!(parsed == DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())));
+        Ok(())
     }
 
     #[test]
-    fn test_parse_arrow_type_unsupported() {
-        assert!(parse_arrow_type("Blob").is_err());
+    fn parse_arrow_type_unsupported() -> anyhow::Result<()> {
+        let err = parse_arrow_type("Blob")
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected 'Blob' to be rejected"))?;
+        anyhow::ensure!(err.to_string().contains("Unsupported arrow_type"), "got: {err}");
+        Ok(())
     }
 
     #[test]
-    fn test_validate_parser_empty_columns_fails() {
+    fn validate_parser_empty_columns_fails() -> anyhow::Result<()> {
         let parser = ParserConfig {
             table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
             parser_type: "json_parser".into(),
             settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
         };
         let allowed: std::collections::HashSet<&str> = ["json_parser"].into();
-        assert!(validate_parser(&parser, &[], &allowed).is_err());
+        let err = validate_parser(&parser, &[], &allowed)
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected validation to fail on empty columns"))?;
+        anyhow::ensure!(err.to_string().contains("columns must not be empty"), "got: {err}");
+        Ok(())
     }
 
     #[test]
-    fn test_config_from_file_nonexistent() {
-        let result = Config::from_file("/nonexistent/path.yaml");
-        assert!(result.is_err());
+    fn config_from_file_nonexistent() -> anyhow::Result<()> {
+        let err = Config::from_file("/nonexistent/path.yaml")
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected missing config file to fail"))?;
+        anyhow::ensure!(err.to_string().contains("Failed to read config file"), "got: {err}");
+        Ok(())
     }
 }

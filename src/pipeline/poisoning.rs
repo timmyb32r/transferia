@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
@@ -6,12 +6,12 @@ use futures_util::future::BoxFuture;
 use crate::pipeline::sink::Sink;
 use crate::types::table_data::TableWrite;
 
-/// Sink wrapper with a poison flag and concurrent write() guard.
+/// Sink wrapper with a poison flag and concurrent `write()` guard.
 ///
-/// After the first INSERT error the flag is set — all subsequent write() calls
-/// immediately return an error. The in-flight guard (AtomicBool) panics on
-/// detection of a concurrent write() call — this is a violation of the
-/// "at most one write() at a time" invariant (spec §4.1).
+/// After the first INSERT error the flag is set — all subsequent `write()` calls
+/// immediately return an error. The in-flight guard (`AtomicBool`) panics on
+/// detection of a concurrent `write()` call — this is a violation of the
+/// "at most one `write()` at a time" invariant (spec §4.1).
 pub struct PoisoningSink {
     inner: Arc<dyn Sink>,
     poisoned: AtomicBool,
@@ -29,17 +29,15 @@ impl PoisoningSink {
 }
 
 impl Sink for PoisoningSink {
-    fn write<'a>(&'a self, w: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             // Enforcement: only one write() at a time
-            if self.write_in_flight.swap(true, Ordering::AcqRel) {
-                panic!("PoisoningSink: concurrent write() detected — waterline corruption risk");
-            }
+            assert!(!self.write_in_flight.swap(true, Ordering::AcqRel), "PoisoningSink: concurrent write() detected \u{2014} waterline corruption risk");
             let result = async {
                 if self.poisoned.load(Ordering::Acquire) {
                     anyhow::bail!("sink poisoned by a prior insert failure");
                 }
-                self.inner.write(w).await
+                return self.inner.write(write).await
             }
             .await;
             self.write_in_flight.store(false, Ordering::Release);
@@ -50,5 +48,5 @@ impl Sink for PoisoningSink {
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 }

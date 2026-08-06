@@ -2,7 +2,7 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{validate_parser, ChunkSplitter, ParserConfig};
+use crate::config::yaml::{validate_parser, ChunkSplitter, ParserConfig, SchemaConfig};
 use crate::pipeline::source::Source;
 use crate::providers::s3::config::{build_object_store, S3SourceConfig};
 use crate::providers::s3::source::S3Source;
@@ -15,7 +15,7 @@ pub struct S3SourceProvider {
 impl S3SourceProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
         let cfg: S3SourceConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse S3 source config: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to parse S3 source config: {e}"))?;
         if cfg.bucket.is_empty() {
             anyhow::bail!("s3.bucket must not be empty");
         }
@@ -24,7 +24,7 @@ impl S3SourceProvider {
         }
         if cfg.parser.settings.chunk_splitter == ChunkSplitter::NoSplit {
             anyhow::bail!(
-                "s3: chunk_splitter 'no-split' is not supported for S3 — use 'new-line'"
+                "s3: chunk_splitter 'no-split' is not supported for S3 \u{2014} use 'new-line'"
             );
         }
         if cfg.parser.table_naming.kind != "from_config" {
@@ -38,11 +38,11 @@ impl S3SourceProvider {
 }
 
 impl SourceProvider for S3SourceProvider {
-    fn build_source<'a>(
-        &'a self,
+    fn build_source(
+        &self,
         partition_id: i64,
         _cancel_token: CancellationToken,
-    ) -> BoxFuture<'a, anyhow::Result<Box<dyn Source>>> {
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let store = match build_object_store(&self.cfg) {
             Ok(s) => s,
             Err(e) => return Box::pin(async { Err(e) }),
@@ -58,11 +58,11 @@ impl SourceProvider for S3SourceProvider {
         })
     }
 
-    fn discover_partitions<'a>(
-        &'a self,
+    fn discover_partitions(
+        &self,
         _total_workers: u32,
         worker_index: u32,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<i64>>> {
+    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
         let parts = if worker_index == 0 { vec![0] } else { vec![] };
         Box::pin(async move { Ok(parts) })
     }
@@ -73,5 +73,9 @@ impl SourceProvider for S3SourceProvider {
 
     fn parser_config(&self) -> Option<&ParserConfig> {
         Some(&self.cfg.parser)
+    }
+
+    fn schema_config(&self) -> Option<&SchemaConfig> {
+        Some(&self.cfg.parser.settings)
     }
 }

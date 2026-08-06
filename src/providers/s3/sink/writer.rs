@@ -27,7 +27,7 @@ impl S3Sink {
 }
 
 impl Sink for S3Sink {
-    fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             if write.batches.is_empty() {
                 return Ok(());
@@ -51,11 +51,11 @@ impl Sink for S3Sink {
 
             let path = Path::from(key.clone());
             self.store.put(&path, payload.into()).await
-                .map_err(|e| anyhow::anyhow!("S3 put '{}' failed: {}", key, e))?;
+                .map_err(|e| anyhow::anyhow!("S3 put '{key}' failed: {e}"))?;
 
             tracing::info!(
                 "S3: wrote {} rows to '{}' (key: {})",
-                write.batches.iter().map(|b| b.num_rows()).sum::<usize>(),
+                write.batches.iter().map(arrow::array::RecordBatch::num_rows).sum::<usize>(),
                 write.table,
                 key,
             );
@@ -63,5 +63,5 @@ impl Sink for S3Sink {
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 }

@@ -10,6 +10,7 @@ use crate::types::exactly_once::ExactlyOnceKey;
 /// `table` is already resolved to the concrete target name
 /// (`"my_table"` or `"my_table.dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TableData {
     /// Resolved target table: `"my_table"` or `"my_table.dlq"`.
     pub table: Arc<str>,
@@ -29,6 +30,7 @@ pub struct TableData {
 ///
 /// **Invariant:** all batches in `batches` share the schema of `table`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TableWrite {
     /// Resolved table name (pre-resolved by the parser — no DLQ indirection).
     pub table: Arc<str>,
@@ -38,7 +40,32 @@ pub struct TableWrite {
     pub exactly_once_key: Option<ExactlyOnceKey>,
 }
 
+impl TableData {
+    #[must_use]
+    pub const fn new(
+        table: Arc<str>,
+        is_dlq: bool,
+        batch: RecordBatch,
+        batch_id: u64,
+        exactly_once_key: Option<ExactlyOnceKey>,
+    ) -> Self {
+        Self { table, is_dlq, batch, batch_id, exactly_once_key }
+    }
+}
+
+impl TableWrite {
+    #[must_use]
+    pub const fn new(
+        table: Arc<str>,
+        batches: Vec<RecordBatch>,
+        exactly_once_key: Option<ExactlyOnceKey>,
+    ) -> Self {
+        Self { table, batches, exactly_once_key }
+    }
+}
+
 /// Canonical `<table>.dlq` naming convention. The only place that formats this suffix.
+#[must_use]
 pub fn dlq_name(table: &str) -> String {
     format!("{table}_dlq")
 }

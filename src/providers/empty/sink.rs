@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::future::BoxFuture;
 
@@ -16,7 +16,8 @@ pub struct EmptySink {
 }
 
 impl EmptySink {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { rows: AtomicU64::new(0), bytes: AtomicU64::new(0) }
     }
 
@@ -44,7 +45,7 @@ impl Default for EmptySink {
 }
 
 impl Sink for EmptySink {
-    fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let total_rows: u64 = write
                 .batches
@@ -71,7 +72,7 @@ impl Sink for EmptySink {
         })
     }
 
-    fn as_any(&self) -> &dyn std::any::Any { self }
+    fn as_any(&self) -> &dyn core::any::Any { self }
 }
 
 #[cfg(test)]
@@ -83,11 +84,11 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
-    async fn empty_sink_counts_rows() {
+    async fn empty_sink_counts_rows() -> anyhow::Result<()> {
         let sink = EmptySink::new();
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
-        let arr = Int64Array::from(vec![1i64, 2, 3]);
-        let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
+        let arr = Int64Array::from(vec![1, 2, 3]);
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)])?;
 
         let write = TableWrite {
             table: "test".into(),
@@ -95,34 +96,53 @@ mod tests {
             exactly_once_key: None,
         };
 
-        sink.write(write).await.unwrap();
-        assert_eq!(sink.rows_written(), 3);
+        sink.write(write).await?;
+        anyhow::ensure!(
+            sink.rows_written() == 3,
+            "expected 3 rows, got {}",
+            sink.rows_written(),
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn empty_sink_accumulates_across_writes() {
+    async fn empty_sink_accumulates_across_writes() -> anyhow::Result<()> {
         let sink = EmptySink::new();
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
 
         for n in 1..=5 {
-            let arr = Int64Array::from(vec![1i64; n]);
-            let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(arr)]).unwrap();
+            let arr = Int64Array::from(vec![1; n]);
+            let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(arr)])?;
             let write = TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None };
-            sink.write(write).await.unwrap();
+            sink.write(write).await?;
         }
         // 1+2+3+4+5 = 15
-        assert_eq!(sink.rows_written(), 15);
+        anyhow::ensure!(
+            sink.rows_written() == 15,
+            "expected 15 rows, got {}",
+            sink.rows_written(),
+        );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn empty_sink_reset_zeros_counters() {
+    async fn empty_sink_reset_zeros_counters() -> anyhow::Result<()> {
         let sink = EmptySink::new();
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
-        let arr = Int64Array::from(vec![1i64; 10]);
-        let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
-        sink.write(TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None }).await.unwrap();
-        assert_eq!(sink.rows_written(), 10);
+        let arr = Int64Array::from(vec![1; 10]);
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)])?;
+        sink.write(TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None }).await?;
+        anyhow::ensure!(
+            sink.rows_written() == 10,
+            "expected 10 rows, got {}",
+            sink.rows_written(),
+        );
         sink.reset();
-        assert_eq!(sink.rows_written(), 0);
+        anyhow::ensure!(
+            sink.rows_written() == 0,
+            "expected 0 rows after reset, got {}",
+            sink.rows_written(),
+        );
+        Ok(())
     }
 }

@@ -1,12 +1,13 @@
+use arrow::array::StringArray;
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::future::BoxFuture;
-use futures_util::StreamExt;
+use futures_util::StreamExt as _;
 use regex::Regex;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 
-/// ClickHouse source: reads tables into Arrow batches and feeds them directly
+/// `ClickHouse` source: reads tables into Arrow batches and feeds them directly
 /// into the pipeline (Arrow passthrough — no JSON serialization roundtrip).
 ///
 /// Table selection via one of two variants:
@@ -17,25 +18,33 @@ pub struct ClickHouseSource {
     tables: Vec<TableRef>,
     current_table_idx: usize,
     current_page: usize,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "kept for API completeness")]
     partition_id: i64,
     rows_per_page: usize,
     exhausted: bool,
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TableRef {
     pub schema_name: String,
     pub table_name: String,
 }
 
 impl TableRef {
+    #[must_use]
+    pub const fn new(schema_name: String, table_name: String) -> Self {
+        Self { schema_name, table_name }
+    }
+
+    #[must_use]
     pub fn qualified_name(&self) -> String {
         format!("`{}`.`{}`", self.schema_name, self.table_name)
     }
 }
 
 /// Table selection strategy.
+#[non_exhaustive]
 pub enum TableSelection {
     /// Explicit list of tables to transfer.
     Explicit(Vec<TableRef>),
@@ -49,7 +58,7 @@ pub enum TableSelection {
 }
 
 impl ClickHouseSource {
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments, reason = "constructor takes connection settings explicitly")]
     pub async fn new(
         connection_string: &str,
         database: &str,
@@ -64,25 +73,25 @@ impl ClickHouseSource {
         let pool = ConnectionPoolBuilder::<ArrowFormat>::new(connection_string)
             .configure_pool(|p| p.max_size(2))
             .configure_client(|b| {
-                let mut b = b.with_database(database)
+                let mut builder = b.with_database(database)
                     .with_username(username)
                     .with_password(password)
                     .with_tls(use_tls);
                 if let Some(domain) = tls_domain {
-                    b = b.with_domain(domain);
+                    builder = builder.with_domain(domain);
                 }
-                b
+                builder
             })
             .build().await
-            .map_err(|e| anyhow::anyhow!("CH source pool: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("CH source pool: {e}"))?;
 
         // Verify connectivity (scoped so client is dropped before discover)
         {
             let client = pool.get().await
-                .map_err(|e| anyhow::anyhow!("CH source pool get: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("CH source pool get: {e}"))?;
             client.execute("SELECT 1", None).await
-                .map_err(|e| anyhow::anyhow!("CH source health check: {}", e))?;
-        }
+                .map_err(|e| anyhow::anyhow!("CH source health check: {e}"))?;
+        };
 
         let tables = match selection {
             TableSelection::Explicit(ts) => ts,
@@ -114,24 +123,22 @@ impl ClickHouseSource {
         excludes: &[Regex],
     ) -> anyhow::Result<Vec<TableRef>> {
         let client = pool.get().await
-            .map_err(|e| anyhow::anyhow!("CH source discover: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("CH source discover: {e}"))?;
 
         let query = format!(
-            "SELECT database, name FROM system.tables WHERE database = '{}'",
-            database,
+            "SELECT database, name FROM system.tables WHERE database = '{database}'",
         );
         let mut response = client.query(&query, None).await
-            .map_err(|e| anyhow::anyhow!("CH source discover query: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("CH source discover query: {e}"))?;
 
         let mut tables = Vec::new();
         while let Some(batch_result) = response.next().await {
             let batch: RecordBatch = batch_result
-                .map_err(|e| anyhow::anyhow!("CH source discover batch: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("CH source discover batch: {e}"))?;
 
             let schema_col = batch.column(0);
             let name_col = batch.column(1);
 
-            use arrow::array::StringArray;
             let schemas = schema_col.as_any().downcast_ref::<StringArray>()
                 .ok_or_else(|| anyhow::anyhow!("Expected String column for schema"))?;
             let names = name_col.as_any().downcast_ref::<StringArray>()
@@ -140,13 +147,13 @@ impl ClickHouseSource {
             for row in 0..batch.num_rows() {
                 let schema_name = schemas.value(row).to_string();
                 let table_name = names.value(row).to_string();
-                let full_name = format!("{}.{}", schema_name, table_name);
+                let full_name = format!("{schema_name}.{table_name}");
 
-                // Apply include patterns (AND): must match ALL
+                // Apply to include patterns (AND): must match ALL
                 let included = includes.is_empty() || includes.iter().all(|re| re.is_match(&full_name));
                 if !included { continue; }
 
-                // Apply exclude patterns (AND): must match NONE
+                // Apply to exclude patterns (AND): must match NONE
                 let excluded = excludes.iter().any(|re| re.is_match(&full_name));
                 if excluded { continue; }
 
@@ -169,15 +176,15 @@ impl ClickHouseSource {
         );
 
         let client = self.pool.get().await
-            .map_err(|e| anyhow::anyhow!("CH source read query: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("CH source read query: {e}"))?;
 
         let mut response = client.query(&query, None).await
-            .map_err(|e| anyhow::anyhow!("CH source read: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("CH source read: {e}"))?;
 
         let mut batches = Vec::new();
         while let Some(batch_result) = response.next().await {
             let batch: RecordBatch = batch_result
-                .map_err(|e| anyhow::anyhow!("CH source read batch: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("CH source read batch: {e}"))?;
             batches.push(batch);
         }
 
@@ -186,7 +193,7 @@ impl ClickHouseSource {
 }
 
 impl Source for ClickHouseSource {
-    fn read_batch<'a>(&'a mut self) -> BoxFuture<'a, anyhow::Result<ReadResult>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
         Box::pin(async move {
             if self.exhausted {
                 return Ok(ReadResult::Exhausted);
@@ -215,7 +222,7 @@ impl Source for ClickHouseSource {
                     continue;
                 }
 
-                let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+                let total_rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
                 self.current_page += 1;
 
                 tracing::info!(
@@ -232,7 +239,7 @@ impl Source for ClickHouseSource {
         })
     }
 
-    fn commit_offsets<'a>(&'a mut self, _marker: &'a CommitMarker) -> BoxFuture<'a, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(&'ctx mut self, _marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move { Ok(()) })
     }
 }
