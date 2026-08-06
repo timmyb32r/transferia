@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -22,6 +22,10 @@ pub struct YdsSinkConfig {
     /// Serializer type (currently only "json").
     #[serde(default = "default_serializer")]
     pub serializer_type: String,
+    /// When `true`, null-valued columns are elided (absent keys) in JSON output.
+    /// Default: `false` — nulls are emitted as `"col": null`.
+    #[serde(default)]
+    pub skip_null_columns: bool,
 }
 
 fn default_database() -> String { "/Root".into() }
@@ -43,8 +47,7 @@ impl YdsSinkProvider {
             anyhow::bail!("yds sink: topic_path must not be empty");
         }
 
-        let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
-            .map_err(|e| anyhow::anyhow!("YDS sink: {e}"))?;
+        let serializer = crate::serializer::build_json_serializer(cfg.skip_null_columns);
 
         tracing::info!(
             "YDS sink: topic={} serializer={}",

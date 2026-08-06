@@ -11,15 +11,19 @@ use super::Serializer;
 /// This is the exact inverse of the JSON parser — the output can be
 /// read back by the S3 source or YDS source without modification.
 ///
-/// Null values are elided (absent keys). This is compatible with the
-/// JSON parser which treats missing keys as nullable columns.
+/// By default, null values are emitted as `"col": null`. When
+/// `skip_null_columns` is `true`, null keys are elided (absent from
+/// the JSON object) — compatible with the JSON parser which treats
+/// missing keys as nullable columns.
 ///
 /// **Optimization**: Column types are pre-classified into [`ColumnWriter`]
 /// variants during the first serialization. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
 #[non_exhaustive]
-pub struct JsonSerializer;
+pub struct JsonSerializer {
+    skip_null_columns: bool,
+}
 
 /// Pre-classified column writer: holds a typed reference to the Arrow array
 /// so we never need `downcast_ref` during the value-writing loop.
@@ -232,7 +236,7 @@ impl Serializer for JsonSerializer {
             buf.push(b'{');
             let mut first = true;
             for (col_name, writer) in &columns {
-                if writer.is_null_at(row) {
+                if self.skip_null_columns && writer.is_null_at(row) {
                     continue;
                 }
                 if !first {
@@ -241,7 +245,11 @@ impl Serializer for JsonSerializer {
                 first = false;
                 write_json_string(&mut buf, col_name);
                 buf.push(b':');
-                writer.write_value(&mut buf, row);
+                if writer.is_null_at(row) {
+                    buf.extend_from_slice(b"null");
+                } else {
+                    writer.write_value(&mut buf, row);
+                }
             }
             buf.push(b'}');
         }
@@ -270,9 +278,18 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
     buf.push(b'"');
 }
 
+impl JsonSerializer {
+    /// Creates a serializer with `skip_null_columns` set to `false` (nulls are emitted
+    /// as `"col": null` in the JSON output).
+    #[must_use]
+    pub fn new(skip_null_columns: bool) -> Self {
+        Self { skip_null_columns }
+    }
+}
+
 impl Default for JsonSerializer {
     fn default() -> Self {
-        Self
+        Self { skip_null_columns: false }
     }
 }
 
@@ -312,7 +329,7 @@ mod tests {
             ],
         )?;
 
-        let serializer = JsonSerializer;
+        let serializer = JsonSerializer::default();
         let output = serializer.serialize_batch(&batch)?;
         let text = String::from_utf8(output.to_vec())?;
 
@@ -328,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_with_nulls() -> anyhow::Result<()> {
+    fn serialize_with_nulls_default() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("x", DataType::Int64, true),
             Field::new("y", DataType::Utf8, true),
@@ -343,7 +360,8 @@ mod tests {
             vec![Arc::new(x_arr), Arc::new(y_builder.finish())],
         )?;
 
-        let serializer = JsonSerializer;
+        // Default: skip_null_columns = false → nulls emitted as "col": null
+        let serializer = JsonSerializer::default();
         let output = serializer.serialize_batch(&batch)?;
         let text = String::from_utf8(output.to_vec())?;
 
@@ -351,7 +369,37 @@ mod tests {
         anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
 
         let row2: serde_json::Value = serde_json::from_str(lines[1])?;
-        anyhow::ensure!(row2.get("y").is_none(), "null column should be absent");
+        anyhow::ensure!(row2.get("y").is_some(), "null column should be present as \"y\": null");
+        anyhow::ensure!(row2["y"].is_null(), "y should be null");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_skip_null_columns() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("x", DataType::Int64, true),
+            Field::new("y", DataType::Utf8, true),
+        ]));
+        let x_arr = Int64Array::from(vec![1, 2]);
+        let mut y_builder = StringBuilder::with_capacity(2, 32);
+        y_builder.append_value("hello");
+        y_builder.append_null();
+
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(x_arr), Arc::new(y_builder.finish())],
+        )?;
+
+        // skip_null_columns = true → null keys elided
+        let serializer = JsonSerializer::new(true);
+        let output = serializer.serialize_batch(&batch)?;
+        let text = String::from_utf8(output.to_vec())?;
+
+        let lines: Vec<&str> = text.lines().collect();
+        anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
+
+        let row2: serde_json::Value = serde_json::from_str(lines[1])?;
+        anyhow::ensure!(row2.get("y").is_none(), "null column should be absent when skipped");
         Ok(())
     }
 
@@ -371,7 +419,7 @@ mod tests {
             vec![Arc::new(id_arr), Arc::new(val_builder.finish())],
         )?;
 
-        let serializer = JsonSerializer;
+        let serializer = JsonSerializer::default();
         let output = serializer.serialize_batch(&batch)?;
 
         let parser_config = crate::config::yaml::SchemaConfig {
@@ -392,6 +440,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: crate::config::yaml::ChunkSplitter::NewLine,
+            skip_null_columns: false,
         };
 
         let parser = crate::parser::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;

@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use core::sync::atomic::AtomicU64;
 
 // Named `Ydb` (not `ydb`) to mirror the proto package `Ydb` and its generated paths.

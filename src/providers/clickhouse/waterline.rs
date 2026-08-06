@@ -1,5 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use alloc::collections::VecDeque;
+use std::collections::{HashMap, HashSet};
+use alloc::sync::Arc;
 
 use arrow::array::{Array as _, Int64Array};
 use arrow::record_batch::RecordBatch;

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
@@ -8,11 +8,11 @@ use crate::types::exactly_once::ExactlyOnceKey;
 ///
 /// Flows: **parser → middlewares → accumulator**.
 /// `table` is already resolved to the concrete target name
-/// (`"my_table"` or `"my_table.dlq"`) — there is no `dlq_flag` indirection.
+/// (`"my_table"` or `"my_table_dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct TableData {
-    /// Resolved target table: `"my_table"` or `"my_table.dlq"`.
+    /// Resolved target table: `"my_table"` or `"my_table_dlq"`.
     pub table: Arc<str>,
     /// Informational flag for tracing / short-circuit decisions.
     pub is_dlq: bool,
@@ -64,7 +64,7 @@ impl TableWrite {
     }
 }
 
-/// Canonical `<table>.dlq` naming convention. The only place that formats this suffix.
+/// Canonical `<table>_dlq` naming convention. The only place that formats this suffix.
 #[must_use]
 pub fn dlq_name(table: &str) -> String {
     format!("{table}_dlq")

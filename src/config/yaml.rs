@@ -218,6 +218,10 @@ pub struct SchemaConfig {
     /// - `new-line`:  split by `\n`, each non-empty line is one JSON
     #[serde(default)]
     pub chunk_splitter: ChunkSplitter,
+    /// When `true`, null-valued columns are elided (absent keys) in serialized
+    /// JSON output. When `false` (default), nulls are emitted as `"col": null`.
+    #[serde(default)]
+    pub skip_null_columns: bool,
 }
 
 impl SchemaConfig {
@@ -229,6 +233,7 @@ impl SchemaConfig {
             raw_payload_field: None,
             order_by: Vec::new(),
             chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         }
     }
 
@@ -494,7 +499,7 @@ mod tests {
         let parser = ParserConfig {
             table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
             parser_type: "json_parser".into(),
-            settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
+            settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit, skip_null_columns: false },
         };
         let allowed: std::collections::HashSet<&str> = ["json_parser"].into();
         let err = validate_parser(&parser, &[], &allowed)

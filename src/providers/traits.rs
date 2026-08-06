@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::sync::Arc;
 use std::collections::HashMap;
 
 use futures_util::future::BoxFuture;

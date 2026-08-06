@@ -1,4 +1,6 @@
-use std::sync::Arc;
+extern crate alloc;
+
+use alloc::sync::Arc;
 
 use clap::Parser;
 use mimalloc::MiMalloc;

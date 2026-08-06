@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 

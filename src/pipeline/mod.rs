@@ -4,7 +4,7 @@ pub mod sink;
 pub mod poisoning;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use alloc::sync::Arc;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};

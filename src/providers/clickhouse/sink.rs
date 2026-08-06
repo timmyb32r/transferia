@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use arrow::array::{Array as _, Int64Array, StringArray};
 use arrow::compute;

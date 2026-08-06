@@ -1,7 +1,8 @@
 pub mod json_serializer;
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use alloc::sync::Arc;
+use std::sync::{LazyLock, Mutex};
 
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
@@ -28,7 +29,7 @@ type SerializerFactory = Arc<dyn Fn() -> Arc<dyn Serializer> + Send + Sync>;
 static SERIALIZER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, SerializerFactory>>> =
     LazyLock::new(|| {
         let mut m: HashMap<&'static str, SerializerFactory> = HashMap::new();
-        m.insert("json", Arc::new(|| Arc::new(JsonSerializer) as Arc<dyn Serializer>));
+        m.insert("json", Arc::new(|| Arc::new(JsonSerializer::default()) as Arc<dyn Serializer>));
         Mutex::new(m)
     });
 
@@ -38,6 +39,14 @@ pub fn register_serializer(name: &'static str, factory: SerializerFactory) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(name, factory);
+}
+
+/// Build a JSON serializer with explicit null-column skipping behavior.
+/// `skip_nulls=true` elides null-valued keys from output; the default (`false`)
+/// emits them as `"col": null`.
+#[must_use]
+pub fn build_json_serializer(skip_nulls: bool) -> Arc<dyn Serializer> {
+    Arc::new(JsonSerializer::new(skip_nulls))
 }
 
 pub fn build_serializer(name: &str) -> anyhow::Result<Arc<dyn Serializer>> {

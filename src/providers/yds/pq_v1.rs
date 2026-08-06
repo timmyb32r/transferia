@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use core::pin::Pin;
-use std::sync::Arc;
+use alloc::sync::Arc;
 use core::task::{Context, Poll};
 
 use anyhow::anyhow;

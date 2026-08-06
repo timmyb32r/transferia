@@ -11,8 +11,8 @@ use bytes::Bytes;
 use serde::{de, Deserializer};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::fmt;
-use std::sync::Arc;
+use core::fmt;
+use alloc::sync::Arc;
 use time::format_description::well_known::Rfc3339;
 
 use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
@@ -310,7 +310,7 @@ enum TypedScratch {
 
 /// Writes a deserialized value directly into `TypedScratch` according to `ColumnKind`.
 /// Strings are stored as byte-range indices — no `String` allocation.
-struct TypedValueWriter2<'ctx> {
+struct TypedValueWriter<'ctx> {
     target: &'ctx mut TypedScratch,
     /// Base pointer of the JSON buffer. Used to compute the byte offset of the
     /// `&str` returned by simd-json via pointer arithmetic:
@@ -319,7 +319,7 @@ struct TypedValueWriter2<'ctx> {
     kind: ColumnKind,
 }
 
-impl<'de> de::DeserializeSeed<'de> for TypedValueWriter2<'_> {
+impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
     type Value = ();
 
     fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
@@ -647,7 +647,7 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
         while let Some(key) = map.next_key::<&str>()? {
             if let Some(&idx) = self.index.get(key) {
                 let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
-                let seed = TypedValueWriter2 {
+                let seed = TypedValueWriter {
                     target: &mut self.scratch[idx],
                     buf_ptr: self.buf_ptr,
                     kind: self.kinds[idx],
@@ -795,7 +795,7 @@ pub struct JsonParser {
     mode: ParseMode,
     /// Base destination table name, stamped into every produced batch's meta.
     table: Arc<str>,
-    /// Pre-resolved DLQ table name (`<table>.dlq`).
+    /// Pre-resolved DLQ table name (`<table>_dlq`).
     dlq_table: Arc<str>,
     /// Cached per-column `DataType` (avoids double `parse_arrow_type`).
     _data_types: Vec<DataType>,
@@ -1416,6 +1416,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
+            skip_null_columns: false,
         };
 
         let parser = JsonParser::new(&config, "test".into(), None)?;
@@ -1446,7 +1447,7 @@ mod tests {
     /// at the end — `__system_partition` (const per Message) + `__system_offset`
     /// (per-row). DLQ rows do not append to the main offset column.
     #[test]
-    fn exactly_once_yts_key_columns_filled() -> anyhow::Result<()> {
+    fn exactly_once_yds_key_columns_filled() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
@@ -1462,6 +1463,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1511,6 +1513,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_filename".into() },
@@ -1552,6 +1555,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
+            skip_null_columns: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1599,6 +1603,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1652,6 +1657,7 @@ mod tests {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },

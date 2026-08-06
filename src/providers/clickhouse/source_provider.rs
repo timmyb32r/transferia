@@ -1,4 +1,5 @@
-use std::sync::{Arc, OnceLock};
+use alloc::sync::Arc;
+use std::sync::OnceLock;
 
 use arrow::array::StringArray;
 use futures_util::future::BoxFuture;
@@ -172,6 +173,7 @@ impl ClickHouseSourceProvider {
             raw_payload_field: None,
             order_by: vec![],
             chunk_splitter: crate::config::yaml::ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         })
     }
 }

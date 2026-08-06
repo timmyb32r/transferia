@@ -1,7 +1,8 @@
 pub mod json_parser;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock, Mutex};
+use alloc::sync::Arc;
+use std::sync::{LazyLock, Mutex};
 
 use json_parser::{JsonParser, ParserWorkspace};
 

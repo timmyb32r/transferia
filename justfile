@@ -27,3 +27,7 @@ clippy:
 
 # CI pipeline — same as verify
 ci: verify
+
+# Sort Cargo.toml dependencies alphabetically
+cargo-sort:
+    cargo sort --check --grouped

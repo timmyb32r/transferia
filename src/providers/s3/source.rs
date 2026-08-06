@@ -10,7 +10,7 @@
 //!
 //! Zero-copy: `Bytes::slice` from the chunk buffer — no per-record memcpy.
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures_util::future::BoxFuture;

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
@@ -33,6 +33,10 @@ pub struct S3SinkConfig {
     /// Serializer type (currently only "json").
     #[serde(default = "default_serializer")]
     pub serializer_type: String,
+    /// When `true`, null-valued columns are elided (absent keys) in JSON output.
+    /// Default: `false` — nulls are emitted as `"col": null`.
+    #[serde(default)]
+    pub skip_null_columns: bool,
 }
 
 fn default_region() -> String { "us-east-1".into() }
@@ -52,8 +56,7 @@ impl S3SinkProvider {
             anyhow::bail!("s3 sink: bucket must not be empty");
         }
 
-        let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
-            .map_err(|e| anyhow::anyhow!("S3 sink: {e}"))?;
+        let serializer = crate::serializer::build_json_serializer(cfg.skip_null_columns);
 
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&cfg.bucket)

@@ -5,40 +5,40 @@ edition = "2021"
 description = "Multi-source, multi-sink data transfer pipeline: YDB Topic, PQv1, S3, ClickHouse → Arrow → ClickHouse, S3, YDS"
 
 [dependencies]
-ydb = { version = "0.13", features = ["force-exhaustive-all"] }
-clickhouse-arrow = "0.2"
-arrow = "57"
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
-serde_json = "1"
-simd-json = "0.17"
-itoa = "1"
-ryu = "1"
-jsonpath_lib = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
-tokio-util = "0.7"
-clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
+arrow = "57"
 bytes = "1"
-hex = "0.4"
-mimalloc = { version = "0.1", features = ["v2"] }
-time = "0.3"
-shellexpand = "3"
+clap = { version = "4", features = ["derive", "env"] }
+clickhouse-arrow = "0.2"
+flate2 = "1"
 futures-util = "0.3"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-tonic = { version = "0.14", features = ["transport", "tls-native-roots"] }
+hex = "0.4"
+http = "1"
 hyper = { version = "1", features = ["client", "http2"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
-http = "1"
-tower = "0.5"
+itoa = "1"
+jsonpath_lib = "0.3"
+mimalloc = { version = "0.1", features = ["v2"] }
+object_store = { version = "0.12", default-features = false, features = ["aws"] }
 prost = "0.14"
 prost-types = "0.14"
-tonic-prost = "0.14"
-flate2 = "1"
-zstd = "0.13"
 regex = "1"
-object_store = { version = "0.12", default-features = false, features = ["aws"] }
+ryu = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+shellexpand = "3"
+simd-json = "0.17"
+time = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
+tokio-util = "0.7"
+tonic = { version = "0.14", features = ["transport", "tls-native-roots"] }
+tonic-prost = "0.14"
+tower = "0.5"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+ydb = { version = "0.13", features = ["force-exhaustive-all"] }
+zstd = "0.13"
 
 [build-dependencies]
 tonic-prost-build = "0.14"
@@ -57,7 +57,6 @@ wildcard_imports = "allow"                # use super::* in mod tests is the sta
 question_mark_used = "allow"              # `?` operator is the foundation of Rust error handling
 absolute_paths = "allow"                  # super:: / self:: are idiomatic and survive module moves
 as_conversions = "allow"                  # `as` casts (e.g. usize as u32) are standard, banning them is overly strict
-std_instead_of_alloc = "allow"            # std re-exports alloc items; importing from alloc manually has no practical benefit
 single_call_fn = "allow"                  # extracting a function called once is a valid readability/documentation choice
 arbitrary_source_item_ordering = "allow"  # item ordering is often semantic/logical, not alphabetical
 min_ident_chars = "allow"                 # short names (i, j, x, y) are idiomatic in loops and closures

@@ -2,12 +2,12 @@
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ExactlyOnceColumn {
-    pub name: std::sync::Arc<str>,
+    pub name: alloc::sync::Arc<str>,
 }
 
 impl ExactlyOnceColumn {
     #[must_use]
-    pub const fn new(name: std::sync::Arc<str>) -> Self {
+    pub const fn new(name: alloc::sync::Arc<str>) -> Self {
         Self { name }
     }
 }
