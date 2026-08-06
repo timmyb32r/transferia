@@ -10,8 +10,8 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
-use crate::parser::json_parser::ParserWorkspace;
-use crate::parser::Parser;
+use crate::parsers::json_parser::ParserWorkspace;
+use crate::parsers::Parser;
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;

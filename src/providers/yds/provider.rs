@@ -3,7 +3,8 @@ use serde::Deserialize;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{validate_parser, AuthConfig, ParserConfig, SchemaConfig};
+use crate::config::yaml::{AuthConfig, ParserConfig, SchemaConfig};
+use crate::parsers::json_parser::JsonParserConfig;
 use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 use crate::providers::yds::credentials::{build_credentials, build_credentials_with_token};
@@ -28,6 +29,8 @@ pub struct YdsSourceConfig {
 pub struct YdsSourceProvider {
     cfg: YdsSourceConfig,
     kind: String, // "topic" or "pqv1"
+    /// Cached DDL schema derived from the parser config.
+    cached_schema: SchemaConfig,
 }
 
 impl YdsSourceProvider {
@@ -43,8 +46,11 @@ impl YdsSourceProvider {
         if cfg.consumer_name.is_empty() {
             anyhow::bail!("{kind}.consumer_name must not be empty");
         }
-        validate_parser(&cfg.parser, &[], &crate::parser::parser_names())?;
-        Ok(Self { cfg, kind: kind.to_string() })
+        let parser_cfg: JsonParserConfig = serde_yaml::from_value(
+            cfg.parser.parser.raw()?.clone(),
+        )?;
+        let cached_schema = parser_cfg.to_schema_config();
+        Ok(Self { cfg, kind: kind.to_string(), cached_schema })
     }
 }
 
@@ -143,6 +149,6 @@ impl SourceProvider for YdsSourceProvider {
     }
 
     fn schema_config(&self) -> Option<&SchemaConfig> {
-        Some(&self.cfg.parser.settings)
+        Some(&self.cached_schema)
     }
 }

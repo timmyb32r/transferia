@@ -16,7 +16,8 @@ use alloc::sync::Arc;
 use time::format_description::well_known::Rfc3339;
 
 use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
-use crate::parser::Parser;
+use crate::parsers::json_parser::config::JsonParserConfig;
+use crate::parsers::Parser;
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
 use crate::types::message::Message;
 use crate::types::table_data::{dlq_name, TableData};
@@ -806,6 +807,8 @@ pub struct JsonParser {
     /// DLQ schema is derived from it (spec §7). Must match the `exactly_once_key`
     /// passed to `parse_into` (they originate from the same source config).
     exactly_once_key: Option<ExactlyOnceKey>,
+    /// Stored config for DDL / schema access.
+    config: JsonParserConfig,
 }
 
 struct ColumnMappingExt {
@@ -815,11 +818,19 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
+    #[must_use]
+    pub fn schema_config(&self) -> SchemaConfig {
+        self.config.to_schema_config()
+    }
+
     pub fn new(
-        config: &SchemaConfig,
+        config: &JsonParserConfig,
         table: Arc<str>,
         exactly_once_key: Option<ExactlyOnceKey>,
     ) -> anyhow::Result<Self> {
+        if config.columns.is_empty() {
+            anyhow::bail!("columns must not be empty");
+        }
         let n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
@@ -876,7 +887,7 @@ impl JsonParser {
         let arrow_schema = Arc::new(Schema::new(schema_fields));
         let dlq_table: Arc<str> = dlq_name(&table).into();
 
-        Ok(Self { mappings, kinds, arrow_schema, mode, table, dlq_table, _data_types: data_types, chunk_splitter: config.chunk_splitter, exactly_once_key })
+        Ok(Self { mappings, kinds, arrow_schema, mode, table, dlq_table, _data_types: data_types, chunk_splitter: config.chunk_splitter, exactly_once_key, config: config.clone() })
     }
 
     #[inline]
@@ -1315,6 +1326,7 @@ impl Parser for JsonParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parsers::json_parser::config::JsonParserConfig;
 
     /// Verifies the core invariant end-to-end: simd-json returns `&str`
     /// values whose bytes exactly match `json_buf[start..end]`.
@@ -1398,7 +1410,7 @@ mod tests {
     fn newline_chunk_splitter() -> anyhow::Result<()> {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -1451,7 +1463,7 @@ mod tests {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -1501,7 +1513,7 @@ mod tests {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -1543,7 +1555,7 @@ mod tests {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -1591,7 +1603,7 @@ mod tests {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -1645,7 +1657,7 @@ mod tests {
         use crate::config::yaml::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
-        let config = SchemaConfig {
+        let config = JsonParserConfig {
             columns: vec![
                 ColumnMapping {
                     jsonpath: "$.id".into(),

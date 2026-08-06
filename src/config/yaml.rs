@@ -91,29 +91,13 @@ impl SinkEntry {
 // Common parser validation (called by every source provider)
 // ---------------------------------------------------------------------------
 
-/// Common parser checks every source provider must call.
-///
-/// Validates: `parser_type`, columns non-empty, `arrow_types`, middleware↔columns.
-/// `allowed_parsers` — set of registered parser names (e.g. `{"json_parser"}`).
-pub fn validate_parser<S: core::hash::BuildHasher>(
-    parser: &ParserConfig,
+/// Validate middleware↔column compatibility against the JSON parser config.
+/// The parser itself validates its own config (`columns`, `arrow_type`, etc.)
+/// during construction.
+pub fn validate_parser_middlewares(
+    columns: &[ColumnMapping],
     middlewares: &[MiddlewareConfig],
-    allowed_parsers: &std::collections::HashSet<&str, S>,
 ) -> anyhow::Result<()> {
-    if !allowed_parsers.contains(parser.parser_type.as_str()) {
-        anyhow::bail!(
-            "parser_type '{}' unsupported; registered: {:?}",
-            parser.parser_type,
-            allowed_parsers,
-        );
-    }
-    if parser.settings.columns.is_empty() {
-        anyhow::bail!("columns must not be empty");
-    }
-    for col in &parser.settings.columns {
-        parse_arrow_type(&col.arrow_type)
-            .map_err(|e| anyhow::anyhow!("Column '{}' invalid arrow_type: {}", col.column_name, e))?;
-    }
     for (i, mw) in middlewares.iter().enumerate() {
         if mw.mw_type != "filter" { continue; }
         if mw.field.as_ref().is_none_or(String::is_empty) {
@@ -122,7 +106,7 @@ pub fn validate_parser<S: core::hash::BuildHasher>(
         if mw.value.as_ref().is_none_or(String::is_empty) {
             anyhow::bail!("middlewares[{i}]: filter requires non-empty 'value'");
         }
-        let col = parser.settings.columns.iter()
+        let col = columns.iter()
             .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
             .ok_or_else(|| anyhow::anyhow!(
                 "middlewares[{}]: filter field '{}' not found in columns",
@@ -152,10 +136,9 @@ pub fn validate_parser<S: core::hash::BuildHasher>(
 pub struct ParserConfig {
     /// How the destination table name is chosen.
     pub table_naming: TableNaming,
-    /// Concrete parser kind (currently only "`json_parser`").
-    pub parser_type: String,
-    /// Parser-specific settings (for `json_parser`: column mappings).
-    pub settings: SchemaConfig,
+    /// Parser entry — `{ <kind>: { <config> } }` — exactly one key.
+    #[serde(flatten)]
+    pub parser: crate::parsers::ParserEntry,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -495,16 +478,17 @@ mod tests {
     }
 
     #[test]
-    fn validate_parser_empty_columns_fails() -> anyhow::Result<()> {
-        let parser = ParserConfig {
-            table_naming: TableNaming { kind: "from_config".into(), name: Some("events".into()) },
-            parser_type: "json_parser".into(),
-            settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit, skip_null_columns: false },
+    fn json_parser_empty_columns_fails() -> anyhow::Result<()> {
+        let cfg = crate::parsers::json_parser::JsonParserConfig {
+            columns: vec![],
+            raw_payload_field: None,
+            order_by: vec![],
+            chunk_splitter: ChunkSplitter::NoSplit,
+            skip_null_columns: false,
         };
-        let allowed: std::collections::HashSet<&str> = ["json_parser"].into();
-        let err = validate_parser(&parser, &[], &allowed)
+        let err = crate::parsers::json_parser::JsonParser::new(&cfg, "test".into(), None)
             .err()
-            .ok_or_else(|| anyhow::anyhow!("expected validation to fail on empty columns"))?;
+            .ok_or_else(|| anyhow::anyhow!("expected empty columns to fail"))?;
         anyhow::ensure!(err.to_string().contains("columns must not be empty"), "got: {err}");
         Ok(())
     }

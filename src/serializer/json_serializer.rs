@@ -295,7 +295,7 @@ mod tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc;
 
-    use crate::parser::Parser as _;
+    use crate::parsers::Parser as _;
 
     #[test]
     fn serialize_simple_batch() -> anyhow::Result<()> {
@@ -417,7 +417,7 @@ mod tests {
         let serializer = JsonSerializer::default();
         let output = serializer.serialize_batch(&batch)?;
 
-        let parser_config = crate::config::yaml::SchemaConfig {
+        let parser_config = crate::parsers::json_parser::JsonParserConfig {
             columns: vec![
                 crate::config::yaml::ColumnMapping {
                     jsonpath: "$.id".into(),
@@ -438,8 +438,8 @@ mod tests {
             skip_null_columns: false,
         };
 
-        let parser = crate::parser::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
-        let mut ws = crate::parser::json_parser::ParserWorkspace::new();
+        let parser = crate::parsers::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
+        let mut ws = crate::parsers::json_parser::ParserWorkspace::new();
         let msgs = vec![crate::types::message::Message { value: output, offset: None, partition: None }];
 
         let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws)?;

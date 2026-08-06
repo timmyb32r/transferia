@@ -40,7 +40,7 @@ pub mod Ydb {
 
 pub mod config;
 pub mod middleware;
-pub mod parser;
+pub mod parsers;
 pub mod partition;
 pub mod pipeline;
 pub mod providers;

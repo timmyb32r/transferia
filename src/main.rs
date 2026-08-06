@@ -6,7 +6,7 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use transferia::config::yaml::{validate_parser, Config};
+use transferia::config::yaml::Config;
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
@@ -33,7 +33,7 @@ struct Cli {
 
 #[derive(Clone)]
 struct PipelineDeps {
-    parser: Option<Arc<dyn transferia::parser::Parser>>,
+    parser: Option<Arc<dyn transferia::parsers::Parser>>,
     table: Arc<str>,
     mw: Arc<Vec<Box<dyn Middleware>>>,
     snk: Arc<dyn transferia::pipeline::sink::Sink>,
@@ -151,19 +151,20 @@ async fn main() -> anyhow::Result<()> {
         guarantee_mode, sink_kind, source_kind,
     );
 
-    // 3. Common parser validation (only for sources that use a parser)
-    let parser: Option<Arc<dyn transferia::parser::Parser>> =
+    // 3. Build parser (only for sources that use a parser)
+    let table: Arc<str> = source_provider.resolve_table_name()?.into();
+    let parser: Option<Arc<dyn transferia::parsers::Parser>> =
         if let Some(pc) = source_provider.parser_config() {
-            validate_parser(pc, &config.middlewares, &transferia::parser::parser_names())?;
-            Some(transferia::parser::build_parser(
-                &pc.parser_type, &pc.settings, source_provider.resolve_table_name()?.into(), None,
+            let parser_kind = pc.parser.kind()?.to_string();
+            let parser_raw = pc.parser.raw()?.clone();
+            Some(transferia::parsers::build_parser(
+                &parser_kind, parser_raw, Arc::clone(&table), None,
             )?)
         } else {
             None
         };
 
-    // 4. Resolve table + partitions
-    let table: Arc<str> = source_provider.resolve_table_name()?.into();
+    // 4. Discover partitions
     let my_partitions = source_provider.discover_partitions(cli.total_workers, cli.worker_index).await?;
     if my_partitions.is_empty() {
         tracing::warn!("No partitions assigned. Exiting.");
@@ -199,13 +200,12 @@ async fn main() -> anyhow::Result<()> {
     if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
         let schema_for_ddl = source_provider.schema_config()
             .cloned()
-            .or_else(|| source_provider.parser_config().map(|pc| pc.settings.clone()))
             .unwrap_or_default();
         let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
         ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
 
         let dlq_cols: Vec<(String, String)> =
-            transferia::parser::json_parser::dlq_ch_columns(None)
+            transferia::parsers::json_parser::dlq_ch_columns(None)
                 .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
         ch_sink.create_table(&dlq_table, &dlq_cols, &[], config.recreate_tables).await?;
     }

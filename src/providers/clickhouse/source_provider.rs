@@ -9,7 +9,8 @@ use serde::Deserialize;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ColumnDef, ColumnMapping, SchemaConfig};
+use crate::config::yaml::{ColumnDef, ColumnMapping};
+use crate::config::yaml::SchemaConfig;
 use crate::pipeline::source::Source;
 use crate::providers::clickhouse::source::{ClickHouseSource, TableRef, TableSelection};
 use crate::providers::traits::SourceProvider;

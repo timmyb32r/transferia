@@ -2,7 +2,8 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{validate_parser, ChunkSplitter, ParserConfig, SchemaConfig};
+use crate::config::yaml::{ChunkSplitter, ParserConfig, SchemaConfig};
+use crate::parsers::json_parser::JsonParserConfig;
 use crate::pipeline::source::Source;
 use crate::providers::s3::config::{build_object_store, S3SourceConfig};
 use crate::providers::s3::source::S3Source;
@@ -10,6 +11,10 @@ use crate::providers::traits::SourceProvider;
 
 pub struct S3SourceProvider {
     cfg: S3SourceConfig,
+    /// Cached DDL schema derived from the parser config.
+    cached_schema: SchemaConfig,
+    /// Cached chunk splitter from the JSON parser config.
+    chunk_splitter: ChunkSplitter,
 }
 
 impl S3SourceProvider {
@@ -22,7 +27,10 @@ impl S3SourceProvider {
         if cfg.prefix.is_empty() {
             anyhow::bail!("s3.prefix must not be empty");
         }
-        if cfg.parser.settings.chunk_splitter == ChunkSplitter::NoSplit {
+        let parser_cfg: JsonParserConfig = serde_yaml::from_value(
+            cfg.parser.parser.raw()?.clone(),
+        )?;
+        if parser_cfg.chunk_splitter == ChunkSplitter::NoSplit {
             anyhow::bail!(
                 "s3: chunk_splitter 'no-split' is not supported for S3 \u{2014} use 'new-line'"
             );
@@ -32,8 +40,9 @@ impl S3SourceProvider {
                 "s3: table_naming.type must be 'from_config' (S3 has no topic path)"
             );
         }
-        validate_parser(&cfg.parser, &[], &crate::parser::parser_names())?;
-        Ok(Self { cfg })
+        let chunk_splitter = parser_cfg.chunk_splitter;
+        let cached_schema = parser_cfg.to_schema_config();
+        Ok(Self { cfg, cached_schema, chunk_splitter })
     }
 }
 
@@ -48,7 +57,7 @@ impl SourceProvider for S3SourceProvider {
             Err(e) => return Box::pin(async { Err(e) }),
         };
         let prefix = self.cfg.prefix.clone();
-        let framer = self.cfg.parser.settings.chunk_splitter;
+        let framer = self.chunk_splitter;
         let chunk_size = self.cfg.chunk_size_bytes;
         let max_retries = self.cfg.max_retries;
 
@@ -76,6 +85,6 @@ impl SourceProvider for S3SourceProvider {
     }
 
     fn schema_config(&self) -> Option<&SchemaConfig> {
-        Some(&self.cfg.parser.settings)
+        Some(&self.cached_schema)
     }
 }
