@@ -27,7 +27,14 @@ pub trait SourceProvider: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<Vec<i64>>>;
 
     fn resolve_table_name(&self) -> anyhow::Result<String>;
-    fn parser_config(&self) -> &ParserConfig;
+    fn parser_config(&self) -> Option<&ParserConfig>;
+
+    /// Column schema for DDL. Defaults to `None` — the schema comes from
+    /// `parser_config().settings`. Override for sources that derive the schema
+    /// independently (e.g. ClickHouse source from DESCRIBE TABLE).
+    fn schema_config(&self) -> Option<&SchemaConfig> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -36,15 +43,6 @@ pub trait SourceProvider: Send + Sync {
 
 pub trait SinkProvider: Send + Sync {
     fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>>;
-
-    fn create_tables<'a>(
-        &'a self,
-        table: &str,
-        dlq_table: &str,
-        schema: &'a SchemaConfig,
-        recreate: bool,
-    ) -> BoxFuture<'a, anyhow::Result<()>>;
-
 }
 
 // ---------------------------------------------------------------------------

@@ -40,5 +40,5 @@ pub struct TableWrite {
 
 /// Canonical `<table>.dlq` naming convention. The only place that formats this suffix.
 pub fn dlq_name(table: &str) -> String {
-    format!("{table}.dlq")
+    format!("{table}_dlq")
 }

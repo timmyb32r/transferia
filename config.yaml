@@ -1,4 +1,4 @@
-# YDB Topic → ClickHouse Replicator — Example Configuration
+# Transferia — Example Configuration (YDB Topic → ClickHouse)
 
 source:
   topic:
@@ -30,8 +30,9 @@ middlewares:
     value: page_view
 
 sink:
-  connection_string: "localhost:9000"
-  database: "default"
-  batch_size: 1000
-  username: "default"
-  password: ""
+  clickhouse:
+    connection_string: "localhost:9000"
+    database: "default"
+    batch_size: 1000
+    username: "default"
+    password: ""

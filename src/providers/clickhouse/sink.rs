@@ -10,7 +10,7 @@ use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
 
-use crate::config::yaml::{parse_arrow_type, SchemaConfig};
+use crate::config::yaml::parse_arrow_type;
 use crate::pipeline::sink::Sink;
 use crate::providers::clickhouse::waterline::Waterline;
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
@@ -84,9 +84,9 @@ impl ClickHouseSink {
         })
     }
 
-    /// Build `(column_name, clickhouse_type)` pairs from a `SchemaConfig`.
-    pub fn schema_columns(settings: &SchemaConfig) -> anyhow::Result<Vec<(String, String)>> {
-        settings.columns.iter().map(|c| {
+    /// Build `(column_name, clickhouse_type)` pairs from column definitions.
+    pub fn schema_columns(cols: &[crate::config::yaml::ColumnDef]) -> anyhow::Result<Vec<(String, String)>> {
+        cols.iter().map(|c| {
             let dt = parse_arrow_type(&c.arrow_type)?;
             let mut ty = arrow_to_clickhouse(&dt)?;
             if c.nullable {
@@ -207,11 +207,6 @@ impl ClickHouseSink {
         write: &TableWrite,
         rows: &[RowRef],
     ) -> anyhow::Result<()> {
-        if rows.is_empty() {
-            return Ok(());
-        }
-        // In the exactly-once scenario all rows typically come from a single batch
-        // (one Message). Multi-batch filtering — optionally via concat_batches.
         if rows.is_empty() {
             return Ok(());
         }

@@ -212,6 +212,13 @@ pub struct SchemaConfig {
     pub chunk_splitter: ChunkSplitter,
 }
 
+impl SchemaConfig {
+    /// Column definitions for DDL — drops JSONPath, keeps only name + type.
+    pub fn column_defs(&self) -> Vec<ColumnDef> {
+        self.columns.iter().map(|c| c.to_column_def()).collect()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChunkSplitter {
@@ -272,6 +279,16 @@ impl ChunkSplitter {
     }
 }
 
+/// Column definition for DDL — name and type only, no parser-specific fields.
+#[derive(Debug, Clone)]
+pub struct ColumnDef {
+    pub column_name: String,
+    pub arrow_type: String,
+    pub nullable: bool,
+}
+
+/// Column mapping for JSON parser config — includes a `jsonpath` expression
+/// for extracting values from incoming JSON objects.
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct ColumnMapping {
@@ -284,6 +301,28 @@ pub struct ColumnMapping {
     /// Whether the column is nullable
     #[serde(default)]
     pub nullable: bool,
+}
+
+impl ColumnMapping {
+    /// Drop the JSONPath — only the DDL-relevant fields remain.
+    pub fn to_column_def(&self) -> ColumnDef {
+        ColumnDef {
+            column_name: self.column_name.clone(),
+            arrow_type: self.arrow_type.clone(),
+            nullable: self.nullable,
+        }
+    }
+}
+
+impl From<ColumnDef> for ColumnMapping {
+    fn from(d: ColumnDef) -> Self {
+        Self {
+            jsonpath: String::new(),
+            column_name: d.column_name,
+            arrow_type: d.arrow_type,
+            nullable: d.nullable,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

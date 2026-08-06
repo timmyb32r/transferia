@@ -1,7 +1,7 @@
-# YDB Topic (CDC) → ClickHouse Replicator — Benchmark Configuration
+# Transferia — Benchmark Configuration (PQv1 → ClickHouse)
 #
-# Запуск:
-#   ydb-ch-replicator --config config_bench.yaml --total-workers 1 --worker-index 0
+# Run:
+#   transferia --config config_bench.yaml --total-workers 1 --worker-index 0
 
 source:
   pqv1:
@@ -14,9 +14,9 @@ source:
       type: access_token
       token_file: "~/.logbroker/token"
     parser:
-    # Как выбирается имя целевой таблицы:
-    #   from_config — берётся table_naming.name (напр. "logs")
-    #   from_topic  — берётся topic_path как есть (напр. "/cdc/prod/logs")
+    # How the destination table name is chosen:
+    #   from_config — uses table_naming.name (e.g. "logs")
+    #   from_topic  — uses topic_path as-is (e.g. "/cdc/prod/logs")
     table_naming:
       type: from_config
       name: "logs"
@@ -25,7 +25,7 @@ source:
       chunk_splitter: "new-line"
       order_by: ["id", "ts"]
       columns:
-        # Required — есть практически в каждой строке лога. Отсутствие → строка в DLQ.
+        # Required — present in nearly every log line. Missing → row goes to DLQ.
         - jsonpath: "$.id"
           column_name: "id"
           arrow_type: "Utf8"
@@ -34,7 +34,7 @@ source:
           column_name: "ts"
           arrow_type: "Utf8"
           nullable: false
-        # Optional — есть не в каждой строке. Отсутствие → NULL (не DLQ).
+        # Optional — not in every line. Missing → NULL (not DLQ).
         - jsonpath: "$.task_id"
           column_name: "task_id"
           arrow_type: "Utf8"
@@ -79,19 +79,19 @@ source:
 middlewares: []
 
 sink:
-  # ClickHouse Native Protocol (TLS): порт 9440, НЕ 8443 (8443 — это HTTPS).
-  # Пример для Yandex Cloud: "klg-xxxx.db.yandex.net:9440"
-  connection_string: ""
-  database: "db1"
-  batch_size: 10000
-  max_linger_ms: 500
-  max_connections: 4
-  username: "user1"
-  password: ""
-  # TLS-настройки:
-  # use_tls: true         # включить TLS (по умолчанию true)
-  # tls_domain: ""        # переопределить SNI-домен (если нужно)
-  # Если сервер с самоподписанным сертификатом и ошибка UnknownIssuer
-  # не уходит даже с новыми настройками — попробуй use_tls: false
-  # (только если ClickHouse разрешает нешифрованные соединения).
-  recreate_tables: true
+  clickhouse:
+    # ClickHouse Native Protocol (TLS): port 9440, NOT 8443 (8443 is HTTPS).
+    # Yandex Cloud example: "klg-xxxx.db.yandex.net:9440"
+    connection_string: ""
+    database: "db1"
+    batch_size: 10000
+    max_linger_ms: 500
+    max_connections: 4
+    username: "user1"
+    password: ""
+    # TLS settings:
+    # use_tls: true         # enable TLS (default true)
+    # tls_domain: ""        # override SNI domain (if needed)
+    # If the server uses a self-signed certificate and UnknownIssuer
+    # persists even with new settings — try use_tls: false
+    # (only if ClickHouse allows unencrypted connections).

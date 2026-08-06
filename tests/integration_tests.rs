@@ -40,8 +40,8 @@ fn empty_sink_through_registry() {
     });
     let raw: Value = serde_yaml::from_str("batch_size: 100").unwrap();
     let provider = registry.build_sink("empty", raw).unwrap();
-    // create_tables should be a no-op
-    let schema = SchemaConfig {
+    // build_sink yields an EmptySink
+    let _schema = SchemaConfig {
         columns: vec![ColumnMapping {
             jsonpath: "$.id".into(), column_name: "id".into(),
             arrow_type: "Int64".into(), nullable: false,
@@ -50,7 +50,7 @@ fn empty_sink_through_registry() {
     };
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        provider.create_tables("test", "test.dlq", &schema, false).await.unwrap();
+        let _sink = provider.build_sink().await.unwrap();
     });
 }
 

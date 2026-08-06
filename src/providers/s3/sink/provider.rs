@@ -5,12 +5,10 @@ use serde::Deserialize;
 use serde_yaml::Value;
 use object_store::aws::AmazonS3Builder;
 
-use crate::config::yaml::SchemaConfig;
 use crate::pipeline::sink::Sink;
 use crate::providers::s3::sink::writer::S3Sink;
 use crate::providers::traits::SinkProvider;
 use crate::serializer::Serializer;
-use crate::serializer::json_serializer::JsonSerializer;
 
 #[derive(Debug, Deserialize)]
 pub struct S3SinkConfig {
@@ -53,10 +51,8 @@ impl S3SinkProvider {
             anyhow::bail!("s3 sink: bucket must not be empty");
         }
 
-        let serializer: Arc<dyn Serializer> = match cfg.serializer_type.as_str() {
-            "json" => Arc::new(JsonSerializer),
-            other => anyhow::bail!("Unknown S3 sink serializer: {}", other),
-        };
+        let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
+            .map_err(|e| anyhow::anyhow!("S3 sink: {}", e))?;
 
         let mut builder = AmazonS3Builder::new()
             .with_bucket_name(&cfg.bucket)
@@ -99,15 +95,5 @@ impl SinkProvider for S3SinkProvider {
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }
 
-    fn create_tables<'a>(
-        &'a self,
-        table: &str,
-        _dlq_table: &str,
-        _schema: &'a SchemaConfig,
-        _recreate: bool,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        tracing::info!("S3 sink: skipping table creation for '{}'", table);
-        Box::pin(async move { Ok(()) })
-    }
 
 }

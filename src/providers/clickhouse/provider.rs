@@ -4,7 +4,6 @@ use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use crate::config::yaml::SchemaConfig;
 use crate::pipeline::sink::Sink;
 use crate::providers::clickhouse::sink::ClickHouseSink;
 use crate::providers::traits::SinkProvider;
@@ -63,30 +62,4 @@ impl SinkProvider for ClickHouseSinkProvider {
             Ok(Arc::new(sink) as Arc<dyn Sink>)
         })
     }
-
-    fn create_tables<'a>(
-        &'a self,
-        table: &str,
-        dlq_table: &str,
-        schema: &'a SchemaConfig,
-        recreate: bool,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        let cfg = self.cfg.clone();
-        let table = table.to_string();
-        let dlq_table = dlq_table.to_string();
-        let schema = schema.clone();
-        Box::pin(async move {
-            let sink = ClickHouseSink::new(&cfg, 10_000).await?;
-            let cols = ClickHouseSink::schema_columns(&schema)?;
-            sink.create_table(&table, &cols, &schema.order_by, recreate).await?;
-            // Exactly-once DLQ schema is derived from the parser's key; wired
-            // once the source config flag (add_exactly_once_key) lands — for now
-            // the at-least-once DLQ (raw_bytes, error_message, partition_id, timestamp).
-            let dlq_cols: Vec<(String, String)> = crate::parser::json_parser::dlq_ch_columns(None)
-                .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
-            sink.create_table(&dlq_table, &dlq_cols, &[], recreate).await?;
-            Ok(())
-        })
-    }
-
 }

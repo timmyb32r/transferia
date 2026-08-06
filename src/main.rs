@@ -4,9 +4,8 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use transferia::config::yaml::{validate_parser, Config};
+use transferia::config::yaml::{validate_parser, Config, SchemaConfig};
 use transferia::middleware::filter::FilterMiddleware;
-use transferia::parser::JsonParser;
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
@@ -32,7 +31,8 @@ struct Cli {
 
 #[derive(Clone)]
 struct PipelineDeps {
-    parser: Arc<JsonParser>,
+    parser: Option<Arc<dyn transferia::parser::Parser>>,
+    table: Arc<str>,
     mw: Arc<Vec<Box<dyn Middleware>>>,
     snk: Arc<dyn transferia::pipeline::sink::Sink>,
     batch_size: usize,
@@ -64,7 +64,8 @@ where
                 }
             };
             match run_partition_pipeline(
-                source, deps.parser.clone(), deps.mw.clone(), deps.snk.clone(),
+                source, deps.parser.clone(), deps.table.clone(),
+                deps.mw.clone(), deps.snk.clone(),
                 deps.batch_size, deps.max_linger_ms, deps.token.clone(), partition_id,
             ).await {
                 Ok(()) => break,
@@ -148,9 +149,16 @@ async fn main() -> anyhow::Result<()> {
         guarantee_mode, sink_kind, source_kind,
     );
 
-    // 3. Common parser validation
-    let allowed_parsers: std::collections::HashSet<&str> = ["json_parser"].into();
-    validate_parser(source_provider.parser_config(), &config.middlewares, &allowed_parsers)?;
+    // 3. Common parser validation (only for sources that use a parser)
+    let parser: Option<Arc<dyn transferia::parser::Parser>> =
+        if let Some(pc) = source_provider.parser_config() {
+            validate_parser(pc, &config.middlewares, &transferia::parser::parser_names())?;
+            Some(transferia::parser::build_parser(
+                &pc.parser_type, &pc.settings, source_provider.resolve_table_name()?.into(), None,
+            )?)
+        } else {
+            None
+        };
 
     // 4. Resolve table + partitions
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
@@ -161,10 +169,7 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!("Destination table: {}, partitions: {:?}", table, my_partitions);
 
-    // 5. Shared parser + middlewares
-    // Exactly-once key: wired once the source config flag (add_exactly_once_key)
-    // lands; until then the parser runs in at-least-once mode.
-    let parser = Arc::new(JsonParser::new(&source_provider.parser_config().settings, table.clone(), None)?);
+    // 5. Middlewares
     let middlewares: Vec<Box<dyn Middleware>> = config.middlewares.iter()
         .map(|mc| match mc.mw_type.as_str() {
             "filter" => Ok(Box::new(FilterMiddleware::new(
@@ -187,9 +192,25 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("ClickHouse version check passed (≥ 22.8)");
     }
 
-    // 6b. DDL: create tables
-    sink_provider.create_tables(&table, &dlq_table,
-        &source_provider.parser_config().settings, config.recreate_tables).await?;
+    // 6b. DDL: create tables (ClickHouse only — other sinks don't need DDL).
+    if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
+        let schema_for_ddl = source_provider.schema_config()
+            .cloned()
+            .or_else(|| source_provider.parser_config().map(|pc| pc.settings.clone()))
+            .unwrap_or_else(|| SchemaConfig {
+                columns: vec![],
+                raw_payload_field: None,
+                order_by: vec![],
+                chunk_splitter: transferia::config::yaml::ChunkSplitter::NoSplit,
+            });
+        let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
+        ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
+
+        let dlq_cols: Vec<(String, String)> =
+            transferia::parser::json_parser::dlq_ch_columns(None)
+                .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
+        ch_sink.create_table(&dlq_table, &dlq_cols, &[], config.recreate_tables).await?;
+    }
 
     // 6c. Engine/replica validation (after CREATE so table exists)
     if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
@@ -234,7 +255,7 @@ async fn main() -> anyhow::Result<()> {
 
     // 8. Spawn tasks
     let deps = PipelineDeps {
-        parser, mw: middlewares, snk: sink,
+        parser, table: table.clone(), mw: middlewares, snk: sink,
         batch_size: config.sink_batch_size,
         max_linger_ms: config.sink_max_linger_ms,
         token: cancel_token.clone(),

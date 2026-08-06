@@ -1,12 +1,13 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use futures_util::future::BoxFuture;
+use futures_util::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ColumnMapping, ParserConfig, SchemaConfig, TableNaming};
+use crate::config::yaml::{ColumnDef, ColumnMapping, SchemaConfig};
 use crate::pipeline::source::Source;
 use crate::providers::clickhouse::source::{ClickHouseSource, TableRef, TableSelection};
 use crate::providers::traits::SourceProvider;
@@ -33,9 +34,6 @@ pub struct ClickHouseSourceConfig {
     pub include_patterns: Option<Vec<String>>,
     #[serde(default)]
     pub exclude_patterns: Option<Vec<String>>,
-    /// Destination table naming strategy.
-    #[serde(default)]
-    pub table_naming: Option<TableNaming>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -51,8 +49,9 @@ fn default_rows_per_page() -> usize { 10000 }
 
 pub struct ClickHouseSourceProvider {
     cfg: ClickHouseSourceConfig,
-    /// Derived parser config, populated on first async call (discover_partitions).
-    derived_parser: OnceLock<ParserConfig>,
+    /// Column schema derived from the source table via DESCRIBE TABLE.
+    /// Populated once during discover_partitions, used for DDL.
+    derived_schema: Arc<OnceLock<SchemaConfig>>,
 }
 
 impl ClickHouseSourceProvider {
@@ -62,7 +61,6 @@ impl ClickHouseSourceProvider {
         if cfg.connection_string.is_empty() {
             anyhow::bail!("ch source: connection_string must not be empty");
         }
-        // Validate: must have tables or include_patterns, not both
         match (&cfg.tables, &cfg.include_patterns) {
             (Some(_), Some(_)) => anyhow::bail!(
                 "ch source: specify either 'tables' or 'include_patterns', not both"
@@ -72,7 +70,7 @@ impl ClickHouseSourceProvider {
             ),
             _ => {}
         }
-        Ok(Self { cfg, derived_parser: OnceLock::new() })
+        Ok(Self { cfg, derived_schema: Arc::new(OnceLock::new()) })
     }
 
     fn build_selection(&self) -> anyhow::Result<TableSelection> {
@@ -83,47 +81,123 @@ impl ClickHouseSourceProvider {
             }).collect();
             return Ok(TableSelection::Explicit(refs));
         }
-
         let includes: Vec<Regex> = self.cfg.include_patterns.as_ref()
             .map(|ps| ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("include regex '{}': {}", p, e))).collect())
             .unwrap_or_else(|| Ok(vec![]))?;
-
         let excludes: Vec<Regex> = self.cfg.exclude_patterns.as_ref()
             .map(|ps| ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("exclude regex '{}': {}", p, e))).collect())
             .unwrap_or_else(|| Ok(vec![]))?;
-
         Ok(TableSelection::Patterns { include_patterns: includes, exclude_patterns: excludes })
     }
 
-    /// Derive a synthetic parser config from the ClickHouse source table schema.
-    /// Columns are mapped as Utf8 (the CH source serializes to JSON, and the
-    /// parser reads it back), with all columns nullable for safety.
-    fn derive_parser_config(&self) -> ParserConfig {
-        // Use the first explicit table name, or a generic name for pattern-based selection.
-        let table_name = self.cfg.tables.as_ref()
-            .and_then(|ts| ts.first())
-            .map(|t| format!("{}.{}", t.schema, t.table))
-            .unwrap_or_else(|| "clickhouse_source".to_string());
+    fn first_table_ref(&self) -> Option<TableRef> {
+        self.cfg.tables.as_ref().and_then(|ts| ts.first()).map(|t| TableRef {
+            schema_name: t.schema.clone(),
+            table_name: t.table.clone(),
+        })
+    }
 
-        let table_naming = self.cfg.table_naming.clone().unwrap_or_else(|| TableNaming {
-            kind: "from_config".to_string(),
-            name: Some(table_name),
-        });
+    /// Connect to the source ClickHouse, run DESCRIBE TABLE, and build a
+    /// [`SchemaConfig`] with the real column names and types.
+    #[allow(clippy::too_many_arguments)]
+    async fn derive_schema(
+        connection_string: &str,
+        database: &str,
+        username: &str,
+        password: &str,
+        use_tls: bool,
+        tls_domain: Option<&str>,
+        table_ref: &TableRef,
+    ) -> anyhow::Result<SchemaConfig> {
+        use clickhouse_arrow::{ArrowFormat, ConnectionPoolBuilder};
 
-        ParserConfig {
-            table_naming,
-            parser_type: "json_parser".to_string(),
-            settings: SchemaConfig {
-                columns: vec![ColumnMapping {
-                    jsonpath: "$._raw".to_string(),
-                    column_name: "_raw".to_string(),
-                    arrow_type: "Utf8".to_string(),
-                    nullable: true,
-                }],
-                raw_payload_field: None,
-                order_by: vec![],
-                chunk_splitter: crate::config::yaml::ChunkSplitter::NoSplit,
-            },
+        let pool = ConnectionPoolBuilder::<ArrowFormat>::new(connection_string)
+            .configure_pool(|p| p.max_size(1))
+            .configure_client(|b| {
+                let mut b = b.with_database(database)
+                    .with_username(username)
+                    .with_password(password)
+                    .with_tls(use_tls);
+                if let Some(domain) = tls_domain {
+                    b = b.with_domain(domain);
+                }
+                b
+            })
+            .build().await
+            .map_err(|e| anyhow::anyhow!("CH source schema discovery pool: {}", e))?;
+
+        let client = pool.get().await
+            .map_err(|e| anyhow::anyhow!("CH source schema discovery: {}", e))?;
+
+        let q = format!("DESCRIBE TABLE {}", table_ref.qualified_name());
+        let mut response = client.query(&q, None).await
+            .map_err(|e| anyhow::anyhow!("CH source DESCRIBE {}: {}", table_ref.qualified_name(), e))?;
+
+        let mut columns = Vec::new();
+        while let Some(batch_result) = response.next().await {
+            let batch = batch_result
+                .map_err(|e| anyhow::anyhow!("CH source DESCRIBE batch: {}", e))?;
+            let name_col = batch.column(0);
+            let type_col = batch.column(1);
+            use arrow::array::StringArray;
+            let names = name_col.as_any().downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("Expected String for column name"))?;
+            let types = type_col.as_any().downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("Expected String for column type"))?;
+            for row in 0..batch.num_rows() {
+                let col_name = names.value(row).to_string();
+                let ch_type = types.value(row).to_string();
+                let arrow_type = ch_type_to_arrow(&ch_type);
+                columns.push(ColumnDef {
+                    column_name: col_name,
+                    arrow_type,
+                    nullable: ch_type.to_lowercase().starts_with("nullable"),
+                });
+            }
+        }
+
+        if columns.is_empty() {
+            anyhow::bail!(
+                "CH source: DESCRIBE TABLE {} returned zero columns",
+                table_ref.qualified_name(),
+            );
+        }
+
+        let columns: Vec<ColumnMapping> = columns.into_iter().map(ColumnMapping::from).collect();
+        Ok(SchemaConfig {
+            columns,
+            raw_payload_field: None,
+            order_by: vec![],
+            chunk_splitter: crate::config::yaml::ChunkSplitter::NoSplit,
+        })
+    }
+}
+
+/// Map a ClickHouse type string to an Arrow type string compatible with
+/// `parse_arrow_type`.
+fn ch_type_to_arrow(ch: &str) -> String {
+    let base = ch.trim_start_matches("Nullable(").trim_end_matches(')').to_lowercase();
+    match base.as_str() {
+        "string" | "utf8" => "Utf8".into(),
+        "int8" => "Int8".into(),
+        "int16" => "Int16".into(),
+        "int32" | "int" => "Int32".into(),
+        "int64" | "bigint" => "Int64".into(),
+        "uint8" => "UInt8".into(),
+        "uint16" => "UInt16".into(),
+        "uint32" => "UInt32".into(),
+        "uint64" => "UInt64".into(),
+        "float32" | "float" => "Float32".into(),
+        "float64" | "double" => "Float64".into(),
+        "bool" | "boolean" => "Boolean".into(),
+        "date" | "date32" => "Date32".into(),
+        "datetime" | "datetime64" | "date64" => "Timestamp(Second, None)".into(),
+        "datetime64(3)" => "Timestamp(Millisecond, None)".into(),
+        "datetime64(6)" => "Timestamp(Microsecond, None)".into(),
+        "datetime64(9)" => "Timestamp(Nanosecond, None)".into(),
+        other => {
+            tracing::warn!("CH type '{}' → falling back to Utf8", other);
+            "Utf8".into()
         }
     }
 }
@@ -145,7 +219,6 @@ impl SourceProvider for ClickHouseSourceProvider {
             Ok(s) => s,
             Err(e) => return Box::pin(async { Err(e) }),
         };
-
         Box::pin(async move {
             let src = ClickHouseSource::new(
                 &conn, &db, &user, &pass, tls, tls_domain.as_deref(),
@@ -160,17 +233,54 @@ impl SourceProvider for ClickHouseSourceProvider {
         _total_workers: u32,
         worker_index: u32,
     ) -> BoxFuture<'a, anyhow::Result<Vec<i64>>> {
-        // Populate the derived parser config on first async call.
-        let _ = self.derived_parser.set(self.derive_parser_config());
-        let parts = if worker_index == 0 { vec![0] } else { vec![] };
-        Box::pin(async move { Ok(parts) })
+        let need_init = self.derived_schema.get().is_none();
+        let conn = self.cfg.connection_string.clone();
+        let db = self.cfg.database.clone();
+        let user = self.cfg.username.clone();
+        let pass = self.cfg.password.clone();
+        let tls = self.cfg.use_tls;
+        let tls_domain = self.cfg.tls_domain.clone();
+        let table_ref = self.first_table_ref();
+        let derived = self.derived_schema.clone();
+
+        Box::pin(async move {
+            if need_init {
+                if let Some(ref tr) = table_ref {
+                    match Self::derive_schema(
+                        &conn, &db, &user, &pass, tls,
+                        tls_domain.as_deref(), tr,
+                    ).await {
+                        Ok(schema) => {
+                            tracing::info!(
+                                "CH source: derived schema for '{}' ({} columns)",
+                                tr.qualified_name(), schema.columns.len(),
+                            );
+                            derived.set(schema).ok();
+                        }
+                        Err(e) => {
+                            tracing::error!("CH source schema derivation failed: {}", e);
+                        }
+                    }
+                }
+            }
+            let parts = if worker_index == 0 { vec![0] } else { vec![] };
+            Ok(parts)
+        })
     }
 
     fn resolve_table_name(&self) -> anyhow::Result<String> {
-        self.parser_config().resolve_table_name("clickhouse_source")
+        self.cfg.tables.as_ref()
+            .and_then(|ts| ts.first())
+            .map(|t| format!("{}.{}", t.schema, t.table))
+            .ok_or_else(|| anyhow::anyhow!("ch source: no tables configured"))
     }
 
-    fn parser_config(&self) -> &ParserConfig {
-        self.derived_parser.get().expect("parser_config called before discover_partitions")
+    fn parser_config(&self) -> Option<&crate::config::yaml::ParserConfig> {
+        // CH source uses Arrow passthrough — no parser.
+        None
+    }
+
+    fn schema_config(&self) -> Option<&SchemaConfig> {
+        self.derived_schema.get()
     }
 }

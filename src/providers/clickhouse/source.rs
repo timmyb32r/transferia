@@ -5,9 +5,9 @@ use futures_util::StreamExt;
 use regex::Regex;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
-use crate::types::message::{Message, MessageBatch};
 
-/// ClickHouse source: reads tables into Arrow batches and produces JSON messages.
+/// ClickHouse source: reads tables into Arrow batches and feeds them directly
+/// into the pipeline (Arrow passthrough — no JSON serialization roundtrip).
 ///
 /// Table selection via one of two variants:
 /// - **Explicit list**: `tables: [{schema, table}]`
@@ -17,6 +17,7 @@ pub struct ClickHouseSource {
     tables: Vec<TableRef>,
     current_table_idx: usize,
     current_page: usize,
+    #[allow(dead_code)]
     partition_id: i64,
     rows_per_page: usize,
     exhausted: bool,
@@ -217,8 +218,6 @@ impl Source for ClickHouseSource {
                 let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
                 self.current_page += 1;
 
-                let messages = batches_to_messages(&batches)?;
-
                 tracing::info!(
                     "CH source: read {} rows from {} (page {})",
                     total_rows,
@@ -226,11 +225,9 @@ impl Source for ClickHouseSource {
                     self.current_page,
                 );
 
-                return Ok(ReadResult::Batch(MessageBatch {
-                    messages,
-                    partition_id: self.partition_id,
-                    commit_marker: None,
-                }));
+                // Produce Arrow batches directly — zero-copy into the pipeline.
+                // No JSON serialization/parsing roundtrip.
+                return Ok(ReadResult::Arrow(batches));
             }
         })
     }
@@ -240,18 +237,3 @@ impl Source for ClickHouseSource {
     }
 }
 
-/// Convert Arrow RecordBatches to JSON-line messages compatible with the JSON parser.
-fn batches_to_messages(batches: &[RecordBatch]) -> anyhow::Result<Vec<Message>> {
-    use crate::serializer::Serializer;
-    use crate::serializer::json_serializer::JsonSerializer;
-    use bytes::Bytes;
-
-    let serializer = JsonSerializer;
-    let mut all_bytes = Vec::new();
-    for batch in batches {
-        let serialized = serializer.serialize_batch(batch)?;
-        all_bytes.extend_from_slice(&serialized);
-    }
-
-    Ok(vec![Message { value: Bytes::from(all_bytes), offset: None, partition: None }])
-}

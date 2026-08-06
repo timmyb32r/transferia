@@ -4,12 +4,10 @@ use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use crate::config::yaml::SchemaConfig;
 use crate::pipeline::sink::Sink;
 use crate::providers::traits::SinkProvider;
 use crate::providers::yds::sink::writer::YdsSink;
 use crate::serializer::Serializer;
-use crate::serializer::json_serializer::JsonSerializer;
 
 #[derive(Debug, Deserialize)]
 pub struct YdsSinkConfig {
@@ -44,10 +42,8 @@ impl YdsSinkProvider {
             anyhow::bail!("yds sink: topic_path must not be empty");
         }
 
-        let serializer: Arc<dyn Serializer> = match cfg.serializer_type.as_str() {
-            "json" => Arc::new(JsonSerializer),
-            other => anyhow::bail!("Unknown YDS sink serializer: {}", other),
-        };
+        let serializer = crate::serializer::build_serializer(&cfg.serializer_type)
+            .map_err(|e| anyhow::anyhow!("YDS sink: {}", e))?;
 
         tracing::info!(
             "YDS sink: topic={} serializer={}",
@@ -67,15 +63,5 @@ impl SinkProvider for YdsSinkProvider {
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }
 
-    fn create_tables<'a>(
-        &'a self,
-        table: &str,
-        _dlq_table: &str,
-        _schema: &'a SchemaConfig,
-        _recreate: bool,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        tracing::info!("YDS sink: skipping table creation for '{}'", table);
-        Box::pin(async move { Ok(()) })
-    }
 
 }

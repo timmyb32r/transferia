@@ -33,9 +33,15 @@ impl std::fmt::Debug for CommitMarker {
 
 /// Result of a source read. First-class terminal state — no sentinel conventions.
 pub enum ReadResult {
+    /// Raw messages for parsing (YDS, S3, PQv1).
     Batch(MessageBatch),
-    Exhausted,           // no more data (S3 snapshot complete)
-    Failed(anyhow::Error), // non-retryable source failure → exit 1
+    /// Pre-parsed Arrow batches — bypass parser, zero-copy into the pipeline
+    /// (ClickHouse source).
+    Arrow(Vec<arrow::record_batch::RecordBatch>),
+    /// No more data (S3 snapshot complete, CH table exhausted).
+    Exhausted,
+    /// Non-retryable source failure → exit 1.
+    Failed(anyhow::Error),
 }
 
 // ---------------------------------------------------------------------------

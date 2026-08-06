@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
-use crate::parser::{JsonParser, ParserWorkspace};
+use crate::parser::{Parser, ParserWorkspace};
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
@@ -31,10 +31,19 @@ const MAX_CONSECUTIVE_MW_ERRORS: u32 = 100;
 // Channel payloads
 // ---------------------------------------------------------------------------
 
-struct ReadItem {
-    messages: Vec<crate::types::message::Message>,
-    partition_id: i64,
-    commit_marker: Option<CommitMarker>,
+enum ReadItem {
+    /// Raw messages for the parser (YDS, S3, PQv1).
+    Messages {
+        messages: Vec<crate::types::message::Message>,
+        partition_id: i64,
+        commit_marker: Option<CommitMarker>,
+    },
+    /// Pre-parsed Arrow batches (ClickHouse source) — passthrough, zero copy.
+    Arrow {
+        batches: Vec<arrow::record_batch::RecordBatch>,
+        partition_id: i64,
+        commit_marker: Option<CommitMarker>,
+    },
 }
 
 /// After parsing, a batch of messages becomes one or two `TableData` objects
@@ -209,7 +218,8 @@ struct FlushBatch {
 #[allow(clippy::too_many_arguments)]
 pub async fn run_partition_pipeline(
     mut source: Box<dyn Source>,
-    parser: Arc<JsonParser>,
+    parser: Option<Arc<dyn Parser>>,
+    table: Arc<str>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     sink: Arc<dyn Sink>,
     batch_size: usize,
@@ -323,6 +333,62 @@ pub async fn run_partition_pipeline(
                     }
                 }
                 Ok(ReadResult::Batch(batch)) => batch,
+                Ok(ReadResult::Arrow(batches)) if batches.iter().all(|b| b.num_rows() == 0) => {
+                    // Empty Arrow batches — backoff, same as empty message batch.
+                    tokio::select! {
+                        _ = sleep(Duration::from_millis(backoff_ms)) => {
+                            backoff_ms = (backoff_ms * BACKOFF_MULTIPLIER).min(MAX_BACKOFF_MS);
+                            continue;
+                        }
+                        ack = rx_commit.recv() => {
+                            if let Some(ack) = ack {
+                                for marker in &ack.markers {
+                                    if let Err(e) = source.commit_offsets(marker).await {
+                                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                                    }
+                                }
+                                backoff_ms = INITIAL_BACKOFF_MS;
+                            }
+                            continue;
+                        }
+                        _ = reader_token.cancelled() => return,
+                    }
+                }
+                Ok(ReadResult::Arrow(batches)) => {
+                    backoff_ms = INITIAL_BACKOFF_MS;
+                    // Drain acks before sending
+                    while let Ok(ack) = rx_commit.try_recv() {
+                        for marker in &ack.markers {
+                            if let Err(e) = source.commit_offsets(marker).await {
+                                tracing::warn!("Reader: commit_offsets error: {}", e);
+                            }
+                        }
+                    }
+                    let item = ReadItem::Arrow {
+                        batches,
+                        partition_id: 0, // CH source uses a single partition
+                        commit_marker: None,
+                    };
+                    // Send + drain acks concurrently
+                    tokio::select! {
+                        result = tx_read.send(item) => {
+                            if result.is_err() { return; }
+                        }
+                        ack = rx_commit.recv() => {
+                            if let Some(ack) = ack {
+                                for marker in &ack.markers {
+                                    if let Err(e) = source.commit_offsets(marker).await {
+                                        tracing::warn!("Reader: commit_offsets error: {}", e);
+                                    }
+                                }
+                                backoff_ms = INITIAL_BACKOFF_MS;
+                            }
+                            continue;
+                        }
+                        _ = reader_token.cancelled() => return,
+                    }
+                    continue;
+                }
                 Ok(ReadResult::Exhausted) => {
                     while let Ok(ack) = rx_commit.try_recv() {
                         for marker in &ack.markers {
@@ -378,7 +444,7 @@ pub async fn run_partition_pipeline(
                 }
             }
 
-            let item = ReadItem {
+            let item = ReadItem::Messages {
                 messages: msg_batch.messages,
                 partition_id: msg_batch.partition_id,
                 commit_marker: msg_batch.commit_marker,
@@ -408,6 +474,9 @@ pub async fn run_partition_pipeline(
 
     // --- Parser task (dedicated std::thread — no tokio blocking-pool limit) ---
     let parser_token = cancel_token.clone();
+    let parser_for_thread = parser.clone();
+    let table_for_thread = table.clone();
+    let middlewares_for_thread = middlewares.clone();
     let mut rx_read = rx_read; // moved into thread
     let parser_thread = thread::Builder::new()
         .name("parser".into())
@@ -423,16 +492,50 @@ pub async fn run_partition_pipeline(
                     None => return,
                 };
 
-                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, None, &mut workspace) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tracing::error!("Parser error: {}", e);
-                        continue;
+                let (valid, dlq, marker) = match item {
+                    ReadItem::Messages { messages, partition_id, commit_marker } => {
+                        let p = match &parser_for_thread {
+                            Some(p) => p,
+                            None => {
+                                tracing::error!("Messages received but no parser configured");
+                                continue;
+                            }
+                        };
+                        let (valid, dlq) = match p.parse_into(messages, partition_id, None, &mut workspace) {
+                            Ok(r) => r,
+                            Err(e) => {
+                                tracing::error!("Parser error: {}", e);
+                                continue;
+                            }
+                        };
+                        (valid, dlq, commit_marker)
+                    }
+                    ReadItem::Arrow { batches, partition_id: _pid, commit_marker } => {
+                        // Passthrough: build TableData directly from Arrow batches.
+                        // Zero-copy — RecordBatch is Arc-backed, clones are refcount bumps.
+                        let batch_refs: Vec<&arrow::record_batch::RecordBatch> = batches.iter().collect();
+                        let single = match arrow::compute::concat_batches(
+                            &batches[0].schema(), batch_refs,
+                        ) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                tracing::error!("Arrow concat_batches error: {}", e);
+                                continue;
+                            }
+                        };
+                        let td = TableData {
+                            table: table_for_thread.clone(),
+                            is_dlq: false,
+                            batch: single,
+                            batch_id: crate::batch_id(),
+                            exactly_once_key: None, // CH source is at-least-once
+                        };
+                        (td, None, commit_marker)
                     }
                 };
 
                 // Only valid data goes through middlewares; DLQ short-circuits.
-                let valid = match apply_middlewares(valid, &middlewares) {
+                let valid = match apply_middlewares(valid, &middlewares_for_thread) {
                     Ok(b) => {
                         mw_error_count = 0;
                         b
@@ -443,7 +546,8 @@ pub async fn run_partition_pipeline(
                         if mw_error_count >= MAX_CONSECUTIVE_MW_ERRORS {
                             tracing::error!(
                                 "Aborting partition {}: {} consecutive middleware errors",
-                                item.partition_id, mw_error_count,
+                                mw_error_count,
+                                mw_error_count,
                             );
                             let _ = tx_parsed_parser.blocking_send(ParsedMsg::Fatal);
                             return;
@@ -452,7 +556,7 @@ pub async fn run_partition_pipeline(
                     }
                 };
 
-                let parsed = ParsedItem { valid, dlq, commit_marker: item.commit_marker };
+                let parsed = ParsedItem { valid, dlq, commit_marker: marker };
                 if tx_parsed_parser.blocking_send(ParsedMsg::Item(Box::new(parsed))).is_err() {
                     return;
                 }
