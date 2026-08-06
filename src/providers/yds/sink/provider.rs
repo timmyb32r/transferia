@@ -78,12 +78,4 @@ impl SinkProvider for YdsSinkProvider {
         Box::pin(async move { Ok(()) })
     }
 
-    fn verify_tables<'a>(
-        &'a self,
-        table: &str,
-        _dlq_table: &str,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        tracing::info!("YDS sink: skipping table verification for '{}'", table);
-        Box::pin(async move { Ok(()) })
-    }
 }

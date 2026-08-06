@@ -1,4 +1,4 @@
-# ── ydb-ch-replicator — task runner ──────────────────────────────────────────
+# ── transferia — task runner ──────────────────────────────────────────────────
 # Run `just` to see all commands. Install: brew install just
 
 _default:

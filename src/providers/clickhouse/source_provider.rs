@@ -1,10 +1,12 @@
+use std::sync::OnceLock;
+
 use futures_util::future::BoxFuture;
 use regex::Regex;
 use serde::Deserialize;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::ParserConfig;
+use crate::config::yaml::{ColumnMapping, ParserConfig, SchemaConfig, TableNaming};
 use crate::pipeline::source::Source;
 use crate::providers::clickhouse::source::{ClickHouseSource, TableRef, TableSelection};
 use crate::providers::traits::SourceProvider;
@@ -31,7 +33,9 @@ pub struct ClickHouseSourceConfig {
     pub include_patterns: Option<Vec<String>>,
     #[serde(default)]
     pub exclude_patterns: Option<Vec<String>>,
-    pub parser: ParserConfig,
+    /// Destination table naming strategy.
+    #[serde(default)]
+    pub table_naming: Option<TableNaming>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,6 +51,8 @@ fn default_rows_per_page() -> usize { 10000 }
 
 pub struct ClickHouseSourceProvider {
     cfg: ClickHouseSourceConfig,
+    /// Derived parser config, populated on first async call (discover_partitions).
+    derived_parser: OnceLock<ParserConfig>,
 }
 
 impl ClickHouseSourceProvider {
@@ -66,7 +72,7 @@ impl ClickHouseSourceProvider {
             ),
             _ => {}
         }
-        Ok(Self { cfg })
+        Ok(Self { cfg, derived_parser: OnceLock::new() })
     }
 
     fn build_selection(&self) -> anyhow::Result<TableSelection> {
@@ -87,6 +93,38 @@ impl ClickHouseSourceProvider {
             .unwrap_or_else(|| Ok(vec![]))?;
 
         Ok(TableSelection::Patterns { include_patterns: includes, exclude_patterns: excludes })
+    }
+
+    /// Derive a synthetic parser config from the ClickHouse source table schema.
+    /// Columns are mapped as Utf8 (the CH source serializes to JSON, and the
+    /// parser reads it back), with all columns nullable for safety.
+    fn derive_parser_config(&self) -> ParserConfig {
+        // Use the first explicit table name, or a generic name for pattern-based selection.
+        let table_name = self.cfg.tables.as_ref()
+            .and_then(|ts| ts.first())
+            .map(|t| format!("{}.{}", t.schema, t.table))
+            .unwrap_or_else(|| "clickhouse_source".to_string());
+
+        let table_naming = self.cfg.table_naming.clone().unwrap_or_else(|| TableNaming {
+            kind: "from_config".to_string(),
+            name: Some(table_name),
+        });
+
+        ParserConfig {
+            table_naming,
+            parser_type: "json_parser".to_string(),
+            settings: SchemaConfig {
+                columns: vec![ColumnMapping {
+                    jsonpath: "$._raw".to_string(),
+                    column_name: "_raw".to_string(),
+                    arrow_type: "Utf8".to_string(),
+                    nullable: true,
+                }],
+                raw_payload_field: None,
+                order_by: vec![],
+                chunk_splitter: crate::config::yaml::ChunkSplitter::NoSplit,
+            },
+        }
     }
 }
 
@@ -122,15 +160,17 @@ impl SourceProvider for ClickHouseSourceProvider {
         _total_workers: u32,
         worker_index: u32,
     ) -> BoxFuture<'a, anyhow::Result<Vec<i64>>> {
+        // Populate the derived parser config on first async call.
+        let _ = self.derived_parser.set(self.derive_parser_config());
         let parts = if worker_index == 0 { vec![0] } else { vec![] };
         Box::pin(async move { Ok(parts) })
     }
 
     fn resolve_table_name(&self) -> anyhow::Result<String> {
-        self.cfg.parser.resolve_table_name("clickhouse_source")
+        self.parser_config().resolve_table_name("clickhouse_source")
     }
 
     fn parser_config(&self) -> &ParserConfig {
-        &self.cfg.parser
+        self.derived_parser.get().expect("parser_config called before discover_partitions")
     }
 }

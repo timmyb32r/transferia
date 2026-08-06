@@ -4,6 +4,6 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("PQv1 smoke test — provider-based dispatch not yet wired for examples.");
-    println!("Use `ch-loader --config config_bench.yaml` for e2e testing.");
+    println!("Use `transferia --config config_bench.yaml` for e2e testing.");
     Ok(())
 }

@@ -19,7 +19,9 @@ use tonic::metadata::{AsciiMetadataValue, MetadataMap};
 use tonic::transport::Uri;
 use tonic::Request;
 
-use crate::config::yaml::YDB_DATABASE;
+/// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
+/// Always `/Root` in our deployment — hardcoded rather than configured.
+const YDB_DATABASE: &str = "/Root";
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::types::exactly_once::PartitionKey;
 use crate::types::message::{Message, MessageBatch};

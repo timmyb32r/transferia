@@ -529,47 +529,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
-name = "ch-loader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arrow",
- "bytes",
- "clap",
- "clickhouse-arrow",
- "flate2",
- "futures-util",
- "hex",
- "http 1.4.2",
- "hyper 1.10.1",
- "hyper-util",
- "itoa",
- "jsonpath_lib",
- "mimalloc",
- "object_store",
- "prost",
- "prost-types",
- "regex",
- "ryu",
- "serde",
- "serde_json",
- "serde_yaml",
- "shellexpand",
- "simd-json",
- "time",
- "tokio",
- "tokio-util",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tower 0.5.3",
- "tracing",
- "tracing-subscriber",
- "ydb",
- "zstd",
-]
-
-[[package]]
 name = "chacha20"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3686,6 +3645,47 @@ checksum = "ad06847b7afb65c7866a36664b75c40b895e318cea4f71299f013fb22965329d"
 dependencies = [
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "transferia"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bytes",
+ "clap",
+ "clickhouse-arrow",
+ "flate2",
+ "futures-util",
+ "hex",
+ "http 1.4.2",
+ "hyper 1.10.1",
+ "hyper-util",
+ "itoa",
+ "jsonpath_lib",
+ "mimalloc",
+ "object_store",
+ "prost",
+ "prost-types",
+ "regex",
+ "ryu",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shellexpand",
+ "simd-json",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower 0.5.3",
+ "tracing",
+ "tracing-subscriber",
+ "ydb",
+ "zstd",
 ]
 
 [[package]]

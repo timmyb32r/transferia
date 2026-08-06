@@ -9,9 +9,9 @@ use crate::pipeline::sink::Sink;
 use crate::providers::clickhouse::sink::ClickHouseSink;
 use crate::providers::traits::SinkProvider;
 
-/// ClickHouse sink config (extracted from common `SinkConfig` for provider isolation).
-#[derive(Debug, Deserialize)]
-pub struct ClickHouseSinkConfig {
+/// ClickHouse sink config.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SinkConfig {
     pub connection_string: String,
     #[serde(default = "default_database")]
     pub database: String,
@@ -39,12 +39,12 @@ fn default_connections() -> usize { 4 }
 fn default_tls() -> bool { true }
 
 pub struct ClickHouseSinkProvider {
-    cfg: ClickHouseSinkConfig,
+    cfg: SinkConfig,
 }
 
 impl ClickHouseSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let cfg: ClickHouseSinkConfig = serde_yaml::from_value(value)
+        let cfg: SinkConfig = serde_yaml::from_value(value)
             .map_err(|e| anyhow::anyhow!("Failed to parse ClickHouse sink config: {}", e))?;
         if cfg.connection_string.is_empty() {
             anyhow::bail!("clickhouse.connection_string must not be empty");
@@ -54,28 +54,12 @@ impl ClickHouseSinkProvider {
         }
         Ok(Self { cfg })
     }
-
-    /// Reconstruct a `SinkConfig` (the common type) from provider config.
-    fn to_sink_config(&self) -> crate::config::yaml::SinkConfig {
-        crate::config::yaml::SinkConfig {
-            connection_string: self.cfg.connection_string.clone(),
-            database: self.cfg.database.clone(),
-            username: self.cfg.username.clone(),
-            password: self.cfg.password.clone(),
-            batch_size: self.cfg.batch_size,
-            max_linger_ms: self.cfg.max_linger_ms,
-            max_connections: self.cfg.max_connections,
-            use_tls: self.cfg.use_tls,
-            tls_domain: self.cfg.tls_domain.clone(),
-            recreate_tables: false, // not used by sink directly
-        }
-    }
 }
 
 impl SinkProvider for ClickHouseSinkProvider {
     fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
         Box::pin(async move {
-            let sink = ClickHouseSink::new(&self.to_sink_config(), 10_000).await?;
+            let sink = ClickHouseSink::new(&self.cfg, 10_000).await?;
             Ok(Arc::new(sink) as Arc<dyn Sink>)
         })
     }
@@ -87,8 +71,7 @@ impl SinkProvider for ClickHouseSinkProvider {
         schema: &'a SchemaConfig,
         recreate: bool,
     ) -> BoxFuture<'a, anyhow::Result<()>> {
-        // Build a temporary sink for DDL (one short-lived connection).
-        let cfg = self.to_sink_config();
+        let cfg = self.cfg.clone();
         let table = table.to_string();
         let dlq_table = dlq_table.to_string();
         let schema = schema.clone();
@@ -106,19 +89,4 @@ impl SinkProvider for ClickHouseSinkProvider {
         })
     }
 
-    fn verify_tables<'a>(
-        &'a self,
-        table: &str,
-        dlq_table: &str,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        let cfg = self.to_sink_config();
-        let table = table.to_string();
-        let dlq_table = dlq_table.to_string();
-        Box::pin(async move {
-            let sink = ClickHouseSink::new(&cfg, 10_000).await?;
-            sink.verify_table(&table).await?;
-            sink.verify_table(&dlq_table).await?;
-            Ok(())
-        })
-    }
 }

@@ -14,7 +14,7 @@ pub trait Sink: Send + Sync {
     fn write<'a>(&'a self, write: TableWrite) -> BoxFuture<'a, anyhow::Result<()>>;
 
     /// Downcast to concrete type for startup checks. Override in concrete sinks.
-    /// Default panics — only ClickHouseSink and PoisoningSink implement this.
+    /// Default panics — only ClickHouseSink and PoisoningSink override this.
     fn as_any(&self) -> &dyn std::any::Any;
 }
 

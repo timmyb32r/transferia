@@ -42,7 +42,8 @@ impl YdsSourceProvider {
         if cfg.consumer_name.is_empty() {
             anyhow::bail!("{}.consumer_name must not be empty", kind);
         }
-        validate_parser(&cfg.parser, &[])?;
+        let allowed_parsers: std::collections::HashSet<&str> = ["json_parser"].into();
+        validate_parser(&cfg.parser, &[], &allowed_parsers)?;
         Ok(Self { cfg, kind: kind.to_string() })
     }
 }

@@ -1,47 +1,57 @@
-# ch-loader
+# transferia
 
-Мульти-источниковый загрузчик в ClickHouse через Apache Arrow. Читает из YDB Topic (CDC), Logbroker PQv1 и S3 (снапшоты), парсит JSON в колоночный формат, пишет в ClickHouse через нативный протокол.
+Multi-source, multi-sink data transfer pipeline. Reads from YDB Topic, Logbroker PQv1, S3, and ClickHouse; parses JSON into Apache Arrow columnar format; applies middleware (filters); writes to ClickHouse, S3, YDS, or Empty sink.
 
-## Источники
+## Sources
 
-| Источник | Тип | Назначение |
-|----------|-----|------------|
-| **YDB Topic** | стриминг | CDC-репликация из YDB |
-| **PQv1** (Logbroker) | стриминг | CDC-репликация через MigrationStreamingRead |
-| **S3** | снапшот | Разовая/периодическая загрузка JSON-файлов |
+| Source | Type | Purpose |
+|--------|------|---------|
+| **YDB Topic** | streaming | CDC replication from YDB |
+| **PQv1** (Logbroker) | streaming | CDC replication via MigrationStreamingRead |
+| **S3** | snapshot | One-time/periodic JSON file import |
+| **ClickHouse** | batch | Table-to-table transfer |
 
-## Сборка
+## Sinks
+
+| Sink | Type | Purpose |
+|------|------|---------|
+| **ClickHouse** | native protocol | Primary analytical storage |
+| **S3** | object storage | Snapshot export |
+| **YDS** | streaming | Forward to YDB Topic |
+| **Empty** | dev/null | Benchmarking / discard |
+
+## Build
 
 ```bash
 cargo build --release
 ```
 
-Бинарник: `./target/release/ch-loader`
+Binary: `./target/release/transferia`
 
-## Быстрый старт
+## Quick Start
 
 ```bash
-ch-loader --config ./config.yaml --total-workers 1 --worker-index 0
+transferia --config ./config.yaml --total-workers 1 --worker-index 0
 ```
 
 ### CLI
 
-| Флаг | Env | По умолчанию | Описание |
-|------|-----|-------------|----------|
-| `--config` | `CONFIG_PATH` | — | Путь к YAML-конфигу |
-| `--total-workers` | — | `1` | Воркеров (шардирование партиций для YDB/PQv1) |
-| `--worker-index` | — | `0` | Индекс текущего воркера (0-based) |
+| Flag | Env | Default | Description |
+|------|-----|---------|-------------|
+| `--config` | `CONFIG_PATH` | — | Path to YAML config |
+| `--total-workers` | — | `1` | Worker count (partition sharding for YDB/PQv1) |
+| `--worker-index` | — | `0` | Current worker index (0-based) |
 
-### Логирование
+### Logging
 
 ```bash
-RUST_LOG=debug ch-loader --config ./config.yaml   # детальные
-RUST_LOG=error ch-loader --config ./config.yaml   # только ошибки
+RUST_LOG=debug transferia --config ./config.yaml   # verbose
+RUST_LOG=error transferia --config ./config.yaml   # errors only
 ```
 
-## Конфигурация
+## Configuration
 
-YAML с поддержкой `${ENV_VAR}` и `$ENV_VAR` (shellexpand). Источник выбирается ключом внутри `source:`:
+YAML with `${ENV_VAR}` and `$ENV_VAR` expansion (shellexpand). Source is selected by the key inside `source:`.
 
 ### YDB Topic
 
@@ -91,7 +101,7 @@ source:
         columns: [...]
 ```
 
-### S3 (снапшот)
+### S3 (snapshot)
 
 ```yaml
 source:
@@ -99,12 +109,12 @@ source:
     bucket: my-bucket
     prefix: data/2024/
     region: us-east-1
-    endpoint: https://s3.custom.com     # опционально (MinIO и т.п.)
+    endpoint: https://s3.custom.com     # optional (MinIO, etc.)
     allow_http: false
-    credentials:                        # опционально (без них — стандартная AWS-цепочка)
+    credentials:                        # optional (defaults to standard AWS chain)
       access_key: "${S3_ACCESS_KEY}"
       secret_key: "${S3_SECRET_KEY}"
-    chunk_size_bytes: 16777216          # 16 MiB по умолчанию
+    chunk_size_bytes: 16777216          # 16 MiB default
     max_retries: 3
     parser:
       table_naming:
@@ -112,31 +122,87 @@ source:
         name: "events"
       parser_type: json_parser
       settings:
-        chunk_splitter: new-line        # обязательно new-line для S3
+        chunk_splitter: new-line        # required for S3
         columns: [...]
 ```
 
-**Особенности S3-источника:**
-- Потоковое чтение: файлы читаются кусками (16 MiB), не загружаются в память целиком
-- Ретраи: Transport-ошибки (сеть, S3 API) ретраятся с экспоненциальным backoff
-- Контракт exit code: 0 — полный снапшот, 1 — любая ошибка (частичный снапшот)
-- Все воркеры кроме worker 0 выходят сразу (S3 не шардируется)
-- At-least-once: данные, сбой при flush → реплей с YDB; для S3 перечитывание с оффсета
+**S3 source notes:**
+- Streaming reads: files are read in chunks (16 MiB), never fully loaded into memory
+- Retries: transport errors (network, S3 API) are retried with exponential backoff
+- Exit code: 0 — complete snapshot, 1 — any error (partial snapshot)
+- Workers other than worker 0 exit immediately (S3 is not sharded)
+- At-least-once: data failing during flush → replay from YDB; for S3, re-read from offset
+
+### ClickHouse (table-to-table transfer)
+
+```yaml
+source:
+  clickhouse:
+    connection_string: "localhost:9000"
+    database: "default"
+    username: "default"
+    password: ""
+    tables:
+      - schema: "db1"
+        table: "events"
+    # OR use regex patterns:
+    # include_patterns:
+    #   - "prod_.*"
+    # exclude_patterns:
+    #   - ".*_tmp"
+```
+
+**ClickHouse source notes:**
+- Reads tables page by page (configurable `rows_per_page`, default 10000)
+- Schema is derived automatically from the source table — no `parser` config needed
+- Serializes Arrow batches to JSON for pipeline processing (Arrow → JSON → Parser → Arrow)
 
 ### Sink (ClickHouse)
 
 ```yaml
 sink:
-  connection_string: "localhost:9000"
-  database: "default"
-  batch_size: 10000
-  max_linger_ms: 500
-  max_connections: 4
-  username: "default"
-  password: ""
-  use_tls: true
-  tls_domain: null            # опциональный SNI
-  recreate_tables: false      # только dev/bench
+  clickhouse:
+    connection_string: "localhost:9000"
+    database: "default"
+    batch_size: 10000
+    max_linger_ms: 500
+    max_connections: 4
+    username: "default"
+    password: ""
+    use_tls: true
+    tls_domain: null            # optional SNI override
+```
+
+### Sink (S3 export)
+
+```yaml
+sink:
+  s3:
+    bucket: my-bucket
+    prefix: snapshots/
+    region: us-east-1
+    endpoint: https://s3.custom.com     # optional
+    access_key: "${S3_ACCESS_KEY}"      # optional
+    secret_key: "${S3_SECRET_KEY}"      # optional
+    serializer_type: json
+```
+
+### Sink (YDS forward)
+
+```yaml
+sink:
+  yds:
+    connection_string: "grpc://localhost:2135/local"
+    topic_path: "/Root/my-topic"
+    serializer_type: json
+```
+
+### Sink (Empty / dev-null)
+
+```yaml
+sink:
+  empty:
+    batch_size: 10000
 ```
 
 ### Middlewares
@@ -148,7 +214,7 @@ middlewares:
     value: page_view
 ```
 
-## Локальный запуск (dev)
+## Local Dev
 
 ```bash
 cd docker-compose
@@ -156,9 +222,9 @@ docker-compose up -d clickhouse ydb
 cargo run --release -- --config ./config.yaml
 ```
 
-## Продакшн (Yandex Cloud ClickHouse)
+## Production (Yandex Cloud Managed ClickHouse)
 
-Yandex Cloud Managed ClickHouse требует TLS на порту 9440. Если `clickhouse-arrow` не проходит рукопожатие — используй `stunnel` как TLS-прокси:
+Yandex Cloud Managed ClickHouse requires TLS on port 9440. If `clickhouse-arrow` fails the handshake, use `stunnel` as a TLS proxy:
 
 ```bash
 sudo apt install stunnel4
@@ -169,50 +235,54 @@ sudo apt install stunnel4
 [clickhouse]
 client = yes
 accept = 127.0.0.1:19000
-connect = <FQDN-кластера>:9440
+connect = <cluster-FQDN>:9440
 ```
 
 ```yaml
 sink:
-  connection_string: "127.0.0.1:19000"
-  use_tls: false
+  clickhouse:
+    connection_string: "127.0.0.1:19000"
+    use_tls: false
 ```
 
 ```
-ch-loader ──plain TCP──→ stunnel ──TLS──→ ClickHouse
+transferia ──plain TCP──→ stunnel ──TLS──→ ClickHouse
 ```
 
-## Гарантии доставки
+## Delivery Guarantees
 
-**At-least-once** для основного и DLQ-потоков. Commit-маркер в YDB выставляется только после успешной записи всех таблиц (main + DLQ) в ClickHouse. При сбое — реплей с последнего закоммиченного оффсета.
+**At-least-once** for main and DLQ streams. The commit marker in YDB is set only after successful write of all tables (main + DLQ) to the sink. On failure — replay from the last committed offset.
 
-## Архитектура
+**Exactly-once** (opt-in): on ClickHouse sinks with `ReplicatedMergeTree`, uses waterline deduplication by `(partition, offset)`. Requires ClickHouse ≥ 22.8 for `select_sequential_consistency`.
+
+## Architecture
 
 ```
-Source ──→ Reader (tokio) ──→ Parser (std::thread) ──→ Writer (tokio) ──→ ClickHouse
+Source ──→ Reader (tokio) ──→ Parser (std::thread) ──→ Writer (tokio) ──→ Sink
   │              │                      │                       │
   │         mpsc channel           mpsc channel           accumulator
   │                                                       + flush
   └── CommitMarker ──────────────────────────────────────→ commit ↲
 ```
 
-Три асинхронных этапа с backpressure через bounded mpsc-каналы. Парсер — выделенный поток (не зависит от tokio blocking pool). Writer аккумулирует `TableWrite` и флашит по размеру или таймауту.
+Three async stages with backpressure via bounded mpsc channels. The parser runs on a dedicated thread (independent of the tokio blocking pool). The writer accumulates `TableWrite`s and flushes by size or timeout.
 
-### Стек
+### Stack
 
 - **Rust** + tokio (async runtime)
-- **Apache Arrow** 57 — колоночный формат данных
-- **clickhouse-arrow** — нативный протокол ClickHouse
-- **object_store** (DataFusion) — S3-доступ
-- **simd-json** — ускоренный JSON-парсинг
+- **Apache Arrow** 57 — columnar data format
+- **clickhouse-arrow** — ClickHouse native protocol
+- **object_store** (DataFusion) — S3 access
+- **simd-json** — accelerated JSON parsing
 - **ydb** — YDB Topic API
-- **tonic/prost** — gRPC для PQv1
+- **tonic/prost** — gRPC for PQv1
 
-## Схема данных
+## Data Schema
 
-Схема задаётся в YAML-конфиге (колонки + Arrow-типы + JSONPath). На основе неё:
-1. Строится Arrow-схема для `RecordBatch`
-2. Генерируется `CREATE TABLE` DDL для ClickHouse (Arrow-типы → ClickHouse-типы)
-3. Парсер извлекает значения из JSON и заполняет колоночные билдеры
+The schema is defined in the YAML config (columns + Arrow types + JSONPath). Based on this:
 
-DLQ-таблица (`<table>.dlq`) создаётся автоматически — фиксированная схема: `raw_bytes`, `error_message`, `partition_id`, `timestamp`.
+1. An Arrow schema is built for `RecordBatch`
+2. `CREATE TABLE` DDL is generated for ClickHouse (Arrow types → ClickHouse types)
+3. The parser extracts values from JSON and populates columnar builders
+
+DLQ table (`<table>.dlq`) is created automatically — fixed schema: `raw_bytes`, `error_message`, `partition_id`, `timestamp` (at-least-once) or `raw_bytes`, `error_message`, `timestamp`, `<partition_key>`, `<offset_key>` (exactly-once).

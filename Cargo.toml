@@ -1,8 +1,8 @@
 [package]
-name = "ch-loader"
+name = "transferia"
 version = "0.1.0"
 edition = "2021"
-description = "Multi-source ClickHouse loader: YDB Topic, PQv1, S3 → Arrow → ClickHouse"
+description = "Multi-source, multi-sink data transfer pipeline: YDB Topic, PQv1, S3, ClickHouse → Arrow → ClickHouse, S3, YDS"
 
 [dependencies]
 ydb = { version = "0.13", features = ["force-exhaustive-all"] }

@@ -7,13 +7,13 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use serde_yaml::Value;
 
-use ch_loader::config::yaml::{ColumnMapping, SchemaConfig, ChunkSplitter};
-use ch_loader::pipeline::sink::Sink;
-use ch_loader::providers::traits::ProviderRegistry;
-use ch_loader::serializer::Serializer;
-use ch_loader::serializer::json_serializer::JsonSerializer;
-use ch_loader::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
-use ch_loader::types::table_data::{TableData, TableWrite};
+use transferia::config::yaml::{ColumnMapping, SchemaConfig, ChunkSplitter};
+use transferia::pipeline::sink::Sink;
+use transferia::providers::traits::ProviderRegistry;
+use transferia::serializer::Serializer;
+use transferia::serializer::json_serializer::JsonSerializer;
+use transferia::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
+use transferia::types::table_data::{TableData, TableWrite};
 
 // ---------------------------------------------------------------------------
 // Task 1: Empty sink integration
@@ -23,7 +23,7 @@ use ch_loader::types::table_data::{TableData, TableWrite};
 fn empty_sink_provider_registration() {
     let mut registry = ProviderRegistry::new();
     registry.register_sink("empty", |v| {
-        Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
     // Verify registration doesn't panic
     let raw: Value = serde_yaml::from_str("batch_size: 5000").unwrap();
@@ -36,11 +36,11 @@ fn empty_sink_provider_registration() {
 fn empty_sink_through_registry() {
     let mut registry = ProviderRegistry::new();
     registry.register_sink("empty", |v| {
-        Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
     let raw: Value = serde_yaml::from_str("batch_size: 100").unwrap();
     let provider = registry.build_sink("empty", raw).unwrap();
-    // create_tables and verify_tables should be no-ops
+    // create_tables should be a no-op
     let schema = SchemaConfig {
         columns: vec![ColumnMapping {
             jsonpath: "$.id".into(), column_name: "id".into(),
@@ -51,7 +51,6 @@ fn empty_sink_through_registry() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         provider.create_tables("test", "test.dlq", &schema, false).await.unwrap();
-        provider.verify_tables("test", "test.dlq").await.unwrap();
     });
 }
 
@@ -119,7 +118,7 @@ fn parallel_ch_sink_is_sink_trait() {
     fn assert_sink<T: Sink>() {}
     // This test verifies the trait is implemented; can't instantiate
     // without a real ClickHouse server, but the type check compiles.
-    assert_sink::<ch_loader::middleware::parallel_ch_insert::ParallelChInsertSink>();
+    assert_sink::<transferia::middleware::parallel_ch_insert::ParallelChInsertSink>();
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +166,7 @@ region: us-east-1
 serializer_type: json
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::s3::sink::provider::S3SinkProvider::from_config(raw);
+    let result = transferia::providers::s3::sink::provider::S3SinkProvider::from_config(raw);
     assert!(result.is_ok(), "S3 sink provider should parse valid config: {:?}", result.err());
 }
 
@@ -179,7 +178,7 @@ topic_path: /Root/my-topic
 serializer_type: json
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::yds::sink::provider::YdsSinkProvider::from_config(raw);
+    let result = transferia::providers::yds::sink::provider::YdsSinkProvider::from_config(raw);
     assert!(result.is_ok(), "YDS sink provider should parse valid config: {:?}", result.err());
 }
 
@@ -190,7 +189,7 @@ bucket: ""
 prefix: snapshots/
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::s3::sink::provider::S3SinkProvider::from_config(raw);
+    let result = transferia::providers::s3::sink::provider::S3SinkProvider::from_config(raw);
     assert!(result.is_err(), "Should reject empty bucket");
 }
 
@@ -201,7 +200,7 @@ connection_string: ""
 topic_path: /Root/my-topic
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::yds::sink::provider::YdsSinkProvider::from_config(raw);
+    let result = transferia::providers::yds::sink::provider::YdsSinkProvider::from_config(raw);
     assert!(result.is_err(), "Should reject empty connection_string");
 }
 
@@ -211,7 +210,7 @@ topic_path: /Root/my-topic
 
 #[test]
 fn ch_source_explicit_tables() {
-    use ch_loader::providers::clickhouse::source::{TableRef, TableSelection};
+    use transferia::providers::clickhouse::source::{TableRef, TableSelection};
 
     let tables = vec![
         TableRef { schema_name: "db1".into(), table_name: "events".into() },
@@ -227,7 +226,7 @@ fn ch_source_explicit_tables() {
 #[test]
 fn ch_source_regex_selection() {
     use regex::Regex;
-    use ch_loader::providers::clickhouse::source::TableSelection;
+    use transferia::providers::clickhouse::source::TableSelection;
 
     let include = vec![
         Regex::new("prod_.*").unwrap(),
@@ -262,7 +261,7 @@ fn ch_source_regex_selection() {
 #[test]
 fn ch_source_regex_exclude_works() {
     use regex::Regex;
-    use ch_loader::providers::clickhouse::source::TableSelection;
+    use transferia::providers::clickhouse::source::TableSelection;
 
     let include = vec![Regex::new("prod_.*").unwrap()];
     let exclude = vec![Regex::new(".*_tmp").unwrap()];
@@ -292,19 +291,9 @@ tables:
     table: events
 include_patterns:
   - ".*"
-parser:
-  table_naming:
-    type: from_config
-    name: test
-  parser_type: json_parser
-  settings:
-    columns:
-      - jsonpath: "$.id"
-        column_name: id
-        arrow_type: Int64
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(raw);
+    let result = transferia::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(raw);
     assert!(result.is_err(), "Should reject both tables and include_patterns");
 }
 
@@ -312,19 +301,9 @@ parser:
 fn ch_source_provider_rejects_neither_tables_nor_patterns() {
     let yaml = r#"
 connection_string: localhost:9000
-parser:
-  table_naming:
-    type: from_config
-    name: test
-  parser_type: json_parser
-  settings:
-    columns:
-      - jsonpath: "$.id"
-        column_name: id
-        arrow_type: Int64
 "#;
     let raw: Value = serde_yaml::from_str(yaml).unwrap();
-    let result = ch_loader::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(raw);
+    let result = transferia::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(raw);
     assert!(result.is_err(), "Should reject neither tables nor patterns");
 }
 
@@ -336,16 +315,16 @@ parser:
 fn registry_all_sinks_registered() {
     let mut registry = ProviderRegistry::new();
     registry.register_sink("clickhouse", |v| {
-        Ok(Box::new(ch_loader::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(v)?))
     });
     registry.register_sink("empty", |v| {
-        Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
     registry.register_sink("s3", |v| {
-        Ok(Box::new(ch_loader::providers::s3::sink::provider::S3SinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::s3::sink::provider::S3SinkProvider::from_config(v)?))
     });
     registry.register_sink("yds", |v| {
-        Ok(Box::new(ch_loader::providers::yds::sink::provider::YdsSinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::yds::sink::provider::YdsSinkProvider::from_config(v)?))
     });
 
     // All 4 should be registered
@@ -363,15 +342,15 @@ fn registry_all_sinks_registered() {
 fn registry_all_sources_registered() {
     let mut registry = ProviderRegistry::new();
     registry.register_source("s3", |v| {
-        Ok(Box::new(ch_loader::providers::s3::provider::S3SourceProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::s3::provider::S3SourceProvider::from_config(v)?))
     });
     registry.register_source("clickhouse", |v| {
-        Ok(Box::new(ch_loader::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(v)?))
     });
 
     // CH source needs either tables or patterns
     let ch_raw: Value = serde_yaml::from_str(
-        "connection_string: x\ntables:\n  - schema: s\n    table: t\nparser:\n  table_naming:\n    type: from_config\n    name: x\n  parser_type: json_parser\n  settings:\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        arrow_type: Int64"
+        "connection_string: x\ntables:\n  - schema: s\n    table: t"
     ).unwrap();
     assert!(registry.build_source("clickhouse", ch_raw).is_ok());
 }

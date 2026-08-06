@@ -55,16 +55,4 @@ impl SinkProvider for EmptySinkProvider {
         Box::pin(async move { Ok(()) })
     }
 
-    fn verify_tables<'a>(
-        &'a self,
-        table: &str,
-        dlq_table: &str,
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
-        tracing::info!(
-            "empty-sink: skipping table verification for '{}' and '{}'",
-            table,
-            dlq_table
-        );
-        Box::pin(async move { Ok(()) })
-    }
 }

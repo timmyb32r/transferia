@@ -32,7 +32,8 @@ impl S3SourceProvider {
                 "s3: table_naming.type must be 'from_config' (S3 has no topic path)"
             );
         }
-        validate_parser(&cfg.parser, &[])?;
+        let allowed_parsers: std::collections::HashSet<&str> = ["json_parser"].into();
+        validate_parser(&cfg.parser, &[], &allowed_parsers)?;
         Ok(Self { cfg })
     }
 }

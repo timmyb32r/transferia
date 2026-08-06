@@ -1,6 +1,7 @@
 pub mod source;
 pub mod middleware;
 pub mod sink;
+pub mod poisoning;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -467,8 +468,8 @@ pub async fn run_partition_pipeline(
         let mut total_flushed: u64 = 0;
 
         /// Drain-and-ack: flush, commit on success, propagate sink errors.
-        /// **Exactly-once fix (spec §6):** ошибка синка пробрасывается как Err,
-        /// не глотается. Молчаливый `acc.clear(); None` = потеря данных.
+        /// **Exactly-once fix (spec §6):** sink error is propagated as Err,
+        /// not swallowed. Silent `acc.clear(); None` = data loss.
         async fn drain_and_ack(
             sink: &dyn Sink,
             tx_commit: &mpsc::Sender<CommitAck>,

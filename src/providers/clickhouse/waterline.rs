@@ -7,24 +7,24 @@ use clickhouse_arrow::{ArrowFormat, Client};
 
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
 
-/// Ключ waterline: (таблица, партиция). Разные таблицы (main и DLQ) имеют
-/// независимые waterline в пределах одного синка.
+/// Waterline key: (table, partition). Different tables (main and DLQ) have
+/// independent waterlines within a single sink.
 type WaterlineKey = (Arc<str>, PartitionKey);
 
-/// Кеш максимального уже записанного offset на (таблицу, партицию).
+/// Cache of the maximum already-written offset per (table, partition).
 ///
-/// `None` для ключа = «ещё не видели / нет в CH» (НЕ то же, что offset 0).
-/// `None` vs `Some(0)` различаются благодаря `HAVING count() > 0` в SQL-запросе
-/// и negative caching (множество `loaded_also_empty`).
+/// `None` for a key = "haven't seen yet / not in CH" (NOT the same as offset 0).
+/// `None` vs `Some(0)` are distinguished via `HAVING count() > 0` in the SQL query
+/// and negative caching (the `loaded_also_empty` set).
 pub struct Waterline {
-    /// Кеш: максимальный записанный offset. Только ключи с реальными данными в CH.
+    /// Cache: maximum written offset. Only keys with actual data in CH.
     committed: HashMap<WaterlineKey, i64>,
-    /// Порядок для LRU-эвикта (bounded-память для S3-ключей).
+    /// Order for LRU eviction (bounded memory for S3 keys).
     lru: VecDeque<WaterlineKey>,
-    /// Максимальный размер кеша.
+    /// Maximum cache size.
     cap: usize,
-    /// Ключи, которые были загружены и оказались пусты (партиция без данных).
-    /// Защищает от повторных SELECT max на пустую партицию каждый батч.
+    /// Keys that were loaded and found empty (partition with no data).
+    /// Prevents repeated SELECT max on an empty partition every batch.
     loaded_also_empty: HashSet<WaterlineKey>,
 }
 
@@ -38,11 +38,11 @@ impl Waterline {
         }
     }
 
-    /// Гарантирует, что waterline для (таблицы, партиции) загружен в кеш.
-    /// Разово ходит в ClickHouse. Double-checked: сначала быстрая проверка кеша,
-    /// при промахе — async путь.
+    /// Ensures the waterline for (table, partition) is loaded into the cache.
+    /// Makes a single round-trip to ClickHouse. Double-checked: fast cache check
+    /// first, then async path on miss.
     ///
-    /// **API note:** `&mut self` — Waterline single-owner, конкурентного доступа нет.
+    /// **API note:** `&mut self` — Waterline is single-owner, no concurrent access.
     pub async fn ensure_loaded(
         &mut self,
         client: &Client<ArrowFormat>,
@@ -52,7 +52,7 @@ impl Waterline {
     ) -> anyhow::Result<()> {
         let wk: WaterlineKey = (table.clone(), pid.clone());
 
-        // Проверка кеша (включая negative caching — уже знаем что партиция пуста).
+        // Check cache (including negative caching — already know the partition is empty).
         if self.committed.contains_key(&wk) || self.loaded_also_empty.contains(&wk) {
             return Ok(());
         }
@@ -67,8 +67,8 @@ impl Waterline {
             val = pid.to_sql_literal(),
         );
 
-        // clickhouse-arrow 0.2.1: query_one возвращает Result<Option<RecordBatch>>
-        // Извлекаем единственное значение (max offset) из первой колонки первой строки
+        // clickhouse-arrow 0.2.1: query_one returns Result<Option<RecordBatch>>
+        // Extract the single value (max offset) from the first column of the first row
         let batch: Option<RecordBatch> = client.query_one(&q, None).await?;
         let max: Option<i64> = batch.and_then(|b| {
             if b.num_rows() == 0 {
@@ -85,25 +85,25 @@ impl Waterline {
         if let Some(m) = max {
             self.insert_lru(wk, m);
         } else {
-            // Negative caching: запоминаем, что партиция пуста
+            // Negative caching: remember that the partition is empty
             self.loaded_also_empty.insert(wk);
         }
         Ok(())
     }
 
-    /// Максимальный записанный offset. `None` = не видели (или партиция пуста).
+    /// Maximum written offset. `None` = haven't seen (or partition is empty).
     #[inline]
     pub fn committed(&self, table: &Arc<str>, pid: &PartitionKey) -> Option<i64> {
         self.committed.get(&(table.clone(), pid.clone())).copied()
     }
 
-    /// Обновление после успешного INSERT. Монотонно (max) — дешёвая страховка.
-    /// При первом появлении данных удаляет ключ из `loaded_also_empty`.
+    /// Update after a successful INSERT. Monotonic (max) — cheap safeguard.
+    /// On first data appearance, removes the key from `loaded_also_empty`.
     #[inline]
     pub fn mark_committed(&mut self, table: &Arc<str>, pid: PartitionKey, offset: i64) {
         let wk = (table.clone(), pid);
         self.loaded_also_empty.remove(&wk);
-        // Используем insert_lru для унифицированного управления LRU и эвиктом
+        // Use insert_lru for unified LRU management and eviction
         let current = self.committed.get(&wk).copied().unwrap_or(i64::MIN);
         self.insert_lru(wk, current.max(offset));
     }
@@ -111,17 +111,17 @@ impl Waterline {
     // ── LRU internals ──
 
     fn insert_lru(&mut self, wk: WaterlineKey, offset: i64) {
-        // Если ключ уже есть — обновить значение и переместить в конец LRU
+        // If key already exists — update value and move to the end of LRU
         if let Some(v) = self.committed.get_mut(&wk) {
             *v = (*v).max(offset);
-            // Переместить в конец LRU
+            // Move to the end of LRU
             if let Some(pos) = self.lru.iter().position(|k| k == &wk) {
                 self.lru.remove(pos);
             }
             self.lru.push_back(wk);
             return;
         }
-        // Эвикт при переполнении: удаляем старейший
+        // Evict on overflow: remove the oldest
         while self.committed.len() >= self.cap {
             if let Some(old) = self.lru.pop_front() {
                 self.committed.remove(&old);
@@ -162,11 +162,11 @@ mod tests {
         wl.mark_committed(&table, pk_int(0), 5);
         assert_eq!(wl.committed(&table, &pk_int(0)), Some(5));
 
-        // Монотонность: меньший offset не понижает
+        // Monotonic: a smaller offset must not decrease
         wl.mark_committed(&table, pk_int(0), 3);
         assert_eq!(wl.committed(&table, &pk_int(0)), Some(5));
 
-        // Больший offset повышает
+        // A larger offset must increase
         wl.mark_committed(&table, pk_int(0), 10);
         assert_eq!(wl.committed(&table, &pk_int(0)), Some(10));
     }
@@ -195,10 +195,10 @@ mod tests {
         wl.mark_committed(&table, pk_int(1), 20);
         assert_eq!(wl.committed.len(), 2);
 
-        // Третий ключ должен вытеснить старейший (pk_int(0))
+        // Third key should evict the oldest (pk_int(0))
         wl.mark_committed(&table, pk_int(2), 30);
         assert_eq!(wl.committed.len(), 2);
-        assert_eq!(wl.committed(&table, &pk_int(0)), None); // вытеснен
+        assert_eq!(wl.committed(&table, &pk_int(0)), None); // evicted
         assert_eq!(wl.committed(&table, &pk_int(1)), Some(20));
         assert_eq!(wl.committed(&table, &pk_int(2)), Some(30));
     }
@@ -221,7 +221,7 @@ mod tests {
 
         wl.mark_committed(&table, pk_str("dir/file.json"), 5);
         assert_eq!(wl.committed(&table, &pk_str("dir/file.json")), Some(5));
-        // Другой файл — независимый waterline
+        // Different file — independent waterline
         assert_eq!(wl.committed(&table, &pk_str("dir/other.json")), None);
     }
 

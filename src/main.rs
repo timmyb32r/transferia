@@ -4,21 +4,21 @@ use clap::Parser;
 use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use ch_loader::config::yaml::{validate_parser, Config};
-use ch_loader::middleware::filter::FilterMiddleware;
-use ch_loader::parser::JsonParser;
-use ch_loader::types::table_data::dlq_name;
-use ch_loader::pipeline::middleware::Middleware;
-use ch_loader::pipeline::run_partition_pipeline;
-use ch_loader::pipeline::source::Source;
-use ch_loader::providers::clickhouse::sink::ClickHouseSink;
-use ch_loader::providers::traits::ProviderRegistry;
+use transferia::config::yaml::{validate_parser, Config};
+use transferia::middleware::filter::FilterMiddleware;
+use transferia::parser::JsonParser;
+use transferia::types::table_data::dlq_name;
+use transferia::pipeline::middleware::Middleware;
+use transferia::pipeline::run_partition_pipeline;
+use transferia::pipeline::source::Source;
+use transferia::providers::clickhouse::sink::ClickHouseSink;
+use transferia::providers::traits::ProviderRegistry;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser, Debug)]
-#[command(name = "ch-loader", about = "Multi-source ClickHouse loader")]
+#[command(name = "transferia", about = "Multi-source, multi-sink data transfer pipeline")]
 struct Cli {
     #[arg(long, env = "CONFIG_PATH")]
     config: String,
@@ -34,7 +34,7 @@ struct Cli {
 struct PipelineDeps {
     parser: Arc<JsonParser>,
     mw: Arc<Vec<Box<dyn Middleware>>>,
-    snk: Arc<dyn ch_loader::pipeline::sink::Sink>,
+    snk: Arc<dyn transferia::pipeline::sink::Sink>,
     batch_size: usize,
     max_linger_ms: u64,
     token: CancellationToken,
@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
-    tracing::info!("ch-loader starting (worker {}/{})", cli.worker_index, cli.total_workers);
+    tracing::info!("transferia starting (worker {}/{})", cli.worker_index, cli.total_workers);
 
     // 1. Load config
     let config = Config::from_file(&cli.config)?;
@@ -103,30 +103,30 @@ async fn main() -> anyhow::Result<()> {
 
     // Register source providers
     registry.register_source("topic", |v| {
-        Ok(Box::new(ch_loader::providers::yds::provider::YdsSourceProvider::from_config(v, "topic")?))
+        Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(v, "topic")?))
     });
     registry.register_source("pqv1", |v| {
-        Ok(Box::new(ch_loader::providers::yds::provider::YdsSourceProvider::from_config(v, "pqv1")?))
+        Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(v, "pqv1")?))
     });
     registry.register_source("s3", |v| {
-        Ok(Box::new(ch_loader::providers::s3::provider::S3SourceProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::s3::provider::S3SourceProvider::from_config(v)?))
     });
     registry.register_source("clickhouse", |v| {
-        Ok(Box::new(ch_loader::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::clickhouse::source_provider::ClickHouseSourceProvider::from_config(v)?))
     });
 
     // Register sink providers
     registry.register_sink("clickhouse", |v| {
-        Ok(Box::new(ch_loader::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(v)?))
     });
     registry.register_sink("empty", |v| {
-        Ok(Box::new(ch_loader::providers::empty::provider::EmptySinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::empty::provider::EmptySinkProvider::from_config(v)?))
     });
     registry.register_sink("s3", |v| {
-        Ok(Box::new(ch_loader::providers::s3::sink::provider::S3SinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::s3::sink::provider::S3SinkProvider::from_config(v)?))
     });
     registry.register_sink("yds", |v| {
-        Ok(Box::new(ch_loader::providers::yds::sink::provider::YdsSinkProvider::from_config(v)?))
+        Ok(Box::new(transferia::providers::yds::sink::provider::YdsSinkProvider::from_config(v)?))
     });
 
     let source_kind = config.source.kind()?.to_string();
@@ -149,7 +149,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // 3. Common parser validation
-    validate_parser(source_provider.parser_config(), &config.middlewares)?;
+    let allowed_parsers: std::collections::HashSet<&str> = ["json_parser"].into();
+    validate_parser(source_provider.parser_config(), &config.middlewares, &allowed_parsers)?;
 
     // 4. Resolve table + partitions
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
@@ -225,8 +226,6 @@ async fn main() -> anyhow::Result<()> {
             );
         }
     }
-
-    sink_provider.verify_tables(&table, &dlq_table).await?;
 
     // 7. Graceful shutdown
     let cancel_token = CancellationToken::new();

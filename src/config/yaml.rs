@@ -1,10 +1,6 @@
 use arrow::datatypes::{DataType, TimeUnit};
 use serde::Deserialize;
 
-/// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
-/// Always `/Root` in our deployment — hardcoded rather than configured.
-pub const YDB_DATABASE: &str = "/Root";
-
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -92,12 +88,18 @@ impl SinkEntry {
 
 /// Common parser checks every source provider must call.
 /// Validates: parser_type, columns non-empty, arrow_types, middleware↔columns.
+/// `allowed_parsers` — set of registered parser names (e.g. `{"json_parser"}`).
 pub fn validate_parser(
     parser: &ParserConfig,
     middlewares: &[MiddlewareConfig],
+    allowed_parsers: &std::collections::HashSet<&str>,
 ) -> anyhow::Result<()> {
-    if parser.parser_type != "json_parser" {
-        anyhow::bail!("parser_type '{}' unsupported (only 'json_parser')", parser.parser_type);
+    if !allowed_parsers.contains(parser.parser_type.as_str()) {
+        anyhow::bail!(
+            "parser_type '{}' unsupported; registered: {:?}",
+            parser.parser_type,
+            allowed_parsers,
+        );
     }
     if parser.settings.columns.is_empty() {
         anyhow::bail!("columns must not be empty");
@@ -298,67 +300,12 @@ pub struct MiddlewareConfig {
     pub value: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Sink configuration
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct SinkConfig {
-    /// ClickHouse connection string (Native Protocol port), e.g. "localhost:9000"
-    /// For Yandex Cloud Managed ClickHouse, use port 9440 (native TLS), NOT 8443 (HTTPS).
-    pub connection_string: String,
-    /// ClickHouse database name
-    pub database: String,
-    /// Rows per batch insert (default: 10000)
-    #[serde(default = "default_batch_size")]
-    pub batch_size: usize,
-    /// Max milliseconds to wait before flushing a partial batch (default: 500)
-    #[serde(default = "default_max_linger_ms")]
-    pub max_linger_ms: u64,
-    /// Max ClickHouse connections in the pool (default: 4)
-    #[serde(default = "default_max_connections")]
-    pub max_connections: usize,
-    /// ClickHouse username (default: "default")
-    #[serde(default = "default_username")]
-    pub username: String,
-    /// ClickHouse password (default: empty)
-    #[serde(default)]
-    pub password: String,
-    /// Enable TLS for ClickHouse native protocol connections (default: true).
-    /// Set to false if connecting without encryption (e.g. local dev or same-VPC).
-    #[serde(default = "default_use_tls")]
-    pub use_tls: bool,
-    /// Override the SNI/TLS domain name for certificate validation.
-    /// If unset, the host from `connection_string` is used.
-    /// Yandex Cloud users: this should match your cluster's FQDN.
-    #[serde(default)]
-    pub tls_domain: Option<String>,
-    /// Opt-in for dev/bench: DROP + recreate tables on startup so schema changes
-    /// (e.g. a column becoming Nullable, or a new ORDER BY) take effect.
-    /// NEVER enable in production — existing data IS LOST.
-    #[serde(default)]
-    pub recreate_tables: bool,
-}
-
 fn default_batch_size() -> usize {
     10000
 }
 
 fn default_max_linger_ms() -> u64 {
     500
-}
-
-fn default_max_connections() -> usize {
-    4
-}
-
-fn default_username() -> String {
-    "default".to_string()
-}
-
-fn default_use_tls() -> bool {
-    true
 }
 
 // ---------------------------------------------------------------------------
@@ -476,7 +423,8 @@ mod tests {
             parser_type: "json_parser".into(),
             settings: SchemaConfig { columns: vec![], raw_payload_field: None, order_by: vec![], chunk_splitter: ChunkSplitter::NoSplit },
         };
-        assert!(validate_parser(&parser, &[]).is_err());
+        let allowed: std::collections::HashSet<&str> = ["json_parser"].into();
+        assert!(validate_parser(&parser, &[], &allowed).is_err());
     }
 
     #[test]

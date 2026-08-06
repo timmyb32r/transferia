@@ -45,11 +45,6 @@ pub trait SinkProvider: Send + Sync {
         recreate: bool,
     ) -> BoxFuture<'a, anyhow::Result<()>>;
 
-    fn verify_tables<'a>(
-        &'a self,
-        table: &str,
-        dlq_table: &str,
-    ) -> BoxFuture<'a, anyhow::Result<()>>;
 }
 
 // ---------------------------------------------------------------------------
