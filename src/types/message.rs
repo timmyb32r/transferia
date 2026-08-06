@@ -1,11 +1,16 @@
 use bytes::Bytes;
 
 use crate::pipeline::source::CommitMarker;
+use crate::types::exactly_once::PartitionKey;
 
-/// A single message from the source. Minimal — only the payload bytes.
+/// A single message from the source.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub value: Bytes,
+    /// Exactly-once offset (None = source does not support exactly-once).
+    pub offset: Option<i64>,
+    /// Exactly-once partition (None = source does not support exactly-once).
+    pub partition: Option<PartitionKey>,
 }
 
 /// A batch of messages read from a source partition.
@@ -14,8 +19,4 @@ pub struct MessageBatch {
     pub messages: Vec<Message>,
     pub partition_id: i64,
     pub commit_marker: Option<CommitMarker>,
-    /// Deduplication token for exactly-once sinks.
-    /// Derived deterministically from the batch content so replays
-    /// produce the same token. `None` for sources without offsets (S3).
-    pub dedup_token: Option<String>,
 }

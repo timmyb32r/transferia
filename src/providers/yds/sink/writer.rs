@@ -8,8 +8,8 @@ use crate::types::table_data::TableWrite;
 
 /// YDS sink that writes serialized record batches to a YDS topic.
 ///
-/// At-least-once by default. When `dedup_token` is present (from the source),
-/// it's included as metadata to enable exactly-once in downstream consumers.
+/// At-least-once by default. When an exactly-once key descriptor is present
+/// (from the source), it enables exactly-once in downstream consumers.
 pub struct YdsSink {
     serializer: Arc<dyn Serializer>,
     /// Track total rows for logging / metrics.
@@ -44,10 +44,10 @@ impl Sink for YdsSink {
             self._total_rows.fetch_add(total_rows as u64, std::sync::atomic::Ordering::Relaxed);
 
             tracing::info!(
-                "YDS sink: wrote {} rows to topic ({} bytes, dedup={})",
+                "YDS sink: wrote {} rows to topic ({} bytes, exactly_once={})",
                 total_rows,
                 payload.len(),
-                write.dedup_token.as_deref().unwrap_or("none"),
+                write.exactly_once_key.is_some(),
             );
 
             // TODO: actual YDS write via ydb topic client
@@ -57,4 +57,6 @@ impl Sink for YdsSink {
             Ok(())
         })
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }

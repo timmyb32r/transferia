@@ -1,38 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::types::exactly_once::PartitionKey;
 use crate::types::{Message, MessageBatch};
-
-/// Compute a deterministic dedup token from a message batch.
-///
-/// Uses a fast hash of (partition_id, msg_count, first_msg_prefix, last_msg_prefix)
-/// to produce a token that is:
-/// - **Deterministic**: same batch of messages → same token (survives replays)
-/// - **Unique enough**: different batches → different token with very high probability
-///
-/// The token is formatted as a hex string for use as ClickHouse
-/// `insert_deduplication_token`.
-pub(crate) fn compute_dedup_token(partition_id: i64, messages: &[Message]) -> Option<String> {
-    if messages.is_empty() {
-        return None;
-    }
-    let mut hasher = DefaultHasher::new();
-    partition_id.hash(&mut hasher);
-    messages.len().hash(&mut hasher);
-    // Hash first 64 bytes of first message
-    let first = &messages.first().unwrap().value;
-    let first_prefix = if first.len() > 64 { &first[..64] } else { &first[..] };
-    first_prefix.hash(&mut hasher);
-    // Hash last 64 bytes of last message
-    let last = &messages.last().unwrap().value;
-    let last_prefix = if last.len() > 64 { &last[..64] } else { &last[..] };
-    last_prefix.hash(&mut hasher);
-    Some(format!("{:016x}", hasher.finish()))
-}
 
 pub struct YdbTopicSource {
     reader: ydb::TopicReader,
@@ -83,11 +54,14 @@ impl Source for YdbTopicSource {
             let mut messages = Vec::with_capacity(estimated);
             for msg in &mut batch.messages {
                 if let Some(bytes) = msg.read_and_take().await? {
-                    messages.push(Message { value: Bytes::from(bytes) });
+                    messages.push(Message {
+                        value: Bytes::from(bytes),
+                        offset: Some(msg.offset),
+                        partition: Some(PartitionKey::Int(msg.get_partition_id())),
+                    });
                 }
             }
-            let dedup_token = compute_dedup_token(self.partition_id, &messages);
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker, dedup_token }))
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
         })
     }
 

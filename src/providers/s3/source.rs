@@ -210,7 +210,6 @@ impl S3Source {
         match messages {
             Some(msgs) => ReadResult::Batch(MessageBatch {
                 messages: msgs, partition_id, commit_marker: None,
-                dedup_token: None,
             }),
             None => ReadResult::Exhausted,
         }
@@ -296,7 +295,7 @@ impl S3Source {
                 .into_iter()
                 .map(|rec| {
                     let offset = rec.as_ptr() as usize - base_ptr;
-                    Message { value: chunk.slice(offset..offset + rec.len()) }
+                    Message { value: chunk.slice(offset..offset + rec.len()), offset: None, partition: None }
                 })
                 .collect();
 

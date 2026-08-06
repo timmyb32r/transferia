@@ -230,7 +230,6 @@ impl Source for ClickHouseSource {
                     messages,
                     partition_id: self.partition_id,
                     commit_marker: None,
-                    dedup_token: None,
                 }));
             }
         })
@@ -254,5 +253,5 @@ fn batches_to_messages(batches: &[RecordBatch]) -> anyhow::Result<Vec<Message>> 
         all_bytes.extend_from_slice(&serialized);
     }
 
-    Ok(vec![Message { value: Bytes::from(all_bytes) }])
+    Ok(vec![Message { value: Bytes::from(all_bytes), offset: None, partition: None }])
 }

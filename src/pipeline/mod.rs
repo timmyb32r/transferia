@@ -13,6 +13,7 @@ use crate::parser::{JsonParser, ParserWorkspace};
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::Sink;
+use crate::types::exactly_once::ExactlyOnceKey;
 use crate::types::table_data::{TableData, TableWrite};
 
 const INITIAL_BACKOFF_MS: u64 = 10; // was 100 — lower floor for faster resume
@@ -33,7 +34,6 @@ struct ReadItem {
     messages: Vec<crate::types::message::Message>,
     partition_id: i64,
     commit_marker: Option<CommitMarker>,
-    dedup_token: Option<String>,
 }
 
 /// After parsing, a batch of messages becomes one or two `TableData` objects
@@ -70,8 +70,13 @@ struct BatchAccumulator {
     /// Global threshold: total rows across **all** tables.
     batch_size: usize,
     window_start: Option<Instant>,
-    /// Dedup token aggregated across pushes.
-    dedup_token: Option<String>,
+    /// Exactly-once key descriptor of the current accumulation window, taken
+    /// from the first keyed `TableData` (all items of one flush share the
+    /// source's key descriptor). `Some` also marks the window as exactly-once:
+    /// the size-limit flush is then evaluated only at Message boundaries
+    /// (§3.1). `take_flush`/`clear` reset it, so the next Message starts a
+    /// fresh accumulation window.
+    exactly_once_key: Option<ExactlyOnceKey>,
 }
 
 impl BatchAccumulator {
@@ -83,30 +88,50 @@ impl BatchAccumulator {
             total_rows: 0,
             batch_size,
             window_start: None,
-            dedup_token: None,
+            exactly_once_key: None,
         }
     }
 
     /// Push a `TableData` into the accumulator. Never triggers a flush (invariant A1).
-    /// Empty batches (0 rows) are silently skipped.
-    fn push(&mut self, td: TableData, marker: Option<CommitMarker>) {
+    /// Empty batches (0 rows) are silently skipped — they never reach the sink
+    /// (with exactly-once, a 0-row batch carries no offsets to deduplicate).
+    ///
+    /// **Exactly-once (§3.1):** a keyed `TableData` is one complete Message —
+    /// an atomic unit. The accumulator never splits a Message between two
+    /// `TableWrite` flushes: the size-limit flush is only consulted by the
+    /// caller after all tables of a Message have been pushed, and the flush
+    /// then carries the current Message whole, even when the flush total
+    /// exceeds `batch_size`. A single Message that alone exceeds `batch_size`
+    /// cannot be held in a flush window at all — a configuration error,
+    /// reported as `message too large for exactly-once batch` (fatal).
+    fn push(&mut self, td: TableData, marker: Option<CommitMarker>) -> anyhow::Result<()> {
         if td.batch.num_rows() == 0 {
-            return;
+            return Ok(());
+        }
+        if td.exactly_once_key.is_some() && td.batch.num_rows() > self.batch_size {
+            return Err(anyhow::anyhow!(
+                "message too large for exactly-once batch: {} rows exceed batch_size {}; \
+                 raise sink_batch_size or reduce the message size",
+                td.batch.num_rows(),
+                self.batch_size,
+            ));
         }
         if self.window_start.is_none() {
             self.window_start = Some(Instant::now());
         }
-        // Keep the first non-None dedup token; all items in a flush share the same
-        // source batch and therefore the same token.
-        if self.dedup_token.is_none() {
-            self.dedup_token = td.dedup_token.clone();
+        // Keep the first non-None exactly_once_key; all items in a flush share
+        // the same source batch and therefore the same key descriptor. Its
+        // Some-ness marks the current accumulation window as exactly-once: the
+        // size-limit flush is then evaluated only at Message boundaries.
+        if self.exactly_once_key.is_none() {
+            self.exactly_once_key = td.exactly_once_key.clone();
         }
         let rows = td.batch.num_rows();
         let entry = self.tables.entry(td.table.clone()).or_insert_with(|| {
             self.order.push(td.table.clone());
             TableWrite {
                 table: td.table.clone(), batches: Vec::new(),
-                dedup_token: None,
+                exactly_once_key: None,
             }
         });
         entry.batches.push(td.batch);
@@ -114,8 +139,20 @@ impl BatchAccumulator {
         if let Some(m) = marker {
             self.markers.push(m);
         }
+        Ok(())
     }
 
+    /// True when the accumulated rows reach the batch-size limit.
+    ///
+    /// **Exactly-once contract (§3.1):** while the window is exactly-once
+    /// (`exactly_once_key` is `Some`), the caller MUST consult this only
+    /// after pushing all tables of one complete Message. A flush then
+    /// includes the current Message whole — it is never split between two
+    /// `TableWrite`s — even when the flush total exceeds `batch_size`, and
+    /// the next Message starts a fresh accumulation window (`take_flush`
+    /// fully resets the accumulator state). Splitting a Message would let
+    /// the sink's waterline advance past a partially-written offset and
+    /// lose the tail of the Message on replay (§0, I5).
     fn should_flush(&self) -> bool {
         self.total_rows >= self.batch_size
     }
@@ -125,23 +162,27 @@ impl BatchAccumulator {
     }
 
     /// Take ALL buffered data + all markers. Returns `None` when empty.
+    ///
+    /// In exactly-once mode the flush is atomic per Message: it contains
+    /// whole Messages only (never a partial one), and the exactly-once state
+    /// is reset so the next push starts a fresh accumulation window.
     fn take_flush(&mut self) -> Option<FlushBatch> {
         if self.is_empty() {
             return None;
         }
-        let token = self.dedup_token.take();
+        let key = self.exactly_once_key.take();
         let writes: Vec<TableWrite> = self
             .order
             .iter()
             .filter_map(|name| self.tables.remove(name.as_ref()))
             .filter(|w| !w.batches.is_empty())
-            .map(|w| TableWrite { dedup_token: token.clone(), ..w })
+            .map(|w| TableWrite { exactly_once_key: key.clone(), ..w })
             .collect();
         let markers = std::mem::take(&mut self.markers);
         self.order.clear();
         self.tables.clear();
         self.total_rows = 0;
-        self.dedup_token = None;
+        self.exactly_once_key = None;
         Some(FlushBatch { writes, markers })
     }
 
@@ -151,7 +192,7 @@ impl BatchAccumulator {
         self.markers.clear();
         self.total_rows = 0;
         self.window_start = None;
-        self.dedup_token = None;
+        self.exactly_once_key = None;
     }
 }
 
@@ -185,6 +226,26 @@ pub async fn run_partition_pipeline(
     // Shared fatal-error slot: reader (Failed) or writer (sink error / middleware guard).
     let fatal_error: Arc<std::sync::Mutex<Option<anyhow::Error>>> =
         Arc::new(std::sync::Mutex::new(None));
+
+    /// Commit marker to source with up to 10 retries.
+    /// Spec §0 (I3): source.commit fails after retries → poison → fatal.
+    /// TODO: wire into all reader commit_offsets call sites (currently uses manual backoff).
+    #[allow(dead_code)]
+    async fn commit_with_retry(source: &mut Box<dyn Source>, marker: &CommitMarker) -> anyhow::Result<()> {
+        let mut last_err = None;
+        for attempt in 0..10 {
+            match source.commit_offsets(marker).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < 9 {
+                        tokio::time::sleep(std::time::Duration::from_millis(100 * (1 << attempt.min(6)))).await;
+                    }
+                }
+            }
+        }
+        Err(anyhow::anyhow!("commit_offsets failed after 10 retries: {:?}", last_err))
+    }
 
     // --- Reader task (tokio::spawn — owns source for read + commit) ---
     let reader_token = cancel_token.clone();
@@ -320,7 +381,6 @@ pub async fn run_partition_pipeline(
                 messages: msg_batch.messages,
                 partition_id: msg_batch.partition_id,
                 commit_marker: msg_batch.commit_marker,
-                dedup_token: msg_batch.dedup_token.clone(),
             };
 
             // Send + drain acks concurrently to avoid pipeline stall
@@ -362,7 +422,7 @@ pub async fn run_partition_pipeline(
                     None => return,
                 };
 
-                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, item.dedup_token, &mut workspace) {
+                let (valid, dlq) = match parser.parse_into(item.messages, item.partition_id, None, &mut workspace) {
                     Ok(r) => r,
                     Err(e) => {
                         tracing::error!("Parser error: {}", e);
@@ -406,21 +466,34 @@ pub async fn run_partition_pipeline(
         let mut acc = BatchAccumulator::new(batch_size);
         let mut total_flushed: u64 = 0;
 
-        /// Common drain-and-ack helper used by the main loop and all cancel branches.
-        /// Flushes all accumulated data; commits only on success.
+        /// Drain-and-ack: flush, commit on success, propagate sink errors.
+        /// **Exactly-once fix (spec §6):** ошибка синка пробрасывается как Err,
+        /// не глотается. Молчаливый `acc.clear(); None` = потеря данных.
         async fn drain_and_ack(
             sink: &dyn Sink,
             tx_commit: &mpsc::Sender<CommitAck>,
             acc: &mut BatchAccumulator,
+        ) -> anyhow::Result<usize> {
+            let flush = acc.take_flush()
+                .ok_or_else(|| anyhow::anyhow!("drain_and_ack: no flush data"))?;
+            let rows = flush_to_sink_and_ack(sink, tx_commit, flush).await?;
+            acc.clear();
+            Ok(rows)
+        }
+
+        /// Helper: drain or set fatal error and exit writer loop.
+        /// Returns `Some(rows)` on success, `None` on empty accumulator,
+        /// and sets `writer_fatal` + returns `None` on sink error.
+        async fn drain_or_fatal(
+            sink: &dyn Sink,
+            tx_commit: &mpsc::Sender<CommitAck>,
+            acc: &mut BatchAccumulator,
+            fatal: &Arc<std::sync::Mutex<Option<anyhow::Error>>>,
         ) -> Option<usize> {
-            let flush = acc.take_flush()?;
-            match flush_to_sink_and_ack(sink, tx_commit, flush).await {
-                Ok(rows) => {
-                    acc.clear();
-                    Some(rows)
-                }
-                Err(_) => {
-                    acc.clear();
+            match drain_and_ack(sink, tx_commit, acc).await {
+                Ok(rows) => Some(rows),
+                Err(e) => {
+                    *fatal.lock().unwrap() = Some(e);
                     None
                 }
             }
@@ -433,7 +506,7 @@ pub async fn run_partition_pipeline(
             });
 
             if should_flush {
-                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
                     total_flushed += rows as u64;
                     tracing::info!(
                         "flush: partition={} total_flushed={} (linger)",
@@ -445,7 +518,7 @@ pub async fn run_partition_pipeline(
 
             // Phase 2: check cancellation
             if writer_token.is_cancelled() {
-                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
                     total_flushed += rows as u64;
                 }
                 tracing::info!(
@@ -466,7 +539,7 @@ pub async fn run_partition_pipeline(
                     maybe = rx_parsed.recv() => maybe,
                     _ = sleep(dur) => None,
                     _ = writer_token.cancelled() => {
-                        if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
                             total_flushed += rows as u64;
                         }
                         tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
@@ -477,7 +550,7 @@ pub async fn run_partition_pipeline(
                 tokio::select! {
                     maybe = rx_parsed.recv() => maybe,
                     _ = writer_token.cancelled() => {
-                        if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
                             total_flushed += rows as u64;
                         }
                         tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
@@ -502,7 +575,7 @@ pub async fn run_partition_pipeline(
                         partition_id,
                     );
                     // Flush whatever we have (best-effort) then signal fatal.
-                    let _ = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await;
+                    let _ = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
                     *writer_fatal.lock().unwrap() = Some(anyhow::anyhow!(
                         "Parser middleware error limit ({}) exceeded",
                         MAX_CONSECUTIVE_MW_ERRORS,
@@ -515,16 +588,28 @@ pub async fn run_partition_pipeline(
             // Push all tables of this item, attaching the marker once.
             let mut marker = item.commit_marker;
             if item.valid.batch.num_rows() > 0 {
-                acc.push(item.valid, marker.take());
+                if let Err(e) = acc.push(item.valid, marker.take()) {
+                    // Exactly-once: oversized Message — configuration error → fatal.
+                    tracing::error!("partition={}: {}", partition_id, e);
+                    let _ = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
+                    *writer_fatal.lock().unwrap() = Some(e);
+                    return;
+                }
             }
             if let Some(dlq) = item.dlq {
                 if dlq.batch.num_rows() > 0 {
-                    acc.push(dlq, marker.take());
+                    if let Err(e) = acc.push(dlq, marker.take()) {
+                        tracing::error!("partition={}: {}", partition_id, e);
+                        let _ = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
+                        *writer_fatal.lock().unwrap() = Some(e);
+                        return;
+                    }
                 }
             }
-            // Item fully pushed — safe to check flush.
+            // Item fully pushed — Message boundary reached — safe to check flush
+            // (in exactly-once mode the current Message is flushed whole here).
             if acc.should_flush() {
-                if let Some(rows) = drain_and_ack(sink_for_writer.as_ref(), &tx_commit, &mut acc).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
                     total_flushed += rows as u64;
                     tracing::info!(
                         "flush: partition={} total_flushed={} (batch full)",
@@ -557,7 +642,7 @@ async fn flush_to_sink_and_ack(
     sink: &dyn Sink,
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
-) -> Result<usize, ()> {
+) -> anyhow::Result<usize> {
     let FlushBatch { writes, markers, .. } = flush;
     let total_rows: usize = writes.iter()
         .flat_map(|w| w.batches.iter().map(|b| b.num_rows()))
@@ -570,7 +655,7 @@ async fn flush_to_sink_and_ack(
         }
         if let Err(e) = sink.write(write.clone()).await {
             tracing::error!("Writer: flush error table={}: {}", write.table, e);
-            return Err(());
+            return Err(anyhow::anyhow!("flush error"));
         }
     }
 
@@ -579,7 +664,7 @@ async fn flush_to_sink_and_ack(
         && tx_commit.send(CommitAck { markers }).await.is_err()
     {
         tracing::error!("Writer: commit ack channel closed");
-        return Err(());
+        return Err(anyhow::anyhow!("flush error"));
     }
     Ok(total_rows)
 }
@@ -618,15 +703,26 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
         let arr = Int64Array::from(vec![1i64; rows]);
         let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
-        TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1, dedup_token: None }
+        TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1, exactly_once_key: None }
+    }
+
+    /// Like `make_td`, but as one complete exactly-once Message (keyed).
+    fn make_td_keyed(table: &str, rows: usize, dlq: bool) -> TableData {
+        use crate::types::exactly_once::ExactlyOnceColumn;
+        let mut td = make_td(table, rows, dlq);
+        td.exactly_once_key = Some(ExactlyOnceKey {
+            partition: ExactlyOnceColumn { name: "__system_partition".into() },
+            offset: ExactlyOnceColumn { name: "__system_offset".into() },
+        });
+        td
     }
 
     #[test]
     fn accumulator_single_marker_for_two_tables() {
         let mut acc = BatchAccumulator::new(1000);
         let marker = CommitMarker::new(42usize);
-        acc.push(make_td("t", 5, false), Some(marker.clone()));
-        acc.push(make_td("t.dlq", 3, true), None); // marker already taken
+        acc.push(make_td("t", 5, false), Some(marker.clone())).unwrap();
+        acc.push(make_td("t.dlq", 3, true), None).unwrap(); // marker already taken
         assert_eq!(acc.markers.len(), 1);
         let flush = acc.take_flush().unwrap();
         assert_eq!(flush.writes.len(), 2);
@@ -636,16 +732,16 @@ mod tests {
     #[test]
     fn accumulator_global_threshold() {
         let mut acc = BatchAccumulator::new(10);
-        acc.push(make_td("t", 6, false), None);
-        acc.push(make_td("t.dlq", 5, true), None);
+        acc.push(make_td("t", 6, false), None).unwrap();
+        acc.push(make_td("t.dlq", 5, true), None).unwrap();
         assert!(acc.should_flush()); // 11 >= 10
     }
 
     #[test]
     fn accumulator_deterministic_order() {
         let mut acc = BatchAccumulator::new(100);
-        acc.push(make_td("main", 1, false), None);
-        acc.push(make_td("main.dlq", 1, true), None);
+        acc.push(make_td("main", 1, false), None).unwrap();
+        acc.push(make_td("main.dlq", 1, true), None).unwrap();
         let flush = acc.take_flush().unwrap();
         assert_eq!(flush.writes[0].table.as_ref(), "main");
         assert_eq!(flush.writes[1].table.as_ref(), "main.dlq");
@@ -654,9 +750,65 @@ mod tests {
     #[test]
     fn accumulator_empty_batch_skipped() {
         let mut acc = BatchAccumulator::new(100);
-        acc.push(make_td("t", 0, false), None); // 0 rows
+        acc.push(make_td("t", 0, false), None).unwrap(); // 0 rows
         assert!(acc.is_empty());
         assert!(acc.take_flush().is_none());
+    }
+
+    #[test]
+    fn accumulator_empty_keyed_batch_filtered() {
+        // 0-row batches with exactly_once_key = Some must never reach the sink.
+        let mut acc = BatchAccumulator::new(100);
+        acc.push(make_td_keyed("t", 0, false), None).unwrap();
+        assert!(acc.is_empty());
+        assert!(acc.take_flush().is_none());
+    }
+
+    #[test]
+    fn accumulator_exactly_once_flush_at_message_boundary() {
+        // §3.1: the size-limit flush fires only after the full Message (all its
+        // tables) has been pushed, and includes the current Message whole —
+        // even when the flush total exceeds batch_size. The next Message then
+        // starts a fresh accumulation window.
+        let mut acc = BatchAccumulator::new(10);
+        let marker = CommitMarker::new(7usize);
+        acc.push(make_td_keyed("main", 8, false), Some(marker.clone())).unwrap();
+        assert!(!acc.should_flush(), "mid-Message check must not flush (8 < 10)");
+        acc.push(make_td_keyed("t.dlq", 5, true), None).unwrap();
+        assert!(acc.should_flush(), "13 >= 10 at the Message boundary");
+        let flush = acc.take_flush().unwrap();
+        assert_eq!(flush.markers.len(), 1);
+        assert_eq!(flush.writes.len(), 2);
+        let main = flush.writes.iter().find(|w| w.table.as_ref() == "main").unwrap();
+        let dlq = flush.writes.iter().find(|w| w.table.as_ref() == "t.dlq").unwrap();
+        assert_eq!(main.batches[0].num_rows(), 8, "current Message never split");
+        assert_eq!(dlq.batches[0].num_rows(), 5);
+        assert!(main.exactly_once_key.is_some() && dlq.exactly_once_key.is_some());
+        // Next Message starts a fresh window (exactly-once state reset).
+        assert!(acc.is_empty());
+        assert!(acc.exactly_once_key.is_none());
+    }
+
+    #[test]
+    fn accumulator_exactly_once_oversized_message_fatal() {
+        // §3.1: a single Message that alone exceeds batch_size cannot fit in a
+        // flush window — configuration error, never split across flushes.
+        let mut acc = BatchAccumulator::new(10);
+        let err = acc.push(make_td_keyed("main", 11, false), None).unwrap_err();
+        assert!(
+            err.to_string().contains("message too large for exactly-once batch"),
+            "unexpected error: {err}",
+        );
+        assert!(acc.is_empty(), "oversized Message must not be accumulated");
+    }
+
+    #[test]
+    fn accumulator_at_least_once_oversized_batch_allowed() {
+        // Without a key there is no per-Message atomicity requirement — a batch
+        // larger than batch_size is not a configuration error.
+        let mut acc = BatchAccumulator::new(10);
+        acc.push(make_td("main", 11, false), None).unwrap();
+        assert!(acc.should_flush());
     }
 
     // ---------- middleware short-circuit ----------

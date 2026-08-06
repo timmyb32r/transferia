@@ -12,6 +12,7 @@ use ch_loader::pipeline::sink::Sink;
 use ch_loader::providers::traits::ProviderRegistry;
 use ch_loader::serializer::Serializer;
 use ch_loader::serializer::json_serializer::JsonSerializer;
+use ch_loader::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 use ch_loader::types::table_data::{TableData, TableWrite};
 
 // ---------------------------------------------------------------------------
@@ -55,49 +56,57 @@ fn empty_sink_through_registry() {
 }
 
 // ---------------------------------------------------------------------------
-// Task 2: Exactly-once dedup token flow
+// Task 2: Exactly-once key descriptor flow
 // ---------------------------------------------------------------------------
 
+fn test_exactly_once_key() -> ExactlyOnceKey {
+    ExactlyOnceKey {
+        partition: ExactlyOnceColumn { name: "_yds_partition".into() },
+        offset: ExactlyOnceColumn { name: "_yds_offset".into() },
+    }
+}
+
 #[test]
-fn dedup_token_flows_to_table_write() {
+fn exactly_once_key_flows_to_table_write() {
     let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
     let arr = Int64Array::from(vec![1i64, 2]);
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
+    let key = test_exactly_once_key();
     let td = TableData {
         table: "events".into(), is_dlq: false, batch,
-        batch_id: 1, dedup_token: Some("deadbeef12345678".into()),
+        batch_id: 1, exactly_once_key: Some(key),
     };
 
-    assert_eq!(td.dedup_token.as_deref(), Some("deadbeef12345678"));
+    assert_eq!(td.exactly_once_key.as_ref().map(|k| k.offset.name.as_ref()), Some("_yds_offset"));
     assert!(!td.is_dlq);
 
     let tw = TableWrite {
         table: "events".into(),
         batches: vec![td.batch.clone()],
-        dedup_token: td.dedup_token.clone(),
+        exactly_once_key: td.exactly_once_key.clone(),
     };
-    assert_eq!(tw.dedup_token.as_deref(), Some("deadbeef12345678"));
+    assert!(tw.exactly_once_key.is_some());
 }
 
 #[test]
-fn dedup_token_none_for_non_streaming() {
+fn exactly_once_key_none_for_non_streaming() {
     let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
     let arr = Int64Array::from(vec![1i64]);
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
     let td = TableData {
         table: "snapshots".into(), is_dlq: false, batch,
-        batch_id: 1, dedup_token: None,
+        batch_id: 1, exactly_once_key: None,
     };
-    assert!(td.dedup_token.is_none());
+    assert!(td.exactly_once_key.is_none());
 
     let tw = TableWrite {
         table: "snapshots".into(),
         batches: vec![td.batch.clone()],
-        dedup_token: None,
+        exactly_once_key: None,
     };
-    assert!(tw.dedup_token.is_none());
+    assert!(tw.exactly_once_key.is_none());
 }
 
 // ---------------------------------------------------------------------------

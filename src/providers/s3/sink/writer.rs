@@ -40,23 +40,14 @@ impl Sink for S3Sink {
                 payload.extend_from_slice(&serialized);
             }
 
-            // Deterministic object key for exactly-once idempotency.
-            // When the dedup token is present (YDS source), it's used as part of
-            // the key. Replayed batches produce the same token → same key →
-            // overwrite is idempotent.
-            let key = match &write.dedup_token {
-                Some(token) => {
-                    format!("{}/{}.jsonl", self.prefix, token)
-                }
-                None => {
-                    // Snapshot mode: use timestamp-based key
-                    let ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis();
-                    format!("{}/{}_{:016x}.jsonl", self.prefix, write.table, ts)
-                }
-            };
+            // Exactly-once idempotent object keys (derived from the key descriptor
+            // + the batch's offset range) land in a later stage. Until then, use
+            // a timestamp-based key (snapshot mode).
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let key = format!("{}/{}_{:016x}.jsonl", self.prefix, write.table, ts);
 
             let path = Path::from(key.clone());
             self.store.put(&path, payload.into()).await
@@ -71,4 +62,6 @@ impl Sink for S3Sink {
             Ok(())
         })
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }

@@ -85,11 +85,15 @@ impl Sink for ParallelChInsertSink {
             let client = pool.get().await
                 .map_err(|e| anyhow::anyhow!("Parallel CH worker {} pool get: {}", idx, e))?;
 
-            // Set dedup token if present (exactly-once support).
-            if let Some(ref token) = write.dedup_token {
-                let set_query = format!("SET insert_deduplication_token = '{}'", token);
-                client.execute(&set_query, None).await
-                    .map_err(|e| anyhow::anyhow!("Parallel CH worker {} SET dedup: {}", idx, e))?;
+            // Exactly-once: the ExactlyOnceKey descriptor (partition/offset column
+            // names in the batch) cannot be converted into an
+            // `insert_deduplication_token` string — the incompatibility check
+            // (descriptor vs CH dedup token) lands in a later stage. Until then,
+            // when a key descriptor is present we keep the guarded block but skip
+            // the SET (at-least-once behavior).
+            if let Some(ref _key) = write.exactly_once_key {
+                // TODO(exactly-once): rework SET insert_deduplication_token for
+                // ExactlyOnceKey descriptors (later stage).
             }
 
             let query = format!("INSERT INTO `{}` VALUES", write.table);
@@ -111,4 +115,6 @@ impl Sink for ParallelChInsertSink {
             Ok(())
         })
     }
+
+    fn as_any(&self) -> &dyn std::any::Any { self }
 }

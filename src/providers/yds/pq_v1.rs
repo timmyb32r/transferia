@@ -21,6 +21,7 @@ use tonic::Request;
 
 use crate::config::yaml::YDB_DATABASE;
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::types::exactly_once::PartitionKey;
 use crate::types::message::{Message, MessageBatch};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
@@ -128,6 +129,8 @@ fn http_uri(scheme: &str, host: &str) -> anyhow::Result<Uri> {
 pub struct DecodedMessage {
     pub data: Bytes,
     pub cookie: Option<CommitCookie>,
+    /// Offset within the PQv1 partition (for exactly-once dedup).
+    pub offset: u64,
 }
 
 pub struct PqV1CommitMarker {
@@ -332,7 +335,7 @@ impl PqV1Client {
                                             continue;
                                         }
                                     };
-                                    let _ = tx.send(DecodedMessage { data, cookie });
+                                    let _ = tx.send(DecodedMessage { data, cookie, offset: md.offset });
                                 }
                             }
                         }
@@ -538,19 +541,26 @@ impl Source for PqV1Source {
         Box::pin(async move {
             let first = match self.rx.recv().await {
                 Some(msg) => msg,
-                None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None, dedup_token: None })),
+                None => return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None })),
             };
             let mut last_cookie: Option<CommitCookie> = first.cookie;
-            let mut messages = vec![Message { value: first.data }];
+            let mut messages = vec![Message {
+                value: first.data,
+                offset: Some(first.offset as i64),
+                partition: Some(PartitionKey::Int(self.partition_id)),
+            }];
             while let Ok(msg) = self.rx.try_recv() {
                 last_cookie = msg.cookie;
-                messages.push(Message { value: msg.data });
+                messages.push(Message {
+                    value: msg.data,
+                    offset: Some(msg.offset as i64),
+                    partition: Some(PartitionKey::Int(self.partition_id)),
+                });
             }
             let commit_marker = last_cookie.map(|cookie| {
                 CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
             });
-            let dedup_token = super::ydb_topic::compute_dedup_token(self.partition_id, &messages);
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker, dedup_token }))
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
         })
     }
 

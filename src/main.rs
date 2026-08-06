@@ -11,6 +11,7 @@ use ch_loader::types::table_data::dlq_name;
 use ch_loader::pipeline::middleware::Middleware;
 use ch_loader::pipeline::run_partition_pipeline;
 use ch_loader::pipeline::source::Source;
+use ch_loader::providers::clickhouse::sink::ClickHouseSink;
 use ch_loader::providers::traits::ProviderRegistry;
 
 #[global_allocator]
@@ -135,6 +136,18 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Source: {}, Sink: {}", source_kind, sink_kind);
 
+    // 2a. Determine and log guarantee mode (spec §11)
+    let has_exactly_once_key = false; // TODO: wire add_exactly_once_key config flag
+    let guarantee_mode = if has_exactly_once_key && sink_kind == "clickhouse" {
+        "EXACTLY_ONCE"
+    } else {
+        "AT_LEAST_ONCE"
+    };
+    tracing::info!(
+        "Guarantee mode: {} (key: __system_partition+__system_offset, sink: {}, source: {})",
+        guarantee_mode, sink_kind, source_kind,
+    );
+
     // 3. Common parser validation
     validate_parser(source_provider.parser_config(), &config.middlewares)?;
 
@@ -148,7 +161,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Destination table: {}, partitions: {:?}", table, my_partitions);
 
     // 5. Shared parser + middlewares
-    let parser = Arc::new(JsonParser::new(&source_provider.parser_config().settings, table.clone())?);
+    // Exactly-once key: wired once the source config flag (add_exactly_once_key)
+    // lands; until then the parser runs in at-least-once mode.
+    let parser = Arc::new(JsonParser::new(&source_provider.parser_config().settings, table.clone(), None)?);
     let middlewares: Vec<Box<dyn Middleware>> = config.middlewares.iter()
         .map(|mc| match mc.mw_type.as_str() {
             "filter" => Ok(Box::new(FilterMiddleware::new(
@@ -160,11 +175,57 @@ async fn main() -> anyhow::Result<()> {
         .collect::<anyhow::Result<_>>()?;
     let middlewares = Arc::new(middlewares);
 
-    // 6. Sink + DDL
+    // 6. Sink + startup checks + DDL
     let sink = sink_provider.build_sink().await?;
     let dlq_table = dlq_name(&table);
+
+    // 6a. Exactly-once startup checks (spec §8)
+    if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
+        // CH version ≥ 22.8
+        ch_sink.check_ch_version().await?;
+        tracing::info!("ClickHouse version check passed (≥ 22.8)");
+    }
+
+    // 6b. DDL: create tables
     sink_provider.create_tables(&table, &dlq_table,
         &source_provider.parser_config().settings, config.recreate_tables).await?;
+
+    // 6c. Engine/replica validation (after CREATE so table exists)
+    if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
+        let (engine, quorum, replicas) = ch_sink.check_table_engine(&table).await?;
+        tracing::info!("Table '{}' engine: {} (quorum={}, replicas={})", table, engine, quorum, replicas);
+
+        if engine.contains("Replicated") {
+            let majority = (replicas / 2) + 1;
+            if quorum < majority {
+                anyhow::bail!(
+                    "ReplicatedMergeTree table '{}' has insert_quorum={} but needs ≥ {} \
+                     (majority of {} replicas). ALTER TABLE ... MODIFY SETTING insert_quorum = {} \
+                     OR use a non-Replicated table.",
+                    table, quorum, majority, replicas, majority,
+                );
+            }
+            if replicas < quorum {
+                anyhow::bail!(
+                    "ReplicatedMergeTree table '{}' has {} replicas < insert_quorum={}. \
+                     Every INSERT would timeout. Reduce insert_quorum or add replicas.",
+                    table, replicas, quorum,
+                );
+            }
+        }
+        if engine.contains("Distributed") {
+            tracing::warn!("Table '{}' uses Distributed engine — async forwarding breaks waterline. \
+                           Write directly to the underlying MergeTree table. Degrading to AT_LEAST_ONCE.", table);
+        }
+        if engine.contains("Replacing") || engine.contains("Collapsing") || engine.contains("Summing")
+            || engine.contains("Aggregating") || engine.contains("Versioned") {
+            anyhow::bail!(
+                "Table '{}' uses unsupported engine '{}'. Only MergeTree and ReplicatedMergeTree \
+                 are supported for exactly-once.", table, engine,
+            );
+        }
+    }
+
     sink_provider.verify_tables(&table, &dlq_table).await?;
 
     // 7. Graceful shutdown

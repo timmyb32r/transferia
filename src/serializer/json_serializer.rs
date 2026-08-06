@@ -367,9 +367,9 @@ mod tests {
             chunk_splitter: crate::config::yaml::ChunkSplitter::NewLine,
         };
 
-        let parser = crate::parser::JsonParser::new(&parser_config, "test".into()).unwrap();
+        let parser = crate::parser::JsonParser::new(&parser_config, "test".into(), None).unwrap();
         let mut ws = crate::parser::ParserWorkspace::new();
-        let msgs = vec![crate::types::Message { value: output }];
+        let msgs = vec![crate::types::Message { value: output, offset: None, partition: None }];
 
         let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws).unwrap();
         assert_eq!(good.batch.num_rows(), 2, "roundtrip: 2 rows in → 2 rows out");

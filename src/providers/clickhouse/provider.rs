@@ -75,7 +75,7 @@ impl ClickHouseSinkProvider {
 impl SinkProvider for ClickHouseSinkProvider {
     fn build_sink<'a>(&'a self) -> BoxFuture<'a, anyhow::Result<Arc<dyn Sink>>> {
         Box::pin(async move {
-            let sink = ClickHouseSink::new(&self.to_sink_config()).await?;
+            let sink = ClickHouseSink::new(&self.to_sink_config(), 10_000).await?;
             Ok(Arc::new(sink) as Arc<dyn Sink>)
         })
     }
@@ -93,10 +93,13 @@ impl SinkProvider for ClickHouseSinkProvider {
         let dlq_table = dlq_table.to_string();
         let schema = schema.clone();
         Box::pin(async move {
-            let sink = ClickHouseSink::new(&cfg).await?;
+            let sink = ClickHouseSink::new(&cfg, 10_000).await?;
             let cols = ClickHouseSink::schema_columns(&schema)?;
             sink.create_table(&table, &cols, &schema.order_by, recreate).await?;
-            let dlq_cols: Vec<(String, String)> = crate::parser::json_parser::DLQ_CH_COLUMNS
+            // Exactly-once DLQ schema is derived from the parser's key; wired
+            // once the source config flag (add_exactly_once_key) lands — for now
+            // the at-least-once DLQ (raw_bytes, error_message, partition_id, timestamp).
+            let dlq_cols: Vec<(String, String)> = crate::parser::json_parser::dlq_ch_columns(None)
                 .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
             sink.create_table(&dlq_table, &dlq_cols, &[], recreate).await?;
             Ok(())
@@ -112,7 +115,7 @@ impl SinkProvider for ClickHouseSinkProvider {
         let table = table.to_string();
         let dlq_table = dlq_table.to_string();
         Box::pin(async move {
-            let sink = ClickHouseSink::new(&cfg).await?;
+            let sink = ClickHouseSink::new(&cfg, 10_000).await?;
             sink.verify_table(&table).await?;
             sink.verify_table(&dlq_table).await?;
             Ok(())

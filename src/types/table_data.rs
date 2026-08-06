@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
+use crate::types::exactly_once::ExactlyOnceKey;
+
 /// Pipeline unit: one Arrow batch destined for one pre-resolved table.
 ///
 /// Flows: **parser → middlewares → accumulator**.
@@ -11,14 +13,15 @@ use arrow::record_batch::RecordBatch;
 pub struct TableData {
     /// Resolved target table: `"my_table"` or `"my_table.dlq"`.
     pub table: Arc<str>,
-    /// Informational flag for tracing / short-circuit decisions (may be removed later).
+    /// Informational flag for tracing / short-circuit decisions.
     pub is_dlq: bool,
     /// Arrow columnar data.
     pub batch: RecordBatch,
     /// Monotonic batch id for tracing.
     pub batch_id: u64,
-    /// Dedup token from the source, propagated for exactly-once sinks.
-    pub dedup_token: Option<String>,
+    /// Exactly-once key descriptor. `None` → at-least-once (no dedup).
+    /// The actual key values are columns inside `batch`.
+    pub exactly_once_key: Option<ExactlyOnceKey>,
 }
 
 /// Accumulated write for a single table. Built by [`BatchAccumulator`] from one or
@@ -31,9 +34,8 @@ pub struct TableWrite {
     pub table: Arc<str>,
     /// Arrow batches to insert (one or more).
     pub batches: Vec<RecordBatch>,
-    /// Dedup token for the ClickHouse `insert_deduplication_token` setting.
-    /// `None` for non-streaming sources (S3 snapshots).
-    pub dedup_token: Option<String>,
+    /// Exactly-once key descriptor. `None` → at-least-once (plain INSERT).
+    pub exactly_once_key: Option<ExactlyOnceKey>,
 }
 
 /// Canonical `<table>.dlq` naming convention. The only place that formats this suffix.
