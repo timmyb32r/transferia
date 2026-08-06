@@ -163,7 +163,7 @@ impl ClickHouseSink {
         let batch = client.query_one("SELECT version()", None).await
             .map_err(|e| anyhow::anyhow!("ClickHouse version query failed: {e}"))?;
         let ver_str = batch.and_then(|b| {
-            b.column(0).as_any().downcast_ref::<arrow::array::StringArray>()
+            b.column(0).as_any().downcast_ref::<StringArray>()
                 .map(|a| a.value(0).to_string())
         }).unwrap_or_default();
         tracing::info!("ClickHouse version: {}", ver_str);
@@ -197,7 +197,7 @@ impl ClickHouseSink {
             .map_err(|e| anyhow::anyhow!("ClickHouse engine query failed: {e}"))?;
         let (engine, quorum) = match batch {
             Some(b) if b.num_rows() > 0 => {
-                let eng = b.column(0).as_any().downcast_ref::<arrow::array::StringArray>()
+                let eng = b.column(0).as_any().downcast_ref::<StringArray>()
                     .map(|a| a.value(0).to_string()).unwrap_or_default();
                 let iq = b.column(1).as_any().downcast_ref::<arrow::array::UInt64Array>()
                     .map_or(1, |a| a.value(0));

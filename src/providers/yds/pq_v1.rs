@@ -200,7 +200,7 @@ async fn discover_proxy(main_uri: &Uri, token: &str) -> anyhow::Result<String> {
     set_ydb_headers(req.metadata_mut(), token);
 
     grpc.ready().await.map_err(|e| anyhow!("ListEndpoints ready: {e}"))?;
-    let path = tonic::codegen::http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/ListEndpoints");
+    let path = http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/ListEndpoints");
     let resp: GetOperationResponse = grpc
         .unary(req, path, tonic_prost::ProstCodec::<ListEndpointsRequest, GetOperationResponse>::default())
         .await
@@ -265,7 +265,7 @@ impl PqV1Client {
             .max_decoding_message_size(MAX_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
         grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {e}"))?;
-        let path = tonic::codegen::http::uri::PathAndQuery::from_static("/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead");
+        let path = http::uri::PathAndQuery::from_static("/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead");
         let codec = tonic_prost::ProstCodec::<MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage>::default();
         let response_stream = grpc.streaming(req, path, codec).await
             .map_err(|e| anyhow!("MigrationStreamingRead failed: {e}"))?
@@ -519,7 +519,7 @@ impl PqV1Client {
             .max_decoding_message_size(MAX_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
         grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {e}"))?;
-        let path = tonic::codegen::http::uri::PathAndQuery::from_static(
+        let path = http::uri::PathAndQuery::from_static(
             "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
         );
         let codec = tonic_prost::ProstCodec::<
@@ -535,7 +535,7 @@ impl PqV1Client {
     }
 
     /// Read server messages until all `Assigned` partitions have been reported
-    /// (signalled by the first `DataBatch`) or the deadline passes.
+    /// (signaled by the first `DataBatch`) or the deadline passes.
     async fn collect_assigned_partitions(
         stream: &mut tonic::Streaming<MigrationStreamingReadServerMessage>,
         request_tx: &mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,

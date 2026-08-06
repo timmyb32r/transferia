@@ -239,7 +239,7 @@ pub async fn run_partition_pipeline(
                 Err(e) => {
                     last_err = Some(e);
                     if attempt + 1 < MAX_COMMIT_ATTEMPTS {
-                        tokio::time::sleep(core::time::Duration::from_millis(
+                        tokio::time::sleep(Duration::from_millis(
                             100 * (1 << attempt.min(6)),
                         ))
                         .await;

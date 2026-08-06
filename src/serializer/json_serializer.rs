@@ -21,6 +21,7 @@ use super::Serializer;
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
 #[non_exhaustive]
+#[derive(Default)]
 pub struct JsonSerializer {
     skip_null_columns: bool,
 }
@@ -282,14 +283,8 @@ impl JsonSerializer {
     /// Creates a serializer with `skip_null_columns` set to `false` (nulls are emitted
     /// as `"col": null` in the JSON output).
     #[must_use]
-    pub fn new(skip_null_columns: bool) -> Self {
+    pub const fn new(skip_null_columns: bool) -> Self {
         Self { skip_null_columns }
-    }
-}
-
-impl Default for JsonSerializer {
-    fn default() -> Self {
-        Self { skip_null_columns: false }
     }
 }
 
