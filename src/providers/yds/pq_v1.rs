@@ -610,7 +610,7 @@ pub struct PqV1Source {
 
 impl PqV1Source {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         client: PqV1Client,
         rx: mpsc::UnboundedReceiver<DecodedMessage>,
         partition_id: i64,

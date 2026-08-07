@@ -16,7 +16,7 @@ pub struct S3CredentialsConfig {
     pub secret_key: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[non_exhaustive]
 pub struct S3SourceConfig {
     pub bucket: String,

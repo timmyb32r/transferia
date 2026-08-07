@@ -77,6 +77,7 @@ impl ClickHouseSourceConfig {
     }
 
     /// The first explicitly-configured table, if any; used for schema discovery.
+    #[must_use]
     pub fn first_table_ref(&self) -> Option<TableRef> {
         self.tables.as_ref().and_then(|ts| ts.first()).map(|t| TableRef {
             schema_name: t.schema.clone(),
@@ -93,7 +94,7 @@ impl ClickHouseSourceConfig {
 /// - **Regex patterns**: `include_patterns` (AND) then `exclude_patterns` (AND)
 pub struct ClickHouseSource {
     pool: ConnectionPool<ArrowFormat>,
-    selection: TableSelection,
+    #[expect(dead_code, reason = "stored for introspection / future table-refresh")]    selection: TableSelection,
     tables: Vec<TableRef>,
     current_table_idx: usize,
     current_page: usize,

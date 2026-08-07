@@ -169,7 +169,7 @@ impl S3Source {
         store: Arc<dyn ObjectStore>,
         partition_id: i64,
     ) -> anyhow::Result<Self> {
-        let prefix = &config.prefix;
+        let prefix = config.prefix.clone();
         let chunk_size = config.chunk_size_bytes;
         let max_retries = config.max_retries;
 
@@ -179,7 +179,7 @@ impl S3Source {
         let framer = parser_cfg.chunk_splitter;
 
         let mut files: Vec<object_store::ObjectMeta> = store
-            .list(Some(&object_store::path::Path::from(prefix)))
+            .list(Some(&object_store::path::Path::from(prefix.as_str())))
             .try_collect()
             .await
             .map_err(|e| anyhow::anyhow!("S3 list '{prefix}' failed: {e}"))?;
