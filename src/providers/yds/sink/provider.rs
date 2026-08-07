@@ -1,38 +1,15 @@
 use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
-use serde::Deserialize;
 use serde_yaml::Value;
 
 use crate::pipeline::sink::Sink;
 use crate::providers::traits::SinkProvider;
-use crate::providers::yds::sink::writer::YdsSink;
+use crate::providers::yds::sink::writer::{YdsSink, YdsSinkConfig};
 use crate::serializer::Serializer;
 
-#[derive(Debug, Deserialize)]
-#[non_exhaustive]
-pub struct YdsSinkConfig {
-    /// YDB connection string (e.g. "<grpc://localhost:2135/local>").
-    pub connection_string: String,
-    /// YDS topic path.
-    pub topic_path: String,
-    /// YDB database (default: "/Root").
-    #[serde(default = "default_database")]
-    pub database: String,
-    /// Serializer type (currently only "json").
-    #[serde(default = "default_serializer")]
-    pub serializer_type: String,
-    /// When `true`, null-valued columns are elided (absent keys) in JSON output.
-    /// Default: `false` — nulls are emitted as `"col": null`.
-    #[serde(default)]
-    pub skip_null_columns: bool,
-}
-
-fn default_database() -> String { "/Root".into() }
-fn default_serializer() -> String { "json".into() }
-
 pub struct YdsSinkProvider {
-    _topic_path: String,
+    cfg: YdsSinkConfig,
     serializer: Arc<dyn Serializer>,
 }
 
@@ -54,16 +31,16 @@ impl YdsSinkProvider {
             cfg.topic_path, cfg.serializer_type,
         );
 
-        Ok(Self {
-            _topic_path: cfg.topic_path,
-            serializer,
-        })
+        Ok(Self { cfg, serializer })
     }
 }
 
 impl SinkProvider for YdsSinkProvider {
     fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>> {
-        let sink = Arc::new(YdsSink::new(Arc::clone(&self.serializer)));
+        let sink = Arc::new(YdsSink::new(
+            self.cfg.clone(),
+            Arc::clone(&self.serializer),
+        ));
         Box::pin(async move { Ok(sink as Arc<dyn Sink>) })
     }
 

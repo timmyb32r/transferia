@@ -13,6 +13,8 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::Stream;
+
+use crate::providers::yds::provider::YdsSourceConfig;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
@@ -603,12 +605,18 @@ pub struct PqV1Source {
     client: PqV1Client,
     rx: mpsc::UnboundedReceiver<DecodedMessage>,
     partition_id: i64,
+    _config: YdsSourceConfig,
 }
 
 impl PqV1Source {
     #[must_use]
-    pub const fn new(client: PqV1Client, rx: mpsc::UnboundedReceiver<DecodedMessage>, partition_id: i64) -> Self {
-        Self { client, rx, partition_id }
+    pub fn new(
+        client: PqV1Client,
+        rx: mpsc::UnboundedReceiver<DecodedMessage>,
+        partition_id: i64,
+        config: YdsSourceConfig,
+    ) -> Self {
+        Self { client, rx, partition_id, _config: config }
     }
 }
 

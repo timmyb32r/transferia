@@ -60,30 +60,26 @@ impl SourceProvider for YdsSourceProvider {
         partition_id: i64,
         _cancel_token: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        let conn = self.cfg.connection_string.clone();
-        let topic_path = self.cfg.topic_path.clone();
-        let consumer = self.cfg.consumer_name.clone();
-        let auth = self.cfg.auth.clone();
-        let disc_ep = self.cfg.discovery_endpoint.clone();
+        let cfg = self.cfg.clone();
         let kind = self.kind.clone();
 
         Box::pin(async move {
             match kind.as_str() {
                 "topic" => {
-                    let creds = build_credentials(&auth)?;
-                    let src = YdbTopicSource::new(&conn, &topic_path, &consumer, partition_id, creds, disc_ep.as_deref()).await?;
+                    let creds = build_credentials(&cfg.auth)?;
+                    let src = YdbTopicSource::new(cfg, partition_id, creds).await?;
                     Ok(Box::new(src) as Box<dyn Source>)
                 }
                 "pqv1" => {
-                    let (_, raw_token) = build_credentials_with_token(&auth)?;
+                    let (_, raw_token) = build_credentials_with_token(&cfg.auth)?;
                     let token = raw_token.ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
-                    let (scheme, host, _) = parse_endpoint(&conn)?;
+                    let (scheme, host, _) = parse_endpoint(&cfg.connection_string)?;
                     let endpoint = format!("{scheme}://{host}");
                     let pg_id = partition_to_group(partition_id);
-                    let (client, mut queues) = PqV1Client::connect(&endpoint, &topic_path, &consumer, &token, &[pg_id]).await?;
+                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id]).await?;
                     let rx = queues.remove(&partition_id)
                         .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
-                    Ok(Box::new(PqV1Source::new(client, rx, partition_id)) as Box<dyn Source>)
+                    Ok(Box::new(PqV1Source::new(client, rx, partition_id, cfg)) as Box<dyn Source>)
                 }
                 _ => anyhow::bail!("Unknown YDS kind: {kind}"),
             }

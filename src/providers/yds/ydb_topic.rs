@@ -2,28 +2,28 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::providers::yds::credentials::YdbCredentials;
+use crate::providers::yds::provider::YdsSourceConfig;
 use crate::types::exactly_once::PartitionKey;
 use crate::types::message::{Message, MessageBatch};
 
 pub struct YdbTopicSource {
     reader: ydb::TopicReader,
     partition_id: i64,
+    _config: YdsSourceConfig,
 }
 
 impl YdbTopicSource {
     pub async fn new(
-        connection_string: &str,
-        topic_path: &str,
-        consumer_name: &str,
+        config: YdsSourceConfig,
         partition_id: i64,
-        credentials: crate::providers::yds::credentials::YdbCredentials,
-        discovery_endpoint: Option<&str>,
+        credentials: YdbCredentials,
     ) -> anyhow::Result<Self> {
-        let mut builder = ydb::ClientBuilder::new_from_connection_string(connection_string)?
+        let mut builder = ydb::ClientBuilder::new_from_connection_string(&config.connection_string)?
             .with_credentials(credentials);
 
-        if let Some(endpoint) = discovery_endpoint {
-            let discovery = ydb::StaticDiscovery::new_from_str(endpoint)
+        if let Some(ref endpoint) = config.discovery_endpoint {
+            let discovery = ydb::StaticDiscovery::new_from_str(endpoint.as_str())
                 .map_err(|e| anyhow::anyhow!("Failed to create StaticDiscovery from '{endpoint}': {e}"))?;
             builder = builder.with_discovery(discovery);
         }
@@ -31,13 +31,13 @@ impl YdbTopicSource {
         let client = builder.client()?;
         let mut topic_client = client.topic_client();
         let selector = ydb::TopicSelector {
-            path: topic_path.to_string(),
+            path: config.topic_path.clone(),
             partition_ids: Some(vec![partition_id]),
             read_from: None,
         };
         let selectors = ydb::TopicSelectors(vec![selector]);
-        let reader = topic_client.create_reader(consumer_name.to_string(), selectors).await?;
-        Ok(Self { reader, partition_id })
+        let reader = topic_client.create_reader(config.consumer_name.clone(), selectors).await?;
+        Ok(Self { reader, partition_id, _config: config })
     }
 }
 

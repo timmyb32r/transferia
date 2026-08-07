@@ -1,10 +1,33 @@
 use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
+use serde::Deserialize;
 
 use crate::pipeline::sink::Sink;
 use crate::serializer::Serializer;
 use crate::types::table_data::TableWrite;
+
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct YdsSinkConfig {
+    /// YDB connection string (e.g. "<grpc://localhost:2135/local>").
+    pub connection_string: String,
+    /// YDS topic path.
+    pub topic_path: String,
+    /// YDB database (default: "/Root").
+    #[serde(default = "default_database")]
+    pub database: String,
+    /// Serializer type (currently only "json").
+    #[serde(default = "default_serializer")]
+    pub serializer_type: String,
+    /// When `true`, null-valued columns are elided (absent keys) in JSON output.
+    /// Default: `false` — nulls are emitted as `"col": null`.
+    #[serde(default)]
+    pub skip_null_columns: bool,
+}
+
+fn default_database() -> String { "/Root".into() }
+fn default_serializer() -> String { "json".into() }
 
 /// YDS sink that writes serialized record batches to a YDS topic.
 ///
@@ -14,13 +37,15 @@ pub struct YdsSink {
     serializer: Arc<dyn Serializer>,
     /// Track total rows for logging / metrics.
     _total_rows: core::sync::atomic::AtomicU64,
+    _config: YdsSinkConfig,
 }
 
 impl YdsSink {
-    pub fn new(serializer: Arc<dyn Serializer>) -> Self {
+    pub fn new(config: YdsSinkConfig, serializer: Arc<dyn Serializer>) -> Self {
         Self {
             serializer,
             _total_rows: core::sync::atomic::AtomicU64::new(0),
+            _config: config,
         }
     }
 }

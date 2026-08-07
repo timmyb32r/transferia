@@ -2,7 +2,7 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ChunkSplitter, ParserConfig, SchemaConfig};
+use crate::config::yaml::{ParserConfig, SchemaConfig};
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::pipeline::source::Source;
 use crate::providers::s3::config::{build_object_store, S3SourceConfig};
@@ -13,8 +13,6 @@ pub struct S3SourceProvider {
     cfg: S3SourceConfig,
     /// Cached DDL schema derived from the parser config.
     cached_schema: SchemaConfig,
-    /// Cached chunk splitter from the JSON parser config.
-    chunk_splitter: ChunkSplitter,
 }
 
 impl S3SourceProvider {
@@ -30,7 +28,7 @@ impl S3SourceProvider {
         let parser_cfg: JsonParserConfig = serde_yaml::from_value(
             cfg.parser.parser.raw()?.clone(),
         )?;
-        if parser_cfg.chunk_splitter == ChunkSplitter::NoSplit {
+        if parser_cfg.chunk_splitter == crate::config::yaml::ChunkSplitter::NoSplit {
             anyhow::bail!(
                 "s3: chunk_splitter 'no-split' is not supported for S3 \u{2014} use 'new-line'"
             );
@@ -40,9 +38,8 @@ impl S3SourceProvider {
                 "s3: table_naming.type must be 'from_config' (S3 has no topic path)"
             );
         }
-        let chunk_splitter = parser_cfg.chunk_splitter;
         let cached_schema = parser_cfg.to_schema_config();
-        Ok(Self { cfg, cached_schema, chunk_splitter })
+        Ok(Self { cfg, cached_schema })
     }
 }
 
@@ -56,13 +53,10 @@ impl SourceProvider for S3SourceProvider {
             Ok(s) => s,
             Err(e) => return Box::pin(async { Err(e) }),
         };
-        let prefix = self.cfg.prefix.clone();
-        let framer = self.chunk_splitter;
-        let chunk_size = self.cfg.chunk_size_bytes;
-        let max_retries = self.cfg.max_retries;
+        let cfg = self.cfg.clone();
 
         Box::pin(async move {
-            let src = S3Source::new(store, &prefix, framer, chunk_size, max_retries, partition_id).await?;
+            let src = S3Source::new(cfg, store, partition_id).await?;
             Ok(Box::new(src) as Box<dyn Source>)
         })
     }

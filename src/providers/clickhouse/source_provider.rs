@@ -4,53 +4,14 @@ use std::sync::OnceLock;
 use arrow::array::StringArray;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
-use regex::Regex;
-use serde::Deserialize;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::yaml::{ColumnDef, ColumnMapping};
 use crate::config::yaml::SchemaConfig;
 use crate::pipeline::source::Source;
-use crate::providers::clickhouse::source::{ClickHouseSource, TableRef, TableSelection};
+use crate::providers::clickhouse::source::{ClickHouseSource, ClickHouseSourceConfig, TableRef};
 use crate::providers::traits::SourceProvider;
-
-#[derive(Debug, Deserialize)]
-#[non_exhaustive]
-pub struct ClickHouseSourceConfig {
-    pub connection_string: String,
-    #[serde(default = "default_database")]
-    pub database: String,
-    #[serde(default = "default_username")]
-    pub username: String,
-    #[serde(default)]
-    pub password: String,
-    #[serde(default = "default_tls")]
-    pub use_tls: bool,
-    #[serde(default)]
-    pub tls_domain: Option<String>,
-    #[serde(default = "default_rows_per_page")]
-    pub rows_per_page: usize,
-    /// Table selection: oneof.
-    #[serde(default)]
-    pub tables: Option<Vec<TableRefConfig>>,
-    #[serde(default)]
-    pub include_patterns: Option<Vec<String>>,
-    #[serde(default)]
-    pub exclude_patterns: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
-pub struct TableRefConfig {
-    pub schema: String,
-    pub table: String,
-}
-
-fn default_database() -> String { "default".into() }
-fn default_username() -> String { "default".into() }
-const fn default_tls() -> bool { true }
-const fn default_rows_per_page() -> usize { 10000 }
 
 pub struct ClickHouseSourceProvider {
     cfg: ClickHouseSourceConfig,
@@ -66,65 +27,27 @@ impl ClickHouseSourceProvider {
         if cfg.connection_string.is_empty() {
             anyhow::bail!("ch source: connection_string must not be empty");
         }
-        match (&cfg.tables, &cfg.include_patterns) {
-            (&Some(_), &Some(_)) => anyhow::bail!(
-                "ch source: specify either 'tables' or 'include_patterns', not both"
-            ),
-            (&None, &None) => anyhow::bail!(
-                "ch source: specify either 'tables' or 'include_patterns'"
-            ),
-            _ => {}
-        }
+        // Validation now delegates to cfg.build_selection() — just check it parses.
+        cfg.build_selection()?;
         Ok(Self { cfg, derived_schema: Arc::new(OnceLock::new()) })
-    }
-
-    fn build_selection(&self) -> anyhow::Result<TableSelection> {
-        if let Some(ref tables) = self.cfg.tables {
-            let refs: Vec<TableRef> = tables.iter().map(|t| TableRef {
-                schema_name: t.schema.clone(),
-                table_name: t.table.clone(),
-            }).collect();
-            return Ok(TableSelection::Explicit(refs));
-        }
-        let includes: Vec<Regex> = self.cfg.include_patterns.as_ref()
-            .map_or_else(|| Ok(vec![]), |ps| {
-                ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("include regex '{p}': {e}"))).collect()
-            })?;
-        let excludes: Vec<Regex> = self.cfg.exclude_patterns.as_ref()
-            .map_or_else(|| Ok(vec![]), |ps| {
-                ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("exclude regex '{p}': {e}"))).collect()
-            })?;
-        Ok(TableSelection::Patterns { include_patterns: includes, exclude_patterns: excludes })
-    }
-
-    fn first_table_ref(&self) -> Option<TableRef> {
-        self.cfg.tables.as_ref().and_then(|ts| ts.first()).map(|t| TableRef {
-            schema_name: t.schema.clone(),
-            table_name: t.table.clone(),
-        })
     }
 
     /// Connect to the source `ClickHouse`, run DESCRIBE TABLE, and build a
     /// [`SchemaConfig`] with the real column names and types.
     async fn derive_schema(
-        connection_string: &str,
-        database: &str,
-        username: &str,
-        password: &str,
-        use_tls: bool,
-        tls_domain: Option<&str>,
+        cfg: &ClickHouseSourceConfig,
         table_ref: &TableRef,
     ) -> anyhow::Result<SchemaConfig> {
         use clickhouse_arrow::{ArrowFormat, ConnectionPoolBuilder};
 
-        let pool = ConnectionPoolBuilder::<ArrowFormat>::new(connection_string)
+        let pool = ConnectionPoolBuilder::<ArrowFormat>::new(&cfg.connection_string)
             .configure_pool(|p| p.max_size(1))
             .configure_client(|b| {
-                let mut builder = b.with_database(database)
-                    .with_username(username)
-                    .with_password(password)
-                    .with_tls(use_tls);
-                if let Some(domain) = tls_domain {
+                let mut builder = b.with_database(&cfg.database)
+                    .with_username(&cfg.username)
+                    .with_password(&cfg.password)
+                    .with_tls(cfg.use_tls);
+                if let Some(ref domain) = cfg.tls_domain {
                     builder = builder.with_domain(domain);
                 }
                 builder
@@ -211,22 +134,9 @@ impl SourceProvider for ClickHouseSourceProvider {
         partition_id: i64,
         _cancel_token: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        let conn = self.cfg.connection_string.clone();
-        let db = self.cfg.database.clone();
-        let user = self.cfg.username.clone();
-        let pass = self.cfg.password.clone();
-        let tls = self.cfg.use_tls;
-        let tls_domain = self.cfg.tls_domain.clone();
-        let rows = self.cfg.rows_per_page;
-        let selection = match self.build_selection() {
-            Ok(s) => s,
-            Err(e) => return Box::pin(async { Err(e) }),
-        };
+        let cfg = self.cfg.clone();
         Box::pin(async move {
-            let src = ClickHouseSource::new(
-                &conn, &db, &user, &pass, tls, tls_domain.as_deref(),
-                selection, partition_id, rows,
-            ).await?;
+            let src = ClickHouseSource::new(cfg, partition_id).await?;
             Ok(Box::new(src) as Box<dyn Source>)
         })
     }
@@ -237,22 +147,14 @@ impl SourceProvider for ClickHouseSourceProvider {
         worker_index: u32,
     ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
         let need_init = self.derived_schema.get().is_none();
-        let conn = self.cfg.connection_string.clone();
-        let db = self.cfg.database.clone();
-        let user = self.cfg.username.clone();
-        let pass = self.cfg.password.clone();
-        let tls = self.cfg.use_tls;
-        let tls_domain = self.cfg.tls_domain.clone();
-        let table_ref = self.first_table_ref();
+        let cfg = self.cfg.clone();
+        let table_ref = self.cfg.first_table_ref();
         let derived = Arc::clone(&self.derived_schema);
 
         Box::pin(async move {
             if need_init {
                 if let Some(ref tr) = table_ref {
-                    match Self::derive_schema(
-                        &conn, &db, &user, &pass, tls,
-                        tls_domain.as_deref(), tr,
-                    ).await {
+                    match Self::derive_schema(&cfg, tr).await {
                         Ok(schema) => {
                             tracing::info!(
                                 "CH source: derived schema for '{}' ({} columns)",

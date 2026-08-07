@@ -8,6 +8,7 @@ use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
+use serde::Deserialize;
 use tokio::sync::Mutex;
 
 use crate::config::yaml::parse_arrow_type;
@@ -15,6 +16,36 @@ use crate::pipeline::sink::Sink;
 use crate::providers::clickhouse::waterline::Waterline;
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
 use crate::types::table_data::TableWrite;
+
+/// `ClickHouse` sink config.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct ClickhouseSinkConfig {
+    pub connection_string: String,
+    #[serde(default = "default_database")]
+    pub database: String,
+    #[serde(default = "default_username")]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default = "default_batch")]
+    pub batch_size: usize,
+    #[serde(default = "default_linger")]
+    pub max_linger_ms: u64,
+    #[serde(default = "default_connections")]
+    pub max_connections: usize,
+    #[serde(default = "default_tls")]
+    pub use_tls: bool,
+    #[serde(default)]
+    pub tls_domain: Option<String>,
+}
+
+fn default_database() -> String { "default".into() }
+fn default_username() -> String { "default".into() }
+const fn default_batch() -> usize { 10000 }
+const fn default_linger() -> u64 { 500 }
+const fn default_connections() -> usize { 4 }
+const fn default_tls() -> bool { true }
 
 /// Map an Arrow `DataType` to the equivalent `ClickHouse` column type.
 fn arrow_to_clickhouse(dt: &DataType) -> anyhow::Result<String> {
@@ -78,12 +109,12 @@ pub struct ClickHouseSink {
     /// Exactly-once waterline (per-partition for YDS, multi-key LRU for S3).
     /// Arc<Mutex<>> for interior mutability — `Sink::write` takes &self.
     waterline: Arc<Mutex<Waterline>>,
-    max_linger_ms: u64,
+    _config: ClickhouseSinkConfig,
 }
 
 impl ClickHouseSink {
     pub async fn new(
-        config: &crate::providers::clickhouse::provider::SinkConfig,
+        config: ClickhouseSinkConfig,
         waterline_cap: usize,
     ) -> anyhow::Result<Self> {
         let pool = ConnectionPoolBuilder::<ArrowFormat>::new(config.connection_string.as_str())
@@ -110,7 +141,7 @@ impl ClickHouseSink {
         Ok(Self {
             pool,
             waterline: Arc::new(Mutex::new(Waterline::new(waterline_cap))),
-            max_linger_ms: config.max_linger_ms,
+            _config: config,
         })
     }
 
@@ -324,7 +355,7 @@ impl Sink for ClickHouseSink {
     fn as_any(&self) -> &dyn core::any::Any { self }
 
     fn max_linger_ms(&self) -> Option<u64> {
-        Some(self.max_linger_ms)
+        Some(self._config.max_linger_ms)
     }
 }
 

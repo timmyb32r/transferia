@@ -18,7 +18,9 @@ use futures_util::{StreamExt as _, TryStreamExt as _};
 use object_store::{GetResult, ObjectStore};
 
 use crate::config::yaml::ChunkSplitter;
+use crate::parsers::json_parser::JsonParserConfig;
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::providers::s3::config::S3SourceConfig;
 use crate::types::message::{Message, MessageBatch};
 
 // ---------------------------------------------------------------------------
@@ -158,17 +160,24 @@ pub struct S3Source {
     files_done: usize,
     /// Total rows produced.
     rows_produced: u64,
+    _config: S3SourceConfig,
 }
 
 impl S3Source {
     pub async fn new(
+        config: S3SourceConfig,
         store: Arc<dyn ObjectStore>,
-        prefix: &str,
-        framer: ChunkSplitter,
-        chunk_size: usize,
-        max_retries: u32,
         partition_id: i64,
     ) -> anyhow::Result<Self> {
+        let prefix = &config.prefix;
+        let chunk_size = config.chunk_size_bytes;
+        let max_retries = config.max_retries;
+
+        let parser_cfg: JsonParserConfig = serde_yaml::from_value(
+            config.parser.parser.raw()?.clone(),
+        )?;
+        let framer = parser_cfg.chunk_splitter;
+
         let mut files: Vec<object_store::ObjectMeta> = store
             .list(Some(&object_store::path::Path::from(prefix)))
             .try_collect()
@@ -188,6 +197,7 @@ impl S3Source {
             store, files, current_idx: 0, current_reader: None, framer,
             chunk_size, max_retries, partition_id,
             pending: BytesMut::new(), pending_scanned: 0, framed: 0, files_done: 0, rows_produced: 0,
+            _config: config,
         })
     }
 

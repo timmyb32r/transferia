@@ -4,8 +4,86 @@ use clickhouse_arrow::{ArrowFormat, ConnectionPool, ConnectionPoolBuilder};
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 use regex::Regex;
+use serde::Deserialize;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+
+/// `ClickHouse` source configuration — deserialised from YAML.
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct ClickHouseSourceConfig {
+    pub connection_string: String,
+    #[serde(default = "default_database")]
+    pub database: String,
+    #[serde(default = "default_username")]
+    pub username: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default = "default_tls")]
+    pub use_tls: bool,
+    #[serde(default)]
+    pub tls_domain: Option<String>,
+    #[serde(default = "default_rows_per_page")]
+    pub rows_per_page: usize,
+    /// Table selection: oneof.
+    #[serde(default)]
+    pub tables: Option<Vec<TableRefConfig>>,
+    #[serde(default)]
+    pub include_patterns: Option<Vec<String>>,
+    #[serde(default)]
+    pub exclude_patterns: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
+pub struct TableRefConfig {
+    pub schema: String,
+    pub table: String,
+}
+
+fn default_database() -> String { "default".into() }
+fn default_username() -> String { "default".into() }
+const fn default_tls() -> bool { true }
+const fn default_rows_per_page() -> usize { 10000 }
+
+impl ClickHouseSourceConfig {
+    /// Validate and build a [`TableSelection`] from this config's table spec.
+    pub fn build_selection(&self) -> anyhow::Result<TableSelection> {
+        match (&self.tables, &self.include_patterns) {
+            (Some(_), Some(_)) => anyhow::bail!(
+                "ch source: specify either 'tables' or 'include_patterns', not both"
+            ),
+            (None, None) => anyhow::bail!(
+                "ch source: specify either 'tables' or 'include_patterns'"
+            ),
+            _ => {}
+        }
+        if let Some(ref tables) = self.tables {
+            let refs: Vec<TableRef> = tables.iter().map(|t| TableRef {
+                schema_name: t.schema.clone(),
+                table_name: t.table.clone(),
+            }).collect();
+            return Ok(TableSelection::Explicit(refs));
+        }
+        let includes: Vec<Regex> = self.include_patterns.as_ref()
+            .map_or_else(|| Ok(vec![]), |ps| {
+                ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("include regex '{p}': {e}"))).collect()
+            })?;
+        let excludes: Vec<Regex> = self.exclude_patterns.as_ref()
+            .map_or_else(|| Ok(vec![]), |ps| {
+                ps.iter().map(|p| Regex::new(p).map_err(|e| anyhow::anyhow!("exclude regex '{p}': {e}"))).collect()
+            })?;
+        Ok(TableSelection::Patterns { include_patterns: includes, exclude_patterns: excludes })
+    }
+
+    /// The first explicitly-configured table, if any; used for schema discovery.
+    pub fn first_table_ref(&self) -> Option<TableRef> {
+        self.tables.as_ref().and_then(|ts| ts.first()).map(|t| TableRef {
+            schema_name: t.schema.clone(),
+            table_name: t.table.clone(),
+        })
+    }
+}
 
 /// `ClickHouse` source: reads tables into Arrow batches and feeds them directly
 /// into the pipeline (Arrow passthrough — no JSON serialization roundtrip).
@@ -15,6 +93,7 @@ use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 /// - **Regex patterns**: `include_patterns` (AND) then `exclude_patterns` (AND)
 pub struct ClickHouseSource {
     pool: ConnectionPool<ArrowFormat>,
+    selection: TableSelection,
     tables: Vec<TableRef>,
     current_table_idx: usize,
     current_page: usize,
@@ -22,6 +101,7 @@ pub struct ClickHouseSource {
     partition_id: i64,
     rows_per_page: usize,
     exhausted: bool,
+    _config: ClickHouseSourceConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -58,26 +138,20 @@ pub enum TableSelection {
 }
 
 impl ClickHouseSource {
-    #[expect(clippy::too_many_arguments, reason = "constructor takes connection settings explicitly")]
     pub async fn new(
-        connection_string: &str,
-        database: &str,
-        username: &str,
-        password: &str,
-        use_tls: bool,
-        tls_domain: Option<&str>,
-        selection: TableSelection,
+        config: ClickHouseSourceConfig,
         partition_id: i64,
-        rows_per_page: usize,
     ) -> anyhow::Result<Self> {
-        let pool = ConnectionPoolBuilder::<ArrowFormat>::new(connection_string)
+        let selection = config.build_selection()?;
+
+        let pool = ConnectionPoolBuilder::<ArrowFormat>::new(&config.connection_string)
             .configure_pool(|p| p.max_size(2))
             .configure_client(|b| {
-                let mut builder = b.with_database(database)
-                    .with_username(username)
-                    .with_password(password)
-                    .with_tls(use_tls);
-                if let Some(domain) = tls_domain {
+                let mut builder = b.with_database(&config.database)
+                    .with_username(&config.username)
+                    .with_password(&config.password)
+                    .with_tls(config.use_tls);
+                if let Some(ref domain) = config.tls_domain {
                     builder = builder.with_domain(domain);
                 }
                 builder
@@ -94,9 +168,9 @@ impl ClickHouseSource {
         };
 
         let tables = match selection {
-            TableSelection::Explicit(ts) => ts,
-            TableSelection::Patterns { include_patterns, exclude_patterns } => {
-                Self::discover_tables(&pool, database, &include_patterns, &exclude_patterns).await?
+            TableSelection::Explicit(ref ts) => ts.clone(),
+            TableSelection::Patterns { ref include_patterns, ref exclude_patterns } => {
+                Self::discover_tables(&pool, &config.database, include_patterns, exclude_patterns).await?
             }
         };
 
@@ -106,12 +180,19 @@ impl ClickHouseSource {
 
         tracing::info!(
             "CH source: {} tables, partition={}, rows_per_page={}",
-            tables.len(), partition_id, rows_per_page,
+            tables.len(), partition_id, config.rows_per_page,
         );
 
         Ok(Self {
-            pool, tables, current_table_idx: 0, current_page: 0,
-            partition_id, rows_per_page, exhausted: false,
+            pool,
+            selection,
+            tables,
+            current_table_idx: 0,
+            current_page: 0,
+            partition_id,
+            rows_per_page: config.rows_per_page,
+            exhausted: false,
+            _config: config,
         })
     }
 
