@@ -28,7 +28,6 @@ use crate::types::message::{Message, MessageBatch};
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum S3ReadError {
     /// Network, S3 API, stream interruption — retry with backoff.
     Transport { op: &'static str, file: Arc<str>, source: anyhow::Error },
@@ -76,7 +75,6 @@ impl core::error::Error for S3ReadError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum S3Retry {
     Retry,
     Return,

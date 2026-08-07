@@ -20,7 +20,6 @@ use super::Serializer;
 /// variants during the first serialization. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
-#[non_exhaustive]
 #[derive(Default)]
 pub struct JsonSerializer {
     skip_null_columns: bool,

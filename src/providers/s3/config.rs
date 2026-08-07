@@ -10,14 +10,12 @@ pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_RETRIES: u32 = 3;
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct S3CredentialsConfig {
     pub access_key: String,
     pub secret_key: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct S3SourceConfig {
     pub bucket: String,
     pub prefix: String,

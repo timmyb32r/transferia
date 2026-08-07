@@ -19,7 +19,6 @@ use crate::types::table_data::TableWrite;
 
 /// `ClickHouse` sink config.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct ClickhouseSinkConfig {
     pub connection_string: String,
     #[serde(default = "default_database")]

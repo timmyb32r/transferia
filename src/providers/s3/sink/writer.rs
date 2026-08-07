@@ -10,7 +10,6 @@ use crate::serializer::Serializer;
 use crate::types::table_data::TableWrite;
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct S3SinkConfig {
     /// S3 bucket name.
     pub bucket: String,

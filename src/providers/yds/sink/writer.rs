@@ -8,7 +8,6 @@ use crate::serializer::Serializer;
 use crate::types::table_data::TableWrite;
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct YdsSinkConfig {
     /// YDB connection string (e.g. "<grpc://localhost:2135/local>").
     pub connection_string: String,

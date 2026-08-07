@@ -3,7 +3,6 @@ use serde::Deserialize;
 
 /// Top-level configuration for the replicator.
 #[derive(Debug, Deserialize)]
-#[non_exhaustive]
 pub struct Config {
     pub source: SourceEntry,
     pub sink: SinkEntry,
@@ -36,7 +35,6 @@ impl Config {
 
 /// Source config entry: `source: { <kind>: { ... } }` — exactly one key.
 #[derive(Debug, Deserialize)]
-#[non_exhaustive]
 pub struct SourceEntry {
     #[serde(flatten)]
     pub inner: std::collections::HashMap<String, serde_yaml::Value>,
@@ -61,7 +59,6 @@ impl SourceEntry {
 
 /// Sink config entry: `sink: { <kind>: { ... } }` — exactly one key.
 #[derive(Debug, Deserialize)]
-#[non_exhaustive]
 pub struct SinkEntry {
     #[serde(flatten)]
     pub inner: std::collections::HashMap<String, serde_yaml::Value>,
@@ -129,7 +126,6 @@ pub fn validate_parser_middlewares(
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct ParserConfig {
     /// How the destination table name is chosen.
     pub table_naming: TableNaming,
@@ -139,7 +135,6 @@ pub struct ParserConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct TableNaming {
     /// "`from_config`" — use `name`; "`from_topic`" — use the topic path verbatim.
     #[serde(rename = "type")]
@@ -163,7 +158,6 @@ impl ParserConfig {
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct AuthConfig {
     /// Auth type: "anonymous" (default), "`access_token`", "`service_account`".
     #[serde(rename = "type")]
@@ -188,7 +182,6 @@ pub struct AuthConfig {
 /// Parser-specific concerns live in the parser's own config
 /// (e.g. [`crate::parsers::json_parser::JsonParserConfig`]).
 #[derive(Debug, Clone, Default, Deserialize)]
-#[non_exhaustive]
 pub struct SchemaConfig {
     pub columns: Vec<ColumnMapping>,
     /// Optional: column names for the `ClickHouse` `ORDER BY` clause.
@@ -212,7 +205,6 @@ impl SchemaConfig {
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-#[non_exhaustive]
 pub enum ChunkSplitter {
     #[default]
     NoSplit,
@@ -276,7 +268,6 @@ impl ChunkSplitter {
 
 /// Column definition for DDL — name and type only, no parser-specific fields.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct ColumnDef {
     pub column_name: String,
     pub arrow_type: String,
@@ -286,7 +277,6 @@ pub struct ColumnDef {
 /// Column mapping for JSON parser config — includes a `jsonpath` expression
 /// for extracting values from incoming JSON objects.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct ColumnMapping {
     /// `JSONPath` expression, e.g. "$.payload.user.id".
     pub jsonpath: String,
@@ -333,7 +323,6 @@ impl From<ColumnDef> for ColumnMapping {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct MiddlewareConfig {
     #[serde(rename = "type")]
     pub mw_type: String,

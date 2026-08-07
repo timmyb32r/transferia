@@ -1,6 +1,5 @@
 /// A single column of a composite uniqueness key.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct ExactlyOnceColumn {
     pub name: alloc::sync::Arc<str>,
 }
@@ -15,7 +14,6 @@ impl ExactlyOnceColumn {
 /// Composite uniqueness key. Columns physically reside in the `RecordBatch`;
 /// the descriptor names their roles.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct ExactlyOnceKey {
     /// Partition-space column:
     ///   YDS: Int64 (partition id)
@@ -27,7 +25,6 @@ pub struct ExactlyOnceKey {
 
 /// Partition key value — the key type of the waterline `HashMap`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum PartitionKey {
     Int(i64),
     /// S3: full object key (not just the base filename).

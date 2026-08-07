@@ -30,7 +30,6 @@ pub trait Parser: Send + Sync {
 
 /// Parser config entry: `parser: { <kind>: { ... } }` — exactly one key.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct ParserEntry {
     #[serde(flatten)]
     pub inner: HashMap<String, Value>,

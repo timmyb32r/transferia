@@ -8,9 +8,8 @@ use serde::Deserialize;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 
-/// `ClickHouse` source configuration — deserialised from YAML.
+/// `ClickHouse` source configuration — deserialized from YAML.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct ClickHouseSourceConfig {
     pub connection_string: String,
     #[serde(default = "default_database")]
@@ -35,7 +34,6 @@ pub struct ClickHouseSourceConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct TableRefConfig {
     pub schema: String,
     pub table: String,
@@ -106,7 +104,6 @@ pub struct ClickHouseSource {
 }
 
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct TableRef {
     pub schema_name: String,
     pub table_name: String,
@@ -125,7 +122,6 @@ impl TableRef {
 }
 
 /// Table selection strategy.
-#[non_exhaustive]
 pub enum TableSelection {
     /// Explicit list of tables to transfer.
     Explicit(Vec<TableRef>),

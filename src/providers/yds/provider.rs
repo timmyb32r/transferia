@@ -12,7 +12,6 @@ use crate::providers::yds::pq_v1::{parse_endpoint, partition_to_group, PqV1Clien
 use crate::providers::yds::ydb_topic::YdbTopicSource;
 
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct YdsSourceConfig {
     pub connection_string: String,
     pub topic_path: String,

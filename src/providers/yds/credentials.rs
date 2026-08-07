@@ -1,4 +1,3 @@
-#[non_exhaustive]
 pub enum YdbCredentials {
     Anonymous(ydb::AnonymousCredentials),
     AccessToken(ydb::AccessTokenCredentials),

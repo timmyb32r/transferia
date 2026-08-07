@@ -135,7 +135,6 @@ fn http_uri(scheme: &str, host: &str) -> anyhow::Result<Uri> {
 
 /// A decompressed message handed to the pipeline. `CommitCookie` is `Copy` (a couple of
 /// integers), so carrying it by value per message is cheap.
-#[non_exhaustive]
 pub struct DecodedMessage {
     pub data: Bytes,
     pub cookie: Option<CommitCookie>,
@@ -143,7 +142,6 @@ pub struct DecodedMessage {
     pub offset: u64,
 }
 
-#[non_exhaustive]
 pub struct PqV1CommitMarker {
     pub partition_id: i64,
     pub cookie: CommitCookie,

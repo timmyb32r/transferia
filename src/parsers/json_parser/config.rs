@@ -4,7 +4,6 @@ use crate::config::yaml::{ChunkSplitter, ColumnMapping, SchemaConfig};
 
 /// JSON parser configuration — deserialized directly from the YAML `json_parser:` block.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct JsonParserConfig {
     pub columns: Vec<ColumnMapping>,
     /// Optional: custom field name for the raw JSON payload (for DLQ).

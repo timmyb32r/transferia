@@ -10,7 +10,6 @@ use crate::types::exactly_once::ExactlyOnceKey;
 /// `table` is already resolved to the concrete target name
 /// (`"my_table"` or `"my_table_dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct TableData {
     /// Resolved target table: `"my_table"` or `"my_table_dlq"`.
     pub table: Arc<str>,
@@ -30,7 +29,6 @@ pub struct TableData {
 ///
 /// **Invariant:** all batches in `batches` share the schema of `table`.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct TableWrite {
     /// Resolved table name (pre-resolved by the parser — no DLQ indirection).
     pub table: Arc<str>,

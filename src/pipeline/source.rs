@@ -33,7 +33,6 @@ impl core::fmt::Debug for CommitMarker {
 // ---------------------------------------------------------------------------
 
 /// Result of a source read. First-class terminal state — no sentinel conventions.
-#[non_exhaustive]
 pub enum ReadResult {
     /// Raw messages for parsing (YDS, S3, `PQv1`).
     Batch(MessageBatch),
