@@ -435,6 +435,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: crate::config::yaml::ChunkSplitter::NewLine,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
 
         let parser = crate::parsers::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;

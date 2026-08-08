@@ -153,14 +153,19 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Source: {}, Sink: {}", source_kind, sink_kind);
 
-    // 2a. Determine and log guarantee mode (spec §11). Exactly-once dedups by
-    // source offset in the ClickHouse sink waterline; it requires a streaming
-    // source (yds/s3) + a clickhouse sink + a real parser.
-    let exactly_once_requested = config.exactly_once;
-    if exactly_once_requested && sink_kind != "clickhouse" {
-        anyhow::bail!("exactly_once requires a `clickhouse` sink (got '{sink_kind}')");
-    }
-    let exactly_once_key: Option<ExactlyOnceKey> = if exactly_once_requested {
+    // 2a. Determine exactly-once key columns (spec §11). The parser's
+    // `add_exactly_once_keys` flag controls whether system columns are appended.
+    // When the parser adds them AND the sink is `clickhouse` (waterline dedup),
+    // the effective guarantee is EXACTLY_ONCE. Otherwise it is AT_LEAST_ONCE —
+    // the key columns flow through harmlessly as extra data.
+    let add_exactly_once_keys = source_provider
+        .parser_config()
+        .and_then(|pc| {
+            let raw = pc.parser.raw().ok()?;
+            raw.get("add_exactly_once_keys")?.as_bool()
+        })
+        .unwrap_or(false);
+    let exactly_once_key: Option<ExactlyOnceKey> = if add_exactly_once_keys {
         // Partition column convention by source kind: YDS = Int64 partition id,
         // S3 = Utf8 object key. The parser picks the Arrow type from the name
         // (`__system_filename` ⇒ Utf8, else Int64).
@@ -168,9 +173,9 @@ async fn main() -> anyhow::Result<()> {
             "topic" | "pqv1" => ExactlyOnceColumn::new("__system_partition".into()),
             "s3" => ExactlyOnceColumn::new("__system_filename".into()),
             "clickhouse" => anyhow::bail!(
-                "exactly_once requires a streaming source (yds `topic`/`pqv1` or `s3`), not `clickhouse`"
+                "add_exactly_once_keys requires a streaming source (yds `topic`/`pqv1` or `s3`), not `clickhouse`"
             ),
-            other => anyhow::bail!("exactly_once: unsupported source kind '{other}'"),
+            other => anyhow::bail!("add_exactly_once_keys: unsupported source kind '{other}'"),
         };
         Some(ExactlyOnceKey {
             partition,
@@ -180,10 +185,21 @@ async fn main() -> anyhow::Result<()> {
         None
     };
     let has_exactly_once_key = exactly_once_key.is_some();
-    let guarantee_mode = if has_exactly_once_key { "EXACTLY_ONCE" } else { "AT_LEAST_ONCE" };
+    let guarantee_mode = if has_exactly_once_key && sink_kind == "clickhouse" {
+        "EXACTLY_ONCE"
+    } else if has_exactly_once_key {
+        tracing::info!(
+            "Guarantee mode: AT_LEAST_ONCE (sink '{}' does not support deduplication; \
+             exactly-once keys added by parser are informational only)",
+            sink_kind,
+        );
+        "AT_LEAST_ONCE"
+    } else {
+        "AT_LEAST_ONCE"
+    };
     tracing::info!(
-        "Guarantee mode: {} (sink: {}, source: {})",
-        guarantee_mode, sink_kind, source_kind,
+        "Guarantee mode: {} (sink: {}, source: {}, add_exactly_once_keys: {})",
+        guarantee_mode, sink_kind, source_kind, add_exactly_once_keys,
     );
 
     // 3. Build parser (only for sources that use a parser)
@@ -201,7 +217,7 @@ async fn main() -> anyhow::Result<()> {
             // stats reporter's "(no parser)" label.
             has_parser = parser_kind != "none";
             if has_exactly_once_key && parser_kind == "none" {
-                anyhow::bail!("exactly_once requires a real parser (parser kind 'none' drops data at the parse stage)");
+                anyhow::bail!("add_exactly_once_keys requires a real parser (parser kind 'none' drops data at the parse stage)");
             }
             Some(p)
         } else {

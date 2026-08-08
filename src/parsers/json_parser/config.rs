@@ -22,6 +22,13 @@ pub struct JsonParserConfig {
     /// JSON output. When `false` (default), nulls are emitted as `"col": null`.
     #[serde(default)]
     pub skip_null_columns: bool,
+    /// When `true`, the parser appends two system columns to every batch:
+    /// `__system_partition` (Int64, YDS) / `__system_filename` (Utf8, S3) and
+    /// `__system_offset` (Int64). The columns flow through to the sink; a
+    /// `clickhouse` sink activates waterline dedup (EXACTLY_ONCE). Other sinks
+    /// receive the columns as informational only (AT_LEAST_ONCE).
+    #[serde(default)]
+    pub add_exactly_once_keys: bool,
 }
 
 impl JsonParserConfig {

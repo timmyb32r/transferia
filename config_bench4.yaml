@@ -1,9 +1,9 @@
 # Transferia — Benchmark Configuration 4 (PQv1 → ClickHouse, EXACTLY-ONCE)
 #
-# Same as config_bench.yaml (full json_parser) but with exactly_once: true.
-# The parser adds __system_partition / __system_offset columns; the ClickHouse
-# sink dedups via the waterline (SELECT max(__system_offset) WHERE
-# __system_partition = ?). Activates the optimized EO insert path in sink.rs
+# Same as config_bench.yaml (full json_parser) but with add_exactly_once_keys: true
+# in the json_parser block. The parser adds __system_partition / __system_offset
+# columns; the ClickHouse sink dedups via the waterline (SELECT max(__system_offset)
+# WHERE __system_partition = ?). Activates the optimized EO insert path in sink.rs
 # and the `uniq off/s` metric.
 #
 # Run:
@@ -24,6 +24,7 @@ source:
         type: from_config
         name: "logs"
       json_parser:
+        add_exactly_once_keys: true
         chunk_splitter: "new-line"
         order_by: ["id", "ts"]
         columns:
@@ -88,8 +89,6 @@ sink:
     username: "user1"
     password: ""
 
-# Exactly-once delivery (dedup by source offset in the ClickHouse waterline).
-exactly_once: true
 
 metrics:
   enabled: true

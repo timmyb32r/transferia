@@ -1435,6 +1435,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
 
         let parser = JsonParser::new(&config, "test".into(), None)?;
@@ -1482,6 +1483,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1532,6 +1534,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_filename".into() },
@@ -1574,6 +1577,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1622,6 +1626,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
@@ -1676,6 +1681,7 @@ mod tests {
             order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
+            add_exactly_once_keys: false,
         };
         let key = ExactlyOnceKey {
             partition: ExactlyOnceColumn { name: "__system_partition".into() },
