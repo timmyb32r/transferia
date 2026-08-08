@@ -45,6 +45,10 @@ const YDB_STATUS_UNSPECIFIED: i32 = 0;
 
 /// tonic's default decode cap is 4 MiB; Logbroker `DataBatch` messages can exceed it.
 const MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
+/// Capacity of the decompressed-batch channel (bg task → merge task). Bounded
+/// so that if decompress ever falls behind download, memory is capped; with
+/// parallel decompress keeping up, it stays near-empty.
+const DECODED_CHANNEL_CAP: usize = 128;
 
 // ---------------------------------------------------------------------------
 // HTTP/2 prior-knowledge transport (Go-compatible)
@@ -147,6 +151,33 @@ pub struct DecodedMessage {
 pub struct PqV1CommitMarker {
     pub partition_id: i64,
     pub cookie: CommitCookie,
+}
+
+/// Raw (still-compressed) message handed off to the decompress pool.
+struct RawMsg {
+    data: Vec<u8>,
+    codec: i32,
+    uncompressed_size: u64,
+    offset: u64,
+}
+
+/// One partition's worth of raw messages within a `DataBatch`.
+struct RawPart {
+    pid: i64,
+    cookie: Option<CommitCookie>,
+    msgs: Vec<RawMsg>,
+}
+
+/// One partition's decompressed messages.
+struct DecodedPart {
+    pid: i64,
+    msgs: Vec<DecodedMessage>,
+}
+
+/// A decompressed `DataBatch`, re-ordered by `seq` before dispatch.
+struct DecodedBatch {
+    seq: u64,
+    parts: Vec<DecodedPart>,
 }
 
 struct RequestStream {
@@ -291,12 +322,51 @@ impl PqV1Client {
             request_tx: request_tx.clone(),
             partition_queues: Mutex::new(pqs),
         });
-        let inner_bg = Arc::clone(&inner);
+
+        // Pipelined decompress: the read loop hands each DataBatch to a blocking
+        // task for decompression and immediately sends the next Read, so
+        // `decompress()` never blocks the download. A merge task re-orders the
+        // decompressed batches by `seq` to restore per-partition offset order
+        // (the exactly-once waterline assumes offsets arrive in order per
+        // partition).
+        let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedBatch>(DECODED_CHANNEL_CAP);
+        let merge_inner = Arc::clone(&inner);
+        let merge_token = cancel_token.clone();
+        tokio::spawn(async move {
+            let mut next_seq: u64 = 0;
+            let mut buffer: HashMap<u64, DecodedBatch> = HashMap::new();
+            let mut rx = decoded_rx;
+            loop {
+                if merge_token.is_cancelled() { break; }
+                let Some(batch) = rx.recv().await else { break; };
+                buffer.insert(batch.seq, batch);
+                while let Some(b) = buffer.remove(&next_seq) {
+                    let mut queues = merge_inner.partition_queues.lock().await;
+                    for DecodedPart { pid, msgs } in b.parts {
+                        let Some(tx) = queues.get(&pid).cloned() else { continue; };
+                        let mut closed = false;
+                        for msg in msgs {
+                            if tx.send(msg).is_err() { closed = true; break; }
+                        }
+                        if closed {
+                            // Receiver dropped (shutdown) — remove the dead
+                            // sender so future batches skip this partition.
+                            queues.remove(&pid);
+                            tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
+                        }
+                    }
+                    drop(queues);
+                    next_seq += 1;
+                }
+            }
+            tracing::info!("PQv1 merge task exited");
+        });
 
         tokio::spawn(async move {
             let mut stream = response_stream;
             let mut init_done = false;
             let start = std::time::Instant::now();
+            let mut seq_counter: u64 = 0;
             loop {
                 if !init_done && start.elapsed() > core::time::Duration::from_secs(30) {
                     tracing::error!("PQv1 InitResponse timeout");
@@ -357,59 +427,77 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::DataBatch(db)) => {
-                        let mut queues = inner_bg.partition_queues.lock().await;
-                        // Iterate by value: for RAW payloads this moves the `Vec<u8>` into
-                        // `Bytes` with no copy.
-                        for pd in db.partition_data {
-                            #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
-                            let pid = pd.partition as i64;
-                            // Clone the sender so we can mutably remove it from
-                            // `queues` on send failure without holding the borrow.
-                            let Some(tx) = queues.get(&pid).cloned() else { continue };
-                            let cookie = pd.cookie; // Option<CommitCookie>, Copy
-                            let mut queue_closed = false;
-                            for batch in pd.batches {
-                                for md in batch.message_data {
-                                    let comp_len = md.data.len() as u64;
-                                    // Count at the source (receive) so the metrics
-                                    // are correct even when we drop before decompress.
-                                    source_counters.add_compressed_bytes(comp_len);
-                                    source_counters.add_messages(1);
-                                    if drop_before_decompress {
-                                        // Bench: discard before decompression so the
-                                        // read loop isn't blocked by `decompress()`.
-                                        continue;
-                                    }
-                                    let decomp_start = std::time::Instant::now();
-                                    let data = match decompress(md.data, md.codec, md.uncompressed_size) {
-                                        Ok(d) => d,
-                                        Err(e) => {
-                                            tracing::error!("PQv1 decompress failed: codec={} offset={}: {}", md.codec, md.offset, e);
-                                            continue;
-                                        }
-                                    };
-                                    source_counters.add_decomp_busy(decomp_start.elapsed());
-                                    source_counters.add_decompressed_bytes(data.len() as u64);
-                                    if tx.send(DecodedMessage { data, cookie, offset: md.offset }).is_err() {
-                                        queue_closed = true;
-                                        break;
-                                    }
-                                }
-                                if queue_closed { break; }
-                            }
-                            if queue_closed {
-                                // Receiver dropped (shutdown) — remove the dead
-                                // sender so future batches skip this partition
-                                // instead of logging a warning per message.
-                                queues.remove(&pid);
-                                tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
-                            }
-                        }
-                        drop(queues);
+                        // Send the next Read IMMEDIATELY so decompression
+                        // (offloaded below) does not block the download loop.
                         if request_tx.send(read_request()).is_err() {
                             tracing::warn!("PQv1 request channel closed; stopping stream");
                             break;
                         }
+                        if drop_before_decompress {
+                            // Bench: count + discard before decompression.
+                            for pd in db.partition_data {
+                                for batch in pd.batches {
+                                    for md in batch.message_data {
+                                        source_counters.add_compressed_bytes(md.data.len() as u64);
+                                        source_counters.add_messages(1);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        let seq = seq_counter;
+                        seq_counter += 1;
+                        let mut parts: Vec<RawPart> = Vec::with_capacity(db.partition_data.len());
+                        for pd in db.partition_data {
+                            #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
+                            let pid = pd.partition as i64;
+                            let cookie = pd.cookie;
+                            let mut msgs = Vec::new();
+                            for batch in pd.batches {
+                                for md in batch.message_data {
+                                    source_counters.add_compressed_bytes(md.data.len() as u64);
+                                    source_counters.add_messages(1);
+                                    msgs.push(RawMsg {
+                                        data: md.data,
+                                        codec: md.codec,
+                                        uncompressed_size: md.uncompressed_size,
+                                        offset: md.offset,
+                                    });
+                                }
+                            }
+                            if !msgs.is_empty() {
+                                parts.push(RawPart { pid, cookie, msgs });
+                            }
+                        }
+                        if parts.is_empty() { continue; }
+                        let sc = Arc::clone(&source_counters);
+                        let decoded_tx_w = decoded_tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let mut dec_parts: Vec<DecodedPart> = Vec::with_capacity(parts.len());
+                            for RawPart { pid, cookie, msgs } in parts {
+                                let mut decoded: Vec<DecodedMessage> = Vec::with_capacity(msgs.len());
+                                for rm in msgs {
+                                    let decomp_start = std::time::Instant::now();
+                                    match decompress(rm.data, rm.codec, rm.uncompressed_size) {
+                                        Ok(data) => {
+                                            sc.add_decomp_busy(decomp_start.elapsed());
+                                            sc.add_decompressed_bytes(data.len() as u64);
+                                            decoded.push(DecodedMessage { data, cookie, offset: rm.offset });
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("PQv1 decompress failed: codec={} offset={}: {}", rm.codec, rm.offset, e);
+                                        }
+                                    }
+                                }
+                                dec_parts.push(DecodedPart { pid, msgs: decoded });
+                            }
+                            // Always send (even if some parts are empty) so the
+                            // merge task's `next_seq` advances — skipping a seq
+                            // would stall every later batch in the reorder buffer.
+                            // A send error means the merge channel closed (shutdown);
+                            // the result is intentionally ignored.
+                            let _send = decoded_tx_w.blocking_send(DecodedBatch { seq, parts: dec_parts });
+                        });
                     }
                     _ => {}
                 }
