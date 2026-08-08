@@ -25,6 +25,12 @@ pub struct YdsSourceConfig {
     pub discovery_endpoint: Option<String>,
     #[serde(default)]
     pub partition_ids: Option<Vec<i64>>,
+    /// Bench: discard every message **before decompression** in the pqv1 driver.
+    /// The read loop then never blocks on `decompress()` → downloader busy% →
+    /// ~100%, isolating pure network throughput (compressed bytes/s the server
+    /// delivers). No data reaches the pipeline. pqv1 only.
+    #[serde(default)]
+    pub drop_before_decompress: bool,
 }
 
 pub struct YdsSourceProvider {
@@ -96,10 +102,10 @@ impl SourceProvider for YdsSourceProvider {
                     let (scheme, host, _) = parse_endpoint(&cfg.connection_string)?;
                     let endpoint = format!("{scheme}://{host}");
                     let pg_id = partition_to_group(partition_id);
-                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id], Arc::clone(&source_counters), cancel_token).await?;
+                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id], Arc::clone(&source_counters), cancel_token, cfg.drop_before_decompress).await?;
                     let rx = queues.remove(&partition_id)
                         .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
-                    Ok(Box::new(PqV1Source::new(client, rx, partition_id, cfg, source_counters)) as Box<dyn Source>)
+                    Ok(Box::new(PqV1Source::new(client, rx, partition_id, cfg)) as Box<dyn Source>)
                 }
                 _ => anyhow::bail!("Unknown YDS kind: {kind}"),
             }

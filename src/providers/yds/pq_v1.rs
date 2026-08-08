@@ -230,6 +230,7 @@ impl PqV1Client {
         token: &str, partition_group_ids: &[i64],
         source_counters: Arc<SourceCounters>,
         cancel_token: CancellationToken,
+        drop_before_decompress: bool,
     ) -> anyhow::Result<(Self, HashMap<i64, mpsc::UnboundedReceiver<DecodedMessage>>)> {
         let (scheme, main_host, _) = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&scheme, &main_host)?;
@@ -370,6 +371,15 @@ impl PqV1Client {
                             for batch in pd.batches {
                                 for md in batch.message_data {
                                     let comp_len = md.data.len() as u64;
+                                    // Count at the source (receive) so the metrics
+                                    // are correct even when we drop before decompress.
+                                    source_counters.add_compressed_bytes(comp_len);
+                                    source_counters.add_messages(1);
+                                    if drop_before_decompress {
+                                        // Bench: discard before decompression so the
+                                        // read loop isn't blocked by `decompress()`.
+                                        continue;
+                                    }
                                     let decomp_start = std::time::Instant::now();
                                     let data = match decompress(md.data, md.codec, md.uncompressed_size) {
                                         Ok(d) => d,
@@ -379,7 +389,6 @@ impl PqV1Client {
                                         }
                                     };
                                     source_counters.add_decomp_busy(decomp_start.elapsed());
-                                    source_counters.add_compressed_bytes(comp_len);
                                     source_counters.add_decompressed_bytes(data.len() as u64);
                                     if tx.send(DecodedMessage { data, cookie, offset: md.offset }).is_err() {
                                         queue_closed = true;
@@ -638,7 +647,6 @@ pub struct PqV1Source {
     rx: mpsc::UnboundedReceiver<DecodedMessage>,
     partition_id: i64,
     _config: YdsSourceConfig,
-    source_counters: Arc<SourceCounters>,
 }
 
 impl PqV1Source {
@@ -648,9 +656,8 @@ impl PqV1Source {
         rx: mpsc::UnboundedReceiver<DecodedMessage>,
         partition_id: i64,
         config: YdsSourceConfig,
-        source_counters: Arc<SourceCounters>,
     ) -> Self {
-        Self { client, rx, partition_id, _config: config, source_counters }
+        Self { client, rx, partition_id, _config: config }
     }
 }
 
@@ -674,7 +681,6 @@ impl Source for PqV1Source {
                     partition: Some(PartitionKey::Int(self.partition_id)),
                 });
             }
-            self.source_counters.add_messages(messages.len() as u64);
             let commit_marker = last_cookie.map(|cookie| {
                 CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
             });
