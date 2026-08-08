@@ -2,6 +2,11 @@
 #
 # Run:
 #   transferia --config config_bench.yaml --total-workers 1 --worker-index 0
+#
+# Throughput benchmark: toggle the parser to compare download-only vs
+# post-parse throughput.
+#   parser.json_parser:  full parse → see yds + parse metrics
+#   parser.none:         drop at parse stage → see yds (download-only) metrics
 
 source:
   pqv1:
@@ -14,67 +19,69 @@ source:
       type: access_token
       token_file: "~/.logbroker/token"
     parser:
-    # How the destination table name is chosen:
-    #   from_config — uses table_naming.name (e.g. "logs")
-    #   from_topic  — uses topic_path as-is (e.g. "/cdc/prod/logs")
-    table_naming:
-      type: from_config
-      name: "logs"
-    parser_type: "json_parser"
-    settings:
-      chunk_splitter: "new-line"
-      order_by: ["id", "ts"]
-      columns:
-        # Required — present in nearly every log line. Missing → row goes to DLQ.
-        - jsonpath: "$.id"
-          column_name: "id"
-          arrow_type: "Utf8"
-          nullable: false
-        - jsonpath: "$.ts"
-          column_name: "ts"
-          arrow_type: "Utf8"
-          nullable: false
-        # Optional — not in every line. Missing → NULL (not DLQ).
-        - jsonpath: "$.task_id"
-          column_name: "task_id"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.level"
-          column_name: "level"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.msg"
-          column_name: "msg"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.caller"
-          column_name: "caller"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.error"
-          column_name: "error"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.runtime"
-          column_name: "runtime"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.host"
-          column_name: "host"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.job_index"
-          column_name: "job_index"
-          arrow_type: "Int32"
-          nullable: true
-        - jsonpath: "$.src_type"
-          column_name: "src_type"
-          arrow_type: "Utf8"
-          nullable: true
-        - jsonpath: "$.dst_type"
-          column_name: "dst_type"
-          arrow_type: "Utf8"
-          nullable: true
+      # How the destination table name is chosen:
+      #   from_config — uses table_naming.name (e.g. "logs")
+      #   from_topic  — uses topic_path as-is (e.g. "/cdc/prod/logs")
+      table_naming:
+        type: from_config
+        name: "logs"
+      # Toggle: `json_parser` (full parse) or `none` (drop at parse stage,
+      # measure download-only throughput). Switch one on, comment the other.
+      json_parser:
+        chunk_splitter: "new-line"
+        order_by: ["id", "ts"]
+        columns:
+          # Required — present in nearly every log line. Missing → row goes to DLQ.
+          - jsonpath: "$.id"
+            column_name: "id"
+            arrow_type: "Utf8"
+            nullable: false
+          - jsonpath: "$.ts"
+            column_name: "ts"
+            arrow_type: "Utf8"
+            nullable: false
+          # Optional — not in every line. Missing → NULL (not DLQ).
+          - jsonpath: "$.task_id"
+            column_name: "task_id"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.level"
+            column_name: "level"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.msg"
+            column_name: "msg"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.caller"
+            column_name: "caller"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.error"
+            column_name: "error"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.runtime"
+            column_name: "runtime"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.host"
+            column_name: "host"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.job_index"
+            column_name: "job_index"
+            arrow_type: "Int32"
+            nullable: true
+          - jsonpath: "$.src_type"
+            column_name: "src_type"
+            arrow_type: "Utf8"
+            nullable: true
+          - jsonpath: "$.dst_type"
+            column_name: "dst_type"
+            arrow_type: "Utf8"
+            nullable: true
+      # none: {}   # uncomment to drop at parse stage (download-only benchmark)
 
 middlewares: []
 
@@ -95,3 +102,9 @@ sink:
     # If the server uses a self-signed certificate and UnknownIssuer
     # persists even with new settings — try use_tls: false
     # (only if ClickHouse allows unencrypted connections).
+
+# Throughput + duty-cycle stats, printed to the console by a background task.
+metrics:
+  enabled: true
+  interval_ms: 1000
+  per_partition: true   # one line per partition per tick; false ⇒ one aggregated line

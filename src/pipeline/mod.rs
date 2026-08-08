@@ -3,13 +3,16 @@ pub mod middleware;
 pub mod sink;
 pub mod poisoning;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use alloc::sync::Arc;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+use arrow::array::{Array as _, Int64Array};
+use arrow::record_batch::RecordBatch;
+use crate::metrics::ParseCounters;
 use crate::parsers::json_parser::ParserWorkspace;
 use crate::parsers::Parser;
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
@@ -224,6 +227,8 @@ pub async fn run_partition_pipeline(
     batch_size: usize,
     cancel_token: CancellationToken,
     partition_id: i64,
+    parse_counters: Arc<ParseCounters>,
+    has_parser: bool,
 ) -> anyhow::Result<()> {
     /// Commit marker to source with up to 10 retries.
     /// Spec §0 (I3): source.commit fails after retries → poison → fatal.
@@ -477,12 +482,15 @@ pub async fn run_partition_pipeline(
     let parser_for_thread = parser.clone();
     let table_for_thread = Arc::clone(&table);
     let middlewares_for_thread = Arc::clone(&middlewares);
+    let parse_counters_for_thread = Arc::clone(&parse_counters);
     let mut rx_read_thread = rx_read; // moved into thread
     let parser_thread = thread::Builder::new()
         .name("parser".into())
         .spawn(move || {
             let mut workspace = ParserWorkspace::new();
             let mut mw_error_count: u32 = 0;
+            // Reused set for unique-offset counting (clear keeps capacity).
+            let mut offset_set: HashSet<i64> = HashSet::new();
             loop {
                 if parser_token.is_cancelled() {
                     return;
@@ -490,9 +498,13 @@ pub async fn run_partition_pipeline(
                 let Some(item) = rx_read_thread.blocking_recv() else {
                     return;
                 };
+                // Parser busy = actual parse + middleware work (excludes
+                // blocking_recv / blocking_send waits = idle).
+                let work_start = std::time::Instant::now();
                 let Some((valid, dlq, marker)) =
                     parse_read_item(item, parser_for_thread.as_ref(), &table_for_thread, &mut workspace)
                 else {
+                    parse_counters_for_thread.add_parse_busy(work_start.elapsed());
                     continue;
                 };
                 let processed = match guard_middlewares(
@@ -502,9 +514,29 @@ pub async fn run_partition_pipeline(
                     &tx_parsed_parser,
                 ) {
                     Ok(Some(b)) => b,
-                    Ok(None) => continue,
-                    Err(()) => return,
+                    Ok(None) => { parse_counters_for_thread.add_parse_busy(work_start.elapsed()); continue; }
+                    Err(()) => { parse_counters_for_thread.add_parse_busy(work_start.elapsed()); return; }
                 };
+                parse_counters_for_thread.add_parse_busy(work_start.elapsed());
+                // Post-parse throughput counters (skipped in no-parser mode:
+                // NoneParser produces 0-row batches, and the HashSet work is
+                // pointless when there is no real parser).
+                if has_parser {
+                    parse_counters_for_thread.add_rows(processed.batch.num_rows() as u64);
+                    parse_counters_for_thread.add_arrow_bytes(arrow_batch_bytes(&processed.batch));
+                    if let Some(d) = &dlq {
+                        parse_counters_for_thread.add_dlq_rows(d.batch.num_rows() as u64);
+                    }
+                    if let Some(arr) = offset_array(&processed.batch) {
+                        offset_set.clear();
+                        for i in 0..arr.len() {
+                            if !arr.is_null(i) {
+                                offset_set.insert(arr.value(i));
+                            }
+                        }
+                        parse_counters_for_thread.add_unique_offsets(offset_set.len() as u64);
+                    }
+                }
                 let parsed = ParsedItem { valid: processed, dlq, commit_marker: marker };
                 if tx_parsed_parser.blocking_send(ParsedMsg::Item(Box::new(parsed))).is_err() {
                     return;
@@ -664,6 +696,16 @@ pub async fn run_partition_pipeline(
                     }
                 }
             }
+            // No rows accumulated for this item (e.g. no-parser drop, where the
+            // NoneParser produces 0-row batches and neither push above fires) —
+            // ack the marker directly so the reader commits and the consumer
+            // advances. In the normal case, a non-0-row push already took the
+            // marker, so this is a no-op.
+            if let Some(m) = marker {
+                if tx_commit.send(CommitAck { markers: vec![m] }).await.is_err() {
+                    tracing::warn!("partition={}: commit ack channel closed (marker-only)", partition_id);
+                }
+            }
             // Item fully pushed — Message boundary reached — safe to check flush
             // (in exactly-once mode the current Message is flushed whole here).
             if acc.should_flush() {
@@ -791,6 +833,18 @@ fn parse_read_item(
             Some((td, None, commit_marker))
         }
     }
+}
+
+/// Total in-memory size of a batch's columns (Arrow bytes for the `arrow` metric).
+fn arrow_batch_bytes(batch: &RecordBatch) -> u64 {
+    batch.columns().iter().map(|c| c.get_array_memory_size() as u64).sum()
+}
+
+/// The `__system_offset` Int64 column if present (for the unique-offsets metric).
+/// Absent in at-least-once mode (no exactly-once key) → `None`.
+fn offset_array(batch: &RecordBatch) -> Option<&Int64Array> {
+    let col = batch.column_by_name("__system_offset")?;
+    col.as_any().downcast_ref::<Int64Array>()
 }
 
 /// Runs middlewares on valid data with the consecutive-error guard.

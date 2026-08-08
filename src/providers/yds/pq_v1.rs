@@ -14,6 +14,7 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::Stream;
 
+use crate::metrics::SourceCounters;
 use crate::providers::yds::provider::YdsSourceConfig;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
@@ -226,6 +227,7 @@ impl PqV1Client {
     pub async fn connect(
         endpoint: &str, topic_path: &str, consumer: &str,
         token: &str, partition_group_ids: &[i64],
+        source_counters: Arc<SourceCounters>,
     ) -> anyhow::Result<(Self, HashMap<i64, mpsc::UnboundedReceiver<DecodedMessage>>)> {
         let (scheme, main_host, _) = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&scheme, &main_host)?;
@@ -297,11 +299,15 @@ impl PqV1Client {
                     tracing::error!("PQv1 InitResponse timeout");
                     break;
                 }
+                let await_start = std::time::Instant::now();
                 let msg = match stream.message().await {
                     Ok(Some(m)) => m,
                     Ok(None) => { tracing::warn!("PQv1 stream closed"); break; }
                     Err(e) => { tracing::error!("PQv1 stream error: {}", e); break; }
                 };
+                // Downloader busy = time a Read request is in-flight (awaiting
+                // the next server message). idle = the processing below.
+                source_counters.add_download_busy(await_start.elapsed());
                 // Only a real error code (not SUCCESS, not UNSPECIFIED) aborts the stream.
                 if msg.status != YDB_STATUS_UNSPECIFIED && msg.status != YDB_STATUS_SUCCESS {
                     tracing::error!("PQv1 status: {}, issues: {:?}", msg.status, msg.issues);
@@ -349,6 +355,8 @@ impl PqV1Client {
                             let cookie = pd.cookie; // Option<CommitCookie>, Copy
                             for batch in pd.batches {
                                 for md in batch.message_data {
+                                    let comp_len = md.data.len() as u64;
+                                    let decomp_start = std::time::Instant::now();
                                     let data = match decompress(md.data, md.codec, md.uncompressed_size) {
                                         Ok(d) => d,
                                         Err(e) => {
@@ -356,6 +364,9 @@ impl PqV1Client {
                                             continue;
                                         }
                                     };
+                                    source_counters.add_decomp_busy(decomp_start.elapsed());
+                                    source_counters.add_compressed_bytes(comp_len);
+                                    source_counters.add_decompressed_bytes(data.len() as u64);
                                     if tx.send(DecodedMessage { data, cookie, offset: md.offset }).is_err() {
                                         tracing::warn!("PQv1 partition {} queue closed; dropping message", pid);
                                     }
@@ -604,6 +615,7 @@ pub struct PqV1Source {
     rx: mpsc::UnboundedReceiver<DecodedMessage>,
     partition_id: i64,
     _config: YdsSourceConfig,
+    source_counters: Arc<SourceCounters>,
 }
 
 impl PqV1Source {
@@ -613,8 +625,9 @@ impl PqV1Source {
         rx: mpsc::UnboundedReceiver<DecodedMessage>,
         partition_id: i64,
         config: YdsSourceConfig,
+        source_counters: Arc<SourceCounters>,
     ) -> Self {
-        Self { client, rx, partition_id, _config: config }
+        Self { client, rx, partition_id, _config: config, source_counters }
     }
 }
 
@@ -638,6 +651,7 @@ impl Source for PqV1Source {
                     partition: Some(PartitionKey::Int(self.partition_id)),
                 });
             }
+            self.source_counters.add_messages(messages.len() as u64);
             let commit_marker = last_cookie.map(|cookie| {
                 CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
             });

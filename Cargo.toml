@@ -52,6 +52,9 @@ restriction = { level = "warn", priority = -1 }
 
 # === muted: anti-idiomatic restriction lints ===
 cast_possible_truncation = "allow"        # data-pipeline code casts sizes (len, batch) to u32 for Arrow — value always fits
+cast_precision_loss = "allow"             # u64→f64 in metrics rate/percent math — 52-bit mantissa is fine for throughput
+cast_sign_loss = "allow"                  # f64→u64 in metrics math — values are non-negative byte/row counts
+float_arithmetic = "allow"                # the metrics module is inherently float-heavy (rates, percentages, byte sizes)
 too_many_arguments = "allow"              # extracting config structs for internal helpers is overkill
 wildcard_imports = "allow"                # use super::* in mod tests is the standard Rust pattern
 question_mark_used = "allow"              # `?` operator is the foundation of Rust error handling

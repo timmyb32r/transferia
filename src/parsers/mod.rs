@@ -1,4 +1,5 @@
 pub mod json_parser;
+pub mod none_parser;
 
 use std::collections::{HashMap, HashSet};
 
@@ -76,6 +77,12 @@ static PARSER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, ParserFactory>>> =
                 Ok(Arc::new(crate::parsers::json_parser::JsonParser::new(
                     &cfg, table, key,
                 )?) as Arc<dyn Parser>)
+            }),
+        );
+        m.insert(
+            "none",
+            Arc::new(|_raw: Value, table: Arc<str>, _key: Option<ExactlyOnceKey>| {
+                Ok(Arc::new(crate::parsers::none_parser::NoneParser::new(table)) as Arc<dyn Parser>)
             }),
         );
         Mutex::new(m)

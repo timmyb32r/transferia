@@ -14,7 +14,25 @@ pub struct Config {
     /// Pipeline: flush batch size (rows).
     #[serde(default = "default_batch_size")]
     pub sink_batch_size: usize,
+    /// Throughput + duty-cycle stats reporter (optional). Absent ⇒ no stats task.
+    #[serde(default)]
+    pub metrics: Option<MetricsConfig>,
 }
+
+/// Throughput + duty-cycle stats reporter config (top-level `metrics:` block).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Console print interval in milliseconds (default 1000).
+    #[serde(default = "default_metrics_interval_ms")]
+    pub interval_ms: u64,
+    /// `true` ⇒ one line per partition per tick; `false` ⇒ one aggregated line.
+    #[serde(default)]
+    pub per_partition: bool,
+}
+
+const fn default_metrics_interval_ms() -> u64 { 1000 }
 
 impl Config {
     /// Load configuration from a YAML file, expanding ${VAR} and $VAR patterns.

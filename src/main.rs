@@ -8,6 +8,7 @@ use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use transferia::config::yaml::Config;
 use transferia::middleware::filter::FilterMiddleware;
+use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters};
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
@@ -39,6 +40,7 @@ struct PipelineDeps {
     snk: Arc<dyn transferia::pipeline::sink::Sink>,
     batch_size: usize,
     token: CancellationToken,
+    has_parser: bool,
 }
 
 fn spawn_partition_task<F, Fut>(
@@ -46,6 +48,7 @@ fn spawn_partition_task<F, Fut>(
     deps: PipelineDeps,
     source_label: String,
     make_source: F,
+    parse_counters: Arc<ParseCounters>,
 ) -> tokio::task::JoinHandle<()>
 where
     F: FnMut() -> Fut + Send + 'static,
@@ -68,6 +71,7 @@ where
                 source, deps.parser.clone(), Arc::clone(&deps.table),
                 Arc::clone(&deps.mw), Arc::clone(&deps.snk),
                 deps.batch_size, deps.token.clone(), partition_id,
+                Arc::clone(&parse_counters), deps.has_parser,
             ).await {
                 Ok(()) => break,
                 Err(e) => {
@@ -102,13 +106,22 @@ async fn main() -> anyhow::Result<()> {
 
     // 2. Build registry + providers
     let mut registry = ProviderRegistry::new();
+    // Per-partition metrics registry (always created; the reporter is spawned
+    // only when `metrics.enabled`). YDS sources register source counters here.
+    let metrics_registry = Arc::new(MetricsRegistry::new());
 
     // Register source providers
-    registry.register_source("topic", |v| {
-        Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(v, "topic")?))
+    registry.register_source("topic", {
+        let mr = Arc::clone(&metrics_registry);
+        move |v| Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(
+            v, "topic", Arc::clone(&mr),
+        )?))
     });
-    registry.register_source("pqv1", |v| {
-        Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(v, "pqv1")?))
+    registry.register_source("pqv1", {
+        let mr = Arc::clone(&metrics_registry);
+        move |v| Ok(Box::new(transferia::providers::yds::provider::YdsSourceProvider::from_config(
+            v, "pqv1", Arc::clone(&mr),
+        )?))
     });
     registry.register_source("s3", |v| {
         Ok(Box::new(transferia::providers::s3::provider::S3SourceProvider::from_config(v)?))
@@ -152,13 +165,19 @@ async fn main() -> anyhow::Result<()> {
 
     // 3. Build parser (only for sources that use a parser)
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
+    let mut has_parser = false;
     let parser: Option<Arc<dyn transferia::parsers::Parser>> =
         if let Some(pc) = source_provider.parser_config() {
             let parser_kind = pc.parser.kind()?.to_string();
             let parser_raw = pc.parser.raw()?.clone();
-            Some(transferia::parsers::build_parser(
+            let p = transferia::parsers::build_parser(
                 &parser_kind, parser_raw, Arc::clone(&table), None,
-            )?)
+            )?;
+            // "none" parser ⇒ no-parser mode (drop at parse stage, measure
+            // download-only throughput). `has_parser` drives DDL skip and the
+            // stats reporter's "(no parser)" label.
+            has_parser = parser_kind != "none";
+            Some(p)
         } else {
             None
         };
@@ -196,21 +215,26 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 6b. DDL: create tables (ClickHouse only — other sinks don't need DDL).
-    if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
-        let schema_for_ddl = source_provider.schema_config()
-            .cloned()
-            .unwrap_or_default();
-        let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
-        ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
+    // Skipped in no-parser mode: the "none" parser yields no columns and nothing
+    // is written, so the destination table is irrelevant.
+    if has_parser {
+        if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
+            let schema_for_ddl = source_provider.schema_config()
+                .cloned()
+                .unwrap_or_default();
+            let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
+            ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
 
-        let dlq_cols: Vec<(String, String)> =
-            transferia::parsers::json_parser::dlq_ch_columns(None)
-                .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
-        ch_sink.create_table(&dlq_table, &dlq_cols, &[], config.recreate_tables).await?;
+            let dlq_cols: Vec<(String, String)> =
+                transferia::parsers::json_parser::dlq_ch_columns(None)
+                    .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
+            ch_sink.create_table(&dlq_table, &dlq_cols, &[], config.recreate_tables).await?;
+        }
     }
 
     // 6c. Engine/replica validation (after CREATE so table exists)
-    if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
+    if has_parser {
+        if let Some(ch_sink) = sink.as_any().downcast_ref::<ClickHouseSink>() {
         let (engine, quorum, replicas) = ch_sink.check_table_engine(&table).await?;
         tracing::info!("Table '{}' engine: {} (quorum={}, replicas={})", table, engine, quorum, replicas);
 
@@ -242,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
     }
+    }
 
     // 7. Graceful shutdown
     let cancel_token = CancellationToken::new();
@@ -258,18 +283,33 @@ async fn main() -> anyhow::Result<()> {
         parser, table: Arc::clone(&table), mw: middlewares, snk: sink,
         batch_size: config.sink_batch_size,
         token: cancel_token.clone(),
+        has_parser,
     };
     let source_provider_arc = Arc::new(source_provider);
     let mut handles = Vec::new();
+
+    // Stats reporter (per-second throughput + duty-cycle to the console).
+    if let Some(mcfg) = &config.metrics {
+        if mcfg.enabled {
+            spawn_stats_reporter(Arc::clone(&metrics_registry), mcfg.interval_ms, mcfg.per_partition);
+            tracing::info!(
+                "Metrics reporter: interval={}ms per_partition={}",
+                mcfg.interval_ms, mcfg.per_partition,
+            );
+        }
+    }
 
     for pid in my_partitions {
         let sp = Arc::clone(&source_provider_arc);
         let d = deps.clone();
         let label = source_kind.clone();
+        // Per-partition parse counters — registered so the reporter reads them.
+        let parse_counters = Arc::new(ParseCounters::new());
+        metrics_registry.register_parse(pid, has_parser, Arc::clone(&parse_counters));
         handles.push(spawn_partition_task(pid, d, label, move || {
             let sp_inner = Arc::clone(&sp);
             async move { return sp_inner.build_source(pid, CancellationToken::new()).await }
-        }));
+        }, parse_counters));
     }
 
     for h in handles {
