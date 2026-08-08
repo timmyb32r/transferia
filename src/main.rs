@@ -306,9 +306,9 @@ async fn main() -> anyhow::Result<()> {
         // Per-partition parse counters — registered so the reporter reads them.
         let parse_counters = Arc::new(ParseCounters::new());
         metrics_registry.register_parse(pid, has_parser, Arc::clone(&parse_counters));
-        handles.push(spawn_partition_task(pid, d, label, move |ct| {
+        handles.push(spawn_partition_task(pid, d, label, move |token| {
             let sp_inner = Arc::clone(&sp);
-            async move { return sp_inner.build_source(pid, ct).await }
+            async move { return sp_inner.build_source(pid, token).await }
         }, parse_counters));
     }
 
