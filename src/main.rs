@@ -51,7 +51,7 @@ fn spawn_partition_task<F, Fut>(
     parse_counters: Arc<ParseCounters>,
 ) -> tokio::task::JoinHandle<()>
 where
-    F: FnMut() -> Fut + Send + 'static,
+    F: FnMut(CancellationToken) -> Fut + Send + 'static,
     Fut: core::future::Future<Output = anyhow::Result<Box<dyn Source>>> + Send,
 {
     let max_retries: u32 = 5;
@@ -60,7 +60,7 @@ where
         let mut make_source_fn = make_source;
         loop {
             if deps.token.is_cancelled() { return; }
-            let source = match make_source_fn().await {
+            let source = match make_source_fn(deps.token.clone()).await {
                 Ok(s) => s,
                 Err(e) => {
                     tracing::error!("{} source creation for partition {}: {}", &source_label, partition_id, e);
@@ -306,9 +306,9 @@ async fn main() -> anyhow::Result<()> {
         // Per-partition parse counters — registered so the reporter reads them.
         let parse_counters = Arc::new(ParseCounters::new());
         metrics_registry.register_parse(pid, has_parser, Arc::clone(&parse_counters));
-        handles.push(spawn_partition_task(pid, d, label, move || {
+        handles.push(spawn_partition_task(pid, d, label, move |ct| {
             let sp_inner = Arc::clone(&sp);
-            async move { return sp_inner.build_source(pid, CancellationToken::new()).await }
+            async move { return sp_inner.build_source(pid, ct).await }
         }, parse_counters));
     }
 

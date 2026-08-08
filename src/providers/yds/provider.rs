@@ -71,7 +71,7 @@ impl SourceProvider for YdsSourceProvider {
     fn build_source(
         &self,
         partition_id: i64,
-        _cancel_token: CancellationToken,
+        cancel_token: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let cfg = self.cfg.clone();
         let kind = self.kind.clone();
@@ -96,7 +96,7 @@ impl SourceProvider for YdsSourceProvider {
                     let (scheme, host, _) = parse_endpoint(&cfg.connection_string)?;
                     let endpoint = format!("{scheme}://{host}");
                     let pg_id = partition_to_group(partition_id);
-                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id], Arc::clone(&source_counters)).await?;
+                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id], Arc::clone(&source_counters), cancel_token).await?;
                     let rx = queues.remove(&partition_id)
                         .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
                     Ok(Box::new(PqV1Source::new(client, rx, partition_id, cfg, source_counters)) as Box<dyn Source>)

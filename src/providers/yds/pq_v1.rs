@@ -18,6 +18,7 @@ use crate::metrics::SourceCounters;
 use crate::providers::yds::provider::YdsSourceConfig;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
 use tonic::transport::Uri;
 use tonic::Request;
@@ -228,6 +229,7 @@ impl PqV1Client {
         endpoint: &str, topic_path: &str, consumer: &str,
         token: &str, partition_group_ids: &[i64],
         source_counters: Arc<SourceCounters>,
+        cancel_token: CancellationToken,
     ) -> anyhow::Result<(Self, HashMap<i64, mpsc::UnboundedReceiver<DecodedMessage>>)> {
         let (scheme, main_host, _) = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&scheme, &main_host)?;
@@ -300,10 +302,19 @@ impl PqV1Client {
                     break;
                 }
                 let await_start = std::time::Instant::now();
-                let msg = match stream.message().await {
-                    Ok(Some(m)) => m,
-                    Ok(None) => { tracing::warn!("PQv1 stream closed"); break; }
-                    Err(e) => { tracing::error!("PQv1 stream error: {}", e); break; }
+                let msg = tokio::select! {
+                    m = stream.message() => match m {
+                        Ok(Some(msg)) => msg,
+                        Ok(None) => { tracing::warn!("PQv1 stream closed"); break; }
+                        Err(e) => { tracing::error!("PQv1 stream error: {}", e); break; }
+                    },
+                    // Ctrl+C / shutdown — stop reading promptly instead of
+                    // waiting for the next server message (which could be never
+                    // if the topic is idle).
+                    () = cancel_token.cancelled() => {
+                        tracing::info!("PQv1 background task cancelled (shutdown)");
+                        break;
+                    }
                 };
                 // Downloader busy = time a Read request is in-flight (awaiting
                 // the next server message). idle = the processing below.
@@ -345,14 +356,17 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::DataBatch(db)) => {
-                        let queues = inner_bg.partition_queues.lock().await;
+                        let mut queues = inner_bg.partition_queues.lock().await;
                         // Iterate by value: for RAW payloads this moves the `Vec<u8>` into
                         // `Bytes` with no copy.
                         for pd in db.partition_data {
                             #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
                             let pid = pd.partition as i64;
-                            let Some(tx) = queues.get(&pid) else { continue };
+                            // Clone the sender so we can mutably remove it from
+                            // `queues` on send failure without holding the borrow.
+                            let Some(tx) = queues.get(&pid).cloned() else { continue };
                             let cookie = pd.cookie; // Option<CommitCookie>, Copy
+                            let mut queue_closed = false;
                             for batch in pd.batches {
                                 for md in batch.message_data {
                                     let comp_len = md.data.len() as u64;
@@ -368,9 +382,18 @@ impl PqV1Client {
                                     source_counters.add_compressed_bytes(comp_len);
                                     source_counters.add_decompressed_bytes(data.len() as u64);
                                     if tx.send(DecodedMessage { data, cookie, offset: md.offset }).is_err() {
-                                        tracing::warn!("PQv1 partition {} queue closed; dropping message", pid);
+                                        queue_closed = true;
+                                        break;
                                     }
                                 }
+                                if queue_closed { break; }
+                            }
+                            if queue_closed {
+                                // Receiver dropped (shutdown) — remove the dead
+                                // sender so future batches skip this partition
+                                // instead of logging a warning per message.
+                                queues.remove(&pid);
+                                tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
                             }
                         }
                         drop(queues);
