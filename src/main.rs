@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use transferia::config::yaml::Config;
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters};
+use transferia::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
@@ -41,6 +42,7 @@ struct PipelineDeps {
     batch_size: usize,
     token: CancellationToken,
     has_parser: bool,
+    exactly_once_key: Option<ExactlyOnceKey>,
 }
 
 fn spawn_partition_task<F, Fut>(
@@ -71,7 +73,7 @@ where
                 source, deps.parser.clone(), Arc::clone(&deps.table),
                 Arc::clone(&deps.mw), Arc::clone(&deps.snk),
                 deps.batch_size, deps.token.clone(), partition_id,
-                Arc::clone(&parse_counters), deps.has_parser,
+                Arc::clone(&parse_counters), deps.has_parser, deps.exactly_once_key.clone(),
             ).await {
                 Ok(()) => break,
                 Err(e) => {
@@ -151,15 +153,36 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Source: {}, Sink: {}", source_kind, sink_kind);
 
-    // 2a. Determine and log guarantee mode (spec §11)
-    let has_exactly_once_key = false; // TODO: wire add_exactly_once_key config flag
-    let guarantee_mode = if has_exactly_once_key && sink_kind == "clickhouse" {
-        "EXACTLY_ONCE"
+    // 2a. Determine and log guarantee mode (spec §11). Exactly-once dedups by
+    // source offset in the ClickHouse sink waterline; it requires a streaming
+    // source (yds/s3) + a clickhouse sink + a real parser.
+    let exactly_once_requested = config.exactly_once;
+    if exactly_once_requested && sink_kind != "clickhouse" {
+        anyhow::bail!("exactly_once requires a `clickhouse` sink (got '{sink_kind}')");
+    }
+    let exactly_once_key: Option<ExactlyOnceKey> = if exactly_once_requested {
+        // Partition column convention by source kind: YDS = Int64 partition id,
+        // S3 = Utf8 object key. The parser picks the Arrow type from the name
+        // (`__system_filename` ⇒ Utf8, else Int64).
+        let partition = match source_kind.as_str() {
+            "topic" | "pqv1" => ExactlyOnceColumn::new("__system_partition".into()),
+            "s3" => ExactlyOnceColumn::new("__system_filename".into()),
+            "clickhouse" => anyhow::bail!(
+                "exactly_once requires a streaming source (yds `topic`/`pqv1` or `s3`), not `clickhouse`"
+            ),
+            other => anyhow::bail!("exactly_once: unsupported source kind '{other}'"),
+        };
+        Some(ExactlyOnceKey {
+            partition,
+            offset: ExactlyOnceColumn::new("__system_offset".into()),
+        })
     } else {
-        "AT_LEAST_ONCE"
+        None
     };
+    let has_exactly_once_key = exactly_once_key.is_some();
+    let guarantee_mode = if has_exactly_once_key { "EXACTLY_ONCE" } else { "AT_LEAST_ONCE" };
     tracing::info!(
-        "Guarantee mode: {} (key: __system_partition+__system_offset, sink: {}, source: {})",
+        "Guarantee mode: {} (sink: {}, source: {})",
         guarantee_mode, sink_kind, source_kind,
     );
 
@@ -171,12 +194,15 @@ async fn main() -> anyhow::Result<()> {
             let parser_kind = pc.parser.kind()?.to_string();
             let parser_raw = pc.parser.raw()?.clone();
             let p = transferia::parsers::build_parser(
-                &parser_kind, parser_raw, Arc::clone(&table), None,
+                &parser_kind, parser_raw, Arc::clone(&table), exactly_once_key.clone(),
             )?;
             // "none" parser ⇒ no-parser mode (drop at parse stage, measure
             // download-only throughput). `has_parser` drives DDL skip and the
             // stats reporter's "(no parser)" label.
             has_parser = parser_kind != "none";
+            if has_exactly_once_key && parser_kind == "none" {
+                anyhow::bail!("exactly_once requires a real parser (parser kind 'none' drops data at the parse stage)");
+            }
             Some(p)
         } else {
             None
@@ -222,11 +248,18 @@ async fn main() -> anyhow::Result<()> {
             let schema_for_ddl = source_provider.schema_config()
                 .cloned()
                 .unwrap_or_default();
-            let cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
+            let mut cols = ClickHouseSink::schema_columns(&schema_for_ddl.column_defs())?;
+            // Exactly-once: the parser appends the key columns to every batch;
+            // the destination table must have them so the INSERT matches.
+            if let Some(key) = &exactly_once_key {
+                let part_type = if key.partition.name.as_ref() == "__system_filename" { "String" } else { "Int64" };
+                cols.push((key.partition.name.to_string(), part_type.to_string()));
+                cols.push((key.offset.name.to_string(), "Int64".to_string()));
+            }
             ch_sink.create_table(&table, &cols, &schema_for_ddl.order_by, config.recreate_tables).await?;
 
             let dlq_cols: Vec<(String, String)> =
-                transferia::parsers::json_parser::dlq_ch_columns(None)
+                transferia::parsers::json_parser::dlq_ch_columns(exactly_once_key.as_ref())
                     .iter().map(|(n, t)| ((*n).to_string(), (*t).to_string())).collect();
             ch_sink.create_table(&dlq_table, &dlq_cols, &[], config.recreate_tables).await?;
         }
@@ -284,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
         batch_size: config.sink_batch_size,
         token: cancel_token.clone(),
         has_parser,
+        exactly_once_key: exactly_once_key.clone(),
     };
     let source_provider_arc = Arc::new(source_provider);
     let mut handles = Vec::new();

@@ -229,6 +229,7 @@ pub async fn run_partition_pipeline(
     partition_id: i64,
     parse_counters: Arc<ParseCounters>,
     has_parser: bool,
+    exactly_once_key: Option<ExactlyOnceKey>,
 ) -> anyhow::Result<()> {
     /// Commit marker to source with up to 10 retries.
     /// Spec §0 (I3): source.commit fails after retries → poison → fatal.
@@ -502,7 +503,7 @@ pub async fn run_partition_pipeline(
                 // blocking_recv / blocking_send waits = idle).
                 let work_start = std::time::Instant::now();
                 let Some((valid, dlq, marker)) =
-                    parse_read_item(item, parser_for_thread.as_ref(), &table_for_thread, &mut workspace)
+                    parse_read_item(item, parser_for_thread.as_ref(), &table_for_thread, &mut workspace, exactly_once_key.clone())
                 else {
                     parse_counters_for_thread.add_parse_busy(work_start.elapsed());
                     continue;
@@ -796,6 +797,7 @@ fn parse_read_item(
     parser: Option<&Arc<dyn Parser>>,
     table: &Arc<str>,
     workspace: &mut ParserWorkspace,
+    exactly_once_key: Option<ExactlyOnceKey>,
 ) -> Option<(TableData, Option<TableData>, Option<CommitMarker>)> {
     match item {
         ReadItem::Messages { messages, partition_id, commit_marker } => {
@@ -803,7 +805,7 @@ fn parse_read_item(
                 tracing::error!("Messages received but no parser configured");
                 return None;
             };
-            let (valid, dlq) = match p.parse_into(messages, partition_id, None, workspace) {
+            let (valid, dlq) = match p.parse_into(messages, partition_id, exactly_once_key, workspace) {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::error!("Parser error: {}", e);

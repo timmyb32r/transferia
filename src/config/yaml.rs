@@ -17,6 +17,14 @@ pub struct Config {
     /// Throughput + duty-cycle stats reporter (optional). Absent ⇒ no stats task.
     #[serde(default)]
     pub metrics: Option<MetricsConfig>,
+    /// Enable exactly-once delivery (dedup by source offset in the ClickHouse
+    /// sink's waterline). Requires a streaming source (yds `topic`/`pqv1` or
+    /// `s3`) and a `clickhouse` sink. The parser adds `__system_partition` /
+    /// `__system_offset` (yds) or `__system_filename` / `__system_offset` (s3)
+    /// columns; the sink dedups against `SELECT max(__system_offset) ... WHERE
+    /// __system_partition = ?`.
+    #[serde(default)]
+    pub exactly_once: bool,
 }
 
 /// Throughput + duty-cycle stats reporter config (top-level `metrics:` block).
