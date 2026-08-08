@@ -1024,9 +1024,14 @@ impl JsonParser {
         }
     }
 
-    fn parse_all_root_newline(
+    /// `NewLine` parse over pre-split records (`(line, msg_idx)`), avoiding a
+    /// second `split_into_records` pass — the records were split once in
+    /// `parse_into` to size the builders and are reused here. `msg_idx`
+    /// preserves the owning `Message` for per-row offset/partition key columns.
+    fn parse_all_root_newline_records(
         &self,
-        messages: Vec<Message>,
+        records: &[(&[u8], usize)],
+        messages: &[Message],
         info: &RootFieldInfo,
         builders: &mut [AnyBuilder],
         typed_scratch: &mut [TypedScratch],
@@ -1034,17 +1039,16 @@ impl JsonParser {
         dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
         exactly_once_key: Option<&ExactlyOnceKey>,
     ) {
-        for msg in messages {
-            for line in self.chunk_splitter.split_into_records(&msg.value) {
-                typed_scratch.fill(TypedScratch::Empty);
-                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
-                    Ok(true) => Self::append_root_line(builders, typed_scratch, json_buf, &msg, exactly_once_key),
-                    Ok(false) => {
-                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, &msg));
-                    }
-                    Err(_e) => {
-                        dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, &msg));
-                    }
+        for &(line, msg_idx) in records {
+            let msg = &messages[msg_idx];
+            typed_scratch.fill(TypedScratch::Empty);
+            match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
+                Ok(true) => Self::append_root_line(builders, typed_scratch, json_buf, msg, exactly_once_key),
+                Ok(false) => {
+                    dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::ExtractionFailed, msg));
+                }
+                Err(_e) => {
+                    dlq_payloads.push(dlq_tuple(Bytes::copy_from_slice(line), DlqReason::JsonParse, msg));
                 }
             }
         }
@@ -1071,26 +1075,6 @@ impl JsonParser {
                     dlq_payloads.push(dlq_tuple(core::mem::take(&mut msg.value), DlqReason::JsonParse, &msg));
                 }
             }
-        }
-    }
-
-    fn parse_all_root_field(
-        &self,
-        messages: Vec<Message>,
-        info: &RootFieldInfo,
-        builders: &mut [AnyBuilder],
-        typed_scratch: &mut [TypedScratch],
-        json_buf: &mut Vec<u8>,
-        dlq_payloads: &mut Vec<(Bytes, DlqReason, i64, PartitionKey)>,
-        exactly_once_key: Option<&ExactlyOnceKey>,
-    ) {
-        match self.chunk_splitter {
-            ChunkSplitter::NewLine => self.parse_all_root_newline(
-                messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key,
-            ),
-            ChunkSplitter::NoSplit => self.parse_all_root_nosplit(
-                messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key,
-            ),
         }
     }
 
@@ -1256,12 +1240,27 @@ impl Parser for JsonParser {
             self.check_exactly_once_preconditions(&messages)?;
         }
 
-        // Pre-count rows for exact builder pre-allocation.
-        let n_rows: usize = match self.chunk_splitter {
-            ChunkSplitter::NewLine => messages.iter()
-                .map(|msg| self.chunk_splitter.count_records(&msg.value))
-                .sum(),
-            ChunkSplitter::NoSplit => messages.len(),
+        // Pre-split once for AllRootField+NewLine — the result sizes the
+        // builders AND is reused for parsing (no second `split_into_records`
+        // pass on the hot path). Mixed+NewLine keeps the alloc-free
+        // `count_records` because `parse_mixed` re-splits (records not reused).
+        // NoSplit: one record per message, no split needed.
+        let newline_records: Option<Vec<(&[u8], usize)>> = match (&self.mode, self.chunk_splitter) {
+            (ParseMode::AllRootField(_), ChunkSplitter::NewLine) => {
+                let mut recs: Vec<(&[u8], usize)> = Vec::new();
+                for (i, msg) in messages.iter().enumerate() {
+                    for line in self.chunk_splitter.split_into_records(&msg.value) {
+                        recs.push((line, i));
+                    }
+                }
+                Some(recs)
+            }
+            _ => None,
+        };
+        let n_rows: usize = match (&self.mode, self.chunk_splitter) {
+            (ParseMode::Mixed, ChunkSplitter::NewLine) =>
+                messages.iter().map(|msg| self.chunk_splitter.count_records(&msg.value)).sum(),
+            _ => newline_records.as_ref().map_or(messages.len(), Vec::len),
         };
 
         ws.builders.clear();
@@ -1289,17 +1288,19 @@ impl Parser for JsonParser {
                 let ParserWorkspace { builders, typed_scratch, json_buf, dlq_payloads, .. } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
-                self.parse_all_root_field(
-                    messages,
-                    info,
-                    builders,
-                    typed_scratch,
-                    json_buf,
-                    dlq_payloads,
-                    exactly_once_key.as_ref(),
-                );
+                match newline_records {
+                    Some(recs) => self.parse_all_root_newline_records(
+                        &recs, &messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key.as_ref(),
+                    ),
+                    None => self.parse_all_root_nosplit(
+                        messages, info, builders, typed_scratch, json_buf, dlq_payloads, exactly_once_key.as_ref(),
+                    ),
+                }
             }
             ParseMode::Mixed => {
+                // Mixed does its own split; release the pre-split borrow (if any)
+                // before `messages` is moved into `parse_mixed`.
+                drop(newline_records);
                 self.parse_mixed(messages, ws, exactly_once_key.as_ref());
             }
         }
