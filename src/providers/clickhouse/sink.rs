@@ -192,13 +192,37 @@ impl ClickHouseSink {
     pub async fn check_ch_version(&self) -> anyhow::Result<()> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for version check: {e}"))?;
-        let batch = client.query_one("SELECT version()", None).await
-            .map_err(|e| anyhow::anyhow!("ClickHouse version query failed: {e}"))?;
-        let ver_str = batch.and_then(|b| {
-            b.column(0).as_any().downcast_ref::<StringArray>()
-                .map(|a| a.value(0).to_string())
-        }).unwrap_or_default();
+        let mut ver_str = String::new();
+        match client.query("SELECT version()", None).await {
+            Ok(mut stream) => {
+                use futures_util::StreamExt;
+                // Loop past any 0-row blocks (progress/profile/metadata that
+                // the library may emit before the actual data block).
+                while let Some(item) = stream.next().await {
+                    match item {
+                        Ok(b) if b.num_rows() > 0 => {
+                            ver_str = b.column(0).as_any().downcast_ref::<StringArray>()
+                                .and_then(|a| if a.len() > 0 { Some(a.value(0).to_string()) } else { None })
+                                .unwrap_or_default();
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!("ClickHouse version stream error: {e}");
+                            break;
+                        }
+                        _ => {} // 0-row block — skip
+                    }
+                }
+            }
+            Err(e) => {
+                anyhow::bail!("ClickHouse version query failed: {e}");
+            }
+        };
         tracing::info!("ClickHouse version: {}", ver_str);
+        if ver_str.is_empty() {
+            tracing::warn!("ClickHouse version is empty — skipping version check (you may be behind a non-standard proxy)");
+            return Ok(());
+        }
         // Parse major.minor from "25.4.1.123" format
         let parts: Vec<&str> = ver_str.split('.').collect();
         if parts.len() < 2 {
