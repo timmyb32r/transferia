@@ -50,6 +50,11 @@ def parse_line(line: str) -> dict | None:
         "sink_rows": nums[i], "sink_arrow": nums[i + 1], "sink_flushes": nums[i + 2],
         "uniq_s": nums[i + 3], "sink_b": nums[i + 4],
     }
+    # Detect approximate (~) marker in msg/s field (non-EO mode).
+    # Format: "| ~66790 msg/s |" vs "| 66790 msg/s |"
+    segments = line.split("||")
+    sink_approx = bool(re.search(r"~\d+\.?\d*\s+msg/s", segments[2])) if len(segments) >= 3 else False
+    parse_approx = bool(re.search(r"~\d+\.?\d*\s+msg/s", segments[1])) if len(segments) >= 2 else False
     i += 5
     # Trailing process-level fields: cpu: N% rss: X GiB/MiB
     cpu_pct = nums[i] if i < len(nums) else 0.0
@@ -63,7 +68,8 @@ def parse_line(line: str) -> dict | None:
         elif "KiB" in rss_tail:    rss_bytes = rss_val * 1024
         elif "N/A" not in rss_tail: rss_bytes = rss_val
 
-    return {"pid": pid, **src, **parse, **sink, "cpu_pct": cpu_pct, "rss_bytes": rss_bytes}
+    return {"pid": pid, **src, **parse, **sink, "cpu_pct": cpu_pct, "rss_bytes": rss_bytes,
+            "sink_approx": sink_approx, "parse_approx": parse_approx}
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +134,9 @@ def main():
     n = len(entries)
     pids = sorted(set(e["pid"] for e in entries))
     has_parser = sum(e["rows"] for e in entries) > 0
+    # Check if msg/s is approximate (non-EO) in parser/sink output.
+    parse_approx = any(e.get("parse_approx", False) for e in entries)
+    sink_approx = any(e.get("sink_approx", False) for e in entries)
 
     # --- averages & per-field stats ---
     av = {k: avg(field_values(entries, k))
@@ -156,7 +165,8 @@ def main():
         print(f"  rows/s:      {av['rows']:>10.0f}")
         print(f"  Arrow:       {av['arrow']:>10.1f} MiB/s")
         print(f"  dlq/s:       {av['dlq']:>10.0f}")
-        print(f"  msg/s:       {av['uniq_p']:>10.0f}")
+        pfx = "~" if parse_approx else ""
+        print(f"  msg/s:       {pfx + str(int(av['uniq_p'])):>10}")
         print(f"  busy:        {av['parse_b']:>10.0f}%")
         print(f"  rows/msg:    {rows_per_msg:>10.1f}x")
     else:
@@ -167,9 +177,16 @@ def main():
     print(f"  rows/s:      {av['sink_rows']:>10.0f}")
     print(f"  Arrow:       {av['sink_arrow']:>10.1f} MiB/s")
     print(f"  flushes/s:   {av['sink_flushes']:>10.1f}")
-    print(f"  msg/s:       {av['uniq_s']:>10.0f}")
+    sfx = "~" if sink_approx else ""
+    print(f"  msg/s:       {sfx + str(int(av['uniq_s'])):>10}")
     print(f"  busy:        {av['sink_b']:>10.0f}%")
     print(f"  dedup:       {dedup_pct:>10.2f}%")
+    print()
+
+    rss_gib = av["rss_bytes"] / (1024**3) if av["rss_bytes"] > 0 else 0.0
+    print(f"{'Process':>15}")
+    print(f"  cpu:         {av['cpu_pct']:>10.0f}%")
+    print(f"  rss:         {rss_gib:>10.2f} GiB")
 
     # ===================================================================
     # Diagnostics
@@ -311,21 +328,6 @@ def main():
     else:
         print(f"\n  ✓ No issues detected — pipeline is balanced.")
 
-    # Print summary line
-    if not stalled:
-        components = []
-        if dl_overload > 50:
-            components.append(f"YDS ({dl_overload:.0f}% near-limit)")
-        if decomp_chill > 50:
-            components.append(f"decomp ({decomp_chill:.0f}% near-limit)")
-        if parse_chill > 50:
-            components.append(f"parser ({parse_chill:.0f}% near-limit)")
-        if sink_chill > 50:
-            components.append(f"sink ({sink_chill:.0f}% near-limit)")
-        if not components:
-            print(f"\n  Headroom: all components below 95% busy in >50% of ticks.")
-        else:
-            print(f"\n  Limiting: {', '.join(components)}")
 
     # Efficiency table: throughput per fully-loaded core.
     # CPU% is measured as percent of ONE core (100 = 1 fully-loaded core).
