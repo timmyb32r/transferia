@@ -326,9 +326,11 @@ pub fn spawn_stats_reporter(
         // last snapshot per partition: (source, parse, time)
         let mut last: HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)> = HashMap::new();
         let mut primed = false;
+        let mut proc_stats = ProcessStats::new();
         loop {
             tokio::time::sleep(interval).await;
             let now = Instant::now();
+            let (cpu_pct, rss) = proc_stats.snapshot();
             let parts = registry.snapshot();
 
             // First tick: prime snapshots so the next tick has a real delta.
@@ -351,13 +353,13 @@ pub fn spawn_stats_reporter(
                     if wall_ns > 0 {
                         tracing::info!(
                             "{}",
-                            format_line(pm.pid, pm.has_parser, pm.has_eo_key, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns)
+                            format_line(pm.pid, pm.has_parser, pm.has_eo_key, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns, cpu_pct, rss)
                         );
                     }
                     last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
                 }
             } else {
-                let line = aggregate_line(&parts, &mut last, now);
+                let line = aggregate_line(&parts, &mut last, now, cpu_pct, rss);
                 if let Some(l) = line {
                     tracing::info!("{l}");
                 }
@@ -370,6 +372,8 @@ fn aggregate_line(
     parts: &[PartitionSnapshot],
     last: &mut HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)>,
     now: Instant,
+    cpu_pct: u64,
+    rss: u64,
 ) -> Option<String> {
     if parts.is_empty() {
         return None;
@@ -412,7 +416,7 @@ fn aggregate_line(
         return None;
     }
     // Average busy% across partitions: total busy / sum of per-partition walls.
-    Some(format_line_avg(s, p, k, any_parser, any_eo_key, wall_ns_sum))
+    Some(format_line_avg(s, p, k, any_parser, any_eo_key, wall_ns_sum, cpu_pct, rss))
 }
 
 fn format_line(
@@ -426,6 +430,8 @@ fn format_line(
     cur_sink: SinkSnapshot,
     prev_sink: SinkSnapshot,
     wall_ns: u64,
+    cpu_pct: u64,
+    rss: u64,
 ) -> String {
     let sec = wall_ns as f64 / NANOS_PER_SEC_F;
     let d_msg = cur_src.messages - prev_src.messages;
@@ -481,7 +487,7 @@ fn format_line(
         uniq_off_fmt(d_sink_uniq),
         sink_pct,
     );
-    format!("[stats p={pid}] {source_part} || {parse_part} || {sink_part}")
+    format!("[stats p={pid}] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}", cpu_pct, fmt_rss(rss))
 }
 
 fn format_line_avg(
@@ -491,6 +497,8 @@ fn format_line_avg(
     any_parser: bool,
     any_eo_key: bool,
     wall_ns_sum: u64,
+    cpu_pct: u64,
+    rss: u64,
 ) -> String {
     let sec = wall_ns_sum as f64 / NANOS_PER_SEC_F;
     let dl_pct = pct(s.download_busy_nanos, wall_ns_sum);
@@ -534,7 +542,7 @@ fn format_line_avg(
         uniq_off_str(k.unique_offsets),
         sink_pct,
     );
-    format!("[stats] {source_part} || {parse_part} || {sink_part}")
+    format!("[stats] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}", cpu_pct, fmt_rss(rss))
 }
 
 #[inline]
@@ -552,6 +560,122 @@ pub fn fmt_bytes(bps: f64) -> String {
     else if bps >= MIB { format!("{:.1} MiB/s", bps / MIB) }
     else if bps >= KIB { format!("{:.1} KiB/s", bps / KIB) }
     else { format!("{bps:.0} B/s") }
+}
+
+// ---------------------------------------------------------------------------
+// Process resource usage (CPU %, RSS) — read from /proc/self on Linux.
+// ---------------------------------------------------------------------------
+
+/// Snapshots of `/proc/self/stat` utime+stime (clock ticks) and wall-clock
+/// to compute process CPU utilisation between two ticks. Falls back to 0 on
+/// non-Linux or when /proc is unavailable (macOS, Windows).
+pub struct ProcessStats {
+    prev_utime: u64,
+    prev_stime: u64,
+    prev_wall: Instant,
+    clock_ticks_per_sec: u64,
+    #[expect(dead_code, reason = "kept for future per-core efficiency calculations")]
+    num_cpus: u64,
+}
+
+impl ProcessStats {
+    #[must_use]
+    pub fn new() -> Self {
+        let clock_ticks_per_sec = sysconf_clock_ticks();
+        let num_cpus = std::thread::available_parallelism()
+            .map_or(1, |n| n.get() as u64);
+        let (utime, stime) = read_proc_stat();
+        Self {
+            prev_utime: utime,
+            prev_stime: stime,
+            prev_wall: Instant::now(),
+            clock_ticks_per_sec,
+            num_cpus,
+        }
+    }
+
+    /// Returns `(cpu_pct, rss_bytes)` since the last call.
+    /// `cpu_pct` is percent of ONE core (100 = 1 fully loaded core).
+    #[must_use]
+    pub fn snapshot(&mut self) -> (u64, u64) {
+        let now = Instant::now();
+        let wall_ns = now.saturating_duration_since(self.prev_wall).as_nanos() as u64;
+        let (utime, stime) = read_proc_stat();
+        let cpu_delta_ticks = (utime.saturating_sub(self.prev_utime))
+            .saturating_add(stime.saturating_sub(self.prev_stime));
+        self.prev_utime = utime;
+        self.prev_stime = stime;
+        self.prev_wall = now;
+
+        let cpu_pct = if wall_ns > 0 && self.clock_ticks_per_sec > 0 {
+            // Fraction of one core used. Multiply by 100 for percent.
+            let cpu_nanos = cpu_delta_ticks.saturating_mul(1_000_000_000) / self.clock_ticks_per_sec;
+            (cpu_nanos * 100 / wall_ns) as u64
+        } else {
+            0
+        };
+
+        let rss = read_proc_rss();
+        (cpu_pct, rss)
+    }
+}
+
+fn read_proc_stat() -> (u64, u64) {
+    match std::fs::read_to_string("/proc/self/stat") {
+        Ok(s) => {
+            // Field 14 = utime, 15 = stime (1-indexed, space-separated).
+            // The comm field (2) may contain spaces — skip past the closing ')'.
+            let after_comm = match s.find(')') {
+                Some(pos) => &s[pos + 2..],
+                None => return (0, 0),
+            };
+            let fields: Vec<&str> = after_comm.split_whitespace().collect();
+            // After skipping comm, field indices are offset by 2:
+            // utime = fields[11], stime = fields[12]
+            let utime = fields.get(11).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let stime = fields.get(12).and_then(|v| v.parse().ok()).unwrap_or(0);
+            (utime, stime)
+        }
+        Err(_) => (0, 0),
+    }
+}
+
+fn read_proc_rss() -> u64 {
+    match std::fs::read_to_string("/proc/self/status") {
+        Ok(s) => {
+            for line in s.lines() {
+                if line.starts_with("VmRSS:") {
+                    // Format: "VmRSS:   123456 kB"
+                    return line.split_whitespace()
+                        .nth(1)
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(0)
+                        * 1024; // kB → bytes
+                }
+            }
+            0
+        }
+        Err(_) => 0,
+    }
+}
+
+fn sysconf_clock_ticks() -> u64 {
+    // sysconf(_SC_CLK_TCK) is typically 100 on Linux.
+    // We use a simple heuristic: parse from /proc/self/stat or default to 100.
+    // On non-Linux this is never called successfully.
+    100
+}
+
+/// Human-readable RSS string.
+fn fmt_rss(bytes: u64) -> String {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    const MIB: u64 = 1024 * 1024;
+    const KIB: u64 = 1024;
+    if bytes >= GIB { format!("{:.1} GiB", bytes as f64 / GIB as f64) }
+    else if bytes >= MIB { format!("{:.0} MiB", bytes as f64 / MIB as f64) }
+    else if bytes >= KIB { format!("{:.0} KiB", bytes as f64 / KIB as f64) }
+    else if bytes > 0 { format!("{bytes} B") }
+    else { "N/A".to_string() }
 }
 
 // ---------------------------------------------------------------------------

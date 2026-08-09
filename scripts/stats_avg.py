@@ -50,7 +50,20 @@ def parse_line(line: str) -> dict | None:
         "sink_rows": nums[i], "sink_arrow": nums[i + 1], "sink_flushes": nums[i + 2],
         "uniq_s": nums[i + 3], "sink_b": nums[i + 4],
     }
-    return {"pid": pid, **src, **parse, **sink}
+    i += 5
+    # Trailing process-level fields: cpu: N% rss: X GiB/MiB
+    cpu_pct = nums[i] if i < len(nums) else 0.0
+    rss_val = nums[i + 1] if i + 1 < len(nums) else 0.0
+    rss_bytes = 0.0
+    rss_pos = line.find("rss: ")
+    if rss_pos >= 0:
+        rss_tail = line[rss_pos + 5:]
+        if "GiB" in rss_tail:      rss_bytes = rss_val * 1024**3
+        elif "MiB" in rss_tail:    rss_bytes = rss_val * 1024**2
+        elif "KiB" in rss_tail:    rss_bytes = rss_val * 1024
+        elif "N/A" not in rss_tail: rss_bytes = rss_val
+
+    return {"pid": pid, **src, **parse, **sink, "cpu_pct": cpu_pct, "rss_bytes": rss_bytes}
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +73,7 @@ def parse_line(line: str) -> dict | None:
 FIELDS_SOURCE = ["msg", "comp", "decomp", "dl", "decomp_b"]
 FIELDS_PARSE  = ["rows", "arrow", "dlq", "uniq_p", "parse_b"]
 FIELDS_SINK   = ["sink_rows", "sink_arrow", "sink_flushes", "uniq_s", "sink_b"]
+FIELDS_PROC   = ["cpu_pct", "rss_bytes"]
 
 
 def pct_ticks(values: list[float], threshold: float, above: bool = True) -> float:
@@ -117,7 +131,7 @@ def main():
 
     # --- averages & per-field stats ---
     av = {k: avg(field_values(entries, k))
-          for k in FIELDS_SOURCE + FIELDS_PARSE + FIELDS_SINK}
+          for k in FIELDS_SOURCE + FIELDS_PARSE + FIELDS_SINK + FIELDS_PROC}
     cv_map = {k: cv(field_values(entries, k))
               for k in FIELDS_SOURCE + FIELDS_PARSE + FIELDS_SINK}
 
@@ -312,6 +326,25 @@ def main():
             print(f"\n  Headroom: all components below 95% busy in >50% of ticks.")
         else:
             print(f"\n  Limiting: {', '.join(components)}")
+
+    # Efficiency table: throughput per fully-loaded core.
+    # CPU% is measured as percent of ONE core (100 = 1 fully-loaded core).
+    cpu_avg = av["cpu_pct"]
+    if cpu_avg > 1:
+        cores_used = cpu_avg / 100.0
+        rss_gib = av["rss_bytes"] / (1024**3) if av["rss_bytes"] > 0 else 0.0
+
+        print(f"\n{'='*60}")
+        print(" EFFICIENCY (per fully-loaded core, cpu avg: {:.0f}% = {:.2f} cores)".format(cpu_avg, cores_used))
+        print(f"{'='*60}")
+        print(f"  Process RSS:          {rss_gib:>10.2f} GiB")
+        print(f"  msg/s per core:       {av['msg']/cores_used:>10.0f}")
+        print(f"  decomp MiB/s per core:{av['decomp']/cores_used:>10.1f}")
+        if has_parser:
+            print(f"  rows/s per core:      {av['rows']/cores_used:>10.0f}")
+            print(f"  arrow MiB/s per core: {av['arrow']/cores_used:>10.1f}")
+    else:
+        print(f"\n  Efficiency: cpu data unavailable (cpu avg: {cpu_avg:.0f}% — running on macOS?)")
 
 
 if __name__ == "__main__":
