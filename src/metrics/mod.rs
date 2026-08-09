@@ -118,12 +118,13 @@ impl Default for ParseCounters {
 }
 
 /// Per-partition sink-output counters. Filled by the writer task around each
-/// flush (`sink.write` call): rows, Arrow bytes, number of flushes, and busy
-/// time (the wall-clock duration of the write call).
+/// flush (`sink.write` call): rows, Arrow bytes, number of flushes, unique
+/// offsets (exactly-once dedup key), and busy time.
 pub struct SinkCounters {
     rows: AtomicU64,
     bytes: AtomicU64,
     flushes: AtomicU64,
+    unique_offsets: AtomicU64,
     busy_nanos: AtomicU64,
 }
 
@@ -134,6 +135,7 @@ impl SinkCounters {
             rows: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
             flushes: AtomicU64::new(0),
+            unique_offsets: AtomicU64::new(0),
             busy_nanos: AtomicU64::new(0),
         }
     }
@@ -144,6 +146,8 @@ impl SinkCounters {
     pub fn add_bytes(&self, n: u64) { self.bytes.fetch_add(n, RELAXED); }
     #[inline]
     pub fn add_flush(&self) { self.flushes.fetch_add(1, RELAXED); }
+    #[inline]
+    pub fn add_unique_offsets(&self, n: u64) { self.unique_offsets.fetch_add(n, RELAXED); }
     /// Sink busy = time inside `sink.write()`.
     #[inline]
     pub fn add_busy(&self, d: Duration) {
@@ -182,6 +186,7 @@ struct SinkSnapshot {
     rows: u64,
     bytes: u64,
     flushes: u64,
+    unique_offsets: u64,
     busy_nanos: u64,
 }
 
@@ -210,6 +215,7 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
         rows: s.rows.load(RELAXED),
         bytes: s.bytes.load(RELAXED),
         flushes: s.flushes.load(RELAXED),
+        unique_offsets: s.unique_offsets.load(RELAXED),
         busy_nanos: s.busy_nanos.load(RELAXED),
     })
 }
@@ -220,6 +226,7 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
 
 struct PartitionMetrics {
     has_parser: bool,
+    has_eo_key: bool,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
     sink: Option<Arc<SinkCounters>>,
@@ -231,6 +238,7 @@ struct PartitionMetrics {
 struct PartitionSnapshot {
     pid: i64,
     has_parser: bool,
+    has_eo_key: bool,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
     sink: Option<Arc<SinkCounters>>,
@@ -252,7 +260,7 @@ impl MetricsRegistry {
     pub fn register_source(&self, partition_id: i64, c: Arc<SourceCounters>) {
         let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, source: None, parse: None, sink: None,
+            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
         });
         entry.source = Some(c);
     }
@@ -261,7 +269,7 @@ impl MetricsRegistry {
     pub fn register_parse(&self, partition_id: i64, has_parser: bool, c: Arc<ParseCounters>) {
         let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, source: None, parse: None, sink: None,
+            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
         });
         entry.has_parser = has_parser;
         entry.parse = Some(c);
@@ -271,9 +279,20 @@ impl MetricsRegistry {
     pub fn register_sink(&self, partition_id: i64, c: Arc<SinkCounters>) {
         let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, source: None, parse: None, sink: None,
+            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
         });
         entry.sink = Some(c);
+    }
+
+    /// Mark whether exactly-once keys are active for this partition. When false,
+    /// the stats line shows `uniq off/s: unknown (absent exactly_once_keys)`.
+    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    pub fn set_eo_key(&self, partition_id: i64, active: bool) {
+        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
+            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
+        });
+        entry.has_eo_key = active;
     }
 
     fn snapshot(&self) -> Vec<PartitionSnapshot> {
@@ -282,6 +301,7 @@ impl MetricsRegistry {
             .map(|(pid, pm)| PartitionSnapshot {
                 pid: *pid,
                 has_parser: pm.has_parser,
+                has_eo_key: pm.has_eo_key,
                 source: pm.source.clone(),
                 parse: pm.parse.clone(),
                 sink: pm.sink.clone(),
@@ -331,7 +351,7 @@ pub fn spawn_stats_reporter(
                     if wall_ns > 0 {
                         tracing::info!(
                             "{}",
-                            format_line(pm.pid, pm.has_parser, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns)
+                            format_line(pm.pid, pm.has_parser, pm.has_eo_key, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns)
                         );
                     }
                     last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
@@ -359,6 +379,7 @@ fn aggregate_line(
     let mut k = SinkSnapshot::default();
     let mut wall_ns_sum: u64 = 0;
     let mut any_parser = false;
+    let mut any_eo_key = false;
     for pm in parts {
         let cur_src = src_snap(pm.source.as_ref());
         let cur_parse = parse_snap(pm.parse.as_ref());
@@ -379,9 +400,11 @@ fn aggregate_line(
             k.rows += cur_sink.rows - psink.rows;
             k.bytes += cur_sink.bytes - psink.bytes;
             k.flushes += cur_sink.flushes - psink.flushes;
+            k.unique_offsets += cur_sink.unique_offsets - psink.unique_offsets;
             k.busy_nanos += cur_sink.busy_nanos - psink.busy_nanos;
             wall_ns_sum += wall;
             any_parser |= pm.has_parser;
+            any_eo_key |= pm.has_eo_key;
         }
         last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
     }
@@ -389,12 +412,13 @@ fn aggregate_line(
         return None;
     }
     // Average busy% across partitions: total busy / sum of per-partition walls.
-    Some(format_line_avg(s, p, k, any_parser, wall_ns_sum))
+    Some(format_line_avg(s, p, k, any_parser, any_eo_key, wall_ns_sum))
 }
 
 fn format_line(
     pid: i64,
     has_parser: bool,
+    has_eo_key: bool,
     cur_src: SourceSnapshot,
     prev_src: SourceSnapshot,
     cur_parse: ParseSnapshot,
@@ -417,6 +441,13 @@ fn format_line(
         dl_pct,
         decomp_pct,
     );
+    let uniq_off_fmt = |d_uniq: u64| -> String {
+        if has_eo_key {
+            format!("{} uniq off/s", ((d_uniq as f64) / sec) as u64)
+        } else {
+            "uniq off/s: unknown (absent exactly_once_keys)".to_string()
+        }
+    };
     let parse_part = if has_parser {
         let d_rows = cur_parse.rows - prev_parse.rows;
         let d_arrow = cur_parse.arrow_bytes - prev_parse.arrow_bytes;
@@ -424,11 +455,11 @@ fn format_line(
         let d_uniq = cur_parse.unique_offsets - prev_parse.unique_offsets;
         let parse_pct = pct(cur_parse.parse_busy_nanos - prev_parse.parse_busy_nanos, wall_ns);
         format!(
-            "parse: {} rows/s | {} arrow | {} dlq/s | {} uniq off/s | {}% busy",
+            "parse: {} rows/s | {} arrow | {} dlq/s | {} | {}% busy",
             ((d_rows as f64) / sec) as u64,
             fmt_bytes(d_arrow as f64 / sec),
             ((d_dlq as f64) / sec) as u64,
-            ((d_uniq as f64) / sec) as u64,
+            uniq_off_fmt(d_uniq),
             parse_pct,
         )
     } else {
@@ -437,12 +468,14 @@ fn format_line(
     let d_sink_rows = cur_sink.rows - prev_sink.rows;
     let d_sink_bytes = cur_sink.bytes - prev_sink.bytes;
     let d_sink_flushes = cur_sink.flushes - prev_sink.flushes;
+    let d_sink_uniq = cur_sink.unique_offsets - prev_sink.unique_offsets;
     let sink_pct = pct(cur_sink.busy_nanos - prev_sink.busy_nanos, wall_ns);
     let sink_part = format!(
-        "sink: {} rows/s | {} arrow | {} flushes/s | {}% busy",
+        "sink: {} rows/s | {} arrow | {} flushes/s | {} | {}% busy",
         ((d_sink_rows as f64) / sec) as u64,
         fmt_bytes(d_sink_bytes as f64 / sec),
         ((d_sink_flushes as f64) / sec) as u64,
+        uniq_off_fmt(d_sink_uniq),
         sink_pct,
     );
     format!("[stats p={pid}] {source_part} || {parse_part} || {sink_part}")
@@ -453,6 +486,7 @@ fn format_line_avg(
     p: ParseSnapshot,
     k: SinkSnapshot,
     any_parser: bool,
+    any_eo_key: bool,
     wall_ns_sum: u64,
 ) -> String {
     let sec = wall_ns_sum as f64 / NANOS_PER_SEC_F;
@@ -466,14 +500,21 @@ fn format_line_avg(
         dl_pct,
         decomp_pct,
     );
+    let uniq_off_str = |uniq: u64| -> String {
+        if any_eo_key {
+            format!("{} uniq off/s", ((uniq as f64) / sec) as u64)
+        } else {
+            "uniq off/s: unknown (absent exactly_once_keys)".to_string()
+        }
+    };
     let parse_part = if any_parser {
         let parse_pct = pct(p.parse_busy_nanos, wall_ns_sum);
         format!(
-            "parse: {} rows/s | {} arrow | {} dlq/s | {} uniq off/s | {}% busy",
+            "parse: {} rows/s | {} arrow | {} dlq/s | {} | {}% busy",
             ((p.rows as f64) / sec) as u64,
             fmt_bytes(p.arrow_bytes as f64 / sec),
             ((p.dlq_rows as f64) / sec) as u64,
-            ((p.unique_offsets as f64) / sec) as u64,
+            uniq_off_str(p.unique_offsets),
             parse_pct,
         )
     } else {
@@ -481,10 +522,11 @@ fn format_line_avg(
     };
     let sink_pct = pct(k.busy_nanos, wall_ns_sum);
     let sink_part = format!(
-        "sink: {} rows/s | {} arrow | {} flushes/s | {}% busy",
+        "sink: {} rows/s | {} arrow | {} flushes/s | {} | {}% busy",
         ((k.rows as f64) / sec) as u64,
         fmt_bytes(k.bytes as f64 / sec),
         ((k.flushes as f64) / sec) as u64,
+        uniq_off_str(k.unique_offsets),
         sink_pct,
     );
     format!("[stats] {source_part} || {parse_part} || {sink_part}")

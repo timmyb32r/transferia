@@ -760,6 +760,20 @@ async fn flush_to_sink_and_ack(
         .flat_map(|w| w.batches.iter())
         .map(|b| arrow_batch_bytes(b))
         .sum();
+    // Count unique __system_offset values across all batches in this flush.
+    let mut off_set: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    for w in &writes {
+        for b in &w.batches {
+            if let Some(arr) = offset_array(b) {
+                for i in 0..arr.len() {
+                    if !arr.is_null(i) {
+                        off_set.insert(arr.value(i));
+                    }
+                }
+            }
+        }
+    }
+    let unique_offsets = off_set.len() as u64;
 
     // 1. Write ALL tables unconditionally (fixes L1: data without markers must be written).
     let write_start = std::time::Instant::now();
@@ -775,6 +789,7 @@ async fn flush_to_sink_and_ack(
     sink_counters.add_busy(write_start.elapsed());
     sink_counters.add_rows(total_rows as u64);
     sink_counters.add_bytes(total_bytes);
+    sink_counters.add_unique_offsets(unique_offsets);
     sink_counters.add_flush();
 
     // 2. Ack only after ALL tables succeeded (at-least-once invariant).

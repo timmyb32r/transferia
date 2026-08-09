@@ -361,6 +361,7 @@ async fn main() -> anyhow::Result<()> {
         // Per-partition sink counters — registered so the reporter reads them.
         let sink_counters = Arc::new(SinkCounters::new());
         metrics_registry.register_sink(pid, Arc::clone(&sink_counters));
+        metrics_registry.set_eo_key(pid, has_exactly_once_key);
         handles.push(spawn_partition_task(pid, d, label, move |token| {
             let sp_inner = Arc::clone(&sp);
             async move { return sp_inner.build_source(pid, token).await }
