@@ -244,22 +244,40 @@ impl ClickHouseSink {
     pub async fn check_table_engine(&self, table: &str) -> anyhow::Result<(String, u64, u64)> {
         let client = self.pool.get().await
             .map_err(|e| anyhow::anyhow!("ClickHouse pool get for engine check: {e}"))?;
-        // Query engine and insert_quorum from system.tables
-        let q = format!(
-            "SELECT engine_full, cast(extract(settings, 'insert_quorum') AS Nullable(UInt64)) \
-             FROM system.tables WHERE database = currentDatabase() AND name = '{table}'"
-        );
-        let batch = client.query_one(&q, None).await
-            .map_err(|e| anyhow::anyhow!("ClickHouse engine query failed: {e}"))?;
-        let (engine, quorum) = match batch {
-            Some(b) if b.num_rows() > 0 => {
-                let eng = b.column(0).as_any().downcast_ref::<StringArray>()
-                    .map(|a| a.value(0).to_string()).unwrap_or_default();
-                let iq = b.column(1).as_any().downcast_ref::<arrow::array::UInt64Array>()
-                    .map_or(1, |a| a.value(0));
-                (eng, iq)
+        // Query engine from system.tables. `extract(settings)` is not available on
+        // ClickHouse Cloud 25.x — fall back to engine-only with quorum=1 (Cloud
+        // manages replication internally and doesn't expose insert_quorum via extract).
+        let (engine, quorum) = {
+            let q = format!(
+                "SELECT engine_full, cast(extract(settings, 'insert_quorum') AS Nullable(UInt64)) \
+                 FROM system.tables WHERE database = currentDatabase() AND name = '{table}'"
+            );
+            match client.query_one(&q, None).await {
+                Ok(Some(b)) if b.num_rows() > 0 => {
+                    let eng = b.column(0).as_any().downcast_ref::<StringArray>()
+                        .map(|a| a.value(0).to_string()).unwrap_or_default();
+                    let iq = b.column(1).as_any().downcast_ref::<arrow::array::UInt64Array>()
+                        .map_or(1, |a| a.value(0));
+                    (eng, iq)
+                }
+                Ok(_) => (String::new(), 1),
+                Err(_e) => {
+                    // Fallback: Cloud doesn't support `extract(settings)`.
+                    tracing::debug!("extract(settings) not supported — using quorum=1 (Cloud default)");
+                    let fq = format!(
+                        "SELECT engine_full FROM system.tables \
+                         WHERE database = currentDatabase() AND name = '{table}'"
+                    );
+                    let eng = match client.query_one(&fq, None).await {
+                        Ok(Some(b)) if b.num_rows() > 0 => {
+                            b.column(0).as_any().downcast_ref::<StringArray>()
+                                .map(|a| a.value(0).to_string()).unwrap_or_default()
+                        }
+                        _ => String::new(),
+                    };
+                    (eng, 1)
+                }
             }
-            _ => (String::new(), 1),
         };
         // Query replica count (only for Replicated engines)
         let replica_count = if engine.contains("Replicated") {
