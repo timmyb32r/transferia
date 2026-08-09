@@ -911,6 +911,7 @@ impl JsonParser {
         dlq_payloads: &[(Bytes, DlqReason, i64, PartitionKey)],
         partition_id: i64,
         now: time::OffsetDateTime,
+        msg_count: u64,
     ) -> anyhow::Result<TableData> {
         let n = dlq_payloads.len();
         let mut raw_builder = StringBuilder::with_capacity(n, n * 64);
@@ -970,6 +971,7 @@ impl JsonParser {
             batch_id: crate::batch_id(),
             // DLQ is deduplicated with the same key as main (spec §7).
             exactly_once_key: self.exactly_once_key.clone(),
+            message_count: msg_count,
         })
     }
 
@@ -1281,6 +1283,7 @@ impl Parser for JsonParser {
         }
 
         ws.dlq_payloads.clear();
+        let msg_count = messages.len() as u64;
 
         match &self.mode {
             ParseMode::AllRootField(info) => {
@@ -1315,12 +1318,13 @@ impl Parser for JsonParser {
             is_dlq: false,
             batch_id: crate::batch_id(),
             exactly_once_key,
+            message_count: msg_count,
         };
 
         let dlq_batch = if ws.dlq_payloads.is_empty() {
             None
         } else {
-            Some(self.build_dlq_batch(&ws.dlq_payloads, partition_id, now)?)
+            Some(self.build_dlq_batch(&ws.dlq_payloads, partition_id, now, msg_count)?)
         };
 
         Ok((valid_batch, dlq_batch))

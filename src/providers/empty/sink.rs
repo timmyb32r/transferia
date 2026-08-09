@@ -94,6 +94,7 @@ mod tests {
             table: "test".into(),
             batches: vec![batch],
             exactly_once_key: None,
+            message_count: 0,
         };
 
         sink.write(write).await?;
@@ -113,7 +114,7 @@ mod tests {
         for n in 1..=5 {
             let arr = Int64Array::from(vec![1; n]);
             let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(arr)])?;
-            let write = TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None };
+            let write = TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None, message_count: 0 };
             sink.write(write).await?;
         }
         // 1+2+3+4+5 = 15
@@ -131,7 +132,7 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
         let arr = Int64Array::from(vec![1; 10]);
         let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)])?;
-        sink.write(TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None }).await?;
+        sink.write(TableWrite { table: "t".into(), batches: vec![batch], exactly_once_key: None, message_count: 0 }).await?;
         anyhow::ensure!(
             sink.rows_written() == 10,
             "expected 10 rows, got {}",

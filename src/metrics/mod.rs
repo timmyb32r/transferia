@@ -443,9 +443,12 @@ fn format_line(
     );
     let uniq_off_fmt = |d_uniq: u64| -> String {
         if has_eo_key {
-            format!("{} uniq off/s", ((d_uniq as f64) / sec) as u64)
+            format!("{} msg/s", ((d_uniq as f64) / sec) as u64)
+        } else if d_uniq > 0 {
+            // `~` marks "messages, not offsets" (semantic marker, not uncertainty)
+            format!("~{} msg/s", ((d_uniq as f64) / sec) as u64)
         } else {
-            "uniq off/s: unknown (absent exactly_once_keys)".to_string()
+            "msg/s: unknown (absent exactly_once_keys)".to_string()
         }
     };
     let parse_part = if has_parser {
@@ -502,9 +505,11 @@ fn format_line_avg(
     );
     let uniq_off_str = |uniq: u64| -> String {
         if any_eo_key {
-            format!("{} uniq off/s", ((uniq as f64) / sec) as u64)
+            format!("{} msg/s", ((uniq as f64) / sec) as u64)
+        } else if uniq > 0 {
+            format!("~{} msg/s", ((uniq as f64) / sec) as u64)
         } else {
-            "uniq off/s: unknown (absent exactly_once_keys)".to_string()
+            "msg/s: unknown (absent exactly_once_keys)".to_string()
         }
     };
     let parse_part = if any_parser {

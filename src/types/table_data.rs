@@ -22,6 +22,10 @@ pub struct TableData {
     /// Exactly-once key descriptor. `None` → at-least-once (no dedup).
     /// The actual key values are columns inside `batch`.
     pub exactly_once_key: Option<ExactlyOnceKey>,
+    /// Number of original YDS messages that produced this batch.
+    /// Set by the parser (`messages.len()`). Copied unchanged by middleware.
+    /// Accumulator sums it to track `msg/s` throughput without EO columns.
+    pub message_count: u64,
 }
 
 /// Accumulated write for a single table. Built by [`BatchAccumulator`] from one or
@@ -36,6 +40,10 @@ pub struct TableWrite {
     pub batches: Vec<RecordBatch>,
     /// Exactly-once key descriptor. `None` → at-least-once (plain INSERT).
     pub exactly_once_key: Option<ExactlyOnceKey>,
+    /// Accumulated original YDS message count (sum of TableData::message_count
+    /// across all TableData pushes into this write). Informational — currently
+    /// consumed only at the FlushBatch level, not by individual sinks.
+    pub message_count: u64,
 }
 
 impl TableData {
@@ -46,8 +54,9 @@ impl TableData {
         batch: RecordBatch,
         batch_id: u64,
         exactly_once_key: Option<ExactlyOnceKey>,
+        message_count: u64,
     ) -> Self {
-        Self { table, is_dlq, batch, batch_id, exactly_once_key }
+        Self { table, is_dlq, batch, batch_id, exactly_once_key, message_count }
     }
 }
 
@@ -57,8 +66,9 @@ impl TableWrite {
         table: Arc<str>,
         batches: Vec<RecordBatch>,
         exactly_once_key: Option<ExactlyOnceKey>,
+        message_count: u64,
     ) -> Self {
-        Self { table, batches, exactly_once_key }
+        Self { table, batches, exactly_once_key, message_count }
     }
 }
 

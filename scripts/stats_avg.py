@@ -142,7 +142,7 @@ def main():
         print(f"  rows/s:      {av['rows']:>10.0f}")
         print(f"  Arrow:       {av['arrow']:>10.1f} MiB/s")
         print(f"  dlq/s:       {av['dlq']:>10.0f}")
-        print(f"  uniq off/s:  {av['uniq_p']:>10.0f}")
+        print(f"  msg/s:       {av['uniq_p']:>10.0f}")
         print(f"  busy:        {av['parse_b']:>10.0f}%")
         print(f"  rows/msg:    {rows_per_msg:>10.1f}x")
     else:
@@ -153,7 +153,7 @@ def main():
     print(f"  rows/s:      {av['sink_rows']:>10.0f}")
     print(f"  Arrow:       {av['sink_arrow']:>10.1f} MiB/s")
     print(f"  flushes/s:   {av['sink_flushes']:>10.1f}")
-    print(f"  uniq off/s:  {av['uniq_s']:>10.0f}")
+    print(f"  msg/s:       {av['uniq_s']:>10.0f}")
     print(f"  busy:        {av['sink_b']:>10.0f}%")
     print(f"  dedup:       {dedup_pct:>10.2f}%")
 
@@ -179,8 +179,8 @@ def main():
         in_out_ratio = av["msg"] / av["uniq_s"] if av["uniq_s"] > 0 else 0
         in_out_diff_pct = abs(av["msg"] - av["uniq_s"]) / av["msg"] * 100 if av["msg"] > 0 else 0
         if in_out_diff_pct <= 5:
-            diag.append(f"GOOD NEWS: input throughput ({av['msg']:.0f} msg/s) ≈ "
-                        f"output throughput ({av['uniq_s']:.0f} uniq off/s) — "
+            diag.append(f"GOOD NEWS: input msg/s ({av['msg']:.0f}) ≈ "
+                        f"output msg/s ({av['uniq_s']:.0f}) — "
                         f"difference {in_out_diff_pct:.1f}% ≤ 5%. "
                         f"No throughput loss in source-processing, parsing, "
                         f"middlewares, or sink insertion — the pipeline is "
@@ -224,8 +224,8 @@ def main():
 
     # 5. Waterline dedup active
     if has_parser and av["uniq_p"] > av["uniq_s"] * 1.02:  # 2% tolerance
-        diag.append(f"WATERLINE DEDUP: parse uniq ({av['uniq_p']:.0f}/s) > sink uniq ({av['uniq_s']:.0f}/s) — "
-                    f"waterline is filtering {av['uniq_p'] - av['uniq_s']:.0f} already-written offsets/s. "
+        diag.append(f"WATERLINE DEDUP: parse msg/s ({av['uniq_p']:.0f}) > sink msg/s ({av['uniq_s']:.0f}) — "
+                    f"waterline is filtering {av['uniq_p'] - av['uniq_s']:.0f} already-written messages/s. "
                     f"Normal after restart; otherwise check if YDS is replaying old data.")
 
     # 6. DLQ active

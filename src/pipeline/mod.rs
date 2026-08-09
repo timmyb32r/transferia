@@ -90,6 +90,9 @@ struct BatchAccumulator {
     /// (§3.1). `take_flush`/`clear` reset it, so the next Message starts a
     /// fresh accumulation window.
     exactly_once_key: Option<ExactlyOnceKey>,
+    /// Accumulated original YDS message count (gated on marker to avoid
+    /// double-counting main+dlq). Reset in `take_flush`/`clear`.
+    total_message_count: u64,
 }
 
 impl BatchAccumulator {
@@ -102,6 +105,7 @@ impl BatchAccumulator {
             batch_size,
             window_start: None,
             exactly_once_key: None,
+            total_message_count: 0,
         }
     }
 
@@ -145,10 +149,17 @@ impl BatchAccumulator {
             TableWrite {
                 table: Arc::clone(&td.table), batches: Vec::new(),
                 exactly_once_key: None,
+                message_count: 0,
             }
         });
         entry.batches.push(td.batch);
+        entry.message_count += td.message_count;
         self.total_rows += rows;
+        // Gate on marker: only count message_count once per Message (main gets
+        // the marker, dlq doesn't — same message_count on both).
+        if marker.is_some() {
+            self.total_message_count += td.message_count;
+        }
         if let Some(m) = marker {
             self.markers.push(m);
         }
@@ -192,11 +203,12 @@ impl BatchAccumulator {
             .map(|w| TableWrite { exactly_once_key: key.clone(), ..w })
             .collect();
         let markers = core::mem::take(&mut self.markers);
+        let total_message_count = core::mem::take(&mut self.total_message_count);
         self.order.clear();
         self.tables.clear();
         self.total_rows = 0;
         self.exactly_once_key = None;
-        Some(FlushBatch { writes, markers })
+        Some(FlushBatch { writes, markers, total_message_count })
     }
 
     fn clear(&mut self) {
@@ -204,6 +216,7 @@ impl BatchAccumulator {
         self.order.clear();
         self.markers.clear();
         self.total_rows = 0;
+        self.total_message_count = 0;
         self.window_start = None;
         self.exactly_once_key = None;
     }
@@ -212,6 +225,7 @@ impl BatchAccumulator {
 struct FlushBatch {
     writes: Vec<TableWrite>,
     markers: Vec<CommitMarker>,
+    total_message_count: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -537,6 +551,9 @@ pub async fn run_partition_pipeline(
                             }
                         }
                         parse_counters_for_thread.add_unique_offsets(offset_set.len() as u64);
+                    } else {
+                        // Non-EO: use message_count from metadata.
+                        parse_counters_for_thread.add_unique_offsets(processed.message_count);
                     }
                 }
                 let parsed = ParsedItem { valid: processed, dlq, commit_marker: marker };
@@ -752,7 +769,7 @@ async fn flush_to_sink_and_ack(
     flush: FlushBatch,
     sink_counters: &crate::metrics::SinkCounters,
 ) -> anyhow::Result<usize> {
-    let FlushBatch { writes, markers,  } = flush;
+    let FlushBatch { writes, markers, total_message_count } = flush;
     let total_rows: usize = writes.iter()
         .flat_map(|w| w.batches.iter().map(arrow::record_batch::RecordBatch::num_rows))
         .sum();
@@ -760,7 +777,7 @@ async fn flush_to_sink_and_ack(
         .flat_map(|w| w.batches.iter())
         .map(|b| arrow_batch_bytes(b))
         .sum();
-    // Count unique __system_offset values across all batches in this flush.
+    // Count unique __system_offset values (EO mode only — column absent otherwise).
     let mut off_set: std::collections::HashSet<i64> = std::collections::HashSet::new();
     for w in &writes {
         for b in &w.batches {
@@ -773,7 +790,9 @@ async fn flush_to_sink_and_ack(
             }
         }
     }
-    let unique_offsets = off_set.len() as u64;
+    let eo_offsets = off_set.len() as u64;
+    // Single branching call: EO → column-based exact count; non-EO → message_count.
+    let unique_offsets = if eo_offsets > 0 { eo_offsets } else { total_message_count };
 
     // 1. Write ALL tables unconditionally (fixes L1: data without markers must be written).
     let write_start = std::time::Instant::now();
@@ -860,6 +879,7 @@ fn parse_read_item(
                 batch: single,
                 batch_id: crate::batch_id(),
                 exactly_once_key: None, // CH source is at-least-once
+                message_count: 0, // Arrow passthrough — no Messages
             };
             Some((td, None, commit_marker))
         }
@@ -927,7 +947,7 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int64, true)]));
         let arr = Int64Array::from(vec![1; rows]);
         let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)])?;
-        Ok(TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1, exactly_once_key: None })
+        Ok(TableData { table: table.into(), is_dlq: dlq, batch, batch_id: 1, exactly_once_key: None, message_count: rows as u64 })
     }
 
     /// Like `make_td`, but as one complete exactly-once Message (keyed).

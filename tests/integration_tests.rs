@@ -66,7 +66,7 @@ fn exactly_once_key_flows_to_table_write() {
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
     let key = test_exactly_once_key();
-    let td = TableData::new("events".into(), false, batch, 1, Some(key));
+    let td = TableData::new("events".into(), false, batch, 1, Some(key), 0);
 
     assert_eq!(td.exactly_once_key.as_ref().map(|k| k.offset.name.as_ref()), Some("_yds_offset"));
     assert!(!td.is_dlq);
@@ -75,6 +75,7 @@ fn exactly_once_key_flows_to_table_write() {
         "events".into(),
         vec![td.batch.clone()],
         td.exactly_once_key.clone(),
+        0,
     );
     assert!(tw.exactly_once_key.is_some());
 }
@@ -85,10 +86,10 @@ fn exactly_once_key_none_for_non_streaming() {
     let arr = Int64Array::from(vec![1i64]);
     let batch = RecordBatch::try_new(schema, vec![Arc::new(arr)]).unwrap();
 
-    let td = TableData::new("snapshots".into(), false, batch, 1, None);
+    let td = TableData::new("snapshots".into(), false, batch, 1, None, 0);
     assert!(td.exactly_once_key.is_none());
 
-    let tw = TableWrite::new("snapshots".into(), vec![td.batch.clone()], None);
+    let tw = TableWrite::new("snapshots".into(), vec![td.batch.clone()], None, 0);
     assert!(tw.exactly_once_key.is_none());
 }
 
