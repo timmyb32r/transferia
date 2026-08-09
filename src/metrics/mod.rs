@@ -117,6 +117,44 @@ impl Default for ParseCounters {
     fn default() -> Self { Self::new() }
 }
 
+/// Per-partition sink-output counters. Filled by the writer task around each
+/// flush (`sink.write` call): rows, Arrow bytes, number of flushes, and busy
+/// time (the wall-clock duration of the write call).
+pub struct SinkCounters {
+    rows: AtomicU64,
+    bytes: AtomicU64,
+    flushes: AtomicU64,
+    busy_nanos: AtomicU64,
+}
+
+impl SinkCounters {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            rows: AtomicU64::new(0),
+            bytes: AtomicU64::new(0),
+            flushes: AtomicU64::new(0),
+            busy_nanos: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    pub fn add_rows(&self, n: u64) { self.rows.fetch_add(n, RELAXED); }
+    #[inline]
+    pub fn add_bytes(&self, n: u64) { self.bytes.fetch_add(n, RELAXED); }
+    #[inline]
+    pub fn add_flush(&self) { self.flushes.fetch_add(1, RELAXED); }
+    /// Sink busy = time inside `sink.write()`.
+    #[inline]
+    pub fn add_busy(&self, d: Duration) {
+        self.busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
+    }
+}
+
+impl Default for SinkCounters {
+    fn default() -> Self { Self::new() }
+}
+
 // ---------------------------------------------------------------------------
 // Snapshots
 // ---------------------------------------------------------------------------
@@ -139,6 +177,14 @@ struct ParseSnapshot {
     parse_busy_nanos: u64,
 }
 
+#[derive(Clone, Copy, Default)]
+struct SinkSnapshot {
+    rows: u64,
+    bytes: u64,
+    flushes: u64,
+    busy_nanos: u64,
+}
+
 fn src_snap(c: Option<&Arc<SourceCounters>>) -> SourceSnapshot {
     c.map_or_else(SourceSnapshot::default, |s| SourceSnapshot {
         messages: s.messages.load(RELAXED),
@@ -159,14 +205,24 @@ fn parse_snap(c: Option<&Arc<ParseCounters>>) -> ParseSnapshot {
     })
 }
 
+fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
+    c.map_or_else(SinkSnapshot::default, |s| SinkSnapshot {
+        rows: s.rows.load(RELAXED),
+        bytes: s.bytes.load(RELAXED),
+        flushes: s.flushes.load(RELAXED),
+        busy_nanos: s.busy_nanos.load(RELAXED),
+    })
+}
+
 // ---------------------------------------------------------------------------
-// Registry (merges source + parse counters by partition_id)
+// Registry (merges source + parse + sink counters by partition_id)
 // ---------------------------------------------------------------------------
 
 struct PartitionMetrics {
     has_parser: bool,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
+    sink: Option<Arc<SinkCounters>>,
 }
 
 /// Read-only snapshot of one partition's counters (cloned Arcs), produced by
@@ -177,6 +233,7 @@ struct PartitionSnapshot {
     has_parser: bool,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
+    sink: Option<Arc<SinkCounters>>,
 }
 
 pub struct MetricsRegistry {
@@ -195,7 +252,7 @@ impl MetricsRegistry {
     pub fn register_source(&self, partition_id: i64, c: Arc<SourceCounters>) {
         let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, source: None, parse: None,
+            has_parser: false, source: None, parse: None, sink: None,
         });
         entry.source = Some(c);
     }
@@ -204,10 +261,19 @@ impl MetricsRegistry {
     pub fn register_parse(&self, partition_id: i64, has_parser: bool, c: Arc<ParseCounters>) {
         let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, source: None, parse: None,
+            has_parser: false, source: None, parse: None, sink: None,
         });
         entry.has_parser = has_parser;
         entry.parse = Some(c);
+    }
+
+    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    pub fn register_sink(&self, partition_id: i64, c: Arc<SinkCounters>) {
+        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
+            has_parser: false, source: None, parse: None, sink: None,
+        });
+        entry.sink = Some(c);
     }
 
     fn snapshot(&self) -> Vec<PartitionSnapshot> {
@@ -218,6 +284,7 @@ impl MetricsRegistry {
                 has_parser: pm.has_parser,
                 source: pm.source.clone(),
                 parse: pm.parse.clone(),
+                sink: pm.sink.clone(),
             })
             .collect()
     }
@@ -237,7 +304,7 @@ pub fn spawn_stats_reporter(
     tokio::spawn(async move {
         let interval = Duration::from_millis(interval_ms.max(1));
         // last snapshot per partition: (source, parse, time)
-        let mut last: HashMap<i64, (SourceSnapshot, ParseSnapshot, Instant)> = HashMap::new();
+        let mut last: HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)> = HashMap::new();
         let mut primed = false;
         loop {
             tokio::time::sleep(interval).await;
@@ -247,7 +314,7 @@ pub fn spawn_stats_reporter(
             // First tick: prime snapshots so the next tick has a real delta.
             if !primed {
                 for pm in &parts {
-                    last.insert(pm.pid, (src_snap(pm.source.as_ref()), parse_snap(pm.parse.as_ref()), now));
+                    last.insert(pm.pid, (src_snap(pm.source.as_ref()), parse_snap(pm.parse.as_ref()), sink_snap(pm.sink.as_ref()), now));
                 }
                 primed = true;
                 continue;
@@ -257,16 +324,17 @@ pub fn spawn_stats_reporter(
                 for pm in &parts {
                     let cur_src = src_snap(pm.source.as_ref());
                     let cur_parse = parse_snap(pm.parse.as_ref());
-                    let (psrc, pparse, ptime) =
-                        last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, now));
+                    let cur_sink = sink_snap(pm.sink.as_ref());
+                    let (psrc, pparse, psink, ptime) =
+                        last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, cur_sink, now));
                     let wall_ns = now.saturating_duration_since(ptime).as_nanos() as u64;
                     if wall_ns > 0 {
                         tracing::info!(
                             "{}",
-                            format_line(pm.pid, pm.has_parser, cur_src, psrc, cur_parse, pparse, wall_ns)
+                            format_line(pm.pid, pm.has_parser, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns)
                         );
                     }
-                    last.insert(pm.pid, (cur_src, cur_parse, now));
+                    last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
                 }
             } else {
                 let line = aggregate_line(&parts, &mut last, now);
@@ -280,7 +348,7 @@ pub fn spawn_stats_reporter(
 
 fn aggregate_line(
     parts: &[PartitionSnapshot],
-    last: &mut HashMap<i64, (SourceSnapshot, ParseSnapshot, Instant)>,
+    last: &mut HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)>,
     now: Instant,
 ) -> Option<String> {
     if parts.is_empty() {
@@ -288,12 +356,14 @@ fn aggregate_line(
     }
     let mut s = SourceSnapshot::default();
     let mut p = ParseSnapshot::default();
+    let mut k = SinkSnapshot::default();
     let mut wall_ns_sum: u64 = 0;
     let mut any_parser = false;
     for pm in parts {
         let cur_src = src_snap(pm.source.as_ref());
         let cur_parse = parse_snap(pm.parse.as_ref());
-        let (psrc, pparse, ptime) = last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, now));
+        let cur_sink = sink_snap(pm.sink.as_ref());
+        let (psrc, pparse, psink, ptime) = last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, cur_sink, now));
         let wall = now.saturating_duration_since(ptime).as_nanos() as u64;
         if wall > 0 {
             s.messages += cur_src.messages - psrc.messages;
@@ -306,16 +376,20 @@ fn aggregate_line(
             p.dlq_rows += cur_parse.dlq_rows - pparse.dlq_rows;
             p.unique_offsets += cur_parse.unique_offsets - pparse.unique_offsets;
             p.parse_busy_nanos += cur_parse.parse_busy_nanos - pparse.parse_busy_nanos;
+            k.rows += cur_sink.rows - psink.rows;
+            k.bytes += cur_sink.bytes - psink.bytes;
+            k.flushes += cur_sink.flushes - psink.flushes;
+            k.busy_nanos += cur_sink.busy_nanos - psink.busy_nanos;
             wall_ns_sum += wall;
             any_parser |= pm.has_parser;
         }
-        last.insert(pm.pid, (cur_src, cur_parse, now));
+        last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
     }
     if wall_ns_sum == 0 {
         return None;
     }
     // Average busy% across partitions: total busy / sum of per-partition walls.
-    Some(format_line_avg(s, p, any_parser, wall_ns_sum))
+    Some(format_line_avg(s, p, k, any_parser, wall_ns_sum))
 }
 
 fn format_line(
@@ -325,6 +399,8 @@ fn format_line(
     prev_src: SourceSnapshot,
     cur_parse: ParseSnapshot,
     prev_parse: ParseSnapshot,
+    cur_sink: SinkSnapshot,
+    prev_sink: SinkSnapshot,
     wall_ns: u64,
 ) -> String {
     let sec = wall_ns as f64 / NANOS_PER_SEC_F;
@@ -358,12 +434,24 @@ fn format_line(
     } else {
         "parse: (no parser)".to_string()
     };
-    format!("[stats p={pid}] {source_part} || {parse_part}")
+    let d_sink_rows = cur_sink.rows - prev_sink.rows;
+    let d_sink_bytes = cur_sink.bytes - prev_sink.bytes;
+    let d_sink_flushes = cur_sink.flushes - prev_sink.flushes;
+    let sink_pct = pct(cur_sink.busy_nanos - prev_sink.busy_nanos, wall_ns);
+    let sink_part = format!(
+        "sink: {} rows/s | {} arrow | {} flushes/s | {}% busy",
+        ((d_sink_rows as f64) / sec) as u64,
+        fmt_bytes(d_sink_bytes as f64 / sec),
+        ((d_sink_flushes as f64) / sec) as u64,
+        sink_pct,
+    );
+    format!("[stats p={pid}] {source_part} || {parse_part} || {sink_part}")
 }
 
 fn format_line_avg(
     s: SourceSnapshot,
     p: ParseSnapshot,
+    k: SinkSnapshot,
     any_parser: bool,
     wall_ns_sum: u64,
 ) -> String {
@@ -391,7 +479,15 @@ fn format_line_avg(
     } else {
         "parse: (no parser)".to_string()
     };
-    format!("[stats] {source_part} || {parse_part}")
+    let sink_pct = pct(k.busy_nanos, wall_ns_sum);
+    let sink_part = format!(
+        "sink: {} rows/s | {} arrow | {} flushes/s | {}% busy",
+        ((k.rows as f64) / sec) as u64,
+        fmt_bytes(k.bytes as f64 / sec),
+        ((k.flushes as f64) / sec) as u64,
+        sink_pct,
+    );
+    format!("[stats] {source_part} || {parse_part} || {sink_part}")
 }
 
 #[inline]

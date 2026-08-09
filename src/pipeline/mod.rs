@@ -230,6 +230,7 @@ pub async fn run_partition_pipeline(
     parse_counters: Arc<ParseCounters>,
     has_parser: bool,
     exactly_once_key: Option<ExactlyOnceKey>,
+    sink_counters: Arc<crate::metrics::SinkCounters>,
 ) -> anyhow::Result<()> {
     /// Commit marker to source with up to 10 retries.
     /// Spec §0 (I3): source.commit fails after retries → poison → fatal.
@@ -549,6 +550,7 @@ pub async fn run_partition_pipeline(
     let writer_token = cancel_token.clone();
     let sink_for_writer = Arc::clone(&sink);
     let writer_fatal = Arc::clone(&fatal_error);
+    let sink_counters_writer = Arc::clone(&sink_counters);
     let writer_handle = tokio::spawn(async move {
         /// Drain-and-ack: flush, commit on success, propagate sink errors.
         /// **Exactly-once fix (spec §6):** sink error is propagated as Err,
@@ -557,10 +559,11 @@ pub async fn run_partition_pipeline(
             sink: &dyn Sink,
             tx_commit: &mpsc::Sender<CommitAck>,
             acc: &mut BatchAccumulator,
+            sink_counters: &crate::metrics::SinkCounters,
         ) -> anyhow::Result<usize> {
             let flush = acc.take_flush()
                 .ok_or_else(|| anyhow::anyhow!("drain_and_ack: no flush data"))?;
-            let rows = flush_to_sink_and_ack(sink, tx_commit, flush).await?;
+            let rows = flush_to_sink_and_ack(sink, tx_commit, flush, sink_counters).await?;
             acc.clear();
             Ok(rows)
         }
@@ -573,8 +576,9 @@ pub async fn run_partition_pipeline(
             tx_commit: &mpsc::Sender<CommitAck>,
             acc: &mut BatchAccumulator,
             fatal: &Arc<std::sync::Mutex<Option<anyhow::Error>>>,
+            sink_counters: &crate::metrics::SinkCounters,
         ) -> Option<usize> {
-            match drain_and_ack(sink, tx_commit, acc).await {
+            match drain_and_ack(sink, tx_commit, acc, sink_counters).await {
                 Ok(rows) => Some(rows),
                 Err(e) => {
                     *fatal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
@@ -595,7 +599,7 @@ pub async fn run_partition_pipeline(
             });
 
             if should_flush {
-                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await {
                     total_flushed += rows as u64;
                     tracing::info!(
                         "flush: partition={} total_flushed={} (linger)",
@@ -607,7 +611,7 @@ pub async fn run_partition_pipeline(
 
             // Phase 2: check cancellation
             if writer_token.is_cancelled() {
-                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await {
                     total_flushed += rows as u64;
                 }
                 tracing::info!(
@@ -634,7 +638,7 @@ pub async fn run_partition_pipeline(
                     maybe = rx_parsed.recv() => maybe,
                     () = sleep(dur) => None,
                     () = writer_token.cancelled() => {
-                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
+                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await {
                             total_flushed += rows as u64;
                         }
                         tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
@@ -645,7 +649,7 @@ pub async fn run_partition_pipeline(
                 tokio::select! {
                     maybe = rx_parsed.recv() => maybe,
                     () = writer_token.cancelled() => {
-                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
+                        if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await {
                             total_flushed += rows as u64;
                         }
                         tracing::info!("partition={} finished: total_flushed={}", partition_id, total_flushed);
@@ -667,7 +671,7 @@ pub async fn run_partition_pipeline(
                         partition_id,
                     );
                     // Flush whatever we have (best-effort) then signal fatal.
-                    let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
+                    let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await;
                     *writer_fatal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(anyhow::anyhow!(
                         "Parser middleware error limit ({MAX_CONSECUTIVE_MW_ERRORS}) exceeded",
                     ));
@@ -682,7 +686,7 @@ pub async fn run_partition_pipeline(
                 if let Err(e) = acc.push(item.valid, marker.take()) {
                     // Exactly-once: oversized Message — configuration error → fatal.
                     tracing::error!("partition={}: {}", partition_id, e);
-                    let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
+                    let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await;
                     *writer_fatal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
                     return;
                 }
@@ -691,7 +695,7 @@ pub async fn run_partition_pipeline(
                 if dlq.batch.num_rows() > 0 {
                     if let Err(e) = acc.push(dlq, marker.take()) {
                         tracing::error!("partition={}: {}", partition_id, e);
-                        let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await;
+                        let _: Option<usize> = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await;
                         *writer_fatal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);
                         return;
                     }
@@ -710,7 +714,7 @@ pub async fn run_partition_pipeline(
             // Item fully pushed — Message boundary reached — safe to check flush
             // (in exactly-once mode the current Message is flushed whole here).
             if acc.should_flush() {
-                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal).await {
+                if let Some(rows) = drain_or_fatal(sink_for_writer.as_ref(), &tx_commit, &mut acc, &writer_fatal, &sink_counters_writer).await {
                     total_flushed += rows as u64;
                     tracing::info!(
                         "flush: partition={} total_flushed={} (batch full)",
@@ -746,13 +750,19 @@ async fn flush_to_sink_and_ack(
     sink: &dyn Sink,
     tx_commit: &mpsc::Sender<CommitAck>,
     flush: FlushBatch,
+    sink_counters: &crate::metrics::SinkCounters,
 ) -> anyhow::Result<usize> {
     let FlushBatch { writes, markers,  } = flush;
     let total_rows: usize = writes.iter()
         .flat_map(|w| w.batches.iter().map(arrow::record_batch::RecordBatch::num_rows))
         .sum();
+    let total_bytes: u64 = writes.iter()
+        .flat_map(|w| w.batches.iter())
+        .map(|b| arrow_batch_bytes(b))
+        .sum();
 
     // 1. Write ALL tables unconditionally (fixes L1: data without markers must be written).
+    let write_start = std::time::Instant::now();
     for write in &writes {
         if write.batches.is_empty() {
             continue;
@@ -762,6 +772,10 @@ async fn flush_to_sink_and_ack(
             return Err(anyhow::anyhow!("flush error"));
         }
     }
+    sink_counters.add_busy(write_start.elapsed());
+    sink_counters.add_rows(total_rows as u64);
+    sink_counters.add_bytes(total_bytes);
+    sink_counters.add_flush();
 
     // 2. Ack only after ALL tables succeeded (at-least-once invariant).
     if !markers.is_empty()

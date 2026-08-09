@@ -8,7 +8,7 @@ use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use transferia::config::yaml::Config;
 use transferia::middleware::filter::FilterMiddleware;
-use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters};
+use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 use transferia::types::table_data::dlq_name;
 use transferia::pipeline::middleware::Middleware;
@@ -51,6 +51,7 @@ fn spawn_partition_task<F, Fut>(
     source_label: String,
     make_source: F,
     parse_counters: Arc<ParseCounters>,
+    sink_counters: Arc<SinkCounters>,
 ) -> tokio::task::JoinHandle<()>
 where
     F: FnMut(CancellationToken) -> Fut + Send + 'static,
@@ -74,6 +75,7 @@ where
                 Arc::clone(&deps.mw), Arc::clone(&deps.snk),
                 deps.batch_size, deps.token.clone(), partition_id,
                 Arc::clone(&parse_counters), deps.has_parser, deps.exactly_once_key.clone(),
+                Arc::clone(&sink_counters),
             ).await {
                 Ok(()) => break,
                 Err(e) => {
@@ -356,10 +358,13 @@ async fn main() -> anyhow::Result<()> {
         // Per-partition parse counters — registered so the reporter reads them.
         let parse_counters = Arc::new(ParseCounters::new());
         metrics_registry.register_parse(pid, has_parser, Arc::clone(&parse_counters));
+        // Per-partition sink counters — registered so the reporter reads them.
+        let sink_counters = Arc::new(SinkCounters::new());
+        metrics_registry.register_sink(pid, Arc::clone(&sink_counters));
         handles.push(spawn_partition_task(pid, d, label, move |token| {
             let sp_inner = Arc::clone(&sp);
             async move { return sp_inner.build_source(pid, token).await }
-        }, parse_counters));
+        }, parse_counters, sink_counters));
     }
 
     for h in handles {
