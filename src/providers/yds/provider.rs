@@ -7,11 +7,11 @@ use tokio_util::sync::CancellationToken;
 use crate::config::yaml::{AuthConfig, ParserConfig, SchemaConfig};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::json_parser::JsonParserConfig;
+use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
-use crate::providers::yds::credentials::{build_credentials, build_credentials_with_token};
+use crate::providers::yds::credentials::build_credentials_with_token;
 use crate::providers::yds::pq_v1::{parse_endpoint, partition_to_group, PqV1Client, PqV1Source};
-use crate::providers::yds::ydb_topic::YdbTopicSource;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct YdsSourceConfig {
@@ -64,12 +64,16 @@ impl YdsSourceProvider {
         let cached_schema = if parser_kind == "none" {
             SchemaConfig::default()
         } else {
-            let parser_cfg: JsonParserConfig = serde_yaml::from_value(
-                cfg.parser.parser.raw()?.clone(),
-            )?;
+            let parser_cfg: JsonParserConfig =
+                serde_yaml::from_value(cfg.parser.parser.raw()?.clone())?;
             parser_cfg.to_schema_config()
         };
-        Ok(Self { cfg, kind: kind.to_string(), cached_schema, metrics_registry })
+        Ok(Self {
+            cfg,
+            kind: kind.to_string(),
+            cached_schema,
+            metrics_registry,
+        })
     }
 }
 
@@ -78,6 +82,7 @@ impl SourceProvider for YdsSourceProvider {
         &self,
         partition_id: i64,
         cancel_token: CancellationToken,
+        memory: PipelineMemory,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let cfg = self.cfg.clone();
         let kind = self.kind.clone();
@@ -91,19 +96,27 @@ impl SourceProvider for YdsSourceProvider {
             let source_counters = Arc::new(SourceCounters::new());
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
             match kind.as_str() {
-                "topic" => {
-                    let creds = build_credentials(&cfg.auth)?;
-                    let src = YdbTopicSource::new(cfg, partition_id, creds).await?;
-                    Ok(Box::new(src) as Box<dyn Source>)
-                }
                 "pqv1" => {
                     let (_, raw_token) = build_credentials_with_token(&cfg.auth)?;
-                    let token = raw_token.ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
+                    let token = raw_token
+                        .ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
                     let (scheme, host, _) = parse_endpoint(&cfg.connection_string)?;
                     let endpoint = format!("{scheme}://{host}");
                     let pg_id = partition_to_group(partition_id);
-                    let (client, mut queues) = PqV1Client::connect(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token, &[pg_id], Arc::clone(&source_counters), cancel_token, cfg.drop_before_decompress).await?;
-                    let rx = queues.remove(&partition_id)
+                    let (client, mut queues) = PqV1Client::connect(
+                        &endpoint,
+                        &cfg.topic_path,
+                        &cfg.consumer_name,
+                        &token,
+                        &[pg_id],
+                        Arc::clone(&source_counters),
+                        cancel_token,
+                        cfg.drop_before_decompress,
+                        memory,
+                    )
+                    .await?;
+                    let rx = queues
+                        .remove(&partition_id)
                         .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
                     Ok(Box::new(PqV1Source::new(client, rx, partition_id, cfg)) as Box<dyn Source>)
                 }
@@ -124,37 +137,28 @@ impl SourceProvider for YdsSourceProvider {
             match kind.as_str() {
                 "pqv1" => {
                     let (_, raw_token) = build_credentials_with_token(&cfg.auth)?;
-                    let token = raw_token.ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
+                    let token = raw_token
+                        .ok_or_else(|| anyhow::anyhow!("PQv1 requires access_token auth"))?;
                     let parts = if let Some(ref static_ids) = cfg.partition_ids {
-                        static_ids.iter()
+                        static_ids
+                            .iter()
                             .filter(|id| id.unsigned_abs() as u32 % total_workers == worker_index)
                             .copied()
                             .collect()
                     } else {
                         let (scheme, host, _) = parse_endpoint(&cfg.connection_string)?;
                         let endpoint = format!("{scheme}://{host}");
-                        PqV1Client::discover_partitions(&endpoint, &cfg.topic_path, &cfg.consumer_name, &token)
-                            .await?
-                            .into_iter()
-                            .filter(|id| id.unsigned_abs() as u32 % total_workers == worker_index)
-                            .collect()
+                        PqV1Client::discover_partitions(
+                            &endpoint,
+                            &cfg.topic_path,
+                            &cfg.consumer_name,
+                            &token,
+                        )
+                        .await?
+                        .into_iter()
+                        .filter(|id| id.unsigned_abs() as u32 % total_workers == worker_index)
+                        .collect()
                     };
-                    Ok(parts)
-                }
-                "topic" => {
-                    let creds = build_credentials(&cfg.auth)?;
-                    let mut builder = ydb::ClientBuilder::new_from_connection_string(&cfg.connection_string)?
-                        .with_credentials(creds);
-                    if let Some(ref ep) = cfg.discovery_endpoint {
-                        let discovery = ydb::StaticDiscovery::new_from_str(ep.as_str())
-                            .map_err(|e| anyhow::anyhow!("StaticDiscovery: {e}"))?;
-                        builder = builder.with_discovery(discovery);
-                    }
-                    let client = builder.client()?;
-                    let mut topic_client = client.topic_client();
-                    let parts = crate::partition::discover_my_partitions(
-                        &mut topic_client, &cfg.topic_path, total_workers, worker_index,
-                    ).await?;
                     Ok(parts)
                 }
                 _ => anyhow::bail!("Unknown YDS kind: {kind}"),

@@ -117,9 +117,10 @@ impl Default for ParseCounters {
     fn default() -> Self { Self::new() }
 }
 
-/// Per-partition sink-output counters. Filled by the writer task around each
-/// flush (`sink.write` call): rows, Arrow bytes, number of flushes, unique
-/// offsets (exactly-once dedup key), and busy time.
+/// Counters for one partition's sink output.
+///
+/// The sink actor records successful inserts, rows, Arrow bytes, acknowledged
+/// source messages, and time actively spent in `ClickHouse` INSERT attempts.
 pub struct SinkCounters {
     rows: AtomicU64,
     bytes: AtomicU64,
@@ -148,11 +149,23 @@ impl SinkCounters {
     pub fn add_flush(&self) { self.flushes.fetch_add(1, RELAXED); }
     #[inline]
     pub fn add_unique_offsets(&self, n: u64) { self.unique_offsets.fetch_add(n, RELAXED); }
-    /// Sink busy = time inside `sink.write()`.
+    /// Sink busy excludes buffering and retry backoff, so it remains a direct
+    /// measure of time occupied by `ClickHouse` INSERT attempts.
     #[inline]
     pub fn add_busy(&self, d: Duration) {
         self.busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
     }
+
+    #[must_use]
+    pub fn rows_total(&self) -> u64 { self.rows.load(RELAXED) }
+    #[must_use]
+    pub fn bytes_total(&self) -> u64 { self.bytes.load(RELAXED) }
+    #[must_use]
+    pub fn flushes_total(&self) -> u64 { self.flushes.load(RELAXED) }
+    #[must_use]
+    pub fn source_messages_total(&self) -> u64 { self.unique_offsets.load(RELAXED) }
+    #[must_use]
+    pub fn busy_nanos_total(&self) -> u64 { self.busy_nanos.load(RELAXED) }
 }
 
 impl Default for SinkCounters {
@@ -566,9 +579,10 @@ pub fn fmt_bytes(bps: f64) -> String {
 // Process resource usage (CPU %, RSS) — read from /proc/self on Linux.
 // ---------------------------------------------------------------------------
 
-/// Snapshots of `/proc/self/stat` utime+stime (clock ticks) and wall-clock
-/// to compute process CPU utilisation between two ticks. Falls back to 0 on
-/// non-Linux or when /proc is unavailable (macOS, Windows).
+/// Tracks process CPU utilisation and resident memory.
+///
+/// CPU snapshots come from `/proc/self/stat` on Linux and fall back to zero
+/// when procfs is unavailable.
 pub struct ProcessStats {
     prev_utime: u64,
     prev_stime: u64,
@@ -610,7 +624,7 @@ impl ProcessStats {
         let cpu_pct = if wall_ns > 0 && self.clock_ticks_per_sec > 0 {
             // Fraction of one core used. Multiply by 100 for percent.
             let cpu_nanos = cpu_delta_ticks.saturating_mul(1_000_000_000) / self.clock_ticks_per_sec;
-            (cpu_nanos * 100 / wall_ns) as u64
+            cpu_nanos * 100 / wall_ns
         } else {
             0
         };
@@ -618,6 +632,10 @@ impl ProcessStats {
         let rss = read_proc_rss();
         (cpu_pct, rss)
     }
+}
+
+impl Default for ProcessStats {
+    fn default() -> Self { Self::new() }
 }
 
 fn read_proc_stat() -> (u64, u64) {
@@ -659,7 +677,7 @@ fn read_proc_rss() -> u64 {
     }
 }
 
-fn sysconf_clock_ticks() -> u64 {
+const fn sysconf_clock_ticks() -> u64 {
     // sysconf(_SC_CLK_TCK) is typically 100 on Linux.
     // We use a simple heuristic: parse from /proc/self/stat or default to 100.
     // On non-Linux this is never called successfully.

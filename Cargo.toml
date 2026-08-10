@@ -30,7 +30,7 @@ serde_yaml = "0.9"
 shellexpand = "3"
 simd-json = "0.17"
 time = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros", "test-util"] }
 tokio-util = "0.7"
 tonic = { version = "0.14", features = ["transport", "tls-native-roots"] }
 tonic-prost = "0.14"

@@ -6,7 +6,7 @@ use crate::types::exactly_once::ExactlyOnceKey;
 
 /// Pipeline unit: one Arrow batch destined for one pre-resolved table.
 ///
-/// Flows: **parser → middlewares → accumulator**.
+/// Flows: **parser → middlewares → sink delivery**.
 /// `table` is already resolved to the concrete target name
 /// (`"my_table"` or `"my_table_dlq"`) — there is no `dlq_flag` indirection.
 #[derive(Debug, Clone)]
@@ -22,28 +22,6 @@ pub struct TableData {
     /// Exactly-once key descriptor. `None` → at-least-once (no dedup).
     /// The actual key values are columns inside `batch`.
     pub exactly_once_key: Option<ExactlyOnceKey>,
-    /// Number of original YDS messages that produced this batch.
-    /// Set by the parser (`messages.len()`). Copied unchanged by middleware.
-    /// Accumulator sums it to track `msg/s` throughput without EO columns.
-    pub message_count: u64,
-}
-
-/// Accumulated write for a single table. Built by [`BatchAccumulator`] from one or
-/// more [`TableData`]s sharing the same `table`. Consumed by [`Sink::write`].
-///
-/// **Invariant:** all batches in `batches` share the schema of `table`.
-#[derive(Debug, Clone)]
-pub struct TableWrite {
-    /// Resolved table name (pre-resolved by the parser — no DLQ indirection).
-    pub table: Arc<str>,
-    /// Arrow batches to insert (one or more).
-    pub batches: Vec<RecordBatch>,
-    /// Exactly-once key descriptor. `None` → at-least-once (plain INSERT).
-    pub exactly_once_key: Option<ExactlyOnceKey>,
-    /// Accumulated original YDS message count (sum of TableData::message_count
-    /// across all TableData pushes into this write). Informational — currently
-    /// consumed only at the FlushBatch level, not by individual sinks.
-    pub message_count: u64,
 }
 
 impl TableData {
@@ -54,21 +32,8 @@ impl TableData {
         batch: RecordBatch,
         batch_id: u64,
         exactly_once_key: Option<ExactlyOnceKey>,
-        message_count: u64,
     ) -> Self {
-        Self { table, is_dlq, batch, batch_id, exactly_once_key, message_count }
-    }
-}
-
-impl TableWrite {
-    #[must_use]
-    pub const fn new(
-        table: Arc<str>,
-        batches: Vec<RecordBatch>,
-        exactly_once_key: Option<ExactlyOnceKey>,
-        message_count: u64,
-    ) -> Self {
-        Self { table, batches, exactly_once_key, message_count }
+        Self { table, is_dlq, batch, batch_id, exactly_once_key }
     }
 }
 

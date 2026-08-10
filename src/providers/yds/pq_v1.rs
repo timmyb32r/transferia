@@ -15,6 +15,7 @@ use futures_util::future::BoxFuture;
 use futures_util::Stream;
 
 use crate::metrics::SourceCounters;
+use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 use crate::providers::yds::provider::YdsSourceConfig;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
@@ -49,6 +50,8 @@ const MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
 /// so that if decompress ever falls behind download, memory is capped; with
 /// parallel decompress keeping up, it stays near-empty.
 const DECODED_CHANNEL_CAP: usize = 128;
+const PARTITION_CHANNEL_CAP: usize = 1024;
+const DECOMPRESS_CONCURRENCY: usize = 4;
 
 // ---------------------------------------------------------------------------
 // HTTP/2 prior-knowledge transport (Go-compatible)
@@ -146,6 +149,7 @@ pub struct DecodedMessage {
     pub cookie: Option<CommitCookie>,
     /// Offset within the `PQv1` partition (for exactly-once dedup).
     pub offset: u64,
+    pub memory: MemoryReservation,
 }
 
 pub struct PqV1CommitMarker {
@@ -216,7 +220,7 @@ pub struct PqV1Client {
 
 struct PqV1ClientInner {
     request_tx: mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
-    partition_queues: Mutex<HashMap<i64, mpsc::UnboundedSender<DecodedMessage>>>,
+    partition_queues: Mutex<HashMap<i64, mpsc::Sender<DecodedMessage>>>,
 }
 
 /// Discover a proxy endpoint via `ListEndpoints` over HTTP/2 prior knowledge.
@@ -262,7 +266,8 @@ impl PqV1Client {
         source_counters: Arc<SourceCounters>,
         cancel_token: CancellationToken,
         drop_before_decompress: bool,
-    ) -> anyhow::Result<(Self, HashMap<i64, mpsc::UnboundedReceiver<DecodedMessage>>)> {
+        memory: PipelineMemory,
+    ) -> anyhow::Result<(Self, HashMap<i64, mpsc::Receiver<DecodedMessage>>)> {
         let (scheme, main_host, _) = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&scheme, &main_host)?;
 
@@ -313,7 +318,7 @@ impl PqV1Client {
         let mut prs = HashMap::with_capacity(assigned.len());
         #[expect(clippy::iter_over_hash_type, reason = "partition ids come from a set built from the static config; order is irrelevant")]
         for &pid in &assigned {
-            let (tx, rx) = mpsc::unbounded_channel();
+            let (tx, rx) = mpsc::channel(PARTITION_CHANNEL_CAP);
             pqs.insert(pid, tx);
             prs.insert(pid, rx);
         }
@@ -330,6 +335,7 @@ impl PqV1Client {
         // (the exactly-once waterline assumes offsets arrive in order per
         // partition).
         let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedBatch>(DECODED_CHANNEL_CAP);
+        let decompress_slots = Arc::new(tokio::sync::Semaphore::new(DECOMPRESS_CONCURRENCY));
         let merge_inner = Arc::clone(&inner);
         let merge_token = cancel_token.clone();
         tokio::spawn(async move {
@@ -341,21 +347,20 @@ impl PqV1Client {
                 let Some(batch) = rx.recv().await else { break; };
                 buffer.insert(batch.seq, batch);
                 while let Some(b) = buffer.remove(&next_seq) {
-                    let mut queues = merge_inner.partition_queues.lock().await;
                     for DecodedPart { pid, msgs } in b.parts {
-                        let Some(tx) = queues.get(&pid).cloned() else { continue; };
+                        let tx = merge_inner.partition_queues.lock().await.get(&pid).cloned();
+                        let Some(tx) = tx else { continue; };
                         let mut closed = false;
                         for msg in msgs {
-                            if tx.send(msg).is_err() { closed = true; break; }
+                            if tx.send(msg).await.is_err() { closed = true; break; }
                         }
                         if closed {
                             // Receiver dropped (shutdown) — remove the dead
                             // sender so future batches skip this partition.
-                            queues.remove(&pid);
+                            merge_inner.partition_queues.lock().await.remove(&pid);
                             tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
                         }
                     }
-                    drop(queues);
                     next_seq += 1;
                 }
             }
@@ -427,12 +432,6 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::DataBatch(db)) => {
-                        // Send the next Read IMMEDIATELY so decompression
-                        // (offloaded below) does not block the download loop.
-                        if request_tx.send(read_request()).is_err() {
-                            tracing::warn!("PQv1 request channel closed; stopping stream");
-                            break;
-                        }
                         if drop_before_decompress {
                             // Bench: count + discard before decompression.
                             for pd in db.partition_data {
@@ -443,6 +442,7 @@ impl PqV1Client {
                                     }
                                 }
                             }
+                            if request_tx.send(read_request()).is_err() { break; }
                             continue;
                         }
                         let seq = seq_counter;
@@ -469,10 +469,21 @@ impl PqV1Client {
                                 parts.push(RawPart { pid, cookie, msgs });
                             }
                         }
-                        if parts.is_empty() { continue; }
+                        if parts.is_empty() {
+                            if request_tx.send(read_request()).is_err() { break; }
+                            continue;
+                        }
+                        let peak_bytes = parts.iter().flat_map(|part| &part.msgs)
+                            .map(|message| message.data.len().saturating_add(message.uncompressed_size as usize))
+                            .fold(0_usize, usize::saturating_add);
+                        let reservation = memory.reserve(peak_bytes).await;
+                        let Ok(slot) = Arc::clone(&decompress_slots).acquire_owned().await else {
+                            break;
+                        };
                         let sc = Arc::clone(&source_counters);
                         let decoded_tx_w = decoded_tx.clone();
                         tokio::task::spawn_blocking(move || {
+                            let _slot = slot;
                             let mut dec_parts: Vec<DecodedPart> = Vec::with_capacity(parts.len());
                             for RawPart { pid, cookie, msgs } in parts {
                                 let mut decoded: Vec<DecodedMessage> = Vec::with_capacity(msgs.len());
@@ -482,7 +493,7 @@ impl PqV1Client {
                                         Ok(data) => {
                                             sc.add_decomp_busy(decomp_start.elapsed());
                                             sc.add_decompressed_bytes(data.len() as u64);
-                                            decoded.push(DecodedMessage { data, cookie, offset: rm.offset });
+                                            decoded.push(DecodedMessage { data, cookie, offset: rm.offset, memory: reservation.clone() });
                                         }
                                         Err(e) => {
                                             tracing::error!("PQv1 decompress failed: codec={} offset={}: {}", rm.codec, rm.offset, e);
@@ -498,6 +509,10 @@ impl PqV1Client {
                             // the result is intentionally ignored.
                             let _send = decoded_tx_w.blocking_send(DecodedBatch { seq, parts: dec_parts });
                         });
+                        if request_tx.send(read_request()).is_err() {
+                            tracing::warn!("PQv1 request channel closed; stopping stream");
+                            break;
+                        }
                     }
                     _ => {}
                 }
@@ -732,7 +747,7 @@ fn decompress(data: Vec<u8>, codec: i32, uncompressed_size: u64) -> anyhow::Resu
 
 pub struct PqV1Source {
     client: PqV1Client,
-    rx: mpsc::UnboundedReceiver<DecodedMessage>,
+    rx: mpsc::Receiver<DecodedMessage>,
     partition_id: i64,
     _config: YdsSourceConfig,
 }
@@ -741,7 +756,7 @@ impl PqV1Source {
     #[must_use]
     pub const fn new(
         client: PqV1Client,
-        rx: mpsc::UnboundedReceiver<DecodedMessage>,
+        rx: mpsc::Receiver<DecodedMessage>,
         partition_id: i64,
         config: YdsSourceConfig,
     ) -> Self {
@@ -753,9 +768,10 @@ impl Source for PqV1Source {
     fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
         Box::pin(async move {
             let Some(first) = self.rx.recv().await else {
-                return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None }));
+                return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None, memory: Vec::new() }));
             };
             let mut last_cookie: Option<CommitCookie> = first.cookie;
+            let mut memory = vec![first.memory];
             let mut messages = vec![Message {
                 value: first.data,
                 offset: Some(i64::try_from(first.offset)?),
@@ -763,6 +779,7 @@ impl Source for PqV1Source {
             }];
             while let Ok(msg) = self.rx.try_recv() {
                 last_cookie = msg.cookie;
+                memory.push(msg.memory);
                 messages.push(Message {
                     value: msg.data,
                     offset: Some(i64::try_from(msg.offset)?),
@@ -772,7 +789,7 @@ impl Source for PqV1Source {
             let commit_marker = last_cookie.map(|cookie| {
                 CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
             });
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker }))
+            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker, memory }))
         })
     }
 

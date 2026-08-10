@@ -51,7 +51,10 @@ pub enum ReadResult {
 
 pub trait Source: Send {
     fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>>;
-    fn commit_offsets<'ctx>(&'ctx mut self, marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>>;
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>>;
 }
 
 /// Delegating impl: `Box<dyn Source>` is itself a `Source`.
@@ -59,7 +62,10 @@ impl Source for Box<dyn Source> {
     fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
         (**self).read_batch()
     }
-    fn commit_offsets<'ctx>(&'ctx mut self, marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         (**self).commit_offsets(marker)
     }
 }

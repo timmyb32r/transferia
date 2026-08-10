@@ -1,0 +1,288 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::VecDeque;
+use std::sync::Arc;
+
+use bytes::Bytes;
+use futures_util::future::BoxFuture;
+use tokio::sync::{mpsc, Notify, Semaphore};
+use tokio_util::sync::CancellationToken;
+
+use transferia::metrics::{ParseCounters, SinkCounters};
+use transferia::middleware::filter::FilterMiddleware;
+use transferia::pipeline::memory::PipelineMemory;
+use transferia::pipeline::middleware::Middleware;
+use transferia::pipeline::run_partition_pipeline;
+use transferia::pipeline::source::{CommitMarker, ReadResult, Source};
+use transferia::providers::clickhouse::sink::{
+    ClickHouseSink, ClickhouseSinkConfig, InsertError, InsertTransport,
+};
+use transferia::types::exactly_once::PartitionKey;
+use transferia::types::message::{Message, MessageBatch};
+
+struct FakeSource {
+    batches: VecDeque<Vec<Message>>,
+    repeat: bool,
+    next_offset: i64,
+    reads: Arc<AtomicUsize>,
+    commits: mpsc::UnboundedSender<i64>,
+}
+
+impl FakeSource {
+    fn message(offset: i64) -> Message {
+        Message {
+            value: Bytes::from(format!(r#"{{"id":"{offset}","kind":"keep"}}"#)),
+            offset: Some(offset),
+            partition: Some(PartitionKey::Int(0)),
+        }
+    }
+}
+
+impl Source for FakeSource {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+        Box::pin(async move {
+            self.reads.fetch_add(1, Ordering::AcqRel);
+            let messages = if let Some(messages) = self.batches.pop_front() {
+                messages
+            } else if self.repeat {
+                let offset = self.next_offset;
+                self.next_offset += 1;
+                vec![Self::message(offset)]
+            } else {
+                return Ok(ReadResult::Batch(MessageBatch {
+                    messages: Vec::new(),
+                    partition_id: 0,
+                    commit_marker: None,
+                    memory: Vec::new(),
+                }));
+            };
+            let marker = messages
+                .last()
+                .and_then(|message| message.offset)
+                .unwrap_or_default();
+            Ok(ReadResult::Batch(MessageBatch {
+                messages,
+                partition_id: 0,
+                commit_marker: Some(CommitMarker::new(marker)),
+                memory: Vec::new(),
+            }))
+        })
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+        Box::pin(async move {
+            let offset = marker
+                .downcast_ref::<i64>()
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("invalid fake marker"))?;
+            self.commits
+                .send(offset)
+                .map_err(|_| anyhow::anyhow!("fake commit receiver closed"))?;
+            Ok(())
+        })
+    }
+}
+
+struct FakeClickHouse {
+    inserts: AtomicUsize,
+    rows: AtomicUsize,
+    block: bool,
+    gate: Arc<Semaphore>,
+    started: Notify,
+}
+
+impl FakeClickHouse {
+    fn new(block: bool) -> Arc<Self> {
+        Arc::new(Self {
+            inserts: AtomicUsize::new(0),
+            rows: AtomicUsize::new(0),
+            block,
+            gate: Arc::new(Semaphore::new(0)),
+            started: Notify::new(),
+        })
+    }
+}
+
+impl InsertTransport for FakeClickHouse {
+    fn insert(
+        &self,
+        _table: Arc<str>,
+        batches: Vec<arrow::record_batch::RecordBatch>,
+    ) -> BoxFuture<'static, Result<(), InsertError>> {
+        self.inserts.fetch_add(1, Ordering::AcqRel);
+        self.rows.fetch_add(
+            batches
+                .iter()
+                .map(arrow::record_batch::RecordBatch::num_rows)
+                .sum(),
+            Ordering::AcqRel,
+        );
+        self.started.notify_one();
+        let gate = if self.block {
+            Some(Arc::clone(&self.gate).acquire_owned())
+        } else {
+            None
+        };
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.await
+                    .map_err(|error| InsertError::Transient(anyhow::anyhow!(error)))?
+                    .forget();
+            }
+            Ok(())
+        })
+    }
+}
+
+fn sink_config() -> ClickhouseSinkConfig {
+    ClickhouseSinkConfig {
+        connection_string: "fake".into(),
+        database: "default".into(),
+        username: "default".into(),
+        password: String::new(),
+        max_insert_rows: 1,
+        max_insert_bytes: usize::MAX,
+        flush_interval_ms: 1,
+        retry_initial_ms: 1,
+        retry_max_ms: 10,
+        retry_max_attempts: None,
+        use_tls: false,
+        tls_domain: None,
+    }
+}
+
+fn parser() -> Arc<dyn transferia::parsers::Parser> {
+    let raw: serde_yaml::Value = serde_yaml::from_str(
+        r#"
+columns:
+  - jsonpath: "$.id"
+    column_name: "id"
+    arrow_type: "Utf8"
+    nullable: false
+  - jsonpath: "$.kind"
+    column_name: "kind"
+    arrow_type: "Utf8"
+    nullable: false
+"#,
+    )
+    .unwrap();
+    transferia::parsers::build_parser("json_parser", raw, Arc::from("events"), None).unwrap()
+}
+
+async fn wait_for_insert(transport: &FakeClickHouse, count: usize) {
+    tokio::time::timeout(core::time::Duration::from_secs(5), async {
+        while transport.inserts.load(Ordering::Acquire) < count {
+            transport.started.notified().await;
+        }
+    })
+    .await
+    .expect("fake ClickHouse INSERT did not start");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_parser_to_actor_sink_commits_only_after_fake_clickhouse() {
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let source = FakeSource {
+        batches: VecDeque::from([vec![FakeSource::message(7)]]),
+        repeat: false,
+        next_offset: 8,
+        reads,
+        commits: commit_tx,
+    };
+    let transport = FakeClickHouse::new(true);
+    let sink_counters = Arc::new(SinkCounters::new());
+    let sink = ClickHouseSink::with_transport(
+        sink_config(),
+        Arc::clone(&sink_counters),
+        Arc::clone(&transport) as Arc<dyn InsertTransport>,
+    );
+    let cancellation = CancellationToken::new();
+    let task = tokio::spawn(run_partition_pipeline(
+        Box::new(source),
+        parser(),
+        Arc::new(vec![
+            Box::new(FilterMiddleware::new("kind".into(), "keep".into()).unwrap())
+                as Box<dyn Middleware>,
+        ]),
+        Box::new(sink),
+        PipelineMemory::new(1024 * 1024),
+        cancellation.clone(),
+        0,
+        Arc::new(ParseCounters::new()),
+    ));
+
+    wait_for_insert(&transport, 1).await;
+    assert!(commit_rx.try_recv().is_err());
+    transport.gate.add_permits(1);
+    let committed = tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+        .await
+        .expect("source commit timed out");
+    assert_eq!(committed, Some(7));
+    assert_eq!(transport.inserts.load(Ordering::Acquire), 1);
+    assert_eq!(transport.rows.load(Ordering::Acquire), 1);
+    assert_eq!(sink_counters.rows_total(), 1);
+    assert_eq!(sink_counters.flushes_total(), 1);
+    assert_eq!(sink_counters.source_messages_total(), 1);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blocked_sink_propagates_memory_backpressure_to_source_reads() {
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let source = FakeSource {
+        batches: VecDeque::new(),
+        repeat: true,
+        next_offset: 1,
+        reads: Arc::clone(&reads),
+        commits: commit_tx,
+    };
+    let transport = FakeClickHouse::new(true);
+    let sink = ClickHouseSink::with_transport(
+        sink_config(),
+        Arc::new(SinkCounters::new()),
+        Arc::clone(&transport) as Arc<dyn InsertTransport>,
+    );
+    let cancellation = CancellationToken::new();
+    let task = tokio::spawn(run_partition_pipeline(
+        Box::new(source),
+        parser(),
+        Arc::new(Vec::new()),
+        Box::new(sink),
+        PipelineMemory::new(64),
+        cancellation.clone(),
+        0,
+        Arc::new(ParseCounters::new()),
+    ));
+
+    wait_for_insert(&transport, 1).await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    let stalled_reads = reads.load(Ordering::Acquire);
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        reads.load(Ordering::Acquire),
+        stalled_reads,
+        "source kept reading while sink held the budget"
+    );
+    assert!(
+        stalled_reads <= 3,
+        "more than one unadmitted source batch escaped the budget"
+    );
+    assert!(commit_rx.try_recv().is_err());
+
+    transport.gate.add_permits(1);
+    let committed = tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+        .await
+        .expect("source commit timed out");
+    assert!(committed.is_some());
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}

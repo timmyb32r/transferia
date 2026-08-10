@@ -30,7 +30,7 @@ impl NoneParser {
 impl Parser for NoneParser {
     fn parse_into(
         &self,
-        messages: Vec<Message>,
+        _messages: Vec<Message>,
         _partition_id: i64,
         _exactly_once_key: Option<ExactlyOnceKey>,
         _ws: &mut ParserWorkspace,
@@ -46,7 +46,6 @@ impl Parser for NoneParser {
                 batch,
                 batch_id: crate::batch_id(),
                 exactly_once_key: None,
-                message_count: messages.len() as u64,
             },
             None,
         ))

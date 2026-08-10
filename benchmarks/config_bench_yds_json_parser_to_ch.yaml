@@ -85,15 +85,21 @@ source:
 
 middlewares: []
 
+# Hard admission budget for this partition's complete pipeline. One allocation
+# larger than the limit is admitted alone and logged, so progress is preserved.
+pipeline_memory_limit_bytes: 268435456
+
 sink:
   clickhouse:
     # ClickHouse Native Protocol (TLS): port 9440, NOT 8443 (8443 is HTTPS).
     # Yandex Cloud example: "klg-xxxx.db.yandex.net:9440"
     connection_string: ""
     database: "db1"
-    batch_size: 10000
-    max_linger_ms: 500
-    max_connections: 4
+    max_insert_rows: 10000
+    max_insert_bytes: 67108864
+    flush_interval_ms: 500
+    retry_initial_ms: 50
+    retry_max_ms: 30000
     username: "user1"
     password: ""
     # TLS settings:

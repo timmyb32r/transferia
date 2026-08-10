@@ -1,39 +1,81 @@
 use alloc::sync::Arc;
 
+use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
-use crate::types::table_data::TableWrite;
+use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 
-/// Sink trait: writes accumulated Arrow batches to a destination.
-///
-/// The table name arrives **pre-resolved** inside [`TableWrite`] — the
-/// sink does not transform or suffix it. The sink is entirely unaware of
-/// provider-specific semantics.
-pub trait Sink: Send + Sync {
-    /// Write all batches of a [`TableWrite`] into the target table.
-    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DeliveryId(u64);
 
-    /// Downcast to concrete type for startup checks. Override in concrete sinks.
-    /// Default panics — only `ClickHouseSink` and `PoisoningSink` override this.
-    fn as_any(&self) -> &dyn core::any::Any;
+impl DeliveryId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
 
-    /// Max flush linger in milliseconds. `None` means the pipeline never flushes
-    /// on idle timeout — only on batch-size threshold. ClickHouse sinks return
-    /// `Some(...)` (default 500ms); other sinks return `None`.
-    fn max_linger_ms(&self) -> Option<u64> {
-        None
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
     }
 }
 
-/// Delegating impl: `Arc<dyn Sink>` is itself a `Sink`.
-impl Sink for Arc<dyn Sink> {
-    fn write(&self, write: TableWrite) -> BoxFuture<'_, anyhow::Result<()>> {
-        (**self).write(write)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeliveryMeta {
+    pub source_messages: u64,
+    pub source_bytes: u64,
+    pub first_offset: Option<i64>,
+    pub last_offset: Option<i64>,
+}
+
+#[derive(Debug)]
+pub struct SinkBatch {
+    pub table: Arc<str>,
+    pub batch: RecordBatch,
+    pub byte_size: usize,
+    pub memory: MemoryReservation,
+}
+
+impl SinkBatch {
+    #[must_use]
+    pub fn rows(&self) -> usize {
+        self.batch.num_rows()
     }
-    fn as_any(&self) -> &dyn core::any::Any {
-        (**self).as_any()
+
+    #[must_use]
+    pub const fn bytes(&self) -> usize {
+        self.byte_size
     }
-    fn max_linger_ms(&self) -> Option<u64> {
-        (**self).max_linger_ms()
-    }
+}
+
+#[derive(Debug)]
+pub struct Delivery {
+    pub id: DeliveryId,
+    pub outputs: Vec<SinkBatch>,
+    pub meta: DeliveryMeta,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SinkEvent {
+    CommittedThrough(DeliveryId),
+}
+
+pub struct SinkIo {
+    pub deliveries: mpsc::Receiver<Delivery>,
+    pub events: mpsc::Sender<SinkEvent>,
+    pub memory: PipelineMemory,
+    pub cancellation: CancellationToken,
+}
+
+/// A sink is a long-lived actor. Receiving a [`Delivery`] transfers ownership;
+/// durability is reported independently through [`SinkEvent`].
+pub trait Sink: Send {
+    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>>;
 }

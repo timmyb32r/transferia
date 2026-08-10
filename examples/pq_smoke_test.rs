@@ -1,4 +1,4 @@
-//! PQv1 smoke test. Uses the provider registry directly.
+//! `PQv1` smoke test. Uses the provider registry directly.
 //! Requires: `config_bench.yaml` with `source: { pqv1: { ... } }`
 
 #[tokio::main]

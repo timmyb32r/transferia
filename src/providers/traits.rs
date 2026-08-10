@@ -6,8 +6,10 @@ use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::yaml::{ParserConfig, SchemaConfig};
-use crate::pipeline::source::Source;
+use crate::metrics::SinkCounters;
+use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::Sink;
+use crate::pipeline::source::Source;
 
 // ---------------------------------------------------------------------------
 // SourceProvider
@@ -18,6 +20,7 @@ pub trait SourceProvider: Send + Sync {
         &self,
         partition_id: i64,
         cancel_token: CancellationToken,
+        memory: PipelineMemory,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
     fn discover_partitions(
@@ -42,7 +45,23 @@ pub trait SourceProvider: Send + Sync {
 // ---------------------------------------------------------------------------
 
 pub trait SinkProvider: Send + Sync {
-    fn build_sink(&self) -> BoxFuture<'_, anyhow::Result<Arc<dyn Sink>>>;
+    fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
+
+    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
+}
+
+pub struct SinkContext {
+    pub partition_id: i64,
+    pub counters: Arc<SinkCounters>,
+}
+
+pub struct SinkPrepare {
+    pub table: Arc<str>,
+    pub columns: Vec<(String, String)>,
+    pub order_by: Vec<String>,
+    pub dlq_table: Arc<str>,
+    pub dlq_columns: Vec<(String, String)>,
+    pub recreate: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -66,10 +85,15 @@ impl Default for ProviderRegistry {
 impl ProviderRegistry {
     #[must_use]
     pub fn new() -> Self {
-        Self { sources: HashMap::new(), sinks: HashMap::new() }
+        Self {
+            sources: HashMap::new(),
+            sinks: HashMap::new(),
+        }
     }
 
-    pub fn register_source<F: Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync + 'static>(
+    pub fn register_source<
+        F: Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync + 'static,
+    >(
         &mut self,
         name: &'static str,
         factory: F,
@@ -77,7 +101,9 @@ impl ProviderRegistry {
         self.sources.insert(name, Box::new(factory));
     }
 
-    pub fn register_sink<F: Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync + 'static>(
+    pub fn register_sink<
+        F: Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync + 'static,
+    >(
         &mut self,
         name: &'static str,
         factory: F,

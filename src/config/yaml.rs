@@ -11,9 +11,9 @@ pub struct Config {
     /// Drop+recreate tables on start (dev/bench only, off by default).
     #[serde(default)]
     pub recreate_tables: bool,
-    /// Pipeline: flush batch size (rows).
-    #[serde(default = "default_batch_size")]
-    pub sink_batch_size: usize,
+    /// Retained application bytes allowed per partition pipeline.
+    #[serde(default = "default_pipeline_memory_limit")]
+    pub pipeline_memory_limit_bytes: usize,
     /// Throughput + duty-cycle stats reporter (optional). Absent ⇒ no stats task.
     #[serde(default)]
     pub metrics: Option<MetricsConfig>,
@@ -350,9 +350,7 @@ pub struct MiddlewareConfig {
     pub value: Option<String>,
 }
 
-const fn default_batch_size() -> usize {
-    10000
-}
+const fn default_pipeline_memory_limit() -> usize { 256 * 1024 * 1024 }
 
 // ---------------------------------------------------------------------------
 // Arrow type parsing
