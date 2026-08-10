@@ -13,10 +13,10 @@
 //! snapshots the registry every `interval_ms` and prints a per-partition
 //! (or aggregated) line via `tracing::info!`.
 
-use std::collections::HashMap;
 use core::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use core::time::Duration;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use alloc::sync::Arc;
@@ -54,25 +54,35 @@ impl SourceCounters {
     }
 
     #[inline]
-    pub fn add_messages(&self, n: u64) { self.messages.fetch_add(n, RELAXED); }
+    pub fn add_messages(&self, n: u64) {
+        self.messages.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_compressed_bytes(&self, n: u64) { self.compressed_bytes.fetch_add(n, RELAXED); }
+    pub fn add_compressed_bytes(&self, n: u64) {
+        self.compressed_bytes.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_decompressed_bytes(&self, n: u64) { self.decompressed_bytes.fetch_add(n, RELAXED); }
+    pub fn add_decompressed_bytes(&self, n: u64) {
+        self.decompressed_bytes.fetch_add(n, RELAXED);
+    }
     /// Downloader busy = time a `Read` request is in-flight (`stream.message().await`).
     #[inline]
     pub fn add_download_busy(&self, d: Duration) {
-        self.download_busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
+        self.download_busy_nanos
+            .fetch_add(d.as_nanos() as u64, RELAXED);
     }
     /// Decompressor busy = time inside `decompress()`.
     #[inline]
     pub fn add_decomp_busy(&self, d: Duration) {
-        self.decomp_busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
+        self.decomp_busy_nanos
+            .fetch_add(d.as_nanos() as u64, RELAXED);
     }
 }
 
 impl Default for SourceCounters {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Per-partition parser-output counters. Filled by the parser thread after
@@ -99,22 +109,33 @@ impl ParseCounters {
     }
 
     #[inline]
-    pub fn add_rows(&self, n: u64) { self.rows.fetch_add(n, RELAXED); }
+    pub fn add_rows(&self, n: u64) {
+        self.rows.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_arrow_bytes(&self, n: u64) { self.arrow_bytes.fetch_add(n, RELAXED); }
+    pub fn add_arrow_bytes(&self, n: u64) {
+        self.arrow_bytes.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_dlq_rows(&self, n: u64) { self.dlq_rows.fetch_add(n, RELAXED); }
+    pub fn add_dlq_rows(&self, n: u64) {
+        self.dlq_rows.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_unique_offsets(&self, n: u64) { self.unique_offsets.fetch_add(n, RELAXED); }
+    pub fn add_unique_offsets(&self, n: u64) {
+        self.unique_offsets.fetch_add(n, RELAXED);
+    }
     /// Parser busy = time in `parse_read_item` + `guard_middlewares`.
     #[inline]
     pub fn add_parse_busy(&self, d: Duration) {
-        self.parse_busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
+        self.parse_busy_nanos
+            .fetch_add(d.as_nanos() as u64, RELAXED);
     }
 }
 
 impl Default for ParseCounters {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Counters for one partition's sink output.
@@ -142,13 +163,21 @@ impl SinkCounters {
     }
 
     #[inline]
-    pub fn add_rows(&self, n: u64) { self.rows.fetch_add(n, RELAXED); }
+    pub fn add_rows(&self, n: u64) {
+        self.rows.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_bytes(&self, n: u64) { self.bytes.fetch_add(n, RELAXED); }
+    pub fn add_bytes(&self, n: u64) {
+        self.bytes.fetch_add(n, RELAXED);
+    }
     #[inline]
-    pub fn add_flush(&self) { self.flushes.fetch_add(1, RELAXED); }
+    pub fn add_flush(&self) {
+        self.flushes.fetch_add(1, RELAXED);
+    }
     #[inline]
-    pub fn add_unique_offsets(&self, n: u64) { self.unique_offsets.fetch_add(n, RELAXED); }
+    pub fn add_unique_offsets(&self, n: u64) {
+        self.unique_offsets.fetch_add(n, RELAXED);
+    }
     /// Sink busy excludes buffering and retry backoff, so it remains a direct
     /// measure of time occupied by `ClickHouse` INSERT attempts.
     #[inline]
@@ -157,19 +186,31 @@ impl SinkCounters {
     }
 
     #[must_use]
-    pub fn rows_total(&self) -> u64 { self.rows.load(RELAXED) }
+    pub fn rows_total(&self) -> u64 {
+        self.rows.load(RELAXED)
+    }
     #[must_use]
-    pub fn bytes_total(&self) -> u64 { self.bytes.load(RELAXED) }
+    pub fn bytes_total(&self) -> u64 {
+        self.bytes.load(RELAXED)
+    }
     #[must_use]
-    pub fn flushes_total(&self) -> u64 { self.flushes.load(RELAXED) }
+    pub fn flushes_total(&self) -> u64 {
+        self.flushes.load(RELAXED)
+    }
     #[must_use]
-    pub fn source_messages_total(&self) -> u64 { self.unique_offsets.load(RELAXED) }
+    pub fn source_messages_total(&self) -> u64 {
+        self.unique_offsets.load(RELAXED)
+    }
     #[must_use]
-    pub fn busy_nanos_total(&self) -> u64 { self.busy_nanos.load(RELAXED) }
+    pub fn busy_nanos_total(&self) -> u64 {
+        self.busy_nanos.load(RELAXED)
+    }
 }
 
 impl Default for SinkCounters {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -262,54 +303,103 @@ pub struct MetricsRegistry {
 }
 
 impl Default for MetricsRegistry {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MetricsRegistry {
     #[must_use]
-    pub fn new() -> Self { Self { inner: Mutex::new(HashMap::new()) } }
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
+    }
 
-    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the MutexGuard must outlive the entry borrow it hands out"
+    )]
     pub fn register_source(&self, partition_id: i64, c: Arc<SourceCounters>) {
-        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut m = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
+            has_parser: false,
+            has_eo_key: false,
+            source: None,
+            parse: None,
+            sink: None,
         });
         entry.source = Some(c);
     }
 
-    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the MutexGuard must outlive the entry borrow it hands out"
+    )]
     pub fn register_parse(&self, partition_id: i64, has_parser: bool, c: Arc<ParseCounters>) {
-        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut m = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
+            has_parser: false,
+            has_eo_key: false,
+            source: None,
+            parse: None,
+            sink: None,
         });
         entry.has_parser = has_parser;
         entry.parse = Some(c);
     }
 
-    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the MutexGuard must outlive the entry borrow it hands out"
+    )]
     pub fn register_sink(&self, partition_id: i64, c: Arc<SinkCounters>) {
-        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut m = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
+            has_parser: false,
+            has_eo_key: false,
+            source: None,
+            parse: None,
+            sink: None,
         });
         entry.sink = Some(c);
     }
 
     /// Mark whether exactly-once keys are active for this partition. When false,
     /// the stats line shows `uniq off/s: unknown (absent exactly_once_keys)`.
-    #[expect(clippy::significant_drop_tightening, reason = "the MutexGuard must outlive the entry borrow it hands out")]
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the MutexGuard must outlive the entry borrow it hands out"
+    )]
     pub fn set_eo_key(&self, partition_id: i64, active: bool) {
-        let mut m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut m = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false, has_eo_key: false, source: None, parse: None, sink: None,
+            has_parser: false,
+            has_eo_key: false,
+            source: None,
+            parse: None,
+            sink: None,
         });
         entry.has_eo_key = active;
     }
 
     fn snapshot(&self) -> Vec<PartitionSnapshot> {
-        let m = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let m = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         m.iter()
             .map(|(pid, pm)| PartitionSnapshot {
                 pid: *pid,
@@ -337,7 +427,8 @@ pub fn spawn_stats_reporter(
     tokio::spawn(async move {
         let interval = Duration::from_millis(interval_ms.max(1));
         // last snapshot per partition: (source, parse, time)
-        let mut last: HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)> = HashMap::new();
+        let mut last: HashMap<i64, (SourceSnapshot, ParseSnapshot, SinkSnapshot, Instant)> =
+            HashMap::new();
         let mut primed = false;
         let mut proc_stats = ProcessStats::new();
         loop {
@@ -349,7 +440,15 @@ pub fn spawn_stats_reporter(
             // First tick: prime snapshots so the next tick has a real delta.
             if !primed {
                 for pm in &parts {
-                    last.insert(pm.pid, (src_snap(pm.source.as_ref()), parse_snap(pm.parse.as_ref()), sink_snap(pm.sink.as_ref()), now));
+                    last.insert(
+                        pm.pid,
+                        (
+                            src_snap(pm.source.as_ref()),
+                            parse_snap(pm.parse.as_ref()),
+                            sink_snap(pm.sink.as_ref()),
+                            now,
+                        ),
+                    );
                 }
                 primed = true;
                 continue;
@@ -360,13 +459,28 @@ pub fn spawn_stats_reporter(
                     let cur_src = src_snap(pm.source.as_ref());
                     let cur_parse = parse_snap(pm.parse.as_ref());
                     let cur_sink = sink_snap(pm.sink.as_ref());
-                    let (psrc, pparse, psink, ptime) =
-                        last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, cur_sink, now));
+                    let (psrc, pparse, psink, ptime) = last
+                        .get(&pm.pid)
+                        .copied()
+                        .unwrap_or((cur_src, cur_parse, cur_sink, now));
                     let wall_ns = now.saturating_duration_since(ptime).as_nanos() as u64;
                     if wall_ns > 0 {
                         tracing::info!(
                             "{}",
-                            format_line(pm.pid, pm.has_parser, pm.has_eo_key, cur_src, psrc, cur_parse, pparse, cur_sink, psink, wall_ns, cpu_pct, rss)
+                            format_line(
+                                pm.pid,
+                                pm.has_parser,
+                                pm.has_eo_key,
+                                cur_src,
+                                psrc,
+                                cur_parse,
+                                pparse,
+                                cur_sink,
+                                psink,
+                                wall_ns,
+                                cpu_pct,
+                                rss
+                            )
                         );
                     }
                     last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
@@ -401,7 +515,10 @@ fn aggregate_line(
         let cur_src = src_snap(pm.source.as_ref());
         let cur_parse = parse_snap(pm.parse.as_ref());
         let cur_sink = sink_snap(pm.sink.as_ref());
-        let (psrc, pparse, psink, ptime) = last.get(&pm.pid).copied().unwrap_or((cur_src, cur_parse, cur_sink, now));
+        let (psrc, pparse, psink, ptime) = last
+            .get(&pm.pid)
+            .copied()
+            .unwrap_or((cur_src, cur_parse, cur_sink, now));
         let wall = now.saturating_duration_since(ptime).as_nanos() as u64;
         if wall > 0 {
             s.messages += cur_src.messages - psrc.messages;
@@ -429,7 +546,16 @@ fn aggregate_line(
         return None;
     }
     // Average busy% across partitions: total busy / sum of per-partition walls.
-    Some(format_line_avg(s, p, k, any_parser, any_eo_key, wall_ns_sum, cpu_pct, rss))
+    Some(format_line_avg(
+        s,
+        p,
+        k,
+        any_parser,
+        any_eo_key,
+        wall_ns_sum,
+        cpu_pct,
+        rss,
+    ))
 }
 
 fn format_line(
@@ -450,8 +576,14 @@ fn format_line(
     let d_msg = cur_src.messages - prev_src.messages;
     let d_comp = cur_src.compressed_bytes - prev_src.compressed_bytes;
     let d_decomp = cur_src.decompressed_bytes - prev_src.decompressed_bytes;
-    let dl_pct = pct(cur_src.download_busy_nanos - prev_src.download_busy_nanos, wall_ns);
-    let decomp_pct = pct(cur_src.decomp_busy_nanos - prev_src.decomp_busy_nanos, wall_ns);
+    let dl_pct = pct(
+        cur_src.download_busy_nanos - prev_src.download_busy_nanos,
+        wall_ns,
+    );
+    let decomp_pct = pct(
+        cur_src.decomp_busy_nanos - prev_src.decomp_busy_nanos,
+        wall_ns,
+    );
     let source_part = format!(
         "yds: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
         ((d_msg as f64) / sec) as u64,
@@ -475,7 +607,10 @@ fn format_line(
         let d_arrow = cur_parse.arrow_bytes - prev_parse.arrow_bytes;
         let d_dlq = cur_parse.dlq_rows - prev_parse.dlq_rows;
         let d_uniq = cur_parse.unique_offsets - prev_parse.unique_offsets;
-        let parse_pct = pct(cur_parse.parse_busy_nanos - prev_parse.parse_busy_nanos, wall_ns);
+        let parse_pct = pct(
+            cur_parse.parse_busy_nanos - prev_parse.parse_busy_nanos,
+            wall_ns,
+        );
         format!(
             "parse: {} rows/s | {} arrow | {} dlq/s | {} | {}% busy",
             ((d_rows as f64) / sec) as u64,
@@ -500,7 +635,11 @@ fn format_line(
         uniq_off_fmt(d_sink_uniq),
         sink_pct,
     );
-    format!("[stats p={pid}] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}", cpu_pct, fmt_rss(rss))
+    format!(
+        "[stats p={pid}] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",
+        cpu_pct,
+        fmt_rss(rss)
+    )
 }
 
 fn format_line_avg(
@@ -555,12 +694,20 @@ fn format_line_avg(
         uniq_off_str(k.unique_offsets),
         sink_pct,
     );
-    format!("[stats] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}", cpu_pct, fmt_rss(rss))
+    format!(
+        "[stats] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",
+        cpu_pct,
+        fmt_rss(rss)
+    )
 }
 
 #[inline]
 fn pct(busy: u64, wall: u64) -> u64 {
-    if wall == 0 { 0 } else { (busy as f64 * 100.0 / wall as f64) as u64 }
+    if wall == 0 {
+        0
+    } else {
+        (busy as f64 * 100.0 / wall as f64) as u64
+    }
 }
 
 /// Human-readable byte rate, IEC 1024-based.
@@ -569,10 +716,15 @@ pub fn fmt_bytes(bps: f64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
     const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    if bps >= GIB { format!("{:.1} GiB/s", bps / GIB) }
-    else if bps >= MIB { format!("{:.1} MiB/s", bps / MIB) }
-    else if bps >= KIB { format!("{:.1} KiB/s", bps / KIB) }
-    else { format!("{bps:.0} B/s") }
+    if bps >= GIB {
+        format!("{:.1} GiB/s", bps / GIB)
+    } else if bps >= MIB {
+        format!("{:.1} MiB/s", bps / MIB)
+    } else if bps >= KIB {
+        format!("{:.1} KiB/s", bps / KIB)
+    } else {
+        format!("{bps:.0} B/s")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -596,8 +748,7 @@ impl ProcessStats {
     #[must_use]
     pub fn new() -> Self {
         let clock_ticks_per_sec = sysconf_clock_ticks();
-        let num_cpus = std::thread::available_parallelism()
-            .map_or(1, |n| n.get() as u64);
+        let num_cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u64);
         let (utime, stime) = read_proc_stat();
         Self {
             prev_utime: utime,
@@ -623,7 +774,8 @@ impl ProcessStats {
 
         let cpu_pct = if wall_ns > 0 && self.clock_ticks_per_sec > 0 {
             // Fraction of one core used. Multiply by 100 for percent.
-            let cpu_nanos = cpu_delta_ticks.saturating_mul(1_000_000_000) / self.clock_ticks_per_sec;
+            let cpu_nanos =
+                cpu_delta_ticks.saturating_mul(1_000_000_000) / self.clock_ticks_per_sec;
             cpu_nanos * 100 / wall_ns
         } else {
             0
@@ -635,7 +787,9 @@ impl ProcessStats {
 }
 
 impl Default for ProcessStats {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn read_proc_stat() -> (u64, u64) {
@@ -664,7 +818,8 @@ fn read_proc_rss() -> u64 {
             for line in s.lines() {
                 if line.starts_with("VmRSS:") {
                     // Format: "VmRSS:   123456 kB"
-                    return line.split_whitespace()
+                    return line
+                        .split_whitespace()
                         .nth(1)
                         .and_then(|v| v.parse::<u64>().ok())
                         .unwrap_or(0)
@@ -689,11 +844,17 @@ fn fmt_rss(bytes: u64) -> String {
     const GIB: u64 = 1024 * 1024 * 1024;
     const MIB: u64 = 1024 * 1024;
     const KIB: u64 = 1024;
-    if bytes >= GIB { format!("{:.1} GiB", bytes as f64 / GIB as f64) }
-    else if bytes >= MIB { format!("{:.0} MiB", bytes as f64 / MIB as f64) }
-    else if bytes >= KIB { format!("{:.0} KiB", bytes as f64 / KIB as f64) }
-    else if bytes > 0 { format!("{bytes} B") }
-    else { "N/A".to_string() }
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB as f64)
+    } else if bytes >= MIB {
+        format!("{:.0} MiB", bytes as f64 / MIB as f64)
+    } else if bytes >= KIB {
+        format!("{:.0} KiB", bytes as f64 / KIB as f64)
+    } else if bytes > 0 {
+        format!("{bytes} B")
+    } else {
+        "N/A".to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------

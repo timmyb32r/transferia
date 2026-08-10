@@ -4,10 +4,10 @@
 //! proxy → `InitResponse` → Assigned → `StartRead` → `DataBatch`. Transport is HTTP/2 with
 //! prior knowledge (Go-compatible), bridged into tonic via a small `tower::Service`.
 
-use std::collections::{HashMap, HashSet};
-use core::pin::Pin;
 use alloc::sync::Arc;
+use core::pin::Pin;
 use core::task::{Context, Poll};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 use bytes::Bytes;
@@ -32,9 +32,8 @@ use crate::types::exactly_once::PartitionKey;
 use crate::types::message::{Message, MessageBatch};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
-    migration_streaming_read_server_message,
-    CommitCookie, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
-    ReadParams,
+    migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
+    MigrationStreamingReadServerMessage, ReadParams,
 };
 
 /// `Ydb.StatusIds.SUCCESS`. Status codes live in the reserved range [400000, 400999];
@@ -65,7 +64,8 @@ struct H2Service {
 impl tower::Service<http::Request<tonic::body::Body>> for H2Service {
     type Response = http::Response<hyper::body::Incoming>;
     type Error = hyper::Error;
-    type Future = Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future =
+        Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -83,12 +83,14 @@ async fn connect_http2_prior_knowledge(uri: &Uri) -> anyhow::Result<H2Service> {
     let port = uri.port_u16().unwrap_or(2135);
     let addr = format!("{host}:{port}");
 
-    let stream = tokio::net::TcpStream::connect(&addr).await
+    let stream = tokio::net::TcpStream::connect(&addr)
+        .await
         .map_err(|e| anyhow!("TCP connect to {addr}: {e}"))?;
     stream.set_nodelay(true)?;
 
     let io = hyper_util::rt::TokioIo::new(stream);
-    let (send_request, conn) = http2::handshake(hyper_util::rt::TokioExecutor::new(), io).await
+    let (send_request, conn) = http2::handshake(hyper_util::rt::TokioExecutor::new(), io)
+        .await
         .map_err(|e| anyhow!("HTTP/2 handshake failed: {e}"))?;
     tokio::spawn(async move {
         if let Err(e) = conn.await {
@@ -97,7 +99,9 @@ async fn connect_http2_prior_knowledge(uri: &Uri) -> anyhow::Result<H2Service> {
     });
 
     tracing::debug!("HTTP/2 prior-knowledge connection to {}", addr);
-    Ok(H2Service { inner: send_request })
+    Ok(H2Service {
+        inner: send_request,
+    })
 }
 
 /// Attach the YDB auth/routing headers that Logbroker expects on every call.
@@ -105,9 +109,18 @@ fn set_ydb_headers(md: &mut MetadataMap, token: &str) {
     if let Ok(v) = AsciiMetadataValue::try_from(token) {
         md.insert("x-ydb-auth-ticket", v);
     }
-    md.insert("x-ydb-database", AsciiMetadataValue::from_static(YDB_DATABASE));
-    md.insert("x-ydb-sdk-build-info", AsciiMetadataValue::from_static("go-sdk-2021.04.1"));
-    md.insert("user-agent", AsciiMetadataValue::from_static("grpc-go/1.80.0"));
+    md.insert(
+        "x-ydb-database",
+        AsciiMetadataValue::from_static(YDB_DATABASE),
+    );
+    md.insert(
+        "x-ydb-sdk-build-info",
+        AsciiMetadataValue::from_static("go-sdk-2021.04.1"),
+    );
+    md.insert(
+        "user-agent",
+        AsciiMetadataValue::from_static("grpc-go/1.80.0"),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -115,27 +128,41 @@ fn set_ydb_headers(md: &mut MetadataMap, token: &str) {
 // ---------------------------------------------------------------------------
 
 #[must_use]
-pub const fn group_to_partition(group: i64) -> i64 { group }
+pub const fn group_to_partition(group: i64) -> i64 {
+    group
+}
 #[must_use]
-pub const fn partition_to_group(partition: i64) -> i64 { partition }
+pub const fn partition_to_group(partition: i64) -> i64 {
+    partition
+}
 
 /// Parse a connection string into `(scheme, host, database)`. `database` is derived from
 /// the path/query for compatibility but is not authoritative — the cluster DB is `YDB_DATABASE`.
 pub fn parse_endpoint(conn_str: &str) -> anyhow::Result<(String, String, String)> {
-    let uri: Uri = conn_str.parse()
+    let uri: Uri = conn_str
+        .parse()
         .map_err(|e| anyhow!("Invalid connection string '{conn_str}': {e}"))?;
     let scheme = uri.scheme_str().unwrap_or("grpc").to_string();
-    let host = uri.authority().map_or("localhost:2135", |a| a.as_str()).to_string();
+    let host = uri
+        .authority()
+        .map_or("localhost:2135", |a| a.as_str())
+        .to_string();
     let database = {
         let path = uri.path().trim_start_matches('/').to_string();
-        if path.is_empty() { YDB_DATABASE.to_string() } else { format!("/{path}") }
+        if path.is_empty() {
+            YDB_DATABASE.to_string()
+        } else {
+            format!("/{path}")
+        }
     };
     Ok((scheme, host, database))
 }
 
 fn http_uri(scheme: &str, host: &str) -> anyhow::Result<Uri> {
     let s = if scheme == "grpcs" { "https" } else { "http" };
-    format!("{s}://{host}").parse().map_err(|e| anyhow!("bad uri {s}://{host}: {e}"))
+    format!("{s}://{host}")
+        .parse()
+        .map_err(|e| anyhow!("bad uri {s}://{host}: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -233,13 +260,23 @@ async fn discover_proxy(main_uri: &Uri, token: &str) -> anyhow::Result<String> {
     let h2 = connect_http2_prior_knowledge(main_uri).await?;
     let mut grpc = tonic::client::Grpc::<H2Service>::with_origin(h2, main_uri.clone());
 
-    let mut req = Request::new(ListEndpointsRequest { database: YDB_DATABASE.to_string(), service: vec![] });
+    let mut req = Request::new(ListEndpointsRequest {
+        database: YDB_DATABASE.to_string(),
+        service: vec![],
+    });
     set_ydb_headers(req.metadata_mut(), token);
 
-    grpc.ready().await.map_err(|e| anyhow!("ListEndpoints ready: {e}"))?;
-    let path = http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/ListEndpoints");
+    grpc.ready()
+        .await
+        .map_err(|e| anyhow!("ListEndpoints ready: {e}"))?;
+    let path =
+        http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/ListEndpoints");
     let resp: GetOperationResponse = grpc
-        .unary(req, path, tonic_prost::ProstCodec::<ListEndpointsRequest, GetOperationResponse>::default())
+        .unary(
+            req,
+            path,
+            tonic_prost::ProstCodec::<ListEndpointsRequest, GetOperationResponse>::default(),
+        )
         .await
         .map_err(|e| anyhow!("ListEndpoints failed: {e}"))?
         .into_inner();
@@ -254,15 +291,19 @@ async fn discover_proxy(main_uri: &Uri, token: &str) -> anyhow::Result<String> {
     }
     let result = op.result.ok_or_else(|| anyhow!("no result"))?;
     let eps = ListEndpointsResult::decode(result.value.as_slice())?;
-    eps.endpoints.first()
+    eps.endpoints
+        .first()
         .map(|e| format!("{}:{}", e.address, e.port))
         .ok_or_else(|| anyhow!("no endpoints"))
 }
 
 impl PqV1Client {
     pub async fn connect(
-        endpoint: &str, topic_path: &str, consumer: &str,
-        token: &str, partition_group_ids: &[i64],
+        endpoint: &str,
+        topic_path: &str,
+        consumer: &str,
+        token: &str,
+        partition_group_ids: &[i64],
         source_counters: Arc<SourceCounters>,
         cancel_token: CancellationToken,
         drop_before_decompress: bool,
@@ -280,22 +321,42 @@ impl PqV1Client {
             }
         };
         let target_uri = http_uri(&scheme, &proxy)?;
-        tracing::info!("PQv1 connecting: proxy={} topic={} consumer={}", proxy, topic_path, consumer);
+        tracing::info!(
+            "PQv1 connecting: proxy={} topic={} consumer={}",
+            proxy,
+            topic_path,
+            consumer
+        );
 
         // Step 2: open the bidi stream on the proxy.
         let h2_service = connect_http2_prior_knowledge(&target_uri).await?;
 
         let (request_tx, request_rx) = mpsc::unbounded_channel();
         request_tx.send(MigrationStreamingReadClientMessage {
-            request: Some(migration_streaming_read_client_message::Request::InitRequest(InitRequest {
-                topics_read_settings: vec![TopicReadSettings {
-                    topic: topic_path.to_string(), partition_group_ids: vec![], start_from_written_at_ms: 0,
-                }],
-                consumer: consumer.to_string(), read_only_original: false, max_lag_duration_ms: 0,
-                start_from_written_at_ms: 0, max_supported_block_format_version: 0, max_meta_cache_size: 0,
-                read_params: Some(ReadParams { max_read_messages_count: 0, max_read_size: 1_048_576 }),
-                session_id: String::new(), connection_attempt: 0, state: None, idle_timeout_ms: 0, ranges_mode: false,
-            })),
+            request: Some(
+                migration_streaming_read_client_message::Request::InitRequest(InitRequest {
+                    topics_read_settings: vec![TopicReadSettings {
+                        topic: topic_path.to_string(),
+                        partition_group_ids: vec![],
+                        start_from_written_at_ms: 0,
+                    }],
+                    consumer: consumer.to_string(),
+                    read_only_original: false,
+                    max_lag_duration_ms: 0,
+                    start_from_written_at_ms: 0,
+                    max_supported_block_format_version: 0,
+                    max_meta_cache_size: 0,
+                    read_params: Some(ReadParams {
+                        max_read_messages_count: 0,
+                        max_read_size: 1_048_576,
+                    }),
+                    session_id: String::new(),
+                    connection_attempt: 0,
+                    state: None,
+                    idle_timeout_ms: 0,
+                    ranges_mode: false,
+                }),
+            ),
             token: token.as_bytes().to_vec(),
         })?;
 
@@ -305,18 +366,33 @@ impl PqV1Client {
         let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
             .max_decoding_message_size(MAX_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
-        grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {e}"))?;
-        let path = http::uri::PathAndQuery::from_static("/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead");
-        let codec = tonic_prost::ProstCodec::<MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage>::default();
-        let response_stream = grpc.streaming(req, path, codec).await
+        grpc.ready()
+            .await
+            .map_err(|e| anyhow!("grpc not ready: {e}"))?;
+        let path = http::uri::PathAndQuery::from_static(
+            "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
+        );
+        let codec = tonic_prost::ProstCodec::<
+            MigrationStreamingReadClientMessage,
+            MigrationStreamingReadServerMessage,
+        >::default();
+        let response_stream = grpc
+            .streaming(req, path, codec)
+            .await
             .map_err(|e| anyhow!("MigrationStreamingRead failed: {e}"))?
             .into_inner();
 
         // Per-partition queues for the partitions we own.
-        let assigned: HashSet<i64> = partition_group_ids.iter().map(|&g| group_to_partition(g)).collect();
+        let assigned: HashSet<i64> = partition_group_ids
+            .iter()
+            .map(|&g| group_to_partition(g))
+            .collect();
         let mut pqs = HashMap::with_capacity(assigned.len());
         let mut prs = HashMap::with_capacity(assigned.len());
-        #[expect(clippy::iter_over_hash_type, reason = "partition ids come from a set built from the static config; order is irrelevant")]
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "partition ids come from a set built from the static config; order is irrelevant"
+        )]
         for &pid in &assigned {
             let (tx, rx) = mpsc::channel(PARTITION_CHANNEL_CAP);
             pqs.insert(pid, tx);
@@ -343,16 +419,25 @@ impl PqV1Client {
             let mut buffer: HashMap<u64, DecodedBatch> = HashMap::new();
             let mut rx = decoded_rx;
             loop {
-                if merge_token.is_cancelled() { break; }
-                let Some(batch) = rx.recv().await else { break; };
+                if merge_token.is_cancelled() {
+                    break;
+                }
+                let Some(batch) = rx.recv().await else {
+                    break;
+                };
                 buffer.insert(batch.seq, batch);
                 while let Some(b) = buffer.remove(&next_seq) {
                     for DecodedPart { pid, msgs } in b.parts {
                         let tx = merge_inner.partition_queues.lock().await.get(&pid).cloned();
-                        let Some(tx) = tx else { continue; };
+                        let Some(tx) = tx else {
+                            continue;
+                        };
                         let mut closed = false;
                         for msg in msgs {
-                            if tx.send(msg).await.is_err() { closed = true; break; }
+                            if tx.send(msg).await.is_err() {
+                                closed = true;
+                                break;
+                            }
                         }
                         if closed {
                             // Receiver dropped (shutdown) — remove the dead
@@ -410,23 +495,40 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::Assigned(a)) => {
-                        #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
+                        #[expect(
+                            clippy::cast_possible_wrap,
+                            reason = "partition ids from YDB always fit in i64"
+                        )]
                         let pid = a.partition as i64;
                         if !assigned.contains(&pid) {
                             tracing::debug!("PQv1 skip unassigned partition={}", pid);
                             continue;
                         }
-                        tracing::debug!("PQv1 lock partition={} read_offset={} end_offset={}", pid, a.read_offset, a.end_offset);
-                        if request_tx.send(MigrationStreamingReadClientMessage {
-                            request: Some(migration_streaming_read_client_message::Request::StartRead(
-                                migration_streaming_read_client_message::StartRead {
-                                    topic: a.topic, cluster: a.cluster, partition: a.partition,
-                                    assign_id: a.assign_id, read_offset: a.read_offset,
-                                    commit_offset: a.read_offset, verify_read_offset: true,
-                                },
-                            )),
-                            token: Vec::new(),
-                        }).is_err() {
+                        tracing::debug!(
+                            "PQv1 lock partition={} read_offset={} end_offset={}",
+                            pid,
+                            a.read_offset,
+                            a.end_offset
+                        );
+                        if request_tx
+                            .send(MigrationStreamingReadClientMessage {
+                                request: Some(
+                                    migration_streaming_read_client_message::Request::StartRead(
+                                        migration_streaming_read_client_message::StartRead {
+                                            topic: a.topic,
+                                            cluster: a.cluster,
+                                            partition: a.partition,
+                                            assign_id: a.assign_id,
+                                            read_offset: a.read_offset,
+                                            commit_offset: a.read_offset,
+                                            verify_read_offset: true,
+                                        },
+                                    ),
+                                ),
+                                token: Vec::new(),
+                            })
+                            .is_err()
+                        {
                             tracing::warn!("PQv1 request channel closed; stopping stream");
                             break;
                         }
@@ -442,14 +544,19 @@ impl PqV1Client {
                                     }
                                 }
                             }
-                            if request_tx.send(read_request()).is_err() { break; }
+                            if request_tx.send(read_request()).is_err() {
+                                break;
+                            }
                             continue;
                         }
                         let seq = seq_counter;
                         seq_counter += 1;
                         let mut parts: Vec<RawPart> = Vec::with_capacity(db.partition_data.len());
                         for pd in db.partition_data {
-                            #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
+                            #[expect(
+                                clippy::cast_possible_wrap,
+                                reason = "partition ids from YDB always fit in i64"
+                            )]
                             let pid = pd.partition as i64;
                             let cookie = pd.cookie;
                             let mut msgs = Vec::new();
@@ -470,11 +577,20 @@ impl PqV1Client {
                             }
                         }
                         if parts.is_empty() {
-                            if request_tx.send(read_request()).is_err() { break; }
+                            if request_tx.send(read_request()).is_err() {
+                                break;
+                            }
                             continue;
                         }
-                        let peak_bytes = parts.iter().flat_map(|part| &part.msgs)
-                            .map(|message| message.data.len().saturating_add(message.uncompressed_size as usize))
+                        let peak_bytes = parts
+                            .iter()
+                            .flat_map(|part| &part.msgs)
+                            .map(|message| {
+                                message
+                                    .data
+                                    .len()
+                                    .saturating_add(message.uncompressed_size as usize)
+                            })
                             .fold(0_usize, usize::saturating_add);
                         let reservation = memory.reserve(peak_bytes).await;
                         let Ok(slot) = Arc::clone(&decompress_slots).acquire_owned().await else {
@@ -486,17 +602,28 @@ impl PqV1Client {
                             let _slot = slot;
                             let mut dec_parts: Vec<DecodedPart> = Vec::with_capacity(parts.len());
                             for RawPart { pid, cookie, msgs } in parts {
-                                let mut decoded: Vec<DecodedMessage> = Vec::with_capacity(msgs.len());
+                                let mut decoded: Vec<DecodedMessage> =
+                                    Vec::with_capacity(msgs.len());
                                 for rm in msgs {
                                     let decomp_start = std::time::Instant::now();
                                     match decompress(rm.data, rm.codec, rm.uncompressed_size) {
                                         Ok(data) => {
                                             sc.add_decomp_busy(decomp_start.elapsed());
                                             sc.add_decompressed_bytes(data.len() as u64);
-                                            decoded.push(DecodedMessage { data, cookie, offset: rm.offset, memory: reservation.clone() });
+                                            decoded.push(DecodedMessage {
+                                                data,
+                                                cookie,
+                                                offset: rm.offset,
+                                                memory: reservation.clone(),
+                                            });
                                         }
                                         Err(e) => {
-                                            tracing::error!("PQv1 decompress failed: codec={} offset={}: {}", rm.codec, rm.offset, e);
+                                            tracing::error!(
+                                                "PQv1 decompress failed: codec={} offset={}: {}",
+                                                rm.codec,
+                                                rm.offset,
+                                                e
+                                            );
                                         }
                                     }
                                 }
@@ -507,7 +634,10 @@ impl PqV1Client {
                             // would stall every later batch in the reorder buffer.
                             // A send error means the merge channel closed (shutdown);
                             // the result is intentionally ignored.
-                            let _send = decoded_tx_w.blocking_send(DecodedBatch { seq, parts: dec_parts });
+                            let _send = decoded_tx_w.blocking_send(DecodedBatch {
+                                seq,
+                                parts: dec_parts,
+                            });
                         });
                         if request_tx.send(read_request()).is_err() {
                             tracing::warn!("PQv1 request channel closed; stopping stream");
@@ -552,7 +682,11 @@ impl PqV1Client {
         match stream.message().await {
             Ok(Some(m)) => {
                 if m.status != YDB_STATUS_UNSPECIFIED && m.status != YDB_STATUS_SUCCESS {
-                    anyhow::bail!("discover_partitions: server status={}, issues={:?}", m.status, m.issues);
+                    anyhow::bail!(
+                        "discover_partitions: server status={}, issues={:?}",
+                        m.status,
+                        m.issues
+                    );
                 }
                 Ok(Some(m))
             }
@@ -578,7 +712,10 @@ impl PqV1Client {
                 true
             }
             Some(migration_streaming_read_server_message::Response::Assigned(a)) => {
-                #[expect(clippy::cast_possible_wrap, reason = "partition ids from YDB always fit in i64")]
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "partition ids from YDB always fit in i64"
+                )]
                 let pid = a.partition as i64;
                 tracing::debug!("discover_partitions: found partition={}", pid);
                 partition_ids.push(pid);
@@ -609,8 +746,7 @@ impl PqV1Client {
         // Steps 2-3: open the stream, send InitRequest, collect Assigned partitions.
         let (mut stream, request_tx) =
             Self::open_discovery_stream(&scheme, &proxy, topic_path, consumer, token).await?;
-        let partition_ids =
-            Self::collect_assigned_partitions(&mut stream, &request_tx).await?;
+        let partition_ids = Self::collect_assigned_partitions(&mut stream, &request_tx).await?;
 
         Ok(partition_ids)
     }
@@ -628,33 +764,39 @@ impl PqV1Client {
         tonic::Streaming<MigrationStreamingReadServerMessage>,
         mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
     )> {
-        tracing::info!("PQv1 discover_partitions: proxy={} topic={}", proxy, topic_path);
+        tracing::info!(
+            "PQv1 discover_partitions: proxy={} topic={}",
+            proxy,
+            topic_path
+        );
         let target_uri = http_uri(scheme, proxy)?;
         let h2_service = connect_http2_prior_knowledge(&target_uri).await?;
         let (request_tx, request_rx) = mpsc::unbounded_channel();
         request_tx.send(MigrationStreamingReadClientMessage {
-            request: Some(migration_streaming_read_client_message::Request::InitRequest(InitRequest {
-                topics_read_settings: vec![TopicReadSettings {
-                    topic: topic_path.to_string(),
-                    partition_group_ids: vec![],
+            request: Some(
+                migration_streaming_read_client_message::Request::InitRequest(InitRequest {
+                    topics_read_settings: vec![TopicReadSettings {
+                        topic: topic_path.to_string(),
+                        partition_group_ids: vec![],
+                        start_from_written_at_ms: 0,
+                    }],
+                    consumer: consumer.to_string(),
+                    read_only_original: false,
+                    max_lag_duration_ms: 0,
                     start_from_written_at_ms: 0,
-                }],
-                consumer: consumer.to_string(),
-                read_only_original: false,
-                max_lag_duration_ms: 0,
-                start_from_written_at_ms: 0,
-                max_supported_block_format_version: 0,
-                max_meta_cache_size: 0,
-                read_params: Some(ReadParams {
-                    max_read_messages_count: 0,
-                    max_read_size: 1_048_576,
+                    max_supported_block_format_version: 0,
+                    max_meta_cache_size: 0,
+                    read_params: Some(ReadParams {
+                        max_read_messages_count: 0,
+                        max_read_size: 1_048_576,
+                    }),
+                    session_id: String::new(),
+                    connection_attempt: 0,
+                    state: None,
+                    idle_timeout_ms: 0,
+                    ranges_mode: false,
                 }),
-                session_id: String::new(),
-                connection_attempt: 0,
-                state: None,
-                idle_timeout_ms: 0,
-                ranges_mode: false,
-            })),
+            ),
             token: token.as_bytes().to_vec(),
         })?;
 
@@ -664,7 +806,9 @@ impl PqV1Client {
         let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
             .max_decoding_message_size(MAX_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
-        grpc.ready().await.map_err(|e| anyhow!("grpc not ready: {e}"))?;
+        grpc.ready()
+            .await
+            .map_err(|e| anyhow!("grpc not ready: {e}"))?;
         let path = http::uri::PathAndQuery::from_static(
             "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
         );
@@ -709,14 +853,17 @@ impl PqV1Client {
     }
 
     pub fn commit(&self, _partition_id: i64, cookie: CommitCookie) -> anyhow::Result<()> {
-        self.inner.request_tx.send(MigrationStreamingReadClientMessage {
-            request: Some(migration_streaming_read_client_message::Request::Commit(
-                migration_streaming_read_client_message::Commit {
-                    cookies: vec![cookie], offset_ranges: vec![],
-                },
-            )),
-            token: Vec::new(),
-        })?;
+        self.inner
+            .request_tx
+            .send(MigrationStreamingReadClientMessage {
+                request: Some(migration_streaming_read_client_message::Request::Commit(
+                    migration_streaming_read_client_message::Commit {
+                        cookies: vec![cookie],
+                        offset_ranges: vec![],
+                    },
+                )),
+                token: Vec::new(),
+            })?;
         Ok(())
     }
 }
@@ -760,7 +907,12 @@ impl PqV1Source {
         partition_id: i64,
         config: YdsSourceConfig,
     ) -> Self {
-        Self { client, rx, partition_id, _config: config }
+        Self {
+            client,
+            rx,
+            partition_id,
+            _config: config,
+        }
     }
 }
 
@@ -768,7 +920,12 @@ impl Source for PqV1Source {
     fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
         Box::pin(async move {
             let Some(first) = self.rx.recv().await else {
-                return Ok(ReadResult::Batch(MessageBatch { messages: Vec::new(), partition_id: self.partition_id, commit_marker: None, memory: Vec::new() }));
+                return Ok(ReadResult::Batch(MessageBatch {
+                    messages: Vec::new(),
+                    partition_id: self.partition_id,
+                    commit_marker: None,
+                    memory: Vec::new(),
+                }));
             };
             let mut last_cookie: Option<CommitCookie> = first.cookie;
             let mut memory = vec![first.memory];
@@ -787,15 +944,28 @@ impl Source for PqV1Source {
                 });
             }
             let commit_marker = last_cookie.map(|cookie| {
-                CommitMarker::new(PqV1CommitMarker { partition_id: self.partition_id, cookie })
+                CommitMarker::new(PqV1CommitMarker {
+                    partition_id: self.partition_id,
+                    cookie,
+                })
             });
-            Ok(ReadResult::Batch(MessageBatch { messages, partition_id: self.partition_id, commit_marker, memory }))
+            Ok(ReadResult::Batch(MessageBatch {
+                messages,
+                partition_id: self.partition_id,
+                commit_marker,
+                memory,
+            }))
         })
     }
 
-    fn commit_offsets<'ctx>(&'ctx mut self, marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move {
-            let m = marker.downcast_ref::<PqV1CommitMarker>().ok_or_else(|| anyhow!("Invalid commit marker"))?;
+            let m = marker
+                .downcast_ref::<PqV1CommitMarker>()
+                .ok_or_else(|| anyhow!("Invalid commit marker"))?;
             self.client.commit(m.partition_id, m.cookie)
         })
     }

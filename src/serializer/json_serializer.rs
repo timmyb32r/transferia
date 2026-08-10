@@ -51,10 +51,9 @@ impl<'array> ColumnWriter<'array> {
     /// Returns `None` for unsupported types.
     fn classify(name: &str, array: &'array dyn Array) -> Option<(String, Self)> {
         use arrow::array::{
-            BooleanArray, Float32Array, Float64Array,
-            Int16Array, Int32Array, Int64Array, Int8Array,
-            LargeStringArray, StringArray,
-            UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+            BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
+            Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array, UInt64Array,
+            UInt8Array,
         };
 
         let dt = array.data_type();
@@ -79,8 +78,7 @@ impl<'array> ColumnWriter<'array> {
                 let a = array.as_any().downcast_ref::<Int32Array>()?;
                 ColumnWriter::Int32(a)
             }
-            DataType::Int64 | DataType::Date64
-            | DataType::Timestamp(_, _) => {
+            DataType::Int64 | DataType::Date64 | DataType::Timestamp(_, _) => {
                 let a = array.as_any().downcast_ref::<Int64Array>()?;
                 ColumnWriter::Int64(a)
             }
@@ -213,11 +211,13 @@ impl Serializer for JsonSerializer {
             .iter()
             .zip(batch.columns().iter())
             .map(|(field, col)| {
-                ColumnWriter::classify(field.name().as_str(), col.as_ref())
-                    .ok_or_else(|| anyhow::anyhow!(
+                ColumnWriter::classify(field.name().as_str(), col.as_ref()).ok_or_else(|| {
+                    anyhow::anyhow!(
                         "JsonSerializer: unsupported type {:?} for column '{}'",
-                        field.data_type(), field.name(),
-                    ))
+                        field.data_type(),
+                        field.name(),
+                    )
+                })
             })
             .collect::<anyhow::Result<_>>()?;
 
@@ -290,7 +290,7 @@ impl JsonSerializer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::{BooleanArray, Float64Array, Int64Array, StringBuilder, StringArray};
+    use arrow::array::{BooleanArray, Float64Array, Int64Array, StringArray, StringBuilder};
     use arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc;
 
@@ -349,10 +349,8 @@ mod tests {
         y_builder.append_value("hello");
         y_builder.append_null();
 
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![Arc::new(x_arr), Arc::new(y_builder.finish())],
-        )?;
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(x_arr), Arc::new(y_builder.finish())])?;
 
         // Default: skip_null_columns = false → nulls emitted as "col": null
         let serializer = JsonSerializer::default();
@@ -363,7 +361,10 @@ mod tests {
         anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
 
         let row2: serde_json::Value = serde_json::from_str(lines[1])?;
-        anyhow::ensure!(row2.get("y").is_some(), "null column should be present as \"y\": null");
+        anyhow::ensure!(
+            row2.get("y").is_some(),
+            "null column should be present as \"y\": null"
+        );
         anyhow::ensure!(row2["y"].is_null(), "y should be null");
         Ok(())
     }
@@ -379,10 +380,8 @@ mod tests {
         y_builder.append_value("hello");
         y_builder.append_null();
 
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![Arc::new(x_arr), Arc::new(y_builder.finish())],
-        )?;
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(x_arr), Arc::new(y_builder.finish())])?;
 
         // skip_null_columns = true → null keys elided
         let serializer = JsonSerializer::new(true);
@@ -393,7 +392,10 @@ mod tests {
         anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
 
         let row2: serde_json::Value = serde_json::from_str(lines[1])?;
-        anyhow::ensure!(row2.get("y").is_none(), "null column should be absent when skipped");
+        anyhow::ensure!(
+            row2.get("y").is_none(),
+            "null column should be absent when skipped"
+        );
         Ok(())
     }
 
@@ -438,17 +440,29 @@ mod tests {
             add_exactly_once_keys: false,
         };
 
-        let parser = crate::parsers::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
+        let parser =
+            crate::parsers::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
         let mut ws = crate::parsers::json_parser::ParserWorkspace::new();
-        let msgs = vec![crate::types::message::Message { value: output, offset: None, partition: None }];
+        let msgs = vec![crate::types::message::Message {
+            value: output,
+            offset: None,
+            partition: None,
+        }];
 
         let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws)?;
-        anyhow::ensure!(good.batch.num_rows() == 2, "roundtrip: 2 rows in \u{2192} 2 rows out");
-        let parsed_id_arr = good.batch.column(0)
+        anyhow::ensure!(
+            good.batch.num_rows() == 2,
+            "roundtrip: 2 rows in \u{2192} 2 rows out"
+        );
+        let parsed_id_arr = good
+            .batch
+            .column(0)
             .as_any()
             .downcast_ref::<Int64Array>()
             .ok_or_else(|| anyhow::anyhow!("column 0 is not Int64Array"))?;
-        let val_arr = good.batch.column(1)
+        let val_arr = good
+            .batch
+            .column(1)
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("column 1 is not StringArray"))?;

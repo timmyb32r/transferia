@@ -27,16 +27,25 @@ pub fn build_credentials_with_token(
     auth: &crate::config::yaml::AuthConfig,
 ) -> anyhow::Result<(YdbCredentials, Option<String>)> {
     match auth.auth_type.as_str() {
-        "" | "anonymous" => Ok((YdbCredentials::Anonymous(ydb::AnonymousCredentials::new()), None)),
+        "" | "anonymous" => Ok((
+            YdbCredentials::Anonymous(ydb::AnonymousCredentials::new()),
+            None,
+        )),
         "access_token" => {
             let token = read_token(auth)?;
-            Ok((YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token.clone())), Some(token)))
+            Ok((
+                YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token.clone())),
+                Some(token),
+            ))
         }
         "service_account" => {
-            let path = auth.sa_file.as_deref()
+            let path = auth
+                .sa_file
+                .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
-            let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{path}': {e}"))?;
+            let creds = ydb::ServiceAccountCredentials::from_file(path).map_err(|e| {
+                anyhow::anyhow!("Failed to load service account key from '{path}': {e}")
+            })?;
             Ok((YdbCredentials::ServiceAccount(creds), None))
         }
         other => anyhow::bail!("Unsupported auth type '{other}'"),
@@ -48,13 +57,18 @@ pub fn build_credentials(auth: &crate::config::yaml::AuthConfig) -> anyhow::Resu
         "" | "anonymous" => Ok(YdbCredentials::Anonymous(ydb::AnonymousCredentials::new())),
         "access_token" => {
             let token = read_token(auth)?;
-            Ok(YdbCredentials::AccessToken(ydb::AccessTokenCredentials::from(token)))
+            Ok(YdbCredentials::AccessToken(
+                ydb::AccessTokenCredentials::from(token),
+            ))
         }
         "service_account" => {
-            let path = auth.sa_file.as_deref()
+            let path = auth
+                .sa_file
+                .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("service_account auth requires 'sa_file' field"))?;
-            let creds = ydb::ServiceAccountCredentials::from_file(path)
-                .map_err(|e| anyhow::anyhow!("Failed to load service account key from '{path}': {e}"))?;
+            let creds = ydb::ServiceAccountCredentials::from_file(path).map_err(|e| {
+                anyhow::anyhow!("Failed to load service account key from '{path}': {e}")
+            })?;
             Ok(YdbCredentials::ServiceAccount(creds))
         }
         other => anyhow::bail!("Unsupported auth type '{other}'"),

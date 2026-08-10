@@ -33,7 +33,13 @@ impl TableData {
         batch_id: u64,
         exactly_once_key: Option<ExactlyOnceKey>,
     ) -> Self {
-        Self { table, is_dlq, batch, batch_id, exactly_once_key }
+        Self {
+            table,
+            is_dlq,
+            batch,
+            batch_id,
+            exactly_once_key,
+        }
     }
 }
 

@@ -18,7 +18,10 @@ pub mod Ydb {
             include!(concat!(env!("OUT_DIR"), "/ydb.pers_queue.v1.rs"));
         }
         pub mod cluster_discovery {
-            include!(concat!(env!("OUT_DIR"), "/ydb.pers_queue.cluster_discovery.rs"));
+            include!(concat!(
+                env!("OUT_DIR"),
+                "/ydb.pers_queue.cluster_discovery.rs"
+            ));
         }
     }
     pub mod discovery {
@@ -39,8 +42,8 @@ pub mod Ydb {
 }
 
 pub mod config;
-pub mod middleware;
 pub mod metrics;
+pub mod middleware;
 pub mod parsers;
 pub mod partition;
 pub mod pipeline;
@@ -50,9 +53,6 @@ pub mod types;
 
 static BATCH_ID: AtomicU64 = AtomicU64::new(1);
 
-// `pub(in crate)` is required: `pub_with_shorthand`/`pub_without_shorthand`
-// are conflicting restriction lints, so either spelling needs an expect.
-#[expect(clippy::pub_without_shorthand, reason = "explicit `in` visibility per pub_with_shorthand")]
-pub(in crate) fn batch_id() -> u64 {
+pub(crate) fn batch_id() -> u64 {
     BATCH_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
 }

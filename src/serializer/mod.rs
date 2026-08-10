@@ -1,7 +1,7 @@
 pub mod json_serializer;
 
-use std::collections::HashMap;
 use alloc::sync::Arc;
+use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 use arrow::record_batch::RecordBatch;
@@ -29,7 +29,10 @@ type SerializerFactory = Arc<dyn Fn() -> Arc<dyn Serializer> + Send + Sync>;
 static SERIALIZER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, SerializerFactory>>> =
     LazyLock::new(|| {
         let mut m: HashMap<&'static str, SerializerFactory> = HashMap::new();
-        m.insert("json", Arc::new(|| Arc::new(JsonSerializer::default()) as Arc<dyn Serializer>));
+        m.insert(
+            "json",
+            Arc::new(|| Arc::new(JsonSerializer::default()) as Arc<dyn Serializer>),
+        );
         Mutex::new(m)
     });
 
@@ -56,16 +59,13 @@ pub fn build_serializer(name: &str) -> anyhow::Result<Arc<dyn Serializer>> {
         let registry = SERIALIZER_REGISTRY
             .lock()
             .map_err(|e| anyhow::anyhow!("serializer registry is poisoned: {e}"))?;
-        registry
-            .get(name)
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Unknown serializer '{}'; registered: {:?}",
-                    name,
-                    registry.keys().collect::<Vec<_>>(),
-                )
-            })?
+        registry.get(name).cloned().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown serializer '{}'; registered: {:?}",
+                name,
+                registry.keys().collect::<Vec<_>>(),
+            )
+        })?
     };
     Ok(factory())
 }

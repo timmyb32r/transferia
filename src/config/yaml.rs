@@ -32,7 +32,9 @@ pub struct MetricsConfig {
     pub per_partition: bool,
 }
 
-const fn default_metrics_interval_ms() -> u64 { 1000 }
+const fn default_metrics_interval_ms() -> u64 {
+    1000
+}
 
 impl Config {
     /// Load configuration from a YAML file, expanding ${VAR} and $VAR patterns.
@@ -63,14 +65,17 @@ impl SourceEntry {
         let keys: Vec<&str> = self.inner.keys().map(String::as_str).collect();
         match *keys.as_slice() {
             [single] => Ok(single),
-            [] => anyhow::bail!("source: no provider key found (expected 'topic', 'pqv1', or 's3')"),
+            [] => {
+                anyhow::bail!("source: no provider key found (expected 'topic', 'pqv1', or 's3')")
+            }
             _ => anyhow::bail!("source: expected exactly one provider key, got {keys:?}"),
         }
     }
 
     pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
         let kind = self.kind()?;
-        self.inner.get(kind)
+        self.inner
+            .get(kind)
             .ok_or_else(|| anyhow::anyhow!("source: provider key '{kind}' missing from config"))
     }
 }
@@ -94,7 +99,8 @@ impl SinkEntry {
 
     pub fn raw(&self) -> anyhow::Result<&serde_yaml::Value> {
         let kind = self.kind()?;
-        self.inner.get(kind)
+        self.inner
+            .get(kind)
             .ok_or_else(|| anyhow::anyhow!("sink: provider key '{kind}' missing from config"))
     }
 }
@@ -111,24 +117,32 @@ pub fn validate_parser_middlewares(
     middlewares: &[MiddlewareConfig],
 ) -> anyhow::Result<()> {
     for (i, mw) in middlewares.iter().enumerate() {
-        if mw.mw_type != "filter" { continue; }
+        if mw.mw_type != "filter" {
+            continue;
+        }
         if mw.field.as_ref().is_none_or(String::is_empty) {
             anyhow::bail!("middlewares[{i}]: filter requires non-empty 'field'");
         }
         if mw.value.as_ref().is_none_or(String::is_empty) {
             anyhow::bail!("middlewares[{i}]: filter requires non-empty 'value'");
         }
-        let col = columns.iter()
+        let col = columns
+            .iter()
             .find(|c| c.column_name == mw.field.as_deref().unwrap_or(""))
-            .ok_or_else(|| anyhow::anyhow!(
-                "middlewares[{}]: filter field '{}' not found in columns",
-                i, mw.field.as_deref().unwrap_or("")
-            ))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "middlewares[{}]: filter field '{}' not found in columns",
+                    i,
+                    mw.field.as_deref().unwrap_or("")
+                )
+            })?;
         let dt = parse_arrow_type(&col.arrow_type)?;
         if dt != DataType::Utf8 && dt != DataType::LargeUtf8 {
             anyhow::bail!(
                 "middlewares[{}]: filter field '{}' is {:?}, only Utf8/LargeUtf8",
-                i, col.column_name, dt
+                i,
+                col.column_name,
+                dt
             );
         }
     }
@@ -167,10 +181,18 @@ impl ParserConfig {
     /// `from_config` → configured `name`; `from_topic` → `topic_path` as-is.
     pub fn resolve_table_name(&self, topic_path: &str) -> anyhow::Result<String> {
         match self.table_naming.kind.as_str() {
-            "from_config" => self.table_naming.name.clone().filter(|n| !n.is_empty())
-                .ok_or_else(|| anyhow::anyhow!("table_naming.name is required for type 'from_config'")),
+            "from_config" => self
+                .table_naming
+                .name
+                .clone()
+                .filter(|n| !n.is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("table_naming.name is required for type 'from_config'")
+                }),
             "from_topic" => Ok(topic_path.to_string()),
-            other => anyhow::bail!("unknown table_naming.type '{other}' (use from_config | from_topic)"),
+            other => {
+                anyhow::bail!("unknown table_naming.type '{other}' (use from_config | from_topic)")
+            }
         }
     }
 }
@@ -211,13 +233,19 @@ impl SchemaConfig {
     /// Creates a schema from the given column mappings.
     #[must_use]
     pub const fn new(columns: Vec<ColumnMapping>) -> Self {
-        Self { columns, order_by: Vec::new() }
+        Self {
+            columns,
+            order_by: Vec::new(),
+        }
     }
 
     /// Column definitions for DDL — drops `JSONPath`, keeps only name + type.
     #[must_use]
     pub fn column_defs(&self) -> Vec<ColumnDef> {
-        self.columns.iter().map(ColumnMapping::to_column_def).collect()
+        self.columns
+            .iter()
+            .map(ColumnMapping::to_column_def)
+            .collect()
     }
 }
 
@@ -238,10 +266,7 @@ impl ChunkSplitter {
     pub fn safe_split_at(&self, buf: &[u8]) -> usize {
         match self {
             Self::NoSplit => buf.len(),
-            Self::NewLine => buf
-                .iter()
-                .rposition(|&b| b == b'\n')
-                .map_or(0, |i| i + 1),
+            Self::NewLine => buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1),
         }
     }
 
@@ -257,7 +282,11 @@ impl ChunkSplitter {
             Self::NewLine => {
                 // Fast-path: no delimiter → one record, no split iteration
                 if !buf.contains(&b'\n') {
-                    return if buf.is_empty() { Vec::new() } else { vec![buf] };
+                    return if buf.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![buf]
+                    };
                 }
                 buf.split(|&b| b == b'\n')
                     .filter(|line| !line.is_empty())
@@ -273,9 +302,13 @@ impl ChunkSplitter {
         match self {
             Self::NoSplit => usize::from(!buf.is_empty()),
             Self::NewLine => {
-                if buf.is_empty() { return 0; }
+                if buf.is_empty() {
+                    return 0;
+                }
                 // Fast-path: no delimiter → one record
-                if !buf.contains(&b'\n') { return 1; }
+                if !buf.contains(&b'\n') {
+                    return 1;
+                }
                 buf.split(|&b| b == b'\n')
                     .filter(|line| !line.is_empty())
                     .count()
@@ -310,8 +343,18 @@ pub struct ColumnMapping {
 impl ColumnMapping {
     /// Creates a column mapping with explicit `JSONPath`, name, type and nullability.
     #[must_use]
-    pub const fn new(jsonpath: String, column_name: String, arrow_type: String, nullable: bool) -> Self {
-        Self { jsonpath, column_name, arrow_type, nullable }
+    pub const fn new(
+        jsonpath: String,
+        column_name: String,
+        arrow_type: String,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            jsonpath,
+            column_name,
+            arrow_type,
+            nullable,
+        }
     }
 
     /// Drop the `JSONPath` — only the DDL-relevant fields remain.
@@ -350,7 +393,9 @@ pub struct MiddlewareConfig {
     pub value: Option<String>,
 }
 
-const fn default_pipeline_memory_limit() -> usize { 256 * 1024 * 1024 }
+const fn default_pipeline_memory_limit() -> usize {
+    256 * 1024 * 1024
+}
 
 // ---------------------------------------------------------------------------
 // Arrow type parsing
@@ -406,7 +451,6 @@ pub fn parse_arrow_type(s: &str) -> anyhow::Result<DataType> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,7 +501,10 @@ mod tests {
         let err = parse_arrow_type("Blob")
             .err()
             .ok_or_else(|| anyhow::anyhow!("expected 'Blob' to be rejected"))?;
-        anyhow::ensure!(err.to_string().contains("Unsupported arrow_type"), "got: {err}");
+        anyhow::ensure!(
+            err.to_string().contains("Unsupported arrow_type"),
+            "got: {err}"
+        );
         Ok(())
     }
 
@@ -474,7 +521,10 @@ mod tests {
         let err = crate::parsers::json_parser::JsonParser::new(&cfg, "test".into(), None)
             .err()
             .ok_or_else(|| anyhow::anyhow!("expected empty columns to fail"))?;
-        anyhow::ensure!(err.to_string().contains("columns must not be empty"), "got: {err}");
+        anyhow::ensure!(
+            err.to_string().contains("columns must not be empty"),
+            "got: {err}"
+        );
         Ok(())
     }
 
@@ -483,7 +533,10 @@ mod tests {
         let err = Config::from_file("/nonexistent/path.yaml")
             .err()
             .ok_or_else(|| anyhow::anyhow!("expected missing config file to fail"))?;
-        anyhow::ensure!(err.to_string().contains("Failed to read config file"), "got: {err}");
+        anyhow::ensure!(
+            err.to_string().contains("Failed to read config file"),
+            "got: {err}"
+        );
         Ok(())
     }
 }

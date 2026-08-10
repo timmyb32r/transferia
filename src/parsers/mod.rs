@@ -61,7 +61,9 @@ impl ParserEntry {
 /// `Arc` (not `Box`) so a factory can be cloned out of the registry and invoked
 /// without holding the registry lock.
 type ParserFactory = Arc<
-    dyn Fn(Value, Arc<str>, Option<ExactlyOnceKey>) -> anyhow::Result<Arc<dyn Parser>> + Send + Sync,
+    dyn Fn(Value, Arc<str>, Option<ExactlyOnceKey>) -> anyhow::Result<Arc<dyn Parser>>
+        + Send
+        + Sync,
 >;
 
 use std::sync::{LazyLock, Mutex};
@@ -81,9 +83,14 @@ static PARSER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, ParserFactory>>> =
         );
         m.insert(
             "none",
-            Arc::new(|_raw: Value, table: Arc<str>, _key: Option<ExactlyOnceKey>| {
-                Ok(Arc::new(crate::parsers::none_parser::NoneParser::new(table)) as Arc<dyn Parser>)
-            }),
+            Arc::new(
+                |_raw: Value, table: Arc<str>, _key: Option<ExactlyOnceKey>| {
+                    Ok(
+                        Arc::new(crate::parsers::none_parser::NoneParser::new(table))
+                            as Arc<dyn Parser>,
+                    )
+                },
+            ),
         );
         Mutex::new(m)
     });
@@ -114,16 +121,13 @@ pub fn build_parser(
         let registry = PARSER_REGISTRY
             .lock()
             .map_err(|e| anyhow::anyhow!("parser registry is poisoned: {e}"))?;
-        registry
-            .get(name)
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Unknown parser '{}'; registered: {:?}",
-                    name,
-                    registry.keys().collect::<Vec<_>>(),
-                )
-            })?
+        registry.get(name).cloned().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown parser '{}'; registered: {:?}",
+                name,
+                registry.keys().collect::<Vec<_>>(),
+            )
+        })?
     };
     factory(raw, table, key)
 }
