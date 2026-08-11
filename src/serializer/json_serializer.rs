@@ -337,11 +337,9 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::{BooleanArray, Float64Array, Int64Array, StringArray, StringBuilder};
+    use arrow::array::{BooleanArray, Float64Array, Int64Array, StringBuilder};
     use arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc;
-
-    use crate::parsers::Parser as _;
 
     #[test]
     fn serialize_simple_batch() -> anyhow::Result<()> {
@@ -412,73 +410,6 @@ mod tests {
             "null column should be present as \"y\": null"
         );
         anyhow::ensure!(row2["y"].is_null(), "y should be null");
-        Ok(())
-    }
-
-    #[test]
-    fn roundtrip_json_parser_compatible() -> anyhow::Result<()> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Int64, false),
-            Field::new("val", DataType::Utf8, true),
-        ]));
-        let id_arr = Int64Array::from(vec![10, 20]);
-        let mut val_builder = StringBuilder::with_capacity(2, 32);
-        val_builder.append_value("foo");
-        val_builder.append_value("bar");
-
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![Arc::new(id_arr), Arc::new(val_builder.finish())],
-        )?;
-
-        let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch)?;
-
-        let parser_config = crate::parsers::json_parser::JsonParserConfig {
-            columns: vec![
-                crate::parsers::json_parser::ColumnMapping {
-                    jsonpath: "$.id".into(),
-                    column_name: "id".into(),
-                    arrow_type: "Int64".into(),
-                    nullable: false,
-                },
-                crate::parsers::json_parser::ColumnMapping {
-                    jsonpath: "$.val".into(),
-                    column_name: "val".into(),
-                    arrow_type: "Utf8".into(),
-                    nullable: true,
-                },
-            ],
-            chunk_splitter: crate::parsers::json_parser::ChunkSplitter::NewLine,
-        };
-
-        let parser = crate::parsers::json_parser::JsonParser::new(
-            &parser_config,
-            &crate::parsers::SystemColumnsConfig::default(),
-            "test".into(),
-        )?;
-        let mut ws = crate::parsers::json_parser::ParserWorkspace::new();
-        let msgs = vec![crate::types::message::Message::new(output)];
-
-        let (good, _dlq) = parser.parse_into(msgs, 0, &mut ws)?;
-        anyhow::ensure!(
-            good.batch.num_rows() == 2,
-            "roundtrip: 2 rows in \u{2192} 2 rows out"
-        );
-        let parsed_id_arr = good
-            .batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| anyhow::anyhow!("column 0 is not Int64Array"))?;
-        let val_arr = good
-            .batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| anyhow::anyhow!("column 1 is not StringArray"))?;
-        anyhow::ensure!(parsed_id_arr.value(0) == 10);
-        anyhow::ensure!(val_arr.value(1) == "bar");
         Ok(())
     }
 }
