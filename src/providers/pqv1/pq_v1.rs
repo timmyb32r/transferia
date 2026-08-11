@@ -248,51 +248,157 @@ fn released_request(
     }
 }
 
-fn validate_release_assignment(
-    active_assignments: &mut HashMap<i64, u64>,
-    release: &migration_streaming_read_server_message::Release,
-) -> anyhow::Result<i64> {
-    let pid = i64::try_from(release.partition).map_err(|_| {
-        anyhow!(
-            "PQv1 release partition id {} does not fit in i64",
-            release.partition
-        )
-    })?;
-    let assign_id = active_assignments
-        .get(&pid)
-        .copied()
-        .ok_or_else(|| anyhow!("PQv1 released inactive partition {pid}"))?;
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ActiveAssignment {
+    topic: String,
+    cluster: String,
+    assign_id: u64,
+}
+
+fn required_topic_path<'a>(
+    event: &str,
+    partition: i64,
+    topic: Option<&'a crate::Ydb::pers_queue::v1::Path>,
+) -> anyhow::Result<&'a str> {
+    topic
+        .map(|topic| topic.path.as_str())
+        .ok_or_else(|| anyhow!("PQv1 {event} has no topic for partition {partition}"))
+}
+
+fn validate_event_identity(
+    event: &str,
+    partition: i64,
+    topic: Option<&crate::Ydb::pers_queue::v1::Path>,
+    cluster: &str,
+    active: &ActiveAssignment,
+) -> anyhow::Result<()> {
+    let topic = required_topic_path(event, partition, topic)?;
     anyhow::ensure!(
-        assign_id == release.assign_id,
-        "PQv1 release assign_id mismatch for partition {pid}: active={assign_id}, released={}",
-        release.assign_id
+        topic == active.topic,
+        "PQv1 {event} topic mismatch for partition {partition}: active={:?}, received={topic:?}",
+        active.topic
     );
+    anyhow::ensure!(
+        cluster == active.cluster,
+        "PQv1 {event} cluster mismatch for partition {partition}: active={:?}, received={cluster:?}",
+        active.cluster
+    );
+    Ok(())
+}
+
+fn register_assignment(
+    active_assignments: &mut HashMap<i64, ActiveAssignment>,
+    requested_partitions: &HashSet<i64>,
+    configured_topic: &str,
+    assigned: &migration_streaming_read_server_message::Assigned,
+) -> Result<i64, SessionFailure> {
+    let result = (|| {
+        let pid = i64::try_from(assigned.partition).map_err(|_| {
+            anyhow!(
+                "PQv1 assignment partition id {} does not fit in i64",
+                assigned.partition
+            )
+        })?;
+        anyhow::ensure!(
+            requested_partitions.contains(&pid),
+            "PQv1 assigned unrequested partition {pid}"
+        );
+        anyhow::ensure!(
+            !active_assignments.contains_key(&pid),
+            "PQv1 reassigned active partition {pid}: active assign_id={}, new assign_id={}",
+            active_assignments
+                .get(&pid)
+                .map_or(0, |active| active.assign_id),
+            assigned.assign_id
+        );
+        let topic = required_topic_path("assignment", pid, assigned.topic.as_ref())?;
+        anyhow::ensure!(
+            topic == configured_topic,
+            "PQv1 assignment topic mismatch for partition {pid}: configured={configured_topic:?}, assigned={topic:?}"
+        );
+        Ok((
+            pid,
+            ActiveAssignment {
+                topic: topic.to_string(),
+                cluster: assigned.cluster.clone(),
+                assign_id: assigned.assign_id,
+            },
+        ))
+    })()
+    .map_err(SessionFailure::fatal)?;
+
+    active_assignments.insert(result.0, result.1);
+    Ok(result.0)
+}
+
+fn validate_release_assignment(
+    active_assignments: &mut HashMap<i64, ActiveAssignment>,
+    release: &migration_streaming_read_server_message::Release,
+) -> Result<i64, SessionFailure> {
+    let pid = (|| {
+        let pid = i64::try_from(release.partition).map_err(|_| {
+            anyhow!(
+                "PQv1 release partition id {} does not fit in i64",
+                release.partition
+            )
+        })?;
+        let active = active_assignments
+            .get(&pid)
+            .ok_or_else(|| anyhow!("PQv1 released inactive partition {pid}"))?;
+        validate_event_identity(
+            "release",
+            pid,
+            release.topic.as_ref(),
+            &release.cluster,
+            active,
+        )?;
+        anyhow::ensure!(
+            active.assign_id == release.assign_id,
+            "PQv1 release assign_id mismatch for partition {pid}: active={}, released={}",
+            active.assign_id,
+            release.assign_id
+        );
+        Ok(pid)
+    })()
+    .map_err(SessionFailure::fatal)?;
+
     active_assignments.remove(&pid);
     Ok(pid)
 }
 
 fn validate_data_partition(
-    partition: u64,
-    cookie: Option<CommitCookie>,
-    assigned: &HashSet<i64>,
-    active_assignments: &HashMap<i64, u64>,
-) -> anyhow::Result<(i64, CommitCookie)> {
-    let pid = i64::try_from(partition)
-        .map_err(|_| anyhow!("PQv1 partition id {partition} does not fit in i64"))?;
-    anyhow::ensure!(
-        assigned.contains(&pid),
-        "PQv1 returned data for unrequested partition {pid}"
-    );
-    let cookie = cookie
-        .ok_or_else(|| anyhow!("PQv1 returned data without a commit cookie for partition {pid}"))?;
-    let active_assign_id = active_assignments
-        .get(&pid)
-        .ok_or_else(|| anyhow!("PQv1 returned data for inactive partition {pid}"))?;
-    anyhow::ensure!(
-        cookie.assign_id == *active_assign_id,
-        "PQv1 data cookie assign_id does not match active assignment for partition {pid}"
-    );
-    Ok((pid, cookie))
+    partition: &migration_streaming_read_server_message::data_batch::PartitionData,
+    active_assignments: &HashMap<i64, ActiveAssignment>,
+) -> Result<(i64, CommitCookie), SessionFailure> {
+    (|| {
+        let pid = i64::try_from(partition.partition).map_err(|_| {
+            anyhow!(
+                "PQv1 data partition id {} does not fit in i64",
+                partition.partition
+            )
+        })?;
+        let active = active_assignments
+            .get(&pid)
+            .ok_or_else(|| anyhow!("PQv1 returned data for inactive partition {pid}"))?;
+        validate_event_identity(
+            "data",
+            pid,
+            partition.topic.as_ref(),
+            &partition.cluster,
+            active,
+        )?;
+        let cookie = partition.cookie.ok_or_else(|| {
+            anyhow!("PQv1 returned data without a commit cookie for partition {pid}")
+        })?;
+        anyhow::ensure!(
+            cookie.assign_id == active.assign_id,
+            "PQv1 data cookie assign_id mismatch for partition {pid}: active={}, received={}",
+            active.assign_id,
+            cookie.assign_id
+        );
+        Ok((pid, cookie))
+    })()
+    .map_err(SessionFailure::fatal)
 }
 
 // ---------------------------------------------------------------------------
@@ -855,6 +961,7 @@ impl PqV1Client {
 
         // Per-partition queues for the partitions we own.
         let assigned: HashSet<i64> = partition_group_ids.iter().copied().collect();
+        let configured_topic: Arc<str> = Arc::from(topic_path);
         let mut pqs = HashMap::with_capacity(assigned.len());
         let mut prs = HashMap::with_capacity(assigned.len());
         #[expect(
@@ -932,7 +1039,7 @@ impl PqV1Client {
             let init_deadline = tokio::time::Instant::now() + SESSION_INIT_TIMEOUT;
             let mut seq_counter: u64 = 0;
             let mut terminal_error = None;
-            let mut active_assignments: HashMap<i64, u64> = HashMap::new();
+            let mut active_assignments: HashMap<i64, ActiveAssignment> = HashMap::new();
             'stream: loop {
                 let await_start = std::time::Instant::now();
                 let msg = tokio::select! {
@@ -993,28 +1100,18 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::Assigned(a)) => {
-                        let Ok(pid) = i64::try_from(a.partition) else {
-                            terminal_error = Some(SessionFailure::fatal(anyhow!(
-                                "PQv1 partition id {} does not fit in i64",
-                                a.partition
-                            )));
-                            break;
+                        let pid = match register_assignment(
+                            &mut active_assignments,
+                            &assigned,
+                            configured_topic.as_ref(),
+                            &a,
+                        ) {
+                            Ok(pid) => pid,
+                            Err(failure) => {
+                                terminal_error = Some(failure);
+                                break;
+                            }
                         };
-                        if !assigned.contains(&pid) {
-                            terminal_error = Some(SessionFailure::fatal(anyhow!(
-                                "PQv1 assigned unrequested partition {pid}"
-                            )));
-                            break;
-                        }
-                        if let Some(previous_assign_id) =
-                            active_assignments.insert(pid, a.assign_id)
-                        {
-                            terminal_error = Some(SessionFailure::fatal(anyhow!(
-                                "PQv1 reassigned active partition {pid}: old assign_id={previous_assign_id}, new assign_id={}",
-                                a.assign_id
-                            )));
-                            break;
-                        }
                         tracing::debug!(
                             "PQv1 lock partition={} read_offset={} end_offset={}",
                             pid,
@@ -1037,18 +1134,14 @@ impl PqV1Client {
                             let mut compressed_bytes = 0_u64;
                             let mut message_count = 0_u64;
                             for pd in db.partition_data {
-                                let (pid, cookie) = match validate_data_partition(
-                                    pd.partition,
-                                    pd.cookie,
-                                    &assigned,
-                                    &active_assignments,
-                                ) {
-                                    Ok(validated) => validated,
-                                    Err(error) => {
-                                        terminal_error = Some(SessionFailure::fatal(error));
-                                        break;
-                                    }
-                                };
+                                let (pid, cookie) =
+                                    match validate_data_partition(&pd, &active_assignments) {
+                                        Ok(validated) => validated,
+                                        Err(failure) => {
+                                            terminal_error = Some(failure);
+                                            break;
+                                        }
+                                    };
                                 for batch in pd.batches {
                                     for md in batch.message_data {
                                         compressed_bytes =
@@ -1099,18 +1192,14 @@ impl PqV1Client {
                         let mut compressed_bytes = 0_u64;
                         let mut message_count = 0_u64;
                         for pd in db.partition_data {
-                            let (pid, cookie) = match validate_data_partition(
-                                pd.partition,
-                                pd.cookie,
-                                &assigned,
-                                &active_assignments,
-                            ) {
-                                Ok(validated) => validated,
-                                Err(error) => {
-                                    terminal_error = Some(SessionFailure::fatal(error));
-                                    break;
-                                }
-                            };
+                            let (pid, cookie) =
+                                match validate_data_partition(&pd, &active_assignments) {
+                                    Ok(validated) => validated,
+                                    Err(failure) => {
+                                        terminal_error = Some(failure);
+                                        break;
+                                    }
+                                };
                             let mut msgs = Vec::new();
                             for batch in pd.batches {
                                 let write_timestamp_ms = batch.write_timestamp_ms;
@@ -1222,8 +1311,8 @@ impl PqV1Client {
                         let pid =
                             match validate_release_assignment(&mut active_assignments, &release) {
                                 Ok(pid) => pid,
-                                Err(error) => {
-                                    terminal_error = Some(SessionFailure::fatal(error));
+                                Err(failure) => {
+                                    terminal_error = Some(failure);
                                     break;
                                 }
                             };
@@ -1623,7 +1712,7 @@ impl Source for PqV1Source {
                     ))
                     .into());
                 }
-                cookies.extend(marker.cookies.iter().cloned());
+                cookies.extend(marker.cookies.iter().copied());
             }
             self.client.commit(self.partition_id, cookies).await
         })
@@ -1706,6 +1795,63 @@ mod tests {
             seq,
             parts: Ok(Vec::new()),
             failure_kind: TerminalFailureKind::Fatal,
+        }
+    }
+
+    fn protocol_path(path: &str) -> crate::Ydb::pers_queue::v1::Path {
+        crate::Ydb::pers_queue::v1::Path {
+            path: path.to_string(),
+        }
+    }
+
+    fn assignment(topic: &str, cluster: &str) -> migration_streaming_read_server_message::Assigned {
+        migration_streaming_read_server_message::Assigned {
+            topic: Some(protocol_path(topic)),
+            cluster: cluster.to_string(),
+            partition: 7,
+            assign_id: 11,
+            read_offset: 3,
+            end_offset: 5,
+        }
+    }
+
+    fn active_assignment() -> HashMap<i64, ActiveAssignment> {
+        let mut active = HashMap::new();
+        register_assignment(
+            &mut active,
+            &HashSet::from([7]),
+            "topic",
+            &assignment("topic", "cluster"),
+        )
+        .unwrap();
+        active
+    }
+
+    fn partition_data(
+        topic: &str,
+        cluster: &str,
+    ) -> migration_streaming_read_server_message::data_batch::PartitionData {
+        migration_streaming_read_server_message::data_batch::PartitionData {
+            topic: Some(protocol_path(topic)),
+            cluster: cluster.to_string(),
+            partition: 7,
+            cookie: Some(cookie(1)),
+            ..Default::default()
+        }
+    }
+
+    fn release(
+        topic: &str,
+        cluster: &str,
+        forceful_release: bool,
+    ) -> migration_streaming_read_server_message::Release {
+        migration_streaming_read_server_message::Release {
+            topic: Some(protocol_path(topic)),
+            cluster: cluster.to_string(),
+            partition: 7,
+            assign_id: 11,
+            forceful_release,
+            ..Default::default()
         }
     }
 
@@ -1818,13 +1964,8 @@ mod tests {
 
     #[test]
     fn release_paths_are_retryable_and_graceful_release_is_acknowledged() {
-        let forceful = migration_streaming_read_server_message::Release {
-            partition: 7,
-            assign_id: 11,
-            forceful_release: true,
-            ..Default::default()
-        };
-        let mut active = HashMap::from([(7, 11)]);
+        let forceful = release("topic", "cluster", true);
+        let mut active = active_assignment();
         assert_eq!(
             validate_release_assignment(&mut active, &forceful).unwrap(),
             7
@@ -1838,7 +1979,7 @@ mod tests {
             forceful_release: false,
             ..forceful
         };
-        let mut active = HashMap::from([(7, 11)]);
+        let mut active = active_assignment();
         assert_eq!(
             validate_release_assignment(&mut active, &graceful).unwrap(),
             7
@@ -1856,6 +1997,131 @@ mod tests {
         };
         assert_eq!(released.partition, 7);
         assert_eq!(released.assign_id, 11);
+    }
+
+    #[test]
+    fn assignment_topic_must_match_the_configured_topic() {
+        let mut active = HashMap::new();
+
+        let failure = register_assignment(
+            &mut active,
+            &HashSet::from([7]),
+            "topic",
+            &assignment("other-topic", "cluster"),
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure
+            .error
+            .to_string()
+            .contains("assignment topic mismatch"));
+        assert!(active.is_empty());
+    }
+
+    #[test]
+    fn reassignment_of_an_active_partition_is_fatal() {
+        let mut active = active_assignment();
+        let mut reassigned = assignment("topic", "cluster");
+        reassigned.assign_id = 12;
+
+        let failure = register_assignment(&mut active, &HashSet::from([7]), "topic", &reassigned)
+            .unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure
+            .error
+            .to_string()
+            .contains("reassigned active partition"));
+        assert_eq!(active.get(&7).unwrap().assign_id, 11);
+    }
+
+    #[test]
+    fn data_identity_must_match_the_active_assignment() {
+        for (topic, cluster, expected) in [
+            ("other-topic", "cluster", "data topic mismatch"),
+            ("topic", "other-cluster", "data cluster mismatch"),
+        ] {
+            let failure =
+                validate_data_partition(&partition_data(topic, cluster), &active_assignment())
+                    .unwrap_err();
+
+            assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+            assert!(failure.error.to_string().contains(expected));
+        }
+    }
+
+    #[test]
+    fn release_identity_must_match_the_active_assignment() {
+        for (topic, cluster, expected) in [
+            ("other-topic", "cluster", "release topic mismatch"),
+            ("topic", "other-cluster", "release cluster mismatch"),
+        ] {
+            let mut active = active_assignment();
+            let failure = validate_release_assignment(&mut active, &release(topic, cluster, false))
+                .unwrap_err();
+
+            assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+            assert!(failure.error.to_string().contains(expected));
+            assert!(
+                active.contains_key(&7),
+                "failed validation must retain ownership state"
+            );
+        }
+    }
+
+    #[test]
+    fn data_cookie_assign_id_must_match_the_active_assignment() {
+        let mut data = partition_data("topic", "cluster");
+        data.cookie.as_mut().unwrap().assign_id = 12;
+
+        let failure = validate_data_partition(&data, &active_assignment()).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure
+            .error
+            .to_string()
+            .contains("cookie assign_id mismatch"));
+    }
+
+    #[test]
+    fn release_assign_id_must_match_the_active_assignment() {
+        let mut active = active_assignment();
+        let mut released = release("topic", "cluster", false);
+        released.assign_id = 12;
+
+        let failure = validate_release_assignment(&mut active, &released).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure
+            .error
+            .to_string()
+            .contains("release assign_id mismatch"));
+        assert!(active.contains_key(&7));
+    }
+
+    #[test]
+    fn data_partition_must_have_an_active_assignment() {
+        let mut data = partition_data("topic", "cluster");
+        data.partition = 8;
+
+        let failure = validate_data_partition(&data, &active_assignment()).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("inactive partition 8"));
+    }
+
+    #[test]
+    fn release_partition_must_have_an_active_assignment() {
+        let mut active = active_assignment();
+        let mut released = release("topic", "cluster", false);
+        released.partition = 8;
+
+        let failure = validate_release_assignment(&mut active, &released).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("inactive partition 8"));
+        assert!(active.contains_key(&7));
     }
 
     #[tokio::test]
@@ -2005,7 +2271,7 @@ mod tests {
     fn non_init_response_before_init_is_fatal() {
         let mut init_done = false;
         let response = migration_streaming_read_server_message::Response::DataBatch(
-            Default::default(),
+            migration_streaming_read_server_message::DataBatch::default(),
         );
 
         let failure = validate_response_phase(&mut init_done, &response).unwrap_err();
@@ -2018,13 +2284,16 @@ mod tests {
     fn unsolicited_partition_status_is_fatal() {
         let mut init_done = true;
         let response = migration_streaming_read_server_message::Response::PartitionStatus(
-            Default::default(),
+            migration_streaming_read_server_message::PartitionStatus::default(),
         );
 
         let failure = validate_response_phase(&mut init_done, &response).unwrap_err();
 
         assert_eq!(failure.kind, TerminalFailureKind::Fatal);
-        assert!(failure.error.to_string().contains("unsolicited PartitionStatus"));
+        assert!(failure
+            .error
+            .to_string()
+            .contains("unsolicited PartitionStatus"));
     }
 
     #[test]
