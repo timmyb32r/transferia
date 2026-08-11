@@ -420,13 +420,13 @@ mod tests {
 
         let parser_config = crate::parsers::json_parser::JsonParserConfig {
             columns: vec![
-                crate::config::yaml::ColumnMapping {
+                crate::parsers::json_parser::ColumnMapping {
                     jsonpath: "$.id".into(),
                     column_name: "id".into(),
                     arrow_type: "Int64".into(),
                     nullable: false,
                 },
-                crate::config::yaml::ColumnMapping {
+                crate::parsers::json_parser::ColumnMapping {
                     jsonpath: "$.val".into(),
                     column_name: "val".into(),
                     arrow_type: "Utf8".into(),
@@ -434,8 +434,7 @@ mod tests {
                 },
             ],
             raw_payload_field: None,
-            order_by: vec![],
-            chunk_splitter: crate::config::yaml::ChunkSplitter::NewLine,
+            chunk_splitter: crate::parsers::json_parser::ChunkSplitter::NewLine,
             skip_null_columns: false,
             add_exactly_once_keys: false,
         };

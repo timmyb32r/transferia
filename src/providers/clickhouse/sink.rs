@@ -10,12 +10,13 @@ use serde::Deserialize;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
-use crate::config::yaml::parse_arrow_type;
 use crate::metrics::SinkCounters;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
+use crate::types::schema::SchemaColumn;
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ClickhouseSinkConfig {
+#[serde(deny_unknown_fields)]
+pub struct ClickHouseSinkConfig {
     pub connection_string: String,
     #[serde(default = "default_database")]
     pub database: String,
@@ -23,11 +24,11 @@ pub struct ClickhouseSinkConfig {
     pub username: String,
     #[serde(default)]
     pub password: String,
-    #[serde(default = "default_insert_rows", alias = "batch_size")]
+    #[serde(default = "default_insert_rows")]
     pub max_insert_rows: usize,
     #[serde(default = "default_insert_bytes")]
     pub max_insert_bytes: usize,
-    #[serde(default = "default_flush_interval", alias = "max_linger_ms")]
+    #[serde(default = "default_flush_interval")]
     pub flush_interval_ms: u64,
     #[serde(default = "default_retry_initial")]
     pub retry_initial_ms: u64,
@@ -39,6 +40,10 @@ pub struct ClickhouseSinkConfig {
     pub use_tls: bool,
     #[serde(default)]
     pub tls_domain: Option<String>,
+    #[serde(default)]
+    pub sorting_key: Vec<String>,
+    #[serde(default)]
+    pub recreate_tables: bool,
 }
 
 fn default_database() -> String {
@@ -140,7 +145,7 @@ fn classify_insert_error(error: impl core::fmt::Display) -> InsertError {
     }
 }
 
-async fn build_pool(config: &ClickhouseSinkConfig) -> anyhow::Result<ConnectionPool<ArrowFormat>> {
+async fn build_pool(config: &ClickHouseSinkConfig) -> anyhow::Result<ConnectionPool<ArrowFormat>> {
     ConnectionPoolBuilder::<ArrowFormat>::new(config.connection_string.as_str())
         .configure_pool(|pool| pool.max_size(1))
         .configure_client(|builder| {
@@ -190,7 +195,7 @@ struct InsertFailure {
 
 pub struct ClickHouseSink {
     transport: Arc<dyn InsertTransport>,
-    config: ClickhouseSinkConfig,
+    config: ClickHouseSinkConfig,
     counters: Arc<SinkCounters>,
     buffers: HashMap<Arc<str>, TableBuffer>,
     progress: BTreeMap<DeliveryId, DeliveryProgress>,
@@ -201,7 +206,7 @@ pub struct ClickHouseSink {
 
 impl ClickHouseSink {
     pub async fn new(
-        config: ClickhouseSinkConfig,
+        config: ClickHouseSinkConfig,
         counters: Arc<SinkCounters>,
     ) -> anyhow::Result<Self> {
         let pool = Arc::new(build_pool(&config).await?);
@@ -228,7 +233,7 @@ impl ClickHouseSink {
 
     #[must_use]
     pub fn with_transport(
-        config: ClickhouseSinkConfig,
+        config: ClickHouseSinkConfig,
         counters: Arc<SinkCounters>,
         transport: Arc<dyn InsertTransport>,
     ) -> Self {
@@ -519,7 +524,7 @@ pub struct ClickHouseAdmin {
 }
 
 impl ClickHouseAdmin {
-    pub async fn connect(config: &ClickhouseSinkConfig) -> anyhow::Result<Self> {
+    pub async fn connect(config: &ClickHouseSinkConfig) -> anyhow::Result<Self> {
         let pool = build_pool(config).await?;
         let client = pool
             .get()
@@ -537,7 +542,7 @@ impl ClickHouseAdmin {
         &self,
         name: &str,
         columns: &[(String, String)],
-        order_by: &[String],
+        sorting_key: &[String],
         recreate: bool,
     ) -> anyhow::Result<()> {
         let client = self
@@ -557,10 +562,10 @@ impl ClickHouseAdmin {
             .map(|(column, ty)| format!("`{column}` {ty}"))
             .collect::<Vec<_>>()
             .join(", ");
-        let order = if order_by.is_empty() {
+        let order = if sorting_key.is_empty() {
             "tuple()".to_string()
         } else {
-            order_by
+            sorting_key
                 .iter()
                 .map(|column| format!("`{column}`"))
                 .collect::<Vec<_>>()
@@ -577,16 +582,14 @@ impl ClickHouseAdmin {
     }
 }
 
-pub fn schema_columns(
-    cols: &[crate::config::yaml::ColumnDef],
-) -> anyhow::Result<Vec<(String, String)>> {
+pub(super) fn schema_columns(cols: &[SchemaColumn]) -> anyhow::Result<Vec<(String, String)>> {
     cols.iter()
         .map(|column| {
-            let mut ty = arrow_to_clickhouse(&parse_arrow_type(&column.arrow_type)?)?;
+            let mut ty = arrow_to_clickhouse(&column.data_type)?;
             if column.nullable {
                 ty = format!("Nullable({ty})");
             }
-            Ok((column.column_name.clone(), ty))
+            Ok((column.name.clone(), ty))
         })
         .collect()
 }
@@ -716,8 +719,8 @@ mod tests {
         }
     }
 
-    fn config() -> ClickhouseSinkConfig {
-        ClickhouseSinkConfig {
+    fn config() -> ClickHouseSinkConfig {
+        ClickHouseSinkConfig {
             connection_string: "unused".into(),
             database: "default".into(),
             username: "default".into(),
@@ -730,7 +733,27 @@ mod tests {
             retry_max_attempts: None,
             use_tls: false,
             tls_domain: None,
+            sorting_key: Vec::new(),
+            recreate_tables: false,
         }
+    }
+
+    #[test]
+    fn clickhouse_owns_table_policy_config() -> anyhow::Result<()> {
+        let config: ClickHouseSinkConfig = serde_yaml::from_str(
+            "connection_string: localhost:9000\nsorting_key: [id]\nrecreate_tables: true\n",
+        )?;
+        anyhow::ensure!(config.sorting_key == ["id"]);
+        anyhow::ensure!(config.recreate_tables);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_old_order_by_name() {
+        let result = serde_yaml::from_str::<ClickHouseSinkConfig>(
+            "connection_string: localhost:9000\norder_by: [id]\n",
+        );
+        assert!(result.is_err());
     }
 
     async fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
@@ -778,7 +801,7 @@ mod tests {
     }
 
     fn spawn_sink_with_config(
-        config: ClickhouseSinkConfig,
+        config: ClickHouseSinkConfig,
         transport: Arc<dyn InsertTransport>,
         memory: PipelineMemory,
         counters: Arc<SinkCounters>,

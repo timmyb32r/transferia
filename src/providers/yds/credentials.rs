@@ -24,7 +24,7 @@ impl ydb::Credentials for YdbCredentials {
 
 /// Build credentials AND extract raw token string for `PQv1` auth.
 pub fn build_credentials_with_token(
-    auth: &crate::config::yaml::AuthConfig,
+    auth: &crate::providers::yds::config::AuthConfig,
 ) -> anyhow::Result<(YdbCredentials, Option<String>)> {
     match auth.auth_type.as_str() {
         "" | "anonymous" => Ok((
@@ -52,7 +52,9 @@ pub fn build_credentials_with_token(
     }
 }
 
-pub fn build_credentials(auth: &crate::config::yaml::AuthConfig) -> anyhow::Result<YdbCredentials> {
+pub fn build_credentials(
+    auth: &crate::providers::yds::config::AuthConfig,
+) -> anyhow::Result<YdbCredentials> {
     match auth.auth_type.as_str() {
         "" | "anonymous" => Ok(YdbCredentials::Anonymous(ydb::AnonymousCredentials::new())),
         "access_token" => {
@@ -75,7 +77,7 @@ pub fn build_credentials(auth: &crate::config::yaml::AuthConfig) -> anyhow::Resu
     }
 }
 
-fn read_token(auth: &crate::config::yaml::AuthConfig) -> anyhow::Result<String> {
+fn read_token(auth: &crate::providers::yds::config::AuthConfig) -> anyhow::Result<String> {
     if let Some(path) = auth.token_file.as_deref() {
         let expanded = shellexpand::full(path)
             .map_err(|e| anyhow::anyhow!("Failed to expand token_file path '{path}': {e}"))?;

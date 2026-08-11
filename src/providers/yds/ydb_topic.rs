@@ -3,7 +3,7 @@ use futures_util::future::BoxFuture;
 
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::providers::yds::credentials::YdbCredentials;
-use crate::providers::yds::provider::YdsSourceConfig;
+use crate::providers::yds::config::YdsSourceConfig;
 use crate::types::exactly_once::PartitionKey;
 use crate::types::message::{Message, MessageBatch};
 

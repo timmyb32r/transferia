@@ -2,17 +2,19 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ParserConfig, SchemaConfig};
-use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::json_parser::{ChunkSplitter, JsonParserConfig};
+use crate::parsers::ParserConfig;
+use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::providers::s3::config::{build_object_store, S3SourceConfig};
 use crate::providers::s3::source::S3Source;
 use crate::providers::traits::SourceProvider;
+use crate::types::schema::DatasetSchema;
 
 pub struct S3SourceProvider {
     cfg: S3SourceConfig,
     /// Cached DDL schema derived from the parser config.
-    cached_schema: SchemaConfig,
+    cached_schema: DatasetSchema,
 }
 
 impl S3SourceProvider {
@@ -28,7 +30,7 @@ impl S3SourceProvider {
         let parser_cfg: JsonParserConfig = serde_yaml::from_value(
             cfg.parser.parser.raw()?.clone(),
         )?;
-        if parser_cfg.chunk_splitter == crate::config::yaml::ChunkSplitter::NoSplit {
+        if parser_cfg.chunk_splitter == ChunkSplitter::NoSplit {
             anyhow::bail!(
                 "s3: chunk_splitter 'no-split' is not supported for S3 \u{2014} use 'new-line'"
             );
@@ -38,7 +40,7 @@ impl S3SourceProvider {
                 "s3: table_naming.type must be 'from_config' (S3 has no topic path)"
             );
         }
-        let cached_schema = parser_cfg.to_schema_config();
+        let cached_schema = parser_cfg.to_dataset_schema()?;
         Ok(Self { cfg, cached_schema })
     }
 }
@@ -48,6 +50,7 @@ impl SourceProvider for S3SourceProvider {
         &self,
         partition_id: i64,
         _cancel_token: CancellationToken,
+        _memory: PipelineMemory,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let store = match build_object_store(&self.cfg) {
             Ok(s) => s,
@@ -78,7 +81,7 @@ impl SourceProvider for S3SourceProvider {
         Some(&self.cfg.parser)
     }
 
-    fn schema_config(&self) -> Option<&SchemaConfig> {
+    fn schema(&self) -> Option<&DatasetSchema> {
         Some(&self.cached_schema)
     }
 }

@@ -9,11 +9,10 @@ use tokio_util::sync::CancellationToken;
 
 use transferia::config::yaml::Config;
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
-use transferia::middleware::filter::FilterMiddleware;
+use transferia::middleware::build_middleware;
 use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
-use transferia::providers::clickhouse::sink::schema_columns;
 use transferia::providers::traits::{
     ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
 };
@@ -66,7 +65,7 @@ fn spawn_partition_task(
                     tracing::error!(
                         partition = partition_id,
                         attempt,
-                        "PQv1 source creation failed: {error}"
+                        "source creation failed: {error}"
                     );
                     break;
                 }
@@ -84,7 +83,7 @@ fn spawn_partition_task(
                     tracing::error!(
                         partition = partition_id,
                         attempt,
-                        "ClickHouse sink creation failed: {error}"
+                        "sink creation failed: {error}"
                     );
                     break;
                 }
@@ -145,7 +144,6 @@ async fn main() -> anyhow::Result<()> {
             Ok(Box::new(
                 transferia::providers::yds::provider::YdsSourceProvider::from_config(
                     value,
-                    "pqv1",
                     Arc::clone(&registry),
                 )?,
             ))
@@ -161,14 +159,6 @@ async fn main() -> anyhow::Result<()> {
 
     let source_kind = config.source.kind()?;
     let sink_kind = config.sink.kind()?;
-    anyhow::ensure!(
-        source_kind == "pqv1",
-        "only source.pqv1 is supported in this build"
-    );
-    anyhow::ensure!(
-        sink_kind == "clickhouse",
-        "only sink.clickhouse is supported in this build"
-    );
     let source_provider: Arc<dyn SourceProvider> =
         Arc::from(registry.build_source(source_kind, config.source.raw()?.clone())?);
     let sink_provider: Arc<dyn SinkProvider> =
@@ -177,12 +167,8 @@ async fn main() -> anyhow::Result<()> {
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
     let parser_config = source_provider
         .parser_config()
-        .ok_or_else(|| anyhow::anyhow!("PQv1 source requires a JSON parser"))?;
+        .ok_or_else(|| anyhow::anyhow!("source requires a parser"))?;
     let parser_kind = parser_config.parser.kind()?;
-    anyhow::ensure!(
-        parser_kind == "json_parser",
-        "only json_parser is supported in this build"
-    );
     let parser_raw = parser_config.parser.raw()?.clone();
     anyhow::ensure!(
         !parser_raw
@@ -198,13 +184,7 @@ async fn main() -> anyhow::Result<()> {
         config
             .middlewares
             .iter()
-            .map(|middleware| match middleware.mw_type.as_str() {
-                "filter" => Ok(Box::new(FilterMiddleware::new(
-                    middleware.field.clone().unwrap_or_default(),
-                    middleware.value.clone().unwrap_or_default(),
-                )?) as Box<dyn Middleware>),
-                other => anyhow::bail!("Unknown middleware type: {other}"),
-            })
+            .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
             .collect::<anyhow::Result<_>>()?,
     );
 
@@ -212,24 +192,18 @@ async fn main() -> anyhow::Result<()> {
         .discover_partitions(cli.total_workers, cli.worker_index)
         .await?;
     if partitions.is_empty() {
-        tracing::warn!("No PQv1 partitions assigned");
+        tracing::warn!("No source partitions assigned");
         return Ok(());
     }
 
-    let schema = source_provider.schema_config().cloned().unwrap_or_default();
+    let schema = source_provider.schema().cloned().unwrap_or_default();
     let dlq_table: Arc<str> = dlq_name(&table).into();
-    let dlq_columns = transferia::parsers::json_parser::dlq_ch_columns(None)
-        .iter()
-        .map(|(name, ty)| ((*name).to_string(), (*ty).to_string()))
-        .collect();
     sink_provider
         .prepare(SinkPrepare {
             table: Arc::clone(&table),
-            columns: schema_columns(&schema.column_defs())?,
-            order_by: schema.order_by.clone(),
+            schema,
             dlq_table,
-            dlq_columns,
-            recreate: config.recreate_tables,
+            dlq_schema: transferia::parsers::json_parser::dlq_dataset_schema(None),
         })
         .await?;
 

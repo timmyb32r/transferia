@@ -29,7 +29,6 @@ source:
       # measure download-only throughput). Switch one on, comment the other.
       json_parser:
         chunk_splitter: "new-line"
-        order_by: ["id", "ts"]
         columns:
           # Required — present in nearly every log line. Missing → row goes to DLQ.
           - jsonpath: "$.id"
@@ -95,6 +94,7 @@ sink:
     # Yandex Cloud example: "klg-xxxx.db.yandex.net:9440"
     connection_string: ""
     database: "db1"
+    sorting_key: ["id", "ts"]
     max_insert_rows: 10000
     max_insert_bytes: 67108864
     flush_interval_ms: 500

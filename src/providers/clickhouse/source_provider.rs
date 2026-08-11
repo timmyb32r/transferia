@@ -2,22 +2,24 @@ use alloc::sync::Arc;
 use std::sync::OnceLock;
 
 use arrow::array::StringArray;
+use arrow::datatypes::{DataType, TimeUnit};
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ColumnDef, ColumnMapping};
-use crate::config::yaml::SchemaConfig;
+use crate::parsers::ParserConfig;
+use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::providers::clickhouse::source::{ClickHouseSource, ClickHouseSourceConfig, TableRef};
 use crate::providers::traits::SourceProvider;
+use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 pub struct ClickHouseSourceProvider {
     cfg: ClickHouseSourceConfig,
     /// Column schema derived from the source table via DESCRIBE TABLE.
     /// Populated once during `discover_partitions`, used for DDL.
-    derived_schema: Arc<OnceLock<SchemaConfig>>,
+    derived_schema: Arc<OnceLock<DatasetSchema>>,
 }
 
 impl ClickHouseSourceProvider {
@@ -33,11 +35,11 @@ impl ClickHouseSourceProvider {
     }
 
     /// Connect to the source `ClickHouse`, run DESCRIBE TABLE, and build a
-    /// [`SchemaConfig`] with the real column names and types.
+    /// [`DatasetSchema`] with the real column names and types.
     async fn derive_schema(
         cfg: &ClickHouseSourceConfig,
         table_ref: &TableRef,
-    ) -> anyhow::Result<SchemaConfig> {
+    ) -> anyhow::Result<DatasetSchema> {
         use clickhouse_arrow::{ArrowFormat, ConnectionPoolBuilder};
 
         let pool = ConnectionPoolBuilder::<ArrowFormat>::new(&cfg.connection_string)
@@ -75,12 +77,11 @@ impl ClickHouseSourceProvider {
             for row in 0..batch.num_rows() {
                 let col_name = names.value(row).to_string();
                 let ch_type = types.value(row).to_string();
-                let arrow_type = ch_type_to_arrow(&ch_type);
-                columns.push(ColumnDef {
-                    column_name: col_name,
-                    arrow_type,
-                    nullable: ch_type.to_lowercase().starts_with("nullable"),
-                });
+                columns.push(SchemaColumn::new(
+                    col_name,
+                    ch_type_to_arrow(&ch_type),
+                    ch_type.to_lowercase().starts_with("nullable"),
+                ));
             }
         }
 
@@ -91,39 +92,33 @@ impl ClickHouseSourceProvider {
             );
         }
 
-        let mappings: Vec<ColumnMapping> = columns.into_iter().map(ColumnMapping::from).collect();
-        Ok(SchemaConfig {
-            columns: mappings,
-            order_by: vec![],
-        })
+        Ok(DatasetSchema::new(columns))
     }
 }
 
-/// Map a `ClickHouse` type string to an Arrow type string compatible with
-/// `parse_arrow_type`.
-fn ch_type_to_arrow(ch: &str) -> String {
+fn ch_type_to_arrow(ch: &str) -> DataType {
     let base = ch.trim_start_matches("Nullable(").trim_end_matches(')').to_lowercase();
     match base.as_str() {
-        "string" | "utf8" => "Utf8".into(),
-        "int8" => "Int8".into(),
-        "int16" => "Int16".into(),
-        "int32" | "int" => "Int32".into(),
-        "int64" | "bigint" => "Int64".into(),
-        "uint8" => "UInt8".into(),
-        "uint16" => "UInt16".into(),
-        "uint32" => "UInt32".into(),
-        "uint64" => "UInt64".into(),
-        "float32" | "float" => "Float32".into(),
-        "float64" | "double" => "Float64".into(),
-        "bool" | "boolean" => "Boolean".into(),
-        "date" | "date32" => "Date32".into(),
-        "datetime" | "datetime64" | "date64" => "Timestamp(Second, None)".into(),
-        "datetime64(3)" => "Timestamp(Millisecond, None)".into(),
-        "datetime64(6)" => "Timestamp(Microsecond, None)".into(),
-        "datetime64(9)" => "Timestamp(Nanosecond, None)".into(),
+        "string" | "utf8" => DataType::Utf8,
+        "int8" => DataType::Int8,
+        "int16" => DataType::Int16,
+        "int32" | "int" => DataType::Int32,
+        "int64" | "bigint" => DataType::Int64,
+        "uint8" => DataType::UInt8,
+        "uint16" => DataType::UInt16,
+        "uint32" => DataType::UInt32,
+        "uint64" => DataType::UInt64,
+        "float32" | "float" => DataType::Float32,
+        "float64" | "double" => DataType::Float64,
+        "bool" | "boolean" => DataType::Boolean,
+        "date" | "date32" => DataType::Date32,
+        "datetime" | "datetime64" | "date64" => DataType::Timestamp(TimeUnit::Second, None),
+        "datetime64(3)" => DataType::Timestamp(TimeUnit::Millisecond, None),
+        "datetime64(6)" => DataType::Timestamp(TimeUnit::Microsecond, None),
+        "datetime64(9)" => DataType::Timestamp(TimeUnit::Nanosecond, None),
         other => {
             tracing::warn!("CH type '{}' \u{2192} falling back to Utf8", other);
-            "Utf8".into()
+            DataType::Utf8
         }
     }
 }
@@ -133,6 +128,7 @@ impl SourceProvider for ClickHouseSourceProvider {
         &self,
         partition_id: i64,
         _cancel_token: CancellationToken,
+        _memory: PipelineMemory,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let cfg = self.cfg.clone();
         Box::pin(async move {
@@ -182,12 +178,12 @@ impl SourceProvider for ClickHouseSourceProvider {
             .ok_or_else(|| anyhow::anyhow!("ch source: no tables configured"))
     }
 
-    fn parser_config(&self) -> Option<&crate::config::yaml::ParserConfig> {
+    fn parser_config(&self) -> Option<&ParserConfig> {
         // CH source uses Arrow passthrough — no parser.
         None
     }
 
-    fn schema_config(&self) -> Option<&SchemaConfig> {
+    fn schema(&self) -> Option<&DatasetSchema> {
         self.derived_schema.get()
     }
 }

@@ -4,9 +4,17 @@ use arrow::array::Scalar;
 use arrow::compute;
 use arrow::compute::kernels::cmp::eq;
 use arrow::datatypes::DataType;
+use serde::Deserialize;
 
 use crate::pipeline::middleware::Middleware;
 use crate::types::table_data::TableData;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilterConfig {
+    pub field: String,
+    pub value: String,
+}
 
 /// Middleware that keeps only rows where the given string column equals `value`.
 ///

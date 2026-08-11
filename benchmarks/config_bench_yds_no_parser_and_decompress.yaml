@@ -40,9 +40,9 @@ sink:
     # ClickHouse Native Protocol (TLS): port 9440, NOT 8443 (8443 is HTTPS).
     connection_string: ""
     database: "db1"
-    batch_size: 10000
-    max_linger_ms: 500
-    max_connections: 4
+    max_insert_rows: 10000
+    max_insert_bytes: 67108864
+    flush_interval_ms: 500
     username: "user1"
     password: ""
 

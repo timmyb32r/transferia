@@ -16,7 +16,7 @@ use futures_util::Stream;
 
 use crate::metrics::SourceCounters;
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
-use crate::providers::yds::provider::YdsSourceConfig;
+use crate::providers::yds::config::YdsSourceConfig;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;

@@ -14,11 +14,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use time::format_description::well_known::Rfc3339;
 
-use crate::config::yaml::{parse_arrow_type, ChunkSplitter, SchemaConfig};
-use crate::parsers::json_parser::config::JsonParserConfig;
+use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
 use crate::parsers::Parser;
 use crate::types::exactly_once::{ExactlyOnceKey, PartitionKey};
 use crate::types::message::Message;
+use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::table_data::{dlq_name, TableData};
 
 // ---------------------------------------------------------------------------
@@ -800,30 +800,21 @@ fn dlq_schema(exactly_once: Option<&ExactlyOnceKey>) -> Schema {
     Schema::new(fields)
 }
 
-/// `ClickHouse` column definitions for the DLQ table, kept in sync with [`dlq_schema`].
-/// Used by `create_tables` to create the DLQ table.
 #[must_use]
-pub fn dlq_ch_columns(exactly_once: Option<&ExactlyOnceKey>) -> Vec<(&str, &str)> {
-    let mut cols = vec![("raw_bytes", "String"), ("error_message", "String")];
-    match exactly_once {
-        Some(key) => {
-            cols.push(("timestamp", "String"));
-            cols.push((
-                key.partition.name.as_ref(),
-                if partition_is_utf8(key) {
-                    "String"
-                } else {
-                    "Int64"
-                },
-            ));
-            cols.push((key.offset.name.as_ref(), "Int64"));
-        }
-        None => {
-            cols.push(("partition_id", "Int64"));
-            cols.push(("timestamp", "String"));
-        }
-    }
-    cols
+pub fn dlq_dataset_schema(exactly_once: Option<&ExactlyOnceKey>) -> DatasetSchema {
+    DatasetSchema::new(
+        dlq_schema(exactly_once)
+            .fields()
+            .iter()
+            .map(|field| {
+                SchemaColumn::new(
+                    field.name().clone(),
+                    field.data_type().clone(),
+                    field.is_nullable(),
+                )
+            })
+            .collect(),
+    )
 }
 
 enum DlqReason {
@@ -862,8 +853,6 @@ pub struct JsonParser {
     /// DLQ schema is derived from it (spec §7). Must match the `exactly_once_key`
     /// passed to `parse_into` (they originate from the same source config).
     exactly_once_key: Option<ExactlyOnceKey>,
-    /// Stored config for DDL / schema access.
-    config: JsonParserConfig,
 }
 
 struct ColumnMappingExt {
@@ -873,16 +862,6 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
-    #[must_use]
-    pub fn schema_config(&self) -> SchemaConfig {
-        self.config.to_schema_config()
-    }
-
-    #[must_use]
-    pub fn order_by(&self) -> &[String] {
-        &self.config.order_by
-    }
-
     pub fn new(
         config: &JsonParserConfig,
         table: Arc<str>,
@@ -975,7 +954,6 @@ impl JsonParser {
             _data_types: data_types,
             chunk_splitter: config.chunk_splitter,
             exactly_once_key,
-            config: config.clone(),
         })
     }
 
@@ -1602,7 +1580,7 @@ mod tests {
     /// messages and parses each line as a separate JSON row.
     #[test]
     fn newline_chunk_splitter() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
 
         let config = JsonParserConfig {
             columns: vec![
@@ -1620,7 +1598,6 @@ mod tests {
                 },
             ],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
             skip_null_columns: false,
             add_exactly_once_keys: false,
@@ -1662,7 +1639,7 @@ mod tests {
     /// (per-row). DLQ rows do not append to the main offset column.
     #[test]
     fn exactly_once_yds_key_columns_filled() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
         let config = JsonParserConfig {
@@ -1673,7 +1650,6 @@ mod tests {
                 nullable: false,
             }],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
             add_exactly_once_keys: false,
@@ -1723,7 +1699,7 @@ mod tests {
     /// `Message.partition = Str(full S3 key)`.
     #[test]
     fn exactly_once_s3_key_columns_filled() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
         let config = JsonParserConfig {
@@ -1734,7 +1710,6 @@ mod tests {
                 nullable: false,
             }],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
             add_exactly_once_keys: false,
@@ -1768,7 +1743,7 @@ mod tests {
     /// Message that produced the DLQ row — YDS Int64 partition.
     #[test]
     fn exactly_once_dlq_has_key_columns() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
         let config = JsonParserConfig {
@@ -1779,7 +1754,6 @@ mod tests {
                 nullable: false,
             }],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NewLine,
             skip_null_columns: false,
             add_exactly_once_keys: false,
@@ -1822,7 +1796,7 @@ mod tests {
     /// before batch construction (spec §3.1).
     #[test]
     fn exactly_once_missing_offset_fails() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
         let config = JsonParserConfig {
@@ -1833,7 +1807,6 @@ mod tests {
                 nullable: false,
             }],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
             add_exactly_once_keys: false,
@@ -1884,7 +1857,7 @@ mod tests {
     /// readable message (spec §2, runtime collision guard).
     #[test]
     fn exactly_once_system_column_collision_fails() -> anyhow::Result<()> {
-        use crate::config::yaml::{ChunkSplitter, ColumnMapping};
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
         use crate::types::exactly_once::{ExactlyOnceColumn, ExactlyOnceKey};
 
         let config = JsonParserConfig {
@@ -1895,7 +1868,6 @@ mod tests {
                 nullable: false,
             }],
             raw_payload_field: None,
-            order_by: vec![],
             chunk_splitter: ChunkSplitter::NoSplit,
             skip_null_columns: false,
             add_exactly_once_keys: false,

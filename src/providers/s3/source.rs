@@ -17,8 +17,7 @@ use futures_util::future::BoxFuture;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use object_store::{GetResult, ObjectStore};
 
-use crate::config::yaml::ChunkSplitter;
-use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::json_parser::{ChunkSplitter, JsonParserConfig};
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::providers::s3::config::S3SourceConfig;
 use crate::types::message::{Message, MessageBatch};

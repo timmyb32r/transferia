@@ -28,7 +28,6 @@ source:
       # measure download-only throughput). Switch one on, comment the other.
       json_parser:
         chunk_splitter: "new-line"
-        order_by: ["id", "ts"]
         columns:
           # Required — present in nearly every log line. Missing → row goes to DLQ.
           - jsonpath: "$.id"

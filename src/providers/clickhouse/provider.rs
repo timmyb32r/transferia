@@ -2,16 +2,18 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
 use crate::pipeline::sink::Sink;
-use crate::providers::clickhouse::sink::{ClickHouseAdmin, ClickHouseSink, ClickhouseSinkConfig};
+use crate::providers::clickhouse::sink::{
+    schema_columns, ClickHouseAdmin, ClickHouseSink, ClickHouseSinkConfig,
+};
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {
-    cfg: ClickhouseSinkConfig,
+    cfg: ClickHouseSinkConfig,
 }
 
 impl ClickHouseSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let cfg: ClickhouseSinkConfig = serde_yaml::from_value(value)
+        let cfg: ClickHouseSinkConfig = serde_yaml::from_value(value)
             .map_err(|error| anyhow::anyhow!("Failed to parse ClickHouse sink config: {error}"))?;
         anyhow::ensure!(
             !cfg.connection_string.is_empty(),
@@ -41,21 +43,33 @@ impl SinkProvider for ClickHouseSinkProvider {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         let config = self.cfg.clone();
         Box::pin(async move {
+            for key in &config.sorting_key {
+                anyhow::ensure!(
+                    request
+                        .schema
+                        .columns
+                        .iter()
+                        .any(|column| &column.name == key),
+                    "clickhouse.sorting_key column '{key}' is absent from the dataset schema"
+                );
+            }
+            let columns = schema_columns(&request.schema.columns)?;
+            let dlq_columns = schema_columns(&request.dlq_schema.columns)?;
             let admin = ClickHouseAdmin::connect(&config).await?;
             admin
                 .create_table(
                     &request.table,
-                    &request.columns,
-                    &request.order_by,
-                    request.recreate,
+                    &columns,
+                    &config.sorting_key,
+                    config.recreate_tables,
                 )
                 .await?;
             admin
                 .create_table(
                     &request.dlq_table,
-                    &request.dlq_columns,
+                    &dlq_columns,
                     &[],
-                    request.recreate,
+                    config.recreate_tables,
                 )
                 .await
         })

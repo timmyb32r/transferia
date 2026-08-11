@@ -5,11 +5,12 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::{ParserConfig, SchemaConfig};
 use crate::metrics::SinkCounters;
+use crate::parsers::ParserConfig;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::Sink;
 use crate::pipeline::source::Source;
+use crate::types::schema::DatasetSchema;
 
 // ---------------------------------------------------------------------------
 // SourceProvider
@@ -32,10 +33,8 @@ pub trait SourceProvider: Send + Sync {
     fn resolve_table_name(&self) -> anyhow::Result<String>;
     fn parser_config(&self) -> Option<&ParserConfig>;
 
-    /// Column schema for DDL. Defaults to `None` — the schema comes from
-    /// `parser_config().settings`. Override for sources that derive the schema
-    /// independently (e.g. `ClickHouse` source from DESCRIBE TABLE).
-    fn schema_config(&self) -> Option<&SchemaConfig> {
+    /// Runtime dataset schema produced by this source/parser pipeline.
+    fn schema(&self) -> Option<&DatasetSchema> {
         None
     }
 }
@@ -57,11 +56,9 @@ pub struct SinkContext {
 
 pub struct SinkPrepare {
     pub table: Arc<str>,
-    pub columns: Vec<(String, String)>,
-    pub order_by: Vec<String>,
+    pub schema: DatasetSchema,
     pub dlq_table: Arc<str>,
-    pub dlq_columns: Vec<(String, String)>,
-    pub recreate: bool,
+    pub dlq_schema: DatasetSchema,
 }
 
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+pub mod config;
 pub mod json_parser;
 pub mod none_parser;
 
@@ -12,6 +13,7 @@ use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 pub use crate::parsers::json_parser::ParserWorkspace;
+pub use config::{ParserConfig, TableNaming};
 
 /// Common parser interface. Every parser converts raw [`Message`]s into
 /// Arrow [`TableData`] (valid + optional DLQ).

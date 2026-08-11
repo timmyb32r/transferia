@@ -1,288 +1,134 @@
 # transferia
 
-Multi-source, multi-sink data transfer pipeline. Reads from YDB Topic, Logbroker PQv1, S3, and ClickHouse; parses JSON into Apache Arrow columnar format; applies middleware (filters); writes to ClickHouse, S3, YDS, or Empty sink.
+Proof-of-concept data integrator written in Rust. The active path is one fully
+independent pipeline per YDS/PQv1 partition:
 
-## Sources
+```text
+PQv1 source -> JSON parser -> middlewares -> asynchronous ClickHouse sink
+```
 
-| Source | Type | Purpose |
-|--------|------|---------|
-| **YDB Topic** | streaming | CDC replication from YDB |
-| **PQv1** (Logbroker) | streaming | CDC replication via MigrationStreamingRead |
-| **S3** | snapshot | One-time/periodic JSON file import |
-| **ClickHouse** | batch | Table-to-table transfer |
+Source, parser, middleware, and sink implementations are selected through
+registries. The supported runtime path registers `pqv1`, `json_parser`,
+`filter`, and `clickhouse`; other provider paths are intentionally disabled for
+now.
 
-## Sinks
-
-| Sink | Type | Purpose |
-|------|------|---------|
-| **ClickHouse** | native protocol | Primary analytical storage |
-| **S3** | object storage | Snapshot export |
-| **YDS** | streaming | Forward to YDB Topic |
-| **Empty** | dev/null | Benchmarking / discard |
-
-## Build
+## Build and quality checks
 
 ```bash
 cargo build --release
+just fmt
+just clippy
+just test
 ```
 
-Binary: `./target/release/transferia`
+`just clippy` uses the lint policy from `Cargo.toml` and treats warnings as
+errors.
 
-## Quick Start
+## Run
 
 ```bash
 transferia --config ./config.yaml --total-workers 1 --worker-index 0
 ```
 
-### CLI
+| Flag | Environment | Default | Meaning |
+|---|---|---:|---|
+| `--config` | `CONFIG_PATH` | — | YAML configuration path |
+| `--total-workers` | — | `1` | Number of workers used to shard partitions |
+| `--worker-index` | — | `0` | Zero-based index of this worker |
 
-| Flag | Env | Default | Description |
-|------|-----|---------|-------------|
-| `--config` | `CONFIG_PATH` | — | Path to YAML config |
-| `--total-workers` | — | `1` | Worker count (partition sharding for YDB/PQv1) |
-| `--worker-index` | — | `0` | Current worker index (0-based) |
-
-### Logging
-
-```bash
-RUST_LOG=debug transferia --config ./config.yaml   # verbose
-RUST_LOG=error transferia --config ./config.yaml   # errors only
-```
+YAML values support `${ENV_VAR}` and `$ENV_VAR` expansion.
 
 ## Configuration
-
-YAML with `${ENV_VAR}` and `$ENV_VAR` expansion (shellexpand). Source is selected by the key inside `source:`.
-
-### YDB Topic
-
-```yaml
-source:
-  topic:
-    connection_string: "grpc://localhost:2136/local"
-    topic_path: "/local/my-topic"
-    consumer_name: "replicator"
-    auth:
-      type: anonymous
-    parser:
-      table_naming:
-        type: from_topic
-      parser_type: json_parser
-      settings:
-        chunk_splitter: new-line
-        columns:
-          - jsonpath: "$.user_id"
-            column_name: "user_id"
-            arrow_type: "Int64"
-          - jsonpath: "$.event_name"
-            column_name: "event_name"
-            arrow_type: "Utf8"
-```
-
-### PQv1 (Logbroker)
 
 ```yaml
 source:
   pqv1:
-    connection_string: ""
+    connection_string: "grpcs://sas.logbroker.yandex.net:2135"
     topic_path: "/cdc/prod/logs"
-    consumer_name: "cdc/prod/my-consumer"
-    discovery_endpoint: "grpcs://sas.logbroker.yandex.net:2135"
-    partition_ids: [0]
+    consumer_name: "transferia-consumer"
+    partition_ids: [0] # optional; otherwise discovered from PQv1
     auth:
       type: access_token
       token_file: "~/.logbroker/token"
     parser:
       table_naming:
-        type: from_config
+        type: from_config # or from_topic
         name: "logs"
-      parser_type: json_parser
-      settings:
+      json_parser:
         chunk_splitter: new-line
-        columns: [...]
-```
+        columns:
+          - jsonpath: "$.id"
+            column_name: id
+            arrow_type: Utf8
+            nullable: false
+          - jsonpath: "$.timestamp"
+            column_name: timestamp
+            arrow_type: "Timestamp(Millisecond, UTC)"
+            nullable: false
+          - jsonpath: "$.event_name"
+            column_name: event_name
+            arrow_type: Utf8
+            nullable: true
 
-### S3 (snapshot)
-
-```yaml
-source:
-  s3:
-    bucket: my-bucket
-    prefix: data/2024/
-    region: us-east-1
-    endpoint: https://s3.custom.com     # optional (MinIO, etc.)
-    allow_http: false
-    credentials:                        # optional (defaults to standard AWS chain)
-      access_key: "${S3_ACCESS_KEY}"
-      secret_key: "${S3_SECRET_KEY}"
-    chunk_size_bytes: 16777216          # 16 MiB default
-    max_retries: 3
-    parser:
-      table_naming:
-        type: from_config
-        name: "events"
-      parser_type: json_parser
-      settings:
-        chunk_splitter: new-line        # required for S3
-        columns: [...]
-```
-
-**S3 source notes:**
-- Streaming reads: files are read in chunks (16 MiB), never fully loaded into memory
-- Retries: transport errors (network, S3 API) are retried with exponential backoff
-- Exit code: 0 — complete snapshot, 1 — any error (partial snapshot)
-- Workers other than worker 0 exit immediately (S3 is not sharded)
-- At-least-once: data failing during flush → replay from YDB; for S3, re-read from offset
-
-### ClickHouse (table-to-table transfer)
-
-```yaml
-source:
-  clickhouse:
-    connection_string: "localhost:9000"
-    database: "default"
-    username: "default"
-    password: ""
-    tables:
-      - schema: "db1"
-        table: "events"
-    # OR use regex patterns:
-    # include_patterns:
-    #   - "prod_.*"
-    # exclude_patterns:
-    #   - ".*_tmp"
-```
-
-**ClickHouse source notes:**
-- Reads tables page by page (configurable `rows_per_page`, default 10000)
-- Schema is derived automatically from the source table — no `parser` config needed
-- Serializes Arrow batches to JSON for pipeline processing (Arrow → JSON → Parser → Arrow)
-
-### Sink (ClickHouse)
-
-```yaml
-sink:
-  clickhouse:
-    connection_string: "localhost:9000"
-    database: "default"
-    batch_size: 10000
-    max_linger_ms: 500
-    max_connections: 4
-    username: "default"
-    password: ""
-    use_tls: true
-    tls_domain: null            # optional SNI override
-```
-
-### Sink (S3 export)
-
-```yaml
-sink:
-  s3:
-    bucket: my-bucket
-    prefix: snapshots/
-    region: us-east-1
-    endpoint: https://s3.custom.com     # optional
-    access_key: "${S3_ACCESS_KEY}"      # optional
-    secret_key: "${S3_SECRET_KEY}"      # optional
-    serializer_type: json
-```
-
-### Sink (YDS forward)
-
-```yaml
-sink:
-  yds:
-    connection_string: "grpc://localhost:2135/local"
-    topic_path: "/Root/my-topic"
-    serializer_type: json
-```
-
-### Sink (Empty / dev-null)
-
-```yaml
-sink:
-  empty:
-    batch_size: 10000
-```
-
-### Middlewares
-
-```yaml
 middlewares:
-  - type: filter
-    field: event_name
-    value: page_view
-```
+  - filter:
+      field: event_name
+      value: page_view
 
-## Local Dev
+# Hard retained-memory budget for each independent partition pipeline.
+pipeline_memory_limit_bytes: 268435456
 
-```bash
-cd docker-compose
-docker-compose up -d clickhouse ydb
-cargo run --release -- --config ./config.yaml
-```
-
-## Production (Yandex Cloud Managed ClickHouse)
-
-Yandex Cloud Managed ClickHouse requires TLS on port 9440. If `clickhouse-arrow` fails the handshake, use `stunnel` as a TLS proxy:
-
-```bash
-sudo apt install stunnel4
-```
-
-`/etc/stunnel/clickhouse.conf`:
-```ini
-[clickhouse]
-client = yes
-accept = 127.0.0.1:19000
-connect = <cluster-FQDN>:9440
-```
-
-```yaml
 sink:
   clickhouse:
-    connection_string: "127.0.0.1:19000"
-    use_tls: false
+    connection_string: "cluster.example.net:9440"
+    database: default
+    username: transferia
+    password: "${CLICKHOUSE_PASSWORD}"
+    sorting_key: [id, timestamp]
+    recreate_tables: false
+    max_insert_rows: 100000
+    max_insert_bytes: 67108864
+    flush_interval_ms: 100
+    retry_initial_ms: 50
+    retry_max_ms: 30000
+    retry_max_attempts: null
+    use_tls: true
+    tls_domain: null
+
+metrics:
+  enabled: true
+  interval_ms: 1000
+  per_partition: true
 ```
 
-```
-transferia ──plain TCP──→ stunnel ──TLS──→ ClickHouse
-```
+Configuration ownership follows runtime ownership:
 
-## Delivery Guarantees
+- the root contains only provider-neutral pipeline composition, memory, and
+  metrics settings;
+- YDS owns authentication and PQv1 connection settings;
+- the JSON parser owns column mappings, Arrow type syntax, and chunk framing;
+- ClickHouse owns `sorting_key`, table recreation, insert sizing, retry, and TLS
+  settings;
+- each middleware owns the value nested below its registry key.
 
-**At-least-once** for main and DLQ streams. The commit marker in YDB is set only after successful write of all tables (main + DLQ) to the sink. On failure — replay from the last committed offset.
+`sorting_key` is ClickHouse `MergeTree ORDER BY`, not a source primary-key
+declaration. An empty list produces `ORDER BY tuple()`.
 
-**Exactly-once** (opt-in): on ClickHouse sinks with `ReplicatedMergeTree`, uses waterline deduplication by `(partition, offset)`. Requires ClickHouse ≥ 22.8 for `select_sequential_consistency`.
+## Asynchronous sink behavior
 
-## Architecture
+Each partition gets its own sink and shares no buffers or connections with
+other partition pipelines. At most one INSERT is in flight per sink. While it
+is running, the sink may accumulate the next INSERT. The shared per-pipeline
+memory budget applies backpressure to the source; an individual allocation
+larger than the configured limit is temporarily admitted with a warning so the
+pipeline can still make progress.
 
-```
-Source ──→ Reader (tokio) ──→ Parser (std::thread) ──→ Writer (tokio) ──→ Sink
-  │              │                      │                       │
-  │         mpsc channel           mpsc channel           accumulator
-  │                                                       + flush
-  └── CommitMarker ──────────────────────────────────────→ commit ↲
-```
+Source progress is acknowledged only after every output associated with the
+delivery has been inserted successfully. Exactly-once table semantics are not
+implemented yet.
 
-Three async stages with backpressure via bounded mpsc channels. The parser runs on a dedicated thread (independent of the tokio blocking pool). The writer accumulates `TableWrite`s and flushes by size or timeout.
+## ClickHouse TLS
 
-### Stack
-
-- **Rust** + tokio (async runtime)
-- **Apache Arrow** 57 — columnar data format
-- **clickhouse-arrow** — ClickHouse native protocol
-- **object_store** (DataFusion) — S3 access
-- **simd-json** — accelerated JSON parsing
-- **ydb** — YDB Topic API
-- **tonic/prost** — gRPC for PQv1
-
-## Data Schema
-
-The schema is defined in the YAML config (columns + Arrow types + JSONPath). Based on this:
-
-1. An Arrow schema is built for `RecordBatch`
-2. `CREATE TABLE` DDL is generated for ClickHouse (Arrow types → ClickHouse types)
-3. The parser extracts values from JSON and populates columnar builders
-
-DLQ table (`<table>.dlq`) is created automatically — fixed schema: `raw_bytes`, `error_message`, `partition_id`, `timestamp` (at-least-once) or `raw_bytes`, `error_message`, `timestamp`, `<partition_key>`, `<offset_key>` (exactly-once).
+Managed ClickHouse normally uses the native TLS port `9440`; `8443` is HTTPS,
+not the native protocol. For an explicit local TLS proxy, configure the sink to
+connect to the proxy and set `use_tls: false` only on that local hop.

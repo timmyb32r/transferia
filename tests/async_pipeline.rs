@@ -14,7 +14,7 @@ use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
 use transferia::pipeline::source::{CommitMarker, ReadResult, Source};
 use transferia::providers::clickhouse::sink::{
-    ClickHouseSink, ClickhouseSinkConfig, InsertError, InsertTransport,
+    ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
 use transferia::types::exactly_once::PartitionKey;
 use transferia::types::message::{Message, MessageBatch};
@@ -136,8 +136,8 @@ impl InsertTransport for FakeClickHouse {
     }
 }
 
-fn sink_config() -> ClickhouseSinkConfig {
-    ClickhouseSinkConfig {
+fn sink_config() -> ClickHouseSinkConfig {
+    ClickHouseSinkConfig {
         connection_string: "fake".into(),
         database: "default".into(),
         username: "default".into(),
@@ -150,6 +150,8 @@ fn sink_config() -> ClickhouseSinkConfig {
         retry_max_attempts: None,
         use_tls: false,
         tls_domain: None,
+        sorting_key: Vec::new(),
+        recreate_tables: false,
     }
 }
 

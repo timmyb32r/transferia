@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use object_store::ObjectStore;
 use serde::Deserialize;
 
-use crate::config::yaml::ParserConfig;
+use crate::parsers::ParserConfig;
 
 pub const DEFAULT_CHUNK_SIZE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_RETRIES: u32 = 3;

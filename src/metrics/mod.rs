@@ -20,12 +20,28 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use alloc::sync::Arc;
+use serde::Deserialize;
 use tokio::task::JoinHandle;
 
 const RELAXED: Ordering = Ordering::Relaxed;
 /// Nanoseconds per second (f64) — a typed const avoids the `*_literal_suffix`
 /// contradiction (`separated` vs `unseparated` are both enabled here).
 const NANOS_PER_SEC_F: f64 = 1_000_000_000.0;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_metrics_interval_ms")]
+    pub interval_ms: u64,
+    #[serde(default)]
+    pub per_partition: bool,
+}
+
+const fn default_metrics_interval_ms() -> u64 {
+    1000
+}
 
 // ---------------------------------------------------------------------------
 // Counters
