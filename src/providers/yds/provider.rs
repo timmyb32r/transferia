@@ -32,6 +32,7 @@ impl YdsSourceProvider {
         if cfg.connection_string.is_empty() {
             anyhow::bail!("pqv1.connection_string must not be empty");
         }
+        let _validated_endpoint = parse_endpoint(&cfg.connection_string)?;
         if cfg.topic_path.is_empty() {
             anyhow::bail!("pqv1.topic_path must not be empty");
         }

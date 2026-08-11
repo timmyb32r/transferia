@@ -266,6 +266,30 @@ async fn low_volume_delivery_flushes_at_interval() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn low_volume_tables_share_the_same_flush_deadline() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, []);
+    let mut low_volume = config();
+    low_volume.max_insert_rows = 1_000;
+    let (tx, mut events, cancellation, task) =
+        spawn_sink_with_config(low_volume, transport, memory.clone(), counters);
+
+    tx.send(delivery(&memory, 1, &["events", "events_dlq"]).await)
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    tokio::time::advance(Duration::from_millis(100)).await;
+    wait_calls(&state, 2).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
 async fn full_pipeline_budget_requests_an_immediate_insert() {
     let memory = PipelineMemory::new(1);
     let counters = Arc::new(SinkCounters::new());
@@ -333,6 +357,34 @@ async fn transient_error_retries_frozen_insert() {
     task.await.unwrap().unwrap();
 }
 
+#[tokio::test(start_paused = true)]
+async fn transient_error_stops_at_retry_limit() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) =
+        FakeTransport::new(false, [Plan::Transient, Plan::Transient, Plan::Success]);
+    let mut limited = config();
+    limited.retry_max_attempts = Some(2);
+    let (tx, mut events, _cancellation, task) = spawn_sink_with_config(
+        limited,
+        transport,
+        memory.clone(),
+        Arc::new(SinkCounters::new()),
+    );
+
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("retry exhaustion must preserve its restart contract");
+    assert!(failure.is_retryable());
+    assert_eq!(state.calls.load(Ordering::Acquire), 2);
+    assert!(events.try_recv().is_err());
+}
+
 #[tokio::test]
 async fn permanent_error_is_fatal_and_never_commits() {
     let memory = PipelineMemory::new(1_000_000);
@@ -342,7 +394,11 @@ async fn permanent_error_is_fatal_and_never_commits() {
     tx.send(delivery(&memory, 1, &["events"]).await)
         .await
         .unwrap();
-    assert!(task.await.unwrap().is_err());
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("permanent insert error must preserve its restart contract");
+    assert!(!failure.is_retryable());
     assert!(events.try_recv().is_err());
 }
 

@@ -62,9 +62,28 @@ impl ClickHouseSinkConfig {
             self.flush_interval_ms > 0,
             "clickhouse.flush_interval_ms must be positive"
         );
+        anyhow::ensure!(
+            self.retry_initial_ms > 0,
+            "clickhouse.retry_initial_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.retry_max_ms >= self.retry_initial_ms,
+            "clickhouse.retry_max_ms must be greater than or equal to retry_initial_ms"
+        );
+        anyhow::ensure!(
+            self.retry_max_attempts != Some(0),
+            "clickhouse.retry_max_attempts must be positive"
+        );
         Ok(())
     }
+
+    pub(super) fn effective_retry_max_attempts(&self) -> u32 {
+        self.retry_max_attempts
+            .unwrap_or(DEFAULT_RETRY_MAX_ATTEMPTS)
+    }
 }
+
+const DEFAULT_RETRY_MAX_ATTEMPTS: u32 = 20;
 
 fn default_database() -> String {
     "default".into()
@@ -118,5 +137,27 @@ mod tests {
             "connection_string: localhost:9000\norder_by: [id]\n",
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn defaults_to_finite_retries() -> anyhow::Result<()> {
+        let config = ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+            "connection_string: localhost:9000\n",
+        )?)?;
+        assert_eq!(config.effective_retry_max_attempts(), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn validates_retry_policy() -> anyhow::Result<()> {
+        let zero_attempts: Value =
+            serde_yaml::from_str("connection_string: localhost:9000\nretry_max_attempts: 0\n")?;
+        let inverted_backoff: Value = serde_yaml::from_str(
+            "connection_string: localhost:9000\nretry_initial_ms: 20\nretry_max_ms: 10\n",
+        )?;
+
+        assert!(ClickHouseSinkConfig::from_value(zero_attempts).is_err());
+        assert!(ClickHouseSinkConfig::from_value(inverted_backoff).is_err());
+        Ok(())
     }
 }

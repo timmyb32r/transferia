@@ -53,6 +53,12 @@ pub trait SinkProvider: Send + Sync {
     }
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
+    /// Validate constraints that span the global pipeline and sink-specific
+    /// buffering configuration.
+    fn validate_pipeline_memory_limit(&self, _limit_bytes: usize) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
 }
 

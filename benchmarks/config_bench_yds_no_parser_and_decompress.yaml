@@ -1,52 +1,30 @@
-# Transferia — Benchmark Configuration 3 (PQv1, DROP BEFORE DECOMPRESSION)
-#
-# Pure download throughput: the pqv1 driver discards every message BEFORE
-# decompression, so the read loop never blocks on `decompress()`. Expect
-# `dl ~100% busy` and `decomp 0% busy` — this isolates the network/server
-# delivery rate (compressed bytes/s). No data reaches the pipeline.
-#
-# Compare:
-#   config_bench.yaml   — full parse (json_parser)
-#   config_bench2.yaml  — no parser (drop at parse stage; still decompresses)
-#   config_bench3.yaml  — drop before decompress (pure download, no decompress)
-#
-# Run:
-#   transferia --config config_bench3.yaml --total-workers 1 --worker-index 0
+# PQv1 -> empty sink: measures network/read-loop throughput by dropping data
+# before decompression.
+# cargo run --release -- --config benchmarks/config_bench_yds_no_parser_and_decompress.yaml
 
 source:
   pqv1:
-    connection_string: ""
-    topic_path: "/cdc/prod/logs"
-    consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
-    discovery_endpoint: ""
+    connection_string: "grpc://localhost:2135"
+    topic_path: "/benchmark/events"
+    consumer_name: "transferia-benchmark"
     partition_ids: [0]
     auth:
       type: access_token
-      token_file: "~/.logbroker/token"
-    # Discard every message before decompression (pure-download bench).
+      token_file: "$HOME/.logbroker/token"
     drop_before_decompress: true
     parser:
-      table_naming:
-        type: from_config
-        name: "logs"
-      # Parser is irrelevant here (no data reaches the pipeline), but `none`
-      # keeps the config valid and the sink/DDL path skipped.
+      common:
+        table_naming:
+          type: from_config
+          name: "events"
       none: {}
 
 middlewares: []
+pipeline_memory_limit_bytes: 268435456
 
 sink:
-  clickhouse:
-    # ClickHouse Native Protocol (TLS): port 9440, NOT 8443 (8443 is HTTPS).
-    connection_string: ""
-    database: "db1"
-    max_insert_rows: 10000
-    max_insert_bytes: 67108864
-    flush_interval_ms: 500
-    username: "user1"
-    password: ""
+  empty: {}
 
-# Throughput + duty-cycle stats, printed to the console by a background task.
 metrics:
   enabled: true
   interval_ms: 1000

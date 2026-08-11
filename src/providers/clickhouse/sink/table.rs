@@ -1,7 +1,7 @@
 use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::{ArrowFormat, Client};
 
-use super::client::connect_once;
+use super::client::{connect_once, quote_identifier};
 use super::ClickHouseSinkConfig;
 use crate::providers::traits::SinkPrepare;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
@@ -57,7 +57,10 @@ async fn create_table(
     if recreate {
         tracing::warn!(table = name, "dropping table before recreation");
         client
-            .execute(&format!("DROP TABLE IF EXISTS `{name}`"), None)
+            .execute(
+                &format!("DROP TABLE IF EXISTS {}", quote_identifier(name)),
+                None,
+            )
             .await
             .map_err(|error| anyhow::anyhow!("Failed to drop table '{name}': {error}"))?;
     }
@@ -70,7 +73,7 @@ async fn create_table(
         .join(", ");
     let sorting_key = sorting_key
         .iter()
-        .map(|column| format!("`{column}`"))
+        .map(|column| quote_identifier(column))
         .collect::<Vec<_>>()
         .join(", ");
     let order_by = if sorting_key.is_empty() {
@@ -79,7 +82,8 @@ async fn create_table(
         &sorting_key
     };
     let ddl = format!(
-        "CREATE TABLE IF NOT EXISTS `{name}` ({columns}) ENGINE = MergeTree ORDER BY ({order_by})",
+        "CREATE TABLE IF NOT EXISTS {} ({columns}) ENGINE = MergeTree ORDER BY ({order_by})",
+        quote_identifier(name),
     );
     client
         .execute(&ddl, None)
@@ -95,7 +99,7 @@ fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
     } else {
         data_type.into()
     };
-    Ok(format!("`{}` {data_type}", column.name))
+    Ok(format!("{} {data_type}", quote_identifier(&column.name)))
 }
 
 fn clickhouse_type(data_type: &DataType) -> anyhow::Result<&'static str> {

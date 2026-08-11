@@ -1,28 +1,33 @@
-# S3 Sink + YDS Sink
+# S3 sink runtime contract
 
-## Компоненты и связи
+The registered S3 sink serializes Arrow rows as compact NDJSON and groups them
+into deterministic commit epochs. Object keys contain the source topic,
+partition, and first offset. Main and DLQ objects from one delivery are all
+durable before the source delivery can be acknowledged.
 
-S3-приемник и YDS-приемник построены на общем `Serializer` (JSON/NDJSON). Оба реализуют trait `Sink` и управляются через соответствующие `SinkProvider`-ы. S3-приемник пишет объекты в S3-совместимое хранилище (snapshot и stream режимы). YDS-приемник сериализует данные в NDJSON для последующей отправки в YDS-топик.
+Important boundaries are configuration-derived and stable across restarts:
 
-S3-приемник использует детерминированные ключи объектов (включая dedup token) для exactly-once идемпотентности: повторная запись с тем же токеном перезаписывает тот же объект → дубликатов нет.
+- `rotation.max_rows` and `rotation.max_bytes` bound each object;
+- `buffering.max_epoch_bytes` and `max_open_objects` bound a deterministic
+  epoch and are semantic state across replay;
+- `buffering.max_pending_objects` and `max_buffered_bytes` bound live state;
+- `upload.max_in_flight_objects` and `parallel_parts` bound upload concurrency;
+- `retry.max_attempts` prevents a permanently failing object from retrying
+forever.
 
-## Ключевые решения
+`max_epoch_bytes` defaults to a fixed 128MiB and is semantic state. Pending
+object count and upload completion timing affect admission only, never object
+rotation. The epoch limit must not exceed either `max_buffered_bytes` or the
+global `pipeline_memory_limit_bytes`.
 
-- **Serializer как отдельная абстракция** — потому что S3 и YDS разделяют формат вывода (JSON), но YDS может в будущем использовать другой формат.
-- **Детерминированные S3-ключи для exactly-once** — `{prefix}/{dedup_token}.jsonl`. При повторе тот же ключ → overwrite → идемпотентно.
-- **S3-приемник использует object_store крейт** — тот же что и S3-источник, совместимость с AWS S3 и Yandex Object Storage.
-- **YDS-приемник пока отдает сериализованные данные** — фактическая запись в YDS через TopicWriter будет добавлена позже.
+The runtime attempts to abort multipart uploads after part/complete failures
+and during graceful cancellation. Configure an S3
+`AbortIncompleteMultipartUpload` lifecycle rule as a hard-crash safety net.
+Successful deterministic overwrite is exactly-once only while
+parser/projection settings (including `keep_system_columns_in_sink`), S3
+prefix, partitioning/rotation, `max_open_objects`, and `max_epoch_bytes` remain
+unchanged across replay. Wall-clock rotation is reported as at-least-once
+because restart timing changes object boundaries.
 
-## Трейдоффы
-
-| Решение | Выигрыш | Проигрыш |
-|---------|---------|----------|
-| object_store crate (AWS-focused) | Единый API для S3-совместимых хранилищ | Нет нативной поддержки Yandex Object Storage IAM |
-| Детерминированные ключи объектов | Exactly-once без внешнего состояния | Нет ttl-ротации объектов (объекты копятся) |
-| YDS-приемник — пока заглушка | Архитектура готова | Фактическая запись не реализована |
-
-## Corner cases
-
-- **S3 overwrite**: при перезаписи S3 возвращает 200, старые данные теряются — это корректное поведение для exactly-once.
-- **Пустой батч**: оба приемника пропускают запись, не создавая пустых объектов/сообщений.
-- **Сетевые ошибки S3**: object_store имеет встроенный retry, но пайплайн также делает retry на уровне партиции.
+The YDS sink sources under `providers/yds/sink/` are not registered by the
+current executable and are outside this runtime contract.

@@ -5,11 +5,13 @@ use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, Sleep};
+use tokio_util::sync::CancellationToken;
 
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::memory::MemoryReservation;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
+use crate::pipeline::PipelineFailure;
 use crate::serializer::JsonBatchEncoder;
 
 use super::config::{PartitionChange, S3SinkConfig};
@@ -23,7 +25,6 @@ struct BufferKey {
 }
 
 struct ObjectBuffer {
-    key: BufferKey,
     topic: Arc<str>,
     source_partition: i64,
     start_offset: i64,
@@ -35,7 +36,6 @@ struct ObjectBuffer {
 #[derive(Default)]
 struct Epoch {
     buffers: BTreeMap<BufferKey, ObjectBuffer>,
-    rows: usize,
     bytes: usize,
     record_time_base_ms: Option<i64>,
     last_main_partition: Option<Arc<str>>,
@@ -65,7 +65,7 @@ struct EncodedDelivery {
 
 struct ActiveUpload {
     object: ClosedObject,
-    result: anyhow::Result<UploadStats>,
+    result: Result<UploadStats, PipelineFailure>,
 }
 
 pub struct S3Sink {
@@ -79,7 +79,7 @@ pub struct S3Sink {
     progress: DeliveryTracker<MemoryReservation>,
     buffered_bytes: usize,
     epoch_byte_limit: usize,
-    highest_time_slot_ms: Option<i64>,
+    in_flight_objects: usize,
 }
 
 impl S3Sink {
@@ -90,7 +90,7 @@ impl S3Sink {
         keep_system_columns: bool,
     ) -> anyhow::Result<Self> {
         let partitioner = Partitioner::new(&config.partitioning)?;
-        let epoch_byte_limit = config.buffering.max_buffered_bytes.0;
+        let epoch_byte_limit = config.epoch_byte_limit();
         Ok(Self {
             config,
             uploader,
@@ -102,7 +102,7 @@ impl S3Sink {
             progress: DeliveryTracker::new(),
             buffered_bytes: 0,
             epoch_byte_limit,
-            highest_time_slot_ms: None,
+            in_flight_objects: 0,
         })
     }
 
@@ -110,18 +110,15 @@ impl S3Sink {
         let mut rows = Vec::new();
         let mut payload = Vec::new();
         for output in &delivery.outputs {
-            let hidden: Vec<usize> = if self.keep_system_columns {
-                Vec::new()
-            } else {
-                output
-                    .system_columns
-                    .iter()
-                    .map(|column| column.index)
-                    .collect()
-            };
-            let encoder = JsonBatchEncoder::new(&output.batch, |index| !hidden.contains(&index))?;
-            for row in 0..output.rows() {
-                let route = self.partitioner.route(output, row)?;
+            let mut visible = vec![true; output.batch.num_columns()];
+            if !self.keep_system_columns {
+                for column in output.system_columns.iter() {
+                    visible[column.index] = false;
+                }
+            }
+            let encoder = JsonBatchEncoder::new(&output.batch, |index| visible[index])?;
+            let routes = self.partitioner.route_batch(output)?;
+            for (row, route) in routes.into_iter().enumerate() {
                 let start = payload.len();
                 encoder.write_row(row, &mut payload);
                 rows.push(EncodedRow {
@@ -202,7 +199,7 @@ impl S3Sink {
             {
                 end += 1;
             }
-            self.accept_message_group(&encoded.rows[start..end], &encoded.payload)?;
+            self.accept_message_group(&encoded.rows[start..end], &encoded.payload);
             start = end;
         }
         drop(encoded.payload);
@@ -211,23 +208,9 @@ impl S3Sink {
         Ok(())
     }
 
-    fn accept_message_group(&mut self, rows: &[EncodedRow], payload: &[u8]) -> anyhow::Result<()> {
+    fn accept_message_group(&mut self, rows: &[EncodedRow], payload: &[u8]) {
         let main = rows.iter().find(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
-        if let Some(main) = main {
-            if let Some(slot) = main.route.time_slot_ms {
-                if self
-                    .highest_time_slot_ms
-                    .is_some_and(|highest| slot < highest)
-                {
-                    anyhow::bail!("S3 time partition regression: event maps to already closed slot {slot}, highest observed slot is {}", self.highest_time_slot_ms.unwrap_or(slot));
-                }
-                self.highest_time_slot_ms = Some(
-                    self.highest_time_slot_ms
-                        .map_or(slot, |highest| highest.max(slot)),
-                );
-            }
-        }
 
         let partition_changed = self.config.rotation.on_partition_change == PartitionChange::Rotate
             && main.is_some_and(|row| {
@@ -267,9 +250,8 @@ impl S3Sink {
             let buffer = self
                 .epoch
                 .buffers
-                .entry(key.clone())
+                .entry(key)
                 .or_insert_with(|| ObjectBuffer {
-                    key,
                     topic: Arc::clone(&row.route.topic),
                     source_partition: row.route.partition,
                     start_offset: row.route.offset,
@@ -283,7 +265,6 @@ impl S3Sink {
                 .payload
                 .extend_from_slice(&payload[row.payload.clone()]);
             *buffer.delivery_rows.entry(row.delivery_id).or_default() += 1;
-            self.epoch.rows = self.epoch.rows.saturating_add(1);
             self.epoch.bytes = self.epoch.bytes.saturating_add(row.payload.len());
         }
 
@@ -291,7 +272,7 @@ impl S3Sink {
             buffer.rows >= self.config.rotation.max_rows
                 || buffer.payload.len() >= self.config.rotation.max_bytes.0
         });
-        let budget_reached = self.epoch.buffers.len() >= self.config.buffering.max_open_objects
+        let budget_reached = self.epoch.buffers.len() > self.config.buffering.max_open_objects
             || self.epoch.bytes >= self.epoch_byte_limit;
         if self.epoch.buffers.len() > self.config.buffering.max_open_objects {
             tracing::warn!(
@@ -300,10 +281,20 @@ impl S3Sink {
                 "one atomic source message temporarily exceeded the S3 open-object limit"
             );
         }
+        if self.pending_objects() > self.config.buffering.max_pending_objects {
+            tracing::warn!(
+                pending_objects = self.pending_objects(),
+                configured_limit = self.config.buffering.max_pending_objects,
+                "one atomic source message temporarily exceeded the S3 pending-object limit"
+            );
+        }
+        // Pending uploads are deliberately not a rotation input: their count
+        // depends on I/O timing and would produce different object boundaries
+        // when the same source deliveries are replayed. The pending limit is
+        // enforced only by run-loop admission below.
         if object_limit_reached || budget_reached {
             self.close_epoch();
         }
-        Ok(())
     }
 
     fn close_epoch(&mut self) {
@@ -311,7 +302,7 @@ impl S3Sink {
             return;
         }
         let epoch = std::mem::take(&mut self.epoch);
-        for (_, buffer) in epoch.buffers {
+        for (buffer_key, buffer) in epoch.buffers {
             let topic = percent_encode(buffer.topic.as_bytes());
             let filename = format!(
                 "{topic}+{}+{}.json",
@@ -321,12 +312,12 @@ impl S3Sink {
             let key = if prefix.is_empty() {
                 format!(
                     "{}/{}/{}",
-                    buffer.key.table, buffer.key.partition_path, filename
+                    buffer_key.table, buffer_key.partition_path, filename
                 )
             } else {
                 format!(
                     "{prefix}/{}/{}/{}",
-                    buffer.key.table, buffer.key.partition_path, filename
+                    buffer_key.table, buffer_key.partition_path, filename
                 )
             };
             self.ready.push_back(ClosedObject {
@@ -339,23 +330,30 @@ impl S3Sink {
         self.update_buffer_gauges();
     }
 
-    fn start_upload(&mut self, uploads: &mut JoinSet<ActiveUpload>) -> bool {
+    fn start_upload(
+        &mut self,
+        uploads: &mut JoinSet<ActiveUpload>,
+        cancellation: &CancellationToken,
+    ) -> bool {
         let Some(object) = self.ready.pop_front() else {
             return false;
         };
         let uploader = Arc::clone(&self.uploader);
         let retry = self.config.retry.clone();
-        let key = object.key.clone();
-        let payload = object.payload.clone();
+        let cancellation = cancellation.clone();
+        self.in_flight_objects = self.in_flight_objects.saturating_add(1);
         uploads.spawn(async move {
-            let result = upload_with_retry(uploader, retry, key, payload).await;
+            let result =
+                upload_with_retry(uploader, retry, &object.key, &object.payload, &cancellation)
+                    .await;
             ActiveUpload { object, result }
         });
         true
     }
 
     fn complete_upload(&mut self, active: ActiveUpload) -> anyhow::Result<()> {
-        let stats = active.result?;
+        self.in_flight_objects = self.in_flight_objects.saturating_sub(1);
+        let stats = active.result.map_err(anyhow::Error::new)?;
         self.counters.add_busy(stats.busy);
         self.counters.add_upload_retries(stats.retries);
         self.counters.add_rows(active.object.rows as u64);
@@ -398,9 +396,10 @@ impl S3Sink {
             .map(|(interval, started)| started + interval.0)
     }
 
-    fn update_gauges(&self, in_flight_uploads: usize) {
+    fn update_gauges(&self) {
         self.update_buffer_gauges();
-        self.counters.set_inflight_objects(in_flight_uploads as u64);
+        self.counters
+            .set_inflight_objects(self.in_flight_objects as u64);
     }
 
     fn update_buffer_gauges(&self) {
@@ -410,66 +409,86 @@ impl S3Sink {
         self.counters.set_ready_objects(self.ready.len() as u64);
     }
 
+    fn pending_objects(&self) -> usize {
+        self.ready.len().saturating_add(self.in_flight_objects)
+    }
+
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        // This limit is configuration-derived and therefore stable across
-        // retries/restarts. Runtime memory pressure may throttle reception, but
-        // must never change object boundaries in an exactly-once pipeline.
-        self.epoch_byte_limit = self
-            .config
-            .buffering
-            .max_buffered_bytes
-            .0
-            .min((io.memory.limit() / 2).max(1));
         let max_in_flight_objects = self.config.upload.max_in_flight_objects;
         let mut uploads = JoinSet::new();
+        let upload_cancellation = CancellationToken::new();
         let mut input_closed = false;
         let mut backpressure_started: Option<std::time::Instant> = None;
-        loop {
-            self.emit_committed(&io.events).await?;
-            if input_closed && !self.epoch.buffers.is_empty() {
-                self.close_epoch();
-                continue;
-            }
-            while uploads.len() < max_in_flight_objects && self.start_upload(&mut uploads) {}
-            self.update_gauges(uploads.len());
-            if input_closed && uploads.is_empty() && self.ready.is_empty() {
+        let result: anyhow::Result<()> = async {
+            loop {
                 self.emit_committed(&io.events).await?;
-                anyhow::ensure!(
-                    self.progress.is_empty(),
-                    "S3 sink stopped with incomplete deliveries"
-                );
-                return Ok(());
-            }
-
-            let can_accept =
-                !input_closed && self.buffered_bytes < self.config.buffering.max_buffered_bytes.0;
-            if !input_closed && !can_accept {
-                backpressure_started.get_or_insert_with(std::time::Instant::now);
-            } else if let Some(started) = backpressure_started.take() {
-                self.counters.add_backpressure(started.elapsed());
-            }
-            let deadline = self.wall_clock_deadline();
-            let mut wall_sleep = wall_clock_sleep(deadline);
-            tokio::select! {
-                () = io.cancellation.cancelled() => {
-                    uploads.abort_all();
+                if input_closed && !self.epoch.buffers.is_empty() {
+                    self.close_epoch();
+                    continue;
+                }
+                while self.in_flight_objects < max_in_flight_objects
+                    && self.start_upload(&mut uploads, &upload_cancellation)
+                {}
+                self.update_gauges();
+                if input_closed && uploads.is_empty() && self.ready.is_empty() {
+                    self.emit_committed(&io.events).await?;
+                    anyhow::ensure!(
+                        self.progress.is_empty(),
+                        "S3 sink stopped with incomplete deliveries"
+                    );
                     return Ok(());
                 }
-                result = uploads.join_next(), if !uploads.is_empty() => {
-                    let completed = result
-                        .ok_or_else(|| anyhow::anyhow!("S3 upload set ended unexpectedly"))?
-                        .map_err(|error| anyhow::anyhow!("S3 upload task failed: {error}"))?;
-                    self.complete_upload(completed)?;
+
+                let can_accept = !input_closed
+                    && self.buffered_bytes < self.config.buffering.max_buffered_bytes.0
+                    && self.pending_objects() < self.config.buffering.max_pending_objects;
+                if !input_closed && !can_accept {
+                    backpressure_started.get_or_insert_with(std::time::Instant::now);
+                } else if let Some(started) = backpressure_started.take() {
+                    self.counters.add_backpressure(started.elapsed());
                 }
-                delivery = io.deliveries.recv(), if can_accept => {
-                    match delivery {
-                        Some(delivery) => self.accept(delivery, &io.memory)?,
-                        None => input_closed = true,
+                let deadline = self.wall_clock_deadline();
+                let mut wall_sleep = wall_clock_sleep(deadline);
+                tokio::select! {
+                    () = io.cancellation.cancelled() => return Ok(()),
+                    result = uploads.join_next(), if !uploads.is_empty() => {
+                        let completed = result
+                            .ok_or_else(|| anyhow::anyhow!("S3 upload set ended unexpectedly"))?
+                            .map_err(|error| anyhow::anyhow!("S3 upload task failed: {error}"))?;
+                        self.complete_upload(completed)?;
                     }
+                    delivery = io.deliveries.recv(), if can_accept => {
+                        match delivery {
+                            Some(delivery) => self.accept(delivery, &io.memory)?,
+                            None => input_closed = true,
+                        }
+                    }
+                    () = &mut wall_sleep, if deadline.is_some() => self.close_epoch(),
                 }
-                () = &mut wall_sleep, if deadline.is_some() => self.close_epoch(),
             }
         }
+        .await;
+
+        cancel_and_drain_uploads(&mut uploads, &upload_cancellation).await;
+        self.in_flight_objects = 0;
+        self.update_gauges();
+        result
+    }
+}
+
+async fn cancel_and_drain_uploads(
+    uploads: &mut JoinSet<ActiveUpload>,
+    cancellation: &CancellationToken,
+) {
+    cancellation.cancel();
+    let drained = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while uploads.join_next().await.is_some() {}
+    })
+    .await;
+    if drained.is_err() {
+        tracing::warn!("timed out aborting S3 multipart uploads; cancelling upload tasks");
+        uploads.abort_all();
+        while uploads.join_next().await.is_some() {}
     }
 }
 

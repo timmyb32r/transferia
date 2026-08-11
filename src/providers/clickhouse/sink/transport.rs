@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
+use clickhouse_arrow::native::error_codes::ClickHouseError as ServerErrorCode;
+use clickhouse_arrow::{Error as ClickHouseError, Severity};
 use futures_util::future::BoxFuture;
 
 use super::client::ReconnectingClient;
@@ -53,26 +55,89 @@ impl InsertTransport for NativeTransport {
     }
 }
 
-fn classify_insert_error(error: impl core::fmt::Display) -> InsertError {
-    const PERMANENT_MARKERS: [&str; 9] = [
-        "AUTHENTICATION_FAILED",
-        "UNKNOWN_TABLE",
-        "UNKNOWN_IDENTIFIER",
-        "NO_SUCH_COLUMN",
-        "TYPE_MISMATCH",
-        "SYNTAX_ERROR",
-        "NUMBER_OF_COLUMNS_DOESNT_MATCH",
-        "Unknown table",
-        "password",
-    ];
-    let message = error.to_string();
-    let error = anyhow::anyhow!(message.clone());
-    if PERMANENT_MARKERS
-        .iter()
-        .any(|marker| message.contains(marker))
-    {
-        InsertError::Permanent(error)
-    } else {
+fn classify_insert_error(error: ClickHouseError) -> InsertError {
+    let transient = match &error {
+        ClickHouseError::Io(_)
+        | ClickHouseError::InternalChannelError
+        | ClickHouseError::ConnectionTimeout(_)
+        | ClickHouseError::ConnectionGone(_)
+        | ClickHouseError::StartupError
+        | ClickHouseError::ChannelClosed
+        | ClickHouseError::OutgoingTimeout(_)
+        | ClickHouseError::InsertArrowRetry(_) => true,
+        ClickHouseError::ServerException(server) => is_transient_server_error(&server.error),
+        _ => false,
+    };
+    let error = anyhow::Error::new(error);
+    if transient {
         InsertError::Transient(error)
+    } else {
+        InsertError::Permanent(error)
+    }
+}
+
+const fn is_transient_server_error(error: &Severity) -> bool {
+    match error {
+        Severity::Server(_) => true,
+        Severity::Protocol(error) => matches!(
+            error,
+            ServerErrorCode::CannotReadFromSocket
+                | ServerErrorCode::CannotWriteToSocket
+                | ServerErrorCode::SocketTimeout
+                | ServerErrorCode::NetworkError
+        ),
+        Severity::Query(error) => matches!(
+            error,
+            ServerErrorCode::TimeoutExceeded
+                | ServerErrorCode::MemoryLimitExceeded
+                | ServerErrorCode::QueryWasCancelled
+                | ServerErrorCode::Aborted
+        ),
+        Severity::Syntax(_) | Severity::Data(_) | Severity::Unknown(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clickhouse_arrow::ServerError;
+
+    use super::*;
+
+    fn server_exception(error: Severity) -> ClickHouseError {
+        ClickHouseError::ServerException(ServerError {
+            error,
+            code: 0,
+            name: "test".into(),
+            message: "test".into(),
+            stack_trace: String::new(),
+        })
+    }
+
+    #[test]
+    fn classifies_typed_transport_errors_as_transient() {
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::ConnectionTimeout("test".into())),
+            InsertError::Transient(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(server_exception(Severity::Protocol(
+                ServerErrorCode::NetworkError
+            ))),
+            InsertError::Transient(_)
+        ));
+    }
+
+    #[test]
+    fn classifies_authentication_and_unknown_errors_as_permanent() {
+        assert!(matches!(
+            classify_insert_error(server_exception(Severity::Protocol(
+                ServerErrorCode::WrongPassword
+            ))),
+            InsertError::Permanent(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Unknown("network timeout".into())),
+            InsertError::Permanent(_)
+        ));
     }
 }

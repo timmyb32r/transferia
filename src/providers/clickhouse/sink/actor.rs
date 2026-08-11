@@ -11,6 +11,7 @@ use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
+use crate::pipeline::PipelineFailure;
 
 struct BufferedBatch {
     delivery_id: DeliveryId,
@@ -32,17 +33,12 @@ struct ActiveInsert {
     batches: Vec<BufferedBatch>,
 }
 
-struct InsertFailure {
-    error: anyhow::Error,
-}
-
 pub struct ClickHouseSink {
     transport: Arc<dyn InsertTransport>,
     config: ClickHouseSinkConfig,
     counters: Arc<SinkCounters>,
     buffers: HashMap<Arc<str>, TableBuffer>,
     progress: DeliveryTracker<()>,
-    last_insert_started: Option<Instant>,
 }
 
 impl ClickHouseSink {
@@ -74,7 +70,6 @@ impl ClickHouseSink {
             counters,
             buffers: HashMap::new(),
             progress: DeliveryTracker::new(),
-            last_insert_started: None,
         }
     }
 
@@ -120,9 +115,6 @@ impl ClickHouseSink {
 
     fn next_flush(&self, input_closed: bool, memory_pressure: bool) -> Option<(Arc<str>, Instant)> {
         let interval = Duration::from_millis(self.config.flush_interval_ms);
-        let rate_limit = self
-            .last_insert_started
-            .map_or_else(Instant::now, |last| last + interval);
         self.buffers
             .values()
             .map(|buffer| {
@@ -132,7 +124,7 @@ impl ClickHouseSink {
                 let wanted = if input_closed || full {
                     Instant::now()
                 } else {
-                    (buffer.first_seen + interval).max(rate_limit)
+                    buffer.first_seen + interval
                 };
                 (Arc::clone(&buffer.table), wanted)
             })
@@ -144,7 +136,6 @@ impl ClickHouseSink {
             .buffers
             .remove(table)
             .ok_or_else(|| anyhow::anyhow!("missing ClickHouse buffer for table '{table}'"))?;
-        self.last_insert_started = Some(Instant::now());
         Ok(ActiveInsert {
             table: buffer.table,
             rows: buffer.rows,
@@ -157,13 +148,14 @@ impl ClickHouseSink {
         &self,
         active: ActiveInsert,
         cancellation: tokio_util::sync::CancellationToken,
-    ) -> JoinHandle<Result<ActiveInsert, InsertFailure>> {
+    ) -> JoinHandle<Result<ActiveInsert, PipelineFailure>> {
         let transport = Arc::clone(&self.transport);
         let counters = Arc::clone(&self.counters);
         let config = self.config.clone();
         tokio::spawn(async move {
             let mut attempts = 0_u32;
-            let mut backoff = Duration::from_millis(config.retry_initial_ms.max(1));
+            let max_attempts = config.effective_retry_max_attempts();
+            let mut backoff = Duration::from_millis(config.retry_initial_ms);
             loop {
                 attempts = attempts.saturating_add(1);
                 let batches = active
@@ -174,7 +166,9 @@ impl ClickHouseSink {
                 let started = std::time::Instant::now();
                 let result = tokio::select! {
                     () = cancellation.cancelled() => {
-                        return Err(InsertFailure { error: anyhow::anyhow!("ClickHouse insert cancelled") });
+                        return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                            "ClickHouse insert cancelled"
+                        )));
                     }
                     result = transport.insert(Arc::clone(&active.table), batches) => result,
                 };
@@ -186,12 +180,14 @@ impl ClickHouseSink {
                         counters.add_flush();
                         return Ok(active);
                     }
-                    Err(InsertError::Permanent(error)) => return Err(InsertFailure { error }),
+                    Err(InsertError::Permanent(error)) => {
+                        return Err(PipelineFailure::fatal(error));
+                    }
                     Err(InsertError::Transient(error)) => {
-                        if config.retry_max_attempts.is_some_and(|max| attempts >= max) {
-                            return Err(InsertFailure {
-                                error: error.context("ClickHouse retry limit exhausted"),
-                            });
+                        if attempts >= max_attempts {
+                            return Err(PipelineFailure::retryable(
+                                error.context("ClickHouse retry limit exhausted"),
+                            ));
                         }
                         tracing::warn!(
                             attempts,
@@ -200,13 +196,15 @@ impl ClickHouseSink {
                         );
                         tokio::select! {
                             () = cancellation.cancelled() => {
-                                return Err(InsertFailure { error: anyhow::anyhow!("ClickHouse retry cancelled") });
+                                return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                                    "ClickHouse retry cancelled"
+                                )));
                             }
                             () = tokio::time::sleep(backoff) => {}
                         }
                         backoff = backoff
                             .saturating_mul(2)
-                            .min(Duration::from_millis(config.retry_max_ms.max(1)));
+                            .min(Duration::from_millis(config.retry_max_ms));
                     }
                 }
             }
@@ -237,7 +235,7 @@ impl ClickHouseSink {
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut active: Option<JoinHandle<Result<ActiveInsert, InsertFailure>>> = None;
+        let mut active: Option<JoinHandle<Result<ActiveInsert, PipelineFailure>>> = None;
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
@@ -262,7 +260,7 @@ impl ClickHouseSink {
                         anyhow::anyhow!("ClickHouse insert task failed: {error}")
                     })? {
                         Ok(insert) => self.complete_insert(insert)?,
-                        Err(failure) => return Err(failure.error),
+                        Err(failure) => return Err(failure.into()),
                     }
                 } else {
                     active = Some(task);
@@ -292,6 +290,12 @@ impl ClickHouseSink {
                 }
                 continue;
             };
+
+            if deadline <= Instant::now() {
+                let insert = self.take_insert(&table)?;
+                active = Some(self.start_insert(insert, io.cancellation.clone()));
+                continue;
+            }
 
             tokio::select! {
                 () = io.cancellation.cancelled() => return Ok(()),

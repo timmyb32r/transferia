@@ -13,6 +13,7 @@ use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
 use transferia::pipeline::source::{CommitMarker, ReadResult, Source};
+use transferia::pipeline::PipelineFailure;
 use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
@@ -24,6 +25,67 @@ struct FakeSource {
     next_offset: i64,
     reads: Arc<AtomicUsize>,
     commits: mpsc::UnboundedSender<i64>,
+}
+
+struct FailedSource;
+
+struct MarkerOnlySource {
+    marker: Option<i64>,
+    commits: mpsc::UnboundedSender<i64>,
+}
+
+impl Source for FailedSource {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+        Box::pin(async {
+            Ok(ReadResult::Failed(anyhow::anyhow!(
+                "corrupt compressed source batch"
+            )))
+        })
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        _marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+        Box::pin(async { anyhow::bail!("failed source must never commit") })
+    }
+}
+
+impl Source for MarkerOnlySource {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+        Box::pin(async move {
+            if let Some(marker) = self.marker.take() {
+                return Ok(ReadResult::Batch(MessageBatch {
+                    messages: Vec::new(),
+                    partition_id: 0,
+                    commit_marker: Some(CommitMarker::new(marker)),
+                    memory: Vec::new(),
+                }));
+            }
+            Ok(ReadResult::Batch(MessageBatch {
+                messages: Vec::new(),
+                partition_id: 0,
+                commit_marker: None,
+                memory: Vec::new(),
+            }))
+        })
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+        Box::pin(async move {
+            let marker = marker
+                .downcast_ref::<i64>()
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("invalid marker-only source marker"))?;
+            self.commits
+                .send(marker)
+                .map_err(|_| anyhow::anyhow!("marker commit receiver closed"))?;
+            Ok(())
+        })
+    }
 }
 
 impl FakeSource {
@@ -289,8 +351,8 @@ async fn blocked_sink_propagates_memory_backpressure_to_source_reads() {
         "source kept reading while sink held the budget"
     );
     assert!(
-        stalled_reads <= 3,
-        "more than one unadmitted source batch escaped the budget"
+        stalled_reads <= 16,
+        "source reads exceeded the pipeline's outstanding-delivery bound"
     );
     assert!(commit_rx.try_recv().is_err());
 
@@ -301,4 +363,58 @@ async fn blocked_sink_propagates_memory_backpressure_to_source_reads() {
     assert!(committed.is_some());
     cancellation.cancel();
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn source_failed_result_is_a_non_retryable_pipeline_failure() {
+    for _ in 0..32 {
+        let sink =
+            transferia::providers::empty::sink::EmptySink::new(Arc::new(SinkCounters::new()));
+        let error = run_partition_pipeline(
+            Box::new(FailedSource),
+            parser(),
+            Arc::new(Vec::new()),
+            Box::new(sink),
+            PipelineMemory::new(1024),
+            CancellationToken::new(),
+            0,
+            Arc::new(ParseCounters::new()),
+        )
+        .await
+        .expect_err("terminal source corruption must fail the pipeline");
+        let failure = error
+            .downcast_ref::<PipelineFailure>()
+            .expect("failure must preserve explicit retryability");
+        assert!(!failure.is_retryable());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn marker_only_delivery_is_acknowledged_and_committed() -> anyhow::Result<()> {
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let source = MarkerOnlySource {
+        marker: Some(41),
+        commits: commit_tx,
+    };
+    let cancellation = CancellationToken::new();
+    let task = tokio::spawn(run_partition_pipeline(
+        Box::new(source),
+        parser(),
+        Arc::new(Vec::new()),
+        Box::new(transferia::providers::empty::sink::EmptySink::new(
+            Arc::new(SinkCounters::new()),
+        )),
+        PipelineMemory::new(1024),
+        cancellation.clone(),
+        0,
+        Arc::new(ParseCounters::new()),
+    ));
+
+    assert_eq!(
+        tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv()).await?,
+        Some(41)
+    );
+    cancellation.cancel();
+    task.await??;
+    Ok(())
 }

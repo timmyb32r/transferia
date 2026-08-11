@@ -27,6 +27,7 @@ struct FakeUploader {
     failures_left: AtomicUsize,
     uploads: Mutex<Vec<(String, Bytes)>>,
     gate: Option<Arc<Semaphore>>,
+    permanent: bool,
     started: Notify,
 }
 
@@ -37,6 +38,7 @@ impl FakeUploader {
             failures_left: AtomicUsize::new(failures),
             uploads: Mutex::new(Vec::new()),
             gate: None,
+            permanent: false,
             started: Notify::new(),
         })
     }
@@ -47,6 +49,18 @@ impl FakeUploader {
             failures_left: AtomicUsize::new(0),
             uploads: Mutex::new(Vec::new()),
             gate: Some(Arc::new(Semaphore::new(0))),
+            permanent: false,
+            started: Notify::new(),
+        })
+    }
+
+    fn permanent() -> Arc<Self> {
+        Arc::new(Self {
+            attempts: AtomicUsize::new(0),
+            failures_left: AtomicUsize::new(0),
+            uploads: Mutex::new(Vec::new()),
+            gate: None,
+            permanent: true,
             started: Notify::new(),
         })
     }
@@ -67,10 +81,14 @@ impl ObjectUploader for FakeUploader {
         &'a self,
         key: &'a str,
         payload: Bytes,
+        cancellation: &'a CancellationToken,
     ) -> BoxFuture<'a, Result<(), UploadError>> {
         self.attempts.fetch_add(1, Ordering::AcqRel);
         self.started.notify_waiters();
         Box::pin(async move {
+            if self.permanent {
+                return Err(UploadError::Permanent(anyhow::anyhow!("permanent")));
+            }
             if self
                 .failures_left
                 .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
@@ -81,10 +99,15 @@ impl ObjectUploader for FakeUploader {
                 return Err(UploadError::Retryable(anyhow::anyhow!("temporary")));
             }
             if let Some(gate) = &self.gate {
-                gate.acquire()
-                    .await
-                    .map_err(|error| UploadError::Permanent(error.into()))?
-                    .forget();
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => return Err(UploadError::Cancelled),
+                    permit = gate.acquire() => {
+                        permit
+                            .map_err(|error| UploadError::Permanent(error.into()))?
+                            .forget();
+                    }
+                }
             }
             self.uploads
                 .lock()
@@ -142,7 +165,7 @@ fn config(extra: &str) -> S3SinkConfig {
 
 fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S3SinkConfig {
     serde_yaml::from_str(&format!(
-        "bucket: test\nrotation:\n  max_rows: {max_rows}\n  max_bytes: 1MiB\n{rotation_extra}buffering:\n  max_open_objects: 8\n  max_buffered_bytes: 8MiB\nupload:\n  multipart_threshold: 25MiB\n  part_size: 5MiB\n  parallel_parts: 4\nretry:\n  initial_backoff: 1ms\n  max_backoff: 2ms\n{extra}"
+        "bucket: test\nrotation:\n  max_rows: {max_rows}\n  max_bytes: 1MiB\n{rotation_extra}buffering:\n  max_open_objects: 8\n  max_buffered_bytes: 8MiB\n  max_epoch_bytes: 8MiB\nupload:\n  multipart_threshold: 25MiB\n  part_size: 5MiB\n  parallel_parts: 4\nretry:\n  initial_backoff: 1ms\n  max_backoff: 2ms\n{extra}"
     ))
     .unwrap()
 }
@@ -282,6 +305,98 @@ fn spawn_with_capacity(
     (delivery_tx, event_rx, cancellation, task)
 }
 
+async fn replay_objects(uploader: Arc<FakeUploader>) -> Vec<(String, Bytes)> {
+    let blocked = uploader.gate.is_some();
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+    )
+    .unwrap();
+    let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+
+    tx.send(delivery(&memory, 1, 1, 1_000, false).await)
+        .await
+        .unwrap();
+    tx.send(delivery(&memory, 2, 2, 1_001, false).await)
+        .await
+        .unwrap();
+    if blocked {
+        uploader.wait_for_attempts(1).await;
+    } else {
+        while events.recv().await != Some(SinkEvent::CommittedThrough(DeliveryId::new(2))) {}
+    }
+
+    tx.send(delivery(&memory, 3, 3, 1_002, false).await)
+        .await
+        .unwrap();
+    tx.send(delivery(&memory, 4, 4, 1_003, false).await)
+        .await
+        .unwrap();
+    if let Some(gate) = &uploader.gate {
+        gate.add_permits(1);
+        uploader.wait_for_attempts(2).await;
+        gate.add_permits(4);
+    }
+    while events.recv().await != Some(SinkEvent::CommittedThrough(DeliveryId::new(4))) {}
+
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+    let mut objects = uploader
+        .uploads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    objects.sort_by(|left, right| left.0.cmp(&right.0));
+    objects
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn object_boundaries_do_not_depend_on_upload_completion_timing() {
+    let immediate = replay_objects(FakeUploader::immediate(0)).await;
+    let blocked = replay_objects(FakeUploader::blocked()).await;
+
+    assert_eq!(blocked, immediate);
+    assert_eq!(blocked.len(), 2);
+}
+
+#[tokio::test]
+async fn one_open_object_accumulates_rows_until_a_deterministic_rotation_limit() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 1, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+    )
+    .unwrap();
+    let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+
+    tx.send(delivery(&memory, 1, 1, 1_000, false).await)
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+    tx.send(delivery(&memory, 2, 2, 1_001, false).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    {
+        let uploads = uploader
+            .uploads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(uploads.len(), 1);
+        assert!(uploads[0]
+            .1
+            .windows(b"\n{".len())
+            .any(|window| window == b"\n{"));
+        drop(uploads);
+    }
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn uploads_multiple_closed_objects_in_parallel() {
     let uploader = FakeUploader::blocked();
@@ -365,22 +480,51 @@ async fn dlq_uses_fixed_source_partition_route() {
 }
 
 #[tokio::test]
-async fn time_partition_regression_is_fatal() {
+async fn late_time_slot_and_replay_are_routed_deterministically() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
-    let (tx, _events, _cancel, task) = spawn(
+    let (tx, mut events, cancel, task) = spawn(
         config("partitioning:\n  type: time\n  window: 1h\n  timezone: UTC\n  path: 'hour=%H'\n"),
-        uploader,
+        Arc::clone(&uploader),
         memory.clone(),
     );
     tx.send(delivery(&memory, 1, 1, 7_200_000, false).await)
         .await
         .unwrap();
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
     tx.send(delivery(&memory, 2, 2, 3_600_000, false).await)
         .await
         .unwrap();
-    let error = task.await.unwrap().unwrap_err();
-    assert!(error.to_string().contains("time partition regression"));
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    tx.send(delivery(&memory, 3, 2, 3_600_000, false).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(3)))
+    );
+    let keys = uploader
+        .uploads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 3);
+    assert!(keys[0].contains("hour=02"));
+    assert!(keys[1].contains("hour=01"));
+    assert_eq!(
+        keys[1], keys[2],
+        "replaying an offset must overwrite its key"
+    );
+    cancel.cancel();
+    task.await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -591,7 +735,7 @@ async fn buffering_limit_stops_delivery_reception_during_an_outage() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 40, max_epoch_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, _events, cancel, task) =
@@ -613,6 +757,112 @@ async fn buffering_limit_stops_delivery_reception_during_an_outage() {
         tx.try_send(fourth),
         Err(mpsc::error::TrySendError::Full(_))
     ));
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn pending_object_limit_bounds_metadata_during_an_outage() {
+    let uploader = FakeUploader::blocked();
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+    )
+    .unwrap();
+    let (tx, _events, cancel, task) =
+        spawn_with_capacity(config, Arc::clone(&uploader), memory.clone(), false, 1);
+    tx.send(delivery(&memory, 1, 10, 1_000, false).await)
+        .await
+        .unwrap();
+    uploader.wait_for_attempts(1).await;
+    tx.send(delivery(&memory, 2, 11, 1_001, false).await)
+        .await
+        .unwrap();
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+
+    tx.try_send(delivery(&memory, 3, 12, 1_002, false).await)
+        .expect("one delivery should fit in the bounded input channel");
+    let fourth = delivery(&memory, 4, 13, 1_003, false).await;
+    assert!(matches!(
+        tx.try_send(fourth),
+        Err(mpsc::error::TrySendError::Full(_))
+    ));
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
+    let uploader = FakeUploader::immediate(100);
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 2 }\n",
+    )
+    .unwrap();
+    let (tx, _events, _cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+    tx.send(delivery(&memory, 1, 4, 1_000, false).await)
+        .await
+        .unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    assert!(error.to_string().contains("exhausted 2 attempts"));
+    assert!(error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .is_some_and(crate::pipeline::PipelineFailure::is_retryable));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
+}
+
+#[tokio::test]
+async fn permanent_upload_failure_is_non_retryable() {
+    let uploader = FakeUploader::permanent();
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), uploader, memory.clone());
+    tx.send(delivery(&memory, 1, 4, 1_000, false).await)
+        .await
+        .unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("permanent S3 error must preserve its restart contract");
+    assert!(!failure.is_retryable());
+}
+
+#[tokio::test]
+async fn explicit_epoch_byte_limit_rotates_independently_of_pipeline_memory() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 8, max_buffered_bytes: 1MiB, max_epoch_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+    )
+    .unwrap();
+    let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+    tx.send(delivery(&memory, 1, 1, 1_000, false).await)
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+    tx.send(delivery(&memory, 2, 2, 1_001, false).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    {
+        let uploads = uploader
+            .uploads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(uploads.len(), 1);
+        assert!(uploads[0]
+            .1
+            .windows(b"\n{".len())
+            .any(|window| window == b"\n{"));
+        drop(uploads);
+    }
     cancel.cancel();
     task.await.unwrap().unwrap();
 }

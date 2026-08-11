@@ -1,73 +1,29 @@
-# Transferia — Benchmark Configuration 2 (PQv1 → ClickHouse, NO PARSER)
-#
-# Same as config_bench.yaml but with the `none` parser: data is read and
-# discarded at the parse stage, so you see download-only throughput
-# (yds: msg/s, comp/decomp MiB/s, dl/decomp busy%) and `parse: (no parser)`.
-#
-# Run:
-#   transferia --config config_bench2.yaml --total-workers 1 --worker-index 0
+# PQv1 -> empty sink: measures download + decompression without parsing.
+# cargo run --release -- --config benchmarks/config_bench_yds_no_parser.yaml
 
 source:
   pqv1:
-    connection_string: ""
-    topic_path: "/cdc/prod/logs"
-    consumer_name: "cdc/prod/timmyb32r-test-consumer-00"
-    discovery_endpoint: ""
+    connection_string: "grpc://localhost:2135"
+    topic_path: "/benchmark/events"
+    consumer_name: "transferia-benchmark"
     partition_ids: [0]
     auth:
       type: access_token
-      token_file: "~/.logbroker/token"
+      token_file: "$HOME/.logbroker/token"
     parser:
-      # How the destination table name is chosen:
-      #   from_config — uses table_naming.name (e.g. "logs")
-      #   from_topic  — uses topic_path as-is (e.g. "/cdc/prod/logs")
-      table_naming:
-        type: from_config
-        name: "logs"
-      # No parser: drop every message at the parse stage (download-only bench).
-      # Switch to `json_parser:` (see config_bench.yaml) for the full-parse bench.
+      common:
+        table_naming:
+          type: from_config
+          name: "events"
       none: {}
 
 middlewares: []
+pipeline_memory_limit_bytes: 268435456
 
 sink:
-  empty:
+  empty: {}
 
-# Throughput + duty-cycle stats, printed to the console by a background task.
 metrics:
   enabled: true
   interval_ms: 1000
-  per_partition: true   # one line per partition per tick; false ⇒ one aggregated line
-
-# ---
-#    2026-08-08T17:25:52.605117Z  INFO transferia::metrics: [stats p=0] yds: 48567 msg/s | comp 22.4 MiB/s | decomp 62.4 MiB/s | dl 55% busy | decomp 43% busy || parse: (no parser)
-#    2026-08-08T17:25:53.605847Z  INFO transferia::metrics: [stats p=0] yds: 46465 msg/s | comp 17.9 MiB/s | decomp 51.3 MiB/s | dl 43% busy | decomp 34% busy || parse: (no parser)
-#    2026-08-08T17:25:54.629091Z  INFO transferia::metrics: [stats p=0] yds: 34714 msg/s | comp 23.2 MiB/s | decomp 67.4 MiB/s | dl 73% busy | decomp 45% busy || parse: (no parser)
-#    2026-08-08T17:25:55.725648Z  INFO transferia::metrics: [stats p=0] yds: 43827 msg/s | comp 21.8 MiB/s | decomp 67.0 MiB/s | dl 57% busy | decomp 41% busy || parse: (no parser)
-#    2026-08-08T17:25:56.805770Z  INFO transferia::metrics: [stats p=0] yds: 45215 msg/s | comp 22.8 MiB/s | decomp 67.9 MiB/s | dl 55% busy | decomp 43% busy || parse: (no parser)
-#    2026-08-08T17:25:57.868263Z  INFO transferia::metrics: [stats p=0] yds: 47308 msg/s | comp 22.3 MiB/s | decomp 71.4 MiB/s | dl 56% busy | decomp 42% busy || parse: (no parser)
-#    2026-08-08T17:25:58.973831Z  INFO transferia::metrics: [stats p=0] yds: 43438 msg/s | comp 22.5 MiB/s | decomp 68.6 MiB/s | dl 55% busy | decomp 43% busy || parse: (no parser)
-#    2026-08-08T17:25:59.975045Z  INFO transferia::metrics: [stats p=0] yds: 50353 msg/s | comp 18.6 MiB/s | decomp 57.5 MiB/s | dl 55% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:00.976498Z  INFO transferia::metrics: [stats p=0] yds: 48705 msg/s | comp 24.5 MiB/s | decomp 77.2 MiB/s | dl 54% busy | decomp 48% busy || parse: (no parser)
-#    2026-08-08T17:26:02.035586Z  INFO transferia::metrics: [stats p=0] yds: 35218 msg/s | comp 22.9 MiB/s | decomp 70.4 MiB/s | dl 57% busy | decomp 45% busy || parse: (no parser)
-#    2026-08-08T17:26:03.118516Z  INFO transferia::metrics: [stats p=0] yds: 46106 msg/s | comp 23.0 MiB/s | decomp 71.4 MiB/s | dl 54% busy | decomp 44% busy || parse: (no parser)
-#    2026-08-08T17:26:04.119574Z  INFO transferia::metrics: [stats p=0] yds: 50362 msg/s | comp 18.6 MiB/s | decomp 55.8 MiB/s | dl 55% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:05.120680Z  INFO transferia::metrics: [stats p=0] yds: 49730 msg/s | comp 24.8 MiB/s | decomp 75.1 MiB/s | dl 54% busy | decomp 48% busy || parse: (no parser)
-#    2026-08-08T17:26:06.160037Z  INFO transferia::metrics: [stats p=0] yds: 35186 msg/s | comp 22.8 MiB/s | decomp 67.1 MiB/s | dl 57% busy | decomp 44% busy || parse: (no parser)
-#    2026-08-08T17:26:07.255024Z  INFO transferia::metrics: [stats p=0] yds: 45966 msg/s | comp 22.6 MiB/s | decomp 67.6 MiB/s | dl 54% busy | decomp 44% busy || parse: (no parser)
-#    2026-08-08T17:26:08.256495Z  INFO transferia::metrics: [stats p=0] yds: 50444 msg/s | comp 18.6 MiB/s | decomp 57.0 MiB/s | dl 54% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:09.256820Z  INFO transferia::metrics: [stats p=0] yds: 37258 msg/s | comp 18.7 MiB/s | decomp 58.7 MiB/s | dl 59% busy | decomp 35% busy || parse: (no parser)
-#    2026-08-08T17:26:10.258063Z  INFO transferia::metrics: [stats p=0] yds: 36831 msg/s | comp 18.6 MiB/s | decomp 60.4 MiB/s | dl 63% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:11.259507Z  INFO transferia::metrics: [stats p=0] yds: 37929 msg/s | comp 18.2 MiB/s | decomp 53.7 MiB/s | dl 66% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:12.303234Z  INFO transferia::metrics: [stats p=0] yds: 35984 msg/s | comp 23.8 MiB/s | decomp 73.6 MiB/s | dl 58% busy | decomp 47% busy || parse: (no parser)
-#    2026-08-08T17:26:13.423040Z  INFO transferia::metrics: [stats p=0] yds: 44635 msg/s | comp 22.2 MiB/s | decomp 66.1 MiB/s | dl 55% busy | decomp 43% busy || parse: (no parser)
-#    2026-08-08T17:26:14.424404Z  INFO transferia::metrics: [stats p=0] yds: 50267 msg/s | comp 18.6 MiB/s | decomp 56.8 MiB/s | dl 61% busy | decomp 36% busy || parse: (no parser)
-#    2026-08-08T17:26:15.511388Z  INFO transferia::metrics: [stats p=0] yds: 34520 msg/s | comp 22.9 MiB/s | decomp 70.8 MiB/s | dl 55% busy | decomp 44% busy || parse: (no parser)
-#    2026-08-08T17:26:16.512748Z  INFO transferia::metrics: [stats p=0] yds: 49588 msg/s | comp 18.7 MiB/s | decomp 57.8 MiB/s | dl 54% busy | decomp 36% busy || parse: (no parser)
-#
-# average:
-#   43.7k msg/s
-#   21.3 MiB/s comp
-#   64.7 MiB/s decomp
-#   56.6% DL
-#   41.0% decomp
+  per_partition: true

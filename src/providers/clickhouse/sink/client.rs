@@ -39,10 +39,19 @@ impl ReconnectingClient {
         table: &str,
         batches: Vec<RecordBatch>,
     ) -> ClickHouseResult<()> {
+        let schema = batches
+            .first()
+            .ok_or_else(|| clickhouse_arrow::Error::Client("empty INSERT batch list".into()))?
+            .schema();
+        if batches.iter().any(|batch| batch.schema() != schema) {
+            return Err(clickhouse_arrow::Error::SchemaConfig(
+                "all INSERT batches must have the same Arrow schema".into(),
+            ));
+        }
+        let query = insert_query(table, schema.as_ref());
         let client = self.client().await?;
         let client_id = client.client_id;
         let result = async {
-            let query = format!("INSERT INTO `{table}` VALUES");
             let mut stream = client.insert_many(&query, batches, None).await?;
             while let Some(item) = stream.next().await {
                 item?;
@@ -115,4 +124,53 @@ fn configured_builder(config: &ClickHouseSinkConfig) -> ClientBuilder {
         builder = builder.with_domain(domain.as_str());
     }
     builder
+}
+
+pub(super) fn quote_identifier(identifier: &str) -> String {
+    let mut quoted = String::with_capacity(identifier.len() + 2);
+    quoted.push('`');
+    for character in identifier.chars() {
+        if matches!(character, '`' | '\\') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('`');
+    quoted
+}
+
+fn insert_query(table: &str, schema: &arrow::datatypes::Schema) -> String {
+    let columns = schema
+        .fields()
+        .iter()
+        .map(|field| quote_identifier(field.name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("INSERT INTO {} ({columns}) VALUES", quote_identifier(table))
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::datatypes::{DataType, Field, Schema};
+
+    use super::*;
+
+    #[test]
+    fn quotes_clickhouse_identifiers() {
+        assert_eq!(quote_identifier("events"), "`events`");
+        assert_eq!(quote_identifier("odd`name\\part"), "`odd\\`name\\\\part`");
+    }
+
+    #[test]
+    fn insert_names_escaped_table_and_columns() {
+        let schema = Schema::new(vec![
+            Field::new("first", DataType::Int64, false),
+            Field::new("odd`column", DataType::Utf8, true),
+        ]);
+
+        assert_eq!(
+            insert_query("odd`table", &schema),
+            "INSERT INTO `odd\\`table` (`first`, `odd\\`column`) VALUES"
+        );
+    }
 }

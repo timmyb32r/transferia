@@ -47,6 +47,17 @@ impl SinkProvider for S3SinkProvider {
         Box::pin(async { Ok(()) })
     }
 
+    fn validate_pipeline_memory_limit(&self, limit_bytes: usize) -> anyhow::Result<()> {
+        let epoch_bytes = self.cfg.epoch_byte_limit();
+        anyhow::ensure!(
+            epoch_bytes <= limit_bytes,
+            "effective s3.buffering.max_epoch_bytes ({epoch_bytes}) must not exceed \
+             pipeline_memory_limit_bytes ({limit_bytes}); lower the S3 epoch limit or raise \
+             the pipeline memory limit"
+        );
+        Ok(())
+    }
+
     fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         let store = match self.cfg.build_store() {
             Ok(store) => store,
@@ -61,5 +72,21 @@ impl SinkProvider for S3SinkProvider {
             context.keep_system_columns,
         );
         Box::pin(async move { Ok(Box::new(sink?) as Box<dyn Sink>) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn epoch_must_fit_pipeline_memory_to_guarantee_progress() -> anyhow::Result<()> {
+        let provider = S3SinkProvider::from_config(serde_yaml::from_str(
+            "bucket: test\nbuffering: { max_buffered_bytes: 64, max_epoch_bytes: 48 }\n",
+        )?)?;
+
+        assert!(provider.validate_pipeline_memory_limit(47).is_err());
+        provider.validate_pipeline_memory_limit(48)?;
+        Ok(())
     }
 }

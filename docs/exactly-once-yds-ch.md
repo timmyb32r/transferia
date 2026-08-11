@@ -1,132 +1,38 @@
-# Exactly-Once: YDS → ClickHouse (Default MergeTree)
+# PQv1 → ClickHouse delivery semantics
 
-## Контекст
+## Current runtime contract
 
-YDS (Yandex Data Streams) — это Kafka-совместимая очередь. YDS-источник читает сообщения из партиций, пайплайн их парсит и пишет в ClickHouse. После успешной записи пайплайн коммитит оффсеты обратно в YDS. Если пайплайн падает **после записи в ClickHouse, но до коммита оффсета** — при перезапуске YDS снова отдаст те же сообщения → получим дубликаты в ClickHouse.
+The implemented PQv1 → ClickHouse path is **at-least-once**, not exactly-once.
+ClickHouse reports a successful INSERT before the source cookie is committed. If
+the process loses the commit response or stops between those operations, the
+same source data can be inserted again after restart.
 
-**Ограничение**: используем только дефолтный движок MergeTree. Никакого ReplacingMergeTree.
+The runtime currently sends ordinary `INSERT ... VALUES` requests. It does not
+set `insert_deduplication_token`, maintain a watermark table, issue a DELETE
+before INSERT, or configure `non_replicated_deduplication_window`. The
+compatibility report printed at startup is the authoritative description of
+this guarantee.
 
-**Критерий выбора**: максимальная простота. Простые решения — самые надежные.
+Consequences for operators:
 
----
+- destination tables and downstream queries must tolerate duplicates;
+- ambiguous ClickHouse transport failures are retried and can duplicate rows;
+- source offsets are committed only after ClickHouse reports success, so the
+  pipeline prefers duplicates over data loss;
+- changing parser or table configuration while uncommitted data can replay may
+  change the rows produced by that replay.
 
-## Вариант A: Watermark-таблица + DELETE перед INSERT (ВЫБРАН)
+## Possible exactly-once designs
 
-### Как работает
+The following are design options only; none is implemented:
 
-1. В каждую строку добавляются системные колонки `_yds_partition` (Int64) и `_yds_offset` (Int64) — оффсет сообщения внутри YDS-партиции
-2. Перед INSERT батча с диапазоном оффсетов [min, max] выполняется легковесный DELETE:
-   ```sql
-   ALTER TABLE target DELETE WHERE _yds_partition = {pid} AND _yds_offset BETWEEN {min} AND {max}
-   ```
-3. Затем обычный INSERT батча
-4. Если батч уже был записан до падения — DELETE удалит старые строки, INSERT добавит те же самые (или новые)
-5. Если батч новый — DELETE не найдет строк, INSERT добавит новые
+1. Stable source identity columns plus a persistent ClickHouse watermark.
+2. A deterministic insert token backed by a ClickHouse deduplication window
+   whose retention is part of the operating contract.
+3. An idempotent staging/merge protocol with persistent batch state.
 
-### Почему это работает
-
-YDS гарантирует: после коммита оффсета X сообщения с оффсетом ≤ X больше не доставляются. Дубликаты возможны только для НЕЗАКОММИЧЕННЫХ батчей. Пара DELETE+INSERT идемпотентна: выполнение 1 раз или N раз дает одинаковый результат.
-
-### Плюсы
-- Предельно просто: 2 SQL-запроса, никаких дополнительных таблиц
-- Работает на любом MergeTree (не нужен Keeper, репликация)
-- Легковесный DELETE не переписывает данные — только маскирует строки (mark as deleted)
-- Не требует детерминированной сборки блоков
-- Легко дебажить: системные колонки видны в SELECT
-
-### Минусы
-- Легковесный DELETE создает tombstones, которые чистятся при фоновых мержах (небольшой оверхед)
-- На каждую вставку — 2 запроса вместо 1
-- `_yds_partition` + `_yds_offset` занимают ~16 байт на строку
-
----
-
-## Вариант B: Детерминированные блоки + ClickHouse Dedup Token
-
-### Как работает
-
-ClickHouse умеет дедуплицировать идентичные блоки: при вставке вычисляется хеш блока, и если такой хеш уже был в пределах `replicated_deduplication_window` (по умолчанию 10K блоков / 1 час), дубликат игнорируется.
-
-1. Каждый батч собирается **детерминированно**: те же строки, в том же порядке
-2. Перед INSERT задается `insert_deduplication_token` = хеш от `(partition_id, min_offset, max_offset)`
-3. При повторе — ClickHouse молча пропускает дубликат
-
-### Плюсы
-- Ноль изменений в данных (не нужно добавлять системные колонки)
-- Один INSERT, без дополнительных запросов
-- ClickHouse делает все сам
-
-### Минусы
-- Работает только на реплицированных таблицах (ReplicatedMergeTree)
-- Окно дедупликации ограничено (по умолчанию 1 час / 10K блоков)
-- Требует **побитово идентичных** блоков при повторе — сложно гарантировать при асинхронном пайплайне
-- Если между повторами прошло больше часа — дубликат пройдет
-
----
-
-## Вариант C: Dedup-таблица + INSERT ... WHERE NOT EXISTS
-
-### Как работает
-
-1. Отдельная таблица `_dedup`: `CREATE TABLE _dedup (partition Int64, min_offset Int64, max_offset Int64) ENGINE = MergeTree ORDER BY (partition, min_offset)`
-2. Перед INSERT проверяем: есть ли уже запись с такими же оффсетами
-3. Если нет — пишем данные и в целевую таблицу, и запись в `_dedup`
-4. Если есть — пропускаем
-
-### Плюсы
-- Четкое разделение: dedup-стейт отдельно от данных
-- Не мусорит в целевой таблице (нет tombstones от DELETE)
-
-### Минусы
-- Две вставки (данные + dedup) неатомарны: может записаться одна без другой
-- Нужна дополнительная таблица и логика согласованности
-- Сложнее, чем вариант A
-
----
-
-## Вариант D: Двухфазный коммит через staging-таблицу
-
-### Как работает
-
-1. Данные пишутся в staging-таблицу (с тегом батча)
-2. Атомарный перенос: `INSERT INTO target SELECT * FROM staging` + удаление из staging
-3. При повторе — staging уже пуст (или содержит тот же батч) → дубликат не возникает
-
-### Плюсы
-- Строгая гарантия (атомарный перенос внутри ClickHouse)
-- Данные в target всегда консистентны
-
-### Минусы
-- Сложная реализация: нужно управлять staging-таблицей, тегами батчей
-- Двойной объем записи (staging + target)
-- Много движущихся частей
-
----
-
-## Итоговый выбор: Вариант B (блочная дедупликация через dedup token)
-
-**Критерий**: простота. Вариант B использует встроенную в ClickHouse дедупликацию блоков через `insert_deduplication_token`. YDS-источник вычисляет детерминированный dedup token из содержимого батча (хеш partition_id + количество сообщений + префикс первого/последнего сообщения). ClickHouse-приемник перед INSERT устанавливает `SET insert_deduplication_token = '{token}'`. Если ClickHouse уже видел блок с таким токеном в пределах `non_replicated_deduplication_window` — дубликат молча отбрасывается.
-
-**Реализованный подход не требует ReplicatedMergeTree** — мы включаем `non_replicated_deduplication_window = 10000` в настройках таблицы, что активирует дедупликацию на обычном MergeTree.
-
-**Почему этот вариант проще остальных:**
-- Не нужно добавлять системные колонки в данные
-- Не нужен DELETE перед INSERT
-- Не нужна отдельная dedup-таблица
-- Один SET + один INSERT — два запроса, без изменения схемы данных
-- ClickHouse сам обрабатывает dedup, нам не нужно управлять состоянием
-
-## Реализация
-
-### Компоненты
-- `compute_dedup_token(partition_id, messages)` в `yds/ydb_topic.rs` — детерминированный хеш батча
-- `dedup_token: Option<String>` в `MessageBatch` → `TableData` → `TableWrite`
-- `ClickHouseSink::write()` — `SET insert_deduplication_token = '{token}'` перед INSERT
-- `CREATE TABLE ... SETTINGS non_replicated_deduplication_window = 10000`
-- Включено для обоих YDS-источников (topic и pqv1); S3-источник передает None
-
-### Ключевые решения
-- **Детерминированный хеш вместо контентного хеша ClickHouse** — потому что контентный хеш блока требует побитово идентичных данных при повторе, а у нас батчи могут незначительно отличаться (batch_id, timestamp). Наш dedup token зависит только от данных сообщений.
-- **DefaultHasher (SipHash)** — потому что он уже в std, криптографическая стойкость не нужна, коллизии маловероятны на масштабе окна дедупликации (10000 блоков).
-- **dedup_token передается через существующий пайплайн** (MessageBatch → TableData → TableWrite) — потому что это минимальное изменение: три новых поля вместо новой системы колонок.
-- **SET на сессии соединения, а не в SETTINGS запроса** — потому что clickhouse-arrow 0.2 не поддерживает SETTINGS в insert_many.
+Any implementation must cover main and DLQ writes atomically from the source's
+point of view, define recovery after every ambiguous response, validate the
+existing table schema, and include crash/replay integration tests. Until those
+conditions hold, documentation and compatibility checks must continue to call
+the path at-least-once.

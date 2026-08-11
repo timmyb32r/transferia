@@ -1,5 +1,10 @@
 # Exactly-Once → CH: In-Memory Waterline + Composite Exactly-Once Key
 
+> **Status: unimplemented design proposal.** The current PQv1 → ClickHouse
+> runtime is at-least-once and contains no waterline or composite exactly-once
+> key. See `exactly-once-yds-ch.md` for the active contract. The material below
+> is retained only as design history and must not be used as an operator guide.
+
 ## Техническое задание для реализации
 
 > Версия 7. Шестой раунд ревью (критик + архитектор). Основные изменения против v6:

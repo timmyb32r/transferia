@@ -12,6 +12,8 @@ pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
     ClickHouse,
     S3(S3Descriptor),
+    /// Benchmark-only sink which durably stores nothing.
+    Discard,
     Other,
 }
 
@@ -54,6 +56,7 @@ pub enum S3Partitioning {
 pub enum DeliveryGuarantee {
     ExactlyOnce,
     AtLeastOnce,
+    NoDurability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -76,6 +79,7 @@ pub enum DiagnosticCode {
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
+    BenchmarkDiscard,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +120,18 @@ pub fn validate_pipeline(
     sink: &EndpointDescriptor,
     keep_system_columns: bool,
 ) -> DeliverySemanticsReport {
+    if matches!(sink, EndpointDescriptor::Discard) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::NoDurability,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::BenchmarkDiscard,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.empty".into()],
+                explanation: "the empty sink acknowledges and discards every delivery; it is intended only for throughput benchmarks".into(),
+                remediation: Some("use clickhouse or s3 for a durable transfer".into()),
+            }],
+        };
+    }
     if matches!(
         (source, sink),
         (EndpointDescriptor::PqV1(_), EndpointDescriptor::ClickHouse)
@@ -137,7 +153,7 @@ pub fn validate_pipeline(
             diagnostics: vec![error(
                 DiagnosticCode::UnsupportedPipeline,
                 &["source", "sink"],
-                "only a PQv1 source connected to an S3 sink is currently supported",
+                "supported durable paths are PQv1 to ClickHouse or S3",
                 None,
             )],
         };
@@ -233,9 +249,17 @@ pub fn validate_pipeline(
         diagnostics.push(SemanticsDiagnostic {
             code: DiagnosticCode::DeterministicS3Commit,
             severity: DiagnosticSeverity::Info,
-            config_paths: vec!["sink.s3.rotation".into(), "sink.s3.partitioning".into()],
-            explanation: "object boundaries and keys are source-data deterministic; successful overwrite precedes source commit".into(),
-            remediation: None,
+            config_paths: vec![
+                "source.pqv1.parser".into(),
+                "keep_system_columns_in_sink".into(),
+                "sink.s3.prefix".into(),
+                "sink.s3.partitioning".into(),
+                "sink.s3.rotation".into(),
+                "sink.s3.buffering.max_open_objects".into(),
+                "sink.s3.buffering.max_epoch_bytes".into(),
+            ],
+            explanation: "object boundaries and keys are deterministic for fixed parser and sink configuration; successful overwrite precedes source commit".into(),
+            remediation: Some("do not change parser/projection settings, S3 prefix, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
         });
         DeliveryGuarantee::ExactlyOnce
     };
@@ -363,6 +387,17 @@ mod tests {
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == DiagnosticCode::ClickHouseAtLeastOnce));
+    }
+
+    #[test]
+    fn discard_sink_is_explicitly_supported_for_benchmarks() {
+        let report = validate_pipeline(&source(), &EndpointDescriptor::Discard, false);
+        assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
+        assert!(report.ensure_valid().is_ok());
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::BenchmarkDiscard));
     }
 
     #[test]

@@ -95,8 +95,14 @@ pub enum PartitionChange {
 pub struct BufferingConfig {
     #[serde(default = "default_max_open_objects")]
     pub max_open_objects: usize,
+    #[serde(default = "default_max_pending_objects")]
+    pub max_pending_objects: usize,
     #[serde(default = "default_max_buffered_bytes")]
     pub max_buffered_bytes: ByteSize,
+    /// Stable, data-independent epoch boundary. When omitted, the boundary is
+    /// derived only from sink configuration, never from runtime memory state.
+    #[serde(default)]
+    pub max_epoch_bytes: Option<ByteSize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,6 +125,8 @@ pub struct RetryConfig {
     pub initial_backoff: DurationValue,
     #[serde(default = "default_max_backoff")]
     pub max_backoff: DurationValue,
+    #[serde(default = "default_max_attempts")]
+    pub max_attempts: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,8 +213,23 @@ impl S3SinkConfig {
             "s3.buffering.max_open_objects must be positive"
         );
         anyhow::ensure!(
+            self.buffering.max_pending_objects > 0,
+            "s3.buffering.max_pending_objects must be positive"
+        );
+        anyhow::ensure!(
             self.buffering.max_buffered_bytes.0 > 0,
             "s3.buffering.max_buffered_bytes must be positive"
+        );
+        if let Some(max_epoch_bytes) = self.buffering.max_epoch_bytes {
+            anyhow::ensure!(
+                max_epoch_bytes.0 > 0,
+                "s3.buffering.max_epoch_bytes must be positive"
+            );
+        }
+        anyhow::ensure!(
+            self.epoch_byte_limit() <= self.buffering.max_buffered_bytes.0,
+            "effective s3.buffering.max_epoch_bytes must not exceed max_buffered_bytes; \
+             set max_epoch_bytes explicitly when using a buffer below 128MiB"
         );
         anyhow::ensure!(
             self.upload.multipart_threshold.0 > 0,
@@ -231,6 +254,10 @@ impl S3SinkConfig {
         anyhow::ensure!(
             self.retry.max_backoff.0 >= self.retry.initial_backoff.0,
             "s3.retry.max_backoff must be >= initial_backoff"
+        );
+        anyhow::ensure!(
+            self.retry.max_attempts > 0,
+            "s3.retry.max_attempts must be positive"
         );
         match &self.partitioning {
             PartitioningConfig::Fields { columns } => {
@@ -261,6 +288,14 @@ impl S3SinkConfig {
             PartitioningConfig::Source => {}
         }
         Ok(())
+    }
+
+    #[must_use]
+    pub(super) fn epoch_byte_limit(&self) -> usize {
+        self.buffering
+            .max_epoch_bytes
+            .unwrap_or_else(default_max_epoch_bytes)
+            .0
     }
 
     pub fn build_store(&self) -> anyhow::Result<std::sync::Arc<dyn ObjectStore>> {
@@ -295,7 +330,9 @@ impl Default for BufferingConfig {
     fn default() -> Self {
         Self {
             max_open_objects: default_max_open_objects(),
+            max_pending_objects: default_max_pending_objects(),
             max_buffered_bytes: default_max_buffered_bytes(),
+            max_epoch_bytes: None,
         }
     }
 }
@@ -314,6 +351,7 @@ impl Default for RetryConfig {
         Self {
             initial_backoff: default_initial_backoff(),
             max_backoff: default_max_backoff(),
+            max_attempts: default_max_attempts(),
         }
     }
 }
@@ -336,8 +374,14 @@ const fn default_max_object_bytes() -> ByteSize {
 const fn default_max_open_objects() -> usize {
     128
 }
+const fn default_max_pending_objects() -> usize {
+    1024
+}
 const fn default_max_buffered_bytes() -> ByteSize {
     ByteSize(256 * MIB)
+}
+const fn default_max_epoch_bytes() -> ByteSize {
+    ByteSize(128 * MIB)
 }
 const fn default_multipart_threshold() -> ByteSize {
     ByteSize(25 * MIB)
@@ -357,6 +401,9 @@ const fn default_initial_backoff() -> DurationValue {
 const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
+const fn default_max_attempts() -> usize {
+    10
+}
 
 #[cfg(test)]
 mod tests {
@@ -368,6 +415,56 @@ mod tests {
             serde_yaml::from_str("bucket: test\nupload: { max_in_flight_objects: 0 }\n")?;
         let error = config.validate().expect_err("zero concurrency must fail");
         assert!(error.to_string().contains("max_in_flight_objects"));
+        Ok(())
+    }
+
+    #[test]
+    fn validates_explicit_epoch_boundary() -> anyhow::Result<()> {
+        let config: S3SinkConfig = serde_yaml::from_str(
+            "bucket: test\nbuffering: { max_buffered_bytes: 64MiB, max_epoch_bytes: 65MiB }\n",
+        )?;
+        let error = config
+            .validate()
+            .expect_err("epoch boundary beyond the total buffer must fail");
+        assert!(error.to_string().contains("max_epoch_bytes"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_zero_pending_objects_and_retry_attempts() -> anyhow::Result<()> {
+        let no_pending: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nbuffering: { max_pending_objects: 0 }\n")?;
+        assert!(no_pending
+            .validate()
+            .expect_err("zero pending objects must fail")
+            .to_string()
+            .contains("max_pending_objects"));
+
+        let no_attempts: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nretry: { max_attempts: 0 }\n")?;
+        assert!(no_attempts
+            .validate()
+            .expect_err("zero retry attempts must fail")
+            .to_string()
+            .contains("max_attempts"));
+        Ok(())
+    }
+
+    #[test]
+    fn default_epoch_boundary_is_independent_of_operational_buffering() -> anyhow::Result<()> {
+        let defaults: S3SinkConfig = serde_yaml::from_str("bucket: test\n")?;
+        assert_eq!(defaults.epoch_byte_limit(), 128 * MIB);
+
+        let config: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nbuffering: { max_buffered_bytes: 32MiB }\n")?;
+        assert_eq!(config.epoch_byte_limit(), 128 * MIB);
+        assert!(config.validate().is_err());
+
+        let explicit: S3SinkConfig = serde_yaml::from_str(
+            "bucket: test\nbuffering: { max_buffered_bytes: 32MiB, max_epoch_bytes: 7MiB }\n",
+        )?;
+        assert_eq!(explicit.epoch_byte_limit(), 7 * MIB);
+        explicit.validate()?;
         Ok(())
     }
 }

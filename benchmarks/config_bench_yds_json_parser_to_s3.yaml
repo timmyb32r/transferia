@@ -1,0 +1,59 @@
+# End-to-end PQv1 -> S3 benchmark.
+# Replace the endpoint/topic/token/bucket settings before running.
+# cargo run --release -- --config benchmarks/config_bench_yds_json_parser_to_s3.yaml
+
+source:
+  pqv1:
+    connection_string: "grpc://localhost:2135"
+    topic_path: "/benchmark/events"
+    consumer_name: "transferia-benchmark-s3"
+    partition_ids: [0]
+    auth:
+      type: access_token
+      token_file: "$HOME/.logbroker/token"
+    parser:
+      common:
+        table_naming:
+          type: from_config
+          name: "events"
+        system_columns:
+          topic_name: true
+          partition_num: true
+          offset: true
+          message_index: true
+          write_timestamp_ms: true
+      json_parser:
+        chunk_splitter: "one-message-one-row"
+        columns:
+          - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
+          - { jsonpath: "$.ts", column_name: "ts", arrow_type: "Utf8", nullable: false }
+          - { jsonpath: "$.level", column_name: "level", arrow_type: "Utf8", nullable: true }
+          - { jsonpath: "$.msg", column_name: "msg", arrow_type: "Utf8", nullable: true }
+
+middlewares: []
+pipeline_memory_limit_bytes: 268435456
+
+sink:
+  s3:
+    bucket: "transferia-benchmark"
+    prefix: "pqv1-s3/"
+    region: "us-east-1"
+    partitioning:
+      type: source
+    rotation:
+      max_rows: 100000
+      max_bytes: "64MiB"
+    buffering:
+      max_open_objects: 32
+      max_pending_objects: 128
+      max_buffered_bytes: "256MiB"
+      max_epoch_bytes: "64MiB"
+    retry:
+      initial_backoff: "200ms"
+      max_backoff: "30s"
+      max_attempts: 20
+
+metrics:
+  enabled: true
+  interval_ms: 1000
+  per_partition: true
