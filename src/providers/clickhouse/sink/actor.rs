@@ -5,11 +5,11 @@ use futures_util::future::BoxFuture;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
+use super::client::ReconnectingClient;
 use super::transport::{InsertError, InsertTransport, NativeTransport};
+use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
-use crate::providers::clickhouse::connection::ReconnectingClient;
-use crate::providers::clickhouse::ClickHouseSinkConfig;
 
 struct BufferedBatch {
     delivery_id: DeliveryId,

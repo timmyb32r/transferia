@@ -151,9 +151,7 @@ async fn main() -> anyhow::Result<()> {
     });
     registry.register_sink("clickhouse", |value| {
         Ok(Box::new(
-            transferia::providers::clickhouse::provider::ClickHouseSinkProvider::from_config(
-                value,
-            )?,
+            transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
         ))
     });
 

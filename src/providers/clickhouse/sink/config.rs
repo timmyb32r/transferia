@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use serde_yaml::Value;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +31,39 @@ pub struct ClickHouseSinkConfig {
     pub sorting_key: Vec<String>,
     #[serde(default)]
     pub recreate_tables: bool,
+}
+
+impl ClickHouseSinkConfig {
+    pub(super) fn from_value(value: Value) -> anyhow::Result<Self> {
+        let config: Self = serde_yaml::from_value(value)
+            .map_err(|error| anyhow::anyhow!("Failed to parse ClickHouse sink config: {error}"))?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.connection_string.is_empty(),
+            "clickhouse.connection_string must not be empty"
+        );
+        anyhow::ensure!(
+            !self.database.is_empty(),
+            "clickhouse.database must not be empty"
+        );
+        anyhow::ensure!(
+            self.max_insert_rows > 0,
+            "clickhouse.max_insert_rows must be positive"
+        );
+        anyhow::ensure!(
+            self.max_insert_bytes > 0,
+            "clickhouse.max_insert_bytes must be positive"
+        );
+        anyhow::ensure!(
+            self.flush_interval_ms > 0,
+            "clickhouse.flush_interval_ms must be positive"
+        );
+        Ok(())
+    }
 }
 
 fn default_database() -> String {

@@ -98,7 +98,7 @@ impl ReconnectingClient {
     }
 }
 
-pub(super) async fn connect_client(
+pub(super) async fn connect_once(
     config: &ClickHouseSinkConfig,
 ) -> ClickHouseResult<Client<ArrowFormat>> {
     configured_builder(config).build_arrow().await

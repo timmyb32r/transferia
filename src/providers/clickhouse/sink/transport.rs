@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 
-use crate::providers::clickhouse::connection::ReconnectingClient;
+use super::client::ReconnectingClient;
 
 #[derive(Debug)]
 pub enum InsertError {

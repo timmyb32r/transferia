@@ -11,13 +11,12 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::{ClickHouseSink, InsertError, InsertTransport};
+use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
 use crate::metrics::SinkCounters;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
-use crate::providers::clickhouse::ClickHouseSinkConfig;
 
 #[derive(Clone, Copy)]
 enum Plan {
