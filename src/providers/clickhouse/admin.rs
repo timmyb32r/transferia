@@ -1,25 +1,22 @@
-use clickhouse_arrow::{ArrowFormat, ConnectionPool};
+use clickhouse_arrow::{ArrowFormat, Client};
 
-use super::connection::build_pool;
+use super::connection::connect_client;
 use super::ClickHouseSinkConfig;
 
 pub(super) struct ClickHouseAdmin {
-    pool: ConnectionPool<ArrowFormat>,
+    client: Client<ArrowFormat>,
 }
 
 impl ClickHouseAdmin {
     pub(super) async fn connect(config: &ClickHouseSinkConfig) -> anyhow::Result<Self> {
-        let pool = build_pool(config).await?;
-        let client = pool
-            .get()
+        let client = connect_client(config)
             .await
             .map_err(|error| anyhow::anyhow!("ClickHouse admin connection failed: {error}"))?;
         client
             .execute("SELECT 1", None)
             .await
             .map_err(|error| anyhow::anyhow!("ClickHouse admin health check failed: {error}"))?;
-        drop(client);
-        Ok(Self { pool })
+        Ok(Self { client })
     }
 
     pub(super) async fn create_table(
@@ -29,14 +26,9 @@ impl ClickHouseAdmin {
         sorting_key: &[String],
         recreate: bool,
     ) -> anyhow::Result<()> {
-        let client = self
-            .pool
-            .get()
-            .await
-            .map_err(|error| anyhow::anyhow!("ClickHouse admin pool get: {error}"))?;
         if recreate {
             tracing::warn!(table = name, "dropping table before recreation");
-            client
+            self.client
                 .execute(&format!("DROP TABLE IF EXISTS `{name}`"), None)
                 .await
                 .map_err(|error| anyhow::anyhow!("Failed to drop table '{name}': {error}"))?;
@@ -58,7 +50,7 @@ impl ClickHouseAdmin {
         let ddl = format!(
             "CREATE TABLE IF NOT EXISTS `{name}` ({columns}) ENGINE = MergeTree ORDER BY ({order})",
         );
-        client
+        self.client
             .execute(&ddl, None)
             .await
             .map_err(|error| anyhow::anyhow!("Failed to create table '{name}': {error}"))?;

@@ -8,7 +8,7 @@ use tokio::time::{Duration, Instant};
 use super::transport::{InsertError, InsertTransport, NativeTransport};
 use crate::metrics::SinkCounters;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
-use crate::providers::clickhouse::connection::build_pool;
+use crate::providers::clickhouse::connection::ReconnectingClient;
 use crate::providers::clickhouse::ClickHouseSinkConfig;
 
 struct BufferedBatch {
@@ -56,17 +56,7 @@ impl ClickHouseSink {
         config: ClickHouseSinkConfig,
         counters: Arc<SinkCounters>,
     ) -> anyhow::Result<Self> {
-        let pool = Arc::new(build_pool(&config).await?);
-        {
-            let client = pool
-                .get()
-                .await
-                .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
-            client
-                .execute("SELECT 1", None)
-                .await
-                .map_err(|error| anyhow::anyhow!("ClickHouse health check failed: {error}"))?;
-        }
+        let client = Arc::new(ReconnectingClient::connect(&config).await?);
         tracing::info!(
             "Connected to ClickHouse at {} (one connection per partition)",
             config.connection_string
@@ -74,7 +64,7 @@ impl ClickHouseSink {
         Ok(Self::with_transport(
             config,
             counters,
-            Arc::new(NativeTransport::new(pool)),
+            Arc::new(NativeTransport::new(client)),
         ))
     }
 

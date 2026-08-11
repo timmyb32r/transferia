@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
-use clickhouse_arrow::{ArrowFormat, ConnectionPool};
 use futures_util::future::BoxFuture;
-use futures_util::StreamExt as _;
+
+use crate::providers::clickhouse::connection::ReconnectingClient;
 
 #[derive(Debug)]
 pub enum InsertError {
@@ -28,12 +28,12 @@ pub trait InsertTransport: Send + Sync {
 }
 
 pub(super) struct NativeTransport {
-    pool: Arc<ConnectionPool<ArrowFormat>>,
+    client: Arc<ReconnectingClient>,
 }
 
 impl NativeTransport {
-    pub(super) const fn new(pool: Arc<ConnectionPool<ArrowFormat>>) -> Self {
-        Self { pool }
+    pub(super) const fn new(client: Arc<ReconnectingClient>) -> Self {
+        Self { client }
     }
 }
 
@@ -43,20 +43,12 @@ impl InsertTransport for NativeTransport {
         table: Arc<str>,
         batches: Vec<RecordBatch>,
     ) -> BoxFuture<'static, Result<(), InsertError>> {
-        let pool = Arc::clone(&self.pool);
+        let client = Arc::clone(&self.client);
         Box::pin(async move {
-            let client = pool.get().await.map_err(|error| {
-                InsertError::Transient(anyhow::anyhow!("ClickHouse pool get: {error}"))
-            })?;
-            let query = format!("INSERT INTO `{table}` VALUES");
-            let mut stream = client
-                .insert_many(&query, batches, None)
+            client
+                .insert_many(&table, batches)
                 .await
-                .map_err(classify_insert_error)?;
-            while let Some(item) = stream.next().await {
-                item.map_err(classify_insert_error)?;
-            }
-            Ok(())
+                .map_err(classify_insert_error)
         })
     }
 }
