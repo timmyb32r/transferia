@@ -12,8 +12,8 @@ use arrow::record_batch::RecordBatch;
 
 use crate::parsers::Parser;
 use crate::parsers::ParserWorkspace;
-use crate::types::exactly_once::ExactlyOnceKey;
 use crate::types::message::Message;
+use crate::types::system_columns::SystemColumns;
 use crate::types::table_data::TableData;
 
 /// "none" parser: produces a 0-row valid batch (empty schema) and no DLQ for
@@ -34,7 +34,6 @@ impl Parser for NoneParser {
         &self,
         _messages: Vec<Message>,
         _partition_id: i64,
-        _exactly_once_key: Option<ExactlyOnceKey>,
         _ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         // Empty-schema, 0-row batch — the accumulator skips 0-row batches, and
@@ -47,7 +46,7 @@ impl Parser for NoneParser {
                 is_dlq: false,
                 batch,
                 batch_id: crate::batch_id(),
-                exactly_once_key: None,
+                system_columns: SystemColumns::default(),
             },
             None,
         ))
@@ -66,23 +65,15 @@ mod tests {
         let p = NoneParser::new("logs".into());
         let mut ws = ParserWorkspace::new();
         let msgs = vec![
-            Message {
-                value: Bytes::from_static(b"{\"id\":\"a\"}"),
-                offset: Some(1),
-                partition: None,
-            },
-            Message {
-                value: Bytes::from_static(b"{\"id\":\"b\"}"),
-                offset: Some(2),
-                partition: None,
-            },
+            Message::new(Bytes::from_static(b"{\"id\":\"a\"}")),
+            Message::new(Bytes::from_static(b"{\"id\":\"b\"}")),
         ];
-        let (valid, dlq) = p.parse_into(msgs, 0, None, &mut ws)?;
+        let (valid, dlq) = p.parse_into(msgs, 0, &mut ws)?;
         assert_eq!(valid.batch.num_rows(), 0, "none parser must produce 0 rows");
         assert!(!valid.is_dlq, "valid batch is not DLQ");
         assert!(dlq.is_none(), "none parser must not produce a DLQ batch");
         assert_eq!(valid.table.as_ref(), "logs");
-        assert!(valid.exactly_once_key.is_none());
+        assert!(valid.system_columns.is_empty());
         Ok(())
     }
 }

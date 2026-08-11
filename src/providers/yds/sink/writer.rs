@@ -19,10 +19,6 @@ pub struct YdsSinkConfig {
     /// Serializer type (currently only "json").
     #[serde(default = "default_serializer")]
     pub serializer_type: String,
-    /// When `true`, null-valued columns are elided (absent keys) in JSON output.
-    /// Default: `false` — nulls are emitted as `"col": null`.
-    #[serde(default)]
-    pub skip_null_columns: bool,
 }
 
 fn default_database() -> String { "/Root".into() }

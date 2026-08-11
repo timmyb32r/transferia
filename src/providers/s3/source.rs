@@ -29,7 +29,11 @@ use crate::types::message::{Message, MessageBatch};
 #[derive(Debug)]
 pub enum S3ReadError {
     /// Network, S3 API, stream interruption — retry with backoff.
-    Transport { op: &'static str, file: Arc<str>, source: anyhow::Error },
+    Transport {
+        op: &'static str,
+        file: Arc<str>,
+        source: anyhow::Error,
+    },
     /// Bad / corrupt / too-large record — non-retryable, abort snapshot.
     Data { file: Arc<str>, reason: String },
     /// File vanished between list and read — abort (incomplete snapshot).
@@ -39,10 +43,17 @@ pub enum S3ReadError {
 impl core::fmt::Display for S3ReadError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
-            Self::Transport { op, ref file, ref source } => {
+            Self::Transport {
+                op,
+                ref file,
+                ref source,
+            } => {
                 write!(f, "S3 transport {op} {file}: {source}")
             }
-            Self::Data { ref file, ref reason } => write!(f, "S3 data error {file}: {reason}"),
+            Self::Data {
+                ref file,
+                ref reason,
+            } => write!(f, "S3 data error {file}: {reason}"),
             Self::NoSuchFile { ref file } => write!(f, "S3 NoSuchFile: {file}"),
         }
     }
@@ -88,10 +99,15 @@ pub const fn classify(err: &S3ReadError) -> S3Retry {
     }
 }
 
-#[expect(clippy::unseparated_literal_suffix, reason = "crate style: no underscore between digits and type suffix")]
+#[expect(
+    clippy::unseparated_literal_suffix,
+    reason = "crate style: no underscore between digits and type suffix"
+)]
 fn backoff_ms(attempt: u32) -> core::time::Duration {
     core::time::Duration::from_millis(
-        100u64.saturating_mul(2u64.pow(attempt.saturating_sub(1))).min(5000),
+        100u64
+            .saturating_mul(2u64.pow(attempt.saturating_sub(1)))
+            .min(5000),
     )
 }
 
@@ -106,7 +122,10 @@ struct ChunkedReader {
 
 impl ChunkedReader {
     fn new(result: GetResult) -> Self {
-        Self { stream: result.into_stream(), eof: false }
+        Self {
+            stream: result.into_stream(),
+            eof: false,
+        }
     }
 
     /// Read enough bytes from the stream so that `buf` grows by approximately
@@ -115,7 +134,9 @@ impl ChunkedReader {
     ///
     /// Returns the number of bytes added. 0 means EOF.
     async fn read_more(&mut self, buf: &mut BytesMut, target: usize) -> anyhow::Result<usize> {
-        if self.eof { return Ok(0); }
+        if self.eof {
+            return Ok(0);
+        }
         buf.reserve(target);
         let needed = target.saturating_sub(buf.len());
         let before = buf.len();
@@ -123,7 +144,10 @@ impl ChunkedReader {
             match self.stream.next().await {
                 Some(Ok(chunk)) => buf.extend_from_slice(&chunk),
                 Some(Err(e)) => return Err(anyhow::anyhow!("S3 read: {e}")),
-                None => { self.eof = true; break; }
+                None => {
+                    self.eof = true;
+                    break;
+                }
             }
         }
         Ok(buf.len() - before)
@@ -170,9 +194,8 @@ impl S3Source {
         let chunk_size = config.chunk_size_bytes;
         let max_retries = config.max_retries;
 
-        let parser_cfg: JsonParserConfig = serde_yaml::from_value(
-            config.parser.parser.raw()?.clone(),
-        )?;
+        let parser_cfg: JsonParserConfig =
+            serde_yaml::from_value(config.parser.parser.raw()?.clone())?;
         let framer = parser_cfg.chunk_splitter;
 
         let mut files: Vec<object_store::ObjectMeta> = store
@@ -188,12 +211,25 @@ impl S3Source {
         }
         tracing::info!(
             "S3 source: {} objects under '{}' (chunk={}MiB retries={})",
-            files.len(), prefix, chunk_size / (1024 * 1024), max_retries,
+            files.len(),
+            prefix,
+            chunk_size / (1024 * 1024),
+            max_retries,
         );
         Ok(Self {
-            store, files, current_idx: 0, current_reader: None, framer,
-            chunk_size, max_retries, partition_id,
-            pending: BytesMut::new(), pending_scanned: 0, framed: 0, files_done: 0, rows_produced: 0,
+            store,
+            files,
+            current_idx: 0,
+            current_reader: None,
+            framer,
+            chunk_size,
+            max_retries,
+            partition_id,
+            pending: BytesMut::new(),
+            pending_scanned: 0,
+            framed: 0,
+            files_done: 0,
+            rows_produced: 0,
             _config: config,
         })
     }
@@ -206,10 +242,7 @@ impl S3Source {
         let resume = self.framed + self.pending.len();
 
         let get = if resume > 0 {
-            tracing::debug!(
-                "S3: resuming {} at offset {}",
-                path, resume,
-            );
+            tracing::debug!("S3: resuming {} at offset {}", path, resume,);
             let opts = object_store::GetOptions {
                 range: Some(object_store::GetRange::from(resume as u64..)),
                 ..Default::default()
@@ -224,9 +257,9 @@ impl S3Source {
                 self.current_reader = Some(ChunkedReader::new(r));
                 Ok(())
             }
-            Err(object_store::Error::NotFound { .. }) => {
-                Err(S3ReadError::NoSuchFile { file: path.to_string().into() })
-            }
+            Err(object_store::Error::NotFound { .. }) => Err(S3ReadError::NoSuchFile {
+                file: path.to_string().into(),
+            }),
             Err(e) => Err(S3ReadError::Transport {
                 op: "get",
                 file: path.to_string().into(),
@@ -239,9 +272,14 @@ impl S3Source {
     fn outcome_to_result(messages: Option<Vec<Message>>, partition_id: i64) -> ReadResult {
         messages.map_or_else(
             || ReadResult::Exhausted,
-            |msgs| ReadResult::Batch(MessageBatch {
-                messages: msgs, partition_id, commit_marker: None,
-            }),
+            |msgs| {
+                ReadResult::Batch(MessageBatch {
+                    messages: msgs,
+                    partition_id,
+                    commit_marker: None,
+                    memory: Vec::new(),
+                })
+            },
         )
     }
 
@@ -260,17 +298,20 @@ impl S3Source {
             }
 
             let file: Arc<str> = self.files[self.current_idx].location.to_string().into();
-            let reader = self.current_reader.as_mut().ok_or_else(|| S3ReadError::Data {
-                file,
-                reason: "reader missing after open".into(),
-            })?;
+            let reader = self
+                .current_reader
+                .as_mut()
+                .ok_or_else(|| S3ReadError::Data {
+                    file,
+                    reason: "reader missing after open".into(),
+                })?;
             let boundary = if reader.eof {
                 self.pending.len() // EOF: emit remainder as final record
             } else if self.pending_scanned < self.pending.len() {
                 // Incremental scan: only check the new tail since last scan.
                 let tail = &self.pending[self.pending_scanned..];
                 if let Some(i) = tail.iter().rposition(|&b| b == b'\n') {
-                    self.pending_scanned + i + 1  // boundary in full pending coords
+                    self.pending_scanned + i + 1 // boundary in full pending coords
                 } else {
                     self.pending_scanned = self.pending.len();
                     0
@@ -297,7 +338,9 @@ impl S3Source {
                 } else {
                     READ_MORE_GRANULARITY
                 };
-                reader.read_more(&mut self.pending, target).await
+                reader
+                    .read_more(&mut self.pending, target)
+                    .await
                     .map_err(|e| S3ReadError::Transport {
                         op: "read",
                         file: self.files[self.current_idx].location.to_string().into(),
@@ -313,7 +356,9 @@ impl S3Source {
                 self.files_done += 1;
                 tracing::info!(
                     "S3: file {}/{} done ({} rows so far)",
-                    self.files_done, self.files.len(), self.rows_produced,
+                    self.files_done,
+                    self.files.len(),
+                    self.rows_produced,
                 );
                 continue;
             }
@@ -324,12 +369,13 @@ impl S3Source {
             let base_ptr = chunk.as_ptr() as usize;
             self.framed += boundary;
 
-            let messages: Vec<Message> = self.framer
+            let messages: Vec<Message> = self
+                .framer
                 .split_into_records(&chunk)
                 .into_iter()
                 .map(|rec| {
                     let offset = rec.as_ptr() as usize - base_ptr;
-                    Message { value: chunk.slice(offset..offset + rec.len()), offset: None, partition: None }
+                    Message::new(chunk.slice(offset..offset + rec.len()))
                 })
                 .collect();
 
@@ -341,7 +387,9 @@ impl S3Source {
             if new_stone > prev_stone || self.rows_produced == n {
                 tracing::info!(
                     "S3: {} rows produced (file {}/{})",
-                    self.rows_produced, self.files_done + 1, self.files.len(),
+                    self.rows_produced,
+                    self.files_done + 1,
+                    self.files.len(),
                 );
             }
 
@@ -351,56 +399,70 @@ impl S3Source {
 }
 
 impl Source for S3Source {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> { Box::pin(async move {
-        let outcome = self.try_read_records().await;
-        match outcome {
-            Ok(messages) => Ok(Self::outcome_to_result(messages, self.partition_id)),
-            Err(ref e @ S3ReadError::NoSuchFile { .. }) => {
-                tracing::error!("{e} \u{2014} file vanished, aborting snapshot");
-                Ok(ReadResult::Failed(anyhow::anyhow!("{e}")))
-            }
-            Err(ref first_err) => match classify(first_err) {
-                S3Retry::Retry => {
-                    let mut attempt: u32 = 0;
-                    let mut last_msg = format!("{first_err}");
-                    loop {
-                        attempt += 1;
-                        if attempt > self.max_retries {
-                            tracing::error!(
-                                "{} retries exhausted (last: {last_msg}); aborting snapshot",
-                                self.max_retries,
-                            );
-                            return Ok(ReadResult::Failed(anyhow::anyhow!("{last_msg}")));
-                        }
-                        tracing::warn!("attempt {}/{} \u{2014} {last_msg}", attempt, self.max_retries);
-                        tokio::time::sleep(backoff_ms(attempt)).await;
-                        self.current_reader = None; // force re-open with resume offset
-                        match self.try_read_records().await {
-                            Ok(messages) => {
-                                return Ok(Self::outcome_to_result(messages, self.partition_id));
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+        Box::pin(async move {
+            let outcome = self.try_read_records().await;
+            match outcome {
+                Ok(messages) => Ok(Self::outcome_to_result(messages, self.partition_id)),
+                Err(ref e @ S3ReadError::NoSuchFile { .. }) => {
+                    tracing::error!("{e} \u{2014} file vanished, aborting snapshot");
+                    Ok(ReadResult::Failed(anyhow::anyhow!("{e}")))
+                }
+                Err(ref first_err) => match classify(first_err) {
+                    S3Retry::Retry => {
+                        let mut attempt: u32 = 0;
+                        let mut last_msg = format!("{first_err}");
+                        loop {
+                            attempt += 1;
+                            if attempt > self.max_retries {
+                                tracing::error!(
+                                    "{} retries exhausted (last: {last_msg}); aborting snapshot",
+                                    self.max_retries,
+                                );
+                                return Ok(ReadResult::Failed(anyhow::anyhow!("{last_msg}")));
                             }
-                            Err(e2) => {
-                                last_msg = format!("{e2}");
-                                match classify(&e2) {
-                                    S3Retry::Retry => {}
-                                    S3Retry::Return => {
-                                        tracing::error!("{e2} \u{2014} non-retryable, aborting");
-                                        return Ok(ReadResult::Failed(anyhow::anyhow!("{e2}")));
+                            tracing::warn!(
+                                "attempt {}/{} \u{2014} {last_msg}",
+                                attempt,
+                                self.max_retries
+                            );
+                            tokio::time::sleep(backoff_ms(attempt)).await;
+                            self.current_reader = None; // force re-open with resume offset
+                            match self.try_read_records().await {
+                                Ok(messages) => {
+                                    return Ok(Self::outcome_to_result(
+                                        messages,
+                                        self.partition_id,
+                                    ));
+                                }
+                                Err(e2) => {
+                                    last_msg = format!("{e2}");
+                                    match classify(&e2) {
+                                        S3Retry::Retry => {}
+                                        S3Retry::Return => {
+                                            tracing::error!(
+                                                "{e2} \u{2014} non-retryable, aborting"
+                                            );
+                                            return Ok(ReadResult::Failed(anyhow::anyhow!("{e2}")));
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                S3Retry::Return => {
-                    tracing::error!("{first_err} \u{2014} non-retryable, aborting snapshot");
-                    Ok(ReadResult::Failed(anyhow::anyhow!("{first_err}")))
-                }
-            },
-        }
-    })}
+                    S3Retry::Return => {
+                        tracing::error!("{first_err} \u{2014} non-retryable, aborting snapshot");
+                        Ok(ReadResult::Failed(anyhow::anyhow!("{first_err}")))
+                    }
+                },
+            }
+        })
+    }
 
-    fn commit_offsets<'ctx>(&'ctx mut self, _marker: &'ctx CommitMarker) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        _marker: &'ctx CommitMarker,
+    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move { Ok(()) })
     }
 }

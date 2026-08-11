@@ -1,16 +1,37 @@
 use bytes::Bytes;
+use std::sync::Arc;
 
 use crate::pipeline::source::CommitMarker;
-use crate::types::exactly_once::PartitionKey;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum SourcePartition {
+    Int(i64),
+    String(Arc<str>),
+}
 
 /// A single message from the source.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub value: Bytes,
-    /// Exactly-once offset (None = source does not support exactly-once).
+    pub meta: MessageMeta,
+}
+
+/// Provider-neutral source metadata that can be materialized as system columns.
+#[derive(Debug, Clone, Default)]
+pub struct MessageMeta {
+    pub topic_name: Option<Arc<str>>,
+    pub partition: Option<SourcePartition>,
     pub offset: Option<i64>,
-    /// Exactly-once partition (None = source does not support exactly-once).
-    pub partition: Option<PartitionKey>,
+    pub write_timestamp_ms: Option<i64>,
+}
+
+impl Message {
+    #[must_use]
+    pub fn new(value: Bytes) -> Self {
+        Self {
+            value,
+            meta: MessageMeta::default(),
+        }
+    }
 }
 
 /// A batch of messages read from a source partition.

@@ -8,12 +8,11 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use crate::types::exactly_once::ExactlyOnceKey;
 use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 pub use crate::parsers::json_parser::ParserWorkspace;
-pub use config::{ParserConfig, TableNaming};
+pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
 
 /// Common parser interface. Every parser converts raw [`Message`]s into
 /// Arrow [`TableData`] (valid + optional DLQ).
@@ -22,7 +21,6 @@ pub trait Parser: Send + Sync {
         &self,
         messages: Vec<Message>,
         partition_id: i64,
-        exactly_once_key: Option<ExactlyOnceKey>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)>;
 }
@@ -63,9 +61,7 @@ impl ParserEntry {
 /// `Arc` (not `Box`) so a factory can be cloned out of the registry and invoked
 /// without holding the registry lock.
 type ParserFactory = Arc<
-    dyn Fn(Value, Arc<str>, Option<ExactlyOnceKey>) -> anyhow::Result<Arc<dyn Parser>>
-        + Send
-        + Sync,
+    dyn Fn(Value, Arc<str>, CommonParserConfig) -> anyhow::Result<Arc<dyn Parser>> + Send + Sync,
 >;
 
 use std::sync::{LazyLock, Mutex};
@@ -75,18 +71,20 @@ static PARSER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, ParserFactory>>> =
         let mut m: HashMap<&'static str, ParserFactory> = HashMap::new();
         m.insert(
             "json_parser",
-            Arc::new(|raw: Value, table: Arc<str>, key: Option<ExactlyOnceKey>| {
+            Arc::new(|raw: Value, table: Arc<str>, common: CommonParserConfig| {
                 let cfg: crate::parsers::json_parser::JsonParserConfig =
                     serde_yaml::from_value(raw)?;
                 Ok(Arc::new(crate::parsers::json_parser::JsonParser::new(
-                    &cfg, table, key,
+                    &cfg,
+                    &common.system_columns,
+                    table,
                 )?) as Arc<dyn Parser>)
             }),
         );
         m.insert(
             "none",
             Arc::new(
-                |_raw: Value, table: Arc<str>, _key: Option<ExactlyOnceKey>| {
+                |_raw: Value, table: Arc<str>, _common: CommonParserConfig| {
                     Ok(
                         Arc::new(crate::parsers::none_parser::NoneParser::new(table))
                             as Arc<dyn Parser>,
@@ -117,7 +115,7 @@ pub fn build_parser(
     name: &str,
     raw: Value,
     table: Arc<str>,
-    key: Option<ExactlyOnceKey>,
+    common: CommonParserConfig,
 ) -> anyhow::Result<Arc<dyn Parser>> {
     let factory = {
         let registry = PARSER_REGISTRY
@@ -131,5 +129,5 @@ pub fn build_parser(
             )
         })?
     };
-    factory(raw, table, key)
+    factory(raw, table, common)
 }

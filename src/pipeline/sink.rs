@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
+use crate::types::system_columns::SystemColumns;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeliveryId(u64);
@@ -38,9 +39,11 @@ pub struct DeliveryMeta {
 #[derive(Debug)]
 pub struct SinkBatch {
     pub table: Arc<str>,
+    pub is_dlq: bool,
     pub batch: RecordBatch,
     pub byte_size: usize,
     pub memory: MemoryReservation,
+    pub system_columns: SystemColumns,
 }
 
 impl SinkBatch {

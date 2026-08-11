@@ -16,6 +16,8 @@ pub struct Config {
     #[serde(default = "default_pipeline_memory_limit")]
     pub pipeline_memory_limit_bytes: usize,
     #[serde(default)]
+    pub keep_system_columns_in_sink: bool,
+    #[serde(default)]
     pub metrics: Option<MetricsConfig>,
 }
 
@@ -110,17 +112,41 @@ mod tests {
     }
 
     #[test]
-    fn benchmark_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
-        let config: Config = serde_yaml::from_str(include_str!(
-            "../../benchmarks/config_bench_yds_json_parser_to_ch.yaml"
-        ))?;
+    fn pqv1_to_s3_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
+        let config: Config = serde_yaml::from_str(
+            r"
+source:
+  pqv1:
+    connection_string: grpc://localhost
+    topic_path: topic-a
+    consumer_name: consumer-a
+    parser:
+      common:
+        table_naming: { type: from_config, name: events }
+        system_columns:
+          topic_name: true
+          partition_num: true
+          offset: true
+          message_index: true
+          write_timestamp_ms: true
+      json_parser:
+        chunk_splitter: one-message-one-row
+        columns:
+          - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }
+sink:
+  s3:
+    bucket: transfer-bucket
+    partitioning: { type: source }
+keep_system_columns_in_sink: false
+",
+        )?;
         let source: crate::providers::yds::config::YdsSourceConfig =
             serde_yaml::from_value(config.source.raw()?.clone())?;
         let _: crate::parsers::json_parser::JsonParserConfig =
             serde_yaml::from_value(source.parser.parser.raw()?.clone())?;
-        let sink: crate::providers::clickhouse::ClickHouseSinkConfig =
+        let sink: crate::providers::s3::sink::S3SinkConfig =
             serde_yaml::from_value(config.sink.raw()?.clone())?;
-        anyhow::ensure!(sink.sorting_key == ["id", "ts"]);
+        sink.validate()?;
         Ok(())
     }
 }

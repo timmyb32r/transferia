@@ -5,6 +5,7 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
+use crate::compatibility::EndpointDescriptor;
 use crate::metrics::SinkCounters;
 use crate::parsers::ParserConfig;
 use crate::pipeline::memory::PipelineMemory;
@@ -17,6 +18,9 @@ use crate::types::schema::DatasetSchema;
 // ---------------------------------------------------------------------------
 
 pub trait SourceProvider: Send + Sync {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::Other
+    }
     fn build_source(
         &self,
         partition_id: i64,
@@ -44,6 +48,9 @@ pub trait SourceProvider: Send + Sync {
 // ---------------------------------------------------------------------------
 
 pub trait SinkProvider: Send + Sync {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::Other
+    }
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
     fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
@@ -52,6 +59,7 @@ pub trait SinkProvider: Send + Sync {
 pub struct SinkContext {
     pub partition_id: i64,
     pub counters: Arc<SinkCounters>,
+    pub keep_system_columns: bool,
 }
 
 pub struct SinkPrepare {

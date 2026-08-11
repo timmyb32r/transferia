@@ -138,9 +138,11 @@ async fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery
         let bytes = batch.get_array_memory_size();
         outputs.push(SinkBatch {
             table: Arc::from(*table),
+            is_dlq: false,
             batch,
             byte_size: bytes,
             memory: memory.reserve(bytes).await,
+            system_columns: crate::types::system_columns::SystemColumns::default(),
         });
     }
     Delivery {

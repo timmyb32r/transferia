@@ -164,6 +164,12 @@ pub struct SinkCounters {
     flushes: AtomicU64,
     unique_offsets: AtomicU64,
     busy_nanos: AtomicU64,
+    upload_retries: AtomicU64,
+    buffered_bytes: AtomicU64,
+    open_objects: AtomicU64,
+    ready_objects: AtomicU64,
+    inflight_objects: AtomicU64,
+    backpressure_nanos: AtomicU64,
 }
 
 impl SinkCounters {
@@ -175,6 +181,12 @@ impl SinkCounters {
             flushes: AtomicU64::new(0),
             unique_offsets: AtomicU64::new(0),
             busy_nanos: AtomicU64::new(0),
+            upload_retries: AtomicU64::new(0),
+            buffered_bytes: AtomicU64::new(0),
+            open_objects: AtomicU64::new(0),
+            ready_objects: AtomicU64::new(0),
+            inflight_objects: AtomicU64::new(0),
+            backpressure_nanos: AtomicU64::new(0),
         }
     }
 
@@ -199,6 +211,31 @@ impl SinkCounters {
     #[inline]
     pub fn add_busy(&self, d: Duration) {
         self.busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
+    }
+    #[inline]
+    pub fn add_upload_retries(&self, retries: u64) {
+        self.upload_retries.fetch_add(retries, RELAXED);
+    }
+    #[inline]
+    pub fn set_buffered_bytes(&self, bytes: u64) {
+        self.buffered_bytes.store(bytes, RELAXED);
+    }
+    #[inline]
+    pub fn set_open_objects(&self, objects: u64) {
+        self.open_objects.store(objects, RELAXED);
+    }
+    #[inline]
+    pub fn set_ready_objects(&self, objects: u64) {
+        self.ready_objects.store(objects, RELAXED);
+    }
+    #[inline]
+    pub fn set_inflight_objects(&self, objects: u64) {
+        self.inflight_objects.store(objects, RELAXED);
+    }
+    #[inline]
+    pub fn add_backpressure(&self, duration: Duration) {
+        self.backpressure_nanos
+            .fetch_add(duration.as_nanos() as u64, RELAXED);
     }
 
     #[must_use]
@@ -258,6 +295,12 @@ struct SinkSnapshot {
     flushes: u64,
     unique_offsets: u64,
     busy_nanos: u64,
+    upload_retries: u64,
+    buffered_bytes: u64,
+    open_objects: u64,
+    ready_objects: u64,
+    inflight_objects: u64,
+    backpressure_nanos: u64,
 }
 
 fn src_snap(c: Option<&Arc<SourceCounters>>) -> SourceSnapshot {
@@ -287,6 +330,12 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
         flushes: s.flushes.load(RELAXED),
         unique_offsets: s.unique_offsets.load(RELAXED),
         busy_nanos: s.busy_nanos.load(RELAXED),
+        upload_retries: s.upload_retries.load(RELAXED),
+        buffered_bytes: s.buffered_bytes.load(RELAXED),
+        open_objects: s.open_objects.load(RELAXED),
+        ready_objects: s.ready_objects.load(RELAXED),
+        inflight_objects: s.inflight_objects.load(RELAXED),
+        backpressure_nanos: s.backpressure_nanos.load(RELAXED),
     })
 }
 
@@ -390,8 +439,7 @@ impl MetricsRegistry {
         entry.sink = Some(c);
     }
 
-    /// Mark whether exactly-once keys are active for this partition. When false,
-    /// the stats line shows `uniq off/s: unknown (absent exactly_once_keys)`.
+    /// Mark whether the inferred delivery guarantee is exactly-once.
     #[expect(
         clippy::significant_drop_tightening,
         reason = "the MutexGuard must outlive the entry borrow it hands out"
@@ -552,6 +600,12 @@ fn aggregate_line(
             k.flushes += cur_sink.flushes - psink.flushes;
             k.unique_offsets += cur_sink.unique_offsets - psink.unique_offsets;
             k.busy_nanos += cur_sink.busy_nanos - psink.busy_nanos;
+            k.upload_retries += cur_sink.upload_retries - psink.upload_retries;
+            k.buffered_bytes += cur_sink.buffered_bytes;
+            k.open_objects += cur_sink.open_objects;
+            k.ready_objects += cur_sink.ready_objects;
+            k.inflight_objects += cur_sink.inflight_objects;
+            k.backpressure_nanos += cur_sink.backpressure_nanos - psink.backpressure_nanos;
             wall_ns_sum += wall;
             any_parser |= pm.has_parser;
             any_eo_key |= pm.has_eo_key;
@@ -615,7 +669,7 @@ fn format_line(
             // `~` marks "messages, not offsets" (semantic marker, not uncertainty)
             format!("~{} msg/s", ((d_uniq as f64) / sec) as u64)
         } else {
-            "msg/s: unknown (absent exactly_once_keys)".to_string()
+            "msg/s: unknown (source identity unavailable)".to_string()
         }
     };
     let parse_part = if has_parser {
@@ -643,13 +697,24 @@ fn format_line(
     let d_sink_flushes = cur_sink.flushes - prev_sink.flushes;
     let d_sink_uniq = cur_sink.unique_offsets - prev_sink.unique_offsets;
     let sink_pct = pct(cur_sink.busy_nanos - prev_sink.busy_nanos, wall_ns);
+    let backpressure_pct = pct(
+        cur_sink.backpressure_nanos - prev_sink.backpressure_nanos,
+        wall_ns,
+    );
+    let retries = cur_sink.upload_retries - prev_sink.upload_retries;
     let sink_part = format!(
-        "sink: {} rows/s | {} arrow | {} flushes/s | {} | {}% busy",
+        "sink: {} rows/s | {} | {} flushes/s | {} | {}% busy | {} retries | buffered {} | objects {}/{}/{} | {}% backpressure",
         ((d_sink_rows as f64) / sec) as u64,
         fmt_bytes(d_sink_bytes as f64 / sec),
         ((d_sink_flushes as f64) / sec) as u64,
         uniq_off_fmt(d_sink_uniq),
         sink_pct,
+        retries,
+        fmt_rss(cur_sink.buffered_bytes),
+        cur_sink.open_objects,
+        cur_sink.ready_objects,
+        cur_sink.inflight_objects,
+        backpressure_pct,
     );
     format!(
         "[stats p={pid}] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",
@@ -685,7 +750,7 @@ fn format_line_avg(
         } else if uniq > 0 {
             format!("~{} msg/s", ((uniq as f64) / sec) as u64)
         } else {
-            "msg/s: unknown (absent exactly_once_keys)".to_string()
+            "msg/s: unknown (source identity unavailable)".to_string()
         }
     };
     let parse_part = if any_parser {
@@ -702,13 +767,20 @@ fn format_line_avg(
         "parse: (no parser)".to_string()
     };
     let sink_pct = pct(k.busy_nanos, wall_ns_sum);
+    let backpressure_pct = pct(k.backpressure_nanos, wall_ns_sum);
     let sink_part = format!(
-        "sink: {} rows/s | {} arrow | {} flushes/s | {} | {}% busy",
+        "sink: {} rows/s | {} | {} flushes/s | {} | {}% busy | {} retries | buffered {} | objects {}/{}/{} | {}% backpressure",
         ((k.rows as f64) / sec) as u64,
         fmt_bytes(k.bytes as f64 / sec),
         ((k.flushes as f64) / sec) as u64,
         uniq_off_str(k.unique_offsets),
         sink_pct,
+        k.upload_retries,
+        fmt_rss(k.buffered_bytes),
+        k.open_objects,
+        k.ready_objects,
+        k.inflight_objects,
+        backpressure_pct,
     );
     format!(
         "[stats] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",

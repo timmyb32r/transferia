@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
-use crate::types::exactly_once::ExactlyOnceKey;
+use crate::types::system_columns::SystemColumns;
 
 /// Pipeline unit: one Arrow batch destined for one pre-resolved table.
 ///
@@ -19,9 +19,8 @@ pub struct TableData {
     pub batch: RecordBatch,
     /// Monotonic batch id for tracing.
     pub batch_id: u64,
-    /// Exactly-once key descriptor. `None` → at-least-once (no dedup).
-    /// The actual key values are columns inside `batch`.
-    pub exactly_once_key: Option<ExactlyOnceKey>,
+    /// Semantic roles of parser-generated Arrow columns.
+    pub system_columns: SystemColumns,
 }
 
 impl TableData {
@@ -31,14 +30,14 @@ impl TableData {
         is_dlq: bool,
         batch: RecordBatch,
         batch_id: u64,
-        exactly_once_key: Option<ExactlyOnceKey>,
+        system_columns: SystemColumns,
     ) -> Self {
         Self {
             table,
             is_dlq,
             batch,
             batch_id,
-            exactly_once_key,
+            system_columns,
         }
     }
 }

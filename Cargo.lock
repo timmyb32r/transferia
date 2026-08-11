@@ -3654,6 +3654,8 @@ dependencies = [
  "anyhow",
  "arrow",
  "bytes",
+ "chrono",
+ "chrono-tz",
  "clap",
  "clickhouse-arrow",
  "flate2",

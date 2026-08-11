@@ -34,8 +34,12 @@ pub struct S3SourceConfig {
     pub parser: ParserConfig,
 }
 
-const fn default_chunk_size() -> usize { DEFAULT_CHUNK_SIZE_BYTES }
-const fn default_max_retries() -> u32 { DEFAULT_MAX_RETRIES }
+const fn default_chunk_size() -> usize {
+    DEFAULT_CHUNK_SIZE_BYTES
+}
+const fn default_max_retries() -> u32 {
+    DEFAULT_MAX_RETRIES
+}
 
 /// Build an `ObjectStore` from S3 config. Without credentials, uses the standard
 /// AWS chain (env vars, ~/.aws, IMDS). Supports custom endpoints for `MinIO` etc.
@@ -54,5 +58,7 @@ pub fn build_object_store(cfg: &S3SourceConfig) -> anyhow::Result<Arc<dyn Object
             .with_access_key_id(&creds.access_key)
             .with_secret_access_key(&creds.secret_key);
     }
-    Ok(Arc::new(builder.build().map_err(|e| anyhow!("Failed to build S3 object store: {e}"))?))
+    Ok(Arc::new(builder.build().map_err(|e| {
+        anyhow!("Failed to build S3 object store: {e}")
+    })?))
 }

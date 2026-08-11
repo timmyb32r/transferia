@@ -4,7 +4,7 @@ use futures_util::future::BoxFuture;
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
 use crate::providers::yds::credentials::YdbCredentials;
 use crate::providers::yds::config::YdsSourceConfig;
-use crate::types::exactly_once::PartitionKey;
+use crate::types::message::SourcePartition;
 use crate::types::message::{Message, MessageBatch};
 
 pub struct YdbTopicSource {
@@ -53,7 +53,7 @@ impl Source for YdbTopicSource {
                     messages.push(Message {
                         value: Bytes::from(bytes),
                         offset: Some(msg.offset),
-                        partition: Some(PartitionKey::Int(msg.get_partition_id())),
+                        partition: Some(SourcePartition::Int(msg.get_partition_id())),
                     });
                 }
             }

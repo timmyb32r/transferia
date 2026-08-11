@@ -7,11 +7,12 @@ use mimalloc::MiMalloc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
+use transferia::compatibility::{validate_pipeline, DeliveryGuarantee};
 use transferia::config::yaml::Config;
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
-use transferia::middleware::build_middleware;
+use transferia::middleware::{build_middleware, MiddlewareEntry};
+use transferia::parsers::ParserConfig;
 use transferia::pipeline::memory::PipelineMemory;
-use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
 use transferia::providers::traits::{
     ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
@@ -22,7 +23,7 @@ use transferia::types::table_data::dlq_name;
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser, Debug)]
-#[command(name = "transferia", about = "PQv1 to ClickHouse data pipeline")]
+#[command(name = "transferia", about = "PQv1 to S3 data pipeline")]
 struct Cli {
     #[arg(long, env = "CONFIG_PATH")]
     config: String,
@@ -34,12 +35,14 @@ struct Cli {
 
 #[derive(Clone)]
 struct PipelineDeps {
-    parser: Arc<dyn transferia::parsers::Parser>,
-    middlewares: Arc<Vec<Box<dyn Middleware>>>,
+    parser_config: Arc<ParserConfig>,
+    table: Arc<str>,
+    middlewares: Arc<Vec<MiddlewareEntry>>,
     source_provider: Arc<dyn SourceProvider>,
     sink_provider: Arc<dyn SinkProvider>,
     memory_limit: usize,
     cancellation: CancellationToken,
+    keep_system_columns: bool,
 }
 
 fn spawn_partition_task(
@@ -54,6 +57,47 @@ fn spawn_partition_task(
             if deps.cancellation.is_cancelled() {
                 return;
             }
+            let parser_kind = match deps.parser_config.parser.kind() {
+                Ok(kind) => kind,
+                Err(error) => {
+                    tracing::error!(partition = partition_id, "invalid parser config: {error}");
+                    return;
+                }
+            };
+            let parser_raw = match deps.parser_config.parser.raw() {
+                Ok(raw) => raw.clone(),
+                Err(error) => {
+                    tracing::error!(partition = partition_id, "invalid parser config: {error}");
+                    return;
+                }
+            };
+            let parser = match transferia::parsers::build_parser(
+                parser_kind,
+                parser_raw,
+                Arc::clone(&deps.table),
+                deps.parser_config.common.clone(),
+            ) {
+                Ok(parser) => parser,
+                Err(error) => {
+                    tracing::error!(partition = partition_id, "parser creation failed: {error}");
+                    return;
+                }
+            };
+            let middlewares = match deps
+                .middlewares
+                .iter()
+                .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
+                .collect::<anyhow::Result<Vec<_>>>()
+            {
+                Ok(middlewares) => Arc::new(middlewares),
+                Err(error) => {
+                    tracing::error!(
+                        partition = partition_id,
+                        "middleware creation failed: {error}"
+                    );
+                    return;
+                }
+            };
             let memory = PipelineMemory::new(deps.memory_limit);
             let source = match deps
                 .source_provider
@@ -75,6 +119,7 @@ fn spawn_partition_task(
                 .build_sink(SinkContext {
                     partition_id,
                     counters: Arc::clone(&sink_counters),
+                    keep_system_columns: deps.keep_system_columns,
                 })
                 .await
             {
@@ -90,8 +135,8 @@ fn spawn_partition_task(
             };
             let result = run_partition_pipeline(
                 source,
-                Arc::clone(&deps.parser),
-                Arc::clone(&deps.middlewares),
+                parser,
+                middlewares,
                 sink,
                 memory,
                 deps.cancellation.clone(),
@@ -149,9 +194,9 @@ async fn main() -> anyhow::Result<()> {
             ))
         }
     });
-    registry.register_sink("clickhouse", |value| {
+    registry.register_sink("s3", |value| {
         Ok(Box::new(
-            transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
+            transferia::providers::s3::sink::S3SinkProvider::from_config(value)?,
         ))
     });
 
@@ -162,29 +207,20 @@ async fn main() -> anyhow::Result<()> {
     let sink_provider: Arc<dyn SinkProvider> =
         Arc::from(registry.build_sink(sink_kind, config.sink.raw()?.clone())?);
 
+    let semantics = validate_pipeline(
+        &source_provider.compatibility(),
+        &sink_provider.compatibility(),
+        config.keep_system_columns_in_sink,
+    );
+    semantics.ensure_valid()?;
+    tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
+
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
     let parser_config = source_provider
         .parser_config()
         .ok_or_else(|| anyhow::anyhow!("source requires a parser"))?;
-    let parser_kind = parser_config.parser.kind()?;
-    let parser_raw = parser_config.parser.raw()?.clone();
-    anyhow::ensure!(
-        !parser_raw
-            .get("add_exactly_once_keys")
-            .and_then(serde_yaml::Value::as_bool)
-            .unwrap_or(false),
-        "exactly-once is not implemented by the asynchronous ClickHouse sink",
-    );
-    let parser =
-        transferia::parsers::build_parser(parser_kind, parser_raw, Arc::clone(&table), None)?;
-
-    let middlewares: Arc<Vec<Box<dyn Middleware>>> = Arc::new(
-        config
-            .middlewares
-            .iter()
-            .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
-            .collect::<anyhow::Result<_>>()?,
-    );
+    parser_config.parser.kind()?;
+    let parser_config = Arc::new(parser_config.clone());
 
     let partitions = source_provider
         .discover_partitions(cli.total_workers, cli.worker_index)
@@ -201,7 +237,9 @@ async fn main() -> anyhow::Result<()> {
             table: Arc::clone(&table),
             schema,
             dlq_table,
-            dlq_schema: transferia::parsers::json_parser::dlq_dataset_schema(None),
+            dlq_schema: transferia::parsers::json_parser::dlq_dataset_schema(
+                &parser_config.common.system_columns,
+            ),
         })
         .await?;
 
@@ -224,12 +262,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let deps = PipelineDeps {
-        parser,
-        middlewares,
+        parser_config,
+        table,
+        middlewares: Arc::new(config.middlewares.clone()),
         source_provider,
         sink_provider,
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
+        keep_system_columns: config.keep_system_columns_in_sink,
     };
     let mut tasks = Vec::with_capacity(partitions.len());
     for partition_id in partitions {
@@ -237,7 +277,10 @@ async fn main() -> anyhow::Result<()> {
         let sink_counters = Arc::new(SinkCounters::new());
         metrics_registry.register_parse(partition_id, true, Arc::clone(&parse_counters));
         metrics_registry.register_sink(partition_id, Arc::clone(&sink_counters));
-        metrics_registry.set_eo_key(partition_id, false);
+        metrics_registry.set_eo_key(
+            partition_id,
+            semantics.guarantee == DeliveryGuarantee::ExactlyOnce,
+        );
         tasks.push(spawn_partition_task(
             partition_id,
             deps.clone(),

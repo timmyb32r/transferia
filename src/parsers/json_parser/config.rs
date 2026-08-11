@@ -8,18 +8,9 @@ use crate::types::schema::{DatasetSchema, SchemaColumn};
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
     pub columns: Vec<ColumnMapping>,
-    /// Optional custom field name for the raw JSON payload in DLQ records.
-    #[serde(default)]
-    pub raw_payload_field: Option<String>,
     /// How incoming message bytes are split into individual JSON objects.
     #[serde(default)]
     pub chunk_splitter: ChunkSplitter,
-    /// Elide null-valued columns in serialized JSON output.
-    #[serde(default)]
-    pub skip_null_columns: bool,
-    /// Append source identity columns for future exactly-once handling.
-    #[serde(default)]
-    pub add_exactly_once_keys: bool,
 }
 
 impl JsonParserConfig {
@@ -38,7 +29,7 @@ impl JsonParserConfig {
 #[serde(rename_all = "kebab-case")]
 pub enum ChunkSplitter {
     #[default]
-    NoSplit,
+    OneMessageOneRow,
     NewLine,
 }
 
@@ -47,7 +38,7 @@ impl ChunkSplitter {
     #[must_use]
     pub fn safe_split_at(self, buf: &[u8]) -> usize {
         match self {
-            Self::NoSplit => buf.len(),
+            Self::OneMessageOneRow => buf.len(),
             Self::NewLine => buf
                 .iter()
                 .rposition(|&byte| byte == b'\n')
@@ -59,7 +50,7 @@ impl ChunkSplitter {
     #[must_use]
     pub fn split_into_records(self, buf: &[u8]) -> Vec<&[u8]> {
         match self {
-            Self::NoSplit => vec![buf],
+            Self::OneMessageOneRow => vec![buf],
             Self::NewLine if !buf.contains(&b'\n') => {
                 if buf.is_empty() {
                     Vec::new()
@@ -78,7 +69,7 @@ impl ChunkSplitter {
     #[must_use]
     pub fn count_records(self, buf: &[u8]) -> usize {
         match self {
-            Self::NoSplit => usize::from(!buf.is_empty()),
+            Self::OneMessageOneRow => usize::from(!buf.is_empty()),
             Self::NewLine if buf.is_empty() => 0,
             Self::NewLine if !buf.contains(&b'\n') => 1,
             Self::NewLine => buf

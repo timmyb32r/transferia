@@ -16,8 +16,7 @@ use transferia::pipeline::source::{CommitMarker, ReadResult, Source};
 use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
-use transferia::types::exactly_once::PartitionKey;
-use transferia::types::message::{Message, MessageBatch};
+use transferia::types::message::{Message, MessageBatch, MessageMeta, SourcePartition};
 
 struct FakeSource {
     batches: VecDeque<Vec<Message>>,
@@ -31,8 +30,11 @@ impl FakeSource {
     fn message(offset: i64) -> Message {
         Message {
             value: Bytes::from(format!(r#"{{"id":"{offset}","kind":"keep"}}"#)),
-            offset: Some(offset),
-            partition: Some(PartitionKey::Int(0)),
+            meta: MessageMeta {
+                partition: Some(SourcePartition::Int(0)),
+                offset: Some(offset),
+                ..MessageMeta::default()
+            },
         }
     }
 }
@@ -57,7 +59,7 @@ impl Source for FakeSource {
             };
             let marker = messages
                 .last()
-                .and_then(|message| message.offset)
+                .and_then(|message| message.meta.offset)
                 .unwrap_or_default();
             Ok(ReadResult::Batch(MessageBatch {
                 messages,
@@ -170,7 +172,19 @@ columns:
 "#,
     )
     .unwrap();
-    transferia::parsers::build_parser("json_parser", raw, Arc::from("events"), None).unwrap()
+    transferia::parsers::build_parser(
+        "json_parser",
+        raw,
+        Arc::from("events"),
+        transferia::parsers::CommonParserConfig {
+            table_naming: transferia::parsers::TableNaming {
+                kind: "from_config".into(),
+                name: Some("events".into()),
+            },
+            system_columns: transferia::parsers::SystemColumnsConfig::default(),
+        },
+    )
+    .unwrap()
 }
 
 async fn wait_for_insert(transport: &FakeClickHouse, count: usize) {

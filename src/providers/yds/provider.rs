@@ -3,8 +3,9 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
+use crate::compatibility::{ColumnDescriptor, EndpointDescriptor, SourceDescriptor, SourceFraming};
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::json_parser::{JsonParser, JsonParserConfig};
 use crate::parsers::ParserConfig;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
@@ -18,6 +19,7 @@ pub struct YdsSourceProvider {
     cfg: YdsSourceConfig,
     cached_schema: DatasetSchema,
     metrics_registry: Arc<MetricsRegistry>,
+    framing: SourceFraming,
 }
 
 impl YdsSourceProvider {
@@ -39,22 +41,54 @@ impl YdsSourceProvider {
         // "none" parser ⇒ no columns, no JsonParserConfig (which requires
         // `columns`). DDL is skipped by main for no-parser mode.
         let parser_kind = cfg.parser.parser.kind()?;
-        let cached_schema = if parser_kind == "none" {
-            DatasetSchema::default()
+        let (cached_schema, framing) = if parser_kind == "none" {
+            (
+                DatasetSchema::default(),
+                SourceFraming::MultipleRowsPerMessage,
+            )
         } else {
             let parser_cfg: JsonParserConfig =
                 serde_yaml::from_value(cfg.parser.parser.raw()?.clone())?;
-            parser_cfg.to_dataset_schema()?
+            drop(JsonParser::new(
+                &parser_cfg,
+                &cfg.parser.common.system_columns,
+                Arc::from("__config_validation__"),
+            )?);
+            let framing = if parser_cfg.chunk_splitter
+                == crate::parsers::json_parser::ChunkSplitter::OneMessageOneRow
+            {
+                SourceFraming::OneMessageOneRow
+            } else {
+                SourceFraming::MultipleRowsPerMessage
+            };
+            (parser_cfg.to_dataset_schema()?, framing)
         };
         Ok(Self {
             cfg,
             cached_schema,
             metrics_registry,
+            framing,
         })
     }
 }
 
 impl SourceProvider for YdsSourceProvider {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::PqV1(SourceDescriptor {
+            framing: self.framing,
+            system_columns: self.cfg.parser.common.system_columns.enabled().collect(),
+            columns: self
+                .cached_schema
+                .columns
+                .iter()
+                .map(|column| ColumnDescriptor {
+                    name: column.name.clone(),
+                    data_type: column.data_type.clone(),
+                    nullable: column.nullable,
+                })
+                .collect(),
+        })
+    }
     fn build_source(
         &self,
         partition_id: i64,

@@ -8,6 +8,8 @@ use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use json_serializer::JsonSerializer;
 
+pub use json_serializer::JsonBatchEncoder;
+
 /// Converts Arrow [`RecordBatch`]es into serialized output format.
 ///
 /// The inverse of the parser: takes columnar data and produces byte sequences
@@ -31,7 +33,7 @@ static SERIALIZER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, SerializerFacto
         let mut m: HashMap<&'static str, SerializerFactory> = HashMap::new();
         m.insert(
             "json",
-            Arc::new(|| Arc::new(JsonSerializer::default()) as Arc<dyn Serializer>),
+            Arc::new(|| Arc::new(JsonSerializer) as Arc<dyn Serializer>),
         );
         Mutex::new(m)
     });
@@ -44,12 +46,9 @@ pub fn register_serializer(name: &'static str, factory: SerializerFactory) {
         .insert(name, factory);
 }
 
-/// Build a JSON serializer with explicit null-column skipping behavior.
-/// `skip_nulls=true` elides null-valued keys from output; the default (`false`)
-/// emits them as `"col": null`.
 #[must_use]
-pub fn build_json_serializer(skip_nulls: bool) -> Arc<dyn Serializer> {
-    Arc::new(JsonSerializer::new(skip_nulls))
+pub fn build_json_serializer() -> Arc<dyn Serializer> {
+    Arc::new(JsonSerializer)
 }
 
 pub fn build_serializer(name: &str) -> anyhow::Result<Arc<dyn Serializer>> {

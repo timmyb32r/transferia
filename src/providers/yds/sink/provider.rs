@@ -24,7 +24,7 @@ impl YdsSinkProvider {
             anyhow::bail!("yds sink: topic_path must not be empty");
         }
 
-        let serializer = crate::serializer::build_json_serializer(cfg.skip_null_columns);
+        let serializer = crate::serializer::build_json_serializer();
 
         tracing::info!(
             "YDS sink: topic={} serializer={}",

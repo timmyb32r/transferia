@@ -55,8 +55,14 @@ fn delivery_meta(messages: &[Message]) -> DeliveryMeta {
             .iter()
             .map(|message| message.value.len() as u64)
             .sum(),
-        first_offset: messages.iter().filter_map(|message| message.offset).min(),
-        last_offset: messages.iter().filter_map(|message| message.offset).max(),
+        first_offset: messages
+            .iter()
+            .filter_map(|message| message.meta.offset)
+            .min(),
+        last_offset: messages
+            .iter()
+            .filter_map(|message| message.meta.offset)
+            .max(),
     }
 }
 
@@ -80,9 +86,11 @@ fn make_sink_batch(data: TableData, reservation: MemoryReservation) -> Option<Si
     let byte_size = arrow_batch_bytes(&data.batch);
     Some(SinkBatch {
         table: data.table,
+        is_dlq: data.is_dlq,
         batch: data.batch,
         byte_size,
         memory: reservation,
+        system_columns: data.system_columns,
     })
 }
 
@@ -117,7 +125,7 @@ fn parser_loop(
         } = envelope;
         let started = std::time::Instant::now();
         let (valid, dlq) = parser
-            .parse_into(messages, partition_id, None, &mut workspace)
+            .parse_into(messages, partition_id, &mut workspace)
             .map_err(|error| anyhow::anyhow!("parser failed for delivery {}: {error}", id.get()))?;
         let valid = apply_middlewares(valid, middlewares).map_err(|error| {
             anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())

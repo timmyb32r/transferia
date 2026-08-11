@@ -11,18 +11,63 @@ use super::Serializer;
 /// This is the exact inverse of the JSON parser — the output can be
 /// read back by the S3 source or YDS source without modification.
 ///
-/// By default, null values are emitted as `"col": null`. When
-/// `skip_null_columns` is `true`, null keys are elided (absent from
-/// the JSON object) — compatible with the JSON parser which treats
-/// missing keys as nullable columns.
+/// Null values are always emitted explicitly as `"col": null`, matching the
+/// Confluent S3 JSON format.
 ///
 /// **Optimization**: Column types are pre-classified into [`ColumnWriter`]
 /// variants during the first serialization. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
 #[derive(Default)]
-pub struct JsonSerializer {
-    skip_null_columns: bool,
+pub struct JsonSerializer;
+
+/// A pre-classified, optionally projected view of one Arrow batch.
+pub struct JsonBatchEncoder<'batch> {
+    columns: Vec<(String, ColumnWriter<'batch>)>,
+}
+
+impl<'batch> JsonBatchEncoder<'batch> {
+    pub fn new(
+        batch: &'batch RecordBatch,
+        mut include_column: impl FnMut(usize) -> bool,
+    ) -> anyhow::Result<Self> {
+        let columns = batch
+            .schema()
+            .fields()
+            .iter()
+            .zip(batch.columns())
+            .enumerate()
+            .filter(|(index, _)| include_column(*index))
+            .map(|(_, (field, column))| {
+                ColumnWriter::classify(field.name(), column.as_ref()).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "JSON serializer: unsupported type {:?} for column '{}'",
+                        field.data_type(),
+                        field.name(),
+                    )
+                })
+            })
+            .collect::<anyhow::Result<_>>()?;
+        Ok(Self { columns })
+    }
+
+    /// Append exactly one compact JSON object followed by a newline.
+    pub fn write_row(&self, row: usize, output: &mut Vec<u8>) {
+        output.push(b'{');
+        for (index, (name, writer)) in self.columns.iter().enumerate() {
+            if index != 0 {
+                output.push(b',');
+            }
+            write_json_string(output, name);
+            output.push(b':');
+            if writer.is_null_at(row) {
+                output.extend_from_slice(b"null");
+            } else {
+                writer.write_value(output, row);
+            }
+        }
+        output.extend_from_slice(b"}\n");
+    }
 }
 
 /// Pre-classified column writer: holds a typed reference to the Arrow array
@@ -44,6 +89,12 @@ enum ColumnWriter<'array> {
     Float32(&'array arrow::array::Float32Array),
     Float64(&'array arrow::array::Float64Array),
     Boolean(&'array arrow::array::BooleanArray),
+    Date32(&'array arrow::array::Date32Array),
+    Date64(&'array arrow::array::Date64Array),
+    TimestampSecond(&'array arrow::array::TimestampSecondArray),
+    TimestampMillisecond(&'array arrow::array::TimestampMillisecondArray),
+    TimestampMicrosecond(&'array arrow::array::TimestampMicrosecondArray),
+    TimestampNanosecond(&'array arrow::array::TimestampNanosecondArray),
 }
 
 impl<'array> ColumnWriter<'array> {
@@ -74,13 +125,47 @@ impl<'array> ColumnWriter<'array> {
                 let a = array.as_any().downcast_ref::<Int16Array>()?;
                 ColumnWriter::Int16(a)
             }
-            DataType::Int32 | DataType::Date32 => {
+            DataType::Int32 => {
                 let a = array.as_any().downcast_ref::<Int32Array>()?;
                 ColumnWriter::Int32(a)
             }
-            DataType::Int64 | DataType::Date64 | DataType::Timestamp(_, _) => {
+            DataType::Int64 => {
                 let a = array.as_any().downcast_ref::<Int64Array>()?;
                 ColumnWriter::Int64(a)
+            }
+            DataType::Date32 => {
+                ColumnWriter::Date32(array.as_any().downcast_ref::<arrow::array::Date32Array>()?)
+            }
+            DataType::Date64 => {
+                ColumnWriter::Date64(array.as_any().downcast_ref::<arrow::array::Date64Array>()?)
+            }
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Second, _) => {
+                ColumnWriter::TimestampSecond(
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow::array::TimestampSecondArray>()?,
+                )
+            }
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, _) => {
+                ColumnWriter::TimestampMillisecond(
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow::array::TimestampMillisecondArray>()?,
+                )
+            }
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, _) => {
+                ColumnWriter::TimestampMicrosecond(
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow::array::TimestampMicrosecondArray>()?,
+                )
+            }
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Nanosecond, _) => {
+                ColumnWriter::TimestampNanosecond(
+                    array
+                        .as_any()
+                        .downcast_ref::<arrow::array::TimestampNanosecondArray>()?,
+                )
             }
             DataType::UInt8 => {
                 let a = array.as_any().downcast_ref::<UInt8Array>()?;
@@ -163,6 +248,12 @@ impl<'array> ColumnWriter<'array> {
             ColumnWriter::Boolean(a) => {
                 buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
             }
+            ColumnWriter::Date32(a) => write_int(buf, a.value(row)),
+            ColumnWriter::Date64(a) => write_int(buf, a.value(row)),
+            ColumnWriter::TimestampSecond(a) => write_int(buf, a.value(row)),
+            ColumnWriter::TimestampMillisecond(a) => write_int(buf, a.value(row)),
+            ColumnWriter::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
+            ColumnWriter::TimestampNanosecond(a) => write_int(buf, a.value(row)),
         }
     }
 
@@ -183,6 +274,12 @@ impl<'array> ColumnWriter<'array> {
             ColumnWriter::Float32(a) => a.is_null(row),
             ColumnWriter::Float64(a) => a.is_null(row),
             ColumnWriter::Boolean(a) => a.is_null(row),
+            ColumnWriter::Date32(a) => a.is_null(row),
+            ColumnWriter::Date64(a) => a.is_null(row),
+            ColumnWriter::TimestampSecond(a) => a.is_null(row),
+            ColumnWriter::TimestampMillisecond(a) => a.is_null(row),
+            ColumnWriter::TimestampMicrosecond(a) => a.is_null(row),
+            ColumnWriter::TimestampNanosecond(a) => a.is_null(row),
         }
     }
 }
@@ -201,28 +298,9 @@ fn write_uint<T: itoa::Integer>(buf: &mut Vec<u8>, v: T) {
 
 impl Serializer for JsonSerializer {
     fn serialize_batch(&self, batch: &RecordBatch) -> anyhow::Result<Bytes> {
-        let schema = batch.schema();
-        let fields = schema.fields();
-
-        // Phase 1: Pre-classify columns into typed writers.
-        // This single downcast pass replaces N*M dynamic dispatch calls
-        // (N = num_rows, M = num_columns) with a single pass per column.
-        let columns: Vec<(String, ColumnWriter)> = fields
-            .iter()
-            .zip(batch.columns().iter())
-            .map(|(field, col)| {
-                ColumnWriter::classify(field.name().as_str(), col.as_ref()).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "JsonSerializer: unsupported type {:?} for column '{}'",
-                        field.data_type(),
-                        field.name(),
-                    )
-                })
-            })
-            .collect::<anyhow::Result<_>>()?;
-
+        let encoder = JsonBatchEncoder::new(batch, |_| true)?;
         let num_rows = batch.num_rows();
-        let num_cols = columns.len();
+        let num_cols = encoder.columns.len();
 
         // Estimate buffer size: each row has JSON overhead + values.
         // 2 = `{` + `}`, N-1 commas, plus per-column overhead.
@@ -230,30 +308,8 @@ impl Serializer for JsonSerializer {
         let mut buf = Vec::with_capacity(num_rows * est_per_row.max(64));
 
         for row in 0..num_rows {
-            if row > 0 {
-                buf.push(b'\n');
-            }
-            buf.push(b'{');
-            let mut first = true;
-            for (col_name, writer) in &columns {
-                if self.skip_null_columns && writer.is_null_at(row) {
-                    continue;
-                }
-                if !first {
-                    buf.push(b',');
-                }
-                first = false;
-                write_json_string(&mut buf, col_name);
-                buf.push(b':');
-                if writer.is_null_at(row) {
-                    buf.extend_from_slice(b"null");
-                } else {
-                    writer.write_value(&mut buf, row);
-                }
-            }
-            buf.push(b'}');
+            encoder.write_row(row, &mut buf);
         }
-        buf.push(b'\n');
 
         Ok(Bytes::from(buf))
     }
@@ -276,15 +332,6 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
         }
     }
     buf.push(b'"');
-}
-
-impl JsonSerializer {
-    /// Creates a serializer with `skip_null_columns` set to `false` (nulls are emitted
-    /// as `"col": null` in the JSON output).
-    #[must_use]
-    pub const fn new(skip_null_columns: bool) -> Self {
-        Self { skip_null_columns }
-    }
 }
 
 #[cfg(test)]
@@ -323,7 +370,7 @@ mod tests {
             ],
         )?;
 
-        let serializer = JsonSerializer::default();
+        let serializer = JsonSerializer;
         let output = serializer.serialize_batch(&batch)?;
         let text = String::from_utf8(output.to_vec())?;
 
@@ -352,8 +399,7 @@ mod tests {
         let batch =
             RecordBatch::try_new(schema, vec![Arc::new(x_arr), Arc::new(y_builder.finish())])?;
 
-        // Default: skip_null_columns = false → nulls emitted as "col": null
-        let serializer = JsonSerializer::default();
+        let serializer = JsonSerializer;
         let output = serializer.serialize_batch(&batch)?;
         let text = String::from_utf8(output.to_vec())?;
 
@@ -366,36 +412,6 @@ mod tests {
             "null column should be present as \"y\": null"
         );
         anyhow::ensure!(row2["y"].is_null(), "y should be null");
-        Ok(())
-    }
-
-    #[test]
-    fn serialize_skip_null_columns() -> anyhow::Result<()> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("x", DataType::Int64, true),
-            Field::new("y", DataType::Utf8, true),
-        ]));
-        let x_arr = Int64Array::from(vec![1, 2]);
-        let mut y_builder = StringBuilder::with_capacity(2, 32);
-        y_builder.append_value("hello");
-        y_builder.append_null();
-
-        let batch =
-            RecordBatch::try_new(schema, vec![Arc::new(x_arr), Arc::new(y_builder.finish())])?;
-
-        // skip_null_columns = true → null keys elided
-        let serializer = JsonSerializer::new(true);
-        let output = serializer.serialize_batch(&batch)?;
-        let text = String::from_utf8(output.to_vec())?;
-
-        let lines: Vec<&str> = text.lines().collect();
-        anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
-
-        let row2: serde_json::Value = serde_json::from_str(lines[1])?;
-        anyhow::ensure!(
-            row2.get("y").is_none(),
-            "null column should be absent when skipped"
-        );
         Ok(())
     }
 
@@ -415,7 +431,7 @@ mod tests {
             vec![Arc::new(id_arr), Arc::new(val_builder.finish())],
         )?;
 
-        let serializer = JsonSerializer::default();
+        let serializer = JsonSerializer;
         let output = serializer.serialize_batch(&batch)?;
 
         let parser_config = crate::parsers::json_parser::JsonParserConfig {
@@ -433,22 +449,18 @@ mod tests {
                     nullable: true,
                 },
             ],
-            raw_payload_field: None,
             chunk_splitter: crate::parsers::json_parser::ChunkSplitter::NewLine,
-            skip_null_columns: false,
-            add_exactly_once_keys: false,
         };
 
-        let parser =
-            crate::parsers::json_parser::JsonParser::new(&parser_config, "test".into(), None)?;
+        let parser = crate::parsers::json_parser::JsonParser::new(
+            &parser_config,
+            &crate::parsers::SystemColumnsConfig::default(),
+            "test".into(),
+        )?;
         let mut ws = crate::parsers::json_parser::ParserWorkspace::new();
-        let msgs = vec![crate::types::message::Message {
-            value: output,
-            offset: None,
-            partition: None,
-        }];
+        let msgs = vec![crate::types::message::Message::new(output)];
 
-        let (good, _dlq) = parser.parse_into(msgs, 0, None, &mut ws)?;
+        let (good, _dlq) = parser.parse_into(msgs, 0, &mut ws)?;
         anyhow::ensure!(
             good.batch.num_rows() == 2,
             "roundtrip: 2 rows in \u{2192} 2 rows out"

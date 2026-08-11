@@ -28,8 +28,8 @@ use tonic::Request;
 /// Always `/Root` in our deployment — hardcoded rather than configured.
 const YDB_DATABASE: &str = "/Root";
 use crate::pipeline::source::{CommitMarker, ReadResult, Source};
-use crate::types::exactly_once::PartitionKey;
-use crate::types::message::{Message, MessageBatch};
+use crate::types::message::SourcePartition;
+use crate::types::message::{Message, MessageBatch, MessageMeta};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
     migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
@@ -176,6 +176,7 @@ pub struct DecodedMessage {
     pub cookie: Option<CommitCookie>,
     /// Offset within the `PQv1` partition (for exactly-once dedup).
     pub offset: u64,
+    pub write_timestamp_ms: u64,
     pub memory: MemoryReservation,
 }
 
@@ -190,6 +191,7 @@ struct RawMsg {
     codec: i32,
     uncompressed_size: u64,
     offset: u64,
+    write_timestamp_ms: u64,
 }
 
 /// One partition's worth of raw messages within a `DataBatch`.
@@ -561,6 +563,7 @@ impl PqV1Client {
                             let cookie = pd.cookie;
                             let mut msgs = Vec::new();
                             for batch in pd.batches {
+                                let write_timestamp_ms = batch.write_timestamp_ms;
                                 for md in batch.message_data {
                                     source_counters.add_compressed_bytes(md.data.len() as u64);
                                     source_counters.add_messages(1);
@@ -569,6 +572,7 @@ impl PqV1Client {
                                         codec: md.codec,
                                         uncompressed_size: md.uncompressed_size,
                                         offset: md.offset,
+                                        write_timestamp_ms,
                                     });
                                 }
                             }
@@ -614,6 +618,7 @@ impl PqV1Client {
                                                 data,
                                                 cookie,
                                                 offset: rm.offset,
+                                                write_timestamp_ms: rm.write_timestamp_ms,
                                                 memory: reservation.clone(),
                                             });
                                         }
@@ -896,21 +901,26 @@ pub struct PqV1Source {
     client: PqV1Client,
     rx: mpsc::Receiver<DecodedMessage>,
     partition_id: i64,
+    topic_name: Arc<str>,
+    last_write_timestamp_ms: Option<i64>,
     _config: YdsSourceConfig,
 }
 
 impl PqV1Source {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         client: PqV1Client,
         rx: mpsc::Receiver<DecodedMessage>,
         partition_id: i64,
         config: YdsSourceConfig,
     ) -> Self {
+        let topic_name = Arc::from(config.topic_path.as_str());
         Self {
             client,
             rx,
             partition_id,
+            topic_name,
+            last_write_timestamp_ms: None,
             _config: config,
         }
     }
@@ -929,18 +939,30 @@ impl Source for PqV1Source {
             };
             let mut last_cookie: Option<CommitCookie> = first.cookie;
             let mut memory = vec![first.memory];
+            let first_write_timestamp_ms = i64::try_from(first.write_timestamp_ms)?;
+            self.observe_write_timestamp(first.offset, first_write_timestamp_ms);
             let mut messages = vec![Message {
                 value: first.data,
-                offset: Some(i64::try_from(first.offset)?),
-                partition: Some(PartitionKey::Int(self.partition_id)),
+                meta: MessageMeta {
+                    topic_name: Some(Arc::clone(&self.topic_name)),
+                    partition: Some(SourcePartition::Int(self.partition_id)),
+                    offset: Some(i64::try_from(first.offset)?),
+                    write_timestamp_ms: Some(first_write_timestamp_ms),
+                },
             }];
             while let Ok(msg) = self.rx.try_recv() {
                 last_cookie = msg.cookie;
                 memory.push(msg.memory);
+                let write_timestamp_ms = i64::try_from(msg.write_timestamp_ms)?;
+                self.observe_write_timestamp(msg.offset, write_timestamp_ms);
                 messages.push(Message {
                     value: msg.data,
-                    offset: Some(i64::try_from(msg.offset)?),
-                    partition: Some(PartitionKey::Int(self.partition_id)),
+                    meta: MessageMeta {
+                        topic_name: Some(Arc::clone(&self.topic_name)),
+                        partition: Some(SourcePartition::Int(self.partition_id)),
+                        offset: Some(i64::try_from(msg.offset)?),
+                        write_timestamp_ms: Some(write_timestamp_ms),
+                    },
                 });
             }
             let commit_marker = last_cookie.map(|cookie| {
@@ -968,5 +990,23 @@ impl Source for PqV1Source {
                 .ok_or_else(|| anyhow!("Invalid commit marker"))?;
             self.client.commit(m.partition_id, m.cookie)
         })
+    }
+}
+
+impl PqV1Source {
+    fn observe_write_timestamp(&mut self, offset: u64, current: i64) {
+        if self
+            .last_write_timestamp_ms
+            .is_some_and(|previous| current < previous)
+        {
+            tracing::warn!(
+                partition = self.partition_id,
+                offset,
+                previous_write_timestamp_ms = self.last_write_timestamp_ms,
+                write_timestamp_ms = current,
+                "PQv1 write timestamp moved backwards; record-time sink semantics may be unsafe"
+            );
+        }
+        self.last_write_timestamp_ms = Some(current);
     }
 }

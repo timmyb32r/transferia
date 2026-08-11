@@ -1,42 +1,25 @@
 # transferia
 
-Proof-of-concept data integrator written in Rust. The active path is one fully
-independent pipeline per YDS/PQv1 partition:
+A performance-oriented Rust data integrator proof of concept. The active runtime
+path creates one completely independent pipeline per PQv1 partition:
 
 ```text
-PQv1 source -> JSON parser -> middlewares -> asynchronous ClickHouse sink
+PQv1 -> JSON parser -> middlewares -> asynchronous S3 sink
 ```
 
-Source, parser, middleware, and sink implementations are selected through
-registries. The supported runtime path registers `pqv1`, `json_parser`,
-`filter`, and `clickhouse`; other provider paths are intentionally disabled for
-now.
+Providers and parsers are selected dynamically from registries. The executable
+currently registers only the `pqv1` source and `s3` sink.
 
-## Build and quality checks
+## Quality checks
 
 ```bash
-cargo build --release
 just fmt
 just clippy
-just test
+cargo test --all-targets
 ```
 
-`just clippy` uses the lint policy from `Cargo.toml` and treats warnings as
-errors.
-
-## Run
-
-```bash
-transferia --config ./config.yaml --total-workers 1 --worker-index 0
-```
-
-| Flag | Environment | Default | Meaning |
-|---|---|---:|---|
-| `--config` | `CONFIG_PATH` | — | YAML configuration path |
-| `--total-workers` | — | `1` | Number of workers used to shard partitions |
-| `--worker-index` | — | `0` | Zero-based index of this worker |
-
-YAML values support `${ENV_VAR}` and `$ENV_VAR` expansion.
+`just clippy` runs the strict lint policy from `Cargo.toml` with warnings as
+errors. Every quality recipe runs `rustfmt` first.
 
 ## Configuration
 
@@ -44,56 +27,80 @@ YAML values support `${ENV_VAR}` and `$ENV_VAR` expansion.
 source:
   pqv1:
     connection_string: "grpcs://sas.logbroker.yandex.net:2135"
-    topic_path: "/cdc/prod/logs"
+    topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
-    partition_ids: [0] # optional; otherwise discovered from PQv1
+    partition_ids: [0] # optional; otherwise discovered
     auth:
       type: access_token
       token_file: "~/.logbroker/token"
     parser:
-      table_naming:
-        type: from_config # or from_topic
-        name: "logs"
+      common:
+        table_naming:
+          type: from_config
+          name: events
+        system_columns:
+          topic_name: true
+          partition_num: true
+          offset: true
+          message_index: true
+          write_timestamp_ms: true
       json_parser:
-        chunk_splitter: new-line
+        chunk_splitter: one-message-one-row
         columns:
           - jsonpath: "$.id"
             column_name: id
+            arrow_type: Int64
+            nullable: false
+          - jsonpath: "$.tenant"
+            column_name: tenant
             arrow_type: Utf8
             nullable: false
-          - jsonpath: "$.timestamp"
-            column_name: timestamp
-            arrow_type: "Timestamp(Millisecond, UTC)"
-            nullable: false
-          - jsonpath: "$.event_name"
-            column_name: event_name
-            arrow_type: Utf8
-            nullable: true
 
-middlewares:
-  - filter:
-      field: event_name
-      value: page_view
+middlewares: []
 
-# Hard retained-memory budget for each independent partition pipeline.
 pipeline_memory_limit_bytes: 268435456
+keep_system_columns_in_sink: false
 
 sink:
-  clickhouse:
-    connection_string: "cluster.example.net:9440"
-    database: default
-    username: transferia
-    password: "${CLICKHOUSE_PASSWORD}"
-    sorting_key: [id, timestamp]
-    recreate_tables: false
-    max_insert_rows: 100000
-    max_insert_bytes: 67108864
-    flush_interval_ms: 100
-    retry_initial_ms: 50
-    retry_max_ms: 30000
-    retry_max_attempts: null
-    use_tls: true
-    tls_domain: null
+  s3:
+    bucket: transfer-bucket
+    prefix: streams
+    region: ru-central1
+    endpoint: "https://storage.yandexcloud.net"
+    credentials:
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+
+    partitioning:
+      type: source
+      # Alternatives:
+      # type: fields
+      # columns: [tenant]
+      #
+      # type: time
+      # window: 1h
+      # timezone: Europe/Moscow
+      # path: "year=%Y/month=%m/day=%d/hour=%H"
+
+    rotation:
+      max_rows: 100000
+      max_bytes: 128MiB
+      record_time_interval: null
+      wall_clock_interval: null
+      on_partition_change: keep_open # rotate = Confluent-compatible
+
+    buffering:
+      max_open_objects: 128
+      max_buffered_bytes: 256MiB
+
+    upload:
+      multipart_threshold: 25MiB
+      part_size: 25MiB
+      parallel_parts: 4
+
+    retry:
+      initial_backoff: 200ms
+      max_backoff: 30s
 
 metrics:
   enabled: true
@@ -101,34 +108,35 @@ metrics:
   per_partition: true
 ```
 
-Configuration ownership follows runtime ownership:
+Run it with:
 
-- the root contains only provider-neutral pipeline composition, memory, and
-  metrics settings;
-- YDS owns authentication and PQv1 connection settings;
-- the JSON parser owns column mappings, Arrow type syntax, and chunk framing;
-- ClickHouse owns `sorting_key`, table recreation, insert sizing, retry, and TLS
-  settings;
-- each middleware owns the value nested below its registry key.
+```bash
+transferia --config ./config.yaml --total-workers 1 --worker-index 0
+```
 
-`sorting_key` is ClickHouse `MergeTree ORDER BY`, not a source primary-key
-declaration. An empty list produces `ORDER BY tuple()`.
+YAML supports environment expansion. Byte sizes accept `B`, `KiB`, `MiB`,
+and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
 
-## Asynchronous sink behavior
+## Semantics
 
-Each partition gets its own sink and shares no buffers or connections with
-other partition pipelines. At most one INSERT is in flight per sink. While it
-is running, the sink may accumulate the next INSERT. The shared per-pipeline
-memory budget applies backpressure to the source; an individual allocation
-larger than the configured limit is temporarily admitted with a warning so the
-pipeline can still make progress.
+The sink permits exactly one object upload at a time while accumulating the
+next deterministic commit epoch. A rotation closes every main and DLQ object
+in that epoch, and source progress is committed only after all of them are
+durable. The per-pipeline memory budget and S3 buffering limit propagate
+backpressure to PQv1. One oversized source message is admitted atomically with
+a warning.
 
-Source progress is acknowledged only after every output associated with the
-delivery has been inserted successfully. Exactly-once table semantics are not
-implemented yet.
+Delivery semantics are inferred from configuration and logged as a structured
+report. Deterministic source/field/source-time partitioning and deterministic
+rotation are exactly-once through idempotent object overwrite. Enabling
+`wall_clock_interval` makes the delivery at-least-once because restart timing
+can change object boundaries; the report includes a remediation.
 
-## ClickHouse TLS
+Field partitioning requires `one-message-one-row`, non-null scalar partition
+columns, and parser-generated source identity columns. Time partitioning uses
+only `_system_write_timestamp_ms`; extracting time from user fields remains
+intentionally forbidden until a persistent fenced state machine exists.
 
-Managed ClickHouse normally uses the native TLS port `9440`; `8443` is HTTPS,
-not the native protocol. For an explicit local TLS proxy, configure the sink to
-connect to the proxy and set `use_tls: false` only on that local hop.
+JSON objects are compact NDJSON compatible with the Confluent S3 JSON shape:
+one object per line, explicit nulls, and a final newline. System columns are
+projected out unless `keep_system_columns_in_sink: true`.

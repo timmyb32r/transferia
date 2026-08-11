@@ -41,6 +41,7 @@ pub mod Ydb {
     }
 }
 
+pub mod compatibility;
 pub mod config;
 pub mod metrics;
 pub mod middleware;

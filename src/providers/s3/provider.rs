@@ -27,18 +27,15 @@ impl S3SourceProvider {
         if cfg.prefix.is_empty() {
             anyhow::bail!("s3.prefix must not be empty");
         }
-        let parser_cfg: JsonParserConfig = serde_yaml::from_value(
-            cfg.parser.parser.raw()?.clone(),
-        )?;
-        if parser_cfg.chunk_splitter == ChunkSplitter::NoSplit {
+        let parser_cfg: JsonParserConfig =
+            serde_yaml::from_value(cfg.parser.parser.raw()?.clone())?;
+        if parser_cfg.chunk_splitter == ChunkSplitter::OneMessageOneRow {
             anyhow::bail!(
                 "s3: chunk_splitter 'no-split' is not supported for S3 \u{2014} use 'new-line'"
             );
         }
-        if cfg.parser.table_naming.kind != "from_config" {
-            anyhow::bail!(
-                "s3: table_naming.type must be 'from_config' (S3 has no topic path)"
-            );
+        if cfg.parser.common.table_naming.kind != "from_config" {
+            anyhow::bail!("s3: table_naming.type must be 'from_config' (S3 has no topic path)");
         }
         let cached_schema = parser_cfg.to_dataset_schema()?;
         Ok(Self { cfg, cached_schema })

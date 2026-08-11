@@ -9,6 +9,8 @@ publish = false
 anyhow = "1"
 arrow = "57"
 bytes = "1"
+chrono = "0.4"
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }
 clickhouse-arrow = "0.2"
 flate2 = "1"
