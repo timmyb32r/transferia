@@ -1,3 +1,4 @@
+use core::fmt;
 use std::time::Duration;
 
 use object_store::ObjectStore;
@@ -6,11 +7,21 @@ use serde::{Deserialize, Deserializer};
 
 const MIB: usize = 1024 * 1024;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct S3CredentialsConfig {
     pub access_key: String,
     pub secret_key: String,
+}
+
+impl fmt::Debug for S3CredentialsConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("S3CredentialsConfig")
+            .field("access_key", &"[REDACTED]")
+            .field("secret_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,7 +58,7 @@ pub enum PartitioningConfig {
     Fields {
         columns: Vec<String>,
     },
-    Time {
+    RecordTime {
         window: DurationValue,
         #[serde(default = "default_time_path")]
         path: String,
@@ -56,17 +67,6 @@ pub enum PartitioningConfig {
     },
 }
 
-///
-/// TODO: USER-FIELD TIMESTAMP EXTRACTION IS INTENTIONALLY FORBIDDEN.
-/// IT CAN BECOME EXACTLY-ONCE ONLY AFTER WE IMPLEMENT A PERSISTENT, FENCED
-/// STATE MACHINE THAT TRACKS EVERY OPEN/CLOSED TIME PARTITION AND PROVE ITS
-/// RECOVERY BEHAVIOUR WITH CRASH TESTS. DO NOT REMOVE OR WEAKEN THIS COMMENT
-/// UNTIL THAT EXACTLY-ONCE STATE MACHINE AND ITS RECOVERY TESTS EXIST.
-///
-#[expect(
-    clippy::too_long_first_doc_paragraph,
-    reason = "the deliberately prominent safety TODO must remain a single indivisible warning"
-)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RotationConfig {
@@ -95,12 +95,15 @@ pub enum PartitionChange {
 pub struct BufferingConfig {
     #[serde(default = "default_max_open_objects")]
     pub max_open_objects: usize,
-    #[serde(default = "default_max_pending_objects")]
-    pub max_pending_objects: usize,
+    #[serde(default = "default_max_pending_upload_objects")]
+    pub max_pending_upload_objects: usize,
     #[serde(default = "default_max_buffered_bytes")]
     pub max_buffered_bytes: ByteSize,
-    /// Stable, data-independent epoch boundary. When omitted, the boundary is
-    /// derived only from sink configuration, never from runtime memory state.
+    /// Stable limit for serialized payload plus retained routing metadata in
+    /// one epoch. Metadata is measured as its UTF-8 lengths plus a fixed
+    /// 128-byte logical overhead per row, independent of Rust's ABI. When
+    /// omitted, the limit is derived only from sink configuration, never from
+    /// runtime memory state.
     #[serde(default)]
     pub max_epoch_bytes: Option<ByteSize>,
 }
@@ -116,6 +119,9 @@ pub struct UploadConfig {
     pub parallel_parts: usize,
     #[serde(default = "default_max_in_flight_objects")]
     pub max_in_flight_objects: usize,
+    /// Deadline applied independently to each object-store request.
+    #[serde(default = "default_operation_timeout")]
+    pub operation_timeout: DurationValue,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -213,8 +219,8 @@ impl S3SinkConfig {
             "s3.buffering.max_open_objects must be positive"
         );
         anyhow::ensure!(
-            self.buffering.max_pending_objects > 0,
-            "s3.buffering.max_pending_objects must be positive"
+            self.buffering.max_pending_upload_objects > 0,
+            "s3.buffering.max_pending_upload_objects must be positive"
         );
         anyhow::ensure!(
             self.buffering.max_buffered_bytes.0 > 0,
@@ -248,6 +254,10 @@ impl S3SinkConfig {
             "s3.upload.max_in_flight_objects must be positive"
         );
         anyhow::ensure!(
+            self.upload.operation_timeout.0 > Duration::ZERO,
+            "s3.upload.operation_timeout must be positive"
+        );
+        anyhow::ensure!(
             self.retry.initial_backoff.0 > Duration::ZERO,
             "s3.retry.initial_backoff must be positive"
         );
@@ -271,7 +281,7 @@ impl S3SinkConfig {
                     "s3.partitioning.columns contains duplicates"
                 );
             }
-            PartitioningConfig::Time {
+            PartitioningConfig::RecordTime {
                 window,
                 path,
                 timezone,
@@ -330,7 +340,7 @@ impl Default for BufferingConfig {
     fn default() -> Self {
         Self {
             max_open_objects: default_max_open_objects(),
-            max_pending_objects: default_max_pending_objects(),
+            max_pending_upload_objects: default_max_pending_upload_objects(),
             max_buffered_bytes: default_max_buffered_bytes(),
             max_epoch_bytes: None,
         }
@@ -343,6 +353,7 @@ impl Default for UploadConfig {
             part_size: default_part_size(),
             parallel_parts: default_parallel_parts(),
             max_in_flight_objects: default_max_in_flight_objects(),
+            operation_timeout: default_operation_timeout(),
         }
     }
 }
@@ -374,7 +385,7 @@ const fn default_max_object_bytes() -> ByteSize {
 const fn default_max_open_objects() -> usize {
     128
 }
-const fn default_max_pending_objects() -> usize {
+const fn default_max_pending_upload_objects() -> usize {
     1024
 }
 const fn default_max_buffered_bytes() -> ByteSize {
@@ -394,6 +405,9 @@ const fn default_parallel_parts() -> usize {
 }
 const fn default_max_in_flight_objects() -> usize {
     4
+}
+const fn default_operation_timeout() -> DurationValue {
+    DurationValue(Duration::from_mins(1))
 }
 const fn default_initial_backoff() -> DurationValue {
     DurationValue(Duration::from_millis(200))
@@ -419,6 +433,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_operation_timeout() -> anyhow::Result<()> {
+        let config: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nupload: { operation_timeout: 0ms }\n")?;
+        let error = config.validate().expect_err("zero timeout must fail");
+        assert!(error.to_string().contains("operation_timeout"));
+        Ok(())
+    }
+
+    #[test]
+    fn credentials_are_redacted_from_debug_output() -> anyhow::Result<()> {
+        let config: S3SinkConfig = serde_yaml::from_str(
+            "bucket: test\ncredentials: { access_key: visible-key, secret_key: secret-value }\n",
+        )?;
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("visible-key"));
+        assert!(!debug.contains("secret-value"));
+        assert!(debug.contains("[REDACTED]"));
+        Ok(())
+    }
+
+    #[test]
     fn validates_explicit_epoch_boundary() -> anyhow::Result<()> {
         let config: S3SinkConfig = serde_yaml::from_str(
             "bucket: test\nbuffering: { max_buffered_bytes: 64MiB, max_epoch_bytes: 65MiB }\n",
@@ -431,14 +466,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_pending_objects_and_retry_attempts() -> anyhow::Result<()> {
+    fn rejects_zero_pending_upload_objects_and_retry_attempts() -> anyhow::Result<()> {
         let no_pending: S3SinkConfig =
-            serde_yaml::from_str("bucket: test\nbuffering: { max_pending_objects: 0 }\n")?;
+            serde_yaml::from_str("bucket: test\nbuffering: { max_pending_upload_objects: 0 }\n")?;
         assert!(no_pending
             .validate()
             .expect_err("zero pending objects must fail")
             .to_string()
-            .contains("max_pending_objects"));
+            .contains("max_pending_upload_objects"));
 
         let no_attempts: S3SinkConfig =
             serde_yaml::from_str("bucket: test\nretry: { max_attempts: 0 }\n")?;

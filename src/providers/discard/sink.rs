@@ -7,18 +7,18 @@ use crate::pipeline::sink::{Sink, SinkEvent, SinkIo};
 
 /// Benchmark-only sink which acknowledges every delivery after counting and
 /// dropping it. It deliberately provides no durability.
-pub struct EmptySink {
+pub struct DiscardSink {
     counters: Arc<SinkCounters>,
 }
 
-impl EmptySink {
+impl DiscardSink {
     #[must_use]
     pub const fn new(counters: Arc<SinkCounters>) -> Self {
         Self { counters }
     }
 }
 
-impl Sink for EmptySink {
+impl Sink for DiscardSink {
     fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
         Box::pin(async move {
             loop {
@@ -42,14 +42,14 @@ impl Sink for EmptySink {
                 self.counters.add_rows(rows);
                 self.counters.add_bytes(bytes);
                 self.counters
-                    .add_unique_offsets(delivery.meta.source_messages);
+                    .add_source_messages(delivery.meta.source_messages);
                 self.counters.add_flush();
                 let id = delivery.id;
                 drop(delivery);
                 tokio::select! {
                     () = io.cancellation.cancelled() => return Ok(()),
                     result = io.events.send(SinkEvent::CommittedThrough(id)) => {
-                        result.map_err(|_| anyhow::anyhow!("empty sink event channel closed"))?;
+                        result.map_err(|_| anyhow::anyhow!("discard sink event channel closed"))?;
                     }
                 }
             }
@@ -68,7 +68,7 @@ mod tests {
     #[tokio::test]
     async fn acknowledges_marker_only_delivery() -> anyhow::Result<()> {
         let counters = Arc::new(SinkCounters::new());
-        let sink = Box::new(EmptySink::new(Arc::clone(&counters)));
+        let sink = Box::new(DiscardSink::new(Arc::clone(&counters)));
         let (delivery_tx, delivery_rx) = mpsc::channel(1);
         let (event_tx, mut event_rx) = mpsc::channel(1);
         let cancellation = CancellationToken::new();

@@ -1,7 +1,5 @@
 extern crate alloc;
 
-use core::sync::atomic::AtomicU64;
-
 // Named `Ydb` (not `ydb`) to mirror the proto package `Ydb` and its generated paths.
 #[expect(non_snake_case)]
 pub mod Ydb {
@@ -17,18 +15,9 @@ pub mod Ydb {
         pub mod v1 {
             include!(concat!(env!("OUT_DIR"), "/ydb.pers_queue.v1.rs"));
         }
-        pub mod cluster_discovery {
-            include!(concat!(
-                env!("OUT_DIR"),
-                "/ydb.pers_queue.cluster_discovery.rs"
-            ));
-        }
     }
     pub mod discovery {
         include!(concat!(env!("OUT_DIR"), "/ydb.discovery.rs"));
-        pub mod v1 {
-            include!(concat!(env!("OUT_DIR"), "/ydb.discovery.v1.rs"));
-        }
     }
     pub mod operations {
         include!(concat!(env!("OUT_DIR"), "/ydb.operations.rs"));
@@ -46,14 +35,7 @@ pub mod config;
 pub mod metrics;
 pub mod middleware;
 pub mod parsers;
-pub mod partition;
 pub mod pipeline;
 pub mod providers;
 pub mod serializer;
 pub mod types;
-
-static BATCH_ID: AtomicU64 = AtomicU64::new(1);
-
-pub(crate) fn batch_id() -> u64 {
-    BATCH_ID.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
-}

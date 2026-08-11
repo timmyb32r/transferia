@@ -1,26 +1,22 @@
-# JSON Serializer (NDJSON)
+# S3 JSON encoding (NDJSON)
 
-## Компоненты и связи
+The active S3 sink uses `JsonBatchEncoder` to write Arrow rows directly into
+newline-delimited JSON object buffers. The encoder is independent from the JSON
+parser: it only implements the Arrow-to-bytes direction needed by S3.
 
-`JsonSerializer` реализует trait `Serializer` и конвертирует Arrow RecordBatches в NDJSON (JSON Lines). Одна строка = один JSON-объект `{"column_name": "column_value", ...}`. Используется S3-приемником и YDS-приемником как общий формат вывода. Снапшоты S3-приемника можно вычитать обратно через S3-источник без изменений (roundtrip-тест подтверждает).
+## Contract
 
-## Ключевые решения
+- Every Arrow row produces one compact JSON object followed by `\n`.
+- NULL columns are emitted explicitly as `"column":null`.
+- `NaN`, positive infinity, and negative infinity are emitted as JSON `null`.
+- An empty batch produces no bytes.
+- Strings escape quotes, backslashes, newlines, carriage returns, tabs, and all
+  JSON control characters.
+- Date and timestamp arrays are encoded as their integer Arrow representation.
+- Unsupported Arrow types are rejected before any row is written.
 
-- **Трейт Serializer отдельно от Parser** — потому что это разные направления (Arrow → bytes vs bytes → Arrow), и не все приемники используют JSON (будущие: Parquet, Avro).
-- **Null-колонки пропускаются в выводе** — потому что JSON-парсер при чтении воспринимает отсутствующие поля как null, так что это корректный roundtrip.
-- **itoa/ryu для форматирования чисел** — оба были транзитивными зависимостями; дают ~2x ускорение по сравнению с write!.
-- **Ручная JSON-сериализация вместо serde_json** — потому что мы знаем схему Arrow и можем писать напрямую в буфер без промежуточных Value-объектов.
+`JsonBatchEncoder` accepts a column projection callback so the S3 sink can omit
+internal system columns without coupling the encoder to parser configuration.
 
-## Трейдоффы
-
-| Решение | Выигрыш | Проигрыш |
-|---------|---------|----------|
-| Ручная сериализация | Быстрее serde_json в ~3x | Больше кода |
-| Пропуск null-колонок | Меньше размер JSON | Нестандартно (но совместимо с парсером) |
-| Общий Serializer для S3 и YDS | Один раз сделан, юзается везде | Не все форматы имеют смысл для обоих (напр. Parquet — только S3) |
-
-## Corner cases
-
-- **Float NaN/Infinity**: JSON не поддерживает — пишется как `null`.
-- **Пустой батч**: serialize_batch возвращает `\n` (пустая NDJSON-строка корректна).
-- **Escape-символы в строках**: `"`, `\`, `\n`, `\r`, `\t`, control characters экранируются.
+Performance claims belong in reproducible benchmarks; this document intentionally
+does not attach unmeasured speedup factors to the manual encoder.

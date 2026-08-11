@@ -19,18 +19,17 @@ use futures_util::Stream;
 use crate::metrics::SourceCounters;
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 use crate::pipeline::PipelineFailure;
-use crate::providers::yds::config::YdsSourceConfig;
+use http::Uri;
 use hyper::client::conn::http2;
 use tokio::sync::{mpsc, watch, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
-use tonic::transport::Uri;
 use tonic::Request;
 
 /// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
 /// Always `/Root` in our deployment — hardcoded rather than configured.
 const YDB_DATABASE: &str = "/Root";
-use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::SourcePartition;
 use crate::types::message::{Message, MessageBatch, MessageMeta};
 use crate::Ydb::pers_queue::v1::{
@@ -38,6 +37,7 @@ use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
     MigrationStreamingReadServerMessage, ReadParams,
 };
+use crate::Ydb::status_ids::StatusCode;
 
 /// `Ydb.StatusIds.SUCCESS`. Status codes live in the reserved range [400000, 400999];
 /// SUCCESS is 400000 (NOT 0 — 0 is `STATUS_CODE_UNSPECIFIED`, sent on streaming data msgs).
@@ -57,14 +57,14 @@ const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = MAX_MESSAGE_SIZE;
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = MAX_MESSAGE_SIZE;
 const MAX_ZSTD_WINDOW_LOG: u32 = 27; // log2(128 MiB)
 const SESSION_INIT_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
-const DISCOVERY_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
 const COMMIT_ACK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
+const RELEASE_HANDOFF_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(1);
+const RELEASE_TRANSPORT_GRACE: core::time::Duration = core::time::Duration::from_millis(100);
 /// Capacity of the decompressed-batch channel (bg task → merge task). Bounded
 /// so that if decompress ever falls behind download, memory is capped; with
 /// parallel decompress keeping up, it stays near-empty.
 const DECODED_CHANNEL_CAP: usize = 128;
 const PARTITION_CHANNEL_CAP: usize = 1024;
-const DECOMPRESS_CONCURRENCY: usize = 4;
 const MAX_PARTS_PER_SOURCE_BATCH: usize = 128;
 
 // ---------------------------------------------------------------------------
@@ -93,20 +93,26 @@ impl tower::Service<http::Request<tonic::body::Body>> for H2Service {
 
 /// Establish an HTTP/2 prior-knowledge connection (sends the HTTP/2 preface directly,
 /// like grpc-go — no HTTP/1.1 upgrade).
-async fn connect_http2_prior_knowledge(uri: &Uri) -> anyhow::Result<H2Service> {
+async fn connect_http2_prior_knowledge(
+    uri: &Uri,
+    timeout: core::time::Duration,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<H2Service> {
     let host = uri.host().unwrap_or("localhost");
     let port = uri.port_u16().unwrap_or(2135);
     let addr = format!("{host}:{port}");
 
-    let stream = tokio::net::TcpStream::connect(&addr)
-        .await
-        .map_err(|e| anyhow!("TCP connect to {addr}: {e}"))?;
-    stream.set_nodelay(true)?;
-
-    let io = hyper_util::rt::TokioIo::new(stream);
-    let (send_request, conn) = http2::handshake(hyper_util::rt::TokioExecutor::new(), io)
-        .await
-        .map_err(|e| anyhow!("HTTP/2 handshake failed: {e}"))?;
+    let (send_request, conn) = network_stage("HTTP/2 connection", timeout, cancellation, async {
+        let stream = tokio::net::TcpStream::connect(&addr)
+            .await
+            .map_err(|e| anyhow!("TCP connect to {addr}: {e}"))?;
+        stream.set_nodelay(true)?;
+        let io = hyper_util::rt::TokioIo::new(stream);
+        http2::handshake(hyper_util::rt::TokioExecutor::new(), io)
+            .await
+            .map_err(|e| anyhow!("HTTP/2 handshake failed: {e}"))
+    })
+    .await?;
     tokio::spawn(async move {
         if let Err(e) = conn.await {
             tracing::error!("HTTP/2 connection error: {}", e);
@@ -119,41 +125,44 @@ async fn connect_http2_prior_knowledge(uri: &Uri) -> anyhow::Result<H2Service> {
     })
 }
 
-/// Attach the YDB auth/routing headers that Logbroker expects on every call.
-fn set_ydb_headers(md: &mut MetadataMap, token: &str) {
-    if let Ok(v) = AsciiMetadataValue::try_from(token) {
-        md.insert("x-ydb-auth-ticket", v);
+async fn network_stage<T>(
+    name: &str,
+    timeout: core::time::Duration,
+    cancellation: &CancellationToken,
+    operation: impl core::future::Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
+    tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("{name} cancelled"),
+        result = tokio::time::timeout(timeout, operation) => {
+            result.map_err(|_| anyhow!("{name} timed out after {} ms", timeout.as_millis()))?
+        }
     }
+}
+
+/// Attach the YDB auth/routing headers that Logbroker expects on every call.
+fn auth_metadata_value(token: &str) -> anyhow::Result<AsciiMetadataValue> {
+    anyhow::ensure!(!token.is_empty(), "PQv1 access token must not be empty");
+    AsciiMetadataValue::try_from(token)
+        .map_err(|_| anyhow!("PQv1 access token is not valid ASCII metadata"))
+}
+
+fn set_ydb_headers(md: &mut MetadataMap, token: &str) -> anyhow::Result<()> {
+    md.insert("x-ydb-auth-ticket", auth_metadata_value(token)?);
     md.insert(
         "x-ydb-database",
         AsciiMetadataValue::from_static(YDB_DATABASE),
     );
-    md.insert(
-        "x-ydb-sdk-build-info",
-        AsciiMetadataValue::from_static("go-sdk-2021.04.1"),
-    );
-    md.insert(
-        "user-agent",
-        AsciiMetadataValue::from_static("grpc-go/1.80.0"),
-    );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-#[must_use]
-pub const fn group_to_partition(group: i64) -> i64 {
-    group
-}
-#[must_use]
-pub const fn partition_to_group(partition: i64) -> i64 {
-    partition
-}
-
-/// Parse a connection string into `(scheme, host, database)`. `database` is derived from
-/// the path/query for compatibility but is not authoritative — the cluster DB is `YDB_DATABASE`.
-pub fn parse_endpoint(conn_str: &str) -> anyhow::Result<(String, String, String)> {
+/// Parse a plaintext `PQv1` connection string into its authority. This client currently
+/// targets the fixed [`YDB_DATABASE`], so accepting a database path would be misleading.
+pub fn parse_endpoint(conn_str: &str) -> anyhow::Result<String> {
     let uri: Uri = conn_str
         .parse()
         .map_err(|e| anyhow!("Invalid connection string '{conn_str}': {e}"))?;
@@ -162,22 +171,18 @@ pub fn parse_endpoint(conn_str: &str) -> anyhow::Result<(String, String, String)
         scheme == "grpc",
         "PQv1 scheme '{scheme}' is not supported: the custom transport requires grpc:// and uses a raw HTTP/2 TCP stream without TLS"
     );
+    anyhow::ensure!(
+        (uri.path().is_empty() || uri.path() == "/") && uri.query().is_none(),
+        "PQv1 connection string must not contain a database path or query; the database is fixed to {YDB_DATABASE}"
+    );
     let host = uri
         .authority()
         .map_or("localhost:2135", |a| a.as_str())
         .to_string();
-    let database = {
-        let path = uri.path().trim_start_matches('/').to_string();
-        if path.is_empty() {
-            YDB_DATABASE.to_string()
-        } else {
-            format!("/{path}")
-        }
-    };
-    Ok((scheme, host, database))
+    Ok(host)
 }
 
-fn http_uri(_scheme: &str, host: &str) -> anyhow::Result<Uri> {
+fn http_uri(host: &str) -> anyhow::Result<Uri> {
     format!("http://{host}")
         .parse()
         .map_err(|e| anyhow!("bad uri http://{host}: {e}"))
@@ -297,7 +302,7 @@ fn validate_data_partition(
 /// One decompressed message within a partition part.
 pub struct DecodedMessage {
     pub data: Bytes,
-    /// Offset within the `PQv1` partition (for exactly-once dedup).
+    /// Stable source offset within the `PQv1` partition.
     pub offset: u64,
     pub write_timestamp_ms: u64,
 }
@@ -333,7 +338,6 @@ pub struct DecodedPart {
 
 pub enum PartitionEvent {
     Data(DecodedPart),
-    Failed(String),
 }
 
 /// A decompressed `DataBatch`, re-ordered by `seq` before dispatch.
@@ -349,6 +353,7 @@ enum TerminalFailureKind {
     Fatal,
 }
 
+#[derive(Debug)]
 struct SessionFailure {
     error: anyhow::Error,
     kind: TerminalFailureKind,
@@ -385,12 +390,25 @@ struct TerminalFailure {
 
 struct RequestStream {
     rx: mpsc::UnboundedReceiver<MigrationStreamingReadClientMessage>,
+    release_handed_off: Arc<Notify>,
 }
 
 impl Stream for RequestStream {
     type Item = MigrationStreamingReadClientMessage;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.rx.poll_recv(cx)
+        let item = self.rx.poll_recv(cx);
+        if matches!(
+            &item,
+            Poll::Ready(Some(MigrationStreamingReadClientMessage {
+                request: Some(migration_streaming_read_client_message::Request::Released(
+                    _
+                )),
+                ..
+            }))
+        ) {
+            self.release_handed_off.notify_one();
+        }
+        item
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.rx.len(), None)
@@ -408,19 +426,89 @@ const fn read_request() -> MigrationStreamingReadClientMessage {
     }
 }
 
-fn validate_server_message(message: &MigrationStreamingReadServerMessage) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        message.status == YDB_STATUS_UNSPECIFIED || message.status == YDB_STATUS_SUCCESS,
-        "PQv1 status: {}, issues: {:?}",
-        message.status,
-        message.issues
-    );
-    anyhow::ensure!(
-        message.issues.is_empty(),
-        "PQv1 returned issues with a successful status: {:?}",
-        message.issues
-    );
+fn status_failure_kind(status: i32) -> TerminalFailureKind {
+    use StatusCode::{
+        Aborted, BadRequest, BadSession, Cancelled, ExternalError, GenericError, InternalError,
+        Overloaded, SessionBusy, SessionExpired, Timeout, Unauthorized, Unavailable, Undetermined,
+    };
+
+    match StatusCode::try_from(status) {
+        Ok(
+            InternalError | Aborted | Unavailable | Overloaded | GenericError | Timeout
+            | BadSession | SessionExpired | Cancelled | Undetermined | SessionBusy | ExternalError,
+        ) => TerminalFailureKind::Retryable,
+        Ok(
+            StatusCode::Unspecified
+            | StatusCode::Success
+            | BadRequest
+            | Unauthorized
+            | StatusCode::SchemeError
+            | StatusCode::PreconditionFailed
+            | StatusCode::AlreadyExists
+            | StatusCode::NotFound
+            | StatusCode::Unsupported,
+        )
+        | Err(_) => TerminalFailureKind::Fatal,
+    }
+}
+
+fn validate_server_message(
+    message: &MigrationStreamingReadServerMessage,
+) -> Result<(), SessionFailure> {
+    if message.status != YDB_STATUS_UNSPECIFIED && message.status != YDB_STATUS_SUCCESS {
+        let status_name =
+            StatusCode::try_from(message.status).map_or("UNKNOWN", |status| status.as_str_name());
+        return Err(SessionFailure {
+            error: anyhow!(
+                "PQv1 status: {} ({status_name}), issues: {:?}",
+                message.status,
+                message.issues
+            ),
+            kind: status_failure_kind(message.status),
+        });
+    }
+    if !message.issues.is_empty() {
+        return Err(SessionFailure::fatal(anyhow!(
+            "PQv1 returned issues with a successful status: {:?}",
+            message.issues
+        )));
+    }
+    if message.response.is_none() {
+        return Err(SessionFailure::fatal(anyhow!(
+            "PQv1 protocol violation: server message is missing response"
+        )));
+    }
     Ok(())
+}
+
+fn record_init_response(init_done: &mut bool) -> Result<(), SessionFailure> {
+    if *init_done {
+        return Err(SessionFailure::fatal(anyhow!(
+            "PQv1 protocol violation: duplicate InitResponse"
+        )));
+    }
+    *init_done = true;
+    Ok(())
+}
+
+fn validate_response_phase(
+    init_done: &mut bool,
+    response: &migration_streaming_read_server_message::Response,
+) -> Result<(), SessionFailure> {
+    match response {
+        migration_streaming_read_server_message::Response::InitResponse(_) => {
+            record_init_response(init_done)
+        }
+        _ if !*init_done => Err(SessionFailure::fatal(anyhow!(
+            "PQv1 protocol violation: non-init response received before InitResponse"
+        ))),
+        migration_streaming_read_server_message::Response::PartitionStatus(_) => {
+            Err(SessionFailure::fatal(anyhow!(
+                "PQv1 protocol violation: unsolicited PartitionStatus"
+            )))
+        }
+        _ => Ok(()),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -550,20 +638,59 @@ fn remove_pending_commit(
 }
 
 fn broadcast_failure(inner: &PqV1ClientInner, error: &anyhow::Error, kind: TerminalFailureKind) {
-    inner
-        .terminal_failure
-        .send_replace(Some(Arc::new(TerminalFailure {
-            message: Arc::from(error.to_string()),
-            kind,
-        })));
+    let replacement = Arc::new(TerminalFailure {
+        message: Arc::from(error.to_string()),
+        kind,
+    });
+    inner.terminal_failure.send_if_modified(|current| {
+        if current
+            .as_ref()
+            .is_some_and(|failure| failure.kind == TerminalFailureKind::Fatal)
+        {
+            return false;
+        }
+        *current = Some(replacement);
+        true
+    });
     inner.session_token.cancel();
 }
 
-fn surface_terminal_failure(failure: &TerminalFailure) -> anyhow::Result<ReadResult> {
+fn spawn_session_task<F>(inner: Arc<PqV1ClientInner>, task_name: &'static str, task: F)
+where
+    F: core::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let result = tokio::spawn(task).await;
+        if inner.session_token.is_cancelled() {
+            return;
+        }
+        let error = match result {
+            Ok(()) => anyhow!("PQv1 {task_name} task exited unexpectedly"),
+            Err(error) => anyhow!("PQv1 {task_name} task failed: {error}"),
+        };
+        tracing::error!("{error}");
+        broadcast_failure(&inner, &error, TerminalFailureKind::Retryable);
+    });
+}
+
+async fn reserve_decoded_slot(
+    sender: &mpsc::Sender<DecodedBatch>,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<mpsc::OwnedPermit<DecodedBatch>> {
+    tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("PQv1 session cancelled"),
+        permit = sender.clone().reserve_owned() => {
+            permit.map_err(|_| anyhow!("PQv1 decoded-batch queue closed"))
+        }
+    }
+}
+
+fn surface_terminal_failure(failure: &TerminalFailure) -> anyhow::Result<MessageBatch> {
     let error = anyhow!(failure.message.to_string());
     match failure.kind {
         TerminalFailureKind::Retryable => Err(error),
-        TerminalFailureKind::Fatal => Ok(ReadResult::Failed(error)),
+        TerminalFailureKind::Fatal => Err(PipelineFailure::fatal(error).into()),
     }
 }
 
@@ -583,34 +710,42 @@ fn commit_session_stopped_error(inner: &PqV1ClientInner, partition_id: i64) -> a
 
 /// Discover a proxy endpoint via `ListEndpoints` over HTTP/2 prior knowledge.
 /// The gRPC response type is `GetOperationResponse` (matching Go's `conn.Invoke`).
-async fn discover_proxy(main_uri: &Uri, token: &str) -> anyhow::Result<String> {
+async fn discover_proxy(
+    main_uri: &Uri,
+    token: &str,
+    timeout: core::time::Duration,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<String> {
     use crate::Ydb::discovery::{ListEndpointsRequest, ListEndpointsResult};
     use crate::Ydb::operations::GetOperationResponse;
     use prost::Message as _;
 
-    let h2 = connect_http2_prior_knowledge(main_uri).await?;
+    let h2 = connect_http2_prior_knowledge(main_uri, timeout, cancellation).await?;
     let mut grpc = tonic::client::Grpc::<H2Service>::with_origin(h2, main_uri.clone());
 
     let mut req = Request::new(ListEndpointsRequest {
         database: YDB_DATABASE.to_string(),
         service: vec![],
     });
-    set_ydb_headers(req.metadata_mut(), token);
+    set_ydb_headers(req.metadata_mut(), token)?;
 
-    grpc.ready()
-        .await
-        .map_err(|e| anyhow!("ListEndpoints ready: {e}"))?;
     let path =
         http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/ListEndpoints");
-    let resp: GetOperationResponse = grpc
-        .unary(
-            req,
-            path,
-            tonic_prost::ProstCodec::<ListEndpointsRequest, GetOperationResponse>::default(),
-        )
-        .await
-        .map_err(|e| anyhow!("ListEndpoints failed: {e}"))?
-        .into_inner();
+    let resp: GetOperationResponse =
+        network_stage("PQv1 proxy discovery", timeout, cancellation, async {
+            grpc.ready()
+                .await
+                .map_err(|e| anyhow!("ListEndpoints ready: {e}"))?;
+            grpc.unary(
+                req,
+                path,
+                tonic_prost::ProstCodec::<ListEndpointsRequest, GetOperationResponse>::default(),
+            )
+            .await
+            .map(tonic::Response::into_inner)
+            .map_err(|e| anyhow!("ListEndpoints failed: {e}"))
+        })
+        .await?;
 
     let op = resp.operation.ok_or_else(|| anyhow!("no operation"))?;
     if !op.ready {
@@ -629,29 +764,39 @@ async fn discover_proxy(main_uri: &Uri, token: &str) -> anyhow::Result<String> {
 }
 
 impl PqV1Client {
-    pub async fn connect(
+    pub async fn resolve_proxy(
         endpoint: &str,
+        token: &str,
+        network_timeout: core::time::Duration,
+        cancellation: &CancellationToken,
+    ) -> anyhow::Result<String> {
+        auth_metadata_value(token)?;
+        let main_host = parse_endpoint(endpoint)?;
+        let main_uri = http_uri(&main_host)?;
+        match discover_proxy(&main_uri, token, network_timeout, cancellation).await {
+            Ok(proxy) => Ok(proxy),
+            Err(error) => {
+                tracing::warn!("Proxy discovery failed: {error}. Using main endpoint.");
+                Ok(main_host)
+            }
+        }
+    }
+
+    pub async fn connect(
+        proxy: &str,
         topic_path: &str,
         consumer: &str,
         token: &str,
         partition_group_ids: &[i64],
         source_counters: Arc<SourceCounters>,
         cancel_token: CancellationToken,
-        drop_before_decompress: bool,
+        benchmark_discard_before_decompression: bool,
         memory: PipelineMemory,
+        network_timeout: core::time::Duration,
+        decompress_slots: Arc<tokio::sync::Semaphore>,
     ) -> anyhow::Result<(Self, HashMap<i64, mpsc::Receiver<PartitionEvent>>)> {
-        let (scheme, main_host, _) = parse_endpoint(endpoint)?;
-        let main_uri = http_uri(&scheme, &main_host)?;
-
-        // Step 1: discover the proxy that actually serves the topic.
-        let proxy = match discover_proxy(&main_uri, token).await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("Proxy discovery failed: {}. Using main endpoint.", e);
-                main_host
-            }
-        };
-        let target_uri = http_uri(&scheme, &proxy)?;
+        auth_metadata_value(token)?;
+        let target_uri = http_uri(proxy)?;
         tracing::info!(
             "PQv1 connecting: proxy={} topic={} consumer={}",
             proxy,
@@ -660,7 +805,8 @@ impl PqV1Client {
         );
 
         // Step 2: open the bidi stream on the proxy.
-        let h2_service = connect_http2_prior_knowledge(&target_uri).await?;
+        let h2_service =
+            connect_http2_prior_knowledge(&target_uri, network_timeout, &cancel_token).await?;
 
         let (request_tx, request_rx) = mpsc::unbounded_channel();
         request_tx.send(MigrationStreamingReadClientMessage {
@@ -674,15 +820,16 @@ impl PqV1Client {
             token: token.as_bytes().to_vec(),
         })?;
 
-        let mut req = Request::new(RequestStream { rx: request_rx });
-        set_ydb_headers(req.metadata_mut(), token);
+        let release_handed_off = Arc::new(Notify::new());
+        let mut req = Request::new(RequestStream {
+            rx: request_rx,
+            release_handed_off: Arc::clone(&release_handed_off),
+        });
+        set_ydb_headers(req.metadata_mut(), token)?;
 
         let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
             .max_decoding_message_size(MAX_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_MESSAGE_SIZE);
-        grpc.ready()
-            .await
-            .map_err(|e| anyhow!("grpc not ready: {e}"))?;
         let path = http::uri::PathAndQuery::from_static(
             "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
         );
@@ -690,17 +837,24 @@ impl PqV1Client {
             MigrationStreamingReadClientMessage,
             MigrationStreamingReadServerMessage,
         >::default();
-        let response_stream = grpc
-            .streaming(req, path, codec)
-            .await
-            .map_err(|e| anyhow!("MigrationStreamingRead failed: {e}"))?
-            .into_inner();
+        let response_stream = network_stage(
+            "PQv1 migration stream open",
+            network_timeout,
+            &cancel_token,
+            async {
+                grpc.ready()
+                    .await
+                    .map_err(|e| anyhow!("grpc not ready: {e}"))?;
+                grpc.streaming(req, path, codec)
+                    .await
+                    .map(tonic::Response::into_inner)
+                    .map_err(|e| anyhow!("MigrationStreamingRead failed: {e}"))
+            },
+        )
+        .await?;
 
         // Per-partition queues for the partitions we own.
-        let assigned: HashSet<i64> = partition_group_ids
-            .iter()
-            .map(|&g| group_to_partition(g))
-            .collect();
+        let assigned: HashSet<i64> = partition_group_ids.iter().copied().collect();
         let mut pqs = HashMap::with_capacity(assigned.len());
         let mut prs = HashMap::with_capacity(assigned.len());
         #[expect(
@@ -726,14 +880,12 @@ impl PqV1Client {
         // Pipelined decompress: the read loop hands each DataBatch to a blocking
         // task for decompression and immediately sends the next Read, so
         // `decompress()` never blocks the download. A merge task re-orders the
-        // decompressed batches by `seq` to restore per-partition offset order
-        // (the exactly-once waterline assumes offsets arrive in order per
-        // partition).
+        // decompressed batches by `seq` to preserve server order and make
+        // contiguous commit-cookie acknowledgement possible.
         let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedBatch>(DECODED_CHANNEL_CAP);
-        let decompress_slots = Arc::new(tokio::sync::Semaphore::new(DECOMPRESS_CONCURRENCY));
         let merge_inner = Arc::clone(&inner);
         let merge_token = session_token.clone();
-        tokio::spawn(async move {
+        spawn_session_task(Arc::clone(&inner), "merge", async move {
             let mut next_seq: u64 = 0;
             let mut buffer: HashMap<u64, DecodedBatch> = HashMap::new();
             let mut rx = decoded_rx;
@@ -774,7 +926,7 @@ impl PqV1Client {
 
         let stream_inner = Arc::clone(&inner);
         let stream_token = session_token;
-        tokio::spawn(async move {
+        spawn_session_task(Arc::clone(&inner), "response stream", async move {
             let mut stream = response_stream;
             let mut init_done = false;
             let init_deadline = tokio::time::Instant::now() + SESSION_INIT_TIMEOUT;
@@ -816,13 +968,22 @@ impl PqV1Client {
                 // Downloader busy = time a Read request is in-flight (awaiting
                 // the next server message). idle = the processing below.
                 source_counters.add_download_busy(await_start.elapsed());
-                if let Err(error) = validate_server_message(&msg) {
-                    terminal_error = Some(SessionFailure::fatal(error));
+                if let Err(failure) = validate_server_message(&msg) {
+                    terminal_error = Some(failure);
+                    break;
+                }
+                let Some(response) = msg.response.as_ref() else {
+                    terminal_error = Some(SessionFailure::fatal(anyhow!(
+                        "PQv1 protocol violation: server message is missing response"
+                    )));
+                    break;
+                };
+                if let Err(failure) = validate_response_phase(&mut init_done, response) {
+                    terminal_error = Some(failure);
                     break;
                 }
                 match msg.response {
                     Some(migration_streaming_read_server_message::Response::InitResponse(r)) => {
-                        init_done = true;
                         tracing::info!("PQv1 session: {}", r.session_id);
                         if request_tx.send(read_request()).is_err() {
                             terminal_error = Some(SessionFailure::retryable(anyhow!(
@@ -869,10 +1030,12 @@ impl PqV1Client {
                     }
                     Some(migration_streaming_read_server_message::Response::DataBatch(db)) => {
                         let seq = seq_counter;
-                        if drop_before_decompress {
+                        if benchmark_discard_before_decompression {
                             // Bench: discard payload before decompression, but retain
                             // commit cookies so the benchmark consumer still advances.
                             let mut discarded = Vec::with_capacity(db.partition_data.len());
+                            let mut compressed_bytes = 0_u64;
+                            let mut message_count = 0_u64;
                             for pd in db.partition_data {
                                 let (pid, cookie) = match validate_data_partition(
                                     pd.partition,
@@ -888,8 +1051,9 @@ impl PqV1Client {
                                 };
                                 for batch in pd.batches {
                                     for md in batch.message_data {
-                                        source_counters.add_compressed_bytes(md.data.len() as u64);
-                                        source_counters.add_messages(1);
+                                        compressed_bytes =
+                                            compressed_bytes.saturating_add(md.data.len() as u64);
+                                        message_count = message_count.saturating_add(1);
                                     }
                                 }
                                 let reservation = tokio::select! {
@@ -906,17 +1070,22 @@ impl PqV1Client {
                             if terminal_error.is_some() {
                                 break;
                             }
+                            source_counters.add_compressed_bytes(compressed_bytes);
+                            source_counters.add_messages(message_count);
+                            let decoded_slot =
+                                match reserve_decoded_slot(&decoded_tx, &stream_token).await {
+                                    Ok(slot) => slot,
+                                    Err(error) => {
+                                        terminal_error = Some(SessionFailure::retryable(error));
+                                        break;
+                                    }
+                                };
                             let batch = DecodedBatch {
                                 seq,
                                 parts: Ok(discarded),
                                 failure_kind: TerminalFailureKind::Fatal,
                             };
-                            if let Err(error) = decoded_tx.try_send(batch) {
-                                terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                    "PQv1 discarded-batch queue is unavailable: {error}"
-                                )));
-                                break;
-                            }
+                            decoded_slot.send(batch);
                             seq_counter += 1;
                             if request_tx.send(read_request()).is_err() {
                                 terminal_error = Some(SessionFailure::retryable(anyhow!(
@@ -927,6 +1096,8 @@ impl PqV1Client {
                             continue;
                         }
                         let mut parts: Vec<RawPart> = Vec::with_capacity(db.partition_data.len());
+                        let mut compressed_bytes = 0_u64;
+                        let mut message_count = 0_u64;
                         for pd in db.partition_data {
                             let (pid, cookie) = match validate_data_partition(
                                 pd.partition,
@@ -944,8 +1115,9 @@ impl PqV1Client {
                             for batch in pd.batches {
                                 let write_timestamp_ms = batch.write_timestamp_ms;
                                 for md in batch.message_data {
-                                    source_counters.add_compressed_bytes(md.data.len() as u64);
-                                    source_counters.add_messages(1);
+                                    compressed_bytes =
+                                        compressed_bytes.saturating_add(md.data.len() as u64);
+                                    message_count = message_count.saturating_add(1);
                                     msgs.push(RawMsg {
                                         data: md.data,
                                         codec: md.codec,
@@ -964,6 +1136,8 @@ impl PqV1Client {
                         if terminal_error.is_some() {
                             break;
                         }
+                        source_counters.add_compressed_bytes(compressed_bytes);
+                        source_counters.add_messages(message_count);
                         if parts.is_empty() {
                             if request_tx.send(read_request()).is_err() {
                                 terminal_error = Some(SessionFailure::retryable(anyhow!(
@@ -973,6 +1147,14 @@ impl PqV1Client {
                             }
                             continue;
                         }
+                        let decoded_slot =
+                            match reserve_decoded_slot(&decoded_tx, &stream_token).await {
+                                Ok(slot) => slot,
+                                Err(error) => {
+                                    terminal_error = Some(SessionFailure::retryable(error));
+                                    break;
+                                }
+                            };
                         let peak_bytes = match peak_decode_bytes(&parts) {
                             Ok(bytes) => bytes,
                             Err(error) => {
@@ -997,7 +1179,6 @@ impl PqV1Client {
                             () = stream_token.cancelled() => break,
                         };
                         let sc = Arc::clone(&source_counters);
-                        let decoded_tx_w = decoded_tx.clone();
                         seq_counter += 1;
                         let decode_task = tokio::task::spawn_blocking(move || {
                             let _slot = slot;
@@ -1016,13 +1197,11 @@ impl PqV1Client {
                             // Always send the sequence result. An error must advance
                             // through the reorder point before it terminates the
                             // partition streams, otherwise a later batch could pass it.
-                            let _send = decoded_tx_w
-                                .send(DecodedBatch {
-                                    seq,
-                                    parts,
-                                    failure_kind,
-                                })
-                                .await;
+                            decoded_slot.send(DecodedBatch {
+                                seq,
+                                parts,
+                                failure_kind,
+                            });
                         });
                         if request_tx.send(read_request()).is_err() {
                             terminal_error = Some(SessionFailure::retryable(anyhow!(
@@ -1059,6 +1238,22 @@ impl PqV1Client {
                             )));
                             break;
                         }
+                        if tokio::time::timeout(
+                            RELEASE_HANDOFF_TIMEOUT.min(network_timeout),
+                            release_handed_off.notified(),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            terminal_error = Some(SessionFailure::retryable(anyhow!(
+                                "PQv1 Released request was not consumed by the transport"
+                            )));
+                            break;
+                        }
+                        // `Released` has no protocol acknowledgement. Keep the bidi
+                        // stream alive briefly after tonic consumes the body item so
+                        // dropping the response task cannot immediately race its H2 send.
+                        tokio::time::sleep(RELEASE_TRANSPORT_GRACE).await;
                         // A graceful release can race with data already queued for the
                         // pipeline. Restarting the source after acknowledging the release
                         // preserves at-least-once delivery instead of committing against a
@@ -1067,7 +1262,12 @@ impl PqV1Client {
                         break;
                     }
                     Some(migration_streaming_read_server_message::Response::PartitionStatus(_))
-                    | None => {}
+                    | None => {
+                        terminal_error = Some(SessionFailure::fatal(anyhow!(
+                            "PQv1 protocol response escaped validation"
+                        )));
+                        break;
+                    }
                 }
             }
             if let Some(failure) = terminal_error {
@@ -1078,186 +1278,6 @@ impl PqV1Client {
         });
 
         Ok((Self { inner }, prs))
-    }
-
-    /// `PQv1` (Logbroker) does not expose a `DescribeTopic` gRPC method.
-    ///
-    /// This always returns `Err` with guidance to configure `partition_ids` in the
-    /// source config. The caller in `main` treats this as a signal to try the static
-    /// `partition_ids` fallback path.
-    pub fn describe_topic(_endpoint: &str, _topic_path: &str, _token: &str) -> anyhow::Result<i32> {
-        Err(anyhow::anyhow!(
-            "PQv1 DescribeTopic is not supported; configure partition_ids in source config"
-        ))
-    }
-
-    /// Discover available partition IDs by doing a short-lived handshake with the
-    /// `PQv1` proxy. Opens a bidi stream, sends `InitRequest`, collects partition IDs
-    /// from `Assigned` server messages, then closes the connection.
-    ///
-    /// Used when `partition_ids` is omitted from the source config — the caller gets
-    /// the full partition list and then distributes them across workers via modulo.
-    /// Read one server message during partition discovery, validating the status code
-    /// and the overall deadline. Returns `None` when the stream ended (caller should stop).
-    async fn read_discovery_message(
-        stream: &mut tonic::Streaming<MigrationStreamingReadServerMessage>,
-        deadline: tokio::time::Instant,
-    ) -> anyhow::Result<Option<MigrationStreamingReadServerMessage>> {
-        let message = tokio::time::timeout_at(deadline, stream.message())
-            .await
-            .map_err(|_| anyhow!("discover_partitions: timed out waiting for Assigned messages"))?;
-        match message {
-            Ok(Some(m)) => {
-                validate_server_message(&m)
-                    .map_err(|error| anyhow!("discover_partitions: {error}"))?;
-                Ok(Some(m))
-            }
-            Ok(None) => Ok(None),
-            Err(e) => anyhow::bail!("discover_partitions stream error: {e}"),
-        }
-    }
-
-    /// Handle one validated server message during partition discovery. Returns `false`
-    /// once we start getting `DataBatch`: by then all `Assigned` messages have been seen.
-    fn handle_discovery_message(
-        msg: MigrationStreamingReadServerMessage,
-        request_tx: &mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
-        partition_ids: &mut Vec<i64>,
-    ) -> anyhow::Result<bool> {
-        match msg.response {
-            Some(migration_streaming_read_server_message::Response::InitResponse(r)) => {
-                tracing::info!("discover_partitions: session={}", r.session_id);
-                request_tx
-                    .send(read_request())
-                    .map_err(|_| anyhow!("PQv1 request channel closed during discovery"))?;
-                Ok(true)
-            }
-            Some(migration_streaming_read_server_message::Response::Assigned(a)) => {
-                let pid = i64::try_from(a.partition).map_err(|_| {
-                    anyhow!(
-                        "discover_partitions: partition id {} does not fit in i64",
-                        a.partition
-                    )
-                })?;
-                tracing::debug!("discover_partitions: found partition={}", pid);
-                partition_ids.push(pid);
-                request_tx
-                    .send(start_read_request(a))
-                    .map_err(|_| anyhow!("PQv1 request channel closed during discovery"))?;
-                Ok(true)
-            }
-            Some(migration_streaming_read_server_message::Response::DataBatch(_)) => Ok(false),
-            _ => Ok(true),
-        }
-    }
-
-    pub async fn discover_partitions(
-        endpoint: &str,
-        topic_path: &str,
-        consumer: &str,
-        token: &str,
-    ) -> anyhow::Result<Vec<i64>> {
-        let (scheme, main_host, _) = parse_endpoint(endpoint)?;
-        let main_uri = http_uri(&scheme, &main_host)?;
-
-        // Step 1: proxy discovery
-        let proxy = match discover_proxy(&main_uri, token).await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("Proxy discovery failed: {}. Using main endpoint.", e);
-                main_host
-            }
-        };
-        // Steps 2-3: open the stream, send InitRequest, collect Assigned partitions.
-        let (mut stream, request_tx) =
-            Self::open_discovery_stream(&scheme, &proxy, topic_path, consumer, token).await?;
-        let partition_ids = Self::collect_assigned_partitions(&mut stream, &request_tx).await?;
-
-        Ok(partition_ids)
-    }
-
-    /// Open the `MigrationStreamingRead` bidi stream on the proxy and send the
-    /// `InitRequest`. Returns the response stream and the request channel used to
-    /// send `Read`/`StartRead` messages.
-    async fn open_discovery_stream(
-        scheme: &str,
-        proxy: &str,
-        topic_path: &str,
-        consumer: &str,
-        token: &str,
-    ) -> anyhow::Result<(
-        tonic::Streaming<MigrationStreamingReadServerMessage>,
-        mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
-    )> {
-        tracing::info!(
-            "PQv1 discover_partitions: proxy={} topic={}",
-            proxy,
-            topic_path
-        );
-        let target_uri = http_uri(scheme, proxy)?;
-        let h2_service = connect_http2_prior_knowledge(&target_uri).await?;
-        let (request_tx, request_rx) = mpsc::unbounded_channel();
-        request_tx.send(MigrationStreamingReadClientMessage {
-            request: Some(
-                migration_streaming_read_client_message::Request::InitRequest(init_request(
-                    topic_path,
-                    consumer,
-                    &[],
-                )),
-            ),
-            token: token.as_bytes().to_vec(),
-        })?;
-
-        let mut req = Request::new(RequestStream { rx: request_rx });
-        set_ydb_headers(req.metadata_mut(), token);
-
-        let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
-            .max_decoding_message_size(MAX_MESSAGE_SIZE)
-            .max_encoding_message_size(MAX_MESSAGE_SIZE);
-        grpc.ready()
-            .await
-            .map_err(|e| anyhow!("grpc not ready: {e}"))?;
-        let path = http::uri::PathAndQuery::from_static(
-            "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
-        );
-        let codec = tonic_prost::ProstCodec::<
-            MigrationStreamingReadClientMessage,
-            MigrationStreamingReadServerMessage,
-        >::default();
-        let stream = grpc
-            .streaming(req, path, codec)
-            .await
-            .map_err(|e| anyhow!("MigrationStreamingRead failed: {e}"))?
-            .into_inner();
-        Ok((stream, request_tx))
-    }
-
-    /// Read server messages until all `Assigned` partitions have been reported
-    /// (signaled by the first `DataBatch`) or the deadline passes.
-    async fn collect_assigned_partitions(
-        stream: &mut tonic::Streaming<MigrationStreamingReadServerMessage>,
-        request_tx: &mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
-    ) -> anyhow::Result<Vec<i64>> {
-        let deadline = tokio::time::Instant::now() + DISCOVERY_TIMEOUT;
-        let mut partition_ids: Vec<i64> = Vec::new();
-        loop {
-            let Some(msg) = Self::read_discovery_message(stream, deadline).await? else {
-                break;
-            };
-            if !Self::handle_discovery_message(msg, request_tx, &mut partition_ids)? {
-                break;
-            }
-        }
-        if partition_ids.is_empty() {
-            anyhow::bail!("discover_partitions: no partitions discovered");
-        }
-        partition_ids.sort_unstable();
-        tracing::info!(
-            "discover_partitions: found {} partitions: {:?}",
-            partition_ids.len(),
-            partition_ids,
-        );
-        Ok(partition_ids)
     }
 
     pub async fn commit(
@@ -1388,16 +1408,25 @@ fn decode_parts(
     let mut retained_bytes = 0_usize;
     for RawPart { pid, cookie, msgs } in parts {
         let mut decoded = Vec::with_capacity(msgs.len());
+        let mut decomp_busy = core::time::Duration::ZERO;
+        let mut decompressed_bytes = 0_u64;
         for message in msgs {
             let codec = message.codec;
             let offset = message.offset;
             let started = std::time::Instant::now();
-            let data =
-                decompress(message.data, codec, message.uncompressed_size).map_err(|error| {
-                    anyhow!("PQv1 decompress failed: codec={codec} offset={offset}: {error}")
-                })?;
-            counters.add_decomp_busy(started.elapsed());
-            counters.add_decompressed_bytes(data.len() as u64);
+            let data = match decompress(message.data, codec, message.uncompressed_size) {
+                Ok(data) => data,
+                Err(error) => {
+                    decomp_busy += started.elapsed();
+                    counters.add_decomp_busy(decomp_busy);
+                    counters.add_decompressed_bytes(decompressed_bytes);
+                    return Err(anyhow!(
+                        "PQv1 decompress failed: codec={codec} offset={offset}: {error}"
+                    ));
+                }
+            };
+            decomp_busy += started.elapsed();
+            decompressed_bytes = decompressed_bytes.saturating_add(data.len() as u64);
             retained_bytes = retained_bytes
                 .checked_add(data.len())
                 .ok_or_else(|| anyhow!("PQv1 decoded batch size overflow"))?;
@@ -1407,6 +1436,8 @@ fn decode_parts(
                 write_timestamp_ms: message.write_timestamp_ms,
             });
         }
+        counters.add_decomp_busy(decomp_busy);
+        counters.add_decompressed_bytes(decompressed_bytes);
         decoded_parts.push(DecodedPart {
             pid,
             cookie,
@@ -1422,25 +1453,17 @@ fn decode_parts(
 
 /// Decompress a message body. RAW (codec 1) reuses the input buffer (zero-copy).
 fn decompress(data: Vec<u8>, codec: i32, uncompressed_size: u64) -> anyhow::Result<Bytes> {
-    use std::io::Read as _;
-
     let expected_size = declared_uncompressed_size(uncompressed_size)?;
     let decoded = match codec {
         1 => Bytes::from(data), // RAW — move, no copy
         2 => {
             let decoder = flate2::read::GzDecoder::new(&*data);
-            let mut limited = decoder.take(uncompressed_size.saturating_add(1));
-            let mut buf = Vec::with_capacity(expected_size);
-            limited.read_to_end(&mut buf)?;
-            Bytes::from(buf)
+            read_exact_decoded(decoder, expected_size)?
         }
         4 => {
             let mut decoder = zstd::stream::read::Decoder::new(&*data)?;
             decoder.window_log_max(MAX_ZSTD_WINDOW_LOG)?;
-            let mut limited = decoder.take(uncompressed_size.saturating_add(1));
-            let mut buf = Vec::with_capacity(expected_size);
-            limited.read_to_end(&mut buf)?;
-            Bytes::from(buf)
+            read_exact_decoded(decoder, expected_size)?
         }
         _ => return Err(anyhow!("Unsupported codec: {codec}")),
     };
@@ -1450,6 +1473,37 @@ fn decompress(data: Vec<u8>, codec: i32, uncompressed_size: u64) -> anyhow::Resu
         decoded.len()
     );
     Ok(decoded)
+}
+
+/// Decode into an exactly-sized buffer, then probe one extra byte without growing it.
+/// This keeps the actual allocation within the size reserved by `peak_decode_bytes` even
+/// when a malformed stream expands beyond its declared size.
+fn read_exact_decoded(
+    mut decoder: impl std::io::Read,
+    expected_size: usize,
+) -> anyhow::Result<Bytes> {
+    let mut decoded = vec![0_u8; expected_size];
+    let mut actual_size = 0_usize;
+    while actual_size < expected_size {
+        match decoder.read(&mut decoded[actual_size..]) {
+            Ok(0) => break,
+            Ok(read) => actual_size += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    anyhow::ensure!(
+        actual_size == expected_size,
+        "decoded size mismatch: declared={expected_size}, actual={actual_size}"
+    );
+    let mut extra = [0_u8; 1];
+    let extra_size = decoder.read(&mut extra)?;
+    anyhow::ensure!(
+        extra_size == 0,
+        "decoded size mismatch: declared={expected_size}, actual_at_least={}",
+        expected_size.saturating_add(extra_size)
+    );
+    Ok(Bytes::from(decoded))
 }
 
 // ---------------------------------------------------------------------------
@@ -1462,9 +1516,6 @@ pub struct PqV1Source {
     terminal_failure: watch::Receiver<Option<Arc<TerminalFailure>>>,
     partition_id: i64,
     topic_name: Arc<str>,
-    last_write_timestamp_ms: Option<i64>,
-    pending_failure: Option<String>,
-    _config: YdsSourceConfig,
 }
 
 impl PqV1Source {
@@ -1473,9 +1524,8 @@ impl PqV1Source {
         client: PqV1Client,
         rx: mpsc::Receiver<PartitionEvent>,
         partition_id: i64,
-        config: YdsSourceConfig,
+        topic_name: Arc<str>,
     ) -> Self {
-        let topic_name = Arc::from(config.topic_path.as_str());
         let terminal_failure = client.inner.terminal_failure.subscribe();
         Self {
             client,
@@ -1483,19 +1533,13 @@ impl PqV1Source {
             terminal_failure,
             partition_id,
             topic_name,
-            last_write_timestamp_ms: None,
-            pending_failure: None,
-            _config: config,
         }
     }
 }
 
 impl Source for PqV1Source {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
         Box::pin(async move {
-            if let Some(error) = self.pending_failure.take() {
-                return Ok(ReadResult::Failed(anyhow!(error)));
-            }
             let current_failure = self.terminal_failure.borrow().clone();
             if let Some(error) = current_failure {
                 return surface_terminal_failure(error.as_ref());
@@ -1505,9 +1549,7 @@ impl Source for PqV1Source {
                     biased;
                     changed = self.terminal_failure.changed() => {
                         if changed.is_err() {
-                            return Ok(ReadResult::Failed(anyhow!(
-                                "PQv1 terminal failure channel closed unexpectedly"
-                            )));
+                            anyhow::bail!("PQv1 terminal failure channel closed unexpectedly");
                         }
                         let current_failure = self.terminal_failure.borrow().clone();
                         if let Some(error) = current_failure {
@@ -1519,22 +1561,14 @@ impl Source for PqV1Source {
                 };
                 break event;
             };
-            let first = match first_event {
-                Some(PartitionEvent::Data(part)) => part,
-                Some(PartitionEvent::Failed(error)) => {
-                    return Ok(ReadResult::Failed(anyhow!(error)));
-                }
-                None => {
-                    return Ok(ReadResult::Failed(anyhow!(
-                        "PQv1 partition event stream closed unexpectedly"
-                    )));
-                }
+            let Some(PartitionEvent::Data(first)) = first_event else {
+                anyhow::bail!("PQv1 partition event stream closed unexpectedly");
             };
             let mut messages = Vec::new();
             let mut memory = Vec::new();
             let mut cookies = Vec::new();
             if let Err(error) = self.append_part(first, &mut messages, &mut memory, &mut cookies) {
-                return Ok(ReadResult::Failed(error));
+                return Err(PipelineFailure::fatal(error).into());
             }
             for _ in 1..MAX_PARTS_PER_SOURCE_BATCH {
                 let Ok(event) = self.rx.try_recv() else {
@@ -1545,12 +1579,8 @@ impl Source for PqV1Source {
                         if let Err(error) =
                             self.append_part(part, &mut messages, &mut memory, &mut cookies)
                         {
-                            return Ok(ReadResult::Failed(error));
+                            return Err(PipelineFailure::fatal(error).into());
                         }
-                    }
-                    PartitionEvent::Failed(error) => {
-                        self.pending_failure = Some(error);
-                        break;
                     }
                 }
             }
@@ -1564,31 +1594,45 @@ impl Source for PqV1Source {
                     cookies,
                 })
             });
-            Ok(ReadResult::Batch(MessageBatch {
+            Ok(MessageBatch {
                 messages,
                 partition_id: self.partition_id,
                 commit_marker,
                 memory,
-            }))
+            })
         })
     }
 
     fn commit_offsets<'ctx>(
         &'ctx mut self,
-        marker: &'ctx CommitMarker,
+        markers: &'ctx [CommitMarker],
     ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move {
-            let Some(m) = marker.downcast_ref::<PqV1CommitMarker>() else {
-                return Err(PipelineFailure::fatal(anyhow!("Invalid PQv1 commit marker")).into());
-            };
-            self.client.commit(m.partition_id, m.cookies.clone()).await
+            let mut cookies = Vec::new();
+            for marker in markers {
+                let Some(marker) = marker.downcast_ref::<PqV1CommitMarker>() else {
+                    return Err(
+                        PipelineFailure::fatal(anyhow!("Invalid PQv1 commit marker")).into(),
+                    );
+                };
+                if marker.partition_id != self.partition_id {
+                    return Err(PipelineFailure::fatal(anyhow!(
+                        "PQv1 commit marker partition mismatch: source={}, marker={}",
+                        self.partition_id,
+                        marker.partition_id
+                    ))
+                    .into());
+                }
+                cookies.extend(marker.cookies.iter().cloned());
+            }
+            self.client.commit(self.partition_id, cookies).await
         })
     }
 }
 
 impl PqV1Source {
     fn append_part(
-        &mut self,
+        &self,
         part: DecodedPart,
         messages: &mut Vec<Message>,
         memory: &mut Vec<MemoryReservation>,
@@ -1606,7 +1650,6 @@ impl PqV1Source {
         }
         for message in part.msgs {
             let write_timestamp_ms = i64::try_from(message.write_timestamp_ms)?;
-            self.observe_write_timestamp(message.offset, write_timestamp_ms);
             messages.push(Message {
                 value: message.data,
                 meta: MessageMeta {
@@ -1618,22 +1661,6 @@ impl PqV1Source {
             });
         }
         Ok(())
-    }
-
-    fn observe_write_timestamp(&mut self, offset: u64, current: i64) {
-        if self
-            .last_write_timestamp_ms
-            .is_some_and(|previous| current < previous)
-        {
-            tracing::warn!(
-                partition = self.partition_id,
-                offset,
-                previous_write_timestamp_ms = self.last_write_timestamp_ms,
-                write_timestamp_ms = current,
-                "PQv1 write timestamp moved backwards; record-time sink semantics may be unsafe"
-            );
-        }
-        self.last_write_timestamp_ms = Some(current);
     }
 }
 
@@ -1663,11 +1690,8 @@ mod tests {
         (client, request_rx)
     }
 
-    fn test_config() -> YdsSourceConfig {
-        serde_yaml::from_str(
-            "connection_string: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  none: {}\n",
-        )
-        .expect("valid test config")
+    fn test_topic() -> Arc<str> {
+        Arc::from("topic")
     }
 
     fn cookie(partition_cookie: u64) -> CommitCookie {
@@ -1677,18 +1701,95 @@ mod tests {
         }
     }
 
+    fn decoded_batch(seq: u64) -> DecodedBatch {
+        DecodedBatch {
+            seq,
+            parts: Ok(Vec::new()),
+            failure_kind: TerminalFailureKind::Fatal,
+        }
+    }
+
+    #[tokio::test]
+    async fn decoded_slot_waits_while_the_channel_is_full() {
+        use core::future::Future as _;
+
+        let (sender, mut receiver) = mpsc::channel(1);
+        sender.send(decoded_batch(0)).await.unwrap();
+        let cancellation = CancellationToken::new();
+        let mut waiting = Box::pin(reserve_decoded_slot(&sender, &cancellation));
+
+        let was_pending = futures_util::future::poll_fn(|context| {
+            Poll::Ready(waiting.as_mut().poll(context).is_pending())
+        })
+        .await;
+        assert!(was_pending, "a full decoded queue must apply backpressure");
+
+        assert_eq!(receiver.recv().await.unwrap().seq, 0);
+        let permit = waiting.await.unwrap();
+        permit.send(decoded_batch(1));
+        assert_eq!(receiver.recv().await.unwrap().seq, 1);
+    }
+
+    #[tokio::test]
+    async fn decoded_slot_wait_is_cancelled_while_the_channel_is_full() {
+        let (sender, _receiver) = mpsc::channel(1);
+        sender.send(decoded_batch(0)).await.unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = reserve_decoded_slot(&sender, &cancellation)
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("session cancelled"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn network_stage_reports_its_timeout() {
+        let cancellation = CancellationToken::new();
+        let timeout = core::time::Duration::from_millis(25);
+
+        let error = network_stage(
+            "test network stage",
+            timeout,
+            &cancellation,
+            core::future::pending::<anyhow::Result<()>>(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("test network stage timed out after 25 ms"),
+            "{error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn network_stage_honors_cancellation() {
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = network_stage(
+            "test network stage",
+            core::time::Duration::from_secs(1),
+            &cancellation,
+            core::future::pending::<anyhow::Result<()>>(),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "test network stage cancelled");
+    }
+
     #[test]
-    fn runtime_init_scopes_the_session_but_discovery_requests_all_groups() {
+    fn runtime_init_scopes_the_session_to_requested_partition_groups() {
         let runtime = init_request("topic", "consumer", &[3, 7]);
         assert_eq!(
             runtime.topics_read_settings[0].partition_group_ids,
             vec![3, 7]
         );
-
-        let discovery = init_request("topic", "consumer", &[]);
-        assert!(discovery.topics_read_settings[0]
-            .partition_group_ids
-            .is_empty());
     }
 
     #[test]
@@ -1698,39 +1799,21 @@ mod tests {
             assert!(error.to_string().contains("without TLS"));
             assert!(error.to_string().contains(scheme));
         }
+        let error = parse_endpoint("grpc://example.test:2135/ignored-db").unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("must not contain a database path"));
     }
 
     #[test]
-    fn discovery_starts_each_assigned_partition() {
-        let (request_tx, mut request_rx) = mpsc::unbounded_channel();
-        let mut partition_ids = Vec::new();
-        let assigned = migration_streaming_read_server_message::Assigned {
-            cluster: "cluster".to_string(),
-            partition: 7,
-            assign_id: 11,
-            read_offset: 42,
-            ..Default::default()
-        };
-        let message = MigrationStreamingReadServerMessage {
-            response: Some(migration_streaming_read_server_message::Response::Assigned(
-                assigned,
-            )),
-            ..Default::default()
-        };
-
-        assert!(
-            PqV1Client::handle_discovery_message(message, &request_tx, &mut partition_ids).unwrap()
-        );
-        assert_eq!(partition_ids, vec![7]);
-        let request = request_rx.try_recv().unwrap();
-        let Some(migration_streaming_read_client_message::Request::StartRead(start)) =
-            request.request
-        else {
-            panic!("Assigned must be answered with StartRead")
-        };
-        assert_eq!(start.partition, 7);
-        assert_eq!(start.assign_id, 11);
-        assert_eq!(start.read_offset, 42);
+    fn invalid_auth_metadata_is_rejected_without_exposing_the_token() {
+        for token in ["", "secret\nvalue"] {
+            let error = set_ydb_headers(&mut MetadataMap::new(), token).unwrap_err();
+            assert!(error.to_string().contains("access token"));
+            if !token.is_empty() {
+                assert!(!error.to_string().contains(token));
+            }
+        }
     }
 
     #[test]
@@ -1775,6 +1858,40 @@ mod tests {
         assert_eq!(released.assign_id, 11);
     }
 
+    #[tokio::test]
+    async fn graceful_release_is_consumed_by_the_request_body_before_teardown() {
+        use futures_util::StreamExt as _;
+
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let handed_off = Arc::new(Notify::new());
+        let mut stream = RequestStream {
+            rx: receiver,
+            release_handed_off: Arc::clone(&handed_off),
+        };
+        sender
+            .send(released_request(
+                migration_streaming_read_server_message::Release {
+                    partition: 7,
+                    assign_id: 11,
+                    ..Default::default()
+                },
+            ))
+            .unwrap();
+
+        let notification = handed_off.notified();
+        tokio::pin!(notification);
+        let request = stream.next().await.expect("queued Released request");
+        assert!(matches!(
+            request.request,
+            Some(migration_streaming_read_client_message::Request::Released(
+                _
+            ))
+        ));
+        tokio::time::timeout(core::time::Duration::from_millis(100), notification)
+            .await
+            .expect("request body must signal Released handoff");
+    }
+
     #[test]
     fn decompression_rejects_oversized_and_inexact_output() {
         use std::io::Write as _;
@@ -1796,6 +1913,12 @@ mod tests {
             let error = decompress(compressed, codec, 3).unwrap_err();
             assert!(error.to_string().contains("decoded size mismatch"));
         }
+
+        let gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast())
+            .finish()
+            .unwrap();
+        let error = decompress(gzip, 2, 3).unwrap_err();
+        assert!(error.to_string().contains("declared=3, actual=0"));
     }
 
     #[test]
@@ -1849,8 +1972,116 @@ mod tests {
             ..Default::default()
         };
 
-        let error = validate_server_message(&message).unwrap_err();
-        assert!(error.to_string().contains("protocol warning"));
+        let failure = validate_server_message(&message).unwrap_err();
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("protocol warning"));
+    }
+
+    #[test]
+    fn successful_message_without_a_response_is_fatal() {
+        let message = MigrationStreamingReadServerMessage {
+            status: YDB_STATUS_SUCCESS,
+            ..Default::default()
+        };
+
+        let failure = validate_server_message(&message).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("missing response"));
+    }
+
+    #[test]
+    fn duplicate_init_response_is_fatal() {
+        let mut init_done = false;
+        record_init_response(&mut init_done).unwrap();
+
+        let failure = record_init_response(&mut init_done).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("duplicate InitResponse"));
+    }
+
+    #[test]
+    fn non_init_response_before_init_is_fatal() {
+        let mut init_done = false;
+        let response = migration_streaming_read_server_message::Response::DataBatch(
+            Default::default(),
+        );
+
+        let failure = validate_response_phase(&mut init_done, &response).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("before InitResponse"));
+    }
+
+    #[test]
+    fn unsolicited_partition_status_is_fatal() {
+        let mut init_done = true;
+        let response = migration_streaming_read_server_message::Response::PartitionStatus(
+            Default::default(),
+        );
+
+        let failure = validate_response_phase(&mut init_done, &response).unwrap_err();
+
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("unsolicited PartitionStatus"));
+    }
+
+    #[test]
+    fn server_statuses_have_explicit_retry_disposition() {
+        use StatusCode::{
+            Aborted, AlreadyExists, BadRequest, BadSession, Cancelled, ExternalError, GenericError,
+            InternalError, NotFound, Overloaded, PreconditionFailed, SchemeError, SessionBusy,
+            SessionExpired, Timeout, Unauthorized, Unavailable, Undetermined, Unsupported,
+        };
+
+        for status in [
+            InternalError,
+            Aborted,
+            Unavailable,
+            Overloaded,
+            GenericError,
+            Timeout,
+            BadSession,
+            SessionExpired,
+            Cancelled,
+            Undetermined,
+            SessionBusy,
+            ExternalError,
+        ] {
+            let message = MigrationStreamingReadServerMessage {
+                status: status as i32,
+                ..Default::default()
+            };
+            let failure = validate_server_message(&message).unwrap_err();
+            assert_eq!(failure.kind, TerminalFailureKind::Retryable, "{status:?}");
+        }
+
+        for status in [
+            BadRequest,
+            Unauthorized,
+            SchemeError,
+            PreconditionFailed,
+            AlreadyExists,
+            NotFound,
+            Unsupported,
+        ] {
+            let message = MigrationStreamingReadServerMessage {
+                status: status as i32,
+                ..Default::default()
+            };
+            let failure = validate_server_message(&message).unwrap_err();
+            assert_eq!(failure.kind, TerminalFailureKind::Fatal, "{status:?}");
+        }
+
+        let unknown = MigrationStreamingReadServerMessage {
+            status: 400_999,
+            ..Default::default()
+        };
+        assert_eq!(
+            validate_server_message(&unknown).unwrap_err().kind,
+            TerminalFailureKind::Fatal
+        );
     }
 
     #[tokio::test]
@@ -1876,24 +2107,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_surfaces_partition_failure() {
+    async fn source_treats_an_unexpected_partition_stream_close_as_retryable() {
         let (tx, rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(test_client(), rx, 7, test_config());
-        tx.send(PartitionEvent::Failed("stream failed".into()))
-            .await
-            .unwrap();
+        let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
+        drop(tx);
 
-        let ReadResult::Failed(error) = source.read_batch().await.unwrap() else {
-            panic!("partition failure must terminate the source")
-        };
-        assert!(error.to_string().contains("stream failed"));
+        let error = source.read_batch().await.unwrap_err();
+        assert!(error.to_string().contains("stream closed unexpectedly"));
+        assert!(error.downcast_ref::<PipelineFailure>().is_none());
     }
 
     #[tokio::test]
     async fn source_treats_partition_mismatch_as_fatal() {
         let memory = PipelineMemory::new(16);
         let (tx, rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(test_client(), rx, 7, test_config());
+        let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         tx.send(PartitionEvent::Data(DecodedPart {
             pid: 8,
             cookie: Some(cookie(1)),
@@ -1903,17 +2131,18 @@ mod tests {
         .await
         .unwrap();
 
-        let ReadResult::Failed(error) = source.read_batch().await.unwrap() else {
-            panic!("partition protocol mismatch must be fatal")
-        };
+        let error = source.read_batch().await.unwrap_err();
         assert!(error.to_string().contains("partition mismatch"));
+        assert!(error
+            .downcast_ref::<PipelineFailure>()
+            .is_some_and(|failure| !failure.is_retryable()));
     }
 
     #[tokio::test]
     async fn terminal_failure_disposition_retries_transport_but_not_decompression() {
         let (client, _request_rx) = test_client_with_requests();
         let (_partition_tx, partition_rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(client.clone(), partition_rx, 7, test_config());
+        let mut source = PqV1Source::new(client.clone(), partition_rx, 7, test_topic());
 
         broadcast_failure(
             client.inner.as_ref(),
@@ -1927,19 +2156,63 @@ mod tests {
 
         let (client, _request_rx) = test_client_with_requests();
         let (_partition_tx, partition_rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(client.clone(), partition_rx, 7, test_config());
+        let mut source = PqV1Source::new(client.clone(), partition_rx, 7, test_topic());
         broadcast_failure(
             client.inner.as_ref(),
             &anyhow!("decompression contract violated"),
             TerminalFailureKind::Fatal,
         );
 
-        let ReadResult::Failed(error) = source.read_batch().await.unwrap() else {
-            panic!("fatal decompression failure must not be retried")
-        };
+        let error = source.read_batch().await.unwrap_err();
         assert!(error
             .to_string()
             .contains("decompression contract violated"));
+        assert!(error
+            .downcast_ref::<PipelineFailure>()
+            .is_some_and(|failure| !failure.is_retryable()));
+    }
+
+    #[test]
+    fn fatal_failure_cannot_be_overwritten_by_a_retryable_failure() {
+        let client = test_client();
+        broadcast_failure(
+            client.inner.as_ref(),
+            &anyhow!("fatal decompression contract violation"),
+            TerminalFailureKind::Fatal,
+        );
+        broadcast_failure(
+            client.inner.as_ref(),
+            &anyhow!("later transport failure"),
+            TerminalFailureKind::Retryable,
+        );
+
+        let failure = client
+            .inner
+            .terminal_failure
+            .borrow()
+            .clone()
+            .expect("terminal failure");
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.message.contains("fatal decompression"));
+    }
+
+    #[tokio::test]
+    async fn session_task_panic_is_surfaced_as_retryable_failure() {
+        let client = test_client();
+        let (_partition_tx, partition_rx) = mpsc::channel(1);
+        let mut source = PqV1Source::new(client.clone(), partition_rx, 7, test_topic());
+        spawn_session_task(Arc::clone(&client.inner), "test", async {
+            panic!("test panic");
+        });
+
+        let result = tokio::time::timeout(core::time::Duration::from_secs(1), source.read_batch())
+            .await
+            .expect("supervisor must wake the source");
+        let Err(error) = result else {
+            panic!("task panic must be a retryable source error")
+        };
+        assert!(error.to_string().contains("test task failed"));
+        assert!(error.to_string().contains("panicked"));
     }
 
     #[tokio::test]
@@ -1947,7 +2220,7 @@ mod tests {
         let memory = PipelineMemory::new(1024);
         let reservation = memory.reserve(20).await;
         let (tx, rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(test_client(), rx, 7, test_config());
+        let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         tx.send(PartitionEvent::Data(DecodedPart {
             pid: 7,
             cookie: None,
@@ -1968,9 +2241,7 @@ mod tests {
         .await
         .unwrap();
 
-        let ReadResult::Batch(batch) = source.read_batch().await.unwrap() else {
-            panic!("decoded part must produce a source batch")
-        };
+        let batch = source.read_batch().await.unwrap();
         assert_eq!(batch.messages.len(), 2);
         assert_eq!(batch.memory.len(), 1);
     }
@@ -1979,7 +2250,7 @@ mod tests {
     async fn discarded_batch_emits_a_marker_without_messages() {
         let memory = PipelineMemory::new(16);
         let (tx, rx) = mpsc::channel(1);
-        let mut source = PqV1Source::new(test_client(), rx, 7, test_config());
+        let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         tx.send(PartitionEvent::Data(DecodedPart {
             pid: 7,
             cookie: Some(cookie(3)),
@@ -1989,9 +2260,7 @@ mod tests {
         .await
         .unwrap();
 
-        let ReadResult::Batch(batch) = source.read_batch().await.unwrap() else {
-            panic!("discarded batch must produce a marker-only source batch")
-        };
+        let batch = source.read_batch().await.unwrap();
         assert!(batch.messages.is_empty());
         let marker = batch.commit_marker.expect("discarded batch commit marker");
         assert_eq!(
@@ -2042,11 +2311,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_preserves_and_commits_every_drained_cookie_in_order() {
+    async fn source_preserves_and_commits_every_cookie_in_one_grouped_request() {
         let memory = PipelineMemory::new(1024);
         let (client, mut request_rx) = test_client_with_requests();
         let (tx, rx) = mpsc::channel(2);
-        let mut source = PqV1Source::new(client.clone(), rx, 7, test_config());
+        let mut source = PqV1Source::new(client.clone(), rx, 7, test_topic());
         for partition_cookie in [1, 2] {
             tx.send(PartitionEvent::Data(DecodedPart {
                 pid: 7,
@@ -2062,9 +2331,7 @@ mod tests {
             .unwrap();
         }
 
-        let ReadResult::Batch(mut batch) = source.read_batch().await.unwrap() else {
-            panic!("decoded parts must produce a source batch")
-        };
+        let mut batch = source.read_batch().await.unwrap();
         let marker = batch.commit_marker.take().expect("commit marker");
         let marker_value = marker.downcast_ref::<PqV1CommitMarker>().unwrap();
         assert_eq!(
@@ -2076,7 +2343,14 @@ mod tests {
             vec![1, 2]
         );
 
-        let mut commit_future = Box::pin(source.commit_offsets(&marker));
+        let markers = [
+            marker,
+            CommitMarker::new(PqV1CommitMarker {
+                partition_id: 7,
+                cookies: vec![cookie(3)],
+            }),
+        ];
+        let mut commit_future = Box::pin(source.commit_offsets(&markers));
         assert!(tokio::time::timeout(
             core::time::Duration::from_millis(20),
             commit_future.as_mut()
@@ -2095,7 +2369,7 @@ mod tests {
                 .iter()
                 .map(|cookie| cookie.partition_cookie)
                 .collect::<Vec<_>>(),
-            vec![1, 2]
+            vec![1, 2, 3]
         );
         acknowledge_committed(
             client.inner.as_ref(),
@@ -2156,7 +2430,7 @@ mod tests {
     async fn source_bounds_the_number_of_parts_drained_into_one_batch() {
         let memory = PipelineMemory::new(MAX_PARTS_PER_SOURCE_BATCH + 1);
         let (tx, rx) = mpsc::channel(MAX_PARTS_PER_SOURCE_BATCH + 1);
-        let mut source = PqV1Source::new(test_client(), rx, 7, test_config());
+        let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         for partition_cookie in 0..=MAX_PARTS_PER_SOURCE_BATCH {
             tx.send(PartitionEvent::Data(DecodedPart {
                 pid: 7,
@@ -2168,9 +2442,7 @@ mod tests {
             .unwrap();
         }
 
-        let ReadResult::Batch(first) = source.read_batch().await.unwrap() else {
-            panic!("parts must produce a source batch")
-        };
+        let first = source.read_batch().await.unwrap();
         assert_eq!(
             first
                 .commit_marker
@@ -2184,9 +2456,7 @@ mod tests {
         );
         drop(first);
 
-        let ReadResult::Batch(second) = source.read_batch().await.unwrap() else {
-            panic!("remaining part must produce a second source batch")
-        };
+        let second = source.read_batch().await.unwrap();
         assert_eq!(
             second
                 .commit_marker

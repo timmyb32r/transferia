@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -14,7 +15,7 @@ use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
-use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::{Message, MessageBatch, MessageMeta, SourcePartition};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
@@ -72,7 +73,7 @@ impl FakeUploader {
             }
         })
         .await
-        .expect("upload attempt did not start");
+        .unwrap_or_else(|_| panic!("upload attempt {expected} did not start"));
     }
 }
 
@@ -119,42 +120,49 @@ impl ObjectUploader for FakeUploader {
 }
 
 struct FakeSource {
-    message: Option<Message>,
+    batches: VecDeque<Vec<Message>>,
     commits: mpsc::UnboundedSender<i64>,
 }
 
 impl Source for FakeSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
         Box::pin(async move {
-            let Some(message) = self.message.take() else {
-                return Ok(ReadResult::Batch(MessageBatch {
+            let Some(messages) = self.batches.pop_front() else {
+                return Ok(MessageBatch {
                     messages: Vec::new(),
                     partition_id: 3,
                     commit_marker: None,
                     memory: Vec::new(),
-                }));
+                });
             };
-            Ok(ReadResult::Batch(MessageBatch {
-                messages: vec![message],
+            let marker = messages
+                .last()
+                .and_then(|message| message.meta.offset)
+                .ok_or_else(|| anyhow::anyhow!("fake source message is missing an offset"))?;
+            Ok(MessageBatch {
+                messages,
                 partition_id: 3,
-                commit_marker: Some(CommitMarker::new(77_i64)),
+                commit_marker: Some(CommitMarker::new(marker)),
                 memory: Vec::new(),
-            }))
+            })
         })
     }
 
     fn commit_offsets<'context>(
         &'context mut self,
-        marker: &'context CommitMarker,
+        markers: &'context [CommitMarker],
     ) -> BoxFuture<'context, anyhow::Result<()>> {
         Box::pin(async move {
-            let offset = marker
-                .downcast_ref::<i64>()
-                .copied()
-                .ok_or_else(|| anyhow::anyhow!("unexpected commit marker"))?;
-            self.commits
-                .send(offset)
-                .map_err(|_| anyhow::anyhow!("commit receiver closed"))
+            for marker in markers {
+                let offset = marker
+                    .downcast_ref::<i64>()
+                    .copied()
+                    .ok_or_else(|| anyhow::anyhow!("unexpected commit marker"))?;
+                self.commits
+                    .send(offset)
+                    .map_err(|_| anyhow::anyhow!("commit receiver closed"))?;
+            }
+            Ok(())
         })
     }
 }
@@ -167,6 +175,32 @@ fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S
     serde_yaml::from_str(&format!(
         "bucket: test\nrotation:\n  max_rows: {max_rows}\n  max_bytes: 1MiB\n{rotation_extra}buffering:\n  max_open_objects: 8\n  max_buffered_bytes: 8MiB\n  max_epoch_bytes: 8MiB\nupload:\n  multipart_threshold: 25MiB\n  part_size: 5MiB\n  parallel_parts: 4\nretry:\n  initial_backoff: 1ms\n  max_backoff: 2ms\n{extra}"
     ))
+    .unwrap()
+}
+
+fn pipeline_parser() -> Arc<dyn crate::parsers::Parser> {
+    let parser_raw: serde_yaml::Value = serde_yaml::from_str(
+        "columns:\n  - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n  - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\nchunk_splitter: new-line\n",
+    )
+    .unwrap();
+    crate::parsers::build_parser(
+        "json_parser",
+        parser_raw,
+        Arc::from("events"),
+        &crate::parsers::CommonParserConfig {
+            table_naming: crate::parsers::TableNaming {
+                kind: "from_config".into(),
+                name: Some("events".into()),
+            },
+            system_columns: crate::parsers::SystemColumnsConfig {
+                topic_name: true,
+                partition_num: true,
+                offset: true,
+                message_index: true,
+                write_timestamp_ms: true,
+            },
+        },
+    )
     .unwrap()
 }
 
@@ -240,8 +274,6 @@ async fn delivery(
         }],
         meta: DeliveryMeta {
             source_messages: 1,
-            first_offset: Some(offset),
-            last_offset: Some(offset),
             ..DeliveryMeta::default()
         },
     }
@@ -309,7 +341,7 @@ async fn replay_objects(uploader: Arc<FakeUploader>) -> Vec<(String, Bytes)> {
     let blocked = uploader.gate.is_some();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
@@ -484,7 +516,7 @@ async fn late_time_slot_and_replay_are_routed_deterministically() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let (tx, mut events, cancel, task) = spawn(
-        config("partitioning:\n  type: time\n  window: 1h\n  timezone: UTC\n  path: 'hour=%H'\n"),
+        config("partitioning:\n  type: record_time\n  window: 1h\n  timezone: UTC\n  path: 'hour=%H'\n"),
         Arc::clone(&uploader),
         memory.clone(),
     );
@@ -551,6 +583,42 @@ async fn commit_waits_for_main_and_dlq_objects_in_same_epoch() {
 }
 
 #[tokio::test]
+async fn commit_waits_for_every_object_before_advancing_within_an_epoch() {
+    let uploader = FakeUploader::blocked();
+    let memory = PipelineMemory::new(1 << 20);
+    let config: S3SinkConfig = serde_yaml::from_str(
+        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+    )
+    .unwrap();
+    let (tx, mut events, _cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+
+    tx.send(delivery(&memory, 1, 12, 1_000, false).await)
+        .await
+        .unwrap();
+    let mut second = delivery(&memory, 2, 13, 1_001, false).await;
+    let dlq = delivery(&memory, 2, 13, 1_001, true).await;
+    second.outputs.extend(dlq.outputs);
+    tx.send(second).await.unwrap();
+    drop(tx);
+
+    uploader.wait_for_attempts(1).await;
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    uploader.wait_for_attempts(2).await;
+    tokio::task::yield_now().await;
+    assert!(
+        events.try_recv().is_err(),
+        "a durable prefix inside an unfinished epoch must not be committed"
+    );
+
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn can_explicitly_keep_system_columns_in_json() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
@@ -575,56 +643,35 @@ async fn can_explicitly_keep_system_columns_in_json() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn pqv1_parser_to_s3_commits_source_only_after_upload() {
+async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_object() {
     let uploader = FakeUploader::blocked();
     let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
     let source = FakeSource {
-        message: Some(Message {
-            value: Bytes::from_static(b"{\"id\":77,\"nullable\":null}"),
+        batches: VecDeque::from([vec![Message {
+            value: Bytes::from_static(
+                b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
+            ),
             meta: MessageMeta {
                 topic_name: Some(Arc::from("topic/a")),
                 partition: Some(SourcePartition::Int(3)),
                 offset: Some(77),
                 write_timestamp_ms: Some(1_234),
             },
-        }),
+        }]]),
         commits: commit_tx,
     };
-    let parser_raw: serde_yaml::Value = serde_yaml::from_str(
-        "columns:\n  - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n  - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\nchunk_splitter: one-message-one-row\n",
-    )
-    .unwrap();
-    let parser = crate::parsers::build_parser(
-        "json_parser",
-        parser_raw,
-        Arc::from("events"),
-        crate::parsers::CommonParserConfig {
-            table_naming: crate::parsers::TableNaming {
-                kind: "from_config".into(),
-                name: Some("events".into()),
-            },
-            system_columns: crate::parsers::SystemColumnsConfig {
-                topic_name: true,
-                partition_num: true,
-                offset: true,
-                message_index: true,
-                write_timestamp_ms: true,
-            },
-        },
-    )
-    .unwrap();
     let memory = PipelineMemory::new(1 << 20);
     let cancellation = CancellationToken::new();
     let sink = S3Sink::new(
-        config(""),
+        config("partitioning:\n  type: fields\n  columns: [id]\n"),
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         false,
     )
     .unwrap();
-    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+    let mut task = tokio::spawn(crate::pipeline::run_partition_pipeline(
         Box::new(source),
-        parser,
+        pipeline_parser(),
         Arc::new(Vec::new()),
         Box::new(sink),
         memory,
@@ -633,10 +680,136 @@ async fn pqv1_parser_to_s3_commits_source_only_after_upload() {
         Arc::new(crate::metrics::ParseCounters::new()),
     ));
 
-    uploader.wait_for_attempts(1).await;
+    tokio::select! {
+        () = uploader.wait_for_attempts(1) => {}
+        result = &mut task => panic!("pipeline stopped before the first upload started: {result:?}"),
+    }
+    assert!(commit_rx.try_recv().is_err());
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    tokio::select! {
+        () = uploader.wait_for_attempts(2) => {}
+        commit = commit_rx.recv() => {
+            panic!("committed {commit:?} after only one durable object");
+        }
+    }
     assert!(commit_rx.try_recv().is_err());
     uploader.gate.as_ref().unwrap().add_permits(1);
     assert_eq!(commit_rx.recv().await, Some(77));
+    let keys = uploader
+        .uploads
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 2);
+    assert!(keys.iter().any(|key| key.contains("id=77")));
+    assert!(keys.iter().any(|key| key.contains("id=88")));
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
+    const DELIVERIES: i64 = 20;
+
+    let uploader = FakeUploader::immediate(0);
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let batches = (1..=DELIVERIES)
+        .map(|offset| Message {
+            value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
+            meta: MessageMeta {
+                topic_name: Some(Arc::from("topic/a")),
+                partition: Some(SourcePartition::Int(3)),
+                offset: Some(offset),
+                write_timestamp_ms: Some(1_234 + offset),
+            },
+        })
+        .map(|message| vec![message])
+        .collect();
+    let source = FakeSource {
+        batches,
+        commits: commit_tx,
+    };
+    let memory = PipelineMemory::new(1 << 20);
+    let cancellation = CancellationToken::new();
+    let sink = S3Sink::new(
+        config_with_rotation(DELIVERIES as usize, "", "partitioning: { type: source }\n"),
+        Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
+        Arc::new(SinkCounters::new()),
+        false,
+    )
+    .unwrap();
+    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+        Box::new(source),
+        pipeline_parser(),
+        Arc::new(Vec::new()),
+        Box::new(sink),
+        memory,
+        cancellation.clone(),
+        3,
+        Arc::new(crate::metrics::ParseCounters::new()),
+    ));
+
+    for expected in 1..=DELIVERIES {
+        let committed = tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+            .await
+            .expect("deterministic S3 epoch stalled before reaching its row threshold");
+        assert_eq!(committed, Some(expected));
+    }
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 1);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
+    let uploader = FakeUploader::immediate(0);
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let message = |offset| Message {
+        value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
+        meta: MessageMeta {
+            topic_name: Some(Arc::from("topic/a")),
+            partition: Some(SourcePartition::Int(3)),
+            offset: Some(offset),
+            write_timestamp_ms: Some(1_234 + offset),
+        },
+    };
+    // The first timing-dependent read Delivery straddles two deterministic
+    // epochs: offsets 1-2 close an epoch, while offset 3 remains in the next
+    // one. Releasing the durable epoch's leases must let the parser accept the
+    // second Delivery, whose offset 4 deterministically closes the tail.
+    let source = FakeSource {
+        batches: VecDeque::from([vec![message(1), message(2), message(3)], vec![message(4)]]),
+        commits: commit_tx,
+    };
+    let memory = PipelineMemory::new(256);
+    let cancellation = CancellationToken::new();
+    let sink = S3Sink::new(
+        config_with_rotation(2, "", "partitioning: { type: source }\n"),
+        Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
+        Arc::new(SinkCounters::new()),
+        false,
+    )
+    .unwrap();
+    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+        Box::new(source),
+        pipeline_parser(),
+        Arc::new(Vec::new()),
+        Box::new(sink),
+        memory,
+        cancellation.clone(),
+        3,
+        Arc::new(crate::metrics::ParseCounters::new()),
+    ));
+
+    for expected in [3, 4] {
+        let committed = tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+            .await
+            .expect("S3 epoch memory ownership stalled the next delivery");
+        assert_eq!(committed, Some(expected));
+    }
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
     cancellation.cancel();
     task.await.unwrap().unwrap();
 }
@@ -766,7 +939,7 @@ async fn pending_object_limit_bounds_metadata_during_an_outage() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, _events, cancel, task) =
@@ -831,11 +1004,47 @@ async fn permanent_upload_failure_is_non_retryable() {
 }
 
 #[tokio::test]
+async fn deterministic_routing_failure_is_non_retryable() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
+    let mut invalid = delivery(&memory, 1, 4, 1_000, false).await;
+    invalid.outputs[0].system_columns = SystemColumns::default();
+    tx.send(invalid).await.unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("deterministic S3 routing errors must preserve their restart contract");
+    assert!(!failure.is_retryable());
+    assert!(error.to_string().contains("required system column"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn delivery_progress_violation_is_non_retryable() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
+    tx.send(delivery(&memory, 2, 4, 1_000, false).await)
+        .await
+        .unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("S3 progress violations must preserve their restart contract");
+    assert!(!failure.is_retryable());
+    assert!(error.to_string().contains("delivery order violation"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
 async fn explicit_epoch_byte_limit_rotates_independently_of_pipeline_memory() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_objects: 8, max_buffered_bytes: 1MiB, max_epoch_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 1MiB, max_epoch_bytes: 300 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());

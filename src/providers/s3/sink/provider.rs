@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
@@ -11,6 +13,7 @@ use crate::compatibility::{EndpointDescriptor, S3Descriptor, S3Partitioning};
 
 pub struct S3SinkProvider {
     cfg: S3SinkConfig,
+    uploader: Arc<dyn ObjectUploader>,
 }
 
 impl S3SinkProvider {
@@ -18,12 +21,8 @@ impl S3SinkProvider {
         let cfg: S3SinkConfig = serde_yaml::from_value(value)
             .map_err(|e| anyhow::anyhow!("Failed to parse S3 sink config: {e}"))?;
         cfg.validate()?;
-        Ok(Self { cfg })
-    }
-
-    #[must_use]
-    pub const fn config(&self) -> &S3SinkConfig {
-        &self.cfg
+        let uploader = Arc::new(S3Uploader::new(cfg.build_store()?, cfg.upload.clone()));
+        Ok(Self { cfg, uploader })
     }
 }
 
@@ -34,7 +33,7 @@ impl SinkProvider for S3SinkProvider {
             super::config::PartitioningConfig::Fields { columns } => {
                 S3Partitioning::Fields(columns.clone())
             }
-            super::config::PartitioningConfig::Time { .. } => S3Partitioning::SourceTime,
+            super::config::PartitioningConfig::RecordTime { .. } => S3Partitioning::RecordTime,
         };
         EndpointDescriptor::S3(S3Descriptor {
             partitioning,
@@ -59,15 +58,9 @@ impl SinkProvider for S3SinkProvider {
     }
 
     fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
-        let store = match self.cfg.build_store() {
-            Ok(store) => store,
-            Err(error) => return Box::pin(async move { Err(error) }),
-        };
-        let uploader: std::sync::Arc<dyn ObjectUploader> =
-            std::sync::Arc::new(S3Uploader::new(store, self.cfg.upload.clone()));
         let sink = S3Sink::new(
             self.cfg.clone(),
-            uploader,
+            Arc::clone(&self.uploader),
             context.counters,
             context.keep_system_columns,
         );
@@ -87,6 +80,33 @@ mod tests {
 
         assert!(provider.validate_pipeline_memory_limit(47).is_err());
         provider.validate_pipeline_memory_limit(48)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
+        let provider = S3SinkProvider::from_config(serde_yaml::from_str("bucket: test\n")?)?;
+        assert_eq!(Arc::strong_count(&provider.uploader), 1);
+
+        let first = provider
+            .build_sink(SinkContext {
+                partition_id: 1,
+                counters: Arc::new(crate::metrics::SinkCounters::new()),
+                keep_system_columns: false,
+            })
+            .await?;
+        let second = provider
+            .build_sink(SinkContext {
+                partition_id: 2,
+                counters: Arc::new(crate::metrics::SinkCounters::new()),
+                keep_system_columns: false,
+            })
+            .await?;
+
+        assert_eq!(Arc::strong_count(&provider.uploader), 3);
+        drop(first);
+        drop(second);
+        assert_eq!(Arc::strong_count(&provider.uploader), 1);
         Ok(())
     }
 }

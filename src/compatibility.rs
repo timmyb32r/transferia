@@ -14,20 +14,20 @@ pub enum EndpointDescriptor {
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
     Discard,
-    Other,
 }
 
 #[derive(Debug, Clone)]
 pub struct SourceDescriptor {
-    pub framing: SourceFraming,
+    pub behavior: SourceBehavior,
     pub system_columns: Vec<SystemColumnKind>,
     pub columns: Vec<ColumnDescriptor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SourceFraming {
-    OneMessageOneRow,
-    MultipleRowsPerMessage,
+pub enum SourceBehavior {
+    ProducesRows,
+    /// Benchmark-only mode which advances source offsets without producing rows.
+    BenchmarkDiscard,
 }
 
 #[derive(Debug, Clone)]
@@ -48,7 +48,7 @@ pub struct S3Descriptor {
 pub enum S3Partitioning {
     Source,
     Fields(Vec<String>),
-    SourceTime,
+    RecordTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -72,7 +72,6 @@ pub enum DiagnosticCode {
     UnsupportedPipeline,
     MissingSystemColumn,
     SystemColumnsNotProduced,
-    FieldPartitioningRequiresAtomicMessage,
     UnknownPartitionField,
     NullablePartitionField,
     UnsupportedPartitionFieldType,
@@ -80,6 +79,7 @@ pub enum DiagnosticCode {
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
     BenchmarkDiscard,
+    BenchmarkSourceDiscard,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,10 +126,31 @@ pub fn validate_pipeline(
             diagnostics: vec![SemanticsDiagnostic {
                 code: DiagnosticCode::BenchmarkDiscard,
                 severity: DiagnosticSeverity::Info,
-                config_paths: vec!["sink.empty".into()],
-                explanation: "the empty sink acknowledges and discards every delivery; it is intended only for throughput benchmarks".into(),
+                config_paths: vec!["sink.discard".into()],
+                explanation: "the discard sink acknowledges and drops every delivery; it is intended only for throughput benchmarks".into(),
                 remediation: Some("use clickhouse or s3 for a durable transfer".into()),
             }],
+        };
+    }
+    if matches!(
+        source,
+        EndpointDescriptor::PqV1(SourceDescriptor {
+            behavior: SourceBehavior::BenchmarkDiscard,
+            ..
+        })
+    ) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::NoDurability,
+            diagnostics: vec![error(
+                DiagnosticCode::BenchmarkSourceDiscard,
+                &[
+                    "source.pqv1.benchmark_discard_before_decompression",
+                    "source.pqv1.parser.benchmark_discard",
+                    "sink",
+                ],
+                "the PQv1 source is configured to discard payloads, so a durable sink would acknowledge and commit data it never stored",
+                Some("disable benchmark_discard_before_decompression and configure a row-producing parser, or use the benchmark-only discard sink"),
+            )],
         };
     }
     if matches!(
@@ -182,14 +203,6 @@ pub fn validate_pipeline(
 
     match &sink.partitioning {
         S3Partitioning::Fields(fields) => {
-            if source.framing != SourceFraming::OneMessageOneRow {
-                diagnostics.push(error(
-                    DiagnosticCode::FieldPartitioningRequiresAtomicMessage,
-                    &["source.pqv1.parser.json_parser.chunk_splitter", "sink.s3.partitioning"],
-                    "logical field partitioning could split one PQv1 message across multiple S3 objects",
-                    Some("set chunk_splitter: one-message-one-row"),
-                ));
-            }
             for field in fields {
                 match source.columns.iter().find(|column| column.name == *field) {
                     None => diagnostics.push(error(
@@ -227,7 +240,7 @@ pub fn validate_pipeline(
                 }
             }
         }
-        S3Partitioning::SourceTime => {
+        S3Partitioning::RecordTime => {
             require_system_column(source, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
         }
         S3Partitioning::Source => {}
@@ -251,15 +264,19 @@ pub fn validate_pipeline(
             severity: DiagnosticSeverity::Info,
             config_paths: vec![
                 "source.pqv1.parser".into(),
+                "middlewares".into(),
                 "keep_system_columns_in_sink".into(),
+                "sink.s3.bucket".into(),
+                "sink.s3.endpoint".into(),
+                "sink.s3.region".into(),
                 "sink.s3.prefix".into(),
                 "sink.s3.partitioning".into(),
                 "sink.s3.rotation".into(),
                 "sink.s3.buffering.max_open_objects".into(),
                 "sink.s3.buffering.max_epoch_bytes".into(),
             ],
-            explanation: "object boundaries and keys are deterministic for fixed parser and sink configuration; successful overwrite precedes source commit".into(),
-            remediation: Some("do not change parser/projection settings, S3 prefix, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
+            explanation: "object boundaries and keys are deterministic for fixed transformation and destination configuration; successful overwrite precedes source commit".into(),
+            remediation: Some("do not change parser, middleware, projection, destination identity, S3 prefix, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
         });
         DeliveryGuarantee::ExactlyOnce
     };
@@ -338,7 +355,7 @@ mod tests {
 
     fn source() -> EndpointDescriptor {
         EndpointDescriptor::PqV1(SourceDescriptor {
-            framing: SourceFraming::OneMessageOneRow,
+            behavior: SourceBehavior::ProducesRows,
             system_columns: vec![
                 SystemColumnKind::TopicName,
                 SystemColumnKind::PartitionNum,
@@ -401,25 +418,32 @@ mod tests {
     }
 
     #[test]
-    fn field_partitioning_requires_one_message_one_row() {
+    fn durable_sinks_reject_a_discarding_source() {
         let mut source_endpoint = source();
         let EndpointDescriptor::PqV1(source) = &mut source_endpoint else {
             unreachable!()
         };
-        source.framing = SourceFraming::MultipleRowsPerMessage;
-        let report = validate_pipeline(
-            &source_endpoint,
-            &sink(S3Partitioning::Fields(vec!["tenant".into()]), false),
-            false,
-        );
-        assert!(report.ensure_valid().is_err());
-        assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == DiagnosticCode::FieldPartitioningRequiresAtomicMessage
-        }));
+        source.behavior = SourceBehavior::BenchmarkDiscard;
+
+        for sink_endpoint in [
+            EndpointDescriptor::ClickHouse,
+            sink(S3Partitioning::Source, false),
+        ] {
+            let report = validate_pipeline(&source_endpoint, &sink_endpoint, false);
+            assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
+            assert!(report.ensure_valid().is_err());
+            assert!(report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == DiagnosticCode::BenchmarkSourceDiscard
+                    && diagnostic.severity == DiagnosticSeverity::Error
+            }));
+        }
+
+        let benchmark = validate_pipeline(&source_endpoint, &EndpointDescriptor::Discard, false);
+        assert!(benchmark.ensure_valid().is_ok());
     }
 
     #[test]
-    fn time_partitioning_requires_source_timestamp_column() {
+    fn record_time_partitioning_requires_source_timestamp_column() {
         let mut source_endpoint = source();
         let EndpointDescriptor::PqV1(source) = &mut source_endpoint else {
             unreachable!()
@@ -429,7 +453,7 @@ mod tests {
             .retain(|kind| *kind != SystemColumnKind::WriteTimestampMs);
         let report = validate_pipeline(
             &source_endpoint,
-            &sink(S3Partitioning::SourceTime, false),
+            &sink(S3Partitioning::RecordTime, false),
             false,
         );
         assert!(report.ensure_valid().is_err());

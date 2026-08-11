@@ -6,7 +6,7 @@ use serde_yaml::Value;
 use crate::metrics::MetricsConfig;
 use crate::middleware::MiddlewareEntry;
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub source: SourceEntry,
@@ -32,7 +32,7 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct SourceEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,
@@ -48,7 +48,7 @@ impl SourceEntry {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct SinkEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,
@@ -120,6 +120,8 @@ source:
     connection_string: grpc://localhost
     topic_path: topic-a
     consumer_name: consumer-a
+    partition_ids: [0]
+    auth: { type: access_token, token: test }
     parser:
       common:
         table_naming: { type: from_config, name: events }
@@ -140,7 +142,7 @@ sink:
 keep_system_columns_in_sink: false
 ",
         )?;
-        let source: crate::providers::yds::config::YdsSourceConfig =
+        let source: crate::providers::pqv1::config::PqV1SourceConfig =
             serde_yaml::from_value(config.source.raw()?.clone())?;
         let _: crate::parsers::json_parser::JsonParserConfig =
             serde_yaml::from_value(source.parser.parser.raw()?.clone())?;

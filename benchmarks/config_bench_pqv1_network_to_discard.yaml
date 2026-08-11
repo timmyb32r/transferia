@@ -1,6 +1,6 @@
-# PQv1 -> empty sink: measures network/read-loop throughput by dropping data
+# PQv1 -> discard sink: measures network/read-loop throughput by dropping data
 # before decompression.
-# cargo run --release -- --config benchmarks/config_bench_yds_no_parser_and_decompress.yaml
+# cargo run --release -- --config benchmarks/config_bench_pqv1_network_to_discard.yaml
 
 source:
   pqv1:
@@ -11,19 +11,19 @@ source:
     auth:
       type: access_token
       token_file: "$HOME/.logbroker/token"
-    drop_before_decompress: true
+    benchmark_discard_before_decompression: true
     parser:
       common:
         table_naming:
           type: from_config
           name: "events"
-      none: {}
+      benchmark_discard: {}
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456
 
 sink:
-  empty: {}
+  discard: {}
 
 metrics:
   enabled: true

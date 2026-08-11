@@ -1,5 +1,9 @@
 # ClickHouse: полный список способов поставлять данные с гарантиями exactly-once
 
+> **Status: research archive, not an operator guide.** None of the mechanisms
+> below are automatically enabled by the current pipeline. See
+> `pqv1-clickhouse-delivery.md` for the implemented contract.
+
 > Исследование проведено по исходникам ClickHouse `/Users/timmyb32r/tmp/ClickHouse` (src + docs/ru + docs/en).  
 > Дата: 2026-08-07.
 

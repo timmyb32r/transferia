@@ -18,9 +18,7 @@ use crate::types::schema::DatasetSchema;
 // ---------------------------------------------------------------------------
 
 pub trait SourceProvider: Send + Sync {
-    fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::Other
-    }
+    fn compatibility(&self) -> EndpointDescriptor;
     fn build_source(
         &self,
         partition_id: i64,
@@ -28,19 +26,17 @@ pub trait SourceProvider: Send + Sync {
         memory: PipelineMemory,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
-    fn discover_partitions(
+    fn partitions_for_worker(
         &self,
         total_workers: u32,
         worker_index: u32,
     ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>>;
 
     fn resolve_table_name(&self) -> anyhow::Result<String>;
-    fn parser_config(&self) -> Option<&ParserConfig>;
+    fn parser_config(&self) -> &ParserConfig;
 
     /// Runtime dataset schema produced by this source/parser pipeline.
-    fn schema(&self) -> Option<&DatasetSchema> {
-        None
-    }
+    fn schema(&self) -> &DatasetSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,9 +44,7 @@ pub trait SourceProvider: Send + Sync {
 // ---------------------------------------------------------------------------
 
 pub trait SinkProvider: Send + Sync {
-    fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::Other
-    }
+    fn compatibility(&self) -> EndpointDescriptor;
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
     /// Validate constraints that span the global pipeline and sink-specific

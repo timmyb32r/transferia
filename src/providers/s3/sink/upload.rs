@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -9,7 +10,11 @@ use object_store::{Error as ObjectStoreError, MultipartUpload, ObjectStore};
 use tokio_util::sync::CancellationToken;
 
 use super::config::{RetryConfig, UploadConfig};
+use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use crate::pipeline::PipelineFailure;
+
+// Keep abort cleanup below the actor's five-second upload-drain grace period.
+const MULTIPART_ABORT_TIMEOUT: Duration = Duration::from_secs(4);
 
 #[derive(Debug)]
 pub enum UploadError {
@@ -47,22 +52,29 @@ impl S3Uploader {
             classify_object_store_error(ObjectStoreError::InvalidPath { source })
         })?;
         if payload.len() < self.config.multipart_threshold.0 {
-            tokio::select! {
+            let result = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => return Err(UploadError::Cancelled),
-                result = self.store.put(&path, payload.into()) => {
-                    result.map_err(classify_object_store_error)?;
-                }
-            }
+                result = object_store_operation(
+                    self.config.operation_timeout.0,
+                    "PUT",
+                    key,
+                    self.store.put(&path, payload.into()),
+                ) => result,
+            };
+            result?;
             return Ok(());
         }
 
         let mut upload = tokio::select! {
             biased;
             () = cancellation.cancelled() => return Err(UploadError::Cancelled),
-            result = self.store.put_multipart(&path) => {
-                result.map_err(classify_object_store_error)?
-            }
+            result = object_store_operation(
+                self.config.operation_timeout.0,
+                "multipart initiation",
+                key,
+                self.store.put_multipart(&path),
+            ) => result?,
         };
         upload_multipart(upload.as_mut(), &self.config, key, payload, cancellation).await
     }
@@ -87,14 +99,23 @@ async fn upload_multipart(
                 }
                 result = parts.next() => result,
             };
-            if let Some(Err(error)) = result {
-                drop(parts);
-                abort_multipart(upload, key).await;
-                return Err(classify_object_store_error(error));
+            match result {
+                Some(Ok(())) => {}
+                None => break,
+                Some(Err(error)) => {
+                    drop(parts);
+                    abort_multipart(upload, key).await;
+                    return Err(error);
+                }
             }
         }
         let end = start.saturating_add(config.part_size.0).min(payload.len());
-        parts.push(upload.put_part(payload.slice(start..end).into()));
+        parts.push(object_store_operation(
+            config.operation_timeout.0,
+            "multipart part upload",
+            key,
+            upload.put_part(payload.slice(start..end).into()),
+        ));
     }
     loop {
         let result = tokio::select! {
@@ -106,13 +127,14 @@ async fn upload_multipart(
             }
             result = parts.next() => result,
         };
-        let Some(result) = result else {
-            break;
-        };
-        if let Err(error) = result {
-            drop(parts);
-            abort_multipart(upload, key).await;
-            return Err(classify_object_store_error(error));
+        match result {
+            Some(Ok(())) => {}
+            None => break,
+            Some(Err(error)) => {
+                drop(parts);
+                abort_multipart(upload, key).await;
+                return Err(error);
+            }
         }
     }
     let completed = tokio::select! {
@@ -121,22 +143,54 @@ async fn upload_multipart(
             abort_multipart(upload, key).await;
             return Err(UploadError::Cancelled);
         }
-        result = upload.complete() => result,
+        result = object_store_operation(
+            config.operation_timeout.0,
+            "multipart completion",
+            key,
+            upload.complete(),
+        ) => result,
     };
     if let Err(error) = completed {
         abort_multipart(upload, key).await;
-        return Err(classify_object_store_error(error));
+        return Err(error);
     }
     Ok(())
 }
 
 async fn abort_multipart(upload: &mut dyn MultipartUpload, key: &str) {
-    if let Err(error) = upload.abort().await {
-        tracing::warn!(
-            object_key = key,
-            "failed to abort S3 multipart upload: {error}"
-        );
+    match tokio::time::timeout(MULTIPART_ABORT_TIMEOUT, upload.abort()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(
+                object_key = key,
+                "failed to abort S3 multipart upload: {error}"
+            );
+        }
+        Err(_) => {
+            tracing::warn!(
+                object_key = key,
+                timeout_ms = MULTIPART_ABORT_TIMEOUT.as_millis(),
+                "timed out aborting S3 multipart upload"
+            );
+        }
     }
+}
+
+async fn object_store_operation<T>(
+    timeout: Duration,
+    operation: &'static str,
+    key: &str,
+    future: impl Future<Output = object_store::Result<T>>,
+) -> Result<T, UploadError> {
+    tokio::time::timeout(timeout, future).await.map_or_else(
+        |_| {
+            Err(UploadError::Retryable(anyhow::anyhow!(
+                "S3 {operation} for '{key}' timed out after {}ms",
+                timeout.as_millis()
+            )))
+        },
+        |result| result.map_err(classify_object_store_error),
+    )
 }
 
 impl ObjectUploader for S3Uploader {
@@ -240,20 +294,12 @@ pub async fn upload_with_retry(
 
 fn retry_delay(config: &RetryConfig, attempt: u32, key: &str) -> Duration {
     let shift = attempt.min(20);
-    let base_ms = config
+    let base = config
         .initial_backoff
         .0
-        .as_millis()
-        .saturating_mul(1_u128 << shift);
-    let capped_ms = base_ms.min(config.max_backoff.0.as_millis());
-    let hash = key.bytes().fold(u64::from(attempt) + 1, |state, byte| {
-        state
-            .wrapping_mul(1_099_511_628_211)
-            .wrapping_add(u64::from(byte))
-    });
-    let jitter_percent = 80 + hash % 41;
-    let jittered = capped_ms.saturating_mul(u128::from(jitter_percent)) / 100;
-    Duration::from_millis(u64::try_from(jittered).unwrap_or(u64::MAX))
+        .saturating_mul(1_u32 << shift)
+        .min(config.max_backoff.0);
+    jittered_retry_delay(base, attempt, stable_retry_seed(key.as_bytes()))
 }
 
 #[cfg(test)]
@@ -266,11 +312,26 @@ mod tests {
     struct FakeMultipart {
         aborts: Arc<AtomicUsize>,
         fail_complete: bool,
+        hanging_part: Option<usize>,
+        slow_parts: bool,
+        part_calls: usize,
+        hang_abort: bool,
     }
 
     impl MultipartUpload for FakeMultipart {
         fn put_part(&mut self, _data: PutPayload) -> UploadPart {
-            Box::pin(async { Ok(()) })
+            let part = self.part_calls;
+            self.part_calls = self.part_calls.saturating_add(1);
+            if self.hanging_part == Some(part) {
+                Box::pin(std::future::pending())
+            } else if self.slow_parts {
+                Box::pin(async {
+                    tokio::time::sleep(Duration::from_millis(900)).await;
+                    Ok(())
+                })
+            } else {
+                Box::pin(async { Ok(()) })
+            }
         }
 
         fn complete<'life0, 'async_trait>(
@@ -300,7 +361,11 @@ mod tests {
             Self: 'async_trait,
         {
             self.aborts.fetch_add(1, Ordering::AcqRel);
-            Box::pin(async { Ok(()) })
+            if self.hang_abort {
+                Box::pin(std::future::pending())
+            } else {
+                Box::pin(async { Ok(()) })
+            }
         }
     }
 
@@ -310,7 +375,28 @@ mod tests {
             part_size: super::super::config::ByteSize(5),
             parallel_parts: 1,
             max_in_flight_objects: 1,
+            operation_timeout: super::super::config::DurationValue(Duration::from_secs(1)),
         }
+    }
+
+    #[test]
+    fn retry_delay_is_deterministic_keyed_and_never_exceeds_the_cap() {
+        let config = RetryConfig {
+            initial_backoff: super::super::config::DurationValue(Duration::from_millis(100)),
+            max_backoff: super::super::config::DurationValue(Duration::from_millis(200)),
+            max_attempts: 3,
+        };
+        let delay = retry_delay(&config, 8, "partition/7/object");
+
+        assert_eq!(delay, retry_delay(&config, 8, "partition/7/object"));
+        assert!(delay >= Duration::from_millis(160));
+        assert!(delay <= Duration::from_millis(200));
+        assert!(
+            (0..8)
+                .map(|partition| retry_delay(&config, 8, &format!("partition/{partition}/object")))
+                .any(|candidate| candidate != delay),
+            "different object keys should desynchronize at least one retry"
+        );
     }
 
     #[test]
@@ -340,6 +426,10 @@ mod tests {
         let mut upload = FakeMultipart {
             aborts: Arc::clone(&aborts),
             fail_complete: true,
+            hanging_part: None,
+            slow_parts: false,
+            part_calls: 0,
+            hang_abort: false,
         };
         let result = upload_multipart(
             &mut upload,
@@ -360,6 +450,10 @@ mod tests {
         let mut upload = FakeMultipart {
             aborts: Arc::clone(&aborts),
             fail_complete: false,
+            hanging_part: None,
+            slow_parts: false,
+            part_calls: 0,
+            hang_abort: false,
         };
         let cancellation = CancellationToken::new();
         cancellation.cancel();
@@ -368,6 +462,84 @@ mod tests {
             &multipart_config(),
             "object",
             Bytes::from_static(b"1234567890"),
+            &cancellation,
+        )
+        .await;
+
+        assert!(matches!(result, Err(UploadError::Cancelled)));
+        assert_eq!(aborts.load(Ordering::Acquire), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn part_timeout_aborts_multipart() {
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let mut upload = FakeMultipart {
+            aborts: Arc::clone(&aborts),
+            fail_complete: false,
+            hanging_part: Some(0),
+            slow_parts: false,
+            part_calls: 0,
+            hang_abort: false,
+        };
+        let result = upload_multipart(
+            &mut upload,
+            &multipart_config(),
+            "object",
+            Bytes::from_static(b"12345"),
+            &CancellationToken::new(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(UploadError::Retryable(_))));
+        assert_eq!(aborts.load(Ordering::Acquire), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn each_parallel_part_has_its_own_deadline() {
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let mut upload = FakeMultipart {
+            aborts: Arc::clone(&aborts),
+            fail_complete: false,
+            hanging_part: Some(0),
+            slow_parts: true,
+            part_calls: 0,
+            hang_abort: false,
+        };
+        let mut config = multipart_config();
+        config.parallel_parts = 2;
+        let started = tokio::time::Instant::now();
+        let result = upload_multipart(
+            &mut upload,
+            &config,
+            "object",
+            Bytes::from_static(b"12345678901234567890"),
+            &CancellationToken::new(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(UploadError::Retryable(_))));
+        assert_eq!(started.elapsed(), Duration::from_secs(1));
+        assert_eq!(aborts.load(Ordering::Acquire), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancellation_does_not_wait_forever_for_abort() {
+        let aborts = Arc::new(AtomicUsize::new(0));
+        let mut upload = FakeMultipart {
+            aborts: Arc::clone(&aborts),
+            fail_complete: false,
+            hanging_part: None,
+            slow_parts: false,
+            part_calls: 0,
+            hang_abort: true,
+        };
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let result = upload_multipart(
+            &mut upload,
+            &multipart_config(),
+            "object",
+            Bytes::from_static(b"12345"),
             &cancellation,
         )
         .await;

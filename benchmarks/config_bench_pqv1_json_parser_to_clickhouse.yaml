@@ -1,6 +1,6 @@
 # End-to-end PQv1 -> ClickHouse benchmark.
 # Replace the endpoint/topic/credentials before running.
-# cargo run --release -- --config benchmarks/config_bench_yds_json_parser_to_ch.yaml
+# cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_clickhouse.yaml
 
 source:
   pqv1:

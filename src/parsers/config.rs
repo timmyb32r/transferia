@@ -49,11 +49,6 @@ impl SystemColumnsConfig {
         .into_iter()
         .filter_map(|(enabled, kind)| enabled.then_some(kind))
     }
-
-    #[must_use]
-    pub fn any_enabled(&self) -> bool {
-        self.enabled().next().is_some()
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

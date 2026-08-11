@@ -1,7 +1,6 @@
 pub mod filter;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::collections::HashMap;
 
 use serde::Deserialize;
 use serde_yaml::Value;
@@ -32,54 +31,17 @@ impl MiddlewareEntry {
     }
 }
 
-type MiddlewareFactory = Arc<dyn Fn(Value) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync>;
-
-static MIDDLEWARE_REGISTRY: LazyLock<Mutex<HashMap<&'static str, MiddlewareFactory>>> =
-    LazyLock::new(|| {
-        let mut registry: HashMap<&'static str, MiddlewareFactory> = HashMap::new();
-        registry.insert(
-            "filter",
-            Arc::new(|raw| {
-                let config: filter::FilterConfig = serde_yaml::from_value(raw)?;
-                Ok(
-                    Box::new(filter::FilterMiddleware::new(config.field, config.value)?)
-                        as Box<dyn Middleware>,
-                )
-            }),
-        );
-        Mutex::new(registry)
-    });
-
-pub fn register_middleware(name: &'static str, factory: MiddlewareFactory) {
-    MIDDLEWARE_REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(name, factory);
-}
-
-pub fn middleware_names() -> HashSet<&'static str> {
-    MIDDLEWARE_REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .keys()
-        .copied()
-        .collect()
-}
-
 pub fn build_middleware(name: &str, raw: Value) -> anyhow::Result<Box<dyn Middleware>> {
-    let factory = {
-        let registry = MIDDLEWARE_REGISTRY
-            .lock()
-            .map_err(|error| anyhow::anyhow!("middleware registry is poisoned: {error}"))?;
-        registry.get(name).cloned().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Unknown middleware '{}'; registered: {:?}",
-                name,
-                registry.keys().collect::<Vec<_>>(),
-            )
-        })?
-    };
-    factory(raw)
+    match name {
+        "filter" => {
+            let config: filter::FilterConfig = serde_yaml::from_value(raw)?;
+            Ok(Box::new(filter::FilterMiddleware::new(
+                config.field,
+                config.value,
+            )?))
+        }
+        other => anyhow::bail!("unknown middleware '{other}'; supported middleware: filter"),
+    }
 }
 
 #[cfg(test)]

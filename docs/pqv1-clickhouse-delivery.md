@@ -22,6 +22,12 @@ Consequences for operators:
 - changing parser or table configuration while uncommitted data can replay may
   change the rows produced by that replay.
 
+Connection and request deadlines are configurable, but the bundled native
+client performs a blocking TCP connect with its own 30-second bound. A smaller
+configured connect timeout therefore is not a strict wall-clock interrupt.
+TLS is rejected because this client cannot verify server certificates; use a
+verified local TLS tunnel when encryption is required.
+
 ## Possible exactly-once designs
 
 The following are design options only; none is implemented:

@@ -1,37 +1,51 @@
 use std::sync::Mutex;
+use std::time::Duration;
 
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{
-    ArrowFormat, Client, ClientBuilder, ConnectionStatus, Result as ClickHouseResult,
+    ArrowFormat, Client, ClientBuilder, ConnectionStatus, Error as ClickHouseError,
+    Result as ClickHouseResult,
 };
 use futures_util::StreamExt as _;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::timeout;
 
 use super::ClickHouseSinkConfig;
 
 pub(super) struct ReconnectingClient {
     builder: ClientBuilder,
     client: Mutex<Option<Client<ArrowFormat>>>,
+    reconnect: AsyncMutex<()>,
+    connect_timeout: Duration,
+    request_timeout: Duration,
 }
 
 impl ReconnectingClient {
     pub(super) async fn connect(config: &ClickHouseSinkConfig) -> anyhow::Result<Self> {
-        let builder = configured_builder(config)
-            .verify()
+        let connect_timeout = config.connect_timeout();
+        let request_timeout = config.request_timeout();
+        let builder = timeout(connect_timeout, configured_builder(config).verify())
             .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "ClickHouse destination resolution timed out after {} ms",
+                    connect_timeout.as_millis()
+                )
+            })?
             .map_err(|error| anyhow::anyhow!("Failed to configure ClickHouse client: {error}"))?;
-        let client = builder
-            .clone()
-            .build_arrow()
+        let this = Self {
+            builder,
+            client: Mutex::new(None),
+            reconnect: AsyncMutex::new(()),
+            connect_timeout,
+            request_timeout,
+        };
+        let client = this
+            .build_client()
             .await
             .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
-        client
-            .execute("SELECT 1", None)
-            .await
-            .map_err(|error| anyhow::anyhow!("ClickHouse health check failed: {error}"))?;
-        Ok(Self {
-            builder,
-            client: Mutex::new(Some(client)),
-        })
+        this.replace(client);
+        Ok(this)
     }
 
     pub(super) async fn insert_many(
@@ -51,6 +65,7 @@ impl ReconnectingClient {
         let query = insert_query(table, schema.as_ref());
         let client = self.client().await?;
         let client_id = client.client_id;
+        let mut invalidate = InvalidateOnDrop::new(self, client_id);
         let result = async {
             let mut stream = client.insert_many(&query, batches, None).await?;
             while let Some(item) = stream.next().await {
@@ -59,8 +74,41 @@ impl ReconnectingClient {
             Ok(())
         }
         .await;
-        if result.is_err() {
-            self.invalidate(client_id);
+        if result.is_ok() {
+            invalidate.disarm();
+        }
+        result
+    }
+
+    pub(super) async fn execute(&self, query: &str) -> ClickHouseResult<()> {
+        let client = self.client().await?;
+        let client_id = client.client_id;
+        let mut invalidate = InvalidateOnDrop::new(self, client_id);
+        let result = timeout(self.request_timeout, client.execute(query, None))
+            .await
+            .map_err(|_| self.request_timeout_error("ClickHouse request"))?;
+        if result.is_ok() {
+            invalidate.disarm();
+        }
+        result
+    }
+
+    pub(super) async fn query_all(&self, query: &str) -> ClickHouseResult<Vec<RecordBatch>> {
+        let client = self.client().await?;
+        let client_id = client.client_id;
+        let mut invalidate = InvalidateOnDrop::new(self, client_id);
+        let result = timeout(self.request_timeout, async {
+            let mut stream = client.query(query, None).await?;
+            let mut batches = Vec::new();
+            while let Some(batch) = stream.next().await {
+                batches.push(batch?);
+            }
+            Ok::<_, ClickHouseError>(batches)
+        })
+        .await
+        .map_err(|_| self.request_timeout_error("ClickHouse schema query"))?;
+        if result.is_ok() {
+            invalidate.disarm();
         }
         result
     }
@@ -69,13 +117,43 @@ impl ReconnectingClient {
         if let Some(client) = self.current_client() {
             return Ok(client);
         }
+        let _reconnect = self.reconnect.lock().await;
+        if let Some(client) = self.current_client() {
+            return Ok(client);
+        }
         tracing::info!("reconnecting ClickHouse client");
-        let client = self.builder.clone().build_arrow().await?;
+        let client = self.build_client().await?;
+        self.replace(client.clone());
+        Ok(client)
+    }
+
+    async fn build_client(&self) -> ClickHouseResult<Client<ArrowFormat>> {
+        let client = timeout(self.connect_timeout, self.builder.clone().build_arrow())
+            .await
+            .map_err(|_| {
+                ClickHouseError::ConnectionTimeout(format!(
+                    "ClickHouse connect timed out after {} ms",
+                    self.connect_timeout.as_millis()
+                ))
+            })??;
+        timeout(self.request_timeout, client.execute("SELECT 1", None))
+            .await
+            .map_err(|_| self.request_timeout_error("ClickHouse health check"))??;
+        Ok(client)
+    }
+
+    fn replace(&self, client: Client<ArrowFormat>) {
         self.client
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(client.clone());
-        Ok(client)
+            .replace(client);
+    }
+
+    fn request_timeout_error(&self, operation: &str) -> ClickHouseError {
+        ClickHouseError::OutgoingTimeout(format!(
+            "{operation} timed out after {} ms",
+            self.request_timeout.as_millis()
+        ))
     }
 
     fn current_client(&self) -> Option<Client<ArrowFormat>> {
@@ -107,23 +185,41 @@ impl ReconnectingClient {
     }
 }
 
-pub(super) async fn connect_once(
-    config: &ClickHouseSinkConfig,
-) -> ClickHouseResult<Client<ArrowFormat>> {
-    configured_builder(config).build_arrow().await
+struct InvalidateOnDrop<'client> {
+    owner: &'client ReconnectingClient,
+    client_id: u16,
+    armed: bool,
+}
+
+impl<'client> InvalidateOnDrop<'client> {
+    const fn new(owner: &'client ReconnectingClient, client_id: u16) -> Self {
+        Self {
+            owner,
+            client_id,
+            armed: true,
+        }
+    }
+
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for InvalidateOnDrop<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.owner.invalidate(self.client_id);
+        }
+    }
 }
 
 fn configured_builder(config: &ClickHouseSinkConfig) -> ClientBuilder {
-    let mut builder = ClientBuilder::new()
+    ClientBuilder::new()
         .with_destination(config.connection_string.as_str())
         .with_database(config.database.as_str())
         .with_username(config.username.as_str())
         .with_password(config.password.as_str())
-        .with_tls(config.use_tls);
-    if let Some(domain) = &config.tls_domain {
-        builder = builder.with_domain(domain.as_str());
-    }
-    builder
+        .with_tls(config.use_tls)
 }
 
 pub(super) fn quote_identifier(identifier: &str) -> String {

@@ -4,24 +4,24 @@ use serde_yaml::Value;
 
 use crate::compatibility::EndpointDescriptor;
 use crate::pipeline::sink::Sink;
-use crate::providers::empty::sink::EmptySink;
+use crate::providers::discard::sink::DiscardSink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
-pub struct EmptySinkProvider;
+pub struct DiscardSinkProvider;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EmptySinkConfig {}
+struct DiscardSinkConfig {}
 
-impl EmptySinkProvider {
+impl DiscardSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let _: EmptySinkConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse empty sink config: {error}"))?;
+        let _: DiscardSinkConfig = serde_yaml::from_value(value)
+            .map_err(|error| anyhow::anyhow!("Failed to parse discard sink config: {error}"))?;
         Ok(Self)
     }
 }
 
-impl SinkProvider for EmptySinkProvider {
+impl SinkProvider for DiscardSinkProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Discard
     }
@@ -31,7 +31,7 @@ impl SinkProvider for EmptySinkProvider {
     }
 
     fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
-        Box::pin(async move { Ok(Box::new(EmptySink::new(context.counters)) as Box<dyn Sink>) })
+        Box::pin(async move { Ok(Box::new(DiscardSink::new(context.counters)) as Box<dyn Sink>) })
     }
 }
 
@@ -40,9 +40,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_unknown_empty_sink_settings() -> anyhow::Result<()> {
-        assert!(EmptySinkProvider::from_config(serde_yaml::from_str("unexpected: true")?).is_err());
-        assert!(EmptySinkProvider::from_config(serde_yaml::from_str("{}")?).is_ok());
+    fn rejects_unknown_discard_sink_settings() -> anyhow::Result<()> {
+        assert!(
+            DiscardSinkProvider::from_config(serde_yaml::from_str("unexpected: true")?).is_err()
+        );
+        assert!(DiscardSinkProvider::from_config(serde_yaml::from_str("{}")?).is_ok());
         Ok(())
     }
 }

@@ -5,11 +5,11 @@ use futures_util::future::BoxFuture;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
 
-use super::client::ReconnectingClient;
-use super::transport::{InsertError, InsertTransport, NativeTransport};
+use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
+use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::pipeline::PipelineFailure;
 
@@ -39,30 +39,25 @@ pub struct ClickHouseSink {
     counters: Arc<SinkCounters>,
     buffers: HashMap<Arc<str>, TableBuffer>,
     progress: DeliveryTracker<()>,
+    partition_retry_seed: u64,
 }
 
 impl ClickHouseSink {
-    pub async fn new(
-        config: ClickHouseSinkConfig,
-        counters: Arc<SinkCounters>,
-    ) -> anyhow::Result<Self> {
-        let client = Arc::new(ReconnectingClient::connect(&config).await?);
-        tracing::info!(
-            "Connected to ClickHouse at {} (one connection per partition)",
-            config.connection_string
-        );
-        Ok(Self::with_transport(
-            config,
-            counters,
-            Arc::new(NativeTransport::new(client)),
-        ))
-    }
-
     #[must_use]
     pub fn with_transport(
         config: ClickHouseSinkConfig,
         counters: Arc<SinkCounters>,
         transport: Arc<dyn InsertTransport>,
+    ) -> Self {
+        Self::with_transport_for_partition(config, counters, transport, 0)
+    }
+
+    #[must_use]
+    pub fn with_transport_for_partition(
+        config: ClickHouseSinkConfig,
+        counters: Arc<SinkCounters>,
+        transport: Arc<dyn InsertTransport>,
+        partition_id: i64,
     ) -> Self {
         Self {
             transport,
@@ -70,6 +65,7 @@ impl ClickHouseSink {
             counters,
             buffers: HashMap::new(),
             progress: DeliveryTracker::new(),
+            partition_retry_seed: stable_retry_seed(&partition_id.to_le_bytes()),
         }
     }
 
@@ -152,6 +148,8 @@ impl ClickHouseSink {
         let transport = Arc::clone(&self.transport);
         let counters = Arc::clone(&self.counters);
         let config = self.config.clone();
+        let retry_seed =
+            self.partition_retry_seed.rotate_left(17) ^ stable_retry_seed(active.table.as_bytes());
         tokio::spawn(async move {
             let mut attempts = 0_u32;
             let max_attempts = config.effective_retry_max_attempts();
@@ -170,7 +168,15 @@ impl ClickHouseSink {
                             "ClickHouse insert cancelled"
                         )));
                     }
-                    result = transport.insert(Arc::clone(&active.table), batches) => result,
+                    result = tokio::time::timeout(
+                        config.request_timeout(),
+                        transport.insert(Arc::clone(&active.table), batches),
+                    ) => result.unwrap_or_else(|_| {
+                        Err(InsertError::Transient(anyhow::anyhow!(
+                            "ClickHouse INSERT timed out after {} ms; result is ambiguous",
+                            config.request_timeout().as_millis(),
+                        )))
+                    }),
                 };
                 counters.add_busy(started.elapsed());
                 match result {
@@ -189,9 +195,11 @@ impl ClickHouseSink {
                                 error.context("ClickHouse retry limit exhausted"),
                             ));
                         }
+                        let delay =
+                            jittered_retry_delay(backoff, attempts.saturating_sub(1), retry_seed);
                         tracing::warn!(
                             attempts,
-                            backoff_ms = backoff.as_millis() as u64,
+                            delay_ms = delay.as_millis() as u64,
                             "ClickHouse INSERT failed, retrying: {error}"
                         );
                         tokio::select! {
@@ -200,7 +208,7 @@ impl ClickHouseSink {
                                     "ClickHouse retry cancelled"
                                 )));
                             }
-                            () = tokio::time::sleep(backoff) => {}
+                            () = tokio::time::sleep(delay) => {}
                         }
                         backoff = backoff
                             .saturating_mul(2)
@@ -225,7 +233,7 @@ impl ClickHouseSink {
         events: &tokio::sync::mpsc::Sender<SinkEvent>,
     ) -> anyhow::Result<()> {
         if let Some(committed) = self.progress.take_committed() {
-            self.counters.add_unique_offsets(committed.source_messages);
+            self.counters.add_source_messages(committed.source_messages);
             events
                 .send(SinkEvent::CommittedThrough(committed.through))
                 .await

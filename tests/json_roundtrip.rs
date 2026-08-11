@@ -8,7 +8,7 @@ use transferia::parsers::json_parser::{
     ChunkSplitter, ColumnMapping, JsonParser, JsonParserConfig, ParserWorkspace,
 };
 use transferia::parsers::{Parser as _, SystemColumnsConfig};
-use transferia::serializer::build_json_serializer;
+use transferia::serializer::JsonBatchEncoder;
 use transferia::types::message::Message;
 
 #[test]
@@ -26,7 +26,11 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
         schema,
         vec![Arc::new(id_arr), Arc::new(val_builder.finish())],
     )?;
-    let output = build_json_serializer().serialize_batch(&batch)?;
+    let encoder = JsonBatchEncoder::new(&batch, |_| true)?;
+    let mut output = Vec::new();
+    for row in 0..batch.num_rows() {
+        encoder.write_row(row, &mut output);
+    }
 
     let parser_config = JsonParserConfig {
         columns: vec![
@@ -51,7 +55,7 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
         "test".into(),
     )?;
     let mut workspace = ParserWorkspace::new();
-    let (good, _dlq) = parser.parse_into(vec![Message::new(output)], 0, &mut workspace)?;
+    let (good, _dlq) = parser.parse_into(vec![Message::new(output.into())], 0, &mut workspace)?;
 
     anyhow::ensure!(good.batch.num_rows() == 2, "expected two parsed rows");
     let parsed_id_arr = good

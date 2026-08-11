@@ -17,8 +17,6 @@ pub struct TableData {
     pub is_dlq: bool,
     /// Arrow columnar data.
     pub batch: RecordBatch,
-    /// Monotonic batch id for tracing.
-    pub batch_id: u64,
     /// Semantic roles of parser-generated Arrow columns.
     pub system_columns: SystemColumns,
 }
@@ -29,14 +27,12 @@ impl TableData {
         table: Arc<str>,
         is_dlq: bool,
         batch: RecordBatch,
-        batch_id: u64,
         system_columns: SystemColumns,
     ) -> Self {
         Self {
             table,
             is_dlq,
             batch,
-            batch_id,
             system_columns,
         }
     }

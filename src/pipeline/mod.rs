@@ -1,6 +1,7 @@
 pub(crate) mod delivery_tracker;
 pub mod memory;
 pub mod middleware;
+pub mod retry;
 pub mod sink;
 pub mod source;
 
@@ -22,12 +23,11 @@ use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
-use crate::pipeline::source::{CommitMarker, ReadResult, Source};
+use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
-const MAX_OUTSTANDING_DELIVERIES: usize = CHANNEL_CAPACITY * 2;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
 const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
@@ -106,14 +106,6 @@ fn delivery_meta(messages: &[Message]) -> DeliveryMeta {
             .iter()
             .map(|message| message.value.len() as u64)
             .sum(),
-        first_offset: messages
-            .iter()
-            .filter_map(|message| message.meta.offset)
-            .min(),
-        last_offset: messages
-            .iter()
-            .filter_map(|message| message.meta.offset)
-            .max(),
     }
 }
 
@@ -196,7 +188,7 @@ fn parser_loop(
             .as_ref()
             .map_or(0, |batch| arrow_batch_bytes(&batch.batch));
         counters.add_arrow_bytes(valid_bytes as u64);
-        counters.add_unique_offsets(meta.source_messages);
+        counters.add_source_messages(meta.source_messages);
         if let Some(dlq) = &dlq {
             counters.add_dlq_rows(dlq.batch.num_rows() as u64);
         }
@@ -232,16 +224,37 @@ async fn commit_through(
     ledger: &mut VecDeque<CommitEntry>,
     committed: DeliveryId,
 ) -> anyhow::Result<()> {
-    while ledger.front().is_some_and(|entry| entry.id <= committed) {
-        let entry = ledger
+    let valid_range = ledger
+        .front()
+        .zip(ledger.back())
+        .is_some_and(|(first, last)| first.id <= committed && committed <= last.id);
+    if !valid_range {
+        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+            "sink committed unknown delivery {}; outstanding range is {:?}..={:?}",
+            committed.get(),
+            ledger.front().map(|entry| entry.id.get()),
+            ledger.back().map(|entry| entry.id.get())
+        ))
+        .into());
+    }
+    let committed_entries = ledger
+        .iter()
+        .take_while(|entry| entry.id <= committed)
+        .count();
+    let markers = ledger
+        .iter()
+        .take(committed_entries)
+        .filter_map(|entry| entry.marker.clone())
+        .collect::<Vec<_>>();
+    if !markers.is_empty() {
+        source.commit_offsets(&markers).await.with_context(|| {
+            format!("source commit failed through delivery {}", committed.get())
+        })?;
+    }
+    for _ in 0..committed_entries {
+        ledger
             .pop_front()
             .ok_or_else(|| anyhow::anyhow!("commit ledger underflow"))?;
-        if let Some(marker) = entry.marker {
-            source
-                .commit_offsets(&marker)
-                .await
-                .with_context(|| format!("PQv1 commit failed at delivery {}", entry.id.get()))?;
-        }
     }
     Ok(())
 }
@@ -283,19 +296,6 @@ async fn reader_loop(
     let mut next_id = DeliveryId::new(1);
     let mut backoff_ms = INITIAL_BACKOFF_MS;
     loop {
-        if ledger.len() >= MAX_OUTSTANDING_DELIVERIES {
-            tokio::select! {
-                () = cancellation.cancelled() => return Ok(()),
-                event = events.recv() => {
-                    let event = event.ok_or_else(|| anyhow::anyhow!(
-                        "sink event stream closed while delivery admission was paused"
-                    ))?;
-                    let SinkEvent::CommittedThrough(id) = event;
-                    commit_through(&mut source, &mut ledger, id).await?;
-                }
-            }
-            continue;
-        }
         let read = tokio::select! {
             biased;
             () = cancellation.cancelled() => return Ok(()),
@@ -308,35 +308,20 @@ async fn reader_loop(
             read = source.read_batch() => read,
         };
 
-        let mut batch = match read? {
-            ReadResult::Batch(batch)
-                if batch.messages.is_empty() && batch.commit_marker.is_none() =>
-            {
-                tokio::select! {
-                    () = cancellation.cancelled() => return Ok(()),
-                    event = events.recv() => {
-                        if let Some(SinkEvent::CommittedThrough(id)) = event {
-                            commit_through(&mut source, &mut ledger, id).await?;
-                        }
+        let mut batch = read?;
+        if batch.messages.is_empty() && batch.commit_marker.is_none() {
+            tokio::select! {
+                () = cancellation.cancelled() => return Ok(()),
+                event = events.recv() => {
+                    if let Some(SinkEvent::CommittedThrough(id)) = event {
+                        commit_through(&mut source, &mut ledger, id).await?;
                     }
-                    () = sleep(Duration::from_millis(backoff_ms)) => {}
                 }
-                backoff_ms = backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
-                continue;
+                () = sleep(Duration::from_millis(backoff_ms)) => {}
             }
-            ReadResult::Batch(batch) => batch,
-            ReadResult::Failed(error) => {
-                return Err(PipelineFailure::fatal(error).into());
-            }
-            ReadResult::Exhausted => {
-                return Err(anyhow::anyhow!("PQv1 source exhausted unexpectedly"))
-            }
-            ReadResult::Arrow(_) => {
-                return Err(anyhow::anyhow!(
-                    "Arrow source is disabled in the PQv1 pipeline"
-                ))
-            }
-        };
+            backoff_ms = backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
+            continue;
+        }
         backoff_ms = INITIAL_BACKOFF_MS;
         let meta = delivery_meta(&batch.messages);
         if batch.memory.is_empty() && meta.source_bytes > 0 {
@@ -636,6 +621,45 @@ pub async fn run_partition_pipeline(
 mod tests {
     use super::*;
 
+    struct RecordingSource {
+        groups: Arc<std::sync::Mutex<Vec<Vec<i64>>>>,
+        fail_commit: bool,
+    }
+
+    impl Source for RecordingSource {
+        fn read_batch(
+            &mut self,
+        ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::types::message::MessageBatch>>
+        {
+            Box::pin(async { anyhow::bail!("recording source is commit-only") })
+        }
+
+        fn commit_offsets<'ctx>(
+            &'ctx mut self,
+            markers: &'ctx [CommitMarker],
+        ) -> futures_util::future::BoxFuture<'ctx, anyhow::Result<()>> {
+            Box::pin(async move {
+                if self.fail_commit {
+                    anyhow::bail!("injected grouped commit failure");
+                }
+                let group = markers
+                    .iter()
+                    .map(|marker| {
+                        marker
+                            .downcast_ref::<i64>()
+                            .copied()
+                            .ok_or_else(|| anyhow::anyhow!("unexpected marker"))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                self.groups
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(group);
+                Ok(())
+            })
+        }
+    }
+
     #[test]
     fn parser_shutdown_timeout_cannot_restart_over_a_live_parser_thread() {
         let error = ComponentOutcome::fatal_timeout("parser timeout")
@@ -645,5 +669,89 @@ mod tests {
             .downcast_ref::<PipelineFailure>()
             .expect("parser timeout must preserve its restart contract");
         assert!(!failure.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn commit_through_submits_the_contiguous_prefix_as_one_source_group() {
+        let groups = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut source: Box<dyn Source> = Box::new(RecordingSource {
+            groups: Arc::clone(&groups),
+            fail_commit: false,
+        });
+        let mut ledger = VecDeque::from([
+            CommitEntry {
+                id: DeliveryId::new(1),
+                marker: Some(CommitMarker::new(11_i64)),
+            },
+            CommitEntry {
+                id: DeliveryId::new(2),
+                marker: None,
+            },
+            CommitEntry {
+                id: DeliveryId::new(3),
+                marker: Some(CommitMarker::new(33_i64)),
+            },
+        ]);
+
+        commit_through(&mut source, &mut ledger, DeliveryId::new(3))
+            .await
+            .unwrap();
+
+        assert!(ledger.is_empty());
+        assert_eq!(
+            *groups
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+            vec![vec![11, 33]]
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_through_rejects_an_unknown_sink_delivery_as_fatal() {
+        let mut source: Box<dyn Source> = Box::new(RecordingSource {
+            groups: Arc::new(std::sync::Mutex::new(Vec::new())),
+            fail_commit: false,
+        });
+        let mut ledger = VecDeque::from([CommitEntry {
+            id: DeliveryId::new(1),
+            marker: Some(CommitMarker::new(11_i64)),
+        }]);
+
+        let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2))
+            .await
+            .expect_err("sink cannot commit a delivery the source never issued");
+
+        let failure = error
+            .downcast_ref::<PipelineFailure>()
+            .expect("delivery protocol violations must keep their fatal disposition");
+        assert!(!failure.is_retryable());
+        assert_eq!(ledger.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_grouped_commit_keeps_the_ledger_for_pipeline_recovery() {
+        let mut source: Box<dyn Source> = Box::new(RecordingSource {
+            groups: Arc::new(std::sync::Mutex::new(Vec::new())),
+            fail_commit: true,
+        });
+        let mut ledger = VecDeque::from([
+            CommitEntry {
+                id: DeliveryId::new(1),
+                marker: Some(CommitMarker::new(11_i64)),
+            },
+            CommitEntry {
+                id: DeliveryId::new(2),
+                marker: Some(CommitMarker::new(22_i64)),
+            },
+        ]);
+
+        let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2))
+            .await
+            .expect_err("injected source commit failure must propagate");
+
+        assert!(error
+            .to_string()
+            .contains("source commit failed through delivery 2"));
+        assert_eq!(ledger.len(), 2);
     }
 }

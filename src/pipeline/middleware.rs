@@ -5,7 +5,7 @@ use crate::types::table_data::TableData;
 /// The Middleware trait transforms a `TableData` into another `TableData`.
 ///
 /// Implementations filter, enrich, or otherwise transform the batch. The
-/// result carries the same `table` / `is_dlq` / `batch_id` unless the
+/// result carries the same `table` / `is_dlq` unless the
 /// implementation intentionally changes them.
 ///
 /// **Contract:** middleware implementations are only called for **non-DLQ**

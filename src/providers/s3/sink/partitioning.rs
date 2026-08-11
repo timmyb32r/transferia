@@ -29,6 +29,7 @@ pub struct RowRoute {
 pub struct Partitioner {
     kind: PartitionerKind,
     source_route: Option<SourceRoute>,
+    record_time_route: Option<(i64, Arc<str>)>,
 }
 
 struct SourceRoute {
@@ -40,7 +41,7 @@ struct SourceRoute {
 enum PartitionerKind {
     Source,
     Fields(Vec<String>),
-    Time {
+    RecordTime {
         window_ms: i64,
         path: String,
         timezone: Tz,
@@ -52,7 +53,7 @@ impl Partitioner {
         let kind = match config {
             PartitioningConfig::Source => PartitionerKind::Source,
             PartitioningConfig::Fields { columns } => PartitionerKind::Fields(columns.clone()),
-            PartitioningConfig::Time {
+            PartitioningConfig::RecordTime {
                 window,
                 path,
                 timezone,
@@ -61,7 +62,7 @@ impl Partitioner {
                 let timezone = timezone
                     .parse::<Tz>()
                     .map_err(|_| anyhow::anyhow!("invalid IANA timezone '{timezone}'"))?;
-                PartitionerKind::Time {
+                PartitionerKind::RecordTime {
                     window_ms,
                     path: path.clone(),
                     timezone,
@@ -71,6 +72,7 @@ impl Partitioner {
         Ok(Self {
             kind,
             source_route: None,
+            record_time_route: None,
         })
     }
 
@@ -112,7 +114,7 @@ impl Partitioner {
                         }
                         (Arc::from(path), source_record_time)
                     }
-                    PartitionerKind::Time {
+                    PartitionerKind::RecordTime {
                         window_ms,
                         path,
                         timezone,
@@ -124,14 +126,18 @@ impl Partitioner {
                             )
                         })?;
                         let slot = timestamp_ms.div_euclid(*window_ms) * *window_ms;
-                        let instant = chrono::Utc
-                            .timestamp_millis_opt(slot)
-                            .single()
-                            .ok_or_else(|| anyhow::anyhow!("timestamp {slot}ms is out of range"))?;
-                        (
-                            Arc::from(instant.with_timezone(timezone).format(path).to_string()),
-                            Some(timestamp_ms),
-                        )
+                        let partition_path =
+                            if let Some((cached_slot, cached_path)) = &self.record_time_route {
+                                if *cached_slot == slot {
+                                    Arc::clone(cached_path)
+                                } else {
+                                    record_time_path(slot, path, *timezone)?
+                                }
+                            } else {
+                                record_time_path(slot, path, *timezone)?
+                            };
+                        self.record_time_route = Some((slot, Arc::clone(&partition_path)));
+                        (partition_path, Some(timestamp_ms))
                     }
                 }
             };
@@ -168,6 +174,16 @@ impl Partitioner {
     }
 }
 
+fn record_time_path(slot: i64, path: &str, timezone: Tz) -> anyhow::Result<Arc<str>> {
+    let instant = chrono::Utc
+        .timestamp_millis_opt(slot)
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("timestamp {slot}ms is out of range"))?;
+    Ok(Arc::from(
+        instant.with_timezone(&timezone).format(path).to_string(),
+    ))
+}
+
 struct RouteColumns<'batch> {
     topic: &'batch StringArray,
     partition: &'batch Int64Array,
@@ -180,11 +196,13 @@ struct RouteColumns<'batch> {
 impl<'batch> RouteColumns<'batch> {
     fn new(output: &'batch SinkBatch, kind: &PartitionerKind) -> anyhow::Result<Self> {
         let record_time = match kind {
-            PartitionerKind::Time { .. } if !output.is_dlq => Some(system_array::<Int64Array>(
-                &output.batch,
-                &output.system_columns,
-                SystemColumnKind::WriteTimestampMs,
-            )?),
+            PartitionerKind::RecordTime { .. } if !output.is_dlq => {
+                Some(system_array::<Int64Array>(
+                    &output.batch,
+                    &output.system_columns,
+                    SystemColumnKind::WriteTimestampMs,
+                )?)
+            }
             _ => optional_system_array::<Int64Array>(
                 &output.batch,
                 &output.system_columns,

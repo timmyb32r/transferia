@@ -116,9 +116,9 @@ fn config() -> ClickHouseSinkConfig {
         retry_max_ms: 100,
         retry_max_attempts: None,
         use_tls: false,
-        tls_domain: None,
+        connect_timeout_ms: 30_000,
+        request_timeout_ms: 30_000,
         sorting_key: Vec::new(),
-        recreate_tables: false,
     }
 }
 
@@ -346,7 +346,7 @@ async fn transient_error_retries_frozen_insert() {
         .unwrap();
     wait_calls(&state, 1).await;
     assert!(events.try_recv().is_err());
-    tokio::time::advance(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(12)).await;
     wait_calls(&state, 2).await;
     assert_eq!(
         events.recv().await,
@@ -375,13 +375,43 @@ async fn transient_error_stops_at_retry_limit() {
         .await
         .unwrap();
     wait_calls(&state, 1).await;
-    tokio::time::advance(Duration::from_millis(10)).await;
+    tokio::time::advance(Duration::from_millis(12)).await;
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("retry exhaustion must preserve its restart contract");
     assert!(failure.is_retryable());
     assert_eq!(state.calls.load(Ordering::Acquire), 2);
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn hanging_insert_stops_at_attempt_deadline() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(true, []);
+    let mut limited = config();
+    limited.request_timeout_ms = 10;
+    limited.retry_max_attempts = Some(1);
+    let (tx, mut events, _cancellation, task) = spawn_sink_with_config(
+        limited,
+        transport,
+        memory.clone(),
+        Arc::new(SinkCounters::new()),
+    );
+
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    tokio::time::advance(Duration::from_millis(10)).await;
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("attempt timeout must preserve its restart contract");
+    assert!(failure.is_retryable());
+    assert!(format!("{error:#}").contains("result is ambiguous"));
+    assert_eq!(state.active.load(Ordering::Acquire), 0);
     assert!(events.try_recv().is_err());
 }
 

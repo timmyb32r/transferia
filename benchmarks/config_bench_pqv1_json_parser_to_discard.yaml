@@ -1,6 +1,6 @@
-# PQv1 -> empty sink: measures download + decompression + JSON parsing.
+# PQv1 -> discard sink: measures download + decompression + JSON parsing.
 # Replace the endpoint/topic/consumer/token values before running.
-# cargo run --release -- --config benchmarks/config_bench_yds_json_parser.yaml
+# cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_discard.yaml
 
 source:
   pqv1:
@@ -28,7 +28,7 @@ middlewares: []
 pipeline_memory_limit_bytes: 268435456
 
 sink:
-  empty: {}
+  discard: {}
 
 metrics:
   enabled: true

@@ -1,6 +1,6 @@
 # End-to-end PQv1 -> S3 benchmark.
 # Replace the endpoint/topic/token/bucket settings before running.
-# cargo run --release -- --config benchmarks/config_bench_yds_json_parser_to_s3.yaml
+# cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_s3.yaml
 
 source:
   pqv1:
@@ -45,7 +45,7 @@ sink:
       max_bytes: "64MiB"
     buffering:
       max_open_objects: 32
-      max_pending_objects: 128
+      max_pending_upload_objects: 128
       max_buffered_bytes: "256MiB"
       max_epoch_bytes: "64MiB"
     retry:

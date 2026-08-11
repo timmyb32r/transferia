@@ -1,15 +1,12 @@
 use arrow::array::Array;
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
-use bytes::Bytes;
-
-use super::Serializer;
 
 /// JSON Lines (NDJSON) serializer: one JSON object per row.
 ///
 /// Output format: `{"column_name": "column_value", ...}\n`
-/// This is the exact inverse of the JSON parser — the output can be
-/// read back by the S3 source or YDS source without modification.
+/// This is an independent Arrow-to-NDJSON projection; standard NDJSON readers
+/// can consume the output without knowing the source parser configuration.
 ///
 /// Null values are always emitted explicitly as `"col": null`, matching the
 /// Confluent S3 JSON format.
@@ -18,9 +15,6 @@ use super::Serializer;
 /// variants during the first serialization. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
-#[derive(Default)]
-pub struct JsonSerializer;
-
 /// A pre-classified, optionally projected view of one Arrow batch.
 pub struct JsonBatchEncoder<'batch> {
     columns: Vec<(String, ColumnWriter<'batch>)>,
@@ -240,10 +234,10 @@ impl<'array> ColumnWriter<'array> {
             ColumnWriter::UInt32(a) => write_uint(buf, a.value(row)),
             ColumnWriter::UInt64(a) => write_uint(buf, a.value(row)),
             ColumnWriter::Float32(a) => {
-                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
+                write_float(buf, a.value(row));
             }
             ColumnWriter::Float64(a) => {
-                buf.extend_from_slice(ryu::Buffer::new().format(a.value(row)).as_bytes());
+                write_float(buf, a.value(row));
             }
             ColumnWriter::Boolean(a) => {
                 buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
@@ -296,22 +290,14 @@ fn write_uint<T: itoa::Integer>(buf: &mut Vec<u8>, v: T) {
     buf.extend_from_slice(itoa::Buffer::new().format(v).as_bytes());
 }
 
-impl Serializer for JsonSerializer {
-    fn serialize_batch(&self, batch: &RecordBatch) -> anyhow::Result<Bytes> {
-        let encoder = JsonBatchEncoder::new(batch, |_| true)?;
-        let num_rows = batch.num_rows();
-        let num_cols = encoder.columns.len();
-
-        // Estimate buffer size: each row has JSON overhead + values.
-        // 2 = `{` + `}`, N-1 commas, plus per-column overhead.
-        let est_per_row = 2 + num_cols.saturating_sub(1) + num_cols * 24;
-        let mut buf = Vec::with_capacity(num_rows * est_per_row.max(64));
-
-        for row in 0..num_rows {
-            encoder.write_row(row, &mut buf);
-        }
-
-        Ok(Bytes::from(buf))
+#[inline]
+fn write_float<T: ryu::Float>(buf: &mut Vec<u8>, value: T) {
+    let mut formatter = ryu::Buffer::new();
+    let formatted = formatter.format(value);
+    if matches!(formatted, "NaN" | "inf" | "-inf") {
+        buf.extend_from_slice(b"null");
+    } else {
+        buf.extend_from_slice(formatted.as_bytes());
     }
 }
 
@@ -341,6 +327,15 @@ mod tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc;
 
+    fn encode_batch(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
+        let encoder = JsonBatchEncoder::new(batch, |_| true)?;
+        let mut output = Vec::new();
+        for row in 0..batch.num_rows() {
+            encoder.write_row(row, &mut output);
+        }
+        Ok(output)
+    }
+
     #[test]
     fn serialize_simple_batch() -> anyhow::Result<()> {
         let schema = Arc::new(Schema::new(vec![
@@ -368,9 +363,7 @@ mod tests {
             ],
         )?;
 
-        let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch)?;
-        let text = String::from_utf8(output.to_vec())?;
+        let text = String::from_utf8(encode_batch(&batch)?)?;
 
         let lines: Vec<&str> = text.lines().collect();
         anyhow::ensure!(lines.len() == 3, "3 rows \u{2192} 3 JSON lines");
@@ -397,9 +390,7 @@ mod tests {
         let batch =
             RecordBatch::try_new(schema, vec![Arc::new(x_arr), Arc::new(y_builder.finish())])?;
 
-        let serializer = JsonSerializer;
-        let output = serializer.serialize_batch(&batch)?;
-        let text = String::from_utf8(output.to_vec())?;
+        let text = String::from_utf8(encode_batch(&batch)?)?;
 
         let lines: Vec<&str> = text.lines().collect();
         anyhow::ensure!(lines.len() == 2, "expected 2 lines, got {}", lines.len());
@@ -410,6 +401,32 @@ mod tests {
             "null column should be present as \"y\": null"
         );
         anyhow::ensure!(row2["y"].is_null(), "y should be null");
+        Ok(())
+    }
+
+    #[test]
+    fn non_finite_floats_are_valid_json_nulls() -> anyhow::Result<()> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Float64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Float64Array::from(vec![
+                f64::NAN,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                1.5,
+            ]))],
+        )?;
+        let output = String::from_utf8(encode_batch(&batch)?)?;
+        let rows = output
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        anyhow::ensure!(rows[..3].iter().all(|row| row["value"].is_null()));
+        anyhow::ensure!(rows[3]["value"] == serde_json::json!(1.5));
         Ok(())
     }
 }

@@ -29,43 +29,28 @@ impl core::fmt::Debug for CommitMarker {
 }
 
 // ---------------------------------------------------------------------------
-// ReadResult
-// ---------------------------------------------------------------------------
-
-/// Result of a source read. First-class terminal state — no sentinel conventions.
-pub enum ReadResult {
-    /// Raw messages for parsing (YDS, S3, `PQv1`).
-    Batch(MessageBatch),
-    /// Pre-parsed Arrow batches — bypass parser, zero-copy into the pipeline
-    /// (`ClickHouse` source).
-    Arrow(Vec<arrow::record_batch::RecordBatch>),
-    /// No more data (S3 snapshot complete, CH table exhausted).
-    Exhausted,
-    /// Non-retryable source failure → exit 1.
-    Failed(anyhow::Error),
-}
-
-// ---------------------------------------------------------------------------
 // Source trait (object-safe via BoxFuture)
 // ---------------------------------------------------------------------------
 
 pub trait Source: Send {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>>;
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>>;
+    /// Commit one durability group. Implementations must submit every marker
+    /// in the slice as one source-side commit operation.
     fn commit_offsets<'ctx>(
         &'ctx mut self,
-        marker: &'ctx CommitMarker,
+        markers: &'ctx [CommitMarker],
     ) -> BoxFuture<'ctx, anyhow::Result<()>>;
 }
 
 /// Delegating impl: `Box<dyn Source>` is itself a `Source`.
 impl Source for Box<dyn Source> {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<ReadResult>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
         (**self).read_batch()
     }
     fn commit_offsets<'ctx>(
         &'ctx mut self,
-        marker: &'ctx CommitMarker,
+        markers: &'ctx [CommitMarker],
     ) -> BoxFuture<'ctx, anyhow::Result<()>> {
-        (**self).commit_offsets(marker)
+        (**self).commit_offsets(markers)
     }
 }

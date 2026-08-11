@@ -32,8 +32,6 @@ impl DeliveryId {
 pub struct DeliveryMeta {
     pub source_messages: u64,
     pub source_bytes: u64,
-    pub first_offset: Option<i64>,
-    pub last_offset: Option<i64>,
 }
 
 #[derive(Debug)]

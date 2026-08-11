@@ -2,8 +2,9 @@
 
 > **Status: unimplemented design proposal.** The current PQv1 → ClickHouse
 > runtime is at-least-once and contains no waterline or composite exactly-once
-> key. See `exactly-once-yds-ch.md` for the active contract. The material below
-> is retained only as design history and must not be used as an operator guide.
+> key. See `pqv1-clickhouse-delivery.md` for the active contract. The material
+> below is retained only as design history and must not be used as an operator
+> guide.
 
 ## Техническое задание для реализации
 
@@ -758,20 +759,21 @@ in-flight `write()` (например, `AtomicBool` «write in progress») и п
 In-process enforcement инварианта «после ошибки записи синк не зовётся»; выход процесса — уже
 восстановление.
 
-### 6.2. `ParallelChInsertSink` несовместим с exactly-once
+### 6.2. Исторический `ParallelChInsertSink` был несовместим с exactly-once
 
-`ParallelChInsertSink` (`middleware/parallel_ch_insert.rs`) раскидывает записи round-robin по
-N пулам и в докстринге прямо декларирует *«assumes all keys unique, parallel **out-of-order**
-inserts»*. Под exactly-once это ломается дважды:
+В удалённом прототипе `ParallelChInsertSink`
+(`middleware/parallel_ch_insert.rs`, файла больше нет) раскидывал записи round-robin по N
+пулам и в докстринге декларировал *«assumes all keys unique, parallel **out-of-order**
+inserts»*. Под предложенным здесь exactly-once это ломалось дважды:
 - **нарушает I4**: out-of-order вставки одной партиции ⇒ waterline (скаляр `max`) занизит/
   переставит порядок ⇒ потеря;
 - допущение «все ключи уникальны» **ложно**: newline-splitter даёт несколько строк с одним
   offset, а реплей повторяет offset'ы.
 
-Кроме того, его единственный механизм exactly-once — `SET insert_deduplication_token`, который
-Шаг 1 чеклиста **удаляет**. Поэтому: при `add_exactly_once_key: true` **и** sink =
-`ParallelChInsertSink` → **fatal на старте** («parallel insert sink несовместим с exactly-once;
-используйте clickhouse sink или отключите exactly_once»). Waterline-дедуп предполагает серийный
+Кроме того, его единственным механизмом exactly-once был
+`SET insert_deduplication_token`, который шаг 1 исторического чеклиста предлагал удалить.
+Предложенная здесь проверка должна была завершать запуск с fatal при сочетании
+`add_exactly_once_key: true` и `ParallelChInsertSink`. Waterline-дедуп предполагал серийный
 пер-партиционный синк (I4/§4.1).
 
 ### 6.3. Graceful drain in-flight операций при exit
@@ -1006,20 +1008,20 @@ Best-effort детектор (не гарантия): если `ensure_loaded` �
 | S3 | `__system_filename` (полный S3-ключ) + row number (начиная с 0 в каждом файле) | ✅ при неизменном файле (см. §10.1) |
 | CH-source | ключ не выставляется | — (деградация до AT_LEAST_ONCE) |
 
-**Проброс offset (YDS):**
-- pqv1: добавить `offset` в `DecodedMessage` (сейчас `data`+`cookie`, `pq_v1.rs:128`) →
-  `Message.offset`; `partition = Int(partition_id)`.
-- topic: читать `msg.offset` и `msg.get_partition_id()` в `ydb_topic.rs:84-88` (сейчас
-  отбрасываются) → `Message`.
+**Историческое предложение по пробросу offset (YDS):**
+- pqv1: добавить `offset` в существовавший тогда `DecodedMessage` → `Message.offset`;
+  `partition = Int(partition_id)`;
+- topic: читать `msg.offset` и `msg.get_partition_id()` в удалённой реализации
+  `ydb_topic.rs` вместо отбрасывания → `Message`.
 
 **Синтетических офсетов нет.** Источник без стабильного логического offset ключ не выставляет →
 at-least-once (§11).
 
-### 10.1. Доработка S3-источника (для exactly-once)
+### 10.1. Историческое предложение по доработке S3-источника
 
-Сейчас (`s3/source.rs`) один `S3Source` листит все файлы под префиксом и идёт по ним
-последовательно с единым `partition_id`; `Message` несёт только `value`, имя файла и офсет не
-прокидываются. Чтобы S3 получил exactly-once:
+Удалённый прототип `S3Source` (`s3/source.rs`, файла больше нет) листил все файлы под
+префиксом и шёл по ним последовательно с единым `partition_id`; `Message` нёс только `value`,
+имя файла и офсет не прокидывались. Документ предлагал следующую доработку для exactly-once:
 
 - **`__system_filename`** = `self.files[current_idx].location` — **полный S3 object key**
   (включая префикс: `"prefix-a/2024/data.json"`). Кладётся в `Message.partition = Str(full_key)`.

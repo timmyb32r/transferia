@@ -9,12 +9,14 @@ use tokio::signal;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use transferia::compatibility::{validate_pipeline, DeliveryGuarantee};
+use transferia::compatibility::validate_pipeline;
 use transferia::config::yaml::Config;
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
-use transferia::middleware::{build_middleware, MiddlewareEntry};
-use transferia::parsers::ParserConfig;
+use transferia::middleware::build_middleware;
+use transferia::parsers::Parser as DataParser;
 use transferia::pipeline::memory::PipelineMemory;
+use transferia::pipeline::middleware::Middleware;
+use transferia::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use transferia::pipeline::{run_partition_pipeline, PipelineFailure};
 use transferia::providers::traits::{
     ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
@@ -46,9 +48,8 @@ fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
 
 #[derive(Clone)]
 struct PipelineDeps {
-    parser_config: Arc<ParserConfig>,
-    table: Arc<str>,
-    middlewares: Arc<Vec<MiddlewareEntry>>,
+    parser: Arc<dyn DataParser>,
+    middlewares: Arc<Vec<Box<dyn Middleware>>>,
     source_provider: Arc<dyn SourceProvider>,
     sink_provider: Arc<dyn SinkProvider>,
     memory_limit: usize,
@@ -63,31 +64,6 @@ async fn run_partition_attempt(
     sink_counters: Arc<SinkCounters>,
     attempt_token: CancellationToken,
 ) -> anyhow::Result<()> {
-    let parser_kind = deps
-        .parser_config
-        .parser
-        .kind()
-        .map_err(|error| anyhow::Error::new(PipelineFailure::fatal(error)))?;
-    let parser_raw = deps
-        .parser_config
-        .parser
-        .raw()
-        .cloned()
-        .map_err(|error| anyhow::Error::new(PipelineFailure::fatal(error)))?;
-    let parser = transferia::parsers::build_parser(
-        parser_kind,
-        parser_raw,
-        Arc::clone(&deps.table),
-        deps.parser_config.common.clone(),
-    )
-    .map_err(|error| anyhow::Error::new(PipelineFailure::fatal(error)))?;
-    let middlewares = deps
-        .middlewares
-        .iter()
-        .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
-        .collect::<anyhow::Result<Vec<_>>>()
-        .map(Arc::new)
-        .map_err(|error| anyhow::Error::new(PipelineFailure::fatal(error)))?;
     let memory = PipelineMemory::new(deps.memory_limit);
     let source = deps
         .source_provider
@@ -105,8 +81,8 @@ async fn run_partition_attempt(
         .context("sink creation failed")?;
     run_partition_pipeline(
         source,
-        parser,
-        middlewares,
+        Arc::clone(&deps.parser),
+        Arc::clone(&deps.middlewares),
         sink,
         memory,
         attempt_token,
@@ -116,20 +92,62 @@ async fn run_partition_attempt(
     .await
 }
 
+const MAX_CONSECUTIVE_PIPELINE_FAILURES: u32 = 5;
+const STABLE_PIPELINE_ATTEMPT: core::time::Duration = core::time::Duration::from_mins(1);
+const INITIAL_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(1);
+const MAX_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(30);
+
+#[derive(Debug)]
+struct PartitionRestartPolicy {
+    consecutive_failures: u32,
+    next_delay: core::time::Duration,
+}
+
+impl PartitionRestartPolicy {
+    const fn new() -> Self {
+        Self {
+            consecutive_failures: 0,
+            next_delay: INITIAL_PARTITION_RESTART_DELAY,
+        }
+    }
+
+    fn record_failure(
+        &mut self,
+        attempt_runtime: core::time::Duration,
+    ) -> Option<(u32, core::time::Duration)> {
+        if attempt_runtime >= STABLE_PIPELINE_ATTEMPT {
+            self.consecutive_failures = 0;
+            self.next_delay = INITIAL_PARTITION_RESTART_DELAY;
+        }
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        if self.consecutive_failures >= MAX_CONSECUTIVE_PIPELINE_FAILURES {
+            return None;
+        }
+
+        let delay = self.next_delay;
+        self.next_delay = self
+            .next_delay
+            .saturating_mul(2)
+            .min(MAX_PARTITION_RESTART_DELAY);
+        Some((self.consecutive_failures, delay))
+    }
+}
+
 async fn run_partition_task(
     partition_id: i64,
     deps: PipelineDeps,
     parse_counters: Arc<ParseCounters>,
     sink_counters: Arc<SinkCounters>,
 ) -> anyhow::Result<()> {
-    const MAX_PIPELINE_ATTEMPTS: u32 = 5;
-    let mut restart_delay = core::time::Duration::from_secs(1);
+    let mut restart_policy = PartitionRestartPolicy::new();
+    let retry_seed = stable_retry_seed(&partition_id.to_le_bytes());
 
-    for attempt in 1..=MAX_PIPELINE_ATTEMPTS {
+    loop {
         if deps.cancellation.is_cancelled() {
             return Ok(());
         }
         let attempt_token = deps.cancellation.child_token();
+        let attempt_started = tokio::time::Instant::now();
         let result = run_partition_attempt(
             partition_id,
             &deps,
@@ -153,15 +171,22 @@ async fn run_partition_task(
         if !retryable {
             return Err(error).context("non-retryable partition failure");
         }
-        if attempt == MAX_PIPELINE_ATTEMPTS {
+        let Some((consecutive_failure, base_restart_delay)) =
+            restart_policy.record_failure(attempt_started.elapsed())
+        else {
             return Err(error).context(format!(
-                "partition pipeline exhausted {MAX_PIPELINE_ATTEMPTS} attempts"
+                "partition pipeline exhausted {MAX_CONSECUTIVE_PIPELINE_FAILURES} consecutive failures"
             ));
-        }
+        };
+        let restart_delay = jittered_retry_delay(
+            base_restart_delay,
+            consecutive_failure.saturating_sub(1),
+            retry_seed,
+        );
 
         tracing::error!(
             partition = partition_id,
-            attempt,
+            consecutive_failure,
             delay_ms = restart_delay.as_millis(),
             "pipeline failed, restarting: {error}"
         );
@@ -169,11 +194,7 @@ async fn run_partition_task(
             () = deps.cancellation.cancelled() => return Ok(()),
             () = tokio::time::sleep(restart_delay) => {}
         }
-        restart_delay = restart_delay
-            .saturating_mul(2)
-            .min(core::time::Duration::from_secs(30));
     }
-    unreachable!("bounded partition retry loop always returns")
 }
 
 async fn stop_partition_tasks(
@@ -197,7 +218,7 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
         let registry = Arc::clone(metrics_registry);
         move |value| {
             Ok(Box::new(
-                transferia::providers::yds::provider::YdsSourceProvider::from_config(
+                transferia::providers::pqv1::provider::PqV1SourceProvider::from_config(
                     value,
                     Arc::clone(&registry),
                 )?,
@@ -209,9 +230,9 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
         ))
     });
-    registry.register_sink("empty", |value| {
+    registry.register_sink("discard", |value| {
         Ok(Box::new(
-            transferia::providers::empty::provider::EmptySinkProvider::from_config(value)?,
+            transferia::providers::discard::provider::DiscardSinkProvider::from_config(value)?,
         ))
     });
     registry.register_sink("s3", |value| {
@@ -279,21 +300,30 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
 
     let table: Arc<str> = source_provider.resolve_table_name()?.into();
-    let parser_config = source_provider
-        .parser_config()
-        .ok_or_else(|| anyhow::anyhow!("source requires a parser"))?;
-    parser_config.parser.kind()?;
-    let parser_config = Arc::new(parser_config.clone());
+    let parser_config = source_provider.parser_config();
+    let parser_kind = parser_config.parser.kind()?;
+    let parses_rows = parser_kind != "benchmark_discard";
+    let parser = transferia::parsers::build_parser(
+        parser_kind,
+        parser_config.parser.raw()?.clone(),
+        Arc::clone(&table),
+        &parser_config.common,
+    )?;
+    let middlewares = config
+        .middlewares
+        .iter()
+        .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     let partitions = source_provider
-        .discover_partitions(cli.total_workers, cli.worker_index)
+        .partitions_for_worker(cli.total_workers, cli.worker_index)
         .await?;
     if partitions.is_empty() {
         tracing::warn!("No source partitions assigned");
         return Ok(());
     }
 
-    let schema = source_provider.schema().cloned().unwrap_or_default();
+    let schema = source_provider.schema().clone();
     let dlq_table: Arc<str> = dlq_name(&table).into();
     sink_provider
         .prepare(SinkPrepare {
@@ -320,9 +350,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let deps = PipelineDeps {
-        parser_config,
-        table,
-        middlewares: Arc::new(config.middlewares.clone()),
+        parser,
+        middlewares: Arc::new(middlewares),
         source_provider,
         sink_provider,
         memory_limit: config.pipeline_memory_limit_bytes,
@@ -333,12 +362,9 @@ async fn main() -> anyhow::Result<()> {
     for partition_id in partitions {
         let parse_counters = Arc::new(ParseCounters::new());
         let sink_counters = Arc::new(SinkCounters::new());
-        metrics_registry.register_parse(partition_id, true, Arc::clone(&parse_counters));
+        metrics_registry.register_parse(partition_id, parses_rows, Arc::clone(&parse_counters));
         metrics_registry.register_sink(partition_id, Arc::clone(&sink_counters));
-        metrics_registry.set_eo_key(
-            partition_id,
-            semantics.guarantee == DeliveryGuarantee::ExactlyOnce,
-        );
+        metrics_registry.set_delivery_guarantee(partition_id, semantics.guarantee);
         tasks.spawn(run_partition_task(
             partition_id,
             deps.clone(),
@@ -396,6 +422,47 @@ mod tests {
     }
 
     #[test]
+    fn partition_restart_budget_counts_consecutive_failures() {
+        let mut policy = PartitionRestartPolicy::new();
+
+        for expected_failure in 1..MAX_CONSECUTIVE_PIPELINE_FAILURES {
+            let (failure, _) = policy
+                .record_failure(core::time::Duration::from_secs(1))
+                .expect("short failure streak should still be retryable");
+            assert_eq!(failure, expected_failure);
+        }
+        assert!(
+            policy
+                .record_failure(core::time::Duration::from_secs(1))
+                .is_none(),
+            "the fifth consecutive failure must exhaust the restart budget"
+        );
+    }
+
+    #[test]
+    fn stable_partition_attempt_resets_failure_streak_and_backoff() {
+        let mut policy = PartitionRestartPolicy::new();
+        for _ in 0..(MAX_CONSECUTIVE_PIPELINE_FAILURES - 1) {
+            policy
+                .record_failure(core::time::Duration::from_secs(1))
+                .expect("precondition failure should be retryable");
+        }
+
+        let (failure, delay) = policy
+            .record_failure(STABLE_PIPELINE_ATTEMPT)
+            .expect("failure after stable operation starts a new streak");
+
+        assert_eq!(failure, 1);
+        assert_eq!(delay, INITIAL_PARTITION_RESTART_DELAY);
+        for expected_failure in 2..MAX_CONSECUTIVE_PIPELINE_FAILURES {
+            let (failure, _) = policy
+                .record_failure(core::time::Duration::from_secs(1))
+                .expect("new failure streak should have a fresh budget");
+            assert_eq!(failure, expected_failure);
+        }
+    }
+
+    #[test]
     fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
         let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
         let config: Config = serde_yaml::from_str(
@@ -406,6 +473,7 @@ source:
     topic_path: topic
     consumer_name: consumer
     partition_ids: [0]
+    auth: { type: access_token, token: test }
     parser:
       common:
         table_naming: { type: from_config, name: events }
@@ -433,11 +501,11 @@ sink:
     fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
         let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
         for relative_path in [
-            "benchmarks/config_bench_yds_json_parser.yaml",
-            "benchmarks/config_bench_yds_no_parser.yaml",
-            "benchmarks/config_bench_yds_no_parser_and_decompress.yaml",
-            "benchmarks/config_bench_yds_json_parser_to_ch.yaml",
-            "benchmarks/config_bench_yds_json_parser_to_s3.yaml",
+            "benchmarks/config_bench_pqv1_json_parser_to_discard.yaml",
+            "benchmarks/config_bench_pqv1_decompress_to_discard.yaml",
+            "benchmarks/config_bench_pqv1_network_to_discard.yaml",
+            "benchmarks/config_bench_pqv1_json_parser_to_clickhouse.yaml",
+            "benchmarks/config_bench_pqv1_json_parser_to_s3.yaml",
         ] {
             let path = format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR"));
             let config = Config::from_file(&path)

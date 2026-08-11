@@ -6,6 +6,9 @@ source:
     connection_string: "grpc://localhost:2135"
     topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
+    # PQv1 consumer assignments are not authoritative topic metadata, so list
+    # every source partition explicitly. Workers split this list by modulo.
+    partition_ids: [0]
     auth:
       type: access_token
       token_file: "${HOME}/.logbroker/token"
@@ -49,8 +52,9 @@ sink:
       on_partition_change: keep_open
     buffering:
       max_open_objects: 128
-      max_pending_objects: 512
+      max_pending_upload_objects: 512
       max_buffered_bytes: 256MiB
+      # Deterministic retained epoch budget (payload + routing metadata).
       max_epoch_bytes: 64MiB
     upload:
       multipart_threshold: 25MiB

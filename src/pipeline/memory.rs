@@ -164,16 +164,6 @@ impl PipelineMemory {
         }
     }
 
-    pub async fn wait_below_limit(&self) {
-        loop {
-            let changed = self.inner.changed.notified();
-            if self.used() < self.inner.limit {
-                return;
-            }
-            changed.await;
-        }
-    }
-
     /// Wait only for downstream capacity. Queued source reservations are
     /// deliberately excluded: consuming those buffers is how the parser frees
     /// them, so waiting on total usage here can deadlock the pipeline.

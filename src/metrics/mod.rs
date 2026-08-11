@@ -2,13 +2,13 @@
 //! background stats reporter.
 //!
 //! Two counter sets, both per partition:
-//! - [`SourceCounters`] — filled by the YDS/pqv1 source (messages, compressed
+//! - [`SourceCounters`] — filled by the `PQv1` source (messages, compressed
 //!   and decompressed bytes, downloader and decompressor busy time).
 //! - [`ParseCounters`] — filled by the parser thread (rows, Arrow bytes, DLQ
-//!   rows, unique offsets, parser busy time).
+//!   rows, source messages, parser busy time).
 //!
 //! [`MetricsRegistry`] merges them by `partition_id` (source and parse counters
-//! are registered independently — the source by the YDS provider inside
+//! are registered independently — the source by the `PQv1` provider inside
 //! `build_source`, the parse counters by `main`). [`spawn_stats_reporter`]
 //! snapshots the registry every `interval_ms` and prints a per-partition
 //! (or aggregated) line via `tracing::info!`.
@@ -22,6 +22,8 @@ use std::time::Instant;
 use alloc::sync::Arc;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
+
+use crate::compatibility::DeliveryGuarantee;
 
 const RELAXED: Ordering = Ordering::Relaxed;
 /// Nanoseconds per second (f64) — a typed const avoids the `*_literal_suffix`
@@ -47,7 +49,7 @@ const fn default_metrics_interval_ms() -> u64 {
 // Counters
 // ---------------------------------------------------------------------------
 
-/// Per-partition source counters (YDS/pqv1). Filled by the pqv1 bg task
+/// Per-partition source counters (`PQv1`). Filled by the background session
 /// (bytes + download/decompress duty) and `read_batch` (messages).
 pub struct SourceCounters {
     messages: AtomicU64,
@@ -102,13 +104,13 @@ impl Default for SourceCounters {
 }
 
 /// Per-partition parser-output counters. Filled by the parser thread after
-/// `parse_into` (rows/bytes/dlq/unique offsets) and around the parse work (busy
+/// `parse_into` (rows/bytes/DLQ/source messages) and around parse work (busy
 /// time).
 pub struct ParseCounters {
     rows: AtomicU64,
     arrow_bytes: AtomicU64,
     dlq_rows: AtomicU64,
-    unique_offsets: AtomicU64,
+    source_messages: AtomicU64,
     parse_busy_nanos: AtomicU64,
 }
 
@@ -119,7 +121,7 @@ impl ParseCounters {
             rows: AtomicU64::new(0),
             arrow_bytes: AtomicU64::new(0),
             dlq_rows: AtomicU64::new(0),
-            unique_offsets: AtomicU64::new(0),
+            source_messages: AtomicU64::new(0),
             parse_busy_nanos: AtomicU64::new(0),
         }
     }
@@ -137,8 +139,8 @@ impl ParseCounters {
         self.dlq_rows.fetch_add(n, RELAXED);
     }
     #[inline]
-    pub fn add_unique_offsets(&self, n: u64) {
-        self.unique_offsets.fetch_add(n, RELAXED);
+    pub fn add_source_messages(&self, n: u64) {
+        self.source_messages.fetch_add(n, RELAXED);
     }
     /// Parser busy = time in `parse_read_item` + `guard_middlewares`.
     #[inline]
@@ -162,7 +164,7 @@ pub struct SinkCounters {
     rows: AtomicU64,
     bytes: AtomicU64,
     flushes: AtomicU64,
-    unique_offsets: AtomicU64,
+    source_messages: AtomicU64,
     busy_nanos: AtomicU64,
     upload_retries: AtomicU64,
     buffered_bytes: AtomicU64,
@@ -179,7 +181,7 @@ impl SinkCounters {
             rows: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
             flushes: AtomicU64::new(0),
-            unique_offsets: AtomicU64::new(0),
+            source_messages: AtomicU64::new(0),
             busy_nanos: AtomicU64::new(0),
             upload_retries: AtomicU64::new(0),
             buffered_bytes: AtomicU64::new(0),
@@ -203,8 +205,8 @@ impl SinkCounters {
         self.flushes.fetch_add(1, RELAXED);
     }
     #[inline]
-    pub fn add_unique_offsets(&self, n: u64) {
-        self.unique_offsets.fetch_add(n, RELAXED);
+    pub fn add_source_messages(&self, n: u64) {
+        self.source_messages.fetch_add(n, RELAXED);
     }
     /// Sink busy excludes buffering and retry backoff, so it remains a direct
     /// measure of time occupied by `ClickHouse` INSERT attempts.
@@ -243,20 +245,12 @@ impl SinkCounters {
         self.rows.load(RELAXED)
     }
     #[must_use]
-    pub fn bytes_total(&self) -> u64 {
-        self.bytes.load(RELAXED)
-    }
-    #[must_use]
     pub fn flushes_total(&self) -> u64 {
         self.flushes.load(RELAXED)
     }
     #[must_use]
     pub fn source_messages_total(&self) -> u64 {
-        self.unique_offsets.load(RELAXED)
-    }
-    #[must_use]
-    pub fn busy_nanos_total(&self) -> u64 {
-        self.busy_nanos.load(RELAXED)
+        self.source_messages.load(RELAXED)
     }
 }
 
@@ -284,7 +278,7 @@ struct ParseSnapshot {
     rows: u64,
     arrow_bytes: u64,
     dlq_rows: u64,
-    unique_offsets: u64,
+    source_messages: u64,
     parse_busy_nanos: u64,
 }
 
@@ -293,7 +287,7 @@ struct SinkSnapshot {
     rows: u64,
     bytes: u64,
     flushes: u64,
-    unique_offsets: u64,
+    source_messages: u64,
     busy_nanos: u64,
     upload_retries: u64,
     buffered_bytes: u64,
@@ -318,7 +312,7 @@ fn parse_snap(c: Option<&Arc<ParseCounters>>) -> ParseSnapshot {
         rows: p.rows.load(RELAXED),
         arrow_bytes: p.arrow_bytes.load(RELAXED),
         dlq_rows: p.dlq_rows.load(RELAXED),
-        unique_offsets: p.unique_offsets.load(RELAXED),
+        source_messages: p.source_messages.load(RELAXED),
         parse_busy_nanos: p.parse_busy_nanos.load(RELAXED),
     })
 }
@@ -328,7 +322,7 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
         rows: s.rows.load(RELAXED),
         bytes: s.bytes.load(RELAXED),
         flushes: s.flushes.load(RELAXED),
-        unique_offsets: s.unique_offsets.load(RELAXED),
+        source_messages: s.source_messages.load(RELAXED),
         busy_nanos: s.busy_nanos.load(RELAXED),
         upload_retries: s.upload_retries.load(RELAXED),
         buffered_bytes: s.buffered_bytes.load(RELAXED),
@@ -343,9 +337,10 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
 // Registry (merges source + parse + sink counters by partition_id)
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
 struct PartitionMetrics {
-    has_parser: bool,
-    has_eo_key: bool,
+    parses_rows: bool,
+    delivery_guarantee: Option<DeliveryGuarantee>,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
     sink: Option<Arc<SinkCounters>>,
@@ -356,8 +351,8 @@ struct PartitionMetrics {
 /// the registry lock.
 struct PartitionSnapshot {
     pid: i64,
-    has_parser: bool,
-    has_eo_key: bool,
+    parses_rows: bool,
+    delivery_guarantee: Option<DeliveryGuarantee>,
     source: Option<Arc<SourceCounters>>,
     parse: Option<Arc<ParseCounters>>,
     sink: Option<Arc<SinkCounters>>,
@@ -390,13 +385,7 @@ impl MetricsRegistry {
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false,
-            has_eo_key: false,
-            source: None,
-            parse: None,
-            sink: None,
-        });
+        let entry = m.entry(partition_id).or_default();
         entry.source = Some(c);
     }
 
@@ -404,19 +393,13 @@ impl MetricsRegistry {
         clippy::significant_drop_tightening,
         reason = "the MutexGuard must outlive the entry borrow it hands out"
     )]
-    pub fn register_parse(&self, partition_id: i64, has_parser: bool, c: Arc<ParseCounters>) {
+    pub fn register_parse(&self, partition_id: i64, parses_rows: bool, c: Arc<ParseCounters>) {
         let mut m = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false,
-            has_eo_key: false,
-            source: None,
-            parse: None,
-            sink: None,
-        });
-        entry.has_parser = has_parser;
+        let entry = m.entry(partition_id).or_default();
+        entry.parses_rows = parses_rows;
         entry.parse = Some(c);
     }
 
@@ -429,34 +412,22 @@ impl MetricsRegistry {
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false,
-            has_eo_key: false,
-            source: None,
-            parse: None,
-            sink: None,
-        });
+        let entry = m.entry(partition_id).or_default();
         entry.sink = Some(c);
     }
 
-    /// Mark whether the inferred delivery guarantee is exactly-once.
+    /// Store the independently inferred end-to-end delivery guarantee.
     #[expect(
         clippy::significant_drop_tightening,
         reason = "the MutexGuard must outlive the entry borrow it hands out"
     )]
-    pub fn set_eo_key(&self, partition_id: i64, active: bool) {
+    pub fn set_delivery_guarantee(&self, partition_id: i64, guarantee: DeliveryGuarantee) {
         let mut m = self
             .inner
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = m.entry(partition_id).or_insert_with(|| PartitionMetrics {
-            has_parser: false,
-            has_eo_key: false,
-            source: None,
-            parse: None,
-            sink: None,
-        });
-        entry.has_eo_key = active;
+        let entry = m.entry(partition_id).or_default();
+        entry.delivery_guarantee = Some(guarantee);
     }
 
     fn snapshot(&self) -> Vec<PartitionSnapshot> {
@@ -467,8 +438,8 @@ impl MetricsRegistry {
         m.iter()
             .map(|(pid, pm)| PartitionSnapshot {
                 pid: *pid,
-                has_parser: pm.has_parser,
-                has_eo_key: pm.has_eo_key,
+                parses_rows: pm.parses_rows,
+                delivery_guarantee: pm.delivery_guarantee,
                 source: pm.source.clone(),
                 parse: pm.parse.clone(),
                 sink: pm.sink.clone(),
@@ -533,8 +504,8 @@ pub fn spawn_stats_reporter(
                             "{}",
                             format_line(
                                 pm.pid,
-                                pm.has_parser,
-                                pm.has_eo_key,
+                                pm.parses_rows,
+                                pm.delivery_guarantee,
                                 cur_src,
                                 psrc,
                                 cur_parse,
@@ -573,8 +544,9 @@ fn aggregate_line(
     let mut p = ParseSnapshot::default();
     let mut k = SinkSnapshot::default();
     let mut wall_ns_sum: u64 = 0;
-    let mut any_parser = false;
-    let mut any_eo_key = false;
+    let mut any_row_parser = false;
+    let mut delivery_guarantee = None;
+    let mut mixed_guarantees = false;
     for pm in parts {
         let cur_src = src_snap(pm.source.as_ref());
         let cur_parse = parse_snap(pm.parse.as_ref());
@@ -585,30 +557,52 @@ fn aggregate_line(
             .unwrap_or((cur_src, cur_parse, cur_sink, now));
         let wall = now.saturating_duration_since(ptime).as_nanos() as u64;
         if wall > 0 {
-            s.messages += cur_src.messages - psrc.messages;
-            s.compressed_bytes += cur_src.compressed_bytes - psrc.compressed_bytes;
-            s.decompressed_bytes += cur_src.decompressed_bytes - psrc.decompressed_bytes;
-            s.download_busy_nanos += cur_src.download_busy_nanos - psrc.download_busy_nanos;
-            s.decomp_busy_nanos += cur_src.decomp_busy_nanos - psrc.decomp_busy_nanos;
-            p.rows += cur_parse.rows - pparse.rows;
-            p.arrow_bytes += cur_parse.arrow_bytes - pparse.arrow_bytes;
-            p.dlq_rows += cur_parse.dlq_rows - pparse.dlq_rows;
-            p.unique_offsets += cur_parse.unique_offsets - pparse.unique_offsets;
-            p.parse_busy_nanos += cur_parse.parse_busy_nanos - pparse.parse_busy_nanos;
-            k.rows += cur_sink.rows - psink.rows;
-            k.bytes += cur_sink.bytes - psink.bytes;
-            k.flushes += cur_sink.flushes - psink.flushes;
-            k.unique_offsets += cur_sink.unique_offsets - psink.unique_offsets;
-            k.busy_nanos += cur_sink.busy_nanos - psink.busy_nanos;
-            k.upload_retries += cur_sink.upload_retries - psink.upload_retries;
+            s.messages += cur_src.messages.saturating_sub(psrc.messages);
+            s.compressed_bytes += cur_src
+                .compressed_bytes
+                .saturating_sub(psrc.compressed_bytes);
+            s.decompressed_bytes += cur_src
+                .decompressed_bytes
+                .saturating_sub(psrc.decompressed_bytes);
+            s.download_busy_nanos += cur_src
+                .download_busy_nanos
+                .saturating_sub(psrc.download_busy_nanos);
+            s.decomp_busy_nanos += cur_src
+                .decomp_busy_nanos
+                .saturating_sub(psrc.decomp_busy_nanos);
+            p.rows += cur_parse.rows.saturating_sub(pparse.rows);
+            p.arrow_bytes += cur_parse.arrow_bytes.saturating_sub(pparse.arrow_bytes);
+            p.dlq_rows += cur_parse.dlq_rows.saturating_sub(pparse.dlq_rows);
+            p.source_messages += cur_parse
+                .source_messages
+                .saturating_sub(pparse.source_messages);
+            p.parse_busy_nanos += cur_parse
+                .parse_busy_nanos
+                .saturating_sub(pparse.parse_busy_nanos);
+            k.rows += cur_sink.rows.saturating_sub(psink.rows);
+            k.bytes += cur_sink.bytes.saturating_sub(psink.bytes);
+            k.flushes += cur_sink.flushes.saturating_sub(psink.flushes);
+            k.source_messages += cur_sink
+                .source_messages
+                .saturating_sub(psink.source_messages);
+            k.busy_nanos += cur_sink.busy_nanos.saturating_sub(psink.busy_nanos);
+            k.upload_retries += cur_sink.upload_retries.saturating_sub(psink.upload_retries);
             k.buffered_bytes += cur_sink.buffered_bytes;
             k.open_objects += cur_sink.open_objects;
             k.ready_objects += cur_sink.ready_objects;
             k.inflight_objects += cur_sink.inflight_objects;
-            k.backpressure_nanos += cur_sink.backpressure_nanos - psink.backpressure_nanos;
+            k.backpressure_nanos += cur_sink
+                .backpressure_nanos
+                .saturating_sub(psink.backpressure_nanos);
             wall_ns_sum += wall;
-            any_parser |= pm.has_parser;
-            any_eo_key |= pm.has_eo_key;
+            any_row_parser |= pm.parses_rows;
+            if let Some(current) = pm.delivery_guarantee {
+                if delivery_guarantee.is_some_and(|known| known != current) {
+                    mixed_guarantees = true;
+                } else {
+                    delivery_guarantee = Some(current);
+                }
+            }
         }
         last.insert(pm.pid, (cur_src, cur_parse, cur_sink, now));
     }
@@ -620,8 +614,12 @@ fn aggregate_line(
         s,
         p,
         k,
-        any_parser,
-        any_eo_key,
+        any_row_parser,
+        if mixed_guarantees {
+            "mixed"
+        } else {
+            delivery_guarantee_name(delivery_guarantee)
+        },
         wall_ns_sum,
         cpu_pct,
         rss,
@@ -630,8 +628,8 @@ fn aggregate_line(
 
 fn format_line(
     pid: i64,
-    has_parser: bool,
-    has_eo_key: bool,
+    parses_rows: bool,
+    delivery_guarantee: Option<DeliveryGuarantee>,
     cur_src: SourceSnapshot,
     prev_src: SourceSnapshot,
     cur_parse: ParseSnapshot,
@@ -643,42 +641,46 @@ fn format_line(
     rss: u64,
 ) -> String {
     let sec = wall_ns as f64 / NANOS_PER_SEC_F;
-    let d_msg = cur_src.messages - prev_src.messages;
-    let d_comp = cur_src.compressed_bytes - prev_src.compressed_bytes;
-    let d_decomp = cur_src.decompressed_bytes - prev_src.decompressed_bytes;
+    let d_msg = cur_src.messages.saturating_sub(prev_src.messages);
+    let d_comp = cur_src
+        .compressed_bytes
+        .saturating_sub(prev_src.compressed_bytes);
+    let d_decomp = cur_src
+        .decompressed_bytes
+        .saturating_sub(prev_src.decompressed_bytes);
     let dl_pct = pct(
-        cur_src.download_busy_nanos - prev_src.download_busy_nanos,
+        cur_src
+            .download_busy_nanos
+            .saturating_sub(prev_src.download_busy_nanos),
         wall_ns,
     );
     let decomp_pct = pct(
-        cur_src.decomp_busy_nanos - prev_src.decomp_busy_nanos,
+        cur_src
+            .decomp_busy_nanos
+            .saturating_sub(prev_src.decomp_busy_nanos),
         wall_ns,
     );
     let source_part = format!(
-        "yds: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
+        "pqv1: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
         ((d_msg as f64) / sec) as u64,
         fmt_bytes(d_comp as f64 / sec),
         fmt_bytes(d_decomp as f64 / sec),
         dl_pct,
         decomp_pct,
     );
-    let uniq_off_fmt = |d_uniq: u64| -> String {
-        if has_eo_key {
-            format!("{} msg/s", ((d_uniq as f64) / sec) as u64)
-        } else if d_uniq > 0 {
-            // `~` marks "messages, not offsets" (semantic marker, not uncertainty)
-            format!("~{} msg/s", ((d_uniq as f64) / sec) as u64)
-        } else {
-            "msg/s: unknown (source identity unavailable)".to_string()
-        }
-    };
-    let parse_part = if has_parser {
-        let d_rows = cur_parse.rows - prev_parse.rows;
-        let d_arrow = cur_parse.arrow_bytes - prev_parse.arrow_bytes;
-        let d_dlq = cur_parse.dlq_rows - prev_parse.dlq_rows;
-        let d_uniq = cur_parse.unique_offsets - prev_parse.unique_offsets;
+    let source_message_rate =
+        |messages: u64| format!("{} source-msg/s", ((messages as f64) / sec) as u64);
+    let parse_part = if parses_rows {
+        let d_rows = cur_parse.rows.saturating_sub(prev_parse.rows);
+        let d_arrow = cur_parse.arrow_bytes.saturating_sub(prev_parse.arrow_bytes);
+        let d_dlq = cur_parse.dlq_rows.saturating_sub(prev_parse.dlq_rows);
+        let d_source_messages = cur_parse
+            .source_messages
+            .saturating_sub(prev_parse.source_messages);
         let parse_pct = pct(
-            cur_parse.parse_busy_nanos - prev_parse.parse_busy_nanos,
+            cur_parse
+                .parse_busy_nanos
+                .saturating_sub(prev_parse.parse_busy_nanos),
             wall_ns,
         );
         format!(
@@ -686,28 +688,37 @@ fn format_line(
             ((d_rows as f64) / sec) as u64,
             fmt_bytes(d_arrow as f64 / sec),
             ((d_dlq as f64) / sec) as u64,
-            uniq_off_fmt(d_uniq),
+            source_message_rate(d_source_messages),
             parse_pct,
         )
     } else {
-        "parse: (no parser)".to_string()
+        "parse: benchmark-discard".to_string()
     };
-    let d_sink_rows = cur_sink.rows - prev_sink.rows;
-    let d_sink_bytes = cur_sink.bytes - prev_sink.bytes;
-    let d_sink_flushes = cur_sink.flushes - prev_sink.flushes;
-    let d_sink_uniq = cur_sink.unique_offsets - prev_sink.unique_offsets;
-    let sink_pct = pct(cur_sink.busy_nanos - prev_sink.busy_nanos, wall_ns);
-    let backpressure_pct = pct(
-        cur_sink.backpressure_nanos - prev_sink.backpressure_nanos,
+    let d_sink_rows = cur_sink.rows.saturating_sub(prev_sink.rows);
+    let d_sink_bytes = cur_sink.bytes.saturating_sub(prev_sink.bytes);
+    let d_sink_flushes = cur_sink.flushes.saturating_sub(prev_sink.flushes);
+    let d_sink_source_messages = cur_sink
+        .source_messages
+        .saturating_sub(prev_sink.source_messages);
+    let sink_pct = pct(
+        cur_sink.busy_nanos.saturating_sub(prev_sink.busy_nanos),
         wall_ns,
     );
-    let retries = cur_sink.upload_retries - prev_sink.upload_retries;
+    let backpressure_pct = pct(
+        cur_sink
+            .backpressure_nanos
+            .saturating_sub(prev_sink.backpressure_nanos),
+        wall_ns,
+    );
+    let retries = cur_sink
+        .upload_retries
+        .saturating_sub(prev_sink.upload_retries);
     let sink_part = format!(
         "sink: {} rows/s | {} | {} flushes/s | {} | {}% busy | {} retries | buffered {} | objects {}/{}/{} | {}% backpressure",
         ((d_sink_rows as f64) / sec) as u64,
         fmt_bytes(d_sink_bytes as f64 / sec),
         ((d_sink_flushes as f64) / sec) as u64,
-        uniq_off_fmt(d_sink_uniq),
+        source_message_rate(d_sink_source_messages),
         sink_pct,
         retries,
         fmt_rss(cur_sink.buffered_bytes),
@@ -717,7 +728,8 @@ fn format_line(
         backpressure_pct,
     );
     format!(
-        "[stats p={pid}] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",
+        "[stats p={pid}] {source_part} || {parse_part} || {sink_part} || guarantee: {} | cpu: {}% rss: {}",
+        delivery_guarantee_name(delivery_guarantee),
         cpu_pct,
         fmt_rss(rss)
     )
@@ -727,8 +739,8 @@ fn format_line_avg(
     s: SourceSnapshot,
     p: ParseSnapshot,
     k: SinkSnapshot,
-    any_parser: bool,
-    any_eo_key: bool,
+    any_row_parser: bool,
+    delivery_guarantee: &str,
     wall_ns_sum: u64,
     cpu_pct: u64,
     rss: u64,
@@ -737,34 +749,27 @@ fn format_line_avg(
     let dl_pct = pct(s.download_busy_nanos, wall_ns_sum);
     let decomp_pct = pct(s.decomp_busy_nanos, wall_ns_sum);
     let source_part = format!(
-        "yds: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
+        "pqv1: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
         ((s.messages as f64) / sec) as u64,
         fmt_bytes(s.compressed_bytes as f64 / sec),
         fmt_bytes(s.decompressed_bytes as f64 / sec),
         dl_pct,
         decomp_pct,
     );
-    let uniq_off_str = |uniq: u64| -> String {
-        if any_eo_key {
-            format!("{} msg/s", ((uniq as f64) / sec) as u64)
-        } else if uniq > 0 {
-            format!("~{} msg/s", ((uniq as f64) / sec) as u64)
-        } else {
-            "msg/s: unknown (source identity unavailable)".to_string()
-        }
-    };
-    let parse_part = if any_parser {
+    let source_message_rate =
+        |messages: u64| format!("{} source-msg/s", ((messages as f64) / sec) as u64);
+    let parse_part = if any_row_parser {
         let parse_pct = pct(p.parse_busy_nanos, wall_ns_sum);
         format!(
             "parse: {} rows/s | {} arrow | {} dlq/s | {} | {}% busy",
             ((p.rows as f64) / sec) as u64,
             fmt_bytes(p.arrow_bytes as f64 / sec),
             ((p.dlq_rows as f64) / sec) as u64,
-            uniq_off_str(p.unique_offsets),
+            source_message_rate(p.source_messages),
             parse_pct,
         )
     } else {
-        "parse: (no parser)".to_string()
+        "parse: benchmark-discard".to_string()
     };
     let sink_pct = pct(k.busy_nanos, wall_ns_sum);
     let backpressure_pct = pct(k.backpressure_nanos, wall_ns_sum);
@@ -773,7 +778,7 @@ fn format_line_avg(
         ((k.rows as f64) / sec) as u64,
         fmt_bytes(k.bytes as f64 / sec),
         ((k.flushes as f64) / sec) as u64,
-        uniq_off_str(k.unique_offsets),
+        source_message_rate(k.source_messages),
         sink_pct,
         k.upload_retries,
         fmt_rss(k.buffered_bytes),
@@ -783,10 +788,18 @@ fn format_line_avg(
         backpressure_pct,
     );
     format!(
-        "[stats] {source_part} || {parse_part} || {sink_part} || cpu: {}% rss: {}",
-        cpu_pct,
+        "[stats] {source_part} || {parse_part} || {sink_part} || guarantee: {delivery_guarantee} | cpu: {cpu_pct}% rss: {}",
         fmt_rss(rss)
     )
+}
+
+const fn delivery_guarantee_name(guarantee: Option<DeliveryGuarantee>) -> &'static str {
+    match guarantee {
+        Some(DeliveryGuarantee::ExactlyOnce) => "exactly-once",
+        Some(DeliveryGuarantee::AtLeastOnce) => "at-least-once",
+        Some(DeliveryGuarantee::NoDurability) => "no-durability",
+        None => "unknown",
+    }
 }
 
 #[inline]
@@ -828,22 +841,18 @@ pub struct ProcessStats {
     prev_stime: u64,
     prev_wall: Instant,
     clock_ticks_per_sec: u64,
-    #[expect(dead_code, reason = "kept for future per-core efficiency calculations")]
-    num_cpus: u64,
 }
 
 impl ProcessStats {
     #[must_use]
     pub fn new() -> Self {
         let clock_ticks_per_sec = sysconf_clock_ticks();
-        let num_cpus = std::thread::available_parallelism().map_or(1, |n| n.get() as u64);
         let (utime, stime) = read_proc_stat();
         Self {
             prev_utime: utime,
             prev_stime: stime,
             prev_wall: Instant::now(),
             clock_ticks_per_sec,
-            num_cpus,
         }
     }
 
@@ -980,7 +989,7 @@ mod tests {
         let snap = reg.snapshot();
         assert_eq!(snap.len(), 1, "merged into one entry");
         let pm = &snap[0];
-        assert!(pm.has_parser);
+        assert!(pm.parses_rows);
         assert!(pm.source.is_some());
         assert!(pm.parse.is_some());
     }
@@ -999,5 +1008,51 @@ mod tests {
         assert_eq!(snap.decompressed_bytes, 200);
         assert_eq!(snap.download_busy_nanos, 42);
         assert_eq!(snap.decomp_busy_nanos, 7);
+    }
+
+    #[test]
+    fn reporter_tolerates_counter_generation_reset() {
+        let current_source = SourceSnapshot::default();
+        let previous_source = SourceSnapshot {
+            messages: 100,
+            compressed_bytes: 100,
+            decompressed_bytes: 100,
+            download_busy_nanos: 100,
+            decomp_busy_nanos: 100,
+        };
+        let line = format_line(
+            1,
+            true,
+            Some(DeliveryGuarantee::AtLeastOnce),
+            current_source,
+            previous_source,
+            ParseSnapshot::default(),
+            ParseSnapshot {
+                rows: 100,
+                arrow_bytes: 100,
+                dlq_rows: 100,
+                source_messages: 100,
+                parse_busy_nanos: 100,
+            },
+            SinkSnapshot::default(),
+            SinkSnapshot {
+                rows: 100,
+                bytes: 100,
+                flushes: 100,
+                source_messages: 100,
+                busy_nanos: 100,
+                upload_retries: 100,
+                buffered_bytes: 0,
+                open_objects: 0,
+                ready_objects: 0,
+                inflight_objects: 0,
+                backpressure_nanos: 100,
+            },
+            1_000_000_000,
+            0,
+            0,
+        );
+        assert!(line.contains("pqv1: 0 msg/s"));
+        assert!(line.contains("guarantee: at-least-once"));
     }
 }

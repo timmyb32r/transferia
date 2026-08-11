@@ -1,5 +1,9 @@
 # Exactly-once поставка данных в ClickHouse: полный каталог подходов
 
+> **Status: design history, not an implemented runtime contract.** The active
+> PQv1 → ClickHouse guarantee is documented in `pqv1-clickhouse-delivery.md` and in
+> the compatibility report printed at startup.
+
 > Репорт описывает **все практические способы** организовать exactly-once доставку в ClickHouse — как из потоковых источников (Kafka/YDS/Pub/Sub), так и из батчевых (PostgreSQL snapshot, S3, файлы).  
 > Упор сделан на паттерны, которые можно реализовать в коде поставщика (producer / ETL / pipeline), с использованием ClickHouse-фич там, где это уместно.  
 > Дата: 2026-08-07.

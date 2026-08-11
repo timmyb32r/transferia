@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use tokio::task::JoinSet;
-use tokio::time::{Instant, Sleep};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::metrics::SinkCounters;
@@ -30,23 +30,30 @@ struct ObjectBuffer {
     start_offset: i64,
     rows: usize,
     payload: Vec<u8>,
-    delivery_rows: BTreeMap<DeliveryId, usize>,
 }
 
 #[derive(Default)]
 struct Epoch {
     buffers: BTreeMap<BufferKey, ObjectBuffer>,
-    bytes: usize,
+    delivery_rows: Vec<(DeliveryId, usize)>,
+    reservations: Vec<MemoryReservation>,
+    retained_bytes: usize,
     record_time_base_ms: Option<i64>,
     last_main_partition: Option<Arc<str>>,
     first_seen: Option<Instant>,
 }
 
 struct ClosedObject {
+    epoch_id: u64,
     key: String,
     payload: Bytes,
     rows: usize,
-    delivery_rows: BTreeMap<DeliveryId, usize>,
+}
+
+struct ClosedEpoch {
+    remaining_objects: usize,
+    delivery_rows: Vec<(DeliveryId, usize)>,
+    reservations: Vec<MemoryReservation>,
 }
 
 struct EncodedRow {
@@ -54,7 +61,6 @@ struct EncodedRow {
     is_dlq: bool,
     route: RowRoute,
     payload: std::ops::Range<usize>,
-    delivery_id: DeliveryId,
 }
 
 struct EncodedDelivery {
@@ -63,23 +69,61 @@ struct EncodedDelivery {
     payload: Vec<u8>,
 }
 
+fn encoded_row_order(left: &EncodedRow, right: &EncodedRow) -> core::cmp::Ordering {
+    (
+        left.route.topic.as_ref(),
+        left.route.partition,
+        left.route.offset,
+        left.route.message_index,
+        left.is_dlq,
+    )
+        .cmp(&(
+            right.route.topic.as_ref(),
+            right.route.partition,
+            right.route.offset,
+            right.route.message_index,
+            right.is_dlq,
+        ))
+}
+
+const ROUTE_RETAINED_OVERHEAD_BYTES: usize = 128;
+
+fn encoded_row_retained_bytes(row: &EncodedRow) -> usize {
+    row.payload
+        .len()
+        .saturating_add(ROUTE_RETAINED_OVERHEAD_BYTES)
+        .saturating_add(row.table.len())
+        .saturating_add(row.route.topic.len())
+        .saturating_add(row.route.partition_path.len())
+}
+
 struct ActiveUpload {
     object: ClosedObject,
     result: Result<UploadStats, PipelineFailure>,
 }
 
 pub struct S3Sink {
-    config: S3SinkConfig,
+    config: S3ActorConfig,
     uploader: Arc<dyn ObjectUploader>,
     partitioner: Partitioner,
     counters: Arc<SinkCounters>,
     keep_system_columns: bool,
     epoch: Epoch,
     ready: VecDeque<ClosedObject>,
-    progress: DeliveryTracker<MemoryReservation>,
+    closed_epochs: BTreeMap<u64, ClosedEpoch>,
+    next_epoch_id: u64,
+    progress: DeliveryTracker<()>,
     buffered_bytes: usize,
     epoch_byte_limit: usize,
     in_flight_objects: usize,
+}
+
+struct S3ActorConfig {
+    prefix: String,
+    rotation: super::config::RotationConfig,
+    buffering: super::config::BufferingConfig,
+    retry: super::config::RetryConfig,
+    max_in_flight_objects: usize,
 }
 
 impl S3Sink {
@@ -91,6 +135,13 @@ impl S3Sink {
     ) -> anyhow::Result<Self> {
         let partitioner = Partitioner::new(&config.partitioning)?;
         let epoch_byte_limit = config.epoch_byte_limit();
+        let config = S3ActorConfig {
+            prefix: config.prefix,
+            rotation: config.rotation,
+            buffering: config.buffering,
+            retry: config.retry,
+            max_in_flight_objects: config.upload.max_in_flight_objects,
+        };
         Ok(Self {
             config,
             uploader,
@@ -99,6 +150,8 @@ impl S3Sink {
             keep_system_columns,
             epoch: Epoch::default(),
             ready: VecDeque::new(),
+            closed_epochs: BTreeMap::new(),
+            next_epoch_id: 0,
             progress: DeliveryTracker::new(),
             buffered_bytes: 0,
             epoch_byte_limit,
@@ -126,26 +179,14 @@ impl S3Sink {
                     is_dlq: output.is_dlq,
                     route,
                     payload: start..payload.len(),
-                    delivery_id: delivery.id,
                 });
             }
         }
-        rows.sort_by(|left, right| {
-            (
-                left.route.topic.as_ref(),
-                left.route.partition,
-                left.route.offset,
-                left.route.message_index,
-                left.is_dlq,
-            )
-                .cmp(&(
-                    right.route.topic.as_ref(),
-                    right.route.partition,
-                    right.route.offset,
-                    right.route.message_index,
-                    right.is_dlq,
-                ))
-        });
+        if !rows.is_sorted_by(|left, right| {
+            encoded_row_order(left, right) != core::cmp::Ordering::Greater
+        }) {
+            rows.sort_unstable_by(encoded_row_order);
+        }
         Ok(EncodedDelivery {
             delivery,
             rows,
@@ -162,15 +203,13 @@ impl S3Sink {
         let serialized_bytes = encoded.payload.len();
         let delivery_id = encoded.delivery.id;
         let pending_rows = encoded.rows.len();
-        let reservation =
-            (serialized_bytes > 0).then(|| memory.reserve_transform(serialized_bytes));
         let copy_reservation =
             (serialized_bytes > 0).then(|| memory.reserve_transform(serialized_bytes));
         self.progress.accept(
             delivery_id,
             pending_rows,
             encoded.delivery.meta.source_messages,
-            reservation,
+            None,
         )?;
         drop(encoded.delivery.outputs);
         self.buffered_bytes = self.buffered_bytes.saturating_add(serialized_bytes);
@@ -199,7 +238,12 @@ impl S3Sink {
             {
                 end += 1;
             }
-            self.accept_message_group(&encoded.rows[start..end], &encoded.payload);
+            self.accept_message_group(
+                &encoded.rows[start..end],
+                &encoded.payload,
+                delivery_id,
+                memory,
+            );
             start = end;
         }
         drop(encoded.payload);
@@ -208,7 +252,13 @@ impl S3Sink {
         Ok(())
     }
 
-    fn accept_message_group(&mut self, rows: &[EncodedRow], payload: &[u8]) {
+    fn accept_message_group(
+        &mut self,
+        rows: &[EncodedRow],
+        payload: &[u8],
+        delivery_id: DeliveryId,
+        memory: &crate::pipeline::memory::PipelineMemory,
+    ) {
         let main = rows.iter().find(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
 
@@ -242,6 +292,21 @@ impl S3Sink {
             self.epoch.last_main_partition = Some(Arc::clone(&main.route.partition_path));
         }
 
+        // A source message is the smallest deterministic routing unit. Keep
+        // its retained-memory lease with the epoch that owns its rows rather
+        // than with the timing-dependent Delivery that happened to carry it.
+        // A durable closed epoch can then release capacity even if a later
+        // epoch still contains rows from the same Delivery.
+        let retained_bytes = rows.iter().fold(0_usize, |bytes, row| {
+            bytes.saturating_add(encoded_row_retained_bytes(row))
+        });
+        if retained_bytes > 0 {
+            self.epoch
+                .reservations
+                .push(memory.reserve_transform(retained_bytes));
+        }
+
+        let mut object_limit_reached = false;
         for row in rows {
             let key = BufferKey {
                 table: Arc::clone(&row.table),
@@ -257,23 +322,25 @@ impl S3Sink {
                     start_offset: row.route.offset,
                     rows: 0,
                     payload: Vec::new(),
-                    delivery_rows: BTreeMap::new(),
                 });
             buffer.start_offset = buffer.start_offset.min(row.route.offset);
             buffer.rows = buffer.rows.saturating_add(1);
             buffer
                 .payload
                 .extend_from_slice(&payload[row.payload.clone()]);
-            *buffer.delivery_rows.entry(row.delivery_id).or_default() += 1;
-            self.epoch.bytes = self.epoch.bytes.saturating_add(row.payload.len());
+            object_limit_reached |= buffer.rows >= self.config.rotation.max_rows
+                || buffer.payload.len() >= self.config.rotation.max_bytes.0;
+        }
+        self.epoch.retained_bytes = self.epoch.retained_bytes.saturating_add(retained_bytes);
+        match self.epoch.delivery_rows.last_mut() {
+            Some((previous_delivery_id, delivery_rows)) if *previous_delivery_id == delivery_id => {
+                *delivery_rows += rows.len();
+            }
+            _ => self.epoch.delivery_rows.push((delivery_id, rows.len())),
         }
 
-        let object_limit_reached = self.epoch.buffers.values().any(|buffer| {
-            buffer.rows >= self.config.rotation.max_rows
-                || buffer.payload.len() >= self.config.rotation.max_bytes.0
-        });
         let budget_reached = self.epoch.buffers.len() > self.config.buffering.max_open_objects
-            || self.epoch.bytes >= self.epoch_byte_limit;
+            || self.epoch.retained_bytes >= self.epoch_byte_limit;
         if self.epoch.buffers.len() > self.config.buffering.max_open_objects {
             tracing::warn!(
                 open_objects = self.epoch.buffers.len(),
@@ -281,10 +348,10 @@ impl S3Sink {
                 "one atomic source message temporarily exceeded the S3 open-object limit"
             );
         }
-        if self.pending_objects() > self.config.buffering.max_pending_objects {
+        if self.pending_upload_objects() > self.config.buffering.max_pending_upload_objects {
             tracing::warn!(
-                pending_objects = self.pending_objects(),
-                configured_limit = self.config.buffering.max_pending_objects,
+                pending_upload_objects = self.pending_upload_objects(),
+                configured_limit = self.config.buffering.max_pending_upload_objects,
                 "one atomic source message temporarily exceeded the S3 pending-object limit"
             );
         }
@@ -302,6 +369,9 @@ impl S3Sink {
             return;
         }
         let epoch = std::mem::take(&mut self.epoch);
+        let epoch_id = self.next_epoch_id;
+        self.next_epoch_id = self.next_epoch_id.saturating_add(1);
+        let remaining_objects = epoch.buffers.len();
         for (buffer_key, buffer) in epoch.buffers {
             let topic = percent_encode(buffer.topic.as_bytes());
             let filename = format!(
@@ -321,12 +391,20 @@ impl S3Sink {
                 )
             };
             self.ready.push_back(ClosedObject {
+                epoch_id,
                 key,
                 payload: Bytes::from(buffer.payload),
                 rows: buffer.rows,
-                delivery_rows: buffer.delivery_rows,
             });
         }
+        self.closed_epochs.insert(
+            epoch_id,
+            ClosedEpoch {
+                remaining_objects,
+                delivery_rows: epoch.delivery_rows,
+                reservations: epoch.reservations,
+            },
+        );
         self.update_buffer_gauges();
     }
 
@@ -351,9 +429,11 @@ impl S3Sink {
         true
     }
 
-    fn complete_upload(&mut self, active: ActiveUpload) -> anyhow::Result<()> {
-        self.in_flight_objects = self.in_flight_objects.saturating_sub(1);
-        let stats = active.result.map_err(anyhow::Error::new)?;
+    fn complete_upload(&mut self, active: ActiveUpload) -> Result<(), PipelineFailure> {
+        self.in_flight_objects = self.in_flight_objects.checked_sub(1).ok_or_else(|| {
+            PipelineFailure::fatal(anyhow::anyhow!("S3 in-flight upload counter underflow"))
+        })?;
+        let stats = active.result?;
         self.counters.add_busy(stats.busy);
         self.counters.add_upload_retries(stats.retries);
         self.counters.add_rows(active.object.rows as u64);
@@ -361,9 +441,42 @@ impl S3Sink {
         self.counters.add_flush();
         self.buffered_bytes = self
             .buffered_bytes
-            .saturating_sub(active.object.payload.len());
-        for (delivery_id, rows) in active.object.delivery_rows {
-            self.progress.complete(delivery_id, rows)?;
+            .checked_sub(active.object.payload.len())
+            .ok_or_else(|| {
+                PipelineFailure::fatal(anyhow::anyhow!("S3 buffered byte counter underflow"))
+            })?;
+
+        let epoch_complete = {
+            let epoch = self
+                .closed_epochs
+                .get_mut(&active.object.epoch_id)
+                .ok_or_else(|| {
+                    PipelineFailure::fatal(anyhow::anyhow!(
+                        "missing S3 epoch progress {}",
+                        active.object.epoch_id
+                    ))
+                })?;
+            epoch.remaining_objects = epoch.remaining_objects.checked_sub(1).ok_or_else(|| {
+                PipelineFailure::fatal(anyhow::anyhow!("S3 epoch progress underflow"))
+            })?;
+            epoch.remaining_objects == 0
+        };
+        if epoch_complete {
+            let epoch = self
+                .closed_epochs
+                .remove(&active.object.epoch_id)
+                .ok_or_else(|| {
+                    PipelineFailure::fatal(anyhow::anyhow!(
+                        "completed S3 epoch {} disappeared",
+                        active.object.epoch_id
+                    ))
+                })?;
+            for (delivery_id, rows) in epoch.delivery_rows {
+                self.progress
+                    .complete(delivery_id, rows)
+                    .map_err(PipelineFailure::fatal)?;
+            }
+            drop(epoch.reservations);
         }
         tracing::info!(
             object_key = active.object.key,
@@ -379,7 +492,7 @@ impl S3Sink {
         events: &tokio::sync::mpsc::Sender<SinkEvent>,
     ) -> anyhow::Result<()> {
         if let Some(committed) = self.progress.take_committed() {
-            self.counters.add_unique_offsets(committed.source_messages);
+            self.counters.add_source_messages(committed.source_messages);
             events
                 .send(SinkEvent::CommittedThrough(committed.through))
                 .await
@@ -409,12 +522,19 @@ impl S3Sink {
         self.counters.set_ready_objects(self.ready.len() as u64);
     }
 
-    fn pending_objects(&self) -> usize {
+    fn reset_gauges(&self) {
+        self.counters.set_buffered_bytes(0);
+        self.counters.set_open_objects(0);
+        self.counters.set_ready_objects(0);
+        self.counters.set_inflight_objects(0);
+    }
+
+    fn pending_upload_objects(&self) -> usize {
         self.ready.len().saturating_add(self.in_flight_objects)
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let max_in_flight_objects = self.config.upload.max_in_flight_objects;
+        let max_in_flight_objects = self.config.max_in_flight_objects;
         let mut uploads = JoinSet::new();
         let upload_cancellation = CancellationToken::new();
         let mut input_closed = false;
@@ -432,23 +552,32 @@ impl S3Sink {
                 self.update_gauges();
                 if input_closed && uploads.is_empty() && self.ready.is_empty() {
                     self.emit_committed(&io.events).await?;
-                    anyhow::ensure!(
-                        self.progress.is_empty(),
-                        "S3 sink stopped with incomplete deliveries"
-                    );
+                    if !self.progress.is_empty() || !self.closed_epochs.is_empty() {
+                        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+                            "S3 sink stopped with incomplete delivery progress"
+                        ))
+                        .into());
+                    }
                     return Ok(());
                 }
 
                 let can_accept = !input_closed
                     && self.buffered_bytes < self.config.buffering.max_buffered_bytes.0
-                    && self.pending_objects() < self.config.buffering.max_pending_objects;
+                    && self.pending_upload_objects()
+                        < self.config.buffering.max_pending_upload_objects;
                 if !input_closed && !can_accept {
                     backpressure_started.get_or_insert_with(std::time::Instant::now);
                 } else if let Some(started) = backpressure_started.take() {
                     self.counters.add_backpressure(started.elapsed());
                 }
                 let deadline = self.wall_clock_deadline();
-                let mut wall_sleep = wall_clock_sleep(deadline);
+                let wall_sleep = async move {
+                    match deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                };
+                tokio::pin!(wall_sleep);
                 tokio::select! {
                     () = io.cancellation.cancelled() => return Ok(()),
                     result = uploads.join_next(), if !uploads.is_empty() => {
@@ -459,19 +588,24 @@ impl S3Sink {
                     }
                     delivery = io.deliveries.recv(), if can_accept => {
                         match delivery {
-                            Some(delivery) => self.accept(delivery, &io.memory)?,
+                            Some(delivery) => self
+                                .accept(delivery, &io.memory)
+                                .map_err(PipelineFailure::fatal)?,
                             None => input_closed = true,
                         }
                     }
-                    () = &mut wall_sleep, if deadline.is_some() => self.close_epoch(),
+                    () = &mut wall_sleep => self.close_epoch(),
                 }
             }
         }
         .await;
 
+        if let Some(started) = backpressure_started.take() {
+            self.counters.add_backpressure(started.elapsed());
+        }
         cancel_and_drain_uploads(&mut uploads, &upload_cancellation).await;
         self.in_flight_objects = 0;
-        self.update_gauges();
+        self.reset_gauges();
         result
     }
 }
@@ -490,12 +624,6 @@ async fn cancel_and_drain_uploads(
         uploads.abort_all();
         while uploads.join_next().await.is_some() {}
     }
-}
-
-fn wall_clock_sleep(deadline: Option<Instant>) -> std::pin::Pin<Box<Sleep>> {
-    Box::pin(tokio::time::sleep_until(deadline.unwrap_or_else(|| {
-        Instant::now() + std::time::Duration::from_hours(24)
-    })))
 }
 
 impl Sink for S3Sink {

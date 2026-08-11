@@ -189,11 +189,8 @@ impl ColumnKind {
     }
 }
 
-/// Fallback value appended for non-numeric JSON values in float columns.
-const FALLBACK_F64: f64 = 0.0;
-
 #[inline]
-fn make_builder(kind: ColumnKind, n: usize) -> AnyBuilder {
+fn make_builder(kind: ColumnKind, data_type: &DataType, n: usize) -> AnyBuilder {
     const STR_BYTES_PER_ROW: usize = 128;
     match kind {
         ColumnKind::Utf8 => {
@@ -215,18 +212,29 @@ fn make_builder(kind: ColumnKind, n: usize) -> AnyBuilder {
         ColumnKind::Boolean => AnyBuilder::Boolean(BooleanBuilder::with_capacity(n)),
         ColumnKind::Date32 => AnyBuilder::Date32(Date32Builder::with_capacity(n)),
         ColumnKind::Date64 => AnyBuilder::Date64(Date64Builder::with_capacity(n)),
-        ColumnKind::TimestampMillisecond => {
-            AnyBuilder::TimestampMillisecond(TimestampMillisecondBuilder::with_capacity(n))
-        }
-        ColumnKind::TimestampMicrosecond => {
-            AnyBuilder::TimestampMicrosecond(TimestampMicrosecondBuilder::with_capacity(n))
-        }
-        ColumnKind::TimestampNanosecond => {
-            AnyBuilder::TimestampNanosecond(TimestampNanosecondBuilder::with_capacity(n))
-        }
-        ColumnKind::TimestampSecond => {
-            AnyBuilder::TimestampSecond(TimestampSecondBuilder::with_capacity(n))
-        }
+        ColumnKind::TimestampMillisecond => AnyBuilder::TimestampMillisecond(
+            TimestampMillisecondBuilder::with_capacity(n)
+                .with_timezone_opt(timestamp_timezone(data_type)),
+        ),
+        ColumnKind::TimestampMicrosecond => AnyBuilder::TimestampMicrosecond(
+            TimestampMicrosecondBuilder::with_capacity(n)
+                .with_timezone_opt(timestamp_timezone(data_type)),
+        ),
+        ColumnKind::TimestampNanosecond => AnyBuilder::TimestampNanosecond(
+            TimestampNanosecondBuilder::with_capacity(n)
+                .with_timezone_opt(timestamp_timezone(data_type)),
+        ),
+        ColumnKind::TimestampSecond => AnyBuilder::TimestampSecond(
+            TimestampSecondBuilder::with_capacity(n)
+                .with_timezone_opt(timestamp_timezone(data_type)),
+        ),
+    }
+}
+
+fn timestamp_timezone(data_type: &DataType) -> Option<Arc<str>> {
+    match data_type {
+        DataType::Timestamp(_, timezone) => timezone.clone(),
+        _ => None,
     }
 }
 
@@ -262,38 +270,128 @@ impl AnyBuilder {
 // ---------------------------------------------------------------------------
 
 #[inline]
-fn append_value(builder: &mut AnyBuilder, val: &Value) {
+fn value_matches_kind(kind: ColumnKind, val: &Value) -> bool {
+    if val.is_null() {
+        return true;
+    }
+    match kind {
+        ColumnKind::Utf8 | ColumnKind::LargeUtf8 => val.as_str().is_some(),
+        ColumnKind::Int64
+        | ColumnKind::Date64
+        | ColumnKind::TimestampSecond
+        | ColumnKind::TimestampMillisecond
+        | ColumnKind::TimestampMicrosecond
+        | ColumnKind::TimestampNanosecond => val.as_i64().is_some(),
+        ColumnKind::Int32 | ColumnKind::Date32 => val
+            .as_i64()
+            .is_some_and(|value| i32::try_from(value).is_ok()),
+        ColumnKind::Int16 => val
+            .as_i64()
+            .is_some_and(|value| i16::try_from(value).is_ok()),
+        ColumnKind::Int8 => val
+            .as_i64()
+            .is_some_and(|value| i8::try_from(value).is_ok()),
+        ColumnKind::UInt64 => val.as_u64().is_some(),
+        ColumnKind::UInt32 => val
+            .as_u64()
+            .is_some_and(|value| u32::try_from(value).is_ok()),
+        ColumnKind::UInt16 => val
+            .as_u64()
+            .is_some_and(|value| u16::try_from(value).is_ok()),
+        ColumnKind::UInt8 => val
+            .as_u64()
+            .is_some_and(|value| u8::try_from(value).is_ok()),
+        ColumnKind::Float64 => val.as_f64().is_some_and(f64::is_finite),
+        ColumnKind::Float32 => val.as_f64().is_some_and(|value| {
+            value.is_finite() && value >= f64::from(f32::MIN) && value <= f64::from(f32::MAX)
+        }),
+        ColumnKind::Boolean => val.as_bool().is_some(),
+    }
+}
+
+/// Append a value that has already passed [`value_matches_kind`].
+///
+/// Returning `false` keeps the validation and materialization contracts coupled:
+/// a future type addition cannot silently fall back to zero, NULL, or a narrowing
+/// cast when the two functions drift apart.
+#[inline]
+fn append_value(builder: &mut AnyBuilder, val: &Value) -> bool {
     if val.is_null() {
         append_null(builder);
-        return;
+        return true;
     }
     match builder {
-        AnyBuilder::Utf8(b) => match val.as_str() {
-            Some(s) => b.append_value(s),
-            None => b.append_value(val.to_string()),
-        },
-        AnyBuilder::LargeUtf8(b) => match val.as_str() {
-            Some(s) => b.append_value(s),
-            None => b.append_value(val.to_string()),
-        },
-        AnyBuilder::Int64(b) => b.append_value(val.as_i64().unwrap_or(0)),
-        AnyBuilder::Int32(b) => b.append_value(val.as_i64().unwrap_or(0) as i32),
-        AnyBuilder::Int16(b) => b.append_value(val.as_i64().unwrap_or(0) as i16),
-        AnyBuilder::Int8(b) => b.append_value(val.as_i64().unwrap_or(0) as i8),
-        AnyBuilder::UInt64(b) => b.append_value(val.as_u64().unwrap_or(0)),
-        AnyBuilder::UInt32(b) => b.append_value(val.as_u64().unwrap_or(0) as u32),
-        AnyBuilder::UInt16(b) => b.append_value(val.as_u64().unwrap_or(0) as u16),
-        AnyBuilder::UInt8(b) => b.append_value(val.as_u64().unwrap_or(0) as u8),
-        AnyBuilder::Float64(b) => b.append_value(val.as_f64().unwrap_or(FALLBACK_F64)),
-        AnyBuilder::Float32(b) => b.append_value(val.as_f64().unwrap_or(FALLBACK_F64) as f32),
-        AnyBuilder::Boolean(b) => b.append_value(val.as_bool().unwrap_or(false)),
-        AnyBuilder::TimestampMillisecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
-        AnyBuilder::TimestampMicrosecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
-        AnyBuilder::TimestampNanosecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
-        AnyBuilder::TimestampSecond(b) => b.append_value(val.as_i64().unwrap_or(0)),
-        AnyBuilder::Date32(b) => b.append_value(val.as_i64().unwrap_or(0) as i32),
-        AnyBuilder::Date64(b) => b.append_value(val.as_i64().unwrap_or(0)),
+        AnyBuilder::Utf8(b) => append_if_some(val.as_str(), |value| b.append_value(value)),
+        AnyBuilder::LargeUtf8(b) => append_if_some(val.as_str(), |value| b.append_value(value)),
+        AnyBuilder::Int64(b) => append_if_some(val.as_i64(), |value| b.append_value(value)),
+        AnyBuilder::Int32(b) => append_if_some(
+            val.as_i64().and_then(|value| i32::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::Int16(b) => append_if_some(
+            val.as_i64().and_then(|value| i16::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::Int8(b) => append_if_some(
+            val.as_i64().and_then(|value| i8::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::UInt64(b) => append_if_some(val.as_u64(), |value| b.append_value(value)),
+        AnyBuilder::UInt32(b) => append_if_some(
+            val.as_u64().and_then(|value| u32::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::UInt16(b) => append_if_some(
+            val.as_u64().and_then(|value| u16::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::UInt8(b) => append_if_some(
+            val.as_u64().and_then(|value| u8::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::Float64(b) => {
+            append_if_some(val.as_f64().filter(|value| value.is_finite()), |value| {
+                b.append_value(value);
+            })
+        }
+        AnyBuilder::Float32(b) => append_if_some(
+            val.as_f64()
+                .filter(|value| {
+                    value.is_finite()
+                        && *value >= f64::from(f32::MIN)
+                        && *value <= f64::from(f32::MAX)
+                })
+                .map(|value| value as f32),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::Boolean(b) => append_if_some(val.as_bool(), |value| b.append_value(value)),
+        AnyBuilder::TimestampMillisecond(b) => {
+            append_if_some(val.as_i64(), |value| b.append_value(value))
+        }
+        AnyBuilder::TimestampMicrosecond(b) => {
+            append_if_some(val.as_i64(), |value| b.append_value(value))
+        }
+        AnyBuilder::TimestampNanosecond(b) => {
+            append_if_some(val.as_i64(), |value| b.append_value(value))
+        }
+        AnyBuilder::TimestampSecond(b) => {
+            append_if_some(val.as_i64(), |value| b.append_value(value))
+        }
+        AnyBuilder::Date32(b) => append_if_some(
+            val.as_i64().and_then(|value| i32::try_from(value).ok()),
+            |value| b.append_value(value),
+        ),
+        AnyBuilder::Date64(b) => append_if_some(val.as_i64(), |value| b.append_value(value)),
     }
+}
+
+#[inline]
+fn append_if_some<T>(value: Option<T>, append: impl FnOnce(T)) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    append(value);
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -358,13 +456,16 @@ struct TypedValueWriter<'ctx> {
 }
 
 impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
-    type Value = ();
+    /// `true` means that the JSON value was non-null and was written.
+    type Value = bool;
 
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<bool, D::Error> {
         use serde::Deserialize as _;
         match self.kind {
             ColumnKind::Utf8 | ColumnKind::LargeUtf8 => {
-                let s = <&str>::deserialize(deserializer)?;
+                let Some(s) = Option::<&str>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
                 // ValidatedStr captures the byte range of s within the simd-json
                 // buffer. Because `s` is an `&str`, it is valid UTF-8 by definition
                 // — simd-json already validated it. The pointer arithmetic gives us
@@ -372,34 +473,71 @@ impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
                 *self.target = TypedScratch::Str(ValidatedStr::from_simd_json_str(s, self.buf_ptr));
             }
             ColumnKind::Int32 | ColumnKind::Date32 => {
-                *self.target = TypedScratch::I64(i64::from(i32::deserialize(deserializer)?));
+                let Some(value) = Option::<i32>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::I64(i64::from(value));
             }
             ColumnKind::Int16 => {
-                *self.target = TypedScratch::I64(i64::from(i16::deserialize(deserializer)?));
+                let Some(value) = Option::<i16>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::I64(i64::from(value));
             }
             ColumnKind::Int8 => {
-                *self.target = TypedScratch::I64(i64::from(i8::deserialize(deserializer)?));
+                let Some(value) = Option::<i8>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::I64(i64::from(value));
             }
             ColumnKind::UInt64 => {
-                *self.target = TypedScratch::U64(u64::deserialize(deserializer)?);
+                let Some(value) = Option::<u64>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::U64(value);
             }
             ColumnKind::UInt32 => {
-                *self.target = TypedScratch::U64(u64::from(u32::deserialize(deserializer)?));
+                let Some(value) = Option::<u32>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::U64(u64::from(value));
             }
             ColumnKind::UInt16 => {
-                *self.target = TypedScratch::U64(u64::from(u16::deserialize(deserializer)?));
+                let Some(value) = Option::<u16>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::U64(u64::from(value));
             }
             ColumnKind::UInt8 => {
-                *self.target = TypedScratch::U64(u64::from(u8::deserialize(deserializer)?));
+                let Some(value) = Option::<u8>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::U64(u64::from(value));
             }
             ColumnKind::Float64 => {
-                *self.target = TypedScratch::F64(f64::deserialize(deserializer)?);
+                let Some(value) = Option::<f64>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                if !value.is_finite() {
+                    return Err(de::Error::custom("non-finite Float64 value"));
+                }
+                *self.target = TypedScratch::F64(value);
             }
             ColumnKind::Float32 => {
-                *self.target = TypedScratch::F64(f64::from(f32::deserialize(deserializer)?));
+                let Some(value) = Option::<f64>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                if !value.is_finite() || value < f64::from(f32::MIN) || value > f64::from(f32::MAX)
+                {
+                    return Err(de::Error::custom("Float32 value is out of range"));
+                }
+                *self.target = TypedScratch::F64(value);
             }
             ColumnKind::Boolean => {
-                *self.target = TypedScratch::Bool(bool::deserialize(deserializer)?);
+                let Some(value) = Option::<bool>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::Bool(value);
             }
             ColumnKind::Int64
             | ColumnKind::Date64
@@ -407,10 +545,13 @@ impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
             | ColumnKind::TimestampMicrosecond
             | ColumnKind::TimestampNanosecond
             | ColumnKind::TimestampSecond => {
-                *self.target = TypedScratch::I64(i64::deserialize(deserializer)?);
+                let Some(value) = Option::<i64>::deserialize(deserializer)? else {
+                    return Ok(false);
+                };
+                *self.target = TypedScratch::I64(value);
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -686,8 +827,8 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
                     buf_ptr: self.buf_ptr,
                     kind: self.kinds[idx],
                 };
-                map.next_value_seed(seed)?;
-                if was_empty && self.required[idx] {
+                let present = map.next_value_seed(seed)?;
+                if present && was_empty && self.required[idx] {
                     self.required_filled += 1;
                 }
             } else {
@@ -791,7 +932,7 @@ pub struct JsonParser {
     /// Pre-resolved DLQ table name (`<table>_dlq`).
     dlq_table: Arc<str>,
     /// Cached per-column `DataType` (avoids double `parse_arrow_type`).
-    _data_types: Vec<DataType>,
+    data_types: Vec<DataType>,
     /// How to split incoming message bytes into individual JSON objects.
     chunk_splitter: ChunkSplitter,
     system_kinds: Vec<SystemColumnKind>,
@@ -933,7 +1074,7 @@ impl JsonParser {
             mode,
             table,
             dlq_table,
-            _data_types: data_types,
+            data_types,
             chunk_splitter: config.chunk_splitter,
             system_kinds,
             system_columns,
@@ -994,7 +1135,6 @@ impl JsonParser {
             batch,
             table: Arc::clone(&self.dlq_table),
             is_dlq: true,
-            batch_id: crate::batch_id(),
             system_columns: self.dlq_system_columns.clone(),
         })
     }
@@ -1122,22 +1262,32 @@ impl JsonParser {
         }
     }
 
-    /// Fills `row` from one parsed JSON object. Returns `false` when a required
-    /// column is missing (row goes to DLQ).
+    /// Fills and validates one parsed row before touching any Arrow builder.
+    /// This two-phase contract prevents a late type/range error from leaving
+    /// columns with different lengths.
     fn fill_row(&self, json: &Value, row: &mut Vec<Value>) -> bool {
         row.clear();
-        let mut all_ok = true;
-        for m in &self.mappings {
-            match self.extract_value(json, m) {
-                Some(val) => row.push(val),
-                None if !m.required => row.push(Value::Null),
-                None => {
-                    all_ok = false;
-                    break;
-                }
+        for (mapping, kind) in self.mappings.iter().zip(self.kinds.iter().copied()) {
+            let value = match self.extract_value(json, mapping) {
+                Some(value) => value,
+                None if !mapping.required => Value::Null,
+                None => return false,
+            };
+            if (value.is_null() && mapping.required) || !value_matches_kind(kind, &value) {
+                return false;
             }
+            row.push(value);
         }
-        all_ok
+        true
+    }
+
+    fn append_mixed_row(builders: &mut [AnyBuilder], row: &[Value]) {
+        for (builder, value) in builders.iter_mut().zip(row) {
+            assert!(
+                append_value(builder, value),
+                "validated JSON value no longer matches its Arrow builder"
+            );
+        }
     }
 
     fn parse_mixed_newline(
@@ -1158,9 +1308,7 @@ impl JsonParser {
                 match serde_json::from_slice::<Value>(line) {
                     Ok(json) => {
                         if self.fill_row(&json, row) {
-                            for (builder, val) in builders.iter_mut().zip(row.iter()) {
-                                append_value(builder, val);
-                            }
+                            Self::append_mixed_row(builders, row);
                             append_system_columns(
                                 builders,
                                 self.mappings.len(),
@@ -1201,9 +1349,7 @@ impl JsonParser {
             match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
                     if self.fill_row(&json, row) {
-                        for (builder, val) in builders.iter_mut().zip(row.iter()) {
-                            append_value(builder, val);
-                        }
+                        Self::append_mixed_row(builders, row);
                         append_system_columns(
                             builders,
                             self.mappings.len(),
@@ -1342,8 +1488,8 @@ impl Parser for JsonParser {
         };
 
         ws.builders.clear();
-        for &k in &self.kinds {
-            ws.builders.push(make_builder(k, n_rows));
+        for (&kind, data_type) in self.kinds.iter().zip(&self.data_types) {
+            ws.builders.push(make_builder(kind, data_type, n_rows));
         }
         for kind in &self.system_kinds {
             ws.builders.push(make_system_builder(*kind, n_rows));
@@ -1403,7 +1549,6 @@ impl Parser for JsonParser {
             batch,
             table: Arc::clone(&self.table),
             is_dlq: false,
-            batch_id: crate::batch_id(),
             system_columns: self.system_columns.clone(),
         };
 
@@ -1643,6 +1788,138 @@ mod tests {
         )?;
         anyhow::ensure!(main.batch.num_rows() == 0);
         anyhow::ensure!(dlq.is_some_and(|batch| batch.batch.num_rows() == 1));
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_types_and_ranges_go_to_dlq_in_root_and_mixed_modes() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
+
+        let cases = [
+            ("Int8", "300"),
+            ("UInt8", "-1"),
+            ("UInt16", "70000"),
+            ("Boolean", "\"true\""),
+            ("Utf8", "42"),
+            ("Float32", "1e39"),
+        ];
+
+        for (arrow_type, value) in cases {
+            for (jsonpath, payload) in [
+                ("$.value", format!("{{\"value\":{value}}}")),
+                (
+                    "$.nested.value",
+                    format!("{{\"nested\":{{\"value\":{value}}}}}"),
+                ),
+            ] {
+                let config = JsonParserConfig {
+                    columns: vec![ColumnMapping {
+                        jsonpath: jsonpath.into(),
+                        column_name: "value".into(),
+                        arrow_type: arrow_type.into(),
+                        nullable: false,
+                    }],
+                    chunk_splitter: ChunkSplitter::OneMessageOneRow,
+                };
+                let parser = JsonParser::new(
+                    &config,
+                    &crate::parsers::SystemColumnsConfig::default(),
+                    "test".into(),
+                )?;
+                let (main, dlq) = parser.parse_into(
+                    vec![Message::new(Bytes::from(payload))],
+                    0,
+                    &mut ParserWorkspace::new(),
+                )?;
+                anyhow::ensure!(
+                    main.batch.num_rows() == 0,
+                    "{arrow_type} accepted invalid value in {jsonpath}"
+                );
+                anyhow::ensure!(
+                    dlq.is_some_and(|batch| batch.batch.num_rows() == 1),
+                    "{arrow_type} invalid value did not reach DLQ in {jsonpath}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn nullable_root_and_mixed_values_accept_null_but_not_wrong_type() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
+
+        for (jsonpath, null_payload, invalid_payload) in [
+            (
+                "$.value",
+                b"{\"value\":null}".as_slice(),
+                b"{\"value\":\"bad\"}".as_slice(),
+            ),
+            (
+                "$.nested.value",
+                b"{\"nested\":{\"value\":null}}".as_slice(),
+                b"{\"nested\":{\"value\":\"bad\"}}".as_slice(),
+            ),
+        ] {
+            let config = JsonParserConfig {
+                columns: vec![ColumnMapping {
+                    jsonpath: jsonpath.into(),
+                    column_name: "value".into(),
+                    arrow_type: "Int32".into(),
+                    nullable: true,
+                }],
+                chunk_splitter: ChunkSplitter::OneMessageOneRow,
+            };
+            let parser = JsonParser::new(
+                &config,
+                &crate::parsers::SystemColumnsConfig::default(),
+                "test".into(),
+            )?;
+            let messages = vec![
+                Message::new(Bytes::copy_from_slice(null_payload)),
+                Message::new(Bytes::copy_from_slice(invalid_payload)),
+            ];
+            let (main, dlq) = parser.parse_into(messages, 0, &mut ParserWorkspace::new())?;
+            anyhow::ensure!(main.batch.num_rows() == 1, "{jsonpath}");
+            anyhow::ensure!(main.batch.column(0).is_null(0), "{jsonpath}");
+            anyhow::ensure!(
+                dlq.is_some_and(|batch| batch.batch.num_rows() == 1),
+                "{jsonpath}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn timestamp_timezone_is_preserved_in_record_batch() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::{ChunkSplitter, ColumnMapping};
+
+        let config = JsonParserConfig {
+            columns: vec![ColumnMapping {
+                jsonpath: "$.ts".into(),
+                column_name: "ts".into(),
+                arrow_type: "Timestamp(Millisecond, UTC)".into(),
+                nullable: false,
+            }],
+            chunk_splitter: ChunkSplitter::OneMessageOneRow,
+        };
+        let parser = JsonParser::new(
+            &config,
+            &crate::parsers::SystemColumnsConfig::default(),
+            "test".into(),
+        )?;
+        let (main, dlq) = parser.parse_into(
+            vec![Message::new(Bytes::from_static(b"{\"ts\":123}"))],
+            0,
+            &mut ParserWorkspace::new(),
+        )?;
+        anyhow::ensure!(dlq.is_none());
+        anyhow::ensure!(
+            main.batch.schema().field(0).data_type()
+                == &DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into()))
+        );
+        anyhow::ensure!(
+            main.batch.column(0).data_type() == main.batch.schema().field(0).data_type()
+        );
         Ok(())
     }
 

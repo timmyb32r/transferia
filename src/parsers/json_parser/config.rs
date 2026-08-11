@@ -34,18 +34,6 @@ pub enum ChunkSplitter {
 }
 
 impl ChunkSplitter {
-    /// Last safe split point in `buf`, never cutting a record in half.
-    #[must_use]
-    pub fn safe_split_at(self, buf: &[u8]) -> usize {
-        match self {
-            Self::OneMessageOneRow => buf.len(),
-            Self::NewLine => buf
-                .iter()
-                .rposition(|&byte| byte == b'\n')
-                .map_or(0, |i| i + 1),
-        }
-    }
-
     /// Split a completed chunk into non-empty records.
     #[must_use]
     pub fn split_into_records(self, buf: &[u8]) -> Vec<&[u8]> {

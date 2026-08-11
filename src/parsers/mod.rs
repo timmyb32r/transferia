@@ -1,8 +1,8 @@
+pub mod benchmark_discard;
 pub mod config;
 pub mod json_parser;
-pub mod none_parser;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use alloc::sync::Arc;
 use serde::Deserialize;
@@ -41,7 +41,9 @@ impl ParserEntry {
         let keys: Vec<&str> = self.inner.keys().map(String::as_str).collect();
         match *keys.as_slice() {
             [single] => Ok(single),
-            [] => anyhow::bail!("parser: no parser key found (expected 'json_parser')"),
+            [] => anyhow::bail!(
+                "parser: no parser key found (expected 'json_parser' or 'benchmark_discard')"
+            ),
             _ => anyhow::bail!("parser: expected exactly one parser key, got {keys:?}"),
         }
     }
@@ -54,80 +56,51 @@ impl ParserEntry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ParserRegistry — per-process, seeded with json_parser on first access
-// ---------------------------------------------------------------------------
-
-/// `Arc` (not `Box`) so a factory can be cloned out of the registry and invoked
-/// without holding the registry lock.
-type ParserFactory = Arc<
-    dyn Fn(Value, Arc<str>, CommonParserConfig) -> anyhow::Result<Arc<dyn Parser>> + Send + Sync,
->;
-
-use std::sync::{LazyLock, Mutex};
-
-static PARSER_REGISTRY: LazyLock<Mutex<HashMap<&'static str, ParserFactory>>> =
-    LazyLock::new(|| {
-        let mut m: HashMap<&'static str, ParserFactory> = HashMap::new();
-        m.insert(
-            "json_parser",
-            Arc::new(|raw: Value, table: Arc<str>, common: CommonParserConfig| {
-                let cfg: crate::parsers::json_parser::JsonParserConfig =
-                    serde_yaml::from_value(raw)?;
-                Ok(Arc::new(crate::parsers::json_parser::JsonParser::new(
-                    &cfg,
-                    &common.system_columns,
-                    table,
-                )?) as Arc<dyn Parser>)
-            }),
-        );
-        m.insert(
-            "none",
-            Arc::new(
-                |_raw: Value, table: Arc<str>, _common: CommonParserConfig| {
-                    Ok(
-                        Arc::new(crate::parsers::none_parser::NoneParser::new(table))
-                            as Arc<dyn Parser>,
-                    )
-                },
-            ),
-        );
-        Mutex::new(m)
-    });
-
-pub fn register_parser(name: &'static str, factory: ParserFactory) {
-    PARSER_REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(name, factory);
-}
-
-pub fn parser_names() -> HashSet<&'static str> {
-    PARSER_REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .keys()
-        .copied()
-        .collect()
-}
-
 pub fn build_parser(
     name: &str,
     raw: Value,
     table: Arc<str>,
-    common: CommonParserConfig,
+    common: &CommonParserConfig,
 ) -> anyhow::Result<Arc<dyn Parser>> {
-    let factory = {
-        let registry = PARSER_REGISTRY
-            .lock()
-            .map_err(|e| anyhow::anyhow!("parser registry is poisoned: {e}"))?;
-        registry.get(name).cloned().ok_or_else(|| {
-            anyhow::anyhow!(
-                "Unknown parser '{}'; registered: {:?}",
-                name,
-                registry.keys().collect::<Vec<_>>(),
-            )
-        })?
-    };
-    factory(raw, table, common)
+    match name {
+        "json_parser" => {
+            let config: crate::parsers::json_parser::JsonParserConfig =
+                serde_yaml::from_value(raw)?;
+            Ok(Arc::new(crate::parsers::json_parser::JsonParser::new(
+                &config,
+                &common.system_columns,
+                table,
+            )?))
+        }
+        "benchmark_discard" => {
+            let _: crate::parsers::benchmark_discard::BenchmarkDiscardConfig =
+                serde_yaml::from_value(raw)?;
+            Ok(Arc::new(
+                crate::parsers::benchmark_discard::BenchmarkDiscardParser::new(table),
+            ))
+        }
+        other => anyhow::bail!(
+            "unknown parser '{other}'; supported parsers: json_parser, benchmark_discard"
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn common() -> CommonParserConfig {
+        serde_yaml::from_str("table_naming: { type: from_config, name: events }").unwrap()
+    }
+
+    #[test]
+    fn benchmark_discard_rejects_unknown_configuration() {
+        assert!(build_parser(
+            "benchmark_discard",
+            serde_yaml::from_str("{ typo: true }").unwrap(),
+            Arc::from("events"),
+            &common(),
+        )
+        .is_err());
+    }
 }
