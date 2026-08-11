@@ -1,0 +1,374 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+use arrow::array::Int64Array;
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
+use futures_util::future::BoxFuture;
+use tokio::sync::{mpsc, Notify, Semaphore};
+use tokio::task::JoinHandle;
+use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
+
+use super::{ClickHouseSink, InsertError, InsertTransport};
+use crate::metrics::SinkCounters;
+use crate::pipeline::memory::PipelineMemory;
+use crate::pipeline::sink::{
+    Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
+};
+use crate::providers::clickhouse::ClickHouseSinkConfig;
+
+#[derive(Clone, Copy)]
+enum Plan {
+    Success,
+    Transient,
+    Permanent,
+}
+
+struct FakeState {
+    calls: AtomicUsize,
+    active: AtomicUsize,
+    max_active: AtomicUsize,
+    plans: Mutex<VecDeque<Plan>>,
+    gate: Semaphore,
+    block: bool,
+    started: Notify,
+}
+
+struct FakeTransport {
+    state: Arc<FakeState>,
+}
+
+impl FakeTransport {
+    fn new(block: bool, plans: impl IntoIterator<Item = Plan>) -> (Arc<Self>, Arc<FakeState>) {
+        let state = Arc::new(FakeState {
+            calls: AtomicUsize::new(0),
+            active: AtomicUsize::new(0),
+            max_active: AtomicUsize::new(0),
+            plans: Mutex::new(plans.into_iter().collect()),
+            gate: Semaphore::new(0),
+            block,
+            started: Notify::new(),
+        });
+        (
+            Arc::new(Self {
+                state: Arc::clone(&state),
+            }),
+            state,
+        )
+    }
+}
+
+struct ActiveGuard(Arc<FakeState>);
+
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl InsertTransport for FakeTransport {
+    fn insert(
+        &self,
+        _table: Arc<str>,
+        _batches: Vec<RecordBatch>,
+    ) -> BoxFuture<'static, Result<(), InsertError>> {
+        let state = Arc::clone(&self.state);
+        Box::pin(async move {
+            state.calls.fetch_add(1, Ordering::AcqRel);
+            let active = state.active.fetch_add(1, Ordering::AcqRel) + 1;
+            state.max_active.fetch_max(active, Ordering::AcqRel);
+            let _guard = ActiveGuard(Arc::clone(&state));
+            state.started.notify_waiters();
+            if state.block {
+                state
+                    .gate
+                    .acquire()
+                    .await
+                    .expect("test gate closed")
+                    .forget();
+            }
+            let plan = state
+                .plans
+                .lock()
+                .expect("plans poisoned")
+                .pop_front()
+                .unwrap_or(Plan::Success);
+            match plan {
+                Plan::Success => Ok(()),
+                Plan::Transient => Err(InsertError::Transient(anyhow::anyhow!("temporary"))),
+                Plan::Permanent => Err(InsertError::Permanent(anyhow::anyhow!("permanent"))),
+            }
+        })
+    }
+}
+
+fn config() -> ClickHouseSinkConfig {
+    ClickHouseSinkConfig {
+        connection_string: "unused".into(),
+        database: "default".into(),
+        username: "default".into(),
+        password: String::new(),
+        max_insert_rows: 1,
+        max_insert_bytes: usize::MAX,
+        flush_interval_ms: 100,
+        retry_initial_ms: 10,
+        retry_max_ms: 100,
+        retry_max_attempts: None,
+        use_tls: false,
+        tls_domain: None,
+        sorting_key: Vec::new(),
+        recreate_tables: false,
+    }
+}
+
+async fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
+    let mut outputs = Vec::new();
+    for table in tables {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![id.cast_signed()]))],
+        )
+        .unwrap();
+        let bytes = batch.get_array_memory_size();
+        outputs.push(SinkBatch {
+            table: Arc::from(*table),
+            batch,
+            byte_size: bytes,
+            memory: memory.reserve(bytes).await,
+        });
+    }
+    Delivery {
+        id: DeliveryId::new(id),
+        outputs,
+        meta: DeliveryMeta {
+            source_messages: 1,
+            ..DeliveryMeta::default()
+        },
+    }
+}
+
+fn spawn_sink(
+    transport: Arc<dyn InsertTransport>,
+    memory: PipelineMemory,
+    counters: Arc<SinkCounters>,
+) -> (
+    mpsc::Sender<Delivery>,
+    mpsc::Receiver<SinkEvent>,
+    CancellationToken,
+    JoinHandle<anyhow::Result<()>>,
+) {
+    spawn_sink_with_config(config(), transport, memory, counters)
+}
+
+fn spawn_sink_with_config(
+    config: ClickHouseSinkConfig,
+    transport: Arc<dyn InsertTransport>,
+    memory: PipelineMemory,
+    counters: Arc<SinkCounters>,
+) -> (
+    mpsc::Sender<Delivery>,
+    mpsc::Receiver<SinkEvent>,
+    CancellationToken,
+    JoinHandle<anyhow::Result<()>>,
+) {
+    let sink = ClickHouseSink::with_transport(config, counters, transport);
+    let (delivery_tx, delivery_rx) = mpsc::channel(8);
+    let (event_tx, event_rx) = mpsc::channel(8);
+    let cancellation = CancellationToken::new();
+    let io = SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory,
+        cancellation: cancellation.clone(),
+    };
+    let task = tokio::spawn(Box::new(sink).run(io));
+    (delivery_tx, event_rx, cancellation, task)
+}
+
+async fn wait_calls(state: &FakeState, calls: usize) {
+    while state.calls.load(Ordering::Acquire) < calls {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn buffers_next_delivery_while_exactly_one_insert_runs() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(true, []);
+    let (tx, mut events, cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::clone(&counters));
+
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    tx.send(delivery(&memory, 2, &["events"]).await)
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 1);
+    assert_eq!(state.max_active.load(Ordering::Acquire), 1);
+
+    state.gate.add_permits(1);
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    tokio::time::advance(Duration::from_millis(99)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 1);
+    tokio::time::advance(Duration::from_millis(1)).await;
+    wait_calls(&state, 2).await;
+    state.gate.add_permits(1);
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    assert_eq!(state.max_active.load(Ordering::Acquire), 1);
+    assert_eq!(counters.flushes_total(), 2);
+    assert_eq!(counters.source_messages_total(), 2);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn low_volume_delivery_flushes_at_interval() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, []);
+    let mut low_volume = config();
+    low_volume.max_insert_rows = 1_000;
+    let (tx, mut events, cancellation, task) =
+        spawn_sink_with_config(low_volume, transport, memory.clone(), Arc::clone(&counters));
+
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    tokio::time::advance(Duration::from_millis(99)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    tokio::time::advance(Duration::from_millis(1)).await;
+    wait_calls(&state, 1).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(counters.flushes_total(), 1);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn full_pipeline_budget_requests_an_immediate_insert() {
+    let memory = PipelineMemory::new(1);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, []);
+    let mut high_targets = config();
+    high_targets.max_insert_rows = 1_000;
+    let (tx, mut events, cancellation, task) =
+        spawn_sink_with_config(high_targets, transport, memory.clone(), counters);
+
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn multi_table_delivery_commits_only_after_both_inserts() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, []);
+    let (tx, mut events, cancellation, task) = spawn_sink(transport, memory.clone(), counters);
+    tx.send(delivery(&memory, 1, &["events", "events_dlq"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    tokio::task::yield_now().await;
+    assert!(events.try_recv().is_err());
+    tokio::time::advance(Duration::from_millis(100)).await;
+    wait_calls(&state, 2).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn transient_error_retries_frozen_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, [Plan::Transient, Plan::Success]);
+    let (tx, mut events, cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::clone(&counters));
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    wait_calls(&state, 1).await;
+    assert!(events.try_recv().is_err());
+    tokio::time::advance(Duration::from_millis(10)).await;
+    wait_calls(&state, 2).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(counters.flushes_total(), 1);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn permanent_error_is_fatal_and_never_commits() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, _state) = FakeTransport::new(false, [Plan::Permanent]);
+    let (tx, mut events, _cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
+    tx.send(delivery(&memory, 1, &["events"]).await)
+        .await
+        .unwrap();
+    assert!(task.await.unwrap().is_err());
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn empty_delivery_commits_without_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(false, []);
+    let (tx, mut events, cancellation, task) =
+        spawn_sink(transport, memory, Arc::new(SinkCounters::new()));
+    tx.send(Delivery {
+        id: DeliveryId::new(1),
+        outputs: Vec::new(),
+        meta: DeliveryMeta {
+            source_messages: 1,
+            ..DeliveryMeta::default()
+        },
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}

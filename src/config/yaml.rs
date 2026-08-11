@@ -118,7 +118,7 @@ mod tests {
             serde_yaml::from_value(config.source.raw()?.clone())?;
         let _: crate::parsers::json_parser::JsonParserConfig =
             serde_yaml::from_value(source.parser.parser.raw()?.clone())?;
-        let sink: crate::providers::clickhouse::sink::ClickHouseSinkConfig =
+        let sink: crate::providers::clickhouse::ClickHouseSinkConfig =
             serde_yaml::from_value(config.sink.raw()?.clone())?;
         anyhow::ensure!(sink.sorting_key == ["id", "ts"]);
         Ok(())

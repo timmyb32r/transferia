@@ -13,7 +13,7 @@ use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::run_partition_pipeline;
 use transferia::pipeline::source::{CommitMarker, ReadResult, Source};
-use transferia::providers::clickhouse::sink::{
+use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
 use transferia::types::exactly_once::PartitionKey;

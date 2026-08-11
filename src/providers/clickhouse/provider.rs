@@ -2,9 +2,9 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
 use crate::pipeline::sink::Sink;
-use crate::providers::clickhouse::sink::{
-    schema_columns, ClickHouseAdmin, ClickHouseSink, ClickHouseSinkConfig,
-};
+use crate::providers::clickhouse::admin::ClickHouseAdmin;
+use crate::providers::clickhouse::schema::schema_columns;
+use crate::providers::clickhouse::{ClickHouseSink, ClickHouseSinkConfig};
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {
