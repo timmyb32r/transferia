@@ -283,7 +283,7 @@ fn spawn_with_capacity(
 }
 
 #[tokio::test]
-async fn buffers_next_epoch_while_one_upload_is_in_flight() {
+async fn uploads_multiple_closed_objects_in_parallel() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let (tx, mut events, cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
@@ -294,29 +294,26 @@ async fn buffers_next_epoch_while_one_upload_is_in_flight() {
     tx.send(delivery(&memory, 2, 11, 1_001, false).await)
         .await
         .unwrap();
-    tokio::task::yield_now().await;
-    assert!(events.try_recv().is_err());
-    uploader.gate.as_ref().unwrap().add_permits(1);
-    assert_eq!(
-        events.recv().await,
-        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
-    );
     uploader.wait_for_attempts(2).await;
-    uploader.gate.as_ref().unwrap().add_permits(1);
-    assert_eq!(
-        events.recv().await,
-        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
-    );
+    assert!(events.try_recv().is_err());
+    uploader.gate.as_ref().unwrap().add_permits(2);
+    loop {
+        let Some(SinkEvent::CommittedThrough(id)) = events.recv().await else {
+            panic!("sink event stream closed")
+        };
+        if id == DeliveryId::new(2) {
+            break;
+        }
+    }
     {
         let uploads = uploader.uploads.lock().unwrap();
-        assert_eq!(
-            uploads[0].0,
-            "events/topic=topic%2Fa/partition=3/topic%2Fa+3+10.json"
-        );
-        assert_eq!(
-            uploads[0].1,
-            Bytes::from_static(b"{\"id\":10,\"nullable\":null}\n")
-        );
+        assert!(uploads.iter().any(|(key, payload)| {
+            key == "events/topic=topic%2Fa/partition=3/topic%2Fa+3+10.json"
+                && payload == &Bytes::from_static(b"{\"id\":10,\"nullable\":null}\n")
+        }));
+        assert!(uploads
+            .iter()
+            .any(|(key, _)| { key == "events/topic=topic%2Fa/partition=3/topic%2Fa+3+11.json" }));
         drop(uploads);
     }
     cancel.cancel();
@@ -395,9 +392,10 @@ async fn commit_waits_for_main_and_dlq_objects_in_same_epoch() {
     let dlq = delivery(&memory, 1, 12, 1_000, true).await;
     combined.outputs.extend(dlq.outputs);
     tx.send(combined).await.unwrap();
-    uploader.wait_for_attempts(1).await;
-    uploader.gate.as_ref().unwrap().add_permits(1);
     uploader.wait_for_attempts(2).await;
+    assert!(events.try_recv().is_err());
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    tokio::task::yield_now().await;
     assert!(events.try_recv().is_err());
     uploader.gate.as_ref().unwrap().add_permits(1);
     assert_eq!(

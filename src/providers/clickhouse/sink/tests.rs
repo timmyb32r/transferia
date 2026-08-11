@@ -200,7 +200,7 @@ async fn wait_calls(state: &FakeState, calls: usize) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn buffers_next_delivery_while_exactly_one_insert_runs() {
+async fn full_buffer_starts_immediately_after_the_active_insert() {
     let memory = PipelineMemory::new(1_000_000);
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(true, []);
@@ -223,10 +223,6 @@ async fn buffers_next_delivery_while_exactly_one_insert_runs() {
         events.recv().await,
         Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
     );
-    tokio::time::advance(Duration::from_millis(99)).await;
-    tokio::task::yield_now().await;
-    assert_eq!(state.calls.load(Ordering::Acquire), 1);
-    tokio::time::advance(Duration::from_millis(1)).await;
     wait_calls(&state, 2).await;
     state.gate.add_permits(1);
     assert_eq!(
@@ -295,16 +291,17 @@ async fn full_pipeline_budget_requests_an_immediate_insert() {
 async fn multi_table_delivery_commits_only_after_both_inserts() {
     let memory = PipelineMemory::new(1_000_000);
     let counters = Arc::new(SinkCounters::new());
-    let (transport, state) = FakeTransport::new(false, []);
+    let (transport, state) = FakeTransport::new(true, []);
     let (tx, mut events, cancellation, task) = spawn_sink(transport, memory.clone(), counters);
     tx.send(delivery(&memory, 1, &["events", "events_dlq"]).await)
         .await
         .unwrap();
     wait_calls(&state, 1).await;
-    tokio::task::yield_now().await;
     assert!(events.try_recv().is_err());
-    tokio::time::advance(Duration::from_millis(100)).await;
+    state.gate.add_permits(1);
     wait_calls(&state, 2).await;
+    assert!(events.try_recv().is_err());
+    state.gate.add_permits(1);
     assert_eq!(
         events.recv().await,
         Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))

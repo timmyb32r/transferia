@@ -23,7 +23,7 @@ use transferia::types::table_data::dlq_name;
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Parser, Debug)]
-#[command(name = "transferia", about = "PQv1 to S3 data pipeline")]
+#[command(name = "transferia", about = "PQv1 data transfer pipeline")]
 struct Cli {
     #[arg(long, env = "CONFIG_PATH")]
     config: String,
@@ -166,6 +166,32 @@ fn spawn_partition_task(
     })
 }
 
+fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderRegistry {
+    let mut registry = ProviderRegistry::new();
+    registry.register_source("pqv1", {
+        let registry = Arc::clone(metrics_registry);
+        move |value| {
+            Ok(Box::new(
+                transferia::providers::yds::provider::YdsSourceProvider::from_config(
+                    value,
+                    Arc::clone(&registry),
+                )?,
+            ))
+        }
+    });
+    registry.register_sink("clickhouse", |value| {
+        Ok(Box::new(
+            transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
+        ))
+    });
+    registry.register_sink("s3", |value| {
+        Ok(Box::new(
+            transferia::providers::s3::sink::S3SinkProvider::from_config(value)?,
+        ))
+    });
+    registry
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -182,23 +208,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let metrics_registry = Arc::new(MetricsRegistry::new());
-    let mut registry = ProviderRegistry::new();
-    registry.register_source("pqv1", {
-        let registry = Arc::clone(&metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::yds::provider::YdsSourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_sink("s3", |value| {
-        Ok(Box::new(
-            transferia::providers::s3::sink::S3SinkProvider::from_config(value)?,
-        ))
-    });
+    let registry = build_provider_registry(&metrics_registry);
 
     let source_kind = config.source.kind()?;
     let sink_kind = config.sink.kind()?;
@@ -292,4 +302,43 @@ async fn main() -> anyhow::Result<()> {
         drop(task.await);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
+        let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+        let config: Config = serde_yaml::from_str(
+            r"
+source:
+  pqv1:
+    connection_string: grpc://localhost
+    topic_path: topic
+    consumer_name: consumer
+    partition_ids: [0]
+    parser:
+      common:
+        table_naming: { type: from_config, name: events }
+      json_parser:
+        columns:
+          - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }
+sink:
+  clickhouse:
+    connection_string: localhost:9000
+    database: default
+    use_tls: false
+",
+        )?;
+        let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
+        let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+        assert!(matches!(
+            sink.compatibility(),
+            transferia::compatibility::EndpointDescriptor::ClickHouse
+        ));
+        validate_pipeline(&source.compatibility(), &sink.compatibility(), false).ensure_valid()?;
+        Ok(())
+    }
 }

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
@@ -9,6 +9,7 @@ use super::client::ReconnectingClient;
 use super::transport::{InsertError, InsertTransport, NativeTransport};
 use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
+use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 
 struct BufferedBatch {
@@ -22,11 +23,6 @@ struct TableBuffer {
     rows: usize,
     bytes: usize,
     batches: Vec<BufferedBatch>,
-}
-
-struct DeliveryProgress {
-    remaining_outputs: usize,
-    source_messages: u64,
 }
 
 struct ActiveInsert {
@@ -45,9 +41,7 @@ pub struct ClickHouseSink {
     config: ClickHouseSinkConfig,
     counters: Arc<SinkCounters>,
     buffers: HashMap<Arc<str>, TableBuffer>,
-    progress: BTreeMap<DeliveryId, DeliveryProgress>,
-    next_received: DeliveryId,
-    next_ack: DeliveryId,
+    progress: DeliveryTracker<()>,
     last_insert_started: Option<Instant>,
 }
 
@@ -79,33 +73,23 @@ impl ClickHouseSink {
             config,
             counters,
             buffers: HashMap::new(),
-            progress: BTreeMap::new(),
-            next_received: DeliveryId::new(1),
-            next_ack: DeliveryId::new(1),
+            progress: DeliveryTracker::new(),
             last_insert_started: None,
         }
     }
 
     fn accept(&mut self, delivery: Delivery) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            delivery.id == self.next_received,
-            "sink delivery order violation: expected {}, got {}",
-            self.next_received.get(),
-            delivery.id.get(),
-        );
-        self.next_received = self.next_received.next();
         let remaining_outputs = delivery
             .outputs
             .iter()
             .filter(|output| output.batch.num_rows() > 0)
             .count();
-        self.progress.insert(
+        self.progress.accept(
             delivery.id,
-            DeliveryProgress {
-                remaining_outputs,
-                source_messages: delivery.meta.source_messages,
-            },
-        );
+            remaining_outputs,
+            delivery.meta.source_messages,
+            None,
+        )?;
         for batch in delivery
             .outputs
             .into_iter()
@@ -148,9 +132,9 @@ impl ClickHouseSink {
                 let wanted = if input_closed || full {
                     Instant::now()
                 } else {
-                    buffer.first_seen + interval
+                    (buffer.first_seen + interval).max(rate_limit)
                 };
-                (Arc::clone(&buffer.table), wanted.max(rate_limit))
+                (Arc::clone(&buffer.table), wanted)
             })
             .min_by_key(|(_, deadline)| *deadline)
     }
@@ -231,16 +215,7 @@ impl ClickHouseSink {
 
     fn complete_insert(&mut self, active: ActiveInsert) -> anyhow::Result<()> {
         for buffered in active.batches {
-            let progress = self
-                .progress
-                .get_mut(&buffered.delivery_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("missing delivery progress {}", buffered.delivery_id.get())
-                })?;
-            progress.remaining_outputs = progress
-                .remaining_outputs
-                .checked_sub(1)
-                .ok_or_else(|| anyhow::anyhow!("delivery output underflow"))?;
+            self.progress.complete(buffered.delivery_id, 1)?;
             drop(buffered);
         }
         tracing::info!(rows = active.rows, bytes = active.bytes, table = %active.table, "ClickHouse INSERT completed");
@@ -251,25 +226,10 @@ impl ClickHouseSink {
         &mut self,
         events: &tokio::sync::mpsc::Sender<SinkEvent>,
     ) -> anyhow::Result<()> {
-        let mut committed = None;
-        let mut source_messages = 0_u64;
-        while self
-            .progress
-            .get(&self.next_ack)
-            .is_some_and(|progress| progress.remaining_outputs == 0)
-        {
-            let progress = self
-                .progress
-                .remove(&self.next_ack)
-                .ok_or_else(|| anyhow::anyhow!("missing completed delivery"))?;
-            source_messages = source_messages.saturating_add(progress.source_messages);
-            committed = Some(self.next_ack);
-            self.next_ack = self.next_ack.next();
-        }
-        if let Some(id) = committed {
-            self.counters.add_unique_offsets(source_messages);
+        if let Some(committed) = self.progress.take_committed() {
+            self.counters.add_unique_offsets(committed.source_messages);
             events
-                .send(SinkEvent::CommittedThrough(id))
+                .send(SinkEvent::CommittedThrough(committed.through))
                 .await
                 .map_err(|_| anyhow::anyhow!("sink event receiver closed"))?;
         }
@@ -319,7 +279,7 @@ impl ClickHouseSink {
                 return Ok(());
             }
 
-            let memory_pressure = io.memory.used() >= io.memory.limit();
+            let memory_pressure = io.memory.is_pressured();
             let Some((table, deadline)) = self.next_flush(input_closed, memory_pressure) else {
                 tokio::select! {
                     () = io.cancellation.cancelled() => return Ok(()),

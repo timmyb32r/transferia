@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
-use tokio::task::JoinHandle;
+use tokio::task::JoinSet;
 use tokio::time::{Instant, Sleep};
 
 use crate::metrics::SinkCounters;
+use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::memory::MemoryReservation;
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
 use crate::serializer::JsonBatchEncoder;
@@ -48,12 +49,6 @@ struct ClosedObject {
     delivery_rows: BTreeMap<DeliveryId, usize>,
 }
 
-struct DeliveryProgress {
-    pending_rows: usize,
-    source_messages: u64,
-    serialized_memory: Option<MemoryReservation>,
-}
-
 struct EncodedRow {
     table: Arc<str>,
     is_dlq: bool,
@@ -81,9 +76,7 @@ pub struct S3Sink {
     keep_system_columns: bool,
     epoch: Epoch,
     ready: VecDeque<ClosedObject>,
-    progress: BTreeMap<DeliveryId, DeliveryProgress>,
-    next_received: DeliveryId,
-    next_ack: DeliveryId,
+    progress: DeliveryTracker<MemoryReservation>,
     buffered_bytes: usize,
     epoch_byte_limit: usize,
     highest_time_slot_ms: Option<i64>,
@@ -106,9 +99,7 @@ impl S3Sink {
             keep_system_columns,
             epoch: Epoch::default(),
             ready: VecDeque::new(),
-            progress: BTreeMap::new(),
-            next_received: DeliveryId::new(1),
-            next_ack: DeliveryId::new(1),
+            progress: DeliveryTracker::new(),
             buffered_bytes: 0,
             epoch_byte_limit,
             highest_time_slot_ms: None,
@@ -170,13 +161,6 @@ impl S3Sink {
         delivery: Delivery,
         memory: &crate::pipeline::memory::PipelineMemory,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            delivery.id == self.next_received,
-            "sink delivery order violation: expected {}, got {}",
-            self.next_received.get(),
-            delivery.id.get()
-        );
-        self.next_received = self.next_received.next();
         let encoded = self.encode(delivery)?;
         let serialized_bytes = encoded.payload.len();
         let delivery_id = encoded.delivery.id;
@@ -185,14 +169,12 @@ impl S3Sink {
             (serialized_bytes > 0).then(|| memory.reserve_transform(serialized_bytes));
         let copy_reservation =
             (serialized_bytes > 0).then(|| memory.reserve_transform(serialized_bytes));
-        self.progress.insert(
+        self.progress.accept(
             delivery_id,
-            DeliveryProgress {
-                pending_rows,
-                source_messages: encoded.delivery.meta.source_messages,
-                serialized_memory: reservation,
-            },
-        );
+            pending_rows,
+            encoded.delivery.meta.source_messages,
+            reservation,
+        )?;
         drop(encoded.delivery.outputs);
         self.buffered_bytes = self.buffered_bytes.saturating_add(serialized_bytes);
         if self.buffered_bytes > self.config.buffering.max_buffered_bytes.0 {
@@ -357,17 +339,19 @@ impl S3Sink {
         self.update_buffer_gauges();
     }
 
-    fn start_upload(&mut self) -> Option<JoinHandle<ActiveUpload>> {
-        let object = self.ready.pop_front()?;
+    fn start_upload(&mut self, uploads: &mut JoinSet<ActiveUpload>) -> bool {
+        let Some(object) = self.ready.pop_front() else {
+            return false;
+        };
         let uploader = Arc::clone(&self.uploader);
         let retry = self.config.retry.clone();
         let key = object.key.clone();
         let payload = object.payload.clone();
-        self.update_gauges(true);
-        Some(tokio::spawn(async move {
+        uploads.spawn(async move {
             let result = upload_with_retry(uploader, retry, key, payload).await;
             ActiveUpload { object, result }
-        }))
+        });
+        true
     }
 
     fn complete_upload(&mut self, active: ActiveUpload) -> anyhow::Result<()> {
@@ -381,16 +365,7 @@ impl S3Sink {
             .buffered_bytes
             .saturating_sub(active.object.payload.len());
         for (delivery_id, rows) in active.object.delivery_rows {
-            let progress = self.progress.get_mut(&delivery_id).ok_or_else(|| {
-                anyhow::anyhow!("missing delivery progress {}", delivery_id.get())
-            })?;
-            progress.pending_rows = progress
-                .pending_rows
-                .checked_sub(rows)
-                .ok_or_else(|| anyhow::anyhow!("delivery row accounting underflow"))?;
-            if progress.pending_rows == 0 {
-                progress.serialized_memory = None;
-            }
+            self.progress.complete(delivery_id, rows)?;
         }
         tracing::info!(
             object_key = active.object.key,
@@ -398,7 +373,6 @@ impl S3Sink {
             bytes = active.object.payload.len(),
             "S3 object upload completed"
         );
-        self.update_gauges(false);
         Ok(())
     }
 
@@ -406,25 +380,10 @@ impl S3Sink {
         &mut self,
         events: &tokio::sync::mpsc::Sender<SinkEvent>,
     ) -> anyhow::Result<()> {
-        let mut committed = None;
-        let mut source_messages = 0_u64;
-        while self
-            .progress
-            .get(&self.next_ack)
-            .is_some_and(|progress| progress.pending_rows == 0)
-        {
-            let progress = self
-                .progress
-                .remove(&self.next_ack)
-                .ok_or_else(|| anyhow::anyhow!("missing completed delivery"))?;
-            source_messages = source_messages.saturating_add(progress.source_messages);
-            committed = Some(self.next_ack);
-            self.next_ack = self.next_ack.next();
-        }
-        if let Some(id) = committed {
-            self.counters.add_unique_offsets(source_messages);
+        if let Some(committed) = self.progress.take_committed() {
+            self.counters.add_unique_offsets(committed.source_messages);
             events
-                .send(SinkEvent::CommittedThrough(id))
+                .send(SinkEvent::CommittedThrough(committed.through))
                 .await
                 .map_err(|_| anyhow::anyhow!("sink event receiver closed"))?;
         }
@@ -439,9 +398,9 @@ impl S3Sink {
             .map(|(interval, started)| started + interval.0)
     }
 
-    fn update_gauges(&self, upload_active: bool) {
+    fn update_gauges(&self, in_flight_uploads: usize) {
         self.update_buffer_gauges();
-        self.counters.set_inflight_objects(u64::from(upload_active));
+        self.counters.set_inflight_objects(in_flight_uploads as u64);
     }
 
     fn update_buffer_gauges(&self) {
@@ -461,19 +420,19 @@ impl S3Sink {
             .max_buffered_bytes
             .0
             .min((io.memory.limit() / 2).max(1));
-        let mut active: Option<JoinHandle<ActiveUpload>> = None;
+        let max_in_flight_objects = self.config.upload.max_in_flight_objects;
+        let mut uploads = JoinSet::new();
         let mut input_closed = false;
         let mut backpressure_started: Option<std::time::Instant> = None;
         loop {
             self.emit_committed(&io.events).await?;
-            if active.is_none() {
-                active = self.start_upload();
-            }
             if input_closed && !self.epoch.buffers.is_empty() {
                 self.close_epoch();
                 continue;
             }
-            if input_closed && active.is_none() && self.ready.is_empty() {
+            while uploads.len() < max_in_flight_objects && self.start_upload(&mut uploads) {}
+            self.update_gauges(uploads.len());
+            if input_closed && uploads.is_empty() && self.ready.is_empty() {
                 self.emit_committed(&io.events).await?;
                 anyhow::ensure!(
                     self.progress.is_empty(),
@@ -491,36 +450,24 @@ impl S3Sink {
             }
             let deadline = self.wall_clock_deadline();
             let mut wall_sleep = wall_clock_sleep(deadline);
-            if let Some(mut task) = active.take() {
-                tokio::select! {
-                    () = io.cancellation.cancelled() => { task.abort(); return Ok(()); }
-                    result = &mut task => {
-                        let completed = result.map_err(|error| anyhow::anyhow!("S3 upload task failed: {error}"))?;
-                        self.complete_upload(completed)?;
-                    }
-                    delivery = io.deliveries.recv(), if can_accept => {
-                        match delivery {
-                            Some(delivery) => self.accept(delivery, &io.memory)?,
-                            None => input_closed = true,
-                        }
-                        active = Some(task);
-                    }
-                    () = &mut wall_sleep, if deadline.is_some() => {
-                        self.close_epoch();
-                        active = Some(task);
+            tokio::select! {
+                () = io.cancellation.cancelled() => {
+                    uploads.abort_all();
+                    return Ok(());
+                }
+                result = uploads.join_next(), if !uploads.is_empty() => {
+                    let completed = result
+                        .ok_or_else(|| anyhow::anyhow!("S3 upload set ended unexpectedly"))?
+                        .map_err(|error| anyhow::anyhow!("S3 upload task failed: {error}"))?;
+                    self.complete_upload(completed)?;
+                }
+                delivery = io.deliveries.recv(), if can_accept => {
+                    match delivery {
+                        Some(delivery) => self.accept(delivery, &io.memory)?,
+                        None => input_closed = true,
                     }
                 }
-            } else {
-                tokio::select! {
-                    () = io.cancellation.cancelled() => return Ok(()),
-                    delivery = io.deliveries.recv(), if can_accept => {
-                        match delivery {
-                            Some(delivery) => self.accept(delivery, &io.memory)?,
-                            None => input_closed = true,
-                        }
-                    }
-                    () = &mut wall_sleep, if deadline.is_some() => self.close_epoch(),
-                }
+                () = &mut wall_sleep, if deadline.is_some() => self.close_epoch(),
             }
         }
     }

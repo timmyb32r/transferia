@@ -50,6 +50,12 @@ impl PipelineMemory {
         self.inner.used.load(Ordering::Acquire)
     }
 
+    /// Whether retained pipeline data has reached the shared admission limit.
+    #[must_use]
+    pub fn is_pressured(&self) -> bool {
+        self.used() >= self.limit()
+    }
+
     /// Wait for byte capacity. A single oversized allocation is admitted only
     /// when the budget is otherwise empty, then blocks every subsequent one.
     pub async fn reserve(&self, bytes: usize) -> MemoryReservation {
@@ -184,5 +190,14 @@ mod tests {
         assert_eq!(memory.used(), 20);
         drop(lease);
         assert_eq!(memory.used(), 0);
+    }
+
+    #[tokio::test]
+    async fn pressure_starts_at_the_limit_and_clears_on_release() {
+        let memory = PipelineMemory::new(10);
+        let lease = memory.reserve(10).await;
+        assert!(memory.is_pressured());
+        drop(lease);
+        assert!(!memory.is_pressured());
     }
 }

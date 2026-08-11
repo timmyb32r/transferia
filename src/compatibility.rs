@@ -10,6 +10,7 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
+    ClickHouse,
     S3(S3Descriptor),
     Other,
 }
@@ -74,6 +75,7 @@ pub enum DiagnosticCode {
     UnsupportedPartitionFieldType,
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
+    ClickHouseAtLeastOnce,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +116,21 @@ pub fn validate_pipeline(
     sink: &EndpointDescriptor,
     keep_system_columns: bool,
 ) -> DeliverySemanticsReport {
+    if matches!(
+        (source, sink),
+        (EndpointDescriptor::PqV1(_), EndpointDescriptor::ClickHouse)
+    ) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::ClickHouseAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.clickhouse".into()],
+                explanation: "ClickHouse INSERT completion precedes source commit, but a retry after an ambiguous INSERT result may duplicate rows".into(),
+                remediation: Some("use a ClickHouse-side deduplication strategy if exactly-once final state is required".into()),
+            }],
+        };
+    }
     let (EndpointDescriptor::PqV1(source), EndpointDescriptor::S3(sink)) = (source, sink) else {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
@@ -335,6 +352,17 @@ mod tests {
         assert!(report.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == DiagnosticCode::WallClockRotationDisablesExactlyOnce
         }));
+    }
+
+    #[test]
+    fn clickhouse_pipeline_is_supported_as_at_least_once() {
+        let report = validate_pipeline(&source(), &EndpointDescriptor::ClickHouse, false);
+        assert_eq!(report.guarantee, DeliveryGuarantee::AtLeastOnce);
+        assert!(report.ensure_valid().is_ok());
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::ClickHouseAtLeastOnce));
     }
 
     #[test]

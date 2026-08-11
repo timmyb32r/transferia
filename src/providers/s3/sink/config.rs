@@ -108,6 +108,8 @@ pub struct UploadConfig {
     pub part_size: ByteSize,
     #[serde(default = "default_parallel_parts")]
     pub parallel_parts: usize,
+    #[serde(default = "default_max_in_flight_objects")]
+    pub max_in_flight_objects: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -219,6 +221,10 @@ impl S3SinkConfig {
             "s3.upload.parallel_parts must be positive"
         );
         anyhow::ensure!(
+            self.upload.max_in_flight_objects > 0,
+            "s3.upload.max_in_flight_objects must be positive"
+        );
+        anyhow::ensure!(
             self.retry.initial_backoff.0 > Duration::ZERO,
             "s3.retry.initial_backoff must be positive"
         );
@@ -299,6 +305,7 @@ impl Default for UploadConfig {
             multipart_threshold: default_multipart_threshold(),
             part_size: default_part_size(),
             parallel_parts: default_parallel_parts(),
+            max_in_flight_objects: default_max_in_flight_objects(),
         }
     }
 }
@@ -341,9 +348,26 @@ const fn default_part_size() -> ByteSize {
 const fn default_parallel_parts() -> usize {
     4
 }
+const fn default_max_in_flight_objects() -> usize {
+    4
+}
 const fn default_initial_backoff() -> DurationValue {
     DurationValue(Duration::from_millis(200))
 }
 const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_zero_parallel_object_uploads() -> anyhow::Result<()> {
+        let config: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nupload: { max_in_flight_objects: 0 }\n")?;
+        let error = config.validate().expect_err("zero concurrency must fail");
+        assert!(error.to_string().contains("max_in_flight_objects"));
+        Ok(())
+    }
 }

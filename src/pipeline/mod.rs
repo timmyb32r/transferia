@@ -1,3 +1,4 @@
+pub(crate) mod delivery_tracker;
 pub mod memory;
 pub mod middleware;
 pub mod sink;
@@ -79,11 +80,14 @@ fn apply_middlewares(
     Ok(data)
 }
 
-fn make_sink_batch(data: TableData, reservation: MemoryReservation) -> Option<SinkBatch> {
+fn make_sink_batch(
+    data: TableData,
+    byte_size: usize,
+    reservation: MemoryReservation,
+) -> Option<SinkBatch> {
     if data.batch.num_rows() == 0 {
         return None;
     }
-    let byte_size = arrow_batch_bytes(&data.batch);
     Some(SinkBatch {
         table: data.table,
         is_dlq: data.is_dlq,
@@ -132,7 +136,11 @@ fn parser_loop(
         })?;
         counters.add_parse_busy(started.elapsed());
         counters.add_rows(valid.batch.num_rows() as u64);
-        counters.add_arrow_bytes(arrow_batch_bytes(&valid.batch) as u64);
+        let valid_bytes = arrow_batch_bytes(&valid.batch);
+        let dlq_bytes = dlq
+            .as_ref()
+            .map_or(0, |batch| arrow_batch_bytes(&batch.batch));
+        counters.add_arrow_bytes(valid_bytes as u64);
         counters.add_unique_offsets(meta.source_messages);
         if let Some(dlq) = &dlq {
             counters.add_dlq_rows(dlq.batch.num_rows() as u64);
@@ -141,17 +149,14 @@ fn parser_loop(
         // Source buffers are no longer needed after parse. Release them before
         // waiting for Arrow capacity, avoiding a transform-stage deadlock.
         drop(source_memory);
-        let output_bytes = arrow_batch_bytes(&valid.batch).saturating_add(
-            dlq.as_ref()
-                .map_or(0, |batch| arrow_batch_bytes(&batch.batch)),
-        );
+        let output_bytes = valid_bytes.saturating_add(dlq_bytes);
         let output_memory = memory.reserve_transform(output_bytes);
         let mut outputs = Vec::with_capacity(2);
-        if let Some(batch) = make_sink_batch(valid, output_memory.clone()) {
+        if let Some(batch) = make_sink_batch(valid, valid_bytes, output_memory.clone()) {
             outputs.push(batch);
         }
         if let Some(dlq) = dlq {
-            if let Some(batch) = make_sink_batch(dlq, output_memory.clone()) {
+            if let Some(batch) = make_sink_batch(dlq, dlq_bytes, output_memory.clone()) {
                 outputs.push(batch);
             }
         }
@@ -162,7 +167,7 @@ fn parser_loop(
         {
             return Ok(());
         }
-        throttle_before_next = memory.used() >= memory.limit();
+        throttle_before_next = memory.is_pressured();
     }
     Ok(())
 }

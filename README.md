@@ -97,6 +97,7 @@ sink:
       multipart_threshold: 25MiB
       part_size: 25MiB
       parallel_parts: 4
+      max_in_flight_objects: 4
 
     retry:
       initial_backoff: 200ms

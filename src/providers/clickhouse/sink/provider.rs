@@ -3,6 +3,7 @@ use serde_yaml::Value;
 
 use super::table::prepare_tables;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
+use crate::compatibility::EndpointDescriptor;
 use crate::pipeline::sink::Sink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
@@ -19,6 +20,10 @@ impl ClickHouseSinkProvider {
 }
 
 impl SinkProvider for ClickHouseSinkProvider {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::ClickHouse
+    }
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         let config = self.config.clone();
         Box::pin(async move { prepare_tables(&config, &request).await })
