@@ -197,9 +197,9 @@ fn parser_loop(
             memory: source_memory,
             meta,
         } = envelope;
-        let output_hint = parser.output_size_hint(&messages);
+        let output_bound = parser.output_memory_bound(&messages);
         let parse_memory =
-            (!messages.is_empty()).then(|| memory.reserve_transform_in_progress(output_hint));
+            (!messages.is_empty()).then(|| memory.account_active_transform(output_bound));
         let started = std::time::Instant::now();
         let (valid, dlq) = parser
             .parse_into(messages)
@@ -226,8 +226,8 @@ fn parser_loop(
         let has_output = valid.batch.num_rows() > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
         anyhow::ensure!(
-            !has_output || output_bytes <= output_hint,
-            "parser output exceeded its pre-accounted memory bound: actual {output_bytes}, bound {output_hint}"
+            !has_output || output_bytes <= output_bound,
+            "parser output exceeded its pre-accounted memory bound: actual {output_bytes}, bound {output_bound}"
         );
         let output_memory = has_output.then(|| memory.reserve_transform(output_bytes));
         drop(parse_memory);

@@ -190,6 +190,11 @@ Parser failures are written to the DLQ with the original payload encoded in
 `raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. The change
 is part of S3 `object_layout_version: 2`, so version 1 deployments must finish
 or deliberately abandon uncommitted replay before upgrading their layout.
+For ClickHouse, the DLQ schema change is intentionally fail-closed: an existing
+`<table>_dlq` with the old `raw_bytes` column is rejected at startup. Do not
+rename that historical column in place because its text is not base64. Create a
+new empty `<table>_dlq` with the current schema (or move the old table aside)
+after all offsets that may replay into the old layout have been committed.
 
 ClickHouse currently requires an explicit `use_tls: false`. The bundled native
 client cannot verify server certificates, so `use_tls: true` is rejected; use a

@@ -34,7 +34,7 @@ struct BenchmarkDiscardSession {
 }
 
 impl ParserSession for BenchmarkDiscardSession {
-    fn output_size_hint(&self, _messages: &[Message]) -> usize {
+    fn output_memory_bound(&self, _messages: &[Message]) -> usize {
         1
     }
 

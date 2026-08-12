@@ -67,7 +67,7 @@ fn classify_insert_error(error: ClickHouseError) -> InsertError {
         | ClickHouseError::InsertArrowRetry(_) => true,
         ClickHouseError::Protocol(message) => is_connection_protocol_error(message),
         ClickHouseError::Client(message) => is_connection_client_error(message),
-        ClickHouseError::ServerException(server) => is_transient_server_error(&server.error),
+        ClickHouseError::ServerException(server) => is_transient_server_error(server),
         _ => false,
     };
     let error = anyhow::Error::new(error);
@@ -92,8 +92,14 @@ fn is_connection_client_error(message: &str) -> bool {
         || message.starts_with("connection gone: ")
 }
 
-const fn is_transient_server_error(error: &Severity) -> bool {
-    match error {
+fn is_transient_server_error(error: &clickhouse_arrow::ServerError) -> bool {
+    if matches!(
+        error.name.as_str(),
+        "NO_ACTIVE_REPLICAS" | "TOO_FEW_LIVE_REPLICAS" | "TOO_MANY_PARTS"
+    ) {
+        return true;
+    }
+    match &error.error {
         Severity::Server(_) => true,
         Severity::Protocol(error) => matches!(
             error,
@@ -107,6 +113,7 @@ const fn is_transient_server_error(error: &Severity) -> bool {
             ServerErrorCode::TimeoutExceeded
                 | ServerErrorCode::QueryWasCancelled
                 | ServerErrorCode::Aborted
+                | ServerErrorCode::TableIsReadOnly
         ),
         Severity::Syntax(_) | Severity::Data(_) | Severity::Unknown(_) => false,
     }
@@ -118,14 +125,18 @@ mod tests {
 
     use super::*;
 
-    fn server_exception(error: Severity) -> ClickHouseError {
+    fn server_exception_with_name(error: Severity, name: &str) -> ClickHouseError {
         ClickHouseError::ServerException(ServerError {
             error,
             code: 0,
-            name: "test".into(),
+            name: name.into(),
             message: "test".into(),
             stack_trace: String::new(),
         })
+    }
+
+    fn server_exception(error: Severity) -> ClickHouseError {
+        server_exception_with_name(error, "test")
     }
 
     #[test]
@@ -153,6 +164,19 @@ mod tests {
         assert!(matches!(
             classify_insert_error(ClickHouseError::Protocol(
                 "Failed to receive response from insert abc".into()
+            )),
+            InsertError::Transient(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(server_exception(Severity::Query(
+                ServerErrorCode::TableIsReadOnly
+            ))),
+            InsertError::Transient(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(server_exception_with_name(
+                Severity::Unknown(ServerErrorCode::UnknownUser),
+                "NO_ACTIVE_REPLICAS",
             )),
             InsertError::Transient(_)
         ));

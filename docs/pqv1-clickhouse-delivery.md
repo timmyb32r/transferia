@@ -22,6 +22,17 @@ Consequences for operators:
 - changing parser or table configuration while uncommitted data can replay may
   change the rows produced by that replay.
 
+Existing destination tables must use exactly `MergeTree` or
+`ReplicatedMergeTree`. Transforming engines such as `ReplacingMergeTree`,
+`SummingMergeTree`, `CollapsingMergeTree`, and `AggregatingMergeTree` are
+rejected because a successful INSERT followed by a background merge can change
+or remove source rows.
+
+The current DLQ stores the lossless source payload in `raw_base64`. Deployments
+with the historical `raw_bytes` DLQ must create a new empty DLQ table (or move
+the old one aside) after replay into the old layout is impossible. Renaming
+`raw_bytes` to `raw_base64` is invalid because historical values were not base64.
+
 Connection and request deadlines are configurable. The connect timeout is a
 strict caller deadline and never blocks a Tokio worker. The bundled native
 client's socket connect cannot be cancelled, so its current socket call may

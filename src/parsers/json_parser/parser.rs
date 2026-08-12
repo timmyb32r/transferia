@@ -970,7 +970,7 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
-    fn output_size_hint(&self, messages: &[Message]) -> usize {
+    fn output_memory_bound(&self, messages: &[Message]) -> usize {
         const FIXED_BYTES_PER_COLUMN_ROW: usize = 1024;
         let rows = messages.iter().fold(0_usize, |total, message| {
             total.saturating_add(self.chunk_splitter.count_records(&message.value))
@@ -1665,8 +1665,8 @@ struct JsonParserSession {
 }
 
 impl ParserSession for JsonParserSession {
-    fn output_size_hint(&self, messages: &[Message]) -> usize {
-        self.parser.output_size_hint(messages)
+    fn output_memory_bound(&self, messages: &[Message]) -> usize {
+        self.parser.output_memory_bound(messages)
     }
 
     fn parse_into(

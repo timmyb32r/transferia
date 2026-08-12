@@ -220,8 +220,8 @@ async fn fetch_target_engine(
 
 fn validate_target_engine(table: &str, engine: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        engine.ends_with("MergeTree"),
-        "ClickHouse table '{table}' uses non-durable or unsupported engine '{engine}'; expected a MergeTree-family engine"
+        matches!(engine, "MergeTree" | "ReplicatedMergeTree"),
+        "ClickHouse table '{table}' uses unsupported engine '{engine}'; expected exactly MergeTree or ReplicatedMergeTree"
     );
     Ok(())
 }
@@ -594,13 +594,25 @@ mod tests {
     }
 
     #[test]
-    fn only_mergetree_family_engines_are_accepted() -> anyhow::Result<()> {
-        for engine in ["MergeTree", "ReplacingMergeTree", "ReplicatedMergeTree"] {
+    fn only_row_preserving_mergetree_engines_are_accepted() -> anyhow::Result<()> {
+        for engine in ["MergeTree", "ReplicatedMergeTree"] {
             validate_target_engine("events", engine)?;
         }
-        for engine in ["Null", "Memory", "Buffer", "View", "MaterializedView"] {
+        for engine in [
+            "ReplacingMergeTree",
+            "SummingMergeTree",
+            "CollapsingMergeTree",
+            "AggregatingMergeTree",
+            "Null",
+            "Memory",
+            "Buffer",
+            "View",
+            "MaterializedView",
+        ] {
             let error = validate_target_engine("events", engine).unwrap_err();
-            assert!(error.to_string().contains("non-durable or unsupported"));
+            assert!(error
+                .to_string()
+                .contains("expected exactly MergeTree or ReplicatedMergeTree"));
         }
         Ok(())
     }

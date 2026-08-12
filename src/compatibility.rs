@@ -267,7 +267,6 @@ pub fn validate_pipeline(
                 "source.pqv1.parser".into(),
                 "source.pqv1.topic_path".into(),
                 "source.pqv1.consumer_name".into(),
-                "source.pqv1.cluster_identity (external deployment assumption)".into(),
                 "middlewares".into(),
                 "keep_system_columns_in_sink".into(),
                 "sink.s3.bucket".into(),

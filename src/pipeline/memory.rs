@@ -36,7 +36,7 @@ struct MemoryLease {
 enum ReservationKind {
     Source,
     ProgressSource,
-    TransformInProgress,
+    ActiveTransform,
     Transform,
 }
 
@@ -221,11 +221,14 @@ impl PipelineMemory {
         }
     }
 
-    /// Account buffers allocated by the currently executing transform without
-    /// treating that transform itself as downstream backpressure. The lease is
-    /// promoted after materialization, before it can be retained by a sink.
+    /// Account the conservative bound of the transform currently executing.
+    ///
+    /// This is deliberately excluded from downstream pressure: the parser is
+    /// already consuming its source input and cannot wait without deadlocking
+    /// that progress. Once materialized, the exact output gets a normal retained
+    /// transform reservation and this temporary bound is released.
     #[must_use]
-    pub fn reserve_transform_in_progress(&self, bytes: usize) -> MemoryReservation {
+    pub fn account_active_transform(&self, bytes: usize) -> MemoryReservation {
         let bytes = bytes.max(1);
         self.inner
             .used
@@ -237,7 +240,7 @@ impl PipelineMemory {
             lease: Arc::new(MemoryLease {
                 bytes: AtomicUsize::new(bytes),
                 resize: Mutex::new(()),
-                kind: ReservationKind::TransformInProgress,
+                kind: ReservationKind::ActiveTransform,
                 memory: Arc::clone(&self.inner),
             }),
         }
@@ -338,7 +341,7 @@ impl MemoryReservation {
                     .transform_used
                     .fetch_sub(released, Ordering::AcqRel);
             }
-            ReservationKind::TransformInProgress => {}
+            ReservationKind::ActiveTransform => {}
         }
         self.lease.memory.changed.notify_waiters();
         true
@@ -366,7 +369,7 @@ impl Drop for MemoryLease {
                     .transform_used
                     .fetch_sub(bytes, Ordering::AcqRel);
             }
-            ReservationKind::TransformInProgress => {}
+            ReservationKind::ActiveTransform => {}
         }
         if matches!(self.kind, ReservationKind::ProgressSource) {
             self.memory
@@ -414,9 +417,9 @@ mod tests {
     }
 
     #[test]
-    fn in_progress_transform_is_accounted_without_throttling_downstream() {
+    fn active_transform_is_accounted_without_throttling_downstream() {
         let memory = PipelineMemory::new(10);
-        let lease = memory.reserve_transform_in_progress(20);
+        let lease = memory.account_active_transform(20);
         assert_eq!(memory.used(), 20);
         assert_eq!(memory.transform_used(), 0);
         assert!(!memory.is_transform_pressured());

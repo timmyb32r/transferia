@@ -18,6 +18,12 @@ use crate::pipeline::PipelineFailure;
 const MULTIPART_ABORT_TIMEOUT: Duration = Duration::from_secs(4);
 const MAX_MULTIPART_PARTS: usize = 10_000;
 
+#[derive(Clone, Copy)]
+enum OperationPhase {
+    Put,
+    Multipart,
+}
+
 #[derive(Debug)]
 pub enum UploadError {
     Retryable(anyhow::Error),
@@ -51,7 +57,10 @@ impl S3Uploader {
         cancellation: &CancellationToken,
     ) -> Result<(), UploadError> {
         let path = Path::parse(key).map_err(|source| {
-            classify_object_store_error(ObjectStoreError::InvalidPath { source })
+            classify_object_store_error(
+                ObjectStoreError::InvalidPath { source },
+                OperationPhase::Put,
+            )
         })?;
         if payload.len() < self.config.multipart_threshold.0 {
             let result = tokio::select! {
@@ -61,6 +70,7 @@ impl S3Uploader {
                     self.config.operation_timeout.0,
                     "PUT",
                     key,
+                    OperationPhase::Put,
                     self.store.put(&path, payload.into()),
                 ) => result,
             };
@@ -77,6 +87,7 @@ impl S3Uploader {
                 self.config.operation_timeout.0,
                 "multipart initiation",
                 key,
+                OperationPhase::Put,
                 self.store.put_multipart(&path),
             ) => result?,
         };
@@ -137,6 +148,7 @@ async fn upload_multipart(
             config.operation_timeout.0,
             "multipart part upload",
             key,
+            OperationPhase::Multipart,
             upload.put_part(payload.slice(start..end).into()),
         ));
     }
@@ -170,6 +182,7 @@ async fn upload_multipart(
             config.operation_timeout.0,
             "multipart completion",
             key,
+            OperationPhase::Multipart,
             upload.complete(),
         ) => result,
     };
@@ -203,6 +216,7 @@ async fn object_store_operation<T>(
     timeout: Duration,
     operation: &'static str,
     key: &str,
+    phase: OperationPhase,
     future: impl Future<Output = object_store::Result<T>>,
 ) -> Result<T, UploadError> {
     tokio::time::timeout(timeout, future).await.map_or_else(
@@ -212,7 +226,7 @@ async fn object_store_operation<T>(
                 timeout.as_millis()
             )))
         },
-        |result| result.map_err(classify_object_store_error),
+        |result| result.map_err(|error| classify_object_store_error(error, phase)),
     )
 }
 
@@ -227,19 +241,21 @@ impl ObjectUploader for S3Uploader {
     }
 }
 
-fn classify_object_store_error(error: ObjectStoreError) -> UploadError {
+fn classify_object_store_error(error: ObjectStoreError, phase: OperationPhase) -> UploadError {
     let permanent = matches!(
-        error,
+        &error,
         ObjectStoreError::PermissionDenied { .. }
             | ObjectStoreError::Unauthenticated { .. }
             | ObjectStoreError::InvalidPath { .. }
             | ObjectStoreError::NotSupported { .. }
             | ObjectStoreError::NotImplemented
             | ObjectStoreError::UnknownConfigurationKey { .. }
-            | ObjectStoreError::NotFound { .. }
             | ObjectStoreError::AlreadyExists { .. }
             | ObjectStoreError::Precondition { .. }
             | ObjectStoreError::NotModified { .. }
+    ) || matches!(
+        (&error, phase),
+        (ObjectStoreError::NotFound { .. }, OperationPhase::Put)
     );
     if permanent {
         UploadError::Permanent(error.into())
@@ -423,7 +439,7 @@ mod tests {
             source: Box::new(std::io::Error::other("invalid credentials")),
         };
         assert!(matches!(
-            classify_object_store_error(unauthenticated),
+            classify_object_store_error(unauthenticated, OperationPhase::Put),
             UploadError::Permanent(_)
         ));
 
@@ -432,7 +448,7 @@ mod tests {
             source: Box::new(std::io::Error::other("connection reset")),
         };
         assert!(matches!(
-            classify_object_store_error(transport),
+            classify_object_store_error(transport, OperationPhase::Put),
             UploadError::Retryable(_)
         ));
 
@@ -444,8 +460,20 @@ mod tests {
             )),
         };
         assert!(matches!(
-            classify_object_store_error(missing_bucket),
+            classify_object_store_error(missing_bucket, OperationPhase::Put),
             UploadError::Permanent(_)
+        ));
+
+        let missing_upload = ObjectStoreError::NotFound {
+            path: "object".into(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "multipart upload does not exist",
+            )),
+        };
+        assert!(matches!(
+            classify_object_store_error(missing_upload, OperationPhase::Multipart),
+            UploadError::Retryable(_)
         ));
     }
 
