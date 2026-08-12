@@ -26,9 +26,9 @@ pub struct CommonParserConfig {
 )]
 pub struct SystemColumnsConfig {
     #[serde(default)]
-    pub topic_name: bool,
+    pub topic: bool,
     #[serde(default)]
-    pub partition_num: bool,
+    pub partition: bool,
     #[serde(default)]
     pub offset: bool,
     #[serde(default)]
@@ -40,8 +40,8 @@ pub struct SystemColumnsConfig {
 impl SystemColumnsConfig {
     pub fn enabled(&self) -> impl Iterator<Item = SystemColumnKind> {
         [
-            (self.topic_name, SystemColumnKind::TopicName),
-            (self.partition_num, SystemColumnKind::PartitionNum),
+            (self.topic, SystemColumnKind::Topic),
+            (self.partition, SystemColumnKind::Partition),
             (self.offset, SystemColumnKind::Offset),
             (self.message_index, SystemColumnKind::MessageIndex),
             (self.write_timestamp_ms, SystemColumnKind::WriteTimestampMs),

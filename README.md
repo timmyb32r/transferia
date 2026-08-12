@@ -35,7 +35,7 @@ source:
     topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
     # Required: consumer-session assignments are not authoritative topic metadata.
-    partition_ids: [0]
+    partition_group_ids: [0]
     network_timeout_ms: 30000
     decompression_concurrency: 4 # shared across this provider's partitions
     auth:
@@ -47,8 +47,8 @@ source:
           type: from_config
           name: events
         system_columns:
-          topic_name: true
-          partition_num: true
+          topic: true
+          partition: true
           offset: true
           message_index: true
           write_timestamp_ms: true
@@ -72,7 +72,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 3
+    object_layout_version: 4
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -145,7 +145,16 @@ propagate backpressure to PQv1. One oversized source message is admitted
 atomically with a warning.
 
 Delivery semantics are inferred from configuration and logged as a structured
-report. Deterministic source/field/record-time partitioning and deterministic
+report. Before any partition actor starts, delivery discovery checks the PQv1
+topic metadata and derives the logical main/DLQ schemas from the configured
+parser (PQv1 stores opaque message bytes, so it has no native row schema).
+Each sink publishes a machine-readable limits contract. The discovered table
+and column names, Arrow types, system columns, and destination-specific limits
+are validated against it before destination preparation. The same contract is
+checked again for every runtime batch before ClickHouse INSERT or S3 upload, so
+schema drift fails closed before a source offset can be committed.
+
+Deterministic source/field/record-time partitioning and deterministic
 rotation are exactly-once through idempotent object overwrite. Enabling
 `wall_clock_interval` makes the delivery at-least-once because restart timing
 can change object boundaries; the report includes a remediation.
@@ -157,8 +166,9 @@ settings (including `keep_system_columns_in_sink`), destination identity
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
-`object_layout_version: 3` pins the deterministic key/payload/epoch contract,
-including lossless base64 DLQ payloads;
+`object_layout_version: 4` pins the deterministic key/payload/epoch contract,
+including lossless base64 DLQ payloads and deterministic SHA-256 bounding of
+overlong data-derived topic, field, and record-time path segments;
 this binary rejects unknown versions instead of silently changing replay
 semantics.
 The normalized `(bucket, prefix)` namespace must be owned exclusively by one
@@ -192,13 +202,15 @@ also store deterministic `source_write_timestamp_ms`, never parser wall-clock
 time. To keep parser allocation bounded, a delivery whose conservative output
 working set exceeds 256MiB, or which contains a JSON record larger than 4MiB,
 is preserved unparsed in the DLQ with an explicit safety-limit reason. These
-semantics are part of S3 `object_layout_version: 3`.
+semantics are part of S3 `object_layout_version: 4`.
 For ClickHouse, DLQ schema changes are intentionally fail-closed: create a new
 empty `<table>_dlq` with the current schema (or move the old table aside).
 
 The ClickHouse native hop is plaintext because the bundled client cannot verify
 server certificates. Use a verified local TLS tunnel and keep only the trusted
-local hop plaintext.
+local hop plaintext. Every ClickHouse sink config must set
+`trusted_plaintext: true`; the process otherwise refuses to start, so this
+deployment assumption cannot be accepted accidentally.
 Connection/request deadlines and finite retries are configurable. The
 configured connect timeout is a strict deadline for the caller and does not
 block Tokio workers. Because the underlying client uses a non-cancellable

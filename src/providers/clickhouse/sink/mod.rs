@@ -1,6 +1,7 @@
 mod actor;
 mod client;
 mod config;
+mod identifier;
 mod provider;
 mod table;
 mod transport;

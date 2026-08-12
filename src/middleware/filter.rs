@@ -7,6 +7,7 @@ use arrow::datatypes::DataType;
 use serde::Deserialize;
 
 use crate::pipeline::middleware::Middleware;
+use crate::types::schema::DatasetSchema;
 use crate::types::table_data::TableData;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -47,6 +48,26 @@ impl FilterMiddleware {
 }
 
 impl Middleware for FilterMiddleware {
+    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()> {
+        let column = schema
+            .columns
+            .iter()
+            .find(|column| column.name == self.field)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "FilterMiddleware: column '{}' not found in discovered schema",
+                    self.field
+                )
+            })?;
+        anyhow::ensure!(
+            matches!(column.data_type, DataType::Utf8 | DataType::LargeUtf8),
+            "FilterMiddleware: column '{}' is {:?}, only Utf8/LargeUtf8 supported",
+            self.field,
+            column.data_type
+        );
+        Ok(())
+    }
+
     fn process(&self, data: TableData) -> anyhow::Result<TableData> {
         let schema = data.batch.schema();
         let col_idx = match self.col_idx.get() {

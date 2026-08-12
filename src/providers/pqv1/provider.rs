@@ -4,12 +4,11 @@ use serde_yaml::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex as AsyncMutex, OnceCell, Semaphore};
+use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::compatibility::{
-    ColumnDescriptor, EndpointDescriptor, SourceBehavior, SourceDescriptor,
-};
+use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -19,6 +18,7 @@ use crate::providers::pqv1::config::PqV1SourceConfig;
 use crate::providers::pqv1::credentials::load_access_token;
 use crate::providers::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;
+use crate::Ydb::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
@@ -43,6 +43,55 @@ impl CachedEndpoints {
     }
 }
 
+#[derive(Default)]
+struct EndpointCacheState {
+    cached: Option<CachedEndpoints>,
+    refreshing: bool,
+}
+
+#[derive(Default)]
+struct EndpointCache {
+    state: Mutex<EndpointCacheState>,
+    refreshed: Notify,
+}
+
+impl EndpointCache {
+    fn replace(&self, cached: CachedEndpoints) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.cached = Some(cached);
+        state.refreshing = false;
+        drop(state);
+        self.refreshed.notify_waiters();
+    }
+
+    fn finish_refresh(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.refreshing = false;
+        drop(state);
+        self.refreshed.notify_waiters();
+    }
+}
+
+struct EndpointRefreshGuard(Arc<EndpointCache>);
+
+impl Drop for EndpointRefreshGuard {
+    fn drop(&mut self) {
+        self.0.finish_refresh();
+    }
+}
+
+enum EndpointCacheDecision {
+    Return(CachedEndpoints),
+    Refresh,
+    Wait,
+}
+
 fn connection_failure(
     partition_id: i64,
     errors: &[String],
@@ -65,7 +114,7 @@ pub struct PqV1SourceProvider {
     endpoint_attempts: Mutex<HashMap<i64, usize>>,
     decompression_slots: Arc<Semaphore>,
     token: Arc<OnceCell<Arc<str>>>,
-    endpoint_cache: Arc<AsyncMutex<Option<CachedEndpoints>>>,
+    endpoint_cache: Arc<EndpointCache>,
 }
 
 impl PqV1SourceProvider {
@@ -118,21 +167,7 @@ impl PqV1SourceProvider {
             "pqv1.decompression_concurrency must be positive"
         );
         cfg.auth.validate()?;
-        anyhow::ensure!(
-            !cfg.partition_ids.is_empty(),
-            "pqv1.partition_ids must not be empty"
-        );
-        let mut unique = std::collections::HashSet::with_capacity(cfg.partition_ids.len());
-        for &partition_id in &cfg.partition_ids {
-            anyhow::ensure!(
-                partition_id >= 0,
-                "pqv1.partition_ids must be nonnegative, got {partition_id}"
-            );
-            anyhow::ensure!(
-                unique.insert(partition_id),
-                "pqv1.partition_ids contains duplicate partition {partition_id}"
-            );
-        }
+        validate_partition_group_ids(&cfg.partition_group_ids)?;
         // Benchmark discard ⇒ no columns and no `JsonParserConfig` (which
         // requires `columns`). DDL is skipped for benchmark-discard mode.
         let parser_kind = cfg.parser.parser.kind()?;
@@ -156,102 +191,252 @@ impl PqV1SourceProvider {
             endpoint_attempts: Mutex::new(HashMap::new()),
             decompression_slots,
             token: Arc::new(OnceCell::new()),
-            endpoint_cache: Arc::new(AsyncMutex::new(None)),
+            endpoint_cache: Arc::new(EndpointCache::default()),
         })
+    }
+
+    fn configured_delivery_discovery(
+        &self,
+        request: DeliveryDiscoveryRequest,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        // PQ delivers opaque message bytes, not an Arrow row schema. DescribeTopic
+        // validates the remote topic topology and consumer below; row schemas must
+        // therefore remain the projection declared by the configured parser.
+        DeliveryDiscovery::parser_projection(
+            Arc::from(self.cfg.topic_path.as_str()),
+            self.cfg.partition_group_ids.clone(),
+            &self.parser_plan,
+            request,
+        )
     }
 }
 
+fn validate_partition_group_ids(partition_group_ids: &[i64]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !partition_group_ids.is_empty(),
+        "pqv1.partition_group_ids must not be empty"
+    );
+    let mut unique = std::collections::HashSet::with_capacity(partition_group_ids.len());
+    for &partition_group_id in partition_group_ids {
+        anyhow::ensure!(
+            partition_group_id >= 0,
+            "pqv1.partition_group_ids must be nonnegative, got {partition_group_id}"
+        );
+        anyhow::ensure!(
+            unique.insert(partition_group_id),
+            "pqv1.partition_group_ids contains duplicate group {partition_group_id}"
+        );
+    }
+    Ok(())
+}
+
+fn validate_topic_metadata(
+    settings: &TopicSettings,
+    consumer_name: &str,
+    partition_group_ids: &[i64],
+) -> anyhow::Result<()> {
+    validate_partition_group_ids(partition_group_ids)?;
+    anyhow::ensure!(
+        settings.partitions_count > 0,
+        "PQv1 topic reports invalid partitions_count {}",
+        settings.partitions_count
+    );
+    if let Some(auto_partitioning) = settings.auto_partitioning_settings.as_ref() {
+        let strategy =
+            AutoPartitioningStrategy::try_from(auto_partitioning.strategy).map_err(|_| {
+                anyhow::anyhow!(
+                    "PQv1 topic reports unknown auto-partitioning strategy {}",
+                    auto_partitioning.strategy
+                )
+            })?;
+        anyhow::ensure!(
+            matches!(
+                strategy,
+                AutoPartitioningStrategy::Disabled | AutoPartitioningStrategy::Paused
+            ),
+            "pqv1.partition_group_ids requires a fixed topic topology, but topic auto-partitioning strategy is {}",
+            strategy.as_str_name()
+        );
+    }
+
+    let partition_count = i64::from(settings.partitions_count);
+    for &partition_group_id in partition_group_ids {
+        anyhow::ensure!(
+            partition_group_id < partition_count,
+            "pqv1.partition_group_ids contains group {partition_group_id}, but topic has groups in range 0..{partition_count}"
+        );
+    }
+    anyhow::ensure!(
+        settings
+            .read_rules
+            .iter()
+            .any(|rule| rule.consumer_name == consumer_name),
+        "pqv1.consumer_name '{consumer_name}' is not configured on the source topic"
+    );
+    Ok(())
+}
+
+async fn shared_access_token(
+    token: &OnceCell<Arc<str>>,
+    auth: &crate::providers::pqv1::config::PqV1AuthConfig,
+) -> anyhow::Result<Arc<str>> {
+    token
+        .get_or_try_init(|| async { load_access_token(auth).map(Into::<Arc<str>>::into) })
+        .await
+        .map(Arc::clone)
+}
+
 async fn resolve_proxies_cached(
-    cache: &AsyncMutex<Option<CachedEndpoints>>,
+    cache: Arc<EndpointCache>,
     discovery_endpoint: &str,
     token: &str,
     network_timeout: Duration,
     cancellation: &CancellationToken,
     partition_id: i64,
 ) -> anyhow::Result<Vec<String>> {
-    let mut cache = tokio::select! {
-        biased;
-        () = cancellation.cancelled() => anyhow::bail!("PQv1 endpoint discovery cancelled"),
-        cache = cache.lock() => cache,
-    };
     let fallback_main = parse_endpoint(discovery_endpoint)?;
-    let now = Instant::now();
-    let refresh = cache
-        .as_ref()
-        .is_none_or(|cached| cached.should_refresh(now));
-    if refresh {
-        match PqV1Client::discover_endpoints(
-            discovery_endpoint,
-            token,
-            network_timeout,
-            cancellation,
-        )
-        .await
-        {
-            Ok((main_host, endpoints)) => {
-                *cache = Some(CachedEndpoints {
-                    fetched_at: Instant::now(),
-                    refresh_retry_at: None,
-                    main_host,
-                    endpoints,
-                });
-            }
-            Err(error) => {
-                if error
-                    .downcast_ref::<PipelineFailure>()
-                    .is_some_and(|failure| !failure.is_retryable())
-                {
-                    return Err(error);
+    loop {
+        // Register before inspecting the state so a refresh completion cannot
+        // be lost between observing `refreshing` and awaiting the notification.
+        let refreshed = cache.refreshed.notified();
+        let decision = {
+            let mut state = cache
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let now = Instant::now();
+            match &state.cached {
+                Some(cached) if !cached.should_refresh(now) => {
+                    EndpointCacheDecision::Return(cached.clone())
                 }
-                if cache.is_none() {
-                    tracing::warn!("PQv1 proxy discovery failed: {error}. Using main endpoint.");
-                    *cache = Some(CachedEndpoints {
+                Some(cached) if state.refreshing => EndpointCacheDecision::Return(cached.clone()),
+                None if state.refreshing => EndpointCacheDecision::Wait,
+                _ => {
+                    state.refreshing = true;
+                    EndpointCacheDecision::Refresh
+                }
+            }
+        };
+
+        match decision {
+            EndpointCacheDecision::Return(cached) => {
+                return Ok(PqV1Client::order_proxies(
+                    cached.main_host,
+                    cached.endpoints,
+                    partition_id,
+                ));
+            }
+            EndpointCacheDecision::Wait => {
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => anyhow::bail!("PQv1 endpoint discovery cancelled"),
+                    () = refreshed => {}
+                }
+            }
+            EndpointCacheDecision::Refresh => {
+                let refresh_guard = EndpointRefreshGuard(Arc::clone(&cache));
+                let result = PqV1Client::discover_endpoints(
+                    discovery_endpoint,
+                    token,
+                    network_timeout,
+                    cancellation,
+                )
+                .await;
+                match result {
+                    Ok((main_host, endpoints)) => cache.replace(CachedEndpoints {
                         fetched_at: Instant::now(),
                         refresh_retry_at: None,
-                        main_host: fallback_main,
-                        endpoints: Vec::new(),
-                    });
-                } else {
-                    if let Some(cached) = cache.as_mut() {
-                        cached.defer_refresh(Instant::now());
+                        main_host,
+                        endpoints,
+                    }),
+                    Err(error) => {
+                        if error
+                            .downcast_ref::<PipelineFailure>()
+                            .is_some_and(|failure| !failure.is_retryable())
+                        {
+                            return Err(error);
+                        }
+                        let mut state = cache
+                            .state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        if let Some(cached) = state.cached.as_mut() {
+                            cached.defer_refresh(Instant::now());
+                            tracing::warn!(
+                                "PQv1 proxy discovery refresh failed: {error}. Using stale endpoint cache."
+                            );
+                        } else {
+                            tracing::warn!(
+                                "PQv1 proxy discovery failed: {error}. Using main endpoint."
+                            );
+                            state.cached = Some(CachedEndpoints {
+                                fetched_at: Instant::now(),
+                                refresh_retry_at: None,
+                                main_host: fallback_main.clone(),
+                                endpoints: Vec::new(),
+                            });
+                        }
                     }
-                    tracing::warn!(
-                        "PQv1 proxy discovery refresh failed: {error}. Using stale endpoint cache."
-                    );
                 }
+                drop(refresh_guard);
             }
         }
     }
-    let cached = cache
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("PQv1 endpoint cache is unexpectedly empty"))?;
-    let proxies = PqV1Client::order_proxies(
-        cached.main_host.clone(),
-        cached.endpoints.clone(),
-        partition_id,
-    );
-    drop(cache);
-    Ok(proxies)
 }
 
 impl SourceProvider for PqV1SourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::PqV1(SourceDescriptor {
             behavior: self.behavior,
-            system_columns: self.cfg.parser.common.system_columns.enabled().collect(),
-            columns: self
-                .parser_plan
-                .dataset_schema()
-                .columns
-                .iter()
-                .map(|column| ColumnDescriptor {
-                    name: column.name.clone(),
-                    data_type: column.data_type.clone(),
-                    nullable: column.nullable,
-                })
-                .collect(),
         })
     }
+
+    fn delivery_discovery(
+        &self,
+        request: DeliveryDiscoveryRequest,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        let cfg = self.cfg.clone();
+        let token = Arc::clone(&self.token);
+        let endpoint_cache = Arc::clone(&self.endpoint_cache);
+        let configured = self.configured_delivery_discovery(request);
+
+        Box::pin(async move {
+            let discovery = configured?;
+            validate_partition_group_ids(&cfg.partition_group_ids)?;
+            let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
+            let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
+            let endpoints = PqV1Client::discover_endpoints(
+                &cfg.discovery_endpoint,
+                token.as_ref(),
+                network_timeout,
+                &cancellation,
+            );
+            let topic = PqV1Client::describe_topic(
+                &cfg.discovery_endpoint,
+                &cfg.topic_path,
+                token.as_ref(),
+                network_timeout,
+                &cancellation,
+            );
+            let ((main_host, endpoints), topic_settings) = tokio::try_join!(endpoints, topic)
+                .map_err(|error| error.context("PQv1 delivery discovery failed"))?;
+            validate_topic_metadata(
+                &topic_settings,
+                &cfg.consumer_name,
+                &cfg.partition_group_ids,
+            )?;
+
+            endpoint_cache.replace(CachedEndpoints {
+                fetched_at: Instant::now(),
+                refresh_retry_at: None,
+                main_host,
+                endpoints,
+            });
+            Ok(discovery)
+        })
+    }
+
     fn build_source(
         &self,
         partition_id: i64,
@@ -268,21 +453,17 @@ impl SourceProvider for PqV1SourceProvider {
 
         Box::pin(async move {
             anyhow::ensure!(
-                cfg.partition_ids.contains(&partition_id),
-                "partition {partition_id} is not declared in pqv1.partition_ids"
+                cfg.partition_group_ids.contains(&partition_id),
+                "partition group {partition_id} is not declared in pqv1.partition_group_ids"
             );
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
             // Token rotation is intentionally not supported yet. Load lazily
             // so config validation needs no runtime secret, then share the
             // value across all partition starts and retries.
-            let token = token
-                .get_or_try_init(|| async {
-                    load_access_token(&cfg.auth).map(Into::<Arc<str>>::into)
-                })
-                .await?;
+            let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
             let mut proxies = resolve_proxies_cached(
-                endpoint_cache.as_ref(),
+                Arc::clone(&endpoint_cache),
                 &cfg.discovery_endpoint,
                 token.as_ref(),
                 network_timeout,
@@ -368,7 +549,7 @@ impl SourceProvider for PqV1SourceProvider {
             let total_workers = u64::from(total_workers);
             let worker_index = u64::from(worker_index);
             let parts = cfg
-                .partition_ids
+                .partition_group_ids
                 .iter()
                 .filter(|&&id| u64::try_from(id).is_ok_and(|id| id % total_workers == worker_index))
                 .copied()
@@ -385,6 +566,22 @@ impl SourceProvider for PqV1SourceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn topic_settings(partitions_count: i32, consumers: &[&str]) -> TopicSettings {
+        TopicSettings {
+            partitions_count,
+            read_rules: consumers
+                .iter()
+                .map(
+                    |consumer_name| crate::Ydb::pers_queue::v1::topic_settings::ReadRule {
+                        consumer_name: (*consumer_name).to_owned(),
+                        ..Default::default()
+                    },
+                )
+                .collect(),
+            ..Default::default()
+        }
+    }
 
     fn provider(config: &str) -> anyhow::Result<PqV1SourceProvider> {
         let value = serde_yaml::from_str(config)?;
@@ -419,24 +616,24 @@ mod tests {
         assert!(!failure.is_retryable());
     }
 
-    fn config(partition_ids: &str, extra: &str) -> String {
+    fn config(partition_group_ids: &str, extra: &str) -> String {
         format!(
-            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
+            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_group_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
         )
     }
 
     fn json_config(extra: &str) -> String {
         format!(
-            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        arrow_type: Int64\n        nullable: false\n"
+            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_group_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        arrow_type: Int64\n        nullable: false\n"
         )
     }
 
     #[test]
-    fn validates_static_partition_ids() {
+    fn validates_static_partition_group_ids() {
         for (ids, expected) in [
-            ("partition_ids: [-1]\n", "must be nonnegative"),
-            ("partition_ids: [1, 1]\n", "duplicate partition 1"),
-            ("partition_ids: []\n", "must not be empty"),
+            ("partition_group_ids: [-1]\n", "must be nonnegative"),
+            ("partition_group_ids: [1, 1]\n", "duplicate group 1"),
+            ("partition_group_ids: []\n", "must not be empty"),
         ] {
             let error = provider(&config(ids, "")).err().expect("config must fail");
             assert!(error.to_string().contains(expected), "{error:#}");
@@ -444,10 +641,69 @@ mod tests {
     }
 
     #[test]
+    fn validates_discovered_topic_metadata() {
+        validate_topic_metadata(&topic_settings(3, &["consumer"]), "consumer", &[0, 2]).unwrap();
+    }
+
+    #[test]
+    fn discovered_topic_must_contain_the_configured_consumer() {
+        let error =
+            validate_topic_metadata(&topic_settings(3, &["other"]), "consumer", &[0]).unwrap_err();
+        assert!(error.to_string().contains("is not configured"), "{error:#}");
+    }
+
+    #[test]
+    fn discovered_topic_bounds_configured_partition_group_ids() {
+        let error = validate_topic_metadata(&topic_settings(3, &["consumer"]), "consumer", &[3])
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("groups in range 0..3"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn discovered_topic_requires_a_stable_partition_topology() {
+        for strategy in [
+            AutoPartitioningStrategy::Unspecified,
+            AutoPartitioningStrategy::ScaleUp,
+            AutoPartitioningStrategy::ScaleUpAndDown,
+        ] {
+            let mut settings = topic_settings(3, &["consumer"]);
+            settings.auto_partitioning_settings =
+                Some(crate::Ydb::pers_queue::v1::AutoPartitioningSettings {
+                    strategy: strategy as i32,
+                    ..Default::default()
+                });
+            let error = validate_topic_metadata(&settings, "consumer", &[0]).unwrap_err();
+            assert!(
+                error.to_string().contains(strategy.as_str_name()),
+                "{error:#}"
+            );
+        }
+
+        for strategy in [
+            AutoPartitioningStrategy::Disabled,
+            AutoPartitioningStrategy::Paused,
+        ] {
+            let mut settings = topic_settings(3, &["consumer"]);
+            settings.auto_partitioning_settings =
+                Some(crate::Ydb::pers_queue::v1::AutoPartitioningSettings {
+                    strategy: strategy as i32,
+                    ..Default::default()
+                });
+            validate_topic_metadata(&settings, "consumer", &[0]).unwrap();
+        }
+    }
+
+    #[test]
     fn rejects_unreasonably_short_network_timeout() {
-        let error = provider(&config("partition_ids: [0]\n", "network_timeout_ms: 99\n"))
-            .err()
-            .expect("a timeout that makes keepalive self-thrash must fail");
+        let error = provider(&config(
+            "partition_group_ids: [0]\n",
+            "network_timeout_ms: 99\n",
+        ))
+        .err()
+        .expect("a timeout that makes keepalive self-thrash must fail");
 
         assert!(
             error
@@ -458,18 +714,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_removed_connection_string_name() {
-        let legacy = config("partition_ids: [0]\n", "").replacen(
+    fn rejects_unknown_discovery_endpoint_field() {
+        let invalid = config("partition_group_ids: [0]\n", "").replacen(
             "discovery_endpoint:",
-            "connection_string:",
+            "discovery_endpoint_typo:",
             1,
         );
-        assert!(provider(&legacy).is_err());
+        assert!(provider(&invalid).is_err());
     }
 
     #[tokio::test]
     async fn rejects_builds_for_undeclared_partitions_before_network_io() {
-        let source = provider(&config("partition_ids: [0]\n", "")).unwrap();
+        let source = provider(&config("partition_group_ids: [0]\n", "")).unwrap();
         let error = source
             .build_source(1, CancellationToken::new(), PipelineMemory::new(1 << 20))
             .await
@@ -481,7 +737,7 @@ mod tests {
     #[test]
     fn rejects_zero_decompression_concurrency() {
         let error = provider(&config(
-            "partition_ids: [0]\n",
+            "partition_group_ids: [0]\n",
             "decompression_concurrency: 0\n",
         ))
         .err()
@@ -498,9 +754,9 @@ mod tests {
     #[test]
     fn reports_benchmark_discard_behavior() {
         for cfg in [
-            config("partition_ids: [0]\n", ""),
+            config("partition_group_ids: [0]\n", ""),
             config(
-                "partition_ids: [0]\n",
+                "partition_group_ids: [0]\n",
                 "benchmark_discard_before_decompression: true\n",
             ),
         ] {
@@ -510,9 +766,15 @@ mod tests {
                 panic!("expected PQv1 descriptor")
             };
             assert_eq!(descriptor.behavior, SourceBehavior::BenchmarkDiscard);
+            let discovery = source
+                .configured_delivery_discovery(DeliveryDiscoveryRequest {
+                    keep_system_columns: false,
+                })
+                .unwrap();
             assert!(crate::compatibility::validate_pipeline(
                 &endpoint,
                 &EndpointDescriptor::ClickHouse,
+                &discovery,
                 false,
             )
             .ensure_valid()
@@ -524,6 +786,47 @@ mod tests {
             panic!("expected PQv1 descriptor")
         };
         assert_eq!(descriptor.behavior, SourceBehavior::ProducesRows);
+    }
+
+    #[test]
+    fn configured_discovery_uses_the_parser_projection() -> anyhow::Result<()> {
+        let source = provider(&json_config(""))?;
+        let discovery = source.configured_delivery_discovery(DeliveryDiscoveryRequest {
+            keep_system_columns: false,
+        })?;
+
+        assert_eq!(
+            discovery.schema_origin,
+            crate::delivery::SchemaOrigin::ParserProjection
+        );
+        assert_eq!(discovery.source_name.as_ref(), "topic");
+        assert_eq!(discovery.source_partitions, [0]);
+        assert_eq!(discovery.datasets.len(), 2);
+        assert_eq!(
+            discovery
+                .dataset(crate::delivery::DatasetRole::Main)?
+                .name
+                .as_ref(),
+            "events"
+        );
+        assert_eq!(
+            discovery
+                .dataset(crate::delivery::DatasetRole::DeadLetterQueue)?
+                .name
+                .as_ref(),
+            "events_dlq"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn benchmark_discovery_has_no_row_datasets() -> anyhow::Result<()> {
+        let source = provider(&config("partition_group_ids: [0]\n", ""))?;
+        let discovery = source.configured_delivery_discovery(DeliveryDiscoveryRequest {
+            keep_system_columns: false,
+        })?;
+        assert!(discovery.datasets.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -539,16 +842,18 @@ mod tests {
     }
 
     #[test]
-    fn missing_partition_ids_fails_during_provider_construction() {
+    fn missing_partition_group_ids_fails_during_provider_construction() {
         let error = provider(&config("", ""))
             .err()
-            .expect("missing partition_ids must fail");
-        assert!(error.to_string().contains("missing field `partition_ids`"));
+            .expect("missing partition_group_ids must fail");
+        assert!(error
+            .to_string()
+            .contains("missing field `partition_group_ids`"));
     }
 
     #[tokio::test]
     async fn static_partitions_are_split_without_truncating_ids() {
-        let source = provider(&config("partition_ids: [0, 1, 4294967297]\n", "")).unwrap();
+        let source = provider(&config("partition_group_ids: [0, 1, 4294967297]\n", "")).unwrap();
         assert_eq!(
             source.partitions_for_worker(2, 1).await.unwrap(),
             vec![1, 4_294_967_297]
@@ -557,7 +862,7 @@ mod tests {
 
     #[test]
     fn retries_reuse_partition_source_counters() {
-        let source = provider(&config("partition_ids: [0, 1]\n", "")).unwrap();
+        let source = provider(&config("partition_group_ids: [0, 1]\n", "")).unwrap();
         let first = source.counters_for_partition(0);
         let retry = source.counters_for_partition(0);
         let other = source.counters_for_partition(1);
@@ -568,7 +873,7 @@ mod tests {
 
     #[test]
     fn retries_advance_the_endpoint_failover_cursor_per_partition() {
-        let source = provider(&config("partition_ids: [0, 1]\n", "")).unwrap();
+        let source = provider(&config("partition_group_ids: [0, 1]\n", "")).unwrap();
 
         assert_eq!(source.next_endpoint_attempt(0), 0);
         assert_eq!(source.next_endpoint_attempt(0), 1);

@@ -120,14 +120,14 @@ source:
     discovery_endpoint: grpc://localhost
     topic_path: topic-a
     consumer_name: consumer-a
-    partition_ids: [0]
+    partition_group_ids: [0]
     auth: { type: access_token, token: test }
     parser:
       common:
         table_naming: { type: from_config, name: events }
         system_columns:
-          topic_name: true
-          partition_num: true
+          topic: true
+          partition: true
           offset: true
           message_index: true
           write_timestamp_ms: true

@@ -5,6 +5,7 @@
 use arrow::datatypes::DataType;
 use serde::Serialize;
 
+use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset};
 use crate::types::system_columns::SystemColumnKind;
 
 #[derive(Debug, Clone)]
@@ -19,8 +20,6 @@ pub enum EndpointDescriptor {
 #[derive(Debug, Clone)]
 pub struct SourceDescriptor {
     pub behavior: SourceBehavior,
-    pub system_columns: Vec<SystemColumnKind>,
-    pub columns: Vec<ColumnDescriptor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,13 +27,6 @@ pub enum SourceBehavior {
     ProducesRows,
     /// Benchmark-only mode which advances source offsets without producing rows.
     BenchmarkDiscard,
-}
-
-#[derive(Debug, Clone)]
-pub struct ColumnDescriptor {
-    pub name: String,
-    pub data_type: DataType,
-    pub nullable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +63,7 @@ pub enum DiagnosticSeverity {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DiagnosticCode {
     UnsupportedPipeline,
+    InvalidDeliveryDiscovery,
     MissingSystemColumn,
     SystemColumnsNotProduced,
     UnknownPartitionField,
@@ -119,6 +112,7 @@ impl DeliverySemanticsReport {
 pub fn validate_pipeline(
     source: &EndpointDescriptor,
     sink: &EndpointDescriptor,
+    discovery: &DeliveryDiscovery,
     keep_system_columns: bool,
 ) -> DeliverySemanticsReport {
     if matches!(sink, EndpointDescriptor::Discard) {
@@ -169,7 +163,7 @@ pub fn validate_pipeline(
             }],
         };
     }
-    let (EndpointDescriptor::PqV1(source), EndpointDescriptor::S3(sink)) = (source, sink) else {
+    let (EndpointDescriptor::PqV1(_), EndpointDescriptor::S3(sink)) = (source, sink) else {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
             diagnostics: vec![error(
@@ -182,15 +176,27 @@ pub fn validate_pipeline(
     };
 
     let mut diagnostics = Vec::new();
+    let main = match discovery.dataset(DatasetRole::Main) {
+        Ok(dataset) => Some(dataset),
+        Err(discovery_error) => {
+            diagnostics.push(error(
+                DiagnosticCode::InvalidDeliveryDiscovery,
+                &["source.pqv1.parser"],
+                &discovery_error.to_string(),
+                Some("configure a row-producing parser with one main and one DLQ dataset"),
+            ));
+            None
+        }
+    };
     for kind in [
-        SystemColumnKind::TopicName,
-        SystemColumnKind::PartitionNum,
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
         SystemColumnKind::Offset,
         SystemColumnKind::MessageIndex,
     ] {
-        require_system_column(source, kind, &mut diagnostics);
+        require_system_column(main, kind, &mut diagnostics);
     }
-    if keep_system_columns && source.system_columns.is_empty() {
+    if keep_system_columns && main.is_some_and(|dataset| dataset.system_columns.is_empty()) {
         diagnostics.push(error(
             DiagnosticCode::SystemColumnsNotProduced,
             &[
@@ -205,7 +211,13 @@ pub fn validate_pipeline(
     match &sink.partitioning {
         S3Partitioning::Fields(fields) => {
             for field in fields {
-                match source.columns.iter().find(|column| column.name == *field) {
+                match main.and_then(|dataset| {
+                    dataset
+                        .incoming_schema
+                        .columns
+                        .iter()
+                        .find(|column| column.name == *field)
+                }) {
                     None => diagnostics.push(error(
                         DiagnosticCode::UnknownPartitionField,
                         &[
@@ -242,12 +254,12 @@ pub fn validate_pipeline(
             }
         }
         S3Partitioning::RecordTime => {
-            require_system_column(source, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
+            require_system_column(main, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
         }
         S3Partitioning::Source => {}
     }
     if sink.record_time_rotation {
-        require_system_column(source, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
+        require_system_column(main, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
     }
 
     let guarantee = if sink.wall_clock_rotation {
@@ -291,11 +303,11 @@ pub fn validate_pipeline(
 }
 
 fn require_system_column(
-    source: &SourceDescriptor,
+    dataset: Option<&DiscoveredDataset>,
     kind: SystemColumnKind,
     diagnostics: &mut Vec<SemanticsDiagnostic>,
 ) {
-    if !source.system_columns.contains(&kind) {
+    if dataset.is_none_or(|dataset| !dataset.system_columns.contains(&kind)) {
         diagnostics.push(error(
             DiagnosticCode::MissingSystemColumn,
             &["source.pqv1.parser.common.system_columns", "sink.s3"],
@@ -310,8 +322,8 @@ fn require_system_column(
 
 const fn config_name(kind: SystemColumnKind) -> &'static str {
     match kind {
-        SystemColumnKind::TopicName => "topic_name",
-        SystemColumnKind::PartitionNum => "partition_num",
+        SystemColumnKind::Topic => "topic",
+        SystemColumnKind::Partition => "partition",
         SystemColumnKind::Offset => "offset",
         SystemColumnKind::MessageIndex => "message_index",
         SystemColumnKind::WriteTimestampMs => "write_timestamp_ms",
@@ -356,23 +368,43 @@ fn error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::delivery::{DiscoveredDataset, SchemaOrigin};
+    use crate::types::schema::{DatasetSchema, SchemaColumn};
 
     fn source() -> EndpointDescriptor {
         EndpointDescriptor::PqV1(SourceDescriptor {
             behavior: SourceBehavior::ProducesRows,
-            system_columns: vec![
-                SystemColumnKind::TopicName,
-                SystemColumnKind::PartitionNum,
-                SystemColumnKind::Offset,
-                SystemColumnKind::MessageIndex,
-                SystemColumnKind::WriteTimestampMs,
-            ],
-            columns: vec![ColumnDescriptor {
-                name: "tenant".into(),
-                data_type: DataType::Utf8,
-                nullable: false,
-            }],
         })
+    }
+
+    fn discovery() -> DeliveryDiscovery {
+        DeliveryDiscovery {
+            source_name: "topic".into(),
+            source_partitions: vec![0],
+            schema_origin: SchemaOrigin::ParserProjection,
+            keep_system_columns: false,
+            datasets: vec![DiscoveredDataset {
+                role: DatasetRole::Main,
+                name: "events".into(),
+                incoming_schema: DatasetSchema::new(vec![SchemaColumn::new(
+                    "tenant".into(),
+                    DataType::Utf8,
+                    false,
+                )]),
+                stored_schema: DatasetSchema::new(vec![SchemaColumn::new(
+                    "tenant".into(),
+                    DataType::Utf8,
+                    false,
+                )]),
+                system_columns: vec![
+                    SystemColumnKind::Topic,
+                    SystemColumnKind::Partition,
+                    SystemColumnKind::Offset,
+                    SystemColumnKind::MessageIndex,
+                    SystemColumnKind::WriteTimestampMs,
+                ],
+            }],
+        }
     }
 
     fn sink(partitioning: S3Partitioning, wall_clock_rotation: bool) -> EndpointDescriptor {
@@ -380,13 +412,18 @@ mod tests {
             partitioning,
             record_time_rotation: false,
             wall_clock_rotation,
-            object_layout_version: 3,
+            object_layout_version: 4,
         })
     }
 
     #[test]
     fn infers_exactly_once_from_deterministic_settings() {
-        let report = validate_pipeline(&source(), &sink(S3Partitioning::Source, false), false);
+        let report = validate_pipeline(
+            &source(),
+            &sink(S3Partitioning::Source, false),
+            &discovery(),
+            false,
+        );
         assert_eq!(report.guarantee, DeliveryGuarantee::ExactlyOnce);
         assert!(report.ensure_valid().is_ok());
         let diagnostic = report
@@ -402,7 +439,12 @@ mod tests {
 
     #[test]
     fn wall_clock_rotation_is_at_least_once() {
-        let report = validate_pipeline(&source(), &sink(S3Partitioning::Source, true), false);
+        let report = validate_pipeline(
+            &source(),
+            &sink(S3Partitioning::Source, true),
+            &discovery(),
+            false,
+        );
         assert_eq!(report.guarantee, DeliveryGuarantee::AtLeastOnce);
         assert!(report.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == DiagnosticCode::WallClockRotationDisablesExactlyOnce
@@ -411,7 +453,12 @@ mod tests {
 
     #[test]
     fn clickhouse_pipeline_is_supported_as_at_least_once() {
-        let report = validate_pipeline(&source(), &EndpointDescriptor::ClickHouse, false);
+        let report = validate_pipeline(
+            &source(),
+            &EndpointDescriptor::ClickHouse,
+            &discovery(),
+            false,
+        );
         assert_eq!(report.guarantee, DeliveryGuarantee::AtLeastOnce);
         assert!(report.ensure_valid().is_ok());
         assert!(report
@@ -422,7 +469,8 @@ mod tests {
 
     #[test]
     fn discard_sink_is_explicitly_supported_for_benchmarks() {
-        let report = validate_pipeline(&source(), &EndpointDescriptor::Discard, false);
+        let report =
+            validate_pipeline(&source(), &EndpointDescriptor::Discard, &discovery(), false);
         assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
         assert!(report.ensure_valid().is_ok());
         assert!(report
@@ -443,7 +491,7 @@ mod tests {
             EndpointDescriptor::ClickHouse,
             sink(S3Partitioning::Source, false),
         ] {
-            let report = validate_pipeline(&source_endpoint, &sink_endpoint, false);
+            let report = validate_pipeline(&source_endpoint, &sink_endpoint, &discovery(), false);
             assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
             assert!(report.ensure_valid().is_err());
             assert!(report.diagnostics.iter().any(|diagnostic| {
@@ -452,22 +500,26 @@ mod tests {
             }));
         }
 
-        let benchmark = validate_pipeline(&source_endpoint, &EndpointDescriptor::Discard, false);
+        let benchmark = validate_pipeline(
+            &source_endpoint,
+            &EndpointDescriptor::Discard,
+            &discovery(),
+            false,
+        );
         assert!(benchmark.ensure_valid().is_ok());
     }
 
     #[test]
     fn record_time_partitioning_requires_source_timestamp_column() {
-        let mut source_endpoint = source();
-        let EndpointDescriptor::PqV1(source) = &mut source_endpoint else {
-            unreachable!()
-        };
-        source
+        let source_endpoint = source();
+        let mut discovery = discovery();
+        discovery.datasets[0]
             .system_columns
             .retain(|kind| *kind != SystemColumnKind::WriteTimestampMs);
         let report = validate_pipeline(
             &source_endpoint,
             &sink(S3Partitioning::RecordTime, false),
+            &discovery,
             false,
         );
         assert!(report.ensure_valid().is_err());

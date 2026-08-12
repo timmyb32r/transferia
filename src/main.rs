@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use transferia::compatibility::validate_pipeline;
 use transferia::config::yaml::Config;
+use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::middleware::build_middleware;
 use transferia::parsers::ParserFactory as DataParserFactory;
@@ -23,7 +24,6 @@ use transferia::pipeline::{
 use transferia::providers::traits::{
     ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
 };
-use transferia::types::table_data::dlq_name;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -54,6 +54,7 @@ struct PipelineDeps {
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     source_provider: Arc<dyn SourceProvider>,
     sink_provider: Arc<dyn SinkProvider>,
+    discovery: Arc<DeliveryDiscovery>,
     memory_limit: usize,
     cancellation: CancellationToken,
     keep_system_columns: bool,
@@ -79,6 +80,7 @@ async fn run_partition_attempt(
             partition_id,
             counters: sink_counters,
             keep_system_columns: deps.keep_system_columns,
+            discovery: Arc::clone(&deps.discovery),
         })
         .await
         .context("sink creation failed")?;
@@ -96,7 +98,6 @@ async fn run_partition_attempt(
     .await
 }
 
-const MAX_CONSECUTIVE_PIPELINE_FAILURES: u32 = 5;
 const INITIAL_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(1);
 const MAX_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(30);
 
@@ -114,25 +115,18 @@ impl PartitionRestartPolicy {
         }
     }
 
-    fn record_failure(
-        &mut self,
-        made_durable_progress: bool,
-    ) -> Option<(u32, core::time::Duration)> {
+    fn record_failure(&mut self, made_durable_progress: bool) -> (u32, core::time::Duration) {
         if made_durable_progress {
             self.consecutive_failures = 0;
             self.next_delay = INITIAL_PARTITION_RESTART_DELAY;
         }
         self.consecutive_failures = self.consecutive_failures.saturating_add(1);
-        if self.consecutive_failures >= MAX_CONSECUTIVE_PIPELINE_FAILURES {
-            return None;
-        }
-
         let delay = self.next_delay;
         self.next_delay = self
             .next_delay
             .saturating_mul(2)
             .min(MAX_PARTITION_RESTART_DELAY);
-        Some((self.consecutive_failures, delay))
+        (self.consecutive_failures, delay)
     }
 }
 
@@ -176,13 +170,8 @@ async fn run_partition_task(
         if !retryable {
             return Err(error).context("non-retryable partition failure");
         }
-        let Some((consecutive_failure, base_restart_delay)) =
-            restart_policy.record_failure(progress.advanced_since(progress_checkpoint))
-        else {
-            return Err(error).context(format!(
-                "partition pipeline exhausted {MAX_CONSECUTIVE_PIPELINE_FAILURES} consecutive failures"
-            ));
-        };
+        let (consecutive_failure, base_restart_delay) =
+            restart_policy.record_failure(progress.advanced_since(progress_checkpoint));
         let restart_delay = jittered_retry_delay(
             base_restart_delay,
             consecutive_failure.saturating_sub(1),
@@ -269,6 +258,43 @@ fn spawn_shutdown_listener(cancellation: CancellationToken) -> anyhow::Result<()
     Ok(())
 }
 
+fn validate_discovered_pipeline(
+    source: &transferia::compatibility::EndpointDescriptor,
+    sink: &transferia::compatibility::EndpointDescriptor,
+    limits: &dyn SinkLimits,
+    discovery: &DeliveryDiscovery,
+    keep_system_columns: bool,
+) -> anyhow::Result<transferia::compatibility::DeliverySemanticsReport> {
+    anyhow::ensure!(
+        discovery.keep_system_columns == keep_system_columns,
+        "delivery discovery system-column policy differs from pipeline configuration"
+    );
+    let semantics = validate_pipeline(source, sink, discovery, keep_system_columns);
+    semantics.ensure_valid()?;
+    limits
+        .validate_discovery(discovery)
+        .context("delivery violates sink limits")?;
+    Ok(semantics)
+}
+
+fn validate_middlewares(
+    middlewares: &[Box<dyn Middleware>],
+    discovery: &DeliveryDiscovery,
+) -> anyhow::Result<()> {
+    if middlewares.is_empty() {
+        return Ok(());
+    }
+    let main = discovery
+        .dataset(transferia::delivery::DatasetRole::Main)
+        .context("middlewares require a discovered main dataset")?;
+    for (index, middleware) in middlewares.iter().enumerate() {
+        middleware
+            .validate_schema(&main.incoming_schema)
+            .with_context(|| format!("middleware {index} is incompatible with delivery schema"))?;
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -296,23 +322,40 @@ async fn main() -> anyhow::Result<()> {
         Arc::from(registry.build_sink(sink_kind, config.sink.raw()?.clone())?);
     sink_provider.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
 
-    let semantics = validate_pipeline(
-        &source_provider.compatibility(),
-        &sink_provider.compatibility(),
-        config.keep_system_columns_in_sink,
+    let cancellation = CancellationToken::new();
+    spawn_shutdown_listener(cancellation.clone())?;
+    let discovery = source_provider
+        .delivery_discovery(
+            DeliveryDiscoveryRequest {
+                keep_system_columns: config.keep_system_columns_in_sink,
+            },
+            cancellation.clone(),
+        )
+        .await?;
+    anyhow::ensure!(
+        discovery.keep_system_columns == config.keep_system_columns_in_sink,
+        "source delivery discovery returned a system-column projection different from the requested policy"
     );
-    semantics.ensure_valid()?;
-    tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
-
-    let parser_plan = source_provider.parser_plan();
-    let table = parser_plan.table();
-    let parses_rows = parser_plan.parses_rows();
-    let parser = parser_plan.parser();
     let middlewares = config
         .middlewares
         .iter()
         .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    validate_middlewares(&middlewares, &discovery)?;
+    let semantics = validate_discovered_pipeline(
+        &source_provider.compatibility(),
+        &sink_provider.compatibility(),
+        sink_provider.limits(),
+        &discovery,
+        config.keep_system_columns_in_sink,
+    )?;
+    tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
+    tracing::info!(limits = %serde_json::to_string(&sink_provider.limits().description())?, "sink limits validated against delivery discovery");
+    let discovery = Arc::new(discovery);
+
+    let parser_plan = source_provider.parser_plan();
+    let parses_rows = parser_plan.parses_rows();
+    let parser = parser_plan.parser();
 
     let partitions = source_provider
         .partitions_for_worker(cli.total_workers, cli.worker_index)
@@ -322,19 +365,9 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let schema = parser_plan.sink_schema(config.keep_system_columns_in_sink);
-    let dlq_table: Arc<str> = dlq_name(&table).into();
-    sink_provider
-        .prepare(SinkPrepare {
-            table: Arc::clone(&table),
-            schema,
-            dlq_table,
-            dlq_schema: parser_plan.dlq_schema(config.keep_system_columns_in_sink),
-        })
-        .await?;
-
-    let cancellation = CancellationToken::new();
-    spawn_shutdown_listener(cancellation.clone())?;
+    if let Some(request) = SinkPrepare::from_discovery(&discovery)? {
+        sink_provider.prepare(request).await?;
+    }
 
     if let Some(metrics) = &config.metrics {
         if metrics.enabled {
@@ -351,6 +384,7 @@ async fn main() -> anyhow::Result<()> {
         middlewares: Arc::new(middlewares),
         source_provider,
         sink_provider,
+        discovery,
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
         keep_system_columns: config.keep_system_columns_in_sink,
@@ -401,7 +435,73 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
+
+    fn configured_discovery(
+        source: &dyn SourceProvider,
+        keep_system_columns: bool,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        DeliveryDiscovery::parser_projection(
+            Arc::from("configured-source"),
+            vec![0],
+            source.parser_plan(),
+            DeliveryDiscoveryRequest {
+                keep_system_columns,
+            },
+        )
+    }
+
+    struct RecordingLimits {
+        called: AtomicBool,
+    }
+
+    impl SinkLimits for RecordingLimits {
+        fn description(&self) -> transferia::delivery::SinkLimitsDescription {
+            transferia::delivery::SinkLimitsDescription {
+                sink: "test",
+                dataset_name: None,
+                column_name: None,
+                supported_arrow_types: Vec::new(),
+                object_key: None,
+            }
+        }
+
+        fn validate_discovery(&self, _discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
+            self.called.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn semantic_errors_short_circuit_sink_limit_validation() {
+        let limits = RecordingLimits {
+            called: AtomicBool::new(false),
+        };
+        let discovery = DeliveryDiscovery {
+            source_name: Arc::from("topic"),
+            source_partitions: vec![0],
+            schema_origin: transferia::delivery::SchemaOrigin::ParserProjection,
+            keep_system_columns: false,
+            datasets: Vec::new(),
+        };
+        let source = transferia::compatibility::EndpointDescriptor::PqV1(
+            transferia::compatibility::SourceDescriptor {
+                behavior: transferia::compatibility::SourceBehavior::BenchmarkDiscard,
+            },
+        );
+
+        assert!(validate_discovered_pipeline(
+            &source,
+            &transferia::compatibility::EndpointDescriptor::ClickHouse,
+            &limits,
+            &discovery,
+            false,
+        )
+        .is_err());
+        assert!(!limits.called.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn rejects_invalid_worker_assignment_before_partitioning() {
@@ -419,40 +519,30 @@ mod tests {
     }
 
     #[test]
-    fn partition_restart_budget_counts_consecutive_failures() {
+    fn retryable_partition_failures_use_capped_backoff_without_exhaustion() {
         let mut policy = PartitionRestartPolicy::new();
 
-        for expected_failure in 1..MAX_CONSECUTIVE_PIPELINE_FAILURES {
-            let (failure, _) = policy
-                .record_failure(false)
-                .expect("short failure streak should still be retryable");
+        for expected_failure in 1..=100 {
+            let (failure, delay) = policy.record_failure(false);
             assert_eq!(failure, expected_failure);
+            assert!(delay <= MAX_PARTITION_RESTART_DELAY);
         }
-        assert!(
-            policy.record_failure(false).is_none(),
-            "the fifth consecutive failure must exhaust the restart budget"
-        );
+        assert_eq!(policy.next_delay, MAX_PARTITION_RESTART_DELAY);
     }
 
     #[test]
     fn durable_progress_resets_failure_streak_and_backoff() {
         let mut policy = PartitionRestartPolicy::new();
-        for _ in 0..(MAX_CONSECUTIVE_PIPELINE_FAILURES - 1) {
-            policy
-                .record_failure(false)
-                .expect("precondition failure should be retryable");
+        for _ in 0..10 {
+            policy.record_failure(false);
         }
 
-        let (failure, delay) = policy
-            .record_failure(true)
-            .expect("failure after durable progress starts a new streak");
+        let (failure, delay) = policy.record_failure(true);
 
         assert_eq!(failure, 1);
         assert_eq!(delay, INITIAL_PARTITION_RESTART_DELAY);
-        for expected_failure in 2..MAX_CONSECUTIVE_PIPELINE_FAILURES {
-            let (failure, _) = policy
-                .record_failure(false)
-                .expect("new failure streak should have a fresh budget");
+        for expected_failure in 2..5 {
+            let (failure, _) = policy.record_failure(false);
             assert_eq!(failure, expected_failure);
         }
     }
@@ -467,7 +557,7 @@ source:
     discovery_endpoint: grpc://localhost
     topic_path: topic
     consumer_name: consumer
-    partition_ids: [0]
+    partition_group_ids: [0]
     auth: { type: access_token, token: test }
     parser:
       common:
@@ -478,6 +568,7 @@ source:
 sink:
   clickhouse:
     endpoint: localhost:9000
+    trusted_plaintext: true
     database: default
 ",
         )?;
@@ -487,7 +578,14 @@ sink:
             sink.compatibility(),
             transferia::compatibility::EndpointDescriptor::ClickHouse
         ));
-        validate_pipeline(&source.compatibility(), &sink.compatibility(), false).ensure_valid()?;
+        let discovery = configured_discovery(source.as_ref(), false)?;
+        validate_discovered_pipeline(
+            &source.compatibility(),
+            &sink.compatibility(),
+            sink.limits(),
+            &discovery,
+            false,
+        )?;
         Ok(())
     }
 
@@ -512,12 +610,15 @@ sink:
                 .with_context(|| format!("invalid sink in {relative_path}"))?;
             sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)
                 .with_context(|| format!("invalid memory limits in {relative_path}"))?;
-            validate_pipeline(
+            let discovery =
+                configured_discovery(source.as_ref(), config.keep_system_columns_in_sink)?;
+            validate_discovered_pipeline(
                 &source.compatibility(),
                 &sink.compatibility(),
+                sink.limits(),
+                &discovery,
                 config.keep_system_columns_in_sink,
             )
-            .ensure_valid()
             .with_context(|| format!("incompatible providers in {relative_path}"))?;
         }
         Ok(())
@@ -534,12 +635,14 @@ sink:
         let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
         let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
         sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
-        validate_pipeline(
+        let discovery = configured_discovery(source.as_ref(), config.keep_system_columns_in_sink)?;
+        validate_discovered_pipeline(
             &source.compatibility(),
             &sink.compatibility(),
+            sink.limits(),
+            &discovery,
             config.keep_system_columns_in_sink,
-        )
-        .ensure_valid()?;
+        )?;
         Ok(())
     }
 }

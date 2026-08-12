@@ -16,13 +16,12 @@ use std::io::Write as _;
 use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 use crate::types::message::{Message, MessageMeta};
-use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::types::table_data::{dlq_name, TableData};
 
 /// Hard bound for one parser delivery's materialized Arrow data and the
 /// conservative working-set estimate used before builders allocate.
-pub(crate) const MAX_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
+const MAX_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
 const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -762,11 +761,11 @@ fn make_system_builder(kind: SystemColumnKind, capacity: usize) -> AnyBuilder {
     const MAX_INITIAL_TOPIC_BYTES: usize = 1024 * 1024;
     let capacity = capacity.min(MAX_INITIAL_ROWS);
     match kind {
-        SystemColumnKind::TopicName => AnyBuilder::Utf8(StringBuilder::with_capacity(
+        SystemColumnKind::Topic => AnyBuilder::Utf8(StringBuilder::with_capacity(
             capacity,
             capacity.saturating_mul(64).min(MAX_INITIAL_TOPIC_BYTES),
         )),
-        SystemColumnKind::PartitionNum
+        SystemColumnKind::Partition
         | SystemColumnKind::Offset
         | SystemColumnKind::WriteTimestampMs => {
             AnyBuilder::Int64(Int64Builder::with_capacity(capacity))
@@ -783,10 +782,10 @@ fn make_exact_system_builder(
     topic_bytes: usize,
 ) -> AnyBuilder {
     match kind {
-        SystemColumnKind::TopicName => {
+        SystemColumnKind::Topic => {
             AnyBuilder::Utf8(StringBuilder::with_capacity(capacity, topic_bytes))
         }
-        SystemColumnKind::PartitionNum
+        SystemColumnKind::Partition
         | SystemColumnKind::Offset
         | SystemColumnKind::WriteTimestampMs => {
             AnyBuilder::Int64(Int64Builder::with_capacity(capacity))
@@ -807,11 +806,11 @@ fn append_system_columns(
 ) {
     for (builder, kind) in builders[data_columns..].iter_mut().zip(kinds) {
         match (kind, builder) {
-            (SystemColumnKind::TopicName, AnyBuilder::Utf8(builder)) => {
-                builder.append_value(meta.topic_path.as_deref().unwrap_or_default());
+            (SystemColumnKind::Topic, AnyBuilder::Utf8(builder)) => {
+                builder.append_value(meta.topic.as_deref().unwrap_or_default());
             }
-            (SystemColumnKind::PartitionNum, AnyBuilder::Int64(builder)) => {
-                builder.append_value(meta.partition_id.unwrap_or_default());
+            (SystemColumnKind::Partition, AnyBuilder::Int64(builder)) => {
+                builder.append_value(meta.partition.unwrap_or_default());
             }
             (SystemColumnKind::Offset, AnyBuilder::Int64(builder)) => {
                 builder.append_value(meta.offset.unwrap_or_default());
@@ -903,6 +902,9 @@ struct TypedFieldExtractor<'ctx> {
     kinds: &'ctx [ColumnKind],
     /// Per-column requiredness (non-nullable), indexed by column position.
     required: &'ctx [bool],
+    /// Tracks mapped keys independently from their value because an explicit
+    /// JSON null leaves the typed scratch empty.
+    seen: &'ctx mut [bool],
     /// Base pointer of the JSON buffer passed to simd-json.
     /// Used to compute byte offsets for string values via pointer arithmetic.
     buf_ptr: *const u8,
@@ -910,6 +912,32 @@ struct TypedFieldExtractor<'ctx> {
     required_filled: usize,
     /// Total number of required columns — a row is valid once all are filled.
     required_total: usize,
+    duplicate_mapped_field: bool,
+}
+
+struct DuplicateMappedRootVisitor<'a> {
+    fields: &'a [String],
+}
+
+impl<'de> de::Visitor<'de> for DuplicateMappedRootVisitor<'_> {
+    type Value = bool;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a JSON object")
+    }
+
+    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
+        let mut seen = vec![false; self.fields.len()];
+        let mut duplicate = false;
+        while let Some(key) = map.next_key::<&str>()? {
+            if let Some(index) = self.fields.iter().position(|field| field == key) {
+                duplicate |= seen[index];
+                seen[index] = true;
+            }
+            map.next_value::<de::IgnoredAny>()?;
+        }
+        Ok(duplicate)
+    }
 }
 
 #[expect(clippy::missing_trait_methods, reason = "default impls are sufficient")]
@@ -923,6 +951,10 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
     fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
         while let Some(key) = map.next_key::<&str>()? {
             if let Some(&idx) = self.index.get(key) {
+                if self.seen[idx] {
+                    self.duplicate_mapped_field = true;
+                }
+                self.seen[idx] = true;
                 let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
                 let seed = TypedValueWriter {
                     target: &mut self.scratch[idx],
@@ -939,7 +971,7 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
         }
         // Row is valid iff every *required* (non-nullable) column was found.
         // Missing nullable columns stay `TypedScratch::Empty` → appended as NULL.
-        Ok(self.required_filled == self.required_total)
+        Ok(!self.duplicate_mapped_field && self.required_filled == self.required_total)
     }
 }
 
@@ -952,8 +984,10 @@ fn parse_root_fields_typed(
     buf: &mut Vec<u8>,
     info: &RootFieldInfo,
     scratch: &mut [TypedScratch],
+    seen: &mut [bool],
     kinds: &[ColumnKind],
 ) -> anyhow::Result<bool> {
+    seen.fill(false);
     buf.clear();
     buf.extend_from_slice(bytes);
     // Snapshot the buffer pointer BEFORE simd-json borrows `buf` mutably.
@@ -966,9 +1000,11 @@ fn parse_root_fields_typed(
         scratch,
         kinds,
         required: &info.required,
+        seen,
         buf_ptr,
         required_filled: 0,
         required_total: info.required_total,
+        duplicate_mapped_field: false,
     };
     de.deserialize_map(&mut extractor).map_err(Into::into)
 }
@@ -986,47 +1022,6 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
         fields.push(Field::new(kind.name(), kind.data_type(), false));
     }
     Schema::new(fields)
-}
-
-#[must_use]
-pub fn sink_dataset_schema(
-    mut user_schema: DatasetSchema,
-    config: &SystemColumnsConfig,
-    keep_system_columns: bool,
-) -> DatasetSchema {
-    if keep_system_columns {
-        user_schema.columns.extend(
-            config
-                .enabled()
-                .map(|kind| SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)),
-        );
-    }
-    user_schema
-}
-
-#[must_use]
-pub fn dlq_dataset_schema(
-    config: &SystemColumnsConfig,
-    keep_system_columns: bool,
-) -> DatasetSchema {
-    let system_kinds: Vec<_> = if keep_system_columns {
-        config.enabled().collect()
-    } else {
-        Vec::new()
-    };
-    DatasetSchema::new(
-        dlq_schema(&system_kinds)
-            .fields()
-            .iter()
-            .map(|field| {
-                SchemaColumn::new(
-                    field.name().clone(),
-                    field.data_type().clone(),
-                    field.is_nullable(),
-                )
-            })
-            .collect(),
-    )
 }
 
 enum DlqReason {
@@ -1067,6 +1062,9 @@ pub struct JsonParser {
     system_kinds: Vec<SystemColumnKind>,
     system_columns: SystemColumns,
     dlq_system_columns: SystemColumns,
+    /// Unique top-level mapped fields. The mixed `JSONPath` path uses this to
+    /// reject the same duplicate keys as the root-field fast path.
+    mapped_root_fields: Vec<String>,
 }
 
 struct ColumnMappingExt {
@@ -1104,8 +1102,8 @@ impl JsonParser {
         }
         for kind in &self.system_kinds {
             main_bytes = main_bytes.saturating_add(match kind {
-                SystemColumnKind::TopicName => rows.saturating_add(1).saturating_mul(4),
-                SystemColumnKind::PartitionNum
+                SystemColumnKind::Topic => rows.saturating_add(1).saturating_mul(4),
+                SystemColumnKind::Partition
                 | SystemColumnKind::Offset
                 | SystemColumnKind::MessageIndex
                 | SystemColumnKind::WriteTimestampMs => rows.saturating_mul(8),
@@ -1119,20 +1117,17 @@ impl JsonParser {
                     total.saturating_add(
                         message
                             .meta
-                            .topic_path
+                            .topic
                             .as_ref()
                             .map_or(0, |topic| topic.len().saturating_mul(*rows)),
                     )
                 });
-        let main_topic_bytes = if self.system_kinds.contains(&SystemColumnKind::TopicName) {
+        let main_topic_bytes = if self.system_kinds.contains(&SystemColumnKind::Topic) {
             topic_rows
         } else {
             0
         };
-        let dlq_topic_bytes = if self
-            .dlq_system_columns
-            .contains(SystemColumnKind::TopicName)
-        {
+        let dlq_topic_bytes = if self.dlq_system_columns.contains(SystemColumnKind::Topic) {
             topic_rows
         } else {
             0
@@ -1221,6 +1216,7 @@ impl JsonParser {
         let mut data_types = Vec::with_capacity(n);
         let mut all_root = true;
         let mut column_names = HashSet::with_capacity(n);
+        let mut mapped_root_fields = Vec::new();
 
         for col in &config.columns {
             anyhow::ensure!(
@@ -1241,6 +1237,11 @@ impl JsonParser {
             })?;
             if matches!(&path, CompiledPath::Complex(_)) {
                 all_root = false;
+            }
+            if let CompiledPath::RootField(field) = &path {
+                if !mapped_root_fields.contains(field) {
+                    mapped_root_fields.push(field.clone());
+                }
             }
             kinds.push(kind);
             data_types.push(arrow_type);
@@ -1298,8 +1299,8 @@ impl JsonParser {
         let mut schema_fields = fields;
         let system_kinds: Vec<_> = system_config.enabled().collect();
         for kind in [
-            SystemColumnKind::TopicName,
-            SystemColumnKind::PartitionNum,
+            SystemColumnKind::Topic,
+            SystemColumnKind::Partition,
             SystemColumnKind::Offset,
             SystemColumnKind::MessageIndex,
             SystemColumnKind::WriteTimestampMs,
@@ -1353,6 +1354,7 @@ impl JsonParser {
             system_kinds,
             system_columns,
             dlq_system_columns,
+            mapped_root_fields,
         })
     }
 
@@ -1365,6 +1367,23 @@ impl JsonParser {
                 .ok()
                 .and_then(|r| r.first().map(|v| (*v).clone())),
         }
+    }
+
+    fn has_duplicate_mapped_root_field(&self, bytes: &[u8]) -> bool {
+        if self.mapped_root_fields.is_empty() {
+            return false;
+        }
+
+        let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+        deserializer
+            .deserialize_map(DuplicateMappedRootVisitor {
+                fields: &self.mapped_root_fields,
+            })
+            .and_then(|duplicate| {
+                deserializer.end()?;
+                Ok(duplicate)
+            })
+            .unwrap_or(false)
     }
 
     fn build_dlq_batch(
@@ -1387,7 +1406,7 @@ impl JsonParser {
             total.saturating_add(
                 messages[record.source_message as usize]
                     .meta
-                    .topic_path
+                    .topic
                     .as_ref()
                     .map_or(0, |topic| topic.len()),
             )
@@ -1441,8 +1460,8 @@ impl JsonParser {
         for msg in messages {
             for kind in &self.system_kinds {
                 let present = match kind {
-                    SystemColumnKind::TopicName => msg.meta.topic_path.is_some(),
-                    SystemColumnKind::PartitionNum => msg.meta.partition_id.is_some(),
+                    SystemColumnKind::Topic => msg.meta.topic.is_some(),
+                    SystemColumnKind::Partition => msg.meta.partition.is_some(),
                     SystemColumnKind::Offset => msg.meta.offset.is_some(),
                     SystemColumnKind::MessageIndex => true,
                     SystemColumnKind::WriteTimestampMs => msg.meta.write_timestamp_ms.is_some(),
@@ -1487,6 +1506,7 @@ impl JsonParser {
         info: &RootFieldInfo,
         builders: &mut [AnyBuilder],
         typed_scratch: &mut [TypedScratch],
+        typed_seen: &mut [bool],
         json_buf: &mut Vec<u8>,
         dlq_records: &mut Vec<DlqRecord>,
     ) {
@@ -1498,7 +1518,14 @@ impl JsonParser {
                 .enumerate()
             {
                 typed_scratch.fill(TypedScratch::Empty);
-                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
+                match parse_root_fields_typed(
+                    line,
+                    json_buf,
+                    info,
+                    typed_scratch,
+                    typed_seen,
+                    &self.kinds,
+                ) {
                     Ok(true) => {
                         Self::append_root_line(
                             builders,
@@ -1532,12 +1559,20 @@ impl JsonParser {
         info: &RootFieldInfo,
         builders: &mut [AnyBuilder],
         typed_scratch: &mut [TypedScratch],
+        typed_seen: &mut [bool],
         json_buf: &mut Vec<u8>,
         dlq_records: &mut Vec<DlqRecord>,
     ) {
         for (source_message, msg) in messages.iter().enumerate() {
             typed_scratch.fill(TypedScratch::Empty);
-            match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
+            match parse_root_fields_typed(
+                &msg.value,
+                json_buf,
+                info,
+                typed_scratch,
+                typed_seen,
+                &self.kinds,
+            ) {
                 Ok(true) => Self::append_root_line(
                     builders,
                     typed_scratch,
@@ -1605,6 +1640,15 @@ impl JsonParser {
                 .enumerate()
             {
                 let message_index = message_index as u64;
+                if self.has_duplicate_mapped_root_field(line) {
+                    dlq_records.push(dlq_record(
+                        source_message,
+                        subslice_range(&msg.value, line),
+                        DlqReason::ExtractionFailed,
+                        message_index,
+                    ));
+                    continue;
+                }
                 match serde_json::from_slice::<Value>(line) {
                     Ok(json) => {
                         if self.fill_row(&json, row) {
@@ -1646,6 +1690,15 @@ impl JsonParser {
         row: &mut Vec<Value>,
     ) {
         for (source_message, msg) in messages.iter().enumerate() {
+            if self.has_duplicate_mapped_root_field(&msg.value) {
+                dlq_records.push(dlq_record(
+                    source_message,
+                    0..msg.value.len(),
+                    DlqReason::ExtractionFailed,
+                    0,
+                ));
+                continue;
+            }
             match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
                     if self.fill_row(&json, row) {
@@ -1697,6 +1750,7 @@ impl JsonParser {
 pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
     typed_scratch: Vec<TypedScratch>,
+    typed_seen: Vec<bool>,
     json_buf: Vec<u8>,
     /// Compact references into the current source delivery for failed rows.
     dlq_records: Vec<DlqRecord>,
@@ -1718,6 +1772,7 @@ impl ParserWorkspace {
         Self {
             builders: Vec::new(),
             typed_scratch: Vec::new(),
+            typed_seen: Vec::new(),
             json_buf: Vec::new(),
             dlq_records: Vec::new(),
             arrays: Vec::new(),
@@ -1802,18 +1857,22 @@ impl JsonParser {
                 let ParserWorkspace {
                     builders,
                     typed_scratch,
+                    typed_seen,
                     json_buf,
                     dlq_records,
                     ..
                 } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
+                typed_seen.clear();
+                typed_seen.resize(n_cols, false);
                 match self.chunk_splitter {
                     ChunkSplitter::NewLine => self.parse_all_root_newline(
                         &messages,
                         info,
                         builders,
                         typed_scratch,
+                        typed_seen,
                         json_buf,
                         dlq_records,
                     ),
@@ -1822,6 +1881,7 @@ impl JsonParser {
                         info,
                         builders,
                         typed_scratch,
+                        typed_seen,
                         json_buf,
                         dlq_records,
                     ),
@@ -1869,6 +1929,10 @@ struct JsonParserSession {
 impl ParserSession for JsonParserSession {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
         self.parser.output_memory_bound(messages)
+    }
+
+    fn hard_output_limit(&self) -> Option<usize> {
+        Some(MAX_DELIVERY_BYTES)
     }
 
     fn parse_into(
@@ -1927,6 +1991,35 @@ mod tests {
         anyhow::ensure!(dlq.is_none());
         anyhow::ensure!(int64_col(&main.batch, 0)?.value(0) == 7);
         anyhow::ensure!(int64_col(&main.batch, 1)?.value(0) == 7);
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_mapped_root_key_reaches_dlq_in_fast_and_mixed_modes() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let fast = parser_for(vec![ColumnMapping::new(
+            "$.id".into(),
+            "id".into(),
+            "Int64".into(),
+            false,
+        )])?;
+        anyhow::ensure!(matches!(fast.mode, ParseMode::AllRootField(_)));
+
+        let mixed = parser_for(vec![
+            ColumnMapping::new("$.id".into(), "left".into(), "Int64".into(), false),
+            ColumnMapping::new("$.id".into(), "right".into(), "Int64".into(), true),
+        ])?;
+        anyhow::ensure!(matches!(mixed.mode, ParseMode::Mixed));
+
+        for parser in [&fast, &mixed] {
+            let (main, dlq) = parser.parse_into(
+                vec![Message::new(Bytes::from_static(b"{\"id\":1,\"id\":null}"))],
+                &mut ParserWorkspace::new(),
+            )?;
+            anyhow::ensure!(main.batch.num_rows() == 0);
+            anyhow::ensure!(dlq.is_some_and(|batch| batch.batch.num_rows() == 1));
+        }
         Ok(())
     }
 
@@ -2209,9 +2302,10 @@ mod tests {
         };
 
         let mut scratch = vec![TypedScratch::Empty; kinds.len()];
+        let mut seen = vec![false; kinds.len()];
         let mut buf = Vec::new();
 
-        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds)?;
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &mut seen, &kinds)?;
         anyhow::ensure!(ok, "all fields should be found");
 
         // buf has been modified by simd-json in-situ parsing.
@@ -2249,9 +2343,10 @@ mod tests {
         };
 
         let mut scratch = vec![TypedScratch::Empty; 1];
+        let mut seen = vec![false; 1];
         let mut buf = Vec::new();
 
-        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &kinds)?;
+        let ok = parse_root_fields_typed(json, &mut buf, &info, &mut scratch, &mut seen, &kinds)?;
         anyhow::ensure!(ok, "parse should succeed");
 
         let TypedScratch::Str(range) = scratch[0] else {
@@ -2340,8 +2435,8 @@ mod tests {
             chunk_splitter: ChunkSplitter::NewLine,
         };
         let system = SystemColumnsConfig {
-            topic_name: true,
-            partition_num: true,
+            topic: true,
+            partition: true,
             offset: true,
             message_index: true,
             write_timestamp_ms: true,
@@ -2350,8 +2445,8 @@ mod tests {
         let message = Message {
             value: Bytes::from_static(b"{\"id\":\"ok\"}\nnot-json"),
             meta: MessageMeta {
-                topic_path: Some(Arc::from("topic-a")),
-                partition_id: Some(7),
+                topic: Some(Arc::from("topic-a")),
+                partition: Some(7),
                 offset: Some(42),
                 write_timestamp_ms: Some(1_234),
             },
@@ -2529,41 +2624,6 @@ mod tests {
             main.batch.column(0).data_type() == main.batch.schema().field(0).data_type()
         );
         Ok(())
-    }
-
-    #[test]
-    fn sink_schemas_follow_system_column_visibility() {
-        let system_config = crate::parsers::SystemColumnsConfig {
-            offset: true,
-            message_index: true,
-            ..crate::parsers::SystemColumnsConfig::default()
-        };
-        let user_schema = DatasetSchema::new(vec![SchemaColumn::new(
-            "value".into(),
-            DataType::Int64,
-            false,
-        )]);
-
-        let hidden = sink_dataset_schema(user_schema.clone(), &system_config, false);
-        assert_eq!(
-            hidden
-                .columns
-                .iter()
-                .map(|column| column.name.as_str())
-                .collect::<Vec<_>>(),
-            ["value"]
-        );
-        let visible = sink_dataset_schema(user_schema, &system_config, true);
-        assert_eq!(
-            visible
-                .columns
-                .iter()
-                .map(|column| column.name.as_str())
-                .collect::<Vec<_>>(),
-            ["value", "_system_offset", "_system_message_index"]
-        );
-        assert_eq!(dlq_dataset_schema(&system_config, false).columns.len(), 3);
-        assert_eq!(dlq_dataset_schema(&system_config, true).columns.len(), 5);
     }
 
     fn string_col(batch: &RecordBatch, idx: usize) -> anyhow::Result<&arrow::array::StringArray> {

@@ -13,11 +13,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::actor::without_system_columns;
 use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
+use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use crate::metrics::SinkCounters;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
+use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 #[derive(Clone, Copy)]
@@ -108,6 +110,7 @@ impl InsertTransport for FakeTransport {
 fn config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
         endpoint: "unused".into(),
+        trusted_plaintext: true,
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
@@ -139,7 +142,7 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
         let bytes = batch.get_array_memory_size();
         outputs.push(SinkBatch {
             table: Arc::from(*table),
-            is_dlq: false,
+            is_dlq: table.ends_with("_dlq"),
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),
@@ -151,6 +154,36 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
         outputs,
         meta: DeliveryMeta { source_messages: 1 },
     }
+}
+
+fn discovery() -> Arc<DeliveryDiscovery> {
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "value".into(),
+        DataType::Int64,
+        false,
+    )]);
+    Arc::new(DeliveryDiscovery {
+        source_name: Arc::from("source-topic"),
+        source_partitions: vec![0],
+        schema_origin: SchemaOrigin::ParserProjection,
+        keep_system_columns: false,
+        datasets: vec![
+            DiscoveredDataset {
+                role: DatasetRole::Main,
+                name: Arc::from("events"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema.clone(),
+                system_columns: Vec::new(),
+            },
+            DiscoveredDataset {
+                role: DatasetRole::DeadLetterQueue,
+                name: Arc::from("events_dlq"),
+                incoming_schema: schema.clone(),
+                stored_schema: schema,
+                system_columns: Vec::new(),
+            },
+        ],
+    })
 }
 
 fn spawn_sink(
@@ -177,7 +210,7 @@ fn spawn_sink_with_config(
     CancellationToken,
     JoinHandle<anyhow::Result<()>>,
 ) {
-    let sink = ClickHouseSink::with_transport(config, counters, transport);
+    let sink = ClickHouseSink::with_transport(config, counters, transport, discovery());
     let (delivery_tx, delivery_rx) = mpsc::channel(8);
     let (event_tx, event_rx) = mpsc::channel(8);
     let cancellation = CancellationToken::new();
@@ -518,6 +551,55 @@ async fn permanent_error_is_fatal_and_never_commits() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("permanent insert error must preserve its restart contract");
     assert!(!failure.is_retryable());
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn runtime_delivery_mismatch_is_fatal_before_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(false, []);
+    let (tx, mut events, _cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
+
+    tx.send(delivery(&memory, 1, &["unexpected_table"]))
+        .await
+        .unwrap();
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("runtime discovery mismatch must preserve its fatal contract");
+    assert!(!failure.is_retryable());
+    assert!(format!("{error:#}").contains("differs from discovered name"));
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn runtime_schema_mismatch_is_fatal_before_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(false, []);
+    let (tx, mut events, _cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
+    let mut invalid = delivery(&memory, 1, &["events"]);
+    let values = Arc::clone(invalid.outputs[0].batch.column(0));
+    invalid.outputs[0].batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "renamed_value",
+            DataType::Int64,
+            false,
+        )])),
+        vec![values],
+    )
+    .unwrap();
+
+    tx.send(invalid).await.unwrap();
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("runtime schema mismatch must preserve its fatal contract");
+    assert!(!failure.is_retryable());
+    assert!(format!("{error:#}").contains("column 0"));
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
     assert!(events.try_recv().is_err());
 }
 

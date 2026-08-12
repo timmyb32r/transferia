@@ -5,8 +5,8 @@ use arrow::datatypes::DataType;
 /// Semantic role of a parser-generated source metadata column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemColumnKind {
-    TopicName,
-    PartitionNum,
+    Topic,
+    Partition,
     Offset,
     MessageIndex,
     WriteTimestampMs,
@@ -16,8 +16,8 @@ impl SystemColumnKind {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::TopicName => "_system_topic_name",
-            Self::PartitionNum => "_system_partition_num",
+            Self::Topic => "_system_topic",
+            Self::Partition => "_system_partition",
             Self::Offset => "_system_offset",
             Self::MessageIndex => "_system_message_index",
             Self::WriteTimestampMs => "_system_write_timestamp_ms",
@@ -27,8 +27,8 @@ impl SystemColumnKind {
     #[must_use]
     pub const fn data_type(self) -> DataType {
         match self {
-            Self::TopicName => DataType::Utf8,
-            Self::PartitionNum | Self::Offset | Self::WriteTimestampMs => DataType::Int64,
+            Self::Topic => DataType::Utf8,
+            Self::Partition | Self::Offset | Self::WriteTimestampMs => DataType::Int64,
             Self::MessageIndex => DataType::UInt64,
         }
     }

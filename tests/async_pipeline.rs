@@ -7,6 +7,7 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia::metrics::{ParseCounters, SinkCounters};
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::pipeline::memory::PipelineMemory;
@@ -91,7 +92,7 @@ impl FakeSource {
         Message {
             value: Bytes::from(format!(r#"{{"id":"{offset}","kind":"keep"}}"#)),
             meta: MessageMeta {
-                partition_id: Some(0),
+                partition: Some(0),
                 offset: Some(offset),
                 ..MessageMeta::default()
             },
@@ -222,6 +223,7 @@ impl InsertTransport for FakeClickHouse {
 fn sink_config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
         endpoint: "fake".into(),
+        trusted_plaintext: true,
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
@@ -254,6 +256,32 @@ json_parser:
         .parser()
 }
 
+fn discovery() -> Arc<DeliveryDiscovery> {
+    let config: transferia::parsers::ParserConfig = serde_yaml::from_str(
+        r#"
+common:
+  table_naming: { type: from_config, name: events }
+json_parser:
+  columns:
+    - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.kind", column_name: "kind", arrow_type: "Utf8", nullable: false }
+"#,
+    )
+    .unwrap();
+    let plan = transferia::parsers::ParserPlan::from_config(&config, "topic").unwrap();
+    Arc::new(
+        DeliveryDiscovery::parser_projection(
+            Arc::from("topic"),
+            vec![0],
+            &plan,
+            DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+        )
+        .unwrap(),
+    )
+}
+
 async fn wait_for_insert(transport: &FakeClickHouse, count: usize) {
     tokio::time::timeout(core::time::Duration::from_secs(5), async {
         while transport.inserts.load(Ordering::Acquire) < count {
@@ -281,6 +309,7 @@ async fn real_parser_to_actor_sink_commits_only_after_fake_clickhouse() {
         sink_config(),
         Arc::clone(&sink_counters),
         Arc::clone(&transport) as Arc<dyn InsertTransport>,
+        discovery(),
     );
     let cancellation = CancellationToken::new();
     let task = tokio::spawn(run_partition_pipeline(
@@ -330,6 +359,7 @@ async fn ambiguous_clickhouse_insert_replay_commits_without_loss_and_can_duplica
         first_config,
         Arc::new(SinkCounters::new()),
         Arc::clone(&transport) as Arc<dyn InsertTransport>,
+        discovery(),
     );
     let first_task = tokio::spawn(run_partition_pipeline(
         Box::new(first_source),
@@ -347,9 +377,12 @@ async fn ambiguous_clickhouse_insert_replay_commits_without_loss_and_can_duplica
         .expect("ambiguous first pipeline attempt did not stop")
         .expect("ambiguous first pipeline task panicked")
         .expect_err("retry_max_attempts=1 must restart after the ambiguous INSERT");
-    assert!(first_error
-        .downcast_ref::<PipelineFailure>()
-        .is_some_and(PipelineFailure::is_retryable));
+    assert!(
+        first_error
+            .downcast_ref::<PipelineFailure>()
+            .is_some_and(PipelineFailure::is_retryable),
+        "{first_error:#}"
+    );
     assert!(matches!(
         commit_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Empty)
@@ -374,6 +407,7 @@ async fn ambiguous_clickhouse_insert_replay_commits_without_loss_and_can_duplica
         replay_config,
         Arc::new(SinkCounters::new()),
         Arc::clone(&transport) as Arc<dyn InsertTransport>,
+        discovery(),
     );
     let replay_cancellation = CancellationToken::new();
     let replay_task = tokio::spawn(run_partition_pipeline(
@@ -419,6 +453,7 @@ async fn blocked_sink_propagates_memory_backpressure_to_source_reads() {
         sink_config(),
         Arc::new(SinkCounters::new()),
         Arc::clone(&transport) as Arc<dyn InsertTransport>,
+        discovery(),
     );
     let cancellation = CancellationToken::new();
     let task = tokio::spawn(run_partition_pipeline(

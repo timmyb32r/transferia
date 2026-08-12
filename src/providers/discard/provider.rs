@@ -3,6 +3,7 @@ use serde::Deserialize;
 use serde_yaml::Value;
 
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::{SinkLimits, NO_LIMITS};
 use crate::pipeline::sink::Sink;
 use crate::providers::discard::sink::DiscardSink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
@@ -24,6 +25,10 @@ impl DiscardSinkProvider {
 impl SinkProvider for DiscardSinkProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Discard
+    }
+
+    fn limits(&self) -> &dyn SinkLimits {
+        &NO_LIMITS
     }
 
     fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {

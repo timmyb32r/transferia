@@ -8,9 +8,39 @@ use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::Type;
 
 use super::client::{quote_identifier, ReconnectingClient};
+use super::identifier::validate_identifier;
 use super::ClickHouseSinkConfig;
 use crate::providers::traits::SinkPrepare;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
+
+/// Validate the part of a discovered dataset that is materialized in
+/// `ClickHouse`. This is deliberately the same validation used by DDL
+/// generation, so discovery cannot approve a schema that table preparation
+/// will later reject.
+pub(super) fn validate_table_schema(name: &str, schema: &DatasetSchema) -> anyhow::Result<()> {
+    validated_column_definitions(name, schema).map(drop)
+}
+
+fn validated_column_definitions(name: &str, schema: &DatasetSchema) -> anyhow::Result<Vec<String>> {
+    validate_identifier(name)
+        .map_err(|error| error.context(format!("invalid ClickHouse table name {name:?}")))?;
+    anyhow::ensure!(
+        !schema.columns.is_empty(),
+        "cannot create ClickHouse table '{name}' with an empty schema"
+    );
+
+    let mut names = BTreeSet::new();
+    let mut definitions = Vec::with_capacity(schema.columns.len());
+    for column in &schema.columns {
+        anyhow::ensure!(
+            names.insert(column.name.as_str()),
+            "ClickHouse table '{name}' contains duplicate column '{}'",
+            column.name,
+        );
+        definitions.push(column_definition(column)?);
+    }
+    Ok(definitions)
+}
 
 pub(super) async fn prepare_tables(
     client: &ReconnectingClient,
@@ -63,16 +93,7 @@ fn create_table_ddl(
     schema: &DatasetSchema,
     sorting_key: &[String],
 ) -> anyhow::Result<String> {
-    anyhow::ensure!(
-        !schema.columns.is_empty(),
-        "cannot create ClickHouse table '{name}' with an empty schema"
-    );
-    let columns = schema
-        .columns
-        .iter()
-        .map(column_definition)
-        .collect::<anyhow::Result<Vec<_>>>()?
-        .join(", ");
+    let columns = validated_column_definitions(name, schema)?.join(", ");
     let mut unique_sorting_keys = BTreeSet::new();
     for key in sorting_key {
         anyhow::ensure!(
@@ -405,6 +426,9 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
 }
 
 fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
+    validate_identifier(&column.name).map_err(|error| {
+        error.context(format!("invalid ClickHouse column name {:?}", column.name))
+    })?;
     let data_type = clickhouse_type(&column.data_type)?;
     let data_type = if column.nullable {
         format!("Nullable({data_type})")
@@ -563,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn seconds_use_signed_datetime64_and_reject_legacy_datetime() -> anyhow::Result<()> {
+    fn seconds_use_signed_datetime64_and_reject_lossy_datetime() -> anyhow::Result<()> {
         let expected = schema(vec![SchemaColumn::new(
             "ts".into(),
             DataType::Timestamp(TimeUnit::Second, None),
@@ -630,6 +654,23 @@ mod tests {
         let error = create_table_ddl("events", &schema, &["id".into(), "id".into()])
             .expect_err("duplicate sorting columns must fail");
         assert!(error.to_string().contains("duplicate column 'id'"));
+    }
+
+    #[test]
+    fn ddl_rejects_identifiers_outside_the_canonical_ascii_subset() {
+        let valid_schema = schema(vec![SchemaColumn::new(
+            "value".into(),
+            DataType::Int64,
+            false,
+        )]);
+        assert!(create_table_ddl("events,archive", &valid_schema, &[]).is_err());
+
+        let invalid_schema = schema(vec![SchemaColumn::new(
+            "nested.value".into(),
+            DataType::Int64,
+            false,
+        )]);
+        assert!(create_table_ddl("events", &invalid_schema, &[]).is_err());
     }
 
     #[test]

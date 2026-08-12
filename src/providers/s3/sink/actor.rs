@@ -7,6 +7,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::memory::MemoryReservation;
@@ -15,7 +16,8 @@ use crate::pipeline::PipelineFailure;
 use crate::serializer::JsonBatchEncoder;
 
 use super::config::{PartitionPathChange, S3SinkConfig};
-use super::partitioning::{percent_encode, Partitioner, RowRoute};
+use super::object_key::ObjectKey;
+use super::partitioning::{Partitioner, RowRoute};
 use super::upload::{upload_with_retry, ObjectUploader};
 
 const MAX_GROUPS_BEFORE_YIELD: usize = 64;
@@ -47,7 +49,7 @@ struct Epoch {
 
 struct ClosedObject {
     epoch_id: u64,
-    key: String,
+    key: ObjectKey,
     payload: Bytes,
     rows: usize,
 }
@@ -72,7 +74,7 @@ struct PendingDelivery {
     encoders: Vec<JsonBatchEncoder>,
     next_row: usize,
     _input_reservations: Vec<MemoryReservation>,
-    _route_reservation: Option<MemoryReservation>,
+    _route_reservations: Vec<MemoryReservation>,
 }
 
 fn routed_row_order(left: &RoutedRow, right: &RoutedRow) -> core::cmp::Ordering {
@@ -114,6 +116,7 @@ pub struct S3Sink {
     counters: Arc<SinkCounters>,
     keep_system_columns: bool,
     expected_partition_id: i64,
+    discovery: Arc<DeliveryDiscovery>,
     epoch: Epoch,
     ready: VecDeque<ClosedObject>,
     closed_epochs: BTreeMap<u64, ClosedEpoch>,
@@ -140,6 +143,7 @@ impl S3Sink {
         counters: Arc<SinkCounters>,
         keep_system_columns: bool,
         expected_partition_id: i64,
+        discovery: Arc<DeliveryDiscovery>,
     ) -> anyhow::Result<Self> {
         let partitioner = Partitioner::new(&config.partitioning)?;
         let epoch_byte_limit = config.epoch_byte_limit();
@@ -157,6 +161,7 @@ impl S3Sink {
             counters,
             keep_system_columns,
             expected_partition_id,
+            discovery,
             epoch: Epoch::default(),
             ready: VecDeque::new(),
             closed_epochs: BTreeMap::new(),
@@ -202,13 +207,47 @@ impl S3Sink {
         delivery: Delivery,
         memory: &crate::pipeline::memory::PipelineMemory,
     ) -> anyhow::Result<PendingDelivery> {
+        for output in &delivery.outputs {
+            validate_batch_against_discovery(&self.discovery, output).map_err(|error| {
+                anyhow::anyhow!(
+                    "S3 runtime delivery validation failed for dataset '{}': {error}",
+                    output.table,
+                )
+            })?;
+        }
+        let route_bound = delivery.outputs.iter().try_fold(0_usize, |bytes, output| {
+            let fixed = output
+                .rows()
+                .saturating_mul(ROUTE_RETAINED_OVERHEAD_BYTES.saturating_add(output.table.len()));
+            Ok::<_, anyhow::Error>(
+                bytes
+                    .saturating_add(fixed)
+                    .saturating_add(self.partitioner.route_strings_memory_bound(output)?),
+            )
+        })?;
+        let mut route_reservations = Vec::with_capacity(2);
+        if route_bound > 0 {
+            route_reservations.push(memory.reserve_transform(route_bound));
+        }
         let rows = self.route_delivery(&delivery)?;
         let delivery_id = delivery.id;
         let pending_rows = rows.len();
         let route_bytes = rows.iter().fold(0_usize, |bytes, row| {
             bytes.saturating_add(routed_row_retained_bytes(row, 0))
         });
-        let route_reservation = (route_bytes > 0).then(|| memory.reserve_transform(route_bytes));
+        debug_assert!(
+            route_bytes <= route_bound,
+            "S3 route memory bound must cover every materialized route"
+        );
+        if let Some(reservation) = route_reservations.first() {
+            if route_bytes <= route_bound {
+                let _shrunk = reservation.shrink_to(route_bytes);
+            } else {
+                // Keep accounting correct if a future route representation grows
+                // beyond this version's conservative pre-admission formula.
+                route_reservations.push(memory.reserve_transform(route_bytes - route_bound));
+            }
+        }
         let encoders = delivery
             .outputs
             .iter()
@@ -235,7 +274,7 @@ impl S3Sink {
             encoders,
             next_row: 0,
             _input_reservations: input_reservations,
-            _route_reservation: route_reservation,
+            _route_reservations: route_reservations,
         })
     }
 
@@ -243,7 +282,7 @@ impl S3Sink {
         &mut self,
         pending: &mut PendingDelivery,
         memory: &crate::pipeline::memory::PipelineMemory,
-    ) -> bool {
+    ) -> Result<bool, PipelineFailure> {
         let start = pending.next_row;
         if start < pending.rows.len() {
             let identity = (
@@ -267,14 +306,14 @@ impl S3Sink {
                 &pending.encoders,
                 pending.delivery_id,
                 memory,
-            );
+            )?;
             pending.next_row = end;
             self.memory_barrier_epoch = (self.next_epoch_id != epoch_before
                 && memory.is_transform_pressured())
             .then(|| self.next_epoch_id.saturating_sub(1));
         }
         self.update_buffer_gauges();
-        pending.next_row == pending.rows.len()
+        Ok(pending.next_row == pending.rows.len())
     }
 
     fn accept_message_group(
@@ -283,7 +322,7 @@ impl S3Sink {
         encoders: &[JsonBatchEncoder],
         delivery_id: DeliveryId,
         memory: &crate::pipeline::memory::PipelineMemory,
-    ) {
+    ) -> Result<(), PipelineFailure> {
         let first_main = rows.iter().find(|row| !row.is_dlq);
         let last_main = rows.iter().rfind(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
@@ -309,7 +348,7 @@ impl S3Sink {
                         })
                 });
         if partition_changed || record_time_rotated {
-            self.close_epoch();
+            self.close_epoch()?;
         }
         if self.epoch.first_seen.is_none() {
             self.epoch.first_seen = Some(Instant::now());
@@ -389,7 +428,7 @@ impl S3Sink {
         // when the same source deliveries are replayed. The pending limit is
         // enforced only by run-loop admission below.
         if object_limit_reached || budget_reached {
-            self.close_epoch();
+            self.close_epoch()?;
         }
         if self.pending_upload_objects() > self.config.buffering.max_pending_upload_objects {
             tracing::warn!(
@@ -398,34 +437,27 @@ impl S3Sink {
                 "one atomic source message temporarily exceeded the per-partition S3 pending-object soft limit"
             );
         }
+        Ok(())
     }
 
-    fn close_epoch(&mut self) {
+    fn close_epoch(&mut self) -> Result<(), PipelineFailure> {
         if self.epoch.buffers.is_empty() {
-            return;
+            return Ok(());
         }
         let epoch = std::mem::take(&mut self.epoch);
         let epoch_id = self.next_epoch_id;
         self.next_epoch_id = self.next_epoch_id.saturating_add(1);
         let remaining_objects = epoch.buffers.len();
         for (buffer_key, buffer) in epoch.buffers {
-            let topic = percent_encode(buffer.topic.as_bytes());
-            let filename = format!(
-                "{topic}+{}+{}.json",
-                buffer.source_partition, buffer.start_offset
-            );
-            let prefix = self.config.prefix.trim_matches('/');
-            let key = if prefix.is_empty() {
-                format!(
-                    "{}/{}/{}",
-                    buffer_key.table, buffer_key.partition_path, filename
-                )
-            } else {
-                format!(
-                    "{prefix}/{}/{}/{}",
-                    buffer_key.table, buffer_key.partition_path, filename
-                )
-            };
+            let key = ObjectKey::for_json_object(
+                &self.config.prefix,
+                &buffer_key.table,
+                &buffer_key.partition_path,
+                &buffer.topic,
+                buffer.source_partition,
+                buffer.start_offset,
+            )
+            .map_err(PipelineFailure::fatal)?;
             self.ready.push_back(ClosedObject {
                 epoch_id,
                 key,
@@ -442,6 +474,7 @@ impl S3Sink {
             },
         );
         self.update_buffer_gauges();
+        Ok(())
     }
 
     fn start_upload(
@@ -461,7 +494,7 @@ impl S3Sink {
             let result = upload_with_retry(
                 uploader,
                 retry,
-                &object.key,
+                object.key.as_str(),
                 &object.payload,
                 &cancellation,
                 counters.as_ref(),
@@ -520,7 +553,7 @@ impl S3Sink {
             drop(epoch.reservations);
         }
         tracing::info!(
-            object_key = active.object.key,
+            object_key = active.object.key.as_str(),
             rows = active.object.rows,
             bytes = active.object.payload.len(),
             "S3 object upload completed"
@@ -586,7 +619,7 @@ impl S3Sink {
             loop {
                 self.emit_committed(&io.events).await?;
                 if input_closed && pending_delivery.is_none() && !self.epoch.buffers.is_empty() {
-                    self.close_epoch();
+                    self.close_epoch()?;
                     continue;
                 }
                 while self.in_flight_objects < max_in_flight_objects
@@ -627,7 +660,7 @@ impl S3Sink {
                             .as_mut()
                             .expect("resumable S3 delivery disappeared"),
                         &io.memory,
-                    );
+                    )?;
                     if done {
                         pending_delivery = None;
                     }
@@ -685,7 +718,7 @@ impl S3Sink {
                             None => input_closed = true,
                         }
                     }
-                    () = &mut wall_sleep => self.close_epoch(),
+                    () = &mut wall_sleep => self.close_epoch()?,
                 }
             }
         }

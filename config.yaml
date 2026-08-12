@@ -8,7 +8,7 @@ source:
     consumer_name: "transferia-consumer"
     # PQv1 consumer assignments are not authoritative topic metadata, so list
     # every source partition explicitly. Workers split this list by modulo.
-    partition_ids: [0]
+    partition_group_ids: [0]
     auth:
       type: access_token
       token_file: "${HOME}/.logbroker/token"
@@ -18,8 +18,8 @@ source:
           type: from_config
           name: events
         system_columns:
-          topic_name: true
-          partition_num: true
+          topic: true
+          partition: true
           offset: true
           message_index: true
           write_timestamp_ms: true
@@ -38,7 +38,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 3
+    object_layout_version: 4
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"

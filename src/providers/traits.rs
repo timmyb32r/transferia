@@ -6,6 +6,7 @@ use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
 use crate::metrics::SinkCounters;
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -19,6 +20,12 @@ use crate::types::schema::DatasetSchema;
 
 pub trait SourceProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
+    fn delivery_discovery(
+        &self,
+        request: DeliveryDiscoveryRequest,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>>;
+
     fn build_source(
         &self,
         partition_id: i64,
@@ -41,6 +48,7 @@ pub trait SourceProvider: Send + Sync {
 
 pub trait SinkProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
+    fn limits(&self) -> &dyn SinkLimits;
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
     /// Validate constraints that span the global pipeline and sink-specific
@@ -56,6 +64,7 @@ pub struct SinkContext {
     pub partition_id: i64,
     pub counters: Arc<SinkCounters>,
     pub keep_system_columns: bool,
+    pub discovery: Arc<DeliveryDiscovery>,
 }
 
 pub struct SinkPrepare {
@@ -63,6 +72,22 @@ pub struct SinkPrepare {
     pub schema: DatasetSchema,
     pub dlq_table: Arc<str>,
     pub dlq_schema: DatasetSchema,
+}
+
+impl SinkPrepare {
+    pub fn from_discovery(discovery: &DeliveryDiscovery) -> anyhow::Result<Option<Self>> {
+        if discovery.datasets.is_empty() {
+            return Ok(None);
+        }
+        let table = discovery.dataset(DatasetRole::Main)?;
+        let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
+        Ok(Some(Self {
+            table: Arc::clone(&table.name),
+            schema: table.stored_schema.clone(),
+            dlq_table: Arc::clone(&dlq.name),
+            dlq_schema: dlq.stored_schema.clone(),
+        }))
+    }
 }
 
 // ---------------------------------------------------------------------------

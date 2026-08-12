@@ -7,7 +7,7 @@ source:
     discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"
     topic_path: "${PQ_TOPIC:-/benchmark/events}"
     consumer_name: "${PQ_CONSUMER_NETWORK:-transferia-benchmark-network}-${BENCHMARK_REPETITION:-manual}"
-    partition_ids: [0]
+    partition_group_ids: [0]
     auth:
       type: access_token
       token: "${PQ_TOKEN:-benchmark-token}"

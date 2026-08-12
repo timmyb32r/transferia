@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_yaml::Value;
 
 use crate::types::message::Message;
-use crate::types::schema::DatasetSchema;
+use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::table_data::TableData;
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
@@ -26,6 +26,11 @@ pub trait ParserSession: Send {
     /// admission before builders allocate. The pipeline accounts the exact
     /// materialized output afterwards; an estimate is never a correctness gate.
     fn output_memory_bound(&self, messages: &[Message]) -> usize;
+
+    /// Optional hard bound for one materialized parser delivery. Parsers that
+    /// return a limit must route larger inputs to a bounded representation or
+    /// fail before returning an oversized Arrow batch.
+    fn hard_output_limit(&self) -> Option<usize>;
 
     fn parse_into(
         &mut self,
@@ -107,16 +112,44 @@ impl ParserPlan {
 
     #[must_use]
     pub fn sink_schema(&self, keep_system_columns: bool) -> DatasetSchema {
-        json_parser::sink_dataset_schema(
-            self.dataset_schema.clone(),
-            &self.system_columns,
-            keep_system_columns,
-        )
+        let mut schema = self.dataset_schema.clone();
+        if keep_system_columns {
+            schema.columns.extend(
+                self.system_columns.enabled().map(|kind| {
+                    SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)
+                }),
+            );
+        }
+        schema
     }
 
     #[must_use]
     pub fn dlq_schema(&self, keep_system_columns: bool) -> DatasetSchema {
-        json_parser::dlq_dataset_schema(&self.system_columns, keep_system_columns)
+        let mut columns = vec![
+            SchemaColumn::new(
+                "raw_base64".to_string(),
+                arrow::datatypes::DataType::Utf8,
+                false,
+            ),
+            SchemaColumn::new(
+                "error_message".to_string(),
+                arrow::datatypes::DataType::Utf8,
+                false,
+            ),
+            SchemaColumn::new(
+                "source_write_timestamp_ms".to_string(),
+                arrow::datatypes::DataType::Int64,
+                false,
+            ),
+        ];
+        if keep_system_columns {
+            columns.extend(
+                self.system_columns.enabled().map(|kind| {
+                    SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)
+                }),
+            );
+        }
+        DatasetSchema::new(columns)
     }
 }
 
@@ -162,5 +195,35 @@ mod tests {
         )
         .unwrap();
         assert!(ParserPlan::from_config(&config, "topic").is_err());
+    }
+
+    #[test]
+    fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
+        let config: ParserConfig = serde_yaml::from_str(
+            "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: true, message_index: true }\njson_parser:\n  chunk_splitter: one-message-one-row\n  columns:\n    - { jsonpath: $.value, column_name: value, arrow_type: Int64, nullable: false }\n",
+        )?;
+        let plan = ParserPlan::from_config(&config, "topic")?;
+
+        let hidden = plan.sink_schema(false);
+        assert_eq!(
+            hidden
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["value"]
+        );
+        let visible = plan.sink_schema(true);
+        assert_eq!(
+            visible
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["value", "_system_offset", "_system_message_index"]
+        );
+        assert_eq!(plan.dlq_schema(false).columns.len(), 3);
+        assert_eq!(plan.dlq_schema(true).columns.len(), 5);
+        Ok(())
     }
 }

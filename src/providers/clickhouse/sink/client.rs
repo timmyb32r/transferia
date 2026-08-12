@@ -560,6 +560,7 @@ mod tests {
     fn pins_lossless_insert_settings() {
         let builder = configured_builder(&ClickHouseSinkConfig {
             endpoint: "localhost:9000".into(),
+            trusted_plaintext: true,
             database: "default".into(),
             username: "default".into(),
             password: String::new(),

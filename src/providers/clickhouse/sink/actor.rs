@@ -8,6 +8,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
+use crate::delivery::{DeliveryDiscovery, SinkLimits};
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
@@ -43,6 +44,7 @@ pub struct ClickHouseSink {
     progress: DeliveryTracker,
     partition_retry_seed: u64,
     keep_system_columns: bool,
+    discovery: Arc<DeliveryDiscovery>,
 }
 
 impl ClickHouseSink {
@@ -51,8 +53,9 @@ impl ClickHouseSink {
         config: ClickHouseSinkConfig,
         counters: Arc<SinkCounters>,
         transport: Arc<dyn InsertTransport>,
+        discovery: Arc<DeliveryDiscovery>,
     ) -> Self {
-        Self::with_transport_for_partition(config, counters, transport, 0)
+        Self::with_transport_for_partition(config, counters, transport, 0, discovery)
     }
 
     #[must_use]
@@ -61,6 +64,7 @@ impl ClickHouseSink {
         counters: Arc<SinkCounters>,
         transport: Arc<dyn InsertTransport>,
         partition_id: i64,
+        discovery: Arc<DeliveryDiscovery>,
     ) -> Self {
         Self::with_transport_for_partition_and_visibility(
             config,
@@ -68,6 +72,7 @@ impl ClickHouseSink {
             transport,
             partition_id,
             false,
+            discovery,
         )
     }
 
@@ -77,6 +82,7 @@ impl ClickHouseSink {
         transport: Arc<dyn InsertTransport>,
         partition_id: i64,
         keep_system_columns: bool,
+        discovery: Arc<DeliveryDiscovery>,
     ) -> Self {
         Self {
             transport,
@@ -86,10 +92,19 @@ impl ClickHouseSink {
             progress: DeliveryTracker::new(),
             partition_retry_seed: stable_retry_seed(&partition_id.to_le_bytes()),
             keep_system_columns,
+            discovery,
         }
     }
 
     fn accept(&mut self, delivery: Delivery) -> anyhow::Result<()> {
+        // Defend the sink boundary even after successful startup discovery:
+        // validate the complete delivery before mutating progress or buffers.
+        for batch in &delivery.outputs {
+            self.config
+                .validate_batch(&self.discovery, batch)
+                .map_err(PipelineFailure::fatal)?;
+        }
+
         let remaining_outputs = delivery
             .outputs
             .iter()

@@ -13,8 +13,8 @@ pub struct Message {
 /// Provider-neutral source metadata that can be materialized as system columns.
 #[derive(Debug, Clone, Default)]
 pub struct MessageMeta {
-    pub topic_path: Option<Arc<str>>,
-    pub partition_id: Option<i64>,
+    pub topic: Option<Arc<str>>,
+    pub partition: Option<i64>,
     pub offset: Option<i64>,
     pub write_timestamp_ms: Option<i64>,
 }

@@ -2881,6 +2881,7 @@ dependencies = [
  "object_store",
  "prost",
  "prost-types",
+ "ring",
  "ryu",
  "serde",
  "serde_json",

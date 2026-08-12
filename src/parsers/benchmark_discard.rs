@@ -38,6 +38,10 @@ impl ParserSession for BenchmarkDiscardSession {
         1
     }
 
+    fn hard_output_limit(&self) -> Option<usize> {
+        None
+    }
+
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,

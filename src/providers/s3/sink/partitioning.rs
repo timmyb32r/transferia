@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::pipeline::sink::SinkBatch;
+use crate::types::system_columns::{SystemColumnKind, SystemColumns};
 use arrow::array::{
     Array, BooleanArray, Date32Array, Date64Array, Int16Array, Int32Array, Int64Array, Int8Array,
     LargeStringArray, StringArray, TimestampMicrosecondArray, TimestampMillisecondArray,
@@ -11,10 +13,11 @@ use arrow::record_batch::RecordBatch;
 use chrono::TimeZone as _;
 use chrono_tz::Tz;
 
-use crate::pipeline::sink::SinkBatch;
-use crate::types::system_columns::{SystemColumnKind, SystemColumns};
-
 use super::config::PartitioningConfig;
+use super::object_key::{
+    bounded_dynamic_component, bounded_dynamic_path, MAX_DYNAMIC_COMPONENT_BYTES,
+    MAX_OBJECT_KEY_BYTES,
+};
 
 #[derive(Debug, Clone)]
 pub struct RowRoute {
@@ -80,8 +83,8 @@ impl Partitioner {
         let columns = RouteColumns::new(output, &self.kind)?;
         let mut routes = Vec::with_capacity(output.rows());
         for row in 0..output.rows() {
-            ensure_not_null(columns.topic, SystemColumnKind::TopicName, row)?;
-            ensure_not_null(columns.partition, SystemColumnKind::PartitionNum, row)?;
+            ensure_not_null(columns.topic, SystemColumnKind::Topic, row)?;
+            ensure_not_null(columns.partition, SystemColumnKind::Partition, row)?;
             ensure_not_null(columns.offset, SystemColumnKind::Offset, row)?;
             ensure_not_null(columns.message_index, SystemColumnKind::MessageIndex, row)?;
             let source_record_time = columns
@@ -110,7 +113,7 @@ impl Partitioner {
                             }
                             path.push_str(encoded_name);
                             path.push('=');
-                            path.push_str(&percent_encode(value.as_bytes()));
+                            path.push_str(&bounded_dynamic_component(value.as_bytes()));
                         }
                         (Arc::from(path), source_record_time)
                     }
@@ -154,6 +157,58 @@ impl Partitioner {
         Ok(routes)
     }
 
+    /// Conservative retained-string bound acquired before row routes are materialized.
+    pub fn route_strings_memory_bound(&self, output: &SinkBatch) -> anyhow::Result<usize> {
+        let topic = system_array::<StringArray>(
+            &output.batch,
+            &output.system_columns,
+            SystemColumnKind::Topic,
+        )?;
+        let main_path_bound = match &self.kind {
+            PartitionerKind::Source => None,
+            PartitionerKind::Fields(columns) => {
+                let fields = columns.len();
+                Some(
+                    fields
+                        .saturating_mul(
+                            MAX_DYNAMIC_COMPONENT_BYTES
+                                .saturating_mul(2)
+                                .saturating_add(1),
+                        )
+                        .saturating_add(fields.saturating_sub(1)),
+                )
+            }
+            // Chrono directives have bounded renderings, but use deliberately
+            // generous headroom so admission remains conservative for custom paths.
+            PartitionerKind::RecordTime { path, .. } => Some(
+                path.len()
+                    .saturating_mul(64)
+                    .saturating_add(128)
+                    .max(MAX_OBJECT_KEY_BYTES),
+            ),
+        };
+        let mut bytes = 0_usize;
+        for row in 0..output.rows() {
+            let topic_bytes = if topic.is_null(row) {
+                0
+            } else {
+                topic.value(row).len()
+            };
+            // Raw topics are retained for message identity, while the path
+            // component is independently bounded before materialization.
+            let source_path_bound = 37_usize.saturating_add(MAX_DYNAMIC_COMPONENT_BYTES);
+            let partition_path_bound = if output.is_dlq {
+                source_path_bound
+            } else {
+                main_path_bound.unwrap_or(source_path_bound)
+            };
+            bytes = bytes
+                .saturating_add(topic_bytes)
+                .saturating_add(partition_path_bound);
+        }
+        Ok(bytes)
+    }
+
     fn cached_source_route(&mut self, topic: &str, partition: i64) -> (Arc<str>, Arc<str>) {
         if let Some(cached) = &self.source_route {
             if cached.partition == partition && cached.topic.as_ref() == topic {
@@ -163,7 +218,7 @@ impl Partitioner {
         let topic: Arc<str> = Arc::from(topic);
         let path: Arc<str> = Arc::from(format!(
             "topic={}/partition={partition}",
-            percent_encode(topic.as_bytes())
+            bounded_dynamic_component(topic.as_bytes())
         ));
         self.source_route = Some(SourceRoute {
             topic: Arc::clone(&topic),
@@ -189,7 +244,9 @@ fn record_time_path(slot: i64, path: &str, timezone: Tz) -> anyhow::Result<Arc<s
         .write_to(&mut rendered)
         .map_err(|_| anyhow::anyhow!("record-time path '{path}' could not be formatted"))?;
     validate_partition_path(&rendered)?;
-    Ok(Arc::from(rendered))
+    let bounded = bounded_dynamic_path(&rendered)?;
+    validate_partition_path(&bounded)?;
+    Ok(Arc::from(bounded))
 }
 
 pub(super) fn validate_partition_path(path: &str) -> anyhow::Result<()> {
@@ -235,7 +292,7 @@ impl<'batch> RouteColumns<'batch> {
                     let index = output.batch.schema().index_of(name).map_err(|_| {
                         anyhow::anyhow!("configured S3 partition column '{name}' is absent")
                     })?;
-                    Ok((percent_encode(name.as_bytes()), index))
+                    Ok((bounded_dynamic_component(name.as_bytes()), index))
                 })
                 .collect::<anyhow::Result<_>>()?,
             _ => Vec::new(),
@@ -244,12 +301,12 @@ impl<'batch> RouteColumns<'batch> {
             topic: system_array::<StringArray>(
                 &output.batch,
                 &output.system_columns,
-                SystemColumnKind::TopicName,
+                SystemColumnKind::Topic,
             )?,
             partition: system_array::<Int64Array>(
                 &output.batch,
                 &output.system_columns,
-                SystemColumnKind::PartitionNum,
+                SystemColumnKind::Partition,
             )?,
             offset: system_array::<Int64Array>(
                 &output.batch,
@@ -362,21 +419,6 @@ fn scalar_partition_value(batch: &RecordBatch, index: usize, row: usize) -> anyh
     Ok(value)
 }
 
-pub fn percent_encode(value: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut encoded = String::with_capacity(value.len());
-    for &byte in value {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            encoded.push('%');
-            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-        }
-    }
-    encoded
-}
-
 #[cfg(test)]
 mod record_time_path_tests {
     use super::*;
@@ -393,5 +435,46 @@ mod record_time_path_tests {
         let path = record_time_path(0, "dt=%Y-%m-%d/hour=%H", chrono_tz::UTC)?;
         assert_eq!(path.as_ref(), "dt=1970-01-01/hour=00");
         Ok(())
+    }
+
+    #[test]
+    fn record_time_path_bounds_data_dependent_segments() -> anyhow::Result<()> {
+        let path = record_time_path(
+            0,
+            &format!("dt=%Y/value={}", "x".repeat(400)),
+            chrono_tz::UTC,
+        )?;
+        assert!(path.starts_with("dt=1970/"));
+        assert!(path
+            .split('/')
+            .all(|segment| segment.len() <= MAX_DYNAMIC_COMPONENT_BYTES));
+        assert!(path.contains("~sha256="));
+        Ok(())
+    }
+
+    #[test]
+    fn long_partition_components_have_a_stable_bounded_hash_layout() {
+        let value = vec![b'a'; 300];
+        let encoded = bounded_dynamic_component(&value);
+        assert_eq!(encoded.len(), MAX_DYNAMIC_COMPONENT_BYTES);
+        assert_eq!(&encoded[..120], "a".repeat(120));
+        assert_eq!(
+            &encoded[120..],
+            "~sha256=9835fa6bf4e20a9b9ea812506302e98982721a6cf8d2cae67af57129bf21ae90"
+        );
+        assert_eq!(encoded, bounded_dynamic_component(&value));
+    }
+
+    #[test]
+    fn long_components_with_the_same_readable_prefix_do_not_collide() {
+        let first = vec![b'a'; 300];
+        let mut second = vec![b'a'; 300];
+        second[299] = b'b';
+        let first = bounded_dynamic_component(&first);
+        let second = bounded_dynamic_component(&second);
+        assert_eq!(&first[..120], &second[..120]);
+        assert_ne!(first, second);
+        assert!(first.len() <= MAX_DYNAMIC_COMPONENT_BYTES);
+        assert!(second.len() <= MAX_DYNAMIC_COMPONENT_BYTES);
     }
 }

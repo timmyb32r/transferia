@@ -9,7 +9,6 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::thread;
 
 use anyhow::Context as _;
 use arrow::record_batch::RecordBatch;
@@ -29,7 +28,6 @@ use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
-const MAX_PARSER_DELIVERY_BYTES: usize = crate::parsers::json_parser::parser::MAX_DELIVERY_BYTES;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
 const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
@@ -166,67 +164,97 @@ fn make_sink_batch(
     })
 }
 
-fn parser_loop(
+async fn parser_loop(
     mut input: mpsc::Receiver<ReadEnvelope>,
-    output: &mpsc::Sender<Delivery>,
-    parser: &mut dyn ParserSession,
-    middlewares: &[Box<dyn Middleware>],
-    memory: &PipelineMemory,
-    counters: &ParseCounters,
-    cancellation: &CancellationToken,
-    runtime: &tokio::runtime::Handle,
+    output: mpsc::Sender<Delivery>,
+    parser_factory: Arc<dyn ParserFactory>,
+    middlewares: Arc<Vec<Box<dyn Middleware>>>,
+    memory: PipelineMemory,
+    counters: Arc<ParseCounters>,
+    cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
+    let mut parser: Option<Box<dyn ParserSession>> = None;
     let mut downstream_pressured = false;
     while !cancellation.is_cancelled() {
         if downstream_pressured {
-            let capacity_available = runtime.block_on(async {
-                tokio::select! {
-                    () = memory.wait_transform_below_limit() => true,
-                    () = cancellation.cancelled() => false,
-                }
-            });
+            let capacity_available = tokio::select! {
+                () = memory.wait_transform_below_limit() => true,
+                () = cancellation.cancelled() => false,
+            };
             if !capacity_available {
                 return Ok(());
             }
         }
-        let Some(envelope) = input.blocking_recv() else {
+        let envelope = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => return Ok(()),
+            envelope = input.recv() => envelope,
+        };
+        let Some(envelope) = envelope else {
             return Ok(());
         };
+
+        // Keep each partition's mutable parser session logically affine while
+        // lending it to Tokio's bounded blocking pool only for CPU work. Idle
+        // partitions retain no OS thread (and do not even construct a session
+        // until their first delivery).
+        let parser_factory = Arc::clone(&parser_factory);
+        let estimate_task = tokio::task::spawn_blocking(move || {
+            let parser = parser.unwrap_or_else(|| parser_factory.create_session());
+            let output_bound = parser.output_memory_bound(&envelope.messages);
+            let hard_output_limit = parser.hard_output_limit();
+            (parser, envelope, output_bound, hard_output_limit)
+        });
+        let (active_parser, envelope, output_bound, hard_output_limit) =
+            parser_worker_result("estimate", estimate_task.await)?;
         let ReadEnvelope {
             id,
             messages,
             memory: source_memory,
             meta,
         } = envelope;
-        let output_bound = parser.output_memory_bound(&messages);
+        let admission_bound =
+            hard_output_limit.map_or(output_bound, |limit| output_bound.min(limit));
         let parse_memory = if messages.is_empty() {
             None
         } else {
-            Some(runtime.block_on(async {
-                tokio::select! {
-                    reservation = memory.admit_active_transform(
-                        output_bound.min(MAX_PARSER_DELIVERY_BYTES)
-                    ) => Some(reservation),
-                    () = cancellation.cancelled() => None,
-                }
-            }))
-            .flatten()
+            tokio::select! {
+                reservation = memory.admit_active_transform(admission_bound) => Some(reservation),
+                () = cancellation.cancelled() => None,
+            }
         };
         if !messages.is_empty() && parse_memory.is_none() {
             return Ok(());
         }
-        let started = std::time::Instant::now();
-        let (valid, dlq) = parser
-            .parse_into(messages)
-            .map_err(|error| anyhow::anyhow!("parser failed for delivery {}: {error}", id.get()))?;
-
-        // Parsing materializes owned Arrow arrays, so the source buffers can
-        // be released before middleware allocates any additional output.
-        drop(source_memory);
-        let valid = apply_middlewares(valid, middlewares).map_err(|error| {
-            anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
-        })?;
-        counters.add_parse_busy(started.elapsed());
+        let middlewares = Arc::clone(&middlewares);
+        let parse_task = tokio::task::spawn_blocking(move || {
+            let mut parser = active_parser;
+            let started = std::time::Instant::now();
+            let parsed = parser
+                .parse_into(messages)
+                .map_err(|error| {
+                    anyhow::anyhow!("parser failed for delivery {}: {error}", id.get())
+                })
+                .and_then(|(valid, dlq)| {
+                    // Parsing materializes owned Arrow arrays, so the source
+                    // buffers can be released before middleware allocates any
+                    // additional output.
+                    drop(source_memory);
+                    apply_middlewares(valid, middlewares.as_slice())
+                        .map(|valid| (valid, dlq, started.elapsed()))
+                        .map_err(|error| {
+                            anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
+                        })
+                });
+            // Keep admission live with detached blocking work if pipeline
+            // shutdown times out and aborts only the async supervisor task.
+            (parser, parse_memory, parsed)
+        });
+        let (active_parser, parse_memory, parsed) =
+            parser_worker_result("parse", parse_task.await)?;
+        parser = Some(active_parser);
+        let (valid, dlq, parse_busy) = parsed?;
+        counters.add_parse_busy(parse_busy);
         counters.add_rows(valid.batch.num_rows() as u64);
         let valid_bytes = arrow_batch_bytes(&valid.batch);
         let dlq_bytes = dlq
@@ -241,11 +269,13 @@ fn parser_loop(
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
         let has_output = valid.batch.num_rows() > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
-        anyhow::ensure!(
-            !has_output || output_bytes <= MAX_PARSER_DELIVERY_BYTES,
-            "parser delivery {} materialized {output_bytes} bytes, exceeding the hard per-delivery parser limit of {MAX_PARSER_DELIVERY_BYTES} bytes; reduce source read size, mapping width, or record size",
-            id.get(),
-        );
+        if let Some(limit) = hard_output_limit {
+            anyhow::ensure!(
+                !has_output || output_bytes <= limit,
+                "parser delivery {} materialized {output_bytes} bytes, exceeding its hard output limit of {limit} bytes; reduce source read size, mapping width, or record size",
+                id.get(),
+            );
+        }
         if has_output && output_bytes > output_bound {
             tracing::warn!(
                 delivery_id = id.get(),
@@ -279,15 +309,39 @@ fn parser_loop(
             }
         }
         drop(output_memory);
-        if output
-            .blocking_send(Delivery { id, outputs, meta })
-            .is_err()
-        {
+        if output.send(Delivery { id, outputs, meta }).await.is_err() {
             return Ok(());
         }
         downstream_pressured = memory.is_transform_pressured();
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct ParserInfrastructureFailure(anyhow::Error);
+
+impl fmt::Display for ParserInfrastructureFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for ParserInfrastructureFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+
+fn parser_worker_result<T>(
+    operation: &'static str,
+    result: Result<T, tokio::task::JoinError>,
+) -> anyhow::Result<T> {
+    result.map_err(|error| {
+        ParserInfrastructureFailure(anyhow::anyhow!(
+            "parser {operation} blocking task failed: {error}"
+        ))
+        .into()
+    })
 }
 
 async fn commit_through(
@@ -496,19 +550,29 @@ fn async_component_outcome(
 }
 
 fn parser_component_outcome(
-    result: Result<anyhow::Result<()>, tokio::sync::oneshot::error::RecvError>,
+    result: Result<anyhow::Result<()>, tokio::task::JoinError>,
 ) -> ComponentOutcome {
     match result {
         Ok(Ok(())) => ComponentOutcome {
             result: Ok(()),
             infrastructure_failure: false,
         },
+        Ok(Err(error))
+            if error
+                .downcast_ref::<ParserInfrastructureFailure>()
+                .is_some() =>
+        {
+            ComponentOutcome {
+                result: Err(error),
+                infrastructure_failure: true,
+            }
+        }
         Ok(Err(error)) => ComponentOutcome {
             result: Err(PipelineFailure::fatal(error).into()),
             infrastructure_failure: false,
         },
         Err(error) => ComponentOutcome {
-            result: Err(anyhow::anyhow!("parser completion channel closed: {error}")),
+            result: Err(anyhow::anyhow!("parser task panicked: {error}")),
             infrastructure_failure: true,
         },
     }
@@ -518,6 +582,7 @@ fn prefer_component_failure(
     outcomes: impl IntoIterator<Item = anyhow::Result<()>>,
 ) -> anyhow::Result<()> {
     let mut first_error = None;
+    let mut first_pipeline_failure = None;
     for outcome in outcomes {
         let Err(error) = outcome else {
             continue;
@@ -528,9 +593,13 @@ fn prefer_component_failure(
         {
             return Err(error);
         }
-        first_error.get_or_insert(error);
+        if error.downcast_ref::<PipelineFailure>().is_some() {
+            first_pipeline_failure.get_or_insert(error);
+        } else {
+            first_error.get_or_insert(error);
+        }
     }
-    first_error.map_or(Ok(()), Err)
+    first_pipeline_failure.or(first_error).map_or(Ok(()), Err)
 }
 
 pub async fn run_partition_pipeline(
@@ -564,7 +633,7 @@ pub async fn run_partition_pipeline_with_progress(
     sink: Box<dyn Sink>,
     memory: PipelineMemory,
     cancel_token: CancellationToken,
-    partition_id: i64,
+    _partition_id: i64,
     parse_counters: Arc<ParseCounters>,
     progress: Arc<PipelineProgress>,
 ) -> anyhow::Result<()> {
@@ -572,27 +641,18 @@ pub async fn run_partition_pipeline_with_progress(
     let (read_tx, read_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (delivery_tx, delivery_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (event_tx, event_rx) = mpsc::channel(CHANNEL_CAPACITY);
-    let (parser_done_tx, mut parser_done_rx) = tokio::sync::oneshot::channel();
 
     let parser_token = local.clone();
     let parser_memory = memory.clone();
-    let parser_runtime = tokio::runtime::Handle::current();
-    let parser_thread = thread::Builder::new()
-        .name(format!("parser-{partition_id}"))
-        .spawn(move || {
-            let mut parser = parser.create_session();
-            let result = parser_loop(
-                read_rx,
-                &delivery_tx,
-                parser.as_mut(),
-                middlewares.as_slice(),
-                &parser_memory,
-                parse_counters.as_ref(),
-                &parser_token,
-                &parser_runtime,
-            );
-            drop(parser_done_tx.send(result));
-        })?;
+    let mut parser_task = tokio::spawn(parser_loop(
+        read_rx,
+        delivery_tx,
+        parser,
+        middlewares,
+        parser_memory,
+        parse_counters,
+        parser_token,
+    ));
 
     let reader_token = local.clone();
     let reader_memory = memory.clone();
@@ -619,7 +679,6 @@ pub async fn run_partition_pipeline_with_progress(
     let mut reader_outcome = None;
     let mut sink_outcome = None;
     let mut parser_outcome = None;
-    let mut parser_monitor_finished = false;
     let mut first_component = None;
     let mut external_cancelled = false;
     tokio::select! {
@@ -633,8 +692,7 @@ pub async fn run_partition_pipeline_with_progress(
             sink_outcome = Some(async_component_outcome("sink", result));
             first_component = Some(FirstComponent::Sink);
         }
-        result = &mut parser_done_rx => {
-            parser_monitor_finished = true;
+        result = &mut parser_task => {
             parser_outcome = Some(parser_component_outcome(result));
             first_component = Some(FirstComponent::Parser);
         }
@@ -669,35 +727,16 @@ pub async fn run_partition_pipeline_with_progress(
     }
     if parser_outcome.is_none() {
         parser_outcome = Some(
-            tokio::time::timeout(Duration::from_secs(1), &mut parser_done_rx)
-                .await
-                .map_or_else(
-                    |_| ComponentOutcome::fatal_timeout("parser thread did not stop within 1s"),
-                    |result| {
-                        parser_monitor_finished = true;
-                        parser_component_outcome(result)
-                    },
-                ),
+            match tokio::time::timeout(Duration::from_secs(1), &mut parser_task).await {
+                Ok(result) => parser_component_outcome(result),
+                Err(_) => {
+                    parser_task.abort();
+                    drop(parser_task.await);
+                    ComponentOutcome::fatal_timeout("parser task did not stop within 1s")
+                }
+            },
         );
     }
-    let parser_thread_outcome = if parser_monitor_finished {
-        match parser_thread.join() {
-            Ok(()) => ComponentOutcome {
-                result: Ok(()),
-                infrastructure_failure: false,
-            },
-            Err(_) => ComponentOutcome {
-                result: Err(anyhow::anyhow!("parser thread panicked")),
-                infrastructure_failure: true,
-            },
-        }
-    } else {
-        drop(parser_thread);
-        ComponentOutcome {
-            result: Ok(()),
-            infrastructure_failure: false,
-        }
-    };
 
     let missing_outcome = || ComponentOutcome {
         result: Err(anyhow::anyhow!("missing component outcome")),
@@ -706,7 +745,7 @@ pub async fn run_partition_pipeline_with_progress(
     let mut reader_outcome = Some(reader_outcome.unwrap_or_else(missing_outcome));
     let mut sink_outcome = Some(sink_outcome.unwrap_or_else(missing_outcome));
     let mut parser_outcome = Some(parser_outcome.unwrap_or_else(missing_outcome));
-    let mut outcomes = Vec::with_capacity(4);
+    let mut outcomes = Vec::with_capacity(3);
     match first_component {
         Some(FirstComponent::Reader) => {
             outcomes.push(reader_outcome.take().expect("reader outcome"));
@@ -720,7 +759,6 @@ pub async fn run_partition_pipeline_with_progress(
     outcomes.extend(reader_outcome);
     outcomes.extend(sink_outcome);
     outcomes.extend(parser_outcome);
-    outcomes.push(parser_thread_outcome);
 
     if external_cancelled {
         return outcomes
@@ -744,9 +782,70 @@ mod tests {
 
     struct OverestimatedSession;
 
+    struct OverestimatedFactory;
+
+    impl ParserFactory for OverestimatedFactory {
+        fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+            Box::new(OverestimatedSession)
+        }
+    }
+
+    struct StatefulFactory {
+        created: Arc<AtomicU64>,
+    }
+
+    impl ParserFactory for StatefulFactory {
+        fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+            self.created.fetch_add(1, Ordering::Relaxed);
+            Box::new(StatefulSession { calls: 0 })
+        }
+    }
+
+    struct StatefulSession {
+        calls: i64,
+    }
+
+    impl ParserSession for StatefulSession {
+        fn output_memory_bound(&self, _messages: &[Message]) -> usize {
+            1024
+        }
+
+        fn hard_output_limit(&self) -> Option<usize> {
+            Some(1024)
+        }
+
+        fn parse_into(
+            &mut self,
+            _messages: Vec<Message>,
+        ) -> anyhow::Result<(TableData, Option<TableData>)> {
+            self.calls += 1;
+            let batch = RecordBatch::try_new(
+                Arc::new(Schema::new(vec![Field::new(
+                    "value",
+                    arrow::datatypes::DataType::Int64,
+                    false,
+                )])),
+                vec![Arc::new(Int64Array::from(vec![self.calls]))],
+            )?;
+            Ok((
+                TableData::new(
+                    "events".into(),
+                    false,
+                    batch,
+                    crate::types::system_columns::SystemColumns::default(),
+                ),
+                None,
+            ))
+        }
+    }
+
     impl ParserSession for OverestimatedSession {
         fn output_memory_bound(&self, _messages: &[Message]) -> usize {
-            MAX_PARSER_DELIVERY_BYTES.saturating_mul(2)
+            2048
+        }
+
+        fn hard_output_limit(&self) -> Option<usize> {
+            Some(1024)
         }
 
         fn parse_into(
@@ -808,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_shutdown_timeout_cannot_restart_over_a_live_parser_thread() {
+    fn parser_shutdown_timeout_cannot_restart_over_live_blocking_work() {
         let error = ComponentOutcome::fatal_timeout("parser timeout")
             .result
             .expect_err("timeout must fail the pipeline");
@@ -818,40 +917,111 @@ mod tests {
         assert!(!failure.is_retryable());
     }
 
-    #[test]
-    fn conservative_parser_estimate_is_not_a_correctness_rejection() {
+    #[tokio::test]
+    async fn conservative_parser_estimate_is_not_a_correctness_rejection() {
         let memory = PipelineMemory::new(1024);
         let cancellation = CancellationToken::new();
-        let runtime = tokio::runtime::Runtime::new().unwrap();
         let (input_tx, input_rx) = mpsc::channel(1);
         let (output_tx, mut output_rx) = mpsc::channel(1);
         input_tx
-            .blocking_send(ReadEnvelope {
+            .send(ReadEnvelope {
                 id: DeliveryId::new(1),
                 messages: vec![Message::new(bytes::Bytes::from_static(b"{}"))],
                 memory: Vec::new(),
                 meta: DeliveryMeta { source_messages: 1 },
             })
+            .await
             .unwrap();
         drop(input_tx);
-        let mut parser = OverestimatedSession;
 
         parser_loop(
             input_rx,
-            &output_tx,
-            &mut parser,
-            &[],
-            &memory,
-            &ParseCounters::new(),
-            &cancellation,
-            runtime.handle(),
+            output_tx,
+            Arc::new(OverestimatedFactory),
+            Arc::new(Vec::new()),
+            memory,
+            Arc::new(ParseCounters::new()),
+            cancellation,
         )
+        .await
         .unwrap();
 
-        let delivery = output_rx
-            .blocking_recv()
-            .expect("delivery must be produced");
+        let delivery = output_rx.recv().await.expect("delivery must be produced");
         assert_eq!(delivery.outputs[0].rows(), 1);
+    }
+
+    #[tokio::test]
+    async fn idle_parser_task_does_not_construct_a_session_or_hold_a_worker() {
+        let created = Arc::new(AtomicU64::new(0));
+        let factory = Arc::new(StatefulFactory {
+            created: Arc::clone(&created),
+        });
+        let cancellation = CancellationToken::new();
+        let (input_tx, input_rx) = mpsc::channel(1);
+        let (output_tx, _output_rx) = mpsc::channel(1);
+        let task = tokio::spawn(parser_loop(
+            input_rx,
+            output_tx,
+            factory,
+            Arc::new(Vec::new()),
+            PipelineMemory::new(1024),
+            Arc::new(ParseCounters::new()),
+            cancellation.clone(),
+        ));
+
+        tokio::task::yield_now().await;
+        assert_eq!(created.load(Ordering::Relaxed), 0);
+
+        cancellation.cancel();
+        drop(input_tx);
+        task.await.unwrap().unwrap();
+        assert_eq!(created.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn parser_session_state_is_preserved_across_blocking_workers() {
+        let created = Arc::new(AtomicU64::new(0));
+        let factory = Arc::new(StatefulFactory {
+            created: Arc::clone(&created),
+        });
+        let cancellation = CancellationToken::new();
+        let (input_tx, input_rx) = mpsc::channel(2);
+        let (output_tx, mut output_rx) = mpsc::channel(2);
+        for id in 1..=2 {
+            input_tx
+                .send(ReadEnvelope {
+                    id: DeliveryId::new(id),
+                    messages: vec![Message::new(bytes::Bytes::from_static(b"{}"))],
+                    memory: Vec::new(),
+                    meta: DeliveryMeta { source_messages: 1 },
+                })
+                .await
+                .unwrap();
+        }
+        drop(input_tx);
+
+        parser_loop(
+            input_rx,
+            output_tx,
+            factory,
+            Arc::new(Vec::new()),
+            PipelineMemory::new(1 << 20),
+            Arc::new(ParseCounters::new()),
+            cancellation,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.load(Ordering::Relaxed), 1);
+        for expected in 1..=2 {
+            let delivery = output_rx.recv().await.expect("delivery must be produced");
+            let values = delivery.outputs[0].batch.column(0);
+            let values = values
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("state column must be Int64");
+            assert_eq!(values.value(0), expected);
+        }
     }
 
     #[tokio::test]

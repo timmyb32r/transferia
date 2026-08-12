@@ -103,10 +103,21 @@ pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
         "Boolean" | "bool" | "Bool" => Ok(DataType::Boolean),
         "Date32" => Ok(DataType::Date32),
         "Date64" => Ok(DataType::Date64),
-        _ if value.starts_with("Timestamp(") => {
-            let inner = value.trim_start_matches("Timestamp(").trim_end_matches(')');
+        _ if value.starts_with("Timestamp") => {
+            let inner = value
+                .strip_prefix("Timestamp(")
+                .and_then(|inner| inner.strip_suffix(')'))
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Invalid Timestamp type '{value}'. Expected Timestamp(unit[, timezone])"
+                    )
+                })?;
             let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
-            let unit = match parts.first().copied().unwrap_or("Microsecond") {
+            anyhow::ensure!(
+                matches!(parts.len(), 1 | 2) && parts.iter().all(|part| !part.is_empty()),
+                "Invalid Timestamp type '{value}'. Expected Timestamp(unit[, timezone])"
+            );
+            let unit = match parts[0] {
                 "Second" => TimeUnit::Second,
                 "Millisecond" => TimeUnit::Millisecond,
                 "Microsecond" => TimeUnit::Microsecond,
@@ -115,8 +126,8 @@ pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
                     "Unsupported Timestamp unit '{other}'. Use Second, Millisecond, Microsecond, or Nanosecond."
                 ),
             };
-            let timezone =
-                (parts.len() > 1 && parts[1] != "None").then(|| parts[1].to_string().into());
+            let timezone = (parts.len() == 2 && parts[1] != "None")
+                .then(|| parts[1].to_string().into());
             Ok(DataType::Timestamp(unit, timezone))
         }
         other => anyhow::bail!(
@@ -156,6 +167,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_malformed_timestamp_types() {
+        for value in [
+            "Timestamp(Millisecond",
+            "Timestamp(Millisecond))",
+            "Timestamp(Millisecond, UTC, extra)",
+            "Timestamp(Millisecond,)",
+            "Timestamp()",
+        ] {
+            let error = parse_arrow_type(value).expect_err("malformed Timestamp must fail");
+            assert!(
+                error.to_string().contains("Timestamp"),
+                "unexpected error for {value}: {error:#}"
+            );
+        }
+    }
+
+    #[test]
     fn produces_sink_neutral_schema() -> anyhow::Result<()> {
         let config: JsonParserConfig = serde_yaml::from_str(
             "columns:\n  - jsonpath: $.id\n    column_name: id\n    arrow_type: UInt64\n    nullable: false\n",
@@ -169,8 +197,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_clickhouse_sorting_from_parser_config() {
-        let result = serde_yaml::from_str::<JsonParserConfig>("columns: []\norder_by: [id]\n");
+    fn rejects_sink_specific_fields_in_parser_config() {
+        let result =
+            serde_yaml::from_str::<JsonParserConfig>("columns: []\nsink_specific_field: true\n");
         assert!(result.is_err());
     }
 }

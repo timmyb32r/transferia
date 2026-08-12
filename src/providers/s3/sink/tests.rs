@@ -10,6 +10,7 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use crate::metrics::SinkCounters;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::{
@@ -17,6 +18,7 @@ use crate::pipeline::sink::{
 };
 use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::{Message, MessageBatch, MessageMeta};
+use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 use super::actor::S3Sink;
@@ -359,12 +361,71 @@ fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S
 
 fn pipeline_parser() -> Arc<dyn crate::parsers::ParserFactory> {
     let config: crate::parsers::ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic_name: true, partition_num: true, offset: true, message_index: true, write_timestamp_ms: true }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\n  chunk_splitter: new-line\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic: true, partition: true, offset: true, message_index: true, write_timestamp_ms: true }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\n  chunk_splitter: new-line\n",
     )
     .unwrap();
     crate::parsers::ParserPlan::from_config(&config, "topic")
         .unwrap()
         .parser()
+}
+
+fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
+    let system_columns = vec![
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
+        SystemColumnKind::Offset,
+        SystemColumnKind::MessageIndex,
+        SystemColumnKind::WriteTimestampMs,
+    ];
+    let incoming_schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false),
+        SchemaColumn::new("nullable".into(), DataType::Utf8, true),
+        SchemaColumn::new(SystemColumnKind::Topic.name().into(), DataType::Utf8, false),
+        SchemaColumn::new(
+            SystemColumnKind::Partition.name().into(),
+            DataType::Int64,
+            false,
+        ),
+        SchemaColumn::new(
+            SystemColumnKind::Offset.name().into(),
+            DataType::Int64,
+            false,
+        ),
+        SchemaColumn::new(
+            SystemColumnKind::MessageIndex.name().into(),
+            DataType::UInt64,
+            false,
+        ),
+        SchemaColumn::new(
+            SystemColumnKind::WriteTimestampMs.name().into(),
+            DataType::Int64,
+            false,
+        ),
+    ]);
+    let stored_schema = if keep_system_columns {
+        incoming_schema.clone()
+    } else {
+        DatasetSchema::new(incoming_schema.columns[..2].to_vec())
+    };
+    Arc::new(DeliveryDiscovery {
+        source_name: Arc::from("topic/a"),
+        source_partitions: vec![3],
+        schema_origin: SchemaOrigin::ParserProjection,
+        keep_system_columns,
+        datasets: [
+            (DatasetRole::Main, "events"),
+            (DatasetRole::DeadLetterQueue, "events_dlq"),
+        ]
+        .into_iter()
+        .map(|(role, name)| DiscoveredDataset {
+            role,
+            name: Arc::from(name),
+            incoming_schema: incoming_schema.clone(),
+            stored_schema: stored_schema.clone(),
+            system_columns: system_columns.clone(),
+        })
+        .collect(),
+    })
 }
 
 async fn delivery(
@@ -377,12 +438,8 @@ async fn delivery(
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("nullable", DataType::Utf8, true),
-        Field::new(SystemColumnKind::TopicName.name(), DataType::Utf8, false),
-        Field::new(
-            SystemColumnKind::PartitionNum.name(),
-            DataType::Int64,
-            false,
-        ),
+        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
+        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
         Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
             SystemColumnKind::MessageIndex.name(),
@@ -410,8 +467,8 @@ async fn delivery(
     .unwrap();
     let bytes = batch.get_array_memory_size();
     let kinds = [
-        SystemColumnKind::TopicName,
-        SystemColumnKind::PartitionNum,
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
         SystemColumnKind::Offset,
         SystemColumnKind::MessageIndex,
         SystemColumnKind::WriteTimestampMs,
@@ -443,12 +500,8 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("nullable", DataType::Utf8, true),
-        Field::new(SystemColumnKind::TopicName.name(), DataType::Utf8, false),
-        Field::new(
-            SystemColumnKind::PartitionNum.name(),
-            DataType::Int64,
-            false,
-        ),
+        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
+        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
         Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
             SystemColumnKind::MessageIndex.name(),
@@ -482,8 +535,8 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
     .unwrap();
     let bytes = batch.get_array_memory_size();
     let kinds = [
-        SystemColumnKind::TopicName,
-        SystemColumnKind::PartitionNum,
+        SystemColumnKind::Topic,
+        SystemColumnKind::Partition,
         SystemColumnKind::Offset,
         SystemColumnKind::MessageIndex,
         SystemColumnKind::WriteTimestampMs,
@@ -561,6 +614,7 @@ fn spawn_with_capacity(
         Arc::new(SinkCounters::new()),
         keep_system_columns,
         3,
+        test_discovery(keep_system_columns),
     )
     .unwrap();
     let task = tokio::spawn(Box::new(sink).run(SinkIo {
@@ -870,7 +924,7 @@ async fn can_explicitly_keep_system_columns_in_json() {
         let uploads = uploader.uploads.lock().unwrap();
         let json: serde_json::Value = serde_json::from_slice(&uploads[0].1).unwrap();
         drop(uploads);
-        assert_eq!(json[SystemColumnKind::TopicName.name()], "topic/a");
+        assert_eq!(json[SystemColumnKind::Topic.name()], "topic/a");
         assert_eq!(json[SystemColumnKind::WriteTimestampMs.name()], 1_234);
     }
     cancel.cancel();
@@ -887,8 +941,8 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
                 b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
             ),
             meta: MessageMeta {
-                topic_path: Some(Arc::from("topic/a")),
-                partition_id: Some(3),
+                topic: Some(Arc::from("topic/a")),
+                partition: Some(3),
                 offset: Some(77),
                 write_timestamp_ms: Some(1_234),
             },
@@ -903,6 +957,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
         Arc::new(SinkCounters::new()),
         false,
         3,
+        test_discovery(false),
     )
     .unwrap();
     let mut task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -955,8 +1010,8 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
                     b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
                 ),
                 meta: MessageMeta {
-                    topic_path: Some(Arc::from("topic/a")),
-                    partition_id: Some(3),
+                    topic: Some(Arc::from("topic/a")),
+                    partition: Some(3),
                     offset: Some(77),
                     write_timestamp_ms: Some(1_234),
                 },
@@ -975,6 +1030,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
             Arc::new(SinkCounters::new()),
             false,
             3,
+            test_discovery(false),
         )
         .unwrap();
         let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1092,8 +1148,8 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         .map(|offset| Message {
             value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
             meta: MessageMeta {
-                topic_path: Some(Arc::from("topic/a")),
-                partition_id: Some(3),
+                topic: Some(Arc::from("topic/a")),
+                partition: Some(3),
                 offset: Some(offset),
                 write_timestamp_ms: Some(1_234 + offset),
             },
@@ -1112,6 +1168,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         Arc::new(SinkCounters::new()),
         false,
         3,
+        test_discovery(false),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1143,8 +1200,8 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
     let message = |offset| Message {
         value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
         meta: MessageMeta {
-            topic_path: Some(Arc::from("topic/a")),
-            partition_id: Some(3),
+            topic: Some(Arc::from("topic/a")),
+            partition: Some(3),
             offset: Some(offset),
             write_timestamp_ms: Some(1_234 + offset),
         },
@@ -1165,6 +1222,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
         Arc::new(SinkCounters::new()),
         false,
         3,
+        test_discovery(false),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1406,8 +1464,8 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
     let message = |value: &'static [u8], offset| Message {
         value: Bytes::from_static(value),
         meta: MessageMeta {
-            topic_path: Some(Arc::from("topic/a")),
-            partition_id: Some(3),
+            topic: Some(Arc::from("topic/a")),
+            partition: Some(3),
             offset: Some(offset),
             write_timestamp_ms: Some(1_234 + offset),
         },
@@ -1434,6 +1492,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
         Arc::new(SinkCounters::new()),
         false,
         3,
+        test_discovery(false),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1557,6 +1616,7 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
         Arc::clone(&counters),
         false,
         3,
+        test_discovery(false),
     )
     .unwrap();
     let task = tokio::spawn(Box::new(sink).run(SinkIo {
@@ -1609,7 +1669,47 @@ async fn deterministic_routing_failure_is_non_retryable() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("deterministic S3 routing errors must preserve their restart contract");
     assert!(!failure.is_retryable());
-    assert!(error.to_string().contains("required system column"));
+    assert!(error
+        .to_string()
+        .contains("S3 runtime delivery validation failed"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
+    let mut invalid = delivery(&memory, 1, 4, 1_000, false).await;
+    invalid.outputs[0].table = Arc::from("renamed_after_discovery");
+    tx.send(invalid).await.unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("runtime contract violations must preserve their fatal disposition");
+    assert!(!failure.is_retryable());
+    assert!(error.to_string().contains("differs from discovered name"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn overlong_static_prefix_fails_before_upload_and_is_non_retryable() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let mut sink_config = config("");
+    sink_config.prefix = "x".repeat(super::object_key::MAX_OBJECT_KEY_BYTES);
+    let (tx, _events, _cancel, task) = spawn(sink_config, Arc::clone(&uploader), memory.clone());
+    tx.send(delivery(&memory, 1, 4, 1_000, false).await)
+        .await
+        .unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("final S3 key validation must preserve its fatal disposition");
+    assert!(!failure.is_retryable());
+    assert!(error.to_string().contains("1024-byte limit"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
 }
 
@@ -1621,7 +1721,7 @@ async fn source_partition_mismatch_is_non_retryable_and_never_uploads() {
     let mut invalid = delivery(&memory, 1, 4, 1_000, false).await;
     let partition_index = invalid.outputs[0]
         .system_columns
-        .get(SystemColumnKind::PartitionNum)
+        .get(SystemColumnKind::Partition)
         .expect("partition system column")
         .index;
     let mut columns = invalid.outputs[0].batch.columns().to_vec();

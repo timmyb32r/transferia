@@ -232,6 +232,18 @@ impl S3SinkConfig {
             self.rotation.max_bytes.0 > 0,
             "s3.rotation.max_bytes must be positive"
         );
+        if let Some(interval) = self.rotation.record_time_interval {
+            anyhow::ensure!(
+                interval.0 > Duration::ZERO,
+                "s3.rotation.record_time_interval must be positive"
+            );
+        }
+        if let Some(interval) = self.rotation.wall_clock_interval {
+            anyhow::ensure!(
+                interval.0 > Duration::ZERO,
+                "s3.rotation.wall_clock_interval must be positive"
+            );
+        }
         anyhow::ensure!(
             self.buffering.max_epoch_buffers > 0,
             "s3.buffering.max_epoch_buffers must be positive"
@@ -462,7 +474,7 @@ const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
 const fn default_object_layout_version() -> u32 {
-    3
+    4
 }
 const fn default_max_attempts() -> usize {
     10
@@ -487,6 +499,19 @@ mod tests {
             serde_yaml::from_str("bucket: test\nupload: { operation_timeout: 0ms }\n")?;
         let error = config.validate().expect_err("zero timeout must fail");
         assert!(error.to_string().contains("operation_timeout"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_zero_rotation_intervals() -> anyhow::Result<()> {
+        for field in ["record_time_interval", "wall_clock_interval"] {
+            let yaml = format!("bucket: test\nrotation: {{ {field}: 0ms }}\n");
+            let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
+            let error = config
+                .validate()
+                .expect_err("a zero rotation interval must fail during startup");
+            assert!(error.to_string().contains(field));
+        }
         Ok(())
     }
 

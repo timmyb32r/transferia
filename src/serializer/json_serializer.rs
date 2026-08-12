@@ -11,7 +11,7 @@ use arrow::record_batch::RecordBatch;
 /// Null values are always emitted explicitly as `"col": null`, matching the
 /// Confluent S3 JSON format.
 ///
-/// **Optimization**: Column types are pre-classified into [`ColumnWriter`]
+/// **Optimization**: Column types are pre-classified into internal writer
 /// variants when the encoder is constructed. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.

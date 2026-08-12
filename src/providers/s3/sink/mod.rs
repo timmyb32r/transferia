@@ -1,5 +1,6 @@
 mod actor;
 mod config;
+mod object_key;
 mod partitioning;
 pub mod provider;
 mod upload;
