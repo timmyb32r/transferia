@@ -128,6 +128,27 @@ change. Do not reuse results from before the last edit, do not dismiss failures
 as unrelated, and do not report completion while any required gate is red or was
 not executed.
 
+## Performance log contract
+
+- Every new source and sink must report through `SourceCounters`, `ParseCounters`,
+  and `SinkCounters` so the standard reporter emits one stable, parseable line per
+  partition and interval. Do not invent provider-local throughput log formats.
+- Preserve the named `[stats p=<partition>]` sections and units emitted by
+  `src/metrics/mod.rs`: source message/compressed/decompressed rates and response
+  wait, parser rows/Arrow/DLQ/source-message rates, sink rows/bytes/flushes/source-
+  message rates, attempt load, retries, buffering/object gauges, backpressure,
+  delivery guarantee, CPU, and RSS.
+- A provider that does not perform a stage must report zero/`N/A` through the
+  common counters; it must not remove or reorder fields. Sink `busy` is attempt
+  load, not CPU utilization, and may exceed 100% when operations are concurrent.
+- Any deliberate log-contract change must update `scripts/stats_avg.py`,
+  `scripts/run_single_partition_benchmark.py`, their separate tests, and
+  `docs/benchmarks.md` in the same commit.
+- Before accepting a new provider, feed representative provider log lines through
+  `scripts/stats_avg.py` and add a regression fixture proving they parse. Use the
+  restored aggregator as `python3 scripts/stats_avg.py transferia.log` or pipe
+  logs on stdin; use `--json` for automation.
+
 ## Change hygiene
 
 - Search for and remove obsolete names, options, comments, tests, and docs after
