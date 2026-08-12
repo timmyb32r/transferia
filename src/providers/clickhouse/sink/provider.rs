@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
-use tokio::sync::OnceCell;
 
 use super::client::ReconnectingClient;
 use super::table::prepare_tables;
@@ -14,27 +13,18 @@ use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {
     config: ClickHouseSinkConfig,
-    client: OnceCell<Arc<ReconnectingClient>>,
+    client: Arc<ReconnectingClient>,
 }
 
 impl ClickHouseSinkProvider {
     pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        Ok(Self {
-            config: ClickHouseSinkConfig::from_value(value)?,
-            client: OnceCell::new(),
-        })
-    }
-
-    async fn client_slot(&self) -> Arc<ReconnectingClient> {
-        Arc::clone(
-            self.client
-                .get_or_init(|| async { Arc::new(ReconnectingClient::new(&self.config)) })
-                .await,
-        )
+        let config = ClickHouseSinkConfig::from_value(value)?;
+        let client = Arc::new(ReconnectingClient::new(&config));
+        Ok(Self { config, client })
     }
 
     async fn shared_client(&self) -> anyhow::Result<Arc<ReconnectingClient>> {
-        let client = self.client_slot().await;
+        let client = Arc::clone(&self.client);
         client
             .ensure_connected()
             .await
@@ -80,13 +70,13 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn provider_publishes_client_before_any_connect_attempt() -> anyhow::Result<()> {
+    async fn provider_constructs_shared_client_without_connecting() -> anyhow::Result<()> {
         let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
             "endpoint: 127.0.0.1:1\nuse_tls: false\nconnect_timeout_ms: 1\n",
         )?)?;
 
-        let first = provider.client_slot().await;
-        let second = provider.client_slot().await;
+        let first = Arc::clone(&provider.client);
+        let second = Arc::clone(&provider.client);
 
         assert!(Arc::ptr_eq(&first, &second));
         Ok(())

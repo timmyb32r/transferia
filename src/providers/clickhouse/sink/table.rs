@@ -52,7 +52,9 @@ async fn create_table(
         .await
         .map_err(|error| anyhow::anyhow!("Failed to create table '{name}': {error}"))?;
     let target = fetch_target_schema(client, &config.database, name).await?;
-    validate_target_schema(name, schema, &target, sorting_key)
+    validate_target_schema(name, schema, &target, sorting_key)?;
+    let engine = fetch_target_engine(client, &config.database, name).await?;
+    validate_target_engine(name, &engine)
 }
 
 fn create_table_ddl(
@@ -175,6 +177,53 @@ async fn fetch_target_schema(
         "ClickHouse table '{table}' has no visible columns after CREATE TABLE"
     );
     Ok(columns)
+}
+
+async fn fetch_target_engine(
+    client: &ReconnectingClient,
+    database: &str,
+    table: &str,
+) -> anyhow::Result<String> {
+    let query = format!(
+        "SELECT engine FROM system.tables WHERE database = {} AND name = {}",
+        quote_string_literal(database),
+        quote_string_literal(table),
+    );
+    let batches = client.query_all(&query).await.map_err(|error| {
+        anyhow::anyhow!("Failed to inspect table engine for '{table}': {error}")
+    })?;
+    let mut engine: Option<String> = None;
+    for batch in batches {
+        anyhow::ensure!(
+            batch.num_columns() == 1,
+            "ClickHouse engine query for '{table}' returned {} columns instead of 1",
+            batch.num_columns()
+        );
+        let values = cast(batch.column(0), &DataType::Utf8)?;
+        let values = values
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse table engines are not strings"))?;
+        for row in 0..batch.num_rows() {
+            anyhow::ensure!(
+                !values.is_null(row),
+                "ClickHouse engine query for '{table}' returned NULL"
+            );
+            anyhow::ensure!(
+                engine.replace(values.value(row).to_string()).is_none(),
+                "ClickHouse engine query for '{table}' returned multiple rows"
+            );
+        }
+    }
+    engine.ok_or_else(|| anyhow::anyhow!("ClickHouse table '{table}' disappeared after CREATE"))
+}
+
+fn validate_target_engine(table: &str, engine: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        engine.ends_with("MergeTree"),
+        "ClickHouse table '{table}' uses non-durable or unsupported engine '{engine}'; expected a MergeTree-family engine"
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -542,5 +591,17 @@ mod tests {
         let error = create_table_ddl("events", &schema, &["id".into(), "id".into()])
             .expect_err("duplicate sorting columns must fail");
         assert!(error.to_string().contains("duplicate column 'id'"));
+    }
+
+    #[test]
+    fn only_mergetree_family_engines_are_accepted() -> anyhow::Result<()> {
+        for engine in ["MergeTree", "ReplacingMergeTree", "ReplicatedMergeTree"] {
+            validate_target_engine("events", engine)?;
+        }
+        for engine in ["Null", "Memory", "Buffer", "View", "MaterializedView"] {
+            let error = validate_target_engine("events", engine).unwrap_err();
+            assert!(error.to_string().contains("non-durable or unsupported"));
+        }
+        Ok(())
     }
 }

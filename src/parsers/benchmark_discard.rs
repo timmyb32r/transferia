@@ -34,6 +34,10 @@ struct BenchmarkDiscardSession {
 }
 
 impl ParserSession for BenchmarkDiscardSession {
+    fn output_size_hint(&self, _messages: &[Message]) -> usize {
+        1
+    }
+
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,

@@ -36,6 +36,7 @@ pipeline_memory_limit_bytes: 268435456
 sink:
   s3:
     bucket: "${S3_BUCKET:-transferia-benchmark}"
+    object_layout_version: 2
     prefix: "${S3_PREFIX:-pqv1-s3/}${BENCHMARK_RUN_NAMESPACE:-manual}/"
     region: "${S3_REGION:-us-east-1}"
     endpoint: "${S3_ENDPOINT:-http://localhost:9002}"
@@ -53,6 +54,12 @@ sink:
       max_pending_upload_objects: 128
       max_buffered_bytes: "256MiB"
       max_epoch_bytes: "64MiB"
+    upload:
+      multipart_threshold: "16MiB"
+      part_size: "8MiB"
+      parallel_parts: 4
+      max_in_flight_objects: 4
+      operation_timeout: "1m"
     retry:
       initial_backoff: "200ms"
       max_backoff: "30s"

@@ -236,6 +236,7 @@ fn classify_object_store_error(error: ObjectStoreError) -> UploadError {
             | ObjectStoreError::NotSupported { .. }
             | ObjectStoreError::NotImplemented
             | ObjectStoreError::UnknownConfigurationKey { .. }
+            | ObjectStoreError::NotFound { .. }
             | ObjectStoreError::AlreadyExists { .. }
             | ObjectStoreError::Precondition { .. }
             | ObjectStoreError::NotModified { .. }
@@ -433,6 +434,18 @@ mod tests {
         assert!(matches!(
             classify_object_store_error(transport),
             UploadError::Retryable(_)
+        ));
+
+        let missing_bucket = ObjectStoreError::NotFound {
+            path: "object".into(),
+            source: Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "bucket does not exist",
+            )),
+        };
+        assert!(matches!(
+            classify_object_store_error(missing_bucket),
+            UploadError::Permanent(_)
         ));
     }
 

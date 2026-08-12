@@ -265,6 +265,9 @@ pub fn validate_pipeline(
             severity: DiagnosticSeverity::Info,
             config_paths: vec![
                 "source.pqv1.parser".into(),
+                "source.pqv1.topic_path".into(),
+                "source.pqv1.consumer_name".into(),
+                "source.pqv1.cluster_identity (external deployment assumption)".into(),
                 "middlewares".into(),
                 "keep_system_columns_in_sink".into(),
                 "sink.s3.bucket".into(),
@@ -278,7 +281,7 @@ pub fn validate_pipeline(
                 "sink.s3.buffering.max_epoch_bytes".into(),
             ],
             explanation: "object boundaries and keys are deterministic for fixed transformation and destination configuration; successful overwrite precedes source commit".into(),
-            remediation: Some("do not change parser, middleware, projection, destination identity, S3 prefix, object_layout_version, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
+            remediation: Some("do not change source identity, parser, middleware, projection, destination identity, S3 prefix, object_layout_version, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay; keep one logical source cluster per normalized bucket/prefix namespace".into()),
         });
         DeliveryGuarantee::ExactlyOnce
     };
@@ -378,7 +381,7 @@ mod tests {
             partitioning,
             record_time_rotation: false,
             wall_clock_rotation,
-            object_layout_version: 1,
+            object_layout_version: 2,
         })
     }
 

@@ -7,6 +7,7 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use base64::Engine as _;
 use bytes::Bytes;
 use core::fmt;
 use serde::{de, Deserializer};
@@ -27,20 +28,22 @@ use crate::types::table_data::{dlq_name, TableData};
 
 enum CompiledPath {
     RootField(String),
-    Complex(String),
+    Complex(jsonpath_lib::Compiled),
 }
 
-fn compile_path(raw: &str) -> CompiledPath {
+fn compile_path(raw: &str) -> anyhow::Result<CompiledPath> {
     if let Some(field) = raw.strip_prefix("$.") {
         if !field.contains('.')
             && !field.contains('[')
             && !field.contains('*')
             && !field.contains('$')
         {
-            return CompiledPath::RootField(field.to_string());
+            return Ok(CompiledPath::RootField(field.to_string()));
         }
     }
-    CompiledPath::Complex(raw.to_string())
+    jsonpath_lib::Compiled::compile(raw)
+        .map(CompiledPath::Complex)
+        .map_err(|error| anyhow::anyhow!("invalid JSONPath '{raw}': {error}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -189,14 +192,16 @@ impl ColumnKind {
 }
 
 #[inline]
-fn make_builder(kind: ColumnKind, data_type: &DataType, n: usize) -> AnyBuilder {
-    const STR_BYTES_PER_ROW: usize = 128;
+fn make_builder(
+    kind: ColumnKind,
+    data_type: &DataType,
+    n: usize,
+    string_bytes: usize,
+) -> AnyBuilder {
     match kind {
-        ColumnKind::Utf8 => {
-            AnyBuilder::Utf8(StringBuilder::with_capacity(n, n * STR_BYTES_PER_ROW))
-        }
+        ColumnKind::Utf8 => AnyBuilder::Utf8(StringBuilder::with_capacity(n, string_bytes)),
         ColumnKind::LargeUtf8 => {
-            AnyBuilder::LargeUtf8(LargeStringBuilder::with_capacity(n, n * STR_BYTES_PER_ROW))
+            AnyBuilder::LargeUtf8(LargeStringBuilder::with_capacity(n, string_bytes))
         }
         ColumnKind::Int64 => AnyBuilder::Int64(Int64Builder::with_capacity(n)),
         ColumnKind::Int32 => AnyBuilder::Int32(Int32Builder::with_capacity(n)),
@@ -871,7 +876,7 @@ fn parse_root_fields_typed(
 // ---------------------------------------------------------------------------
 fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
     let mut fields = vec![
-        Field::new("raw_bytes", DataType::Utf8, false),
+        Field::new("raw_base64", DataType::Utf8, false),
         Field::new("error_message", DataType::Utf8, false),
         Field::new("timestamp", DataType::Utf8, false),
     ];
@@ -965,6 +970,33 @@ struct ColumnMappingExt {
 }
 
 impl JsonParser {
+    fn output_size_hint(&self, messages: &[Message]) -> usize {
+        const FIXED_BYTES_PER_COLUMN_ROW: usize = 1024;
+        let rows = messages.iter().fold(0_usize, |total, message| {
+            total.saturating_add(self.chunk_splitter.count_records(&message.value))
+        });
+        let input_bytes = messages.iter().fold(0_usize, |total, message| {
+            total.saturating_add(message.value.len())
+        });
+        let string_columns = self
+            .kinds
+            .iter()
+            .filter(|kind| matches!(kind, ColumnKind::Utf8 | ColumnKind::LargeUtf8))
+            .count();
+        let fixed = rows
+            .saturating_mul(self.kinds.len().saturating_add(self.system_kinds.len()))
+            .saturating_mul(FIXED_BYTES_PER_COLUMN_ROW);
+        let strings = input_bytes.saturating_mul(string_columns.saturating_add(4));
+        let topics = messages.iter().fold(0_usize, |total, message| {
+            total.saturating_add(message.meta.topic_path.as_ref().map_or(0, |topic| {
+                topic
+                    .len()
+                    .saturating_mul(self.chunk_splitter.count_records(&message.value))
+            }))
+        });
+        fixed.saturating_add(strings).saturating_add(topics).max(1)
+    }
+
     pub fn new(
         config: &JsonParserConfig,
         system_config: &SystemColumnsConfig,
@@ -994,7 +1026,9 @@ impl JsonParser {
                     arrow_type
                 )
             })?;
-            let path = compile_path(&col.jsonpath);
+            let path = compile_path(&col.jsonpath).map_err(|error| {
+                error.context(format!("column '{}': invalid JSONPath", col.column_name))
+            })?;
             if matches!(&path, CompiledPath::Complex(_)) {
                 all_root = false;
             }
@@ -1018,17 +1052,29 @@ impl JsonParser {
                     CompiledPath::Complex(_) => None,
                 })
                 .collect();
-            // Adaptive: linear scan for ≤12 cols (no hash overhead), HashMap for more
-            let index = if n <= 12 {
-                ColumnIndex::Small(pairs)
+            let unique_fields = pairs
+                .iter()
+                .map(|(field, _)| field.as_str())
+                .collect::<HashSet<_>>()
+                .len()
+                == pairs.len();
+            if unique_fields {
+                // Adaptive: linear scan for ≤12 cols (no hash overhead), HashMap for more.
+                let index = if n <= 12 {
+                    ColumnIndex::Small(pairs)
+                } else {
+                    ColumnIndex::Large(pairs.into_iter().collect())
+                };
+                ParseMode::AllRootField(RootFieldInfo {
+                    index,
+                    required,
+                    required_total,
+                })
             } else {
-                ColumnIndex::Large(pairs.into_iter().collect())
-            };
-            ParseMode::AllRootField(RootFieldInfo {
-                index,
-                required,
-                required_total,
-            })
+                // One JSON field may feed multiple output columns. The single-index
+                // extractor cannot represent that, so use the general compiled path.
+                ParseMode::Mixed
+            }
         } else {
             ParseMode::Mixed
         };
@@ -1104,7 +1150,8 @@ impl JsonParser {
     fn extract_value(&self, json: &Value, mapping: &ColumnMappingExt) -> Option<Value> {
         match &mapping.path {
             CompiledPath::RootField(field) => json.get(field).cloned(),
-            CompiledPath::Complex(path) => jsonpath_lib::select(json, path)
+            CompiledPath::Complex(path) => path
+                .select(json)
                 .ok()
                 .and_then(|r| r.first().map(|v| (*v).clone())),
         }
@@ -1116,7 +1163,10 @@ impl JsonParser {
         now: time::OffsetDateTime,
     ) -> anyhow::Result<TableData> {
         let n = dlq_payloads.len();
-        let mut raw_builder = StringBuilder::with_capacity(n, n * 64);
+        let encoded_bytes = dlq_payloads.iter().fold(0_usize, |total, payload| {
+            total.saturating_add(payload.raw.len().div_ceil(3).saturating_mul(4))
+        });
+        let mut raw_builder = StringBuilder::with_capacity(n, encoded_bytes);
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
         let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
         let ts = now
@@ -1130,7 +1180,8 @@ impl JsonParser {
             .collect();
 
         for payload in dlq_payloads {
-            raw_builder.append_value(&String::from_utf8_lossy(&payload.raw));
+            raw_builder
+                .append_value(base64::engine::general_purpose::STANDARD.encode(&payload.raw));
             err_builder.append_value(payload.reason.as_str());
             ts_builder.append_value(&ts);
             append_system_columns(
@@ -1433,6 +1484,8 @@ impl Default for ParserWorkspace {
 }
 
 impl ParserWorkspace {
+    const MAX_RETAINED_SCRATCH_BYTES: usize = 1024 * 1024;
+
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -1455,6 +1508,19 @@ impl ParserWorkspace {
         let ts = time::OffsetDateTime::now_utc();
         self.cached_ts = Some((ts, now_inst));
         ts
+    }
+
+    fn release_large_scratch(&mut self) {
+        if self.json_buf.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES {
+            self.json_buf = Vec::new();
+        } else {
+            self.json_buf.clear();
+        }
+        if self.dlq_payloads.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES / 64 {
+            self.dlq_payloads = Vec::new();
+        } else {
+            self.dlq_payloads.clear();
+        }
     }
 }
 
@@ -1501,10 +1567,23 @@ impl JsonParser {
                 .sum(),
             _ => newline_records.as_ref().map_or(messages.len(), Vec::len),
         };
+        let input_bytes = messages.iter().fold(0_usize, |total, message| {
+            total.saturating_add(message.value.len())
+        });
+        // Total UTF-8 output cannot be estimated exactly before parsing. Sharing the
+        // input-size estimate between string columns avoids the previous 128 × rows ×
+        // columns allocation spike while still giving builders useful capacity.
+        let string_columns = self
+            .kinds
+            .iter()
+            .filter(|kind| matches!(kind, ColumnKind::Utf8 | ColumnKind::LargeUtf8))
+            .count();
+        let string_bytes = input_bytes / string_columns.max(1);
 
         ws.builders.clear();
         for (&kind, data_type) in self.kinds.iter().zip(&self.data_types) {
-            ws.builders.push(make_builder(kind, data_type, n_rows));
+            ws.builders
+                .push(make_builder(kind, data_type, n_rows, string_bytes));
         }
         for kind in &self.system_kinds {
             ws.builders.push(make_system_builder(*kind, n_rows));
@@ -1567,11 +1646,14 @@ impl JsonParser {
             system_columns: self.system_columns.clone(),
         };
 
-        let dlq_batch = if ws.dlq_payloads.is_empty() {
+        let dlq_payloads = core::mem::take(&mut ws.dlq_payloads);
+        let dlq_batch = if dlq_payloads.is_empty() {
             None
         } else {
-            Some(self.build_dlq_batch(&ws.dlq_payloads, now)?)
+            Some(self.build_dlq_batch(&dlq_payloads, now)?)
         };
+        drop(dlq_payloads);
+        ws.release_large_scratch();
 
         Ok((valid_batch, dlq_batch))
     }
@@ -1583,6 +1665,10 @@ struct JsonParserSession {
 }
 
 impl ParserSession for JsonParserSession {
+    fn output_size_hint(&self, messages: &[Message]) -> usize {
+        self.parser.output_size_hint(messages)
+    }
+
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
@@ -1606,6 +1692,82 @@ impl Parser for JsonParser {
 mod tests {
     use super::*;
     use crate::parsers::json_parser::config::JsonParserConfig;
+
+    fn parser_for(
+        columns: Vec<crate::parsers::json_parser::ColumnMapping>,
+    ) -> anyhow::Result<JsonParser> {
+        JsonParser::new(
+            &JsonParserConfig {
+                columns,
+                chunk_splitter: ChunkSplitter::OneMessageOneRow,
+            },
+            &crate::parsers::SystemColumnsConfig::default(),
+            "test".into(),
+        )
+    }
+
+    #[test]
+    fn duplicate_root_path_populates_every_output_column() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let parser = parser_for(vec![
+            ColumnMapping::new("$.id".into(), "left".into(), "Int64".into(), false),
+            ColumnMapping::new("$.id".into(), "right".into(), "Int64".into(), true),
+        ])?;
+        anyhow::ensure!(matches!(parser.mode, ParseMode::Mixed));
+        let (main, dlq) = parser.parse_into(
+            vec![Message::new(Bytes::from_static(b"{\"id\":7}"))],
+            &mut ParserWorkspace::new(),
+        )?;
+        anyhow::ensure!(dlq.is_none());
+        anyhow::ensure!(int64_col(&main.batch, 0)?.value(0) == 7);
+        anyhow::ensure!(int64_col(&main.batch, 1)?.value(0) == 7);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_complex_jsonpath_is_rejected_at_startup() {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let error = parser_for(vec![ColumnMapping::new(
+            "$.items[".into(),
+            "value".into(),
+            "Utf8".into(),
+            true,
+        )])
+        .err()
+        .expect("invalid JSONPath must fail parser construction");
+        assert!(error.to_string().contains("invalid JSONPath"));
+    }
+
+    #[test]
+    fn dlq_preserves_non_utf8_payload_as_base64_and_releases_scratch() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let parser = parser_for(vec![ColumnMapping::new(
+            "$.id".into(),
+            "id".into(),
+            "Int64".into(),
+            false,
+        )])?;
+        let mut workspace = ParserWorkspace::new();
+        workspace
+            .json_buf
+            .reserve(ParserWorkspace::MAX_RETAINED_SCRATCH_BYTES + 1);
+        let (_main, dlq) = parser.parse_into(
+            vec![Message::new(Bytes::from_static(&[0xff, 0x00]))],
+            &mut workspace,
+        )?;
+        let dlq = dlq.expect("invalid payload must reach DLQ");
+        let raw = string_col(&dlq.batch, 0)?.value(0);
+        anyhow::ensure!(base64::engine::general_purpose::STANDARD.decode(raw)? == [0xff, 0x00]);
+        anyhow::ensure!(dlq.batch.schema().field(0).name() == "raw_base64");
+        anyhow::ensure!(workspace.dlq_payloads.is_empty());
+        anyhow::ensure!(
+            workspace.json_buf.capacity() <= ParserWorkspace::MAX_RETAINED_SCRATCH_BYTES
+        );
+        Ok(())
+    }
 
     /// Verifies the core invariant end-to-end: simd-json returns `&str`
     /// values whose bytes exactly match `json_buf[start..end]`.

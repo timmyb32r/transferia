@@ -36,6 +36,7 @@ struct MemoryLease {
 enum ReservationKind {
     Source,
     ProgressSource,
+    TransformInProgress,
     Transform,
 }
 
@@ -220,6 +221,28 @@ impl PipelineMemory {
         }
     }
 
+    /// Account buffers allocated by the currently executing transform without
+    /// treating that transform itself as downstream backpressure. The lease is
+    /// promoted after materialization, before it can be retained by a sink.
+    #[must_use]
+    pub fn reserve_transform_in_progress(&self, bytes: usize) -> MemoryReservation {
+        let bytes = bytes.max(1);
+        self.inner
+            .used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes)
+            })
+            .expect("pipeline memory accounting overflow");
+        MemoryReservation {
+            lease: Arc::new(MemoryLease {
+                bytes: AtomicUsize::new(bytes),
+                resize: Mutex::new(()),
+                kind: ReservationKind::TransformInProgress,
+                memory: Arc::clone(&self.inner),
+            }),
+        }
+    }
+
     /// Wait only for downstream capacity. Queued source reservations are
     /// deliberately excluded: consuming those buffers is how the parser frees
     /// them, so waiting on total usage here can deadlock the pipeline.
@@ -315,6 +338,7 @@ impl MemoryReservation {
                     .transform_used
                     .fetch_sub(released, Ordering::AcqRel);
             }
+            ReservationKind::TransformInProgress => {}
         }
         self.lease.memory.changed.notify_waiters();
         true
@@ -342,6 +366,7 @@ impl Drop for MemoryLease {
                     .transform_used
                     .fetch_sub(bytes, Ordering::AcqRel);
             }
+            ReservationKind::TransformInProgress => {}
         }
         if matches!(self.kind, ReservationKind::ProgressSource) {
             self.memory
@@ -386,6 +411,17 @@ mod tests {
         assert!(memory.is_transform_pressured());
         drop(lease);
         assert!(!memory.is_transform_pressured());
+    }
+
+    #[test]
+    fn in_progress_transform_is_accounted_without_throttling_downstream() {
+        let memory = PipelineMemory::new(10);
+        let lease = memory.reserve_transform_in_progress(20);
+        assert_eq!(memory.used(), 20);
+        assert_eq!(memory.transform_used(), 0);
+        assert!(!memory.is_transform_pressured());
+        drop(lease);
+        assert_eq!(memory.used(), 0);
     }
 
     #[tokio::test]

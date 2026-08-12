@@ -197,6 +197,9 @@ fn parser_loop(
             memory: source_memory,
             meta,
         } = envelope;
+        let output_hint = parser.output_size_hint(&messages);
+        let parse_memory =
+            (!messages.is_empty()).then(|| memory.reserve_transform_in_progress(output_hint));
         let started = std::time::Instant::now();
         let (valid, dlq) = parser
             .parse_into(messages)
@@ -220,13 +223,26 @@ fn parser_loop(
         // waiting for Arrow capacity, avoiding a transform-stage deadlock.
         drop(source_memory);
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
-        let output_memory = memory.reserve_transform(output_bytes);
+        let has_output = valid.batch.num_rows() > 0
+            || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
+        anyhow::ensure!(
+            !has_output || output_bytes <= output_hint,
+            "parser output exceeded its pre-accounted memory bound: actual {output_bytes}, bound {output_hint}"
+        );
+        let output_memory = has_output.then(|| memory.reserve_transform(output_bytes));
+        drop(parse_memory);
         let mut outputs = Vec::with_capacity(2);
-        if let Some(batch) = make_sink_batch(valid, valid_bytes, output_memory.clone()) {
+        if let Some(batch) = output_memory
+            .as_ref()
+            .and_then(|memory| make_sink_batch(valid, valid_bytes, memory.clone()))
+        {
             outputs.push(batch);
         }
         if let Some(dlq) = dlq {
-            if let Some(batch) = make_sink_batch(dlq, dlq_bytes, output_memory.clone()) {
+            if let Some(batch) = output_memory
+                .as_ref()
+                .and_then(|memory| make_sink_batch(dlq, dlq_bytes, memory.clone()))
+            {
                 outputs.push(batch);
             }
         }

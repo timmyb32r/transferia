@@ -46,8 +46,8 @@ S3 prefix, `object_layout_version`, partitioning/rotation, `max_open_objects`, a
 remain unchanged across replay. Wall-clock rotation is reported as
 at-least-once because restart timing changes object boundaries.
 
-`object_layout_version: 1` pins the deterministic key, NDJSON and epoch
-contract. This binary rejects any other version; future incompatible layout
+`object_layout_version: 2` pins the deterministic key, NDJSON, lossless base64
+DLQ payload and epoch contract. This binary rejects any other version; future incompatible layout
 changes must introduce a new version rather than silently reinterpreting
 uncommitted replay.
 

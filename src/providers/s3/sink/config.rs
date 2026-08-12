@@ -440,7 +440,7 @@ const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
 const fn default_object_layout_version() -> u32 {
-    1
+    2
 }
 const fn default_max_attempts() -> usize {
     10
@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn rejects_unknown_object_layout_version() -> anyhow::Result<()> {
         let config: S3SinkConfig =
-            serde_yaml::from_str("bucket: test\nobject_layout_version: 2\n")?;
+            serde_yaml::from_str("bucket: test\nobject_layout_version: 1\n")?;
         let error = config
             .validate()
             .expect_err("unknown layout must not silently change replay semantics");

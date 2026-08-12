@@ -72,7 +72,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 1
+    object_layout_version: 2
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -96,7 +96,7 @@ sink:
       max_bytes: 128MiB
       record_time_interval: null
       wall_clock_interval: null
-      on_partition_path_change: keep_open # rotate = Confluent-compatible
+      on_partition_path_change: keep_open # rotate = close between atomic source messages when the path changes
 
     buffering:
       # All buffering and upload-concurrency limits are per partition actor.
@@ -157,7 +157,8 @@ settings (including `keep_system_columns_in_sink`), destination identity
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
-`object_layout_version: 1` pins the deterministic key/payload/epoch contract;
+`object_layout_version: 2` pins the deterministic key/payload/epoch contract,
+including lossless base64 DLQ payloads;
 this binary rejects unknown versions instead of silently changing replay
 semantics.
 The normalized `(bucket, prefix)` namespace must be owned exclusively by one
@@ -184,6 +185,11 @@ projected out unless `keep_system_columns_in_sink: true`.
 PQv1 → ClickHouse is at-least-once: an ambiguous INSERT followed by replay can
 produce duplicate rows. See `docs/pqv1-clickhouse-delivery.md` for the precise
 runtime contract and unimplemented design options.
+
+Parser failures are written to the DLQ with the original payload encoded in
+`raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. The change
+is part of S3 `object_layout_version: 2`, so version 1 deployments must finish
+or deliberately abandon uncommitted replay before upgrading their layout.
 
 ClickHouse currently requires an explicit `use_tls: false`. The bundled native
 client cannot verify server certificates, so `use_tls: true` is rejected; use a

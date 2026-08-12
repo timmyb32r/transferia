@@ -22,6 +22,10 @@ pub trait Parser: Send + Sync {
 
 /// Mutable parser state owned by exactly one partition parser thread.
 pub trait ParserSession: Send {
+    /// Conservative Arrow/DLQ allocation bound used to account transform memory
+    /// before builders allocate it.
+    fn output_size_hint(&self, messages: &[Message]) -> usize;
+
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
