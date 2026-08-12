@@ -1,9 +1,7 @@
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
-use arrow::compute::cast;
-use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{
     ArrowFormat, Client, ClientBuilder, ConnectionStatus, Error as ClickHouseError,
@@ -49,7 +47,6 @@ impl ReconnectingClient {
         table: &str,
         batches: Vec<RecordBatch>,
     ) -> ClickHouseResult<()> {
-        let batches = normalize_insert_batches(batches)?;
         let schema = batches
             .first()
             .ok_or_else(|| clickhouse_arrow::Error::Client("empty INSERT batch list".into()))?
@@ -245,49 +242,6 @@ fn connect_task_error(error: &JoinError) -> ClickHouseError {
     }
 }
 
-fn normalize_insert_batches(batches: Vec<RecordBatch>) -> ClickHouseResult<Vec<RecordBatch>> {
-    batches.into_iter().map(normalize_insert_batch).collect()
-}
-
-fn normalize_insert_batch(batch: RecordBatch) -> ClickHouseResult<RecordBatch> {
-    if !batch
-        .schema()
-        .fields()
-        .iter()
-        .any(|field| field.data_type() == &DataType::Date64)
-    {
-        return Ok(batch);
-    }
-
-    let target_type = DataType::Timestamp(TimeUnit::Millisecond, None);
-    let schema = batch.schema();
-    let fields: Vec<_> = schema
-        .fields()
-        .iter()
-        .map(|field| {
-            if field.data_type() == &DataType::Date64 {
-                Arc::new(field.as_ref().clone().with_data_type(target_type.clone()))
-            } else {
-                Arc::clone(field)
-            }
-        })
-        .collect();
-    let columns = batch
-        .columns()
-        .iter()
-        .zip(schema.fields())
-        .map(|(column, field)| {
-            if field.data_type() == &DataType::Date64 {
-                cast(column, &target_type)
-            } else {
-                Ok(Arc::clone(column))
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let schema = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
-    Ok(RecordBatch::try_new(schema, columns)?)
-}
-
 struct InvalidateOnDrop<'client> {
     owner: &'client ReconnectingClient,
     client_id: u16,
@@ -360,9 +314,8 @@ fn insert_query(table: &str, schema: &arrow::datatypes::Schema) -> String {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Condvar, PoisonError};
+    use std::sync::{Arc, Condvar, PoisonError};
 
-    use arrow::array::{Array as _, Date64Array, TimestampMillisecondArray};
     use arrow::datatypes::{DataType, Field, Schema};
     use tokio::sync::Notify;
 
@@ -579,46 +532,5 @@ mod tests {
         assert!(values.contains(&("async_insert".into(), "0".into())));
         assert!(values.contains(&("wait_for_async_insert".into(), "1".into())));
         assert!(values.contains(&("insert_deduplicate".into(), "0".into())));
-    }
-
-    #[test]
-    fn normalizes_date64_to_timestamp_milliseconds_for_native_serialization() -> ClickHouseResult<()>
-    {
-        let schema = Arc::new(Schema::new_with_metadata(
-            vec![Field::new("date", DataType::Date64, true)],
-            [("schema-key".into(), "schema-value".into())].into(),
-        ));
-        let batch = RecordBatch::try_new(
-            schema,
-            vec![Arc::new(Date64Array::from(vec![
-                Some(-1),
-                None,
-                Some(86_400_000),
-            ]))],
-        )?;
-
-        let normalized = normalize_insert_batch(batch)?;
-
-        assert_eq!(
-            normalized.schema().field(0).data_type(),
-            &DataType::Timestamp(TimeUnit::Millisecond, None)
-        );
-        assert_eq!(
-            normalized
-                .schema()
-                .metadata()
-                .get("schema-key")
-                .map(String::as_str),
-            Some("schema-value")
-        );
-        let values = normalized
-            .column(0)
-            .as_any()
-            .downcast_ref::<TimestampMillisecondArray>()
-            .expect("Date64 must be cast to TimestampMillisecond");
-        assert_eq!(values.value(0), -1);
-        assert!(values.is_null(1));
-        assert_eq!(values.value(2), 86_400_000);
-        Ok(())
     }
 }

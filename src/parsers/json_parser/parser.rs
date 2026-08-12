@@ -807,19 +807,32 @@ fn append_system_columns(
     for (builder, kind) in builders[data_columns..].iter_mut().zip(kinds) {
         match (kind, builder) {
             (SystemColumnKind::Topic, AnyBuilder::Utf8(builder)) => {
-                builder.append_value(meta.topic.as_deref().unwrap_or_default());
+                builder.append_value(
+                    meta.topic
+                        .as_deref()
+                        .expect("system column preconditions require source topic"),
+                );
             }
             (SystemColumnKind::Partition, AnyBuilder::Int64(builder)) => {
-                builder.append_value(meta.partition.unwrap_or_default());
+                builder.append_value(
+                    meta.partition
+                        .expect("system column preconditions require source partition"),
+                );
             }
             (SystemColumnKind::Offset, AnyBuilder::Int64(builder)) => {
-                builder.append_value(meta.offset.unwrap_or_default());
+                builder.append_value(
+                    meta.offset
+                        .expect("system column preconditions require source offset"),
+                );
             }
             (SystemColumnKind::MessageIndex, AnyBuilder::UInt64(builder)) => {
                 builder.append_value(message_index);
             }
             (SystemColumnKind::WriteTimestampMs, AnyBuilder::Int64(builder)) => {
-                builder.append_value(meta.write_timestamp_ms.unwrap_or_default());
+                builder.append_value(
+                    meta.write_timestamp_ms
+                        .expect("system column preconditions require source timestamp"),
+                );
             }
             _ => unreachable!("system column builder must match its semantic kind"),
         }
@@ -1016,7 +1029,7 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
     let mut fields = vec![
         Field::new("raw_base64", DataType::Utf8, false),
         Field::new("error_message", DataType::Utf8, false),
-        Field::new("source_write_timestamp_ms", DataType::Int64, false),
+        Field::new("source_write_timestamp_ms", DataType::Int64, true),
     ];
     for kind in system_kinds {
         fields.push(Field::new(kind.name(), kind.data_type(), false));
@@ -1027,7 +1040,6 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
 enum DlqReason {
     JsonParse,
     ExtractionFailed,
-    ParserLimitExceeded,
 }
 
 impl DlqReason {
@@ -1035,9 +1047,6 @@ impl DlqReason {
         match self {
             Self::JsonParse => "JSON parse error",
             Self::ExtractionFailed => "JSONPath extraction failed for one or more columns",
-            Self::ParserLimitExceeded => {
-                "JSON parser safety limit exceeded; source message preserved without parsing"
-            }
         }
     }
 }
@@ -1171,35 +1180,6 @@ impl JsonParser {
                 .split(|byte| *byte == b'\n')
                 .any(|record| record.len() > MAX_RECORD_BYTES),
         })
-    }
-
-    fn preserve_unparsed_delivery(
-        &self,
-        messages: &[Message],
-        ws: &mut ParserWorkspace,
-    ) -> anyhow::Result<(TableData, Option<TableData>)> {
-        let mut payloads = Vec::with_capacity(messages.len());
-        for (source_message, message) in messages.iter().enumerate() {
-            payloads.push(dlq_record(
-                source_message,
-                0..message.value.len(),
-                DlqReason::ParserLimitExceeded,
-                0,
-            ));
-        }
-        ws.release_large_scratch();
-        let main = TableData {
-            batch: RecordBatch::new_empty(Arc::clone(&self.arrow_schema)),
-            table: Arc::clone(&self.table),
-            is_dlq: false,
-            system_columns: self.system_columns.clone(),
-        };
-        let dlq = if payloads.is_empty() {
-            None
-        } else {
-            Some(self.build_dlq_batch(messages, payloads)?)
-        };
-        Ok((main, dlq))
     }
 
     pub fn new(
@@ -1431,7 +1411,7 @@ impl JsonParser {
                 &message.value[record.byte_start as usize..record.byte_end as usize],
             )?;
             err_builder.append_value(record.reason.as_str());
-            source_ts_builder.append_value(message.meta.write_timestamp_ms.unwrap_or_default());
+            source_ts_builder.append_option(message.meta.write_timestamp_ms);
             append_system_columns(
                 &mut system_builders,
                 0,
@@ -1809,7 +1789,9 @@ impl JsonParser {
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         self.check_system_column_preconditions(&messages)?;
         if self.requires_safe_dlq_fallback(&messages) {
-            return self.preserve_unparsed_delivery(&messages, ws);
+            anyhow::bail!(
+                "JSON parser input exceeds the configured 256MiB delivery or 4MiB record safety limit"
+            );
         }
 
         // Count rows without retaining a second per-record index. Parsing
@@ -2167,8 +2149,7 @@ mod tests {
     }
 
     #[test]
-    fn oversized_parser_working_set_is_preserved_in_dlq_before_builder_allocation(
-    ) -> anyhow::Result<()> {
+    fn oversized_parser_working_set_fails_before_builder_allocation() -> anyhow::Result<()> {
         let parser = parser_for(
             (0..8)
                 .map(|index| {
@@ -2182,21 +2163,14 @@ mod tests {
                 .collect(),
         )?;
         // OneMessageOneRow counts this as one row, but every string mapping may
-        // retain the full source text. The preflight must reject the working
-        // set before any Arrow builder gets that capacity.
+        // retain the full source text. The preflight must fail instead of
+        // silently changing valid input into a DLQ row.
         let payload = Bytes::from(vec![b'x'; 32 * 1024 * 1024]);
         let mut workspace = ParserWorkspace::new();
-        let (main, dlq) = parser.parse_into(vec![Message::new(payload)], &mut workspace)?;
-        assert_eq!(main.batch.num_rows(), 0);
-        let dlq = dlq.expect("oversized source record must be preserved in DLQ");
-        assert_eq!(dlq.batch.num_rows(), 1);
-        let reasons = dlq
-            .batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<arrow::array::StringArray>()
-            .expect("DLQ reason string");
-        assert!(reasons.value(0).contains("safety limit"));
+        let error = parser
+            .parse_into(vec![Message::new(payload)], &mut workspace)
+            .expect_err("oversized input must fail before materialization");
+        assert!(error.to_string().contains("safety limit"));
         assert!(workspace.builders.is_empty());
         Ok(())
     }
@@ -2241,6 +2215,29 @@ mod tests {
             .downcast_ref::<Int64Array>()
             .expect("DLQ source timestamp must be Int64");
         assert_eq!(timestamps.value(0), 1_234);
+        Ok(())
+    }
+
+    #[test]
+    fn dlq_does_not_invent_a_missing_source_timestamp() -> anyhow::Result<()> {
+        let parser = parser_for(vec![crate::parsers::json_parser::ColumnMapping::new(
+            "$.id".into(),
+            "id".into(),
+            "Int64".into(),
+            false,
+        )])?;
+        let (_main, dlq) = parser.parse_into(
+            vec![Message::new(Bytes::from_static(b"invalid"))],
+            &mut ParserWorkspace::new(),
+        )?;
+        let dlq = dlq.expect("invalid JSON must reach DLQ");
+        let timestamps = dlq
+            .batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<arrow::array::Int64Array>()
+            .expect("DLQ source timestamp must be Int64");
+        assert!(timestamps.is_null(0));
         Ok(())
     }
 

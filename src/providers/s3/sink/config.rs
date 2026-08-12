@@ -218,6 +218,14 @@ fn parse_human_value(value: &str, suffixes: &[(&str, u64)]) -> anyhow::Result<u6
 impl S3SinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
+        if !self.prefix.is_empty() {
+            let parsed = object_store::path::Path::parse(&self.prefix)
+                .map_err(|error| anyhow::anyhow!("invalid s3.prefix {:?}: {error}", self.prefix))?;
+            anyhow::ensure!(
+                parsed.as_ref() == self.prefix,
+                "s3.prefix must be a normalized relative path without leading or trailing slashes"
+            );
+        }
         anyhow::ensure!(
             self.object_layout_version == default_object_layout_version(),
             "unsupported s3.object_layout_version {}; this binary supports only version {}",
@@ -474,7 +482,7 @@ const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
 const fn default_object_layout_version() -> u32 {
-    4
+    5
 }
 const fn default_max_attempts() -> usize {
     10

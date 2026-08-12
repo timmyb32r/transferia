@@ -404,9 +404,6 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
     match (expected, target_data_type) {
         (DataType::Utf8 | DataType::LargeUtf8, DataType::Utf8)
         | (DataType::Boolean, DataType::UInt8) => true,
-        (DataType::Date64, DataType::Timestamp(TimeUnit::Millisecond, _)) => {
-            target.datetime64 && target.datetime_precision == Some(3)
-        }
         (DataType::Timestamp(expected_unit, expected_timezone), DataType::Timestamp(unit, _)) => {
             let expected_precision = match expected_unit {
                 TimeUnit::Second => 0,
@@ -455,7 +452,9 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
         DataType::Date32 => anyhow::bail!(
             "Arrow Date32 is unavailable for ClickHouse: clickhouse-arrow 0.2 shifts values by 25,567 days"
         ),
-        DataType::Date64 => "DateTime64(3)".into(),
+        DataType::Date64 => anyhow::bail!(
+            "Arrow Date64 is unavailable for ClickHouse without an explicit configured conversion to Timestamp(Millisecond)"
+        ),
         DataType::Timestamp(unit, timezone) => {
             let timezone = timezone.as_deref().map(quote_string_literal);
             let precision = match unit {
@@ -617,17 +616,14 @@ mod tests {
     }
 
     #[test]
-    fn date64_uses_datetime64_milliseconds() -> anyhow::Result<()> {
+    fn date64_requires_an_explicit_parser_conversion() {
         let date64 = schema(vec![SchemaColumn::new(
             "date".into(),
             DataType::Date64,
             false,
         )]);
-        assert_eq!(
-            create_table_ddl("events", &date64, &[])?,
-            "CREATE TABLE IF NOT EXISTS `events` (`date` DateTime64(3)) ENGINE = MergeTree ORDER BY (tuple())"
-        );
-        Ok(())
+        let error = create_table_ddl("events", &date64, &[]).unwrap_err();
+        assert!(error.to_string().contains("explicit configured conversion"));
     }
 
     #[test]

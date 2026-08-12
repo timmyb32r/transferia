@@ -34,7 +34,8 @@ an in-memory asynchronous insert or silently dropping a distinct source batch
 whose rows happen to equal an earlier replicated insert.
 
 The current DLQ stores the lossless source payload in `raw_base64` and the
-deterministic source timestamp in `source_write_timestamp_ms`. Deployments
+nullable source-provided timestamp in `source_write_timestamp_ms`; it never
+invents a timestamp when source metadata is absent. Deployments
 with the historical `raw_bytes` DLQ must create a new empty DLQ table (or move
 the old one aside) after replay into the old layout is impossible. Renaming
 `raw_bytes` to `raw_base64` is invalid because historical values were not base64.

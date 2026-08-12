@@ -408,7 +408,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
         DatasetSchema::new(incoming_schema.columns[..2].to_vec())
     };
     Arc::new(DeliveryDiscovery {
-        source_name: Arc::from("topic/a"),
+        source_name: Arc::from("topic-a"),
         source_partitions: vec![3],
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
@@ -457,7 +457,7 @@ async fn delivery(
         vec![
             Arc::new(Int64Array::from(vec![offset])),
             Arc::new(StringArray::from(vec![None::<&str>])),
-            Arc::new(StringArray::from(vec!["topic/a"])),
+            Arc::new(StringArray::from(vec!["topic-a"])),
             Arc::new(Int64Array::from(vec![3])),
             Arc::new(Int64Array::from(vec![offset])),
             Arc::new(UInt64Array::from(vec![0])),
@@ -520,7 +520,7 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
         vec![
             Arc::new(Int64Array::from(offsets.to_vec())),
             Arc::new(StringArray::from(vec![None::<&str>; rows])),
-            Arc::new(StringArray::from(vec!["topic/a"; rows])),
+            Arc::new(StringArray::from(vec!["topic-a"; rows])),
             Arc::new(Int64Array::from(vec![3; rows])),
             Arc::new(Int64Array::from(offsets.to_vec())),
             Arc::new(UInt64Array::from(vec![0; rows])),
@@ -744,12 +744,12 @@ async fn uploads_multiple_closed_objects_in_parallel() {
     {
         let uploads = uploader.uploads.lock().unwrap();
         assert!(uploads.iter().any(|(key, payload)| {
-            key == "events/topic=topic%2Fa/partition=3/topic%2Fa+3+10.json"
+            key == "events/topic=topic-a/partition=3/topic-a+3+10.json"
                 && payload == &Bytes::from_static(b"{\"id\":10,\"nullable\":null}\n")
         }));
         assert!(uploads
             .iter()
-            .any(|(key, _)| { key == "events/topic=topic%2Fa/partition=3/topic%2Fa+3+11.json" }));
+            .any(|(key, _)| { key == "events/topic=topic-a/partition=3/topic-a+3+11.json" }));
         drop(uploads);
     }
     cancel.cancel();
@@ -793,7 +793,7 @@ async fn dlq_uses_fixed_source_partition_route() {
         let uploads = uploader.uploads.lock().unwrap();
         assert!(uploads[0]
             .0
-            .starts_with("events_dlq/topic=topic%2Fa/partition=3/"));
+            .starts_with("events_dlq/topic=topic-a/partition=3/"));
         drop(uploads);
     }
     cancel.cancel();
@@ -924,7 +924,7 @@ async fn can_explicitly_keep_system_columns_in_json() {
         let uploads = uploader.uploads.lock().unwrap();
         let json: serde_json::Value = serde_json::from_slice(&uploads[0].1).unwrap();
         drop(uploads);
-        assert_eq!(json[SystemColumnKind::Topic.name()], "topic/a");
+        assert_eq!(json[SystemColumnKind::Topic.name()], "topic-a");
         assert_eq!(json[SystemColumnKind::WriteTimestampMs.name()], 1_234);
     }
     cancel.cancel();
@@ -941,7 +941,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
                 b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
             ),
             meta: MessageMeta {
-                topic: Some(Arc::from("topic/a")),
+                topic: Some(Arc::from("topic-a")),
                 partition: Some(3),
                 offset: Some(77),
                 write_timestamp_ms: Some(1_234),
@@ -1010,7 +1010,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
                     b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
                 ),
                 meta: MessageMeta {
-                    topic: Some(Arc::from("topic/a")),
+                    topic: Some(Arc::from("topic-a")),
                     partition: Some(3),
                     offset: Some(77),
                     write_timestamp_ms: Some(1_234),
@@ -1148,7 +1148,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         .map(|offset| Message {
             value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
             meta: MessageMeta {
-                topic: Some(Arc::from("topic/a")),
+                topic: Some(Arc::from("topic-a")),
                 partition: Some(3),
                 offset: Some(offset),
                 write_timestamp_ms: Some(1_234 + offset),
@@ -1200,7 +1200,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
     let message = |offset| Message {
         value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
         meta: MessageMeta {
-            topic: Some(Arc::from("topic/a")),
+            topic: Some(Arc::from("topic-a")),
             partition: Some(3),
             offset: Some(offset),
             write_timestamp_ms: Some(1_234 + offset),
@@ -1343,7 +1343,7 @@ async fn unrelated_epoch_completion_does_not_resume_a_pressured_delivery() {
     const HEADROOM_FOR_FIRST_GROUP: usize = 250;
     const EXTRA_PRESSURE: usize = 512;
     const ROUTE_RETAINED_BYTES: usize =
-        128 + "events".len() + "topic/a".len() + "topic=topic%2Fa/partition=3".len();
+        128 + "events".len() + "topic-a".len() + "topic=topic-a/partition=3".len();
 
     let uploader = FakeUploader::controlled(GROUPS);
     let memory = PipelineMemory::new(MEMORY_LIMIT);
@@ -1464,7 +1464,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
     let message = |value: &'static [u8], offset| Message {
         value: Bytes::from_static(value),
         meta: MessageMeta {
-            topic: Some(Arc::from("topic/a")),
+            topic: Some(Arc::from("topic-a")),
             partition: Some(3),
             offset: Some(offset),
             write_timestamp_ms: Some(1_234 + offset),

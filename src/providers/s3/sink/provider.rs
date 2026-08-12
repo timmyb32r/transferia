@@ -17,10 +17,7 @@ use crate::types::system_columns::SystemColumnKind;
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3SinkConfig};
-use super::object_key::{
-    bounded_dynamic_component, bounded_dynamic_path, ObjectKey, MAX_DYNAMIC_COMPONENT_BYTES,
-    MAX_OBJECT_KEY_BYTES,
-};
+use super::object_key::{validate_path_component, ObjectKey, MAX_OBJECT_KEY_BYTES};
 use super::upload::{ObjectUploader, S3Uploader};
 use crate::compatibility::{EndpointDescriptor, S3Descriptor, S3Partitioning};
 
@@ -79,12 +76,9 @@ fn validate_schema(dataset: &str, schema_kind: &str, schema: &DatasetSchema) -> 
     Ok(())
 }
 
-fn source_partition_path_probe() -> String {
-    format!(
-        "topic={}/partition={}",
-        "x".repeat(MAX_DYNAMIC_COMPONENT_BYTES),
-        i64::MIN,
-    )
+fn source_partition_path_probe(source_name: &str) -> anyhow::Result<String> {
+    validate_path_component("source name", source_name)?;
+    Ok(format!("topic={source_name}/partition={}", i64::MIN))
 }
 
 fn record_time_path_probe(path: &str, timezone: &str) -> anyhow::Result<String> {
@@ -110,7 +104,8 @@ fn record_time_path_probe(path: &str, timezone: &str) -> anyhow::Result<String> 
                 .format_with_items(items.iter())
                 .write_to(&mut rendered)
                 .map_err(|_| anyhow::anyhow!("record-time path '{path}' could not be formatted"))?;
-            bounded_dynamic_path(&rendered)
+            super::partitioning::validate_partition_path(&rendered)?;
+            Ok(rendered)
         })
         .collect::<anyhow::Result<Vec<_>>>()?
         .into_iter()
@@ -121,29 +116,19 @@ fn record_time_path_probe(path: &str, timezone: &str) -> anyhow::Result<String> 
 impl S3SinkConfig {
     fn main_partition_path_probe(&self) -> anyhow::Result<String> {
         match &self.partitioning {
-            PartitioningConfig::Source => Ok(source_partition_path_probe()),
+            PartitioningConfig::Source => {
+                anyhow::bail!("source partition path probe requires discovered source identity")
+            }
             PartitioningConfig::Fields { columns } => Ok(columns
                 .iter()
                 .map(|column| {
-                    format!(
-                        "{}={}",
-                        bounded_dynamic_component(column.as_bytes()),
-                        "x".repeat(MAX_DYNAMIC_COMPONENT_BYTES),
-                    )
+                    validate_path_component("partition column name", column)?;
+                    Ok(format!("{column}=value"))
                 })
-                .collect::<Vec<_>>()
+                .collect::<anyhow::Result<Vec<_>>>()?
                 .join("/")),
             PartitioningConfig::RecordTime { path, timezone, .. } => {
-                record_time_path_probe(path, timezone).map(|rendered| {
-                    // Every runtime segment is either preserved or reduced to
-                    // this exact cap. Reserve the cap for each segment so the
-                    // startup proof covers the full Chrono timestamp range.
-                    rendered
-                        .split('/')
-                        .map(|_| "x".repeat(MAX_DYNAMIC_COMPONENT_BYTES))
-                        .collect::<Vec<_>>()
-                        .join("/")
-                })
+                record_time_path_probe(path, timezone)
             }
         }
     }
@@ -151,12 +136,17 @@ impl S3SinkConfig {
     fn validate_object_namespace(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
         let main = discovery.dataset(DatasetRole::Main)?;
         let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
-        let topic_probe = "x".repeat(MAX_DYNAMIC_COMPONENT_BYTES + 1);
+        validate_path_component("source name", &discovery.source_name)?;
+        let source_path = source_partition_path_probe(&discovery.source_name)?;
+        let main_partition_path = match self.partitioning {
+            PartitioningConfig::Source => source_path.clone(),
+            _ => self.main_partition_path_probe()?,
+        };
         ObjectKey::for_json_object(
             &self.prefix,
             &main.name,
-            &self.main_partition_path_probe()?,
-            &topic_probe,
+            &main_partition_path,
+            &discovery.source_name,
             i64::MIN,
             i64::MIN,
         )
@@ -169,8 +159,8 @@ impl S3SinkConfig {
         ObjectKey::for_json_object(
             &self.prefix,
             &dlq.name,
-            &source_partition_path_probe(),
-            &topic_probe,
+            &source_path,
+            &discovery.source_name,
             i64::MIN,
             i64::MIN,
         )
@@ -333,7 +323,7 @@ impl SinkProvider for S3SinkProvider {
     }
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
-        let prefix = self.cfg.prefix.trim_matches('/').to_string();
+        let prefix = self.cfg.prefix.clone();
         Box::pin(async move {
             for dataset in [&request.table, &request.dlq_table] {
                 let candidate = if prefix.is_empty() {
@@ -420,7 +410,7 @@ mod tests {
 
     fn discovery(value_type: DataType, value_nullable: bool) -> DeliveryDiscovery {
         DeliveryDiscovery {
-            source_name: Arc::from("topic/a"),
+            source_name: Arc::from("topic-a"),
             source_partitions: vec![0],
             schema_origin: SchemaOrigin::ParserProjection,
             keep_system_columns: false,
@@ -537,12 +527,13 @@ mod tests {
     }
 
     #[test]
-    fn record_time_discovery_reserves_the_runtime_segment_cap() -> anyhow::Result<()> {
+    fn record_time_discovery_validates_the_rendered_namespace_without_rewriting(
+    ) -> anyhow::Result<()> {
         let mut provider = S3SinkProvider::from_config(serde_yaml::from_str(
             "bucket: test\npartitioning: { type: record_time, window: 1h, path: 'year=%Y', timezone: UTC }\n",
         )?)?;
         let probe = provider.cfg.main_partition_path_probe()?;
-        assert_eq!(probe.len(), MAX_DYNAMIC_COMPONENT_BYTES);
+        assert_eq!(probe, "year=9999");
         let mut discovered = discovery(DataType::Utf8, false);
         for dataset in &mut discovered.datasets {
             dataset
@@ -556,7 +547,7 @@ mod tests {
         }
         provider.limits().validate_discovery(&discovered)?;
 
-        provider.cfg.prefix = "x".repeat(MAX_OBJECT_KEY_BYTES - MAX_DYNAMIC_COMPONENT_BYTES);
+        provider.cfg.prefix = "x".repeat(MAX_OBJECT_KEY_BYTES - probe.len());
         assert!(provider.limits().validate_discovery(&discovered).is_err());
         Ok(())
     }

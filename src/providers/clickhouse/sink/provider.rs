@@ -53,7 +53,6 @@ impl SinkLimits for ClickHouseSinkConfig {
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
                 ArrowTypeFamily::Boolean,
-                ArrowTypeFamily::Date64,
                 ArrowTypeFamily::Timestamp,
             ],
             object_key: None,

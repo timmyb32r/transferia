@@ -38,7 +38,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 4
+    object_layout_version: 5
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"

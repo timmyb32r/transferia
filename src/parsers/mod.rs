@@ -139,7 +139,7 @@ impl ParserPlan {
             SchemaColumn::new(
                 "source_write_timestamp_ms".to_string(),
                 arrow::datatypes::DataType::Int64,
-                false,
+                true,
             ),
         ];
         if keep_system_columns {

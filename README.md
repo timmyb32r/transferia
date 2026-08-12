@@ -72,7 +72,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 4
+    object_layout_version: 5
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -166,11 +166,11 @@ settings (including `keep_system_columns_in_sink`), destination identity
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
-`object_layout_version: 4` pins the deterministic key/payload/epoch contract,
-including lossless base64 DLQ payloads and deterministic SHA-256 bounding of
-overlong data-derived topic, field, and record-time path segments;
-this binary rejects unknown versions instead of silently changing replay
-semantics.
+`object_layout_version: 5` pins the deterministic key/payload/epoch contract.
+Data-derived topic, field, and record-time path components are preserved exactly;
+invalid components and keys longer than 1024 UTF-8 bytes fail before upload and
+are never silently encoded, shortened, or replaced with hashes. This binary
+rejects unknown versions instead of silently changing replay semantics.
 The normalized `(bucket, prefix)` namespace must be owned exclusively by one
 logical PQ/Logbroker source. Its workers and partitions may share that namespace
 because keys include source topic and partition, but an independent source must
@@ -198,11 +198,12 @@ runtime contract and unimplemented design options.
 
 Parser failures are written to the DLQ with the original payload encoded in
 `raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. DLQ rows
-also store deterministic `source_write_timestamp_ms`, never parser wall-clock
-time. To keep parser allocation bounded, a delivery whose conservative output
+also store nullable `source_write_timestamp_ms` copied from source metadata,
+never parser wall-clock time or an invented zero. To keep parser allocation bounded, a delivery whose conservative output
 working set exceeds 256MiB, or which contains a JSON record larger than 4MiB,
-is preserved unparsed in the DLQ with an explicit safety-limit reason. These
-semantics are part of S3 `object_layout_version: 4`.
+causes the delivery to fail before materialization. The parser never silently
+changes valid input into a DLQ row because of an internal safety limit. These
+semantics are part of S3 `object_layout_version: 5`.
 For ClickHouse, DLQ schema changes are intentionally fail-closed: create a new
 empty `<table>_dlq` with the current schema (or move the old table aside).
 

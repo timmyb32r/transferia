@@ -412,7 +412,7 @@ mod tests {
             partitioning,
             record_time_rotation: false,
             wall_clock_rotation,
-            object_layout_version: 4,
+            object_layout_version: 5,
         })
     }
 
