@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -210,6 +210,91 @@ impl ObjectUploader for FakeUploader {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push((key.to_owned(), payload));
             self.completed.notify_waiters();
+            Ok(())
+        })
+    }
+}
+
+enum ReplayUploadPlan {
+    Success,
+    Retryable,
+    Gated(Arc<Semaphore>),
+}
+
+struct PersistentReplayUploader {
+    objects: Arc<Mutex<BTreeMap<String, Bytes>>>,
+    plans: Mutex<VecDeque<ReplayUploadPlan>>,
+    attempts: AtomicUsize,
+    started: Notify,
+}
+
+impl PersistentReplayUploader {
+    fn new(
+        objects: Arc<Mutex<BTreeMap<String, Bytes>>>,
+        plans: impl IntoIterator<Item = ReplayUploadPlan>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            objects,
+            plans: Mutex::new(plans.into_iter().collect()),
+            attempts: AtomicUsize::new(0),
+            started: Notify::new(),
+        })
+    }
+
+    async fn wait_for_attempts(&self, expected: usize) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let started = self.started.notified();
+                if self.attempts.load(Ordering::Acquire) >= expected {
+                    return;
+                }
+                started.await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("persistent upload attempt {expected} did not start"));
+    }
+}
+
+impl ObjectUploader for PersistentReplayUploader {
+    fn upload<'a>(
+        &'a self,
+        key: &'a str,
+        payload: Bytes,
+        cancellation: &'a CancellationToken,
+    ) -> BoxFuture<'a, Result<(), UploadError>> {
+        let plan = self
+            .plans
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
+            .unwrap_or(ReplayUploadPlan::Success);
+        self.attempts.fetch_add(1, Ordering::AcqRel);
+        self.started.notify_waiters();
+        Box::pin(async move {
+            match plan {
+                ReplayUploadPlan::Success => {}
+                ReplayUploadPlan::Retryable => {
+                    return Err(UploadError::Retryable(anyhow::anyhow!(
+                        "injected partial-epoch failure"
+                    )));
+                }
+                ReplayUploadPlan::Gated(gate) => {
+                    tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => return Err(UploadError::Cancelled),
+                        permit = gate.acquire() => {
+                            permit
+                                .map_err(|error| UploadError::Permanent(error.into()))?
+                                .forget();
+                        }
+                    }
+                }
+            }
+            self.objects
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(key.to_owned(), payload);
             Ok(())
         })
     }
@@ -878,6 +963,142 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
     assert!(keys.iter().any(|key| key.contains("id=88")));
     cancellation.cancel();
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
+    let start_pipeline = |uploader: Arc<PersistentReplayUploader>,
+                          commits: mpsc::UnboundedSender<i64>| {
+        let source = FakeSource {
+            batches: VecDeque::from([vec![Message {
+                value: Bytes::from_static(
+                    b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
+                ),
+                meta: MessageMeta {
+                    topic_path: Some(Arc::from("topic/a")),
+                    partition_id: Some(3),
+                    offset: Some(77),
+                    write_timestamp_ms: Some(1_234),
+                },
+            }]]),
+            commits,
+        };
+        let config: S3SinkConfig = serde_yaml::from_str(
+                "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 1 }\npartitioning: { type: fields, columns: [id] }\n",
+            )
+            .unwrap();
+        let memory = PipelineMemory::new(1 << 20);
+        let cancellation = CancellationToken::new();
+        let sink = S3Sink::new(
+            config,
+            uploader as Arc<dyn ObjectUploader>,
+            Arc::new(SinkCounters::new()),
+            false,
+        )
+        .unwrap();
+        let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+            Box::new(source),
+            pipeline_parser(),
+            Arc::new(Vec::new()),
+            Box::new(sink),
+            memory,
+            cancellation.clone(),
+            3,
+            Arc::new(crate::metrics::ParseCounters::new()),
+        ));
+        (cancellation, task)
+    };
+
+    let objects = Arc::new(Mutex::new(BTreeMap::new()));
+    let first_uploader = PersistentReplayUploader::new(
+        Arc::clone(&objects),
+        [ReplayUploadPlan::Success, ReplayUploadPlan::Retryable],
+    );
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let (_first_cancellation, first_task) = start_pipeline(first_uploader, commit_tx.clone());
+    let first_error = tokio::time::timeout(std::time::Duration::from_secs(5), first_task)
+        .await
+        .expect("partial-epoch pipeline attempt did not stop")
+        .expect("partial-epoch pipeline task panicked")
+        .expect_err("the injected second-object failure must restart the pipeline");
+    assert!(first_error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .is_some_and(crate::pipeline::PipelineFailure::is_retryable));
+    assert!(matches!(
+        commit_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        objects
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len(),
+        1,
+        "the failed attempt must leave exactly one durable object from the epoch"
+    );
+
+    let first_replay_gate = Arc::new(Semaphore::new(0));
+    let second_replay_gate = Arc::new(Semaphore::new(0));
+    let replay_uploader = PersistentReplayUploader::new(
+        Arc::clone(&objects),
+        [
+            ReplayUploadPlan::Gated(Arc::clone(&first_replay_gate)),
+            ReplayUploadPlan::Gated(Arc::clone(&second_replay_gate)),
+        ],
+    );
+    let (replay_cancellation, replay_task) =
+        start_pipeline(Arc::clone(&replay_uploader), commit_tx);
+    replay_uploader.wait_for_attempts(1).await;
+    assert!(matches!(
+        commit_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    first_replay_gate.add_permits(1);
+    replay_uploader.wait_for_attempts(2).await;
+    assert!(matches!(
+        commit_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    second_replay_gate.add_permits(1);
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), commit_rx.recv())
+            .await
+            .expect("replayed epoch was not committed after both objects became durable"),
+        Some(77)
+    );
+    replay_cancellation.cancel();
+    replay_task.await.unwrap().unwrap();
+
+    let reference_objects = Arc::new(Mutex::new(BTreeMap::new()));
+    let reference_uploader = PersistentReplayUploader::new(
+        Arc::clone(&reference_objects),
+        std::iter::empty::<ReplayUploadPlan>(),
+    );
+    let (reference_commit_tx, mut reference_commit_rx) = mpsc::unbounded_channel();
+    let (reference_cancellation, reference_task) =
+        start_pipeline(reference_uploader, reference_commit_tx);
+    assert_eq!(
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            reference_commit_rx.recv()
+        )
+        .await
+        .expect("uninterrupted reference epoch was not committed"),
+        Some(77)
+    );
+    reference_cancellation.cancel();
+    reference_task.await.unwrap().unwrap();
+
+    let replayed = objects
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    let uninterrupted = reference_objects
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(replayed.len(), 2);
+    assert_eq!(replayed, uninterrupted);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

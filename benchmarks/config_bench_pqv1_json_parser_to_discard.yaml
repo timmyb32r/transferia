@@ -4,13 +4,13 @@
 
 source:
   pqv1:
-    connection_string: "grpc://localhost:2135"
-    topic_path: "/benchmark/events"
-    consumer_name: "transferia-benchmark-json-parser"
+    connection_string: "${PQ_ENDPOINT:-grpc://localhost:2136}"
+    topic_path: "${PQ_TOPIC:-/benchmark/events}"
+    consumer_name: "${PQ_CONSUMER_JSON:-transferia-benchmark-json-parser}-${BENCHMARK_REPETITION:-manual}"
     partition_ids: [0]
     auth:
       type: access_token
-      token_file: "$HOME/.logbroker/token"
+      token: "${PQ_TOKEN:-benchmark-token}"
     parser:
       common:
         table_naming:

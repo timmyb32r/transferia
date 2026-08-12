@@ -185,12 +185,17 @@ ClickHouse currently requires an explicit `use_tls: false`. The bundled native
 client cannot verify server certificates, so `use_tls: true` is rejected; use a
 verified local TLS tunnel and keep only the trusted local hop plaintext.
 Connection/request deadlines and finite retries are configurable. The
-underlying client still performs a blocking TCP connect with its own 30-second
-bound, so a smaller configured connect timeout is not a strict wall-clock
-interrupt. Existing tables are checked against the Arrow schema before
-ingestion.
+configured connect timeout is a strict deadline for the caller and does not
+block Tokio workers. Because the underlying client uses a non-cancellable
+30-second socket connect, its current socket call may finish later on the
+blocking pool; an internal deadline then stops the remaining connection work,
+and reconnects reuse that single in-flight attempt instead of accumulating more
+work. Existing tables are checked against the Arrow schema before ingestion.
 
 Ready-to-edit benchmark configurations live in `benchmarks/`. The three
 `discard` variants isolate network, decompression, and parsing; separate configs
 exercise the full ClickHouse and S3 paths. Repository tests parse and validate
-every benchmark config against the registered provider schemas.
+every benchmark config against the registered provider schemas. Run and compare
+them with `scripts/run_single_partition_benchmark.py`; the complete procedure,
+environment overrides, backlog requirements, and regression rule are in
+`docs/benchmarks.md`.

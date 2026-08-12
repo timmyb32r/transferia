@@ -22,11 +22,13 @@ Consequences for operators:
 - changing parser or table configuration while uncommitted data can replay may
   change the rows produced by that replay.
 
-Connection and request deadlines are configurable, but the bundled native
-client performs a blocking TCP connect with its own 30-second bound. A smaller
-configured connect timeout therefore is not a strict wall-clock interrupt.
-TLS is rejected because this client cannot verify server certificates; use a
-verified local TLS tunnel when encryption is required.
+Connection and request deadlines are configurable. The connect timeout is a
+strict caller deadline and never blocks a Tokio worker. The bundled native
+client's socket connect cannot be cancelled, so its current socket call may
+continue for up to another 30 seconds on the blocking pool. An internal deadline
+then stops the remaining connection work, and reconnects reuse that single
+in-flight attempt. TLS is rejected because this client cannot verify server
+certificates; use a verified local TLS tunnel when encryption is required.
 
 ## Possible exactly-once designs
 

@@ -25,18 +25,21 @@ impl ClickHouseSinkProvider {
         })
     }
 
+    async fn client_slot(&self) -> Arc<ReconnectingClient> {
+        Arc::clone(
+            self.client
+                .get_or_init(|| async { Arc::new(ReconnectingClient::new(&self.config)) })
+                .await,
+        )
+    }
+
     async fn shared_client(&self) -> anyhow::Result<Arc<ReconnectingClient>> {
-        self.client
-            .get_or_try_init(|| async {
-                let client = Arc::new(ReconnectingClient::connect(&self.config).await?);
-                tracing::info!(
-                    endpoint = self.config.connection_string,
-                    "connected shared ClickHouse client"
-                );
-                Ok::<_, anyhow::Error>(client)
-            })
+        let client = self.client_slot().await;
+        client
+            .ensure_connected()
             .await
-            .map(Arc::clone)
+            .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
+        Ok(client)
     }
 }
 
@@ -69,5 +72,23 @@ impl SinkProvider for ClickHouseSinkProvider {
                 )) as Box<dyn Sink>,
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn provider_publishes_client_before_any_connect_attempt() -> anyhow::Result<()> {
+        let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
+            "connection_string: 127.0.0.1:1\nuse_tls: false\nconnect_timeout_ms: 1\n",
+        )?)?;
+
+        let first = provider.client_slot().await;
+        let second = provider.client_slot().await;
+
+        assert!(Arc::ptr_eq(&first, &second));
+        Ok(())
     }
 }

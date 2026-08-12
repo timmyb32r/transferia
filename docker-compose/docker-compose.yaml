@@ -1,6 +1,6 @@
 # Docker Compose — local transferia development dependencies
 #
-# Start:  docker compose up -d
+# Start:  docker compose -f docker-compose/docker-compose.yaml up -d
 # Verify: docker exec -it clickhouse clickhouse-client -q "SELECT 1"
 #
 # transferia creates and validates ClickHouse tables at runtime; this compose
@@ -9,7 +9,7 @@
 services:
   # YDB local instance for development/testing
   ydb:
-    image: ghcr.io/ydb-platform/local-ydb:latest
+    image: ydbplatform/local-ydb:25.4.1
     container_name: ydb-local
     hostname: ydb
     environment:
@@ -29,7 +29,7 @@ services:
 
   # ClickHouse server
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:25.8.28.1
     container_name: clickhouse
     hostname: clickhouse
     ports:
@@ -45,6 +45,27 @@ services:
     ulimits:
       nofile: 262144
 
+  # Pinned S3 emulator for the S3 benchmark profile.
+  localstack:
+    image: localstack/localstack:4.14.0
+    container_name: localstack
+    hostname: localstack
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      PERSISTENCE: "1"
+    ports:
+      - "9002:4566"
+    volumes:
+      - s3-data:/var/lib/localstack
+      - ./localstack-init:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   ydb-data:
   ch-data:
+  s3-data:

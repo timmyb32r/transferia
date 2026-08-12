@@ -154,6 +154,7 @@ impl Source for FakeSource {
 struct FakeClickHouse {
     inserts: AtomicUsize,
     rows: AtomicUsize,
+    persisted_transient_failures: AtomicUsize,
     block: bool,
     gate: Arc<Semaphore>,
     started: Notify,
@@ -164,10 +165,19 @@ impl FakeClickHouse {
         Arc::new(Self {
             inserts: AtomicUsize::new(0),
             rows: AtomicUsize::new(0),
+            persisted_transient_failures: AtomicUsize::new(0),
             block,
             gate: Arc::new(Semaphore::new(0)),
             started: Notify::new(),
         })
+    }
+
+    fn persist_then_fail_once() -> Arc<Self> {
+        let transport = Self::new(false);
+        transport
+            .persisted_transient_failures
+            .store(1, Ordering::Release);
+        transport
     }
 }
 
@@ -185,6 +195,12 @@ impl InsertTransport for FakeClickHouse {
                 .sum(),
             Ordering::AcqRel,
         );
+        let persisted_but_transient = self
+            .persisted_transient_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok();
         self.started.notify_one();
         let gate = if self.block {
             Some(Arc::clone(&self.gate).acquire_owned())
@@ -196,6 +212,11 @@ impl InsertTransport for FakeClickHouse {
                 gate.await
                     .map_err(|error| InsertError::Transient(anyhow::anyhow!(error)))?
                     .forget();
+            }
+            if persisted_but_transient {
+                return Err(InsertError::Transient(anyhow::anyhow!(
+                    "response lost after ClickHouse persisted the INSERT"
+                )));
             }
             Ok(())
         })
@@ -308,6 +329,96 @@ async fn real_parser_to_actor_sink_commits_only_after_fake_clickhouse() {
     assert_eq!(sink_counters.source_messages_total(), 1);
     cancellation.cancel();
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ambiguous_clickhouse_insert_replay_commits_without_loss_and_can_duplicate() {
+    let transport = FakeClickHouse::persist_then_fail_once();
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let mut first_config = sink_config();
+    first_config.retry_max_attempts = Some(1);
+    let first_source = FakeSource {
+        batches: VecDeque::from([vec![FakeSource::message(7)]]),
+        repeat: false,
+        next_offset: 8,
+        reads: Arc::new(AtomicUsize::new(0)),
+        commits: commit_tx.clone(),
+    };
+    let first_sink = ClickHouseSink::with_transport(
+        first_config,
+        Arc::new(SinkCounters::new()),
+        Arc::clone(&transport) as Arc<dyn InsertTransport>,
+    );
+    let first_task = tokio::spawn(run_partition_pipeline(
+        Box::new(first_source),
+        parser(),
+        Arc::new(Vec::new()),
+        Box::new(first_sink),
+        PipelineMemory::new(1024 * 1024),
+        CancellationToken::new(),
+        0,
+        Arc::new(ParseCounters::new()),
+    ));
+
+    let first_error = tokio::time::timeout(core::time::Duration::from_secs(5), first_task)
+        .await
+        .expect("ambiguous first pipeline attempt did not stop")
+        .expect("ambiguous first pipeline task panicked")
+        .expect_err("retry_max_attempts=1 must restart after the ambiguous INSERT");
+    assert!(first_error
+        .downcast_ref::<PipelineFailure>()
+        .is_some_and(PipelineFailure::is_retryable));
+    assert!(matches!(
+        commit_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    assert_eq!(transport.inserts.load(Ordering::Acquire), 1);
+    assert_eq!(
+        transport.rows.load(Ordering::Acquire),
+        1,
+        "the destination persisted the row even though the source was not committed"
+    );
+
+    let mut replay_config = sink_config();
+    replay_config.retry_max_attempts = Some(1);
+    let replay_source = FakeSource {
+        batches: VecDeque::from([vec![FakeSource::message(7)]]),
+        repeat: false,
+        next_offset: 8,
+        reads: Arc::new(AtomicUsize::new(0)),
+        commits: commit_tx,
+    };
+    let replay_sink = ClickHouseSink::with_transport(
+        replay_config,
+        Arc::new(SinkCounters::new()),
+        Arc::clone(&transport) as Arc<dyn InsertTransport>,
+    );
+    let replay_cancellation = CancellationToken::new();
+    let replay_task = tokio::spawn(run_partition_pipeline(
+        Box::new(replay_source),
+        parser(),
+        Arc::new(Vec::new()),
+        Box::new(replay_sink),
+        PipelineMemory::new(1024 * 1024),
+        replay_cancellation.clone(),
+        0,
+        Arc::new(ParseCounters::new()),
+    ));
+
+    assert_eq!(
+        tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+            .await
+            .expect("replayed source commit timed out"),
+        Some(7)
+    );
+    assert_eq!(transport.inserts.load(Ordering::Acquire), 2);
+    assert_eq!(
+        transport.rows.load(Ordering::Acquire),
+        2,
+        "at-least-once replay must preserve the row even when it creates a duplicate"
+    );
+    replay_cancellation.cancel();
+    replay_task.await.unwrap().unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -4,13 +4,13 @@
 
 source:
   pqv1:
-    connection_string: "grpc://localhost:2135"
-    topic_path: "/benchmark/events"
-    consumer_name: "transferia-benchmark-s3"
+    connection_string: "${PQ_ENDPOINT:-grpc://localhost:2136}"
+    topic_path: "${PQ_TOPIC:-/benchmark/events}"
+    consumer_name: "${PQ_CONSUMER_S3:-transferia-benchmark-s3}-${BENCHMARK_REPETITION:-manual}"
     partition_ids: [0]
     auth:
       type: access_token
-      token_file: "$HOME/.logbroker/token"
+      token: "${PQ_TOKEN:-benchmark-token}"
     parser:
       common:
         table_naming:
@@ -35,9 +35,14 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   s3:
-    bucket: "transferia-benchmark"
-    prefix: "pqv1-s3/"
-    region: "us-east-1"
+    bucket: "${S3_BUCKET:-transferia-benchmark}"
+    prefix: "${S3_PREFIX:-pqv1-s3/}${BENCHMARK_RUN_NAMESPACE:-manual}/"
+    region: "${S3_REGION:-us-east-1}"
+    endpoint: "${S3_ENDPOINT:-http://localhost:9002}"
+    allow_http: true
+    credentials:
+      access_key: "${S3_ACCESS_KEY:-test}"
+      secret_key: "${S3_SECRET_KEY:-test}"
     partitioning:
       type: source
     rotation:
