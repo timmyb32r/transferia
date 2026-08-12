@@ -1,6 +1,7 @@
 pub mod benchmark_discard;
 pub mod config;
 pub mod json_parser;
+mod native_source;
 
 use std::collections::HashMap;
 
@@ -49,6 +50,17 @@ pub struct ParserPlan {
 }
 
 impl ParserPlan {
+    #[must_use]
+    pub fn native_source() -> Self {
+        Self {
+            parser: Arc::new(native_source::NativeSourceParser),
+            table: Arc::from(""),
+            dataset_schema: DatasetSchema::default(),
+            system_columns: SystemColumnsConfig::default(),
+            parses_rows: true,
+        }
+    }
+
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {
         let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
         let kind = config.parser.kind()?;

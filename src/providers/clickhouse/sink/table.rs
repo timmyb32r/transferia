@@ -47,26 +47,26 @@ pub(super) async fn prepare_tables(
     config: &ClickHouseSinkConfig,
     request: &SinkPrepare,
 ) -> anyhow::Result<()> {
-    for key in &config.sorting_key {
-        anyhow::ensure!(
-            request
-                .schema
-                .columns
-                .iter()
-                .any(|column| &column.name == key),
-            "clickhouse.sorting_key column '{key}' is absent from the dataset schema"
-        );
+    for dataset in &request.datasets {
+        let sorting_key: &[String] = if dataset.role == crate::delivery::DatasetRole::Main {
+            &config.sorting_key
+        } else {
+            &[]
+        };
+        for key in sorting_key {
+            anyhow::ensure!(
+                dataset
+                    .schema
+                    .columns
+                    .iter()
+                    .any(|column| &column.name == key),
+                "clickhouse.sorting_key column '{key}' is absent from dataset '{}'",
+                dataset.table,
+            );
+        }
+        create_table(client, config, &dataset.table, &dataset.schema, sorting_key).await?;
     }
-
-    create_table(
-        client,
-        config,
-        &request.table,
-        &request.schema,
-        &config.sorting_key,
-    )
-    .await?;
-    create_table(client, config, &request.dlq_table, &request.dlq_schema, &[]).await
+    Ok(())
 }
 
 async fn create_table(

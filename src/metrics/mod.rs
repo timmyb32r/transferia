@@ -2,7 +2,7 @@
 //! background stats reporter.
 //!
 //! Two counter sets, both per partition:
-//! - [`SourceCounters`] — filled by the `PQv1` source (messages, compressed
+//! - [`SourceCounters`] — filled by every source provider (messages, compressed
 //!   and decompressed bytes, downloader and decompressor busy time).
 //! - [`ParseCounters`] — filled by the parser thread (rows, Arrow bytes, DLQ
 //!   rows, source messages, parser busy time).
@@ -667,7 +667,7 @@ fn format_line(
         wall_ns,
     );
     let source_part = format!(
-        "pqv1: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
+        "source: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
         ((d_msg as f64) / sec) as u64,
         fmt_bytes(d_comp as f64 / sec),
         fmt_bytes(d_decomp as f64 / sec),
@@ -753,7 +753,7 @@ fn format_line_avg(
     let response_wait_pct = pct(s.response_wait_nanos, wall_ns_sum);
     let decomp_pct = pct(s.decomp_busy_nanos, wall_ns_sum);
     let source_part = format!(
-        "pqv1: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
+        "source: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
         ((s.messages as f64) / sec) as u64,
         fmt_bytes(s.compressed_bytes as f64 / sec),
         fmt_bytes(s.decompressed_bytes as f64 / sec),

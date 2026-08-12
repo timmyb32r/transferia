@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::types::message::MessageBatch;
+use crate::types::message::SourceBatch;
 
 // ---------------------------------------------------------------------------
 // CommitMarker
@@ -33,7 +33,7 @@ impl core::fmt::Debug for CommitMarker {
 // ---------------------------------------------------------------------------
 
 pub trait Source: Send {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>>;
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>>;
     /// Commit one durability group. Implementations must submit every marker
     /// in the slice as one source-side commit operation.
     fn commit_offsets<'ctx>(
@@ -44,7 +44,7 @@ pub trait Source: Send {
 
 /// Delegating impl: `Box<dyn Source>` is itself a `Source`.
 impl Source for Box<dyn Source> {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         (**self).read_batch()
     }
     fn commit_offsets<'ctx>(

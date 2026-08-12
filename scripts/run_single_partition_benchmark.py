@@ -26,7 +26,7 @@ from typing import Any
 
 STATS_PREFIX = re.compile(r"\[stats p=(?P<partition>-?\d+)]")
 SOURCE = re.compile(
-    r"pqv1: (?P<messages>\d+) msg/s \| comp (?P<compressed>.+?) \| "
+    r"source: (?P<messages>\d+) msg/s \| comp (?P<compressed>.+?) \| "
     r"decomp (?P<decompressed>.+?) \| "
     r"(?:response-wait (?P<response_wait>\d+)%|dl (?P<legacy_download_busy>\d+)% busy) \| "
     r"decomp (?P<decomp_busy>\d+)% busy"
@@ -80,7 +80,7 @@ REPRODUCIBILITY_ENV_KEYS = (
     "S3_ACCESS_KEY",
 )
 NUMERIC_SAMPLE_KEYS = (
-    "pq_messages_per_s",
+    "source_messages_per_s",
     "compressed_bytes_per_s",
     "decompressed_bytes_per_s",
     "response_wait_percent",
@@ -121,7 +121,7 @@ def parse_stats_line(line: str) -> dict[str, Any] | None:
     parse = PARSE.search(line)
     return {
         "partition_id": int(partition.group("partition")),
-        "pq_messages_per_s": int(source.group("messages")),
+        "source_messages_per_s": int(source.group("messages")),
         "compressed_bytes_per_s": parse_bytes(source.group("compressed")),
         "decompressed_bytes_per_s": parse_bytes(source.group("decompressed")),
         "response_wait_percent": int(
@@ -349,7 +349,7 @@ def compare_primary_runs(
     baseline_median = statistics.median(baseline)
     median_ratio = current_median / baseline_median if baseline_median > 0 else 1.0
     return {
-        "metric": "pq_messages_per_s",
+        "metric": "source_messages_per_s",
         "current_median": current_median,
         "baseline_median": baseline_median,
         "median_ratio": median_ratio,
@@ -463,7 +463,7 @@ def run_once(
         raise RuntimeError("pipeline failures occurred during benchmark: " + "; ".join(failures))
     if len(samples) < min_samples:
         raise RuntimeError(f"only {len(samples)} stats samples captured; expected at least {min_samples}")
-    nonzero = sum(sample["pq_messages_per_s"] > 0 for sample in samples)
+    nonzero = sum(sample["source_messages_per_s"] > 0 for sample in samples)
     if nonzero < min_samples:
         raise RuntimeError(f"only {nonzero} non-zero PQ samples captured; backlog may have drained")
     return {
@@ -477,9 +477,9 @@ def run_once(
 
 def load_primary_runs(document: dict[str, Any]) -> list[float]:
     try:
-        return [float(run["summary"]["pq_messages_per_s"]["median"]) for run in document["runs"]]
+        return [float(run["summary"]["source_messages_per_s"]["median"]) for run in document["runs"]]
     except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("baseline does not contain per-run pq_messages_per_s medians") from error
+        raise ValueError("baseline does not contain per-run source_messages_per_s medians") from error
 
 
 def parse_args() -> argparse.Namespace:
@@ -556,8 +556,8 @@ def main() -> int:
             document["runs"].append(run)
         primary = load_primary_runs(document)
         document["primary_summary"] = summarize_samples(
-            [{"partition_id": 0, "pq_messages_per_s": value} for value in primary]
-        )["pq_messages_per_s"]
+            [{"partition_id": 0, "source_messages_per_s": value} for value in primary]
+        )["source_messages_per_s"]
         exit_code = 0
         if args.baseline:
             baseline = json.loads(args.baseline.read_text(encoding="utf-8"))

@@ -134,42 +134,33 @@ impl S3SinkConfig {
     }
 
     fn validate_object_namespace(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
-        let main = discovery.dataset(DatasetRole::Main)?;
-        let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
         validate_path_component("source name", &discovery.source_name)?;
         let source_path = source_partition_path_probe(&discovery.source_name)?;
         let main_partition_path = match self.partitioning {
             PartitioningConfig::Source => source_path.clone(),
             _ => self.main_partition_path_probe()?,
         };
-        ObjectKey::for_json_object(
-            &self.prefix,
-            &main.name,
-            &main_partition_path,
-            &discovery.source_name,
-            i64::MIN,
-            i64::MIN,
-        )
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "S3 object namespace for main dataset '{}' cannot satisfy the key contract: {error}",
-                main.name,
+        for dataset in &discovery.datasets {
+            let partition_path = if dataset.role == DatasetRole::Main {
+                &main_partition_path
+            } else {
+                &source_path
+            };
+            ObjectKey::for_json_object(
+                &self.prefix,
+                &dataset.name,
+                partition_path,
+                &discovery.source_name,
+                i64::MIN,
+                i64::MIN,
             )
-        })?;
-        ObjectKey::for_json_object(
-            &self.prefix,
-            &dlq.name,
-            &source_path,
-            &discovery.source_name,
-            i64::MIN,
-            i64::MIN,
-        )
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "S3 object namespace for DLQ dataset '{}' cannot satisfy the key contract: {error}",
-                dlq.name,
-            )
-        })?;
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "S3 object namespace for dataset '{}' cannot satisfy the key contract: {error}",
+                    dataset.name
+                )
+            })?;
+        }
         Ok(())
     }
 }
@@ -205,11 +196,16 @@ impl SinkLimits for S3SinkConfig {
 
     fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
         anyhow::ensure!(
-            discovery.datasets.len() == 2,
-            "S3 requires exactly one main and one DLQ dataset, discovered {}",
-            discovery.datasets.len(),
+            !discovery.datasets.is_empty(),
+            "S3 requires at least one dataset"
         );
+        let mut dataset_names = std::collections::HashSet::new();
         for dataset in &discovery.datasets {
+            anyhow::ensure!(
+                dataset_names.insert(dataset.name.as_ref()),
+                "S3 datasets repeat object namespace '{}'",
+                dataset.name
+            );
             validate_stored_projection(discovery, dataset)?;
             anyhow::ensure!(
                 !dataset.name.is_empty(),
@@ -240,17 +236,15 @@ impl SinkLimits for S3SinkConfig {
             }
         }
 
-        let main = discovery.dataset(DatasetRole::Main)?;
-        let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
-        anyhow::ensure!(
-            main.name != dlq.name,
-            "S3 main and dead-letter datasets resolve to the same object namespace '{}'",
-            main.name,
-        );
         match &self.partitioning {
             PartitioningConfig::Fields { columns } => {
-                for name in columns {
-                    let column = main
+                for main in discovery
+                    .datasets
+                    .iter()
+                    .filter(|dataset| dataset.role == DatasetRole::Main)
+                {
+                    for name in columns {
+                        let column = main
                         .incoming_schema
                         .columns
                         .iter()
@@ -261,25 +255,35 @@ impl SinkLimits for S3SinkConfig {
                                 main.name,
                             )
                         })?;
-                    anyhow::ensure!(
+                        anyhow::ensure!(
                         !column.nullable,
                         "configured S3 partition column '{name}' in dataset '{}' must be non-nullable",
                         main.name,
                     );
-                    anyhow::ensure!(
+                        anyhow::ensure!(
                         s3_partitioning_supports(&column.data_type),
                         "configured S3 partition column '{name}' in dataset '{}' has unsupported Arrow type {:?}",
                         main.name,
                         column.data_type,
                     );
+                    }
                 }
             }
-            PartitioningConfig::RecordTime { .. } => anyhow::ensure!(
-                main.system_columns
-                    .contains(&SystemColumnKind::WriteTimestampMs),
-                "S3 record-time partitioning requires system column '{}'",
-                SystemColumnKind::WriteTimestampMs.name(),
-            ),
+            PartitioningConfig::RecordTime { .. } => {
+                for main in discovery
+                    .datasets
+                    .iter()
+                    .filter(|dataset| dataset.role == DatasetRole::Main)
+                {
+                    anyhow::ensure!(
+                        main.system_columns
+                            .contains(&SystemColumnKind::WriteTimestampMs),
+                        "S3 record-time partitioning requires system column '{}' in dataset '{}'",
+                        SystemColumnKind::WriteTimestampMs.name(),
+                        main.name
+                    );
+                }
+            }
             PartitioningConfig::Source => {}
         }
         self.validate_object_namespace(discovery)
@@ -325,7 +329,7 @@ impl SinkProvider for S3SinkProvider {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         let prefix = self.cfg.prefix.clone();
         Box::pin(async move {
-            for dataset in [&request.table, &request.dlq_table] {
+            for dataset in request.datasets.iter().map(|dataset| &dataset.table) {
                 let candidate = if prefix.is_empty() {
                     format!("{dataset}/partition=0/probe+0+0.json")
                 } else {

@@ -137,6 +137,19 @@ impl DeliveryDiscovery {
         );
         Ok(dataset)
     }
+
+    pub fn dataset_named(
+        &self,
+        role: DatasetRole,
+        name: &str,
+    ) -> anyhow::Result<&DiscoveredDataset> {
+        self.datasets
+            .iter()
+            .find(|dataset| dataset.role == role && dataset.name.as_ref() == name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("delivery discovery has no {role:?} dataset named '{name}'")
+            })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -223,7 +236,7 @@ pub fn validate_batch_against_discovery<'a>(
     batch: &SinkBatch,
 ) -> anyhow::Result<&'a DiscoveredDataset> {
     let role = DatasetRole::from_is_dlq(batch.is_dlq);
-    let expected = discovery.dataset(role)?;
+    let expected = discovery.dataset_named(role, &batch.table)?;
     anyhow::ensure!(
         batch.table.as_ref() == expected.name.as_ref(),
         "runtime {role:?} dataset name '{}' differs from discovered name '{}'",

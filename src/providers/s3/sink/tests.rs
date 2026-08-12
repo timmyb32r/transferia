@@ -17,7 +17,7 @@ use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
 use crate::pipeline::source::{CommitMarker, Source};
-use crate::types::message::{Message, MessageBatch, MessageMeta};
+use crate::types::message::{Message, MessageMeta, SourceBatch};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
@@ -308,10 +308,10 @@ struct FakeSource {
 }
 
 impl Source for FakeSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         Box::pin(async move {
             let Some(messages) = self.batches.pop_front() else {
-                return Ok(MessageBatch {
+                return Ok(SourceBatch::Raw {
                     messages: Vec::new(),
                     commit_marker: None,
                     memory: Vec::new(),
@@ -321,7 +321,7 @@ impl Source for FakeSource {
                 .last()
                 .and_then(|message| message.meta.offset)
                 .ok_or_else(|| anyhow::anyhow!("fake source message is missing an offset"))?;
-            Ok(MessageBatch {
+            Ok(SourceBatch::Raw {
                 messages,
                 commit_marker: Some(CommitMarker::new(marker)),
                 memory: Vec::new(),
@@ -1689,7 +1689,9 @@ async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("runtime contract violations must preserve their fatal disposition");
     assert!(!failure.is_retryable());
-    assert!(error.to_string().contains("differs from discovered name"));
+    assert!(error
+        .to_string()
+        .contains("has no Main dataset named 'renamed_after_discovery'"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
 }
 

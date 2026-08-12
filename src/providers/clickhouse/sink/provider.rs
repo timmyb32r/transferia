@@ -61,19 +61,16 @@ impl SinkLimits for ClickHouseSinkConfig {
 
     fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
         anyhow::ensure!(
-            discovery.datasets.len() == 2,
-            "ClickHouse requires exactly main and dead-letter datasets, discovered {}",
-            discovery.datasets.len(),
+            !discovery.datasets.is_empty(),
+            "ClickHouse requires at least one dataset"
         );
-        let main = discovery.dataset(DatasetRole::Main)?;
-        let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
-        anyhow::ensure!(
-            main.name != dlq.name,
-            "ClickHouse main and dead-letter datasets resolve to the same table '{}'",
-            main.name,
-        );
-
-        for dataset in [main, dlq] {
+        let mut names = std::collections::HashSet::with_capacity(discovery.datasets.len());
+        for dataset in &discovery.datasets {
+            anyhow::ensure!(
+                names.insert(dataset.name.as_ref()),
+                "ClickHouse datasets repeat table '{}'",
+                dataset.name
+            );
             validate_stored_projection(discovery, dataset)?;
             validate_table_schema(&dataset.name, &dataset.stored_schema).map_err(|error| {
                 error.context(format!(
@@ -83,15 +80,14 @@ impl SinkLimits for ClickHouseSinkConfig {
             })?;
         }
 
-        for key in &self.sorting_key {
-            anyhow::ensure!(
-                main.stored_schema
-                    .columns
-                    .iter()
-                    .any(|column| &column.name == key),
-                "clickhouse.sorting_key column '{key}' is absent from discovered main dataset '{}'",
-                main.name,
-            );
+        for main in discovery
+            .datasets
+            .iter()
+            .filter(|dataset| dataset.role == DatasetRole::Main)
+        {
+            for key in &self.sorting_key {
+                anyhow::ensure!(main.stored_schema.columns.iter().any(|column| &column.name == key), "clickhouse.sorting_key column '{key}' is absent from discovered main dataset '{}'", main.name);
+            }
         }
         Ok(())
     }

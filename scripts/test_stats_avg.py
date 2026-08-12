@@ -14,13 +14,25 @@ SPEC.loader.exec_module(STATS)
 
 def stats_line(*, sink_busy: int, retries: int, objects: str) -> str:
     return (
-        "2026-08-13 INFO [stats p=0] pqv1: 1200 msg/s | comp 1.5 MiB/s | "
+        "2026-08-13 INFO [stats p=0] source: 1200 msg/s | comp 1.5 MiB/s | "
         "decomp 3.0 MiB/s | response-wait 20% | decomp 40% busy || "
         "parse: 1100 rows/s | 2.5 MiB/s arrow | 3 dlq/s | "
         "1000 source-msg/s | 60% busy || sink: 1000 rows/s | 3.0 MiB/s | "
         f"2 flushes/s | 1000 source-msg/s | {sink_busy}% busy | {retries} retries | "
         f"buffered 4 MiB | objects {objects} | 10% backpressure || "
         "guarantee: at-least-once | cpu: 88% rss: 512 MiB\n"
+    )
+
+
+def postgres_stats_line() -> str:
+    return (
+        "2026-08-13 INFO [stats p=0] source: 40000 msg/s | comp 0 B/s | "
+        "decomp 24.0 MiB/s | response-wait 0% | decomp 0% busy || "
+        "parse: 40000 rows/s | 24.0 MiB/s arrow | 0 dlq/s | "
+        "40000 source-msg/s | 5% busy || sink: 40000 rows/s | 18.0 MiB/s | "
+        "4 flushes/s | 40000 source-msg/s | 65% busy | 0 retries | "
+        "buffered 0 MiB | objects 0/0/0 | 0% backpressure || "
+        "guarantee: at-least-once | cpu: 90% rss: 300 MiB\n"
     )
 
 
@@ -32,7 +44,7 @@ class StatsAverageTest(unittest.TestCase):
         averages = STATS.average_samples(samples)
 
         self.assertEqual(averages["sample_count"], 2)
-        self.assertEqual(averages["pq_messages_per_s"], 1200)
+        self.assertEqual(averages["source_messages_per_s"], 1200)
         self.assertEqual(averages["sink_busy_percent"], 70)
         self.assertEqual(STATS.diagnosis(averages), [])
 
@@ -50,6 +62,13 @@ class StatsAverageTest(unittest.TestCase):
     def test_rejects_a_stats_line_that_no_longer_matches_the_contract(self):
         with self.assertRaisesRegex(ValueError, "invalid stats line 1"):
             STATS.read_samples(["[stats p=0] obsolete format\n"])
+
+    def test_aggregates_native_postgres_provider_logs(self):
+        averages = STATS.average_samples(STATS.read_samples([postgres_stats_line()]))
+
+        self.assertEqual(averages["source_messages_per_s"], 40000)
+        self.assertEqual(averages["sink_rows_per_s"], 40000)
+        self.assertEqual(averages["sink_busy_percent"], 65)
 
 
 if __name__ == "__main__":

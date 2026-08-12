@@ -24,7 +24,7 @@ use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
 use crate::pipeline::source::{CommitMarker, Source};
-use crate::types::message::Message;
+use crate::types::message::{Message, SourceBatch};
 use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
@@ -109,9 +109,14 @@ impl std::error::Error for PipelineFailure {
 
 struct ReadEnvelope {
     id: DeliveryId,
-    messages: Vec<Message>,
+    payload: ReadPayload,
     memory: Vec<MemoryReservation>,
     meta: DeliveryMeta,
+}
+
+enum ReadPayload {
+    Raw(Vec<Message>),
+    Typed(Vec<TableData>),
 }
 
 struct CommitEntry {
@@ -127,10 +132,8 @@ fn arrow_batch_bytes(batch: &RecordBatch) -> usize {
         .sum()
 }
 
-const fn delivery_meta(messages: &[Message]) -> DeliveryMeta {
-    DeliveryMeta {
-        source_messages: messages.len() as u64,
-    }
+const fn delivery_meta(source_messages: u64) -> DeliveryMeta {
+    DeliveryMeta { source_messages }
 }
 
 fn apply_middlewares(
@@ -194,6 +197,65 @@ async fn parser_loop(
             return Ok(());
         };
 
+        if let ReadPayload::Typed(tables) = envelope.payload {
+            let mut outputs = Vec::with_capacity(tables.len());
+            let mut output_bytes = 0_usize;
+            let mut output_rows = 0_u64;
+            for table in tables {
+                let table = apply_middlewares(table, middlewares.as_slice())?;
+                let bytes = arrow_batch_bytes(&table.batch);
+                output_bytes = output_bytes.saturating_add(bytes);
+                output_rows = output_rows.saturating_add(table.batch.num_rows() as u64);
+                outputs.push((table, bytes));
+            }
+            let output_memory = if outputs.is_empty() {
+                None
+            } else {
+                let reservation = tokio::select! {
+                    reservation = memory.admit_active_transform(output_bytes) => Some(reservation),
+                    () = cancellation.cancelled() => None,
+                };
+                let Some(reservation) = reservation else {
+                    return Ok(());
+                };
+                drop(envelope.memory);
+                Some(reservation.finish(output_bytes))
+            };
+            counters.add_rows(output_rows);
+            counters.add_arrow_bytes(output_bytes as u64);
+            counters.add_source_messages(envelope.meta.source_messages);
+            let outputs = outputs
+                .into_iter()
+                .filter_map(|(table, bytes)| {
+                    output_memory
+                        .as_ref()
+                        .and_then(|memory| make_sink_batch(table, bytes, memory.clone()))
+                })
+                .collect();
+            if output
+                .send(Delivery {
+                    id: envelope.id,
+                    outputs,
+                    meta: envelope.meta,
+                })
+                .await
+                .is_err()
+            {
+                return Ok(());
+            }
+            downstream_pressured = memory.is_transform_pressured();
+            continue;
+        }
+        let ReadPayload::Raw(messages) = envelope.payload else {
+            unreachable!();
+        };
+        let envelope = ReadEnvelope {
+            id: envelope.id,
+            payload: ReadPayload::Raw(messages),
+            memory: envelope.memory,
+            meta: envelope.meta,
+        };
+
         // Keep each partition's mutable parser session logically affine while
         // lending it to Tokio's bounded blocking pool only for CPU work. Idle
         // partitions retain no OS thread (and do not even construct a session
@@ -201,7 +263,10 @@ async fn parser_loop(
         let parser_factory = Arc::clone(&parser_factory);
         let estimate_task = tokio::task::spawn_blocking(move || {
             let parser = parser.unwrap_or_else(|| parser_factory.create_session());
-            let output_bound = parser.output_memory_bound(&envelope.messages);
+            let ReadPayload::Raw(messages) = &envelope.payload else {
+                unreachable!();
+            };
+            let output_bound = parser.output_memory_bound(messages);
             let hard_output_limit = parser.hard_output_limit();
             (parser, envelope, output_bound, hard_output_limit)
         });
@@ -209,10 +274,13 @@ async fn parser_loop(
             parser_worker_result("estimate", estimate_task.await)?;
         let ReadEnvelope {
             id,
-            messages,
+            payload,
             memory: source_memory,
             meta,
         } = envelope;
+        let ReadPayload::Raw(messages) = payload else {
+            unreachable!();
+        };
         let admission_bound =
             hard_output_limit.map_or(output_bound, |limit| output_bound.min(limit));
         let parse_memory = if messages.is_empty() {
@@ -437,8 +505,66 @@ async fn reader_loop(
             read = source.read_batch() => read,
         };
 
-        let mut batch = read?;
-        if batch.messages.is_empty() && batch.commit_marker.is_none() {
+        let batch = read?;
+        if matches!(batch, SourceBatch::Finished) {
+            // Close the parser input before waiting for the durability ledger.
+            // Finite sources need the parser and sink to observe EOF so that
+            // open sink buffers can be flushed and committed.
+            drop(output);
+            while !ledger.is_empty() {
+                let event = events.recv().await.ok_or_else(|| {
+                    anyhow::anyhow!("sink event stream closed before source completion")
+                })?;
+                let SinkEvent::CommittedThrough(id) = event;
+                commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+            }
+            return Ok(());
+        }
+        let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =
+            match batch {
+                SourceBatch::Raw {
+                    messages,
+                    commit_marker,
+                    memory,
+                } => {
+                    let bytes = messages
+                        .iter()
+                        .map(|message| message.value.len() as u64)
+                        .sum::<u64>();
+                    let source_messages = messages.len() as u64;
+                    (
+                        ReadPayload::Raw(messages),
+                        memory,
+                        commit_marker,
+                        bytes,
+                        source_messages,
+                    )
+                }
+                SourceBatch::Typed {
+                    tables,
+                    source_rows,
+                    commit_marker,
+                    memory,
+                } => {
+                    let bytes = tables
+                        .iter()
+                        .map(|table| arrow_batch_bytes(&table.batch) as u64)
+                        .sum();
+                    (
+                        ReadPayload::Typed(tables),
+                        memory,
+                        commit_marker,
+                        bytes,
+                        source_rows,
+                    )
+                }
+                SourceBatch::Finished => unreachable!(),
+            };
+        let payload_is_empty = match &payload {
+            ReadPayload::Raw(messages) => messages.is_empty(),
+            ReadPayload::Typed(tables) => tables.iter().all(|table| table.batch.num_rows() == 0),
+        };
+        if payload_is_empty && marker.is_none() {
             tokio::select! {
                 () = cancellation.cancelled() => return Ok(()),
                 event = events.recv() => {
@@ -452,13 +578,8 @@ async fn reader_loop(
             continue;
         }
         backoff_ms = INITIAL_BACKOFF_MS;
-        let source_payload_bytes = batch
-            .messages
-            .iter()
-            .map(|message| message.value.len() as u64)
-            .sum::<u64>();
-        let meta = delivery_meta(&batch.messages);
-        if batch.memory.is_empty() && source_payload_bytes > 0 {
+        let meta = delivery_meta(source_messages);
+        if batch_memory.is_empty() && source_payload_bytes > 0 {
             let Some(reservation) = reserve_source_memory_with_events(
                 &mut source,
                 &mut ledger,
@@ -472,17 +593,16 @@ async fn reader_loop(
             else {
                 return Ok(());
             };
-            batch.memory.push(reservation);
+            batch_memory.push(reservation);
         }
-        let marker = batch.commit_marker.take();
         ledger.push_back(CommitEntry {
             id: next_id,
-            marker,
+            marker: marker.take(),
         });
         let envelope = ReadEnvelope {
             id: next_id,
-            messages: batch.messages,
-            memory: batch.memory,
+            payload,
+            memory: batch_memory,
             meta,
         };
         next_id = next_id.next();
@@ -681,20 +801,29 @@ pub async fn run_partition_pipeline_with_progress(
     let mut parser_outcome = None;
     let mut first_component = None;
     let mut external_cancelled = false;
-    tokio::select! {
-        biased;
-        () = cancel_token.cancelled() => external_cancelled = true,
-        result = &mut reader_task => {
-            reader_outcome = Some(async_component_outcome("reader", result));
-            first_component = Some(FirstComponent::Reader);
-        }
-        result = &mut sink_task => {
-            sink_outcome = Some(async_component_outcome("sink", result));
-            first_component = Some(FirstComponent::Sink);
-        }
-        result = &mut parser_task => {
-            parser_outcome = Some(parser_component_outcome(result));
-            first_component = Some(FirstComponent::Parser);
+    while first_component.is_none() && !external_cancelled {
+        tokio::select! {
+            biased;
+            () = cancel_token.cancelled() => external_cancelled = true,
+            result = &mut reader_task, if reader_outcome.is_none() => {
+                let outcome = async_component_outcome("reader", result);
+                first_component = Some(FirstComponent::Reader);
+                reader_outcome = Some(outcome);
+            }
+            result = &mut sink_task, if sink_outcome.is_none() => {
+                let outcome = async_component_outcome("sink", result);
+                if outcome.result.is_err() {
+                    first_component = Some(FirstComponent::Sink);
+                }
+                sink_outcome = Some(outcome);
+            }
+            result = &mut parser_task, if parser_outcome.is_none() => {
+                let outcome = parser_component_outcome(result);
+                if outcome.result.is_err() {
+                    first_component = Some(FirstComponent::Parser);
+                }
+                parser_outcome = Some(outcome);
+            }
         }
     }
 

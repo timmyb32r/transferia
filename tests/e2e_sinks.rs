@@ -177,16 +177,10 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     ]);
     let discovery = discovery("topic-a", schema.clone(), schema.clone(), Vec::new(), false);
     provider.limits().validate_discovery(&discovery)?;
-    let prepare = SinkPrepare::from_discovery(&discovery)?.expect("row discovery");
     let mut last_prepare_error = None;
     for _ in 0..50 {
         match provider
-            .prepare(SinkPrepare {
-                table: Arc::clone(&prepare.table),
-                schema: prepare.schema.clone(),
-                dlq_table: Arc::clone(&prepare.dlq_table),
-                dlq_schema: prepare.dlq_schema.clone(),
-            })
+            .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
             .await
         {
             Ok(()) => {

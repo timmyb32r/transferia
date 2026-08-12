@@ -569,7 +569,7 @@ async fn runtime_delivery_mismatch_is_fatal_before_insert() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("runtime discovery mismatch must preserve its fatal contract");
     assert!(!failure.is_retryable());
-    assert!(format!("{error:#}").contains("differs from discovered name"));
+    assert!(format!("{error:#}").contains("has no Main dataset named 'unexpected_table'"));
     assert_eq!(state.calls.load(Ordering::Acquire), 0);
     assert!(events.try_recv().is_err());
 }

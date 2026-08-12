@@ -219,6 +219,17 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             ))
         }
     });
+    registry.register_source("postgres", {
+        let registry = Arc::clone(metrics_registry);
+        move |value| {
+            Ok(Box::new(
+                transferia::providers::postgres::PostgresSourceProvider::from_config(
+                    value,
+                    Arc::clone(&registry),
+                )?,
+            ))
+        }
+    });
     registry.register_sink("clickhouse", |value| {
         Ok(Box::new(
             transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
@@ -232,6 +243,11 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
     registry.register_sink("s3", |value| {
         Ok(Box::new(
             transferia::providers::s3::sink::S3SinkProvider::from_config(value)?,
+        ))
+    });
+    registry.register_sink("postgres", |value| {
+        Ok(Box::new(
+            transferia::providers::postgres::PostgresSinkProvider::from_config(value)?,
         ))
     });
     registry

@@ -28,7 +28,7 @@ use crate::metrics::SourceCounters;
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 use crate::pipeline::source::{CommitMarker, Source};
 use crate::pipeline::PipelineFailure;
-use crate::types::message::{Message, MessageBatch, MessageMeta};
+use crate::types::message::{Message, MessageMeta, SourceBatch};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
     migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
@@ -1054,7 +1054,7 @@ where
     tracing::info!("PQv1 background task exited");
 }
 
-fn surface_terminal_failure(failure: &TerminalFailure) -> anyhow::Result<MessageBatch> {
+fn surface_terminal_failure(failure: &TerminalFailure) -> anyhow::Result<SourceBatch> {
     let error = anyhow!(failure.message.to_string());
     match failure.kind {
         TerminalFailureKind::Retryable => Err(error),
@@ -1494,7 +1494,7 @@ impl PqV1Source {
 }
 
 impl Source for PqV1Source {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         Box::pin(async move {
             let current_failure = self.terminal_failure.borrow().clone();
             if let Some(error) = current_failure {
@@ -1536,7 +1536,7 @@ impl Source for PqV1Source {
                     cookies,
                 })
             });
-            Ok(MessageBatch {
+            Ok(SourceBatch::Raw {
                 messages,
                 commit_marker,
                 memory,

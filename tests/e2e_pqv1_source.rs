@@ -397,10 +397,16 @@ parser:
         .await?;
     let batch =
         tokio::time::timeout(core::time::Duration::from_secs(3), source.read_batch()).await??;
-    assert!(batch.messages.is_empty());
-    let marker = batch
-        .commit_marker
-        .expect("PQv1 DataBatch must be committable");
+    let transferia::types::message::SourceBatch::Raw {
+        messages,
+        commit_marker,
+        ..
+    } = batch
+    else {
+        panic!("expected raw PQv1 batch");
+    };
+    assert!(messages.is_empty());
+    let marker = commit_marker.expect("PQv1 DataBatch must be committable");
     source.commit_offsets(&[marker]).await?;
     assert!(fixture.committed.load(Ordering::SeqCst));
 

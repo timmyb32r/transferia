@@ -68,10 +68,13 @@ pub struct SinkContext {
 }
 
 pub struct SinkPrepare {
+    pub datasets: Vec<DatasetPrepare>,
+}
+
+pub struct DatasetPrepare {
+    pub role: DatasetRole,
     pub table: Arc<str>,
     pub schema: DatasetSchema,
-    pub dlq_table: Arc<str>,
-    pub dlq_schema: DatasetSchema,
 }
 
 impl SinkPrepare {
@@ -79,13 +82,16 @@ impl SinkPrepare {
         if discovery.datasets.is_empty() {
             return Ok(None);
         }
-        let table = discovery.dataset(DatasetRole::Main)?;
-        let dlq = discovery.dataset(DatasetRole::DeadLetterQueue)?;
         Ok(Some(Self {
-            table: Arc::clone(&table.name),
-            schema: table.stored_schema.clone(),
-            dlq_table: Arc::clone(&dlq.name),
-            dlq_schema: dlq.stored_schema.clone(),
+            datasets: discovery
+                .datasets
+                .iter()
+                .map(|dataset| DatasetPrepare {
+                    role: dataset.role,
+                    table: Arc::clone(&dataset.name),
+                    schema: dataset.stored_schema.clone(),
+                })
+                .collect(),
         }))
     }
 }

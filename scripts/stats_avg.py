@@ -57,7 +57,7 @@ def diagnosis(averages: dict[str, Any]) -> list[str]:
         notes.append(
             "sink attempt load was high; for concurrent S3 uploads it may legitimately exceed 100%"
         )
-    if averages["pq_messages_per_s"] == 0:
+    if averages["source_messages_per_s"] == 0:
         notes.append("source produced no messages during the sampled ticks")
     return notes
 
@@ -83,7 +83,7 @@ def render_text(averages: dict[str, Any]) -> str:
         f"samples: {averages['sample_count']}  partitions: {averages['partition_ids']}",
         f"guarantees: {', '.join(averages['delivery_guarantees'])}",
         "",
-        f"source: {format_rate(averages['pq_messages_per_s'])} msg/s, "
+        f"source: {format_rate(averages['source_messages_per_s'])} msg/s, "
         f"{format_bytes(averages['compressed_bytes_per_s'])} compressed, "
         f"{format_bytes(averages['decompressed_bytes_per_s'])} decompressed, "
         f"{averages['response_wait_percent']:.0f}% response-wait, "

@@ -2,6 +2,7 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 use crate::pipeline::source::CommitMarker;
+use crate::types::table_data::TableData;
 
 /// A single message from the source.
 #[derive(Debug, Clone)]
@@ -29,11 +30,20 @@ impl Message {
     }
 }
 
-/// A batch of messages read from a source partition.
+/// One source read result. Raw sources feed messages to a configured parser;
+/// typed sources bypass parsing and preserve native Arrow columns.
 #[derive(Debug)]
-pub struct MessageBatch {
-    pub messages: Vec<Message>,
-    pub commit_marker: Option<CommitMarker>,
-    /// Reservations for source-owned buffers backing `messages`.
-    pub memory: Vec<crate::pipeline::memory::MemoryReservation>,
+pub enum SourceBatch {
+    Raw {
+        messages: Vec<Message>,
+        commit_marker: Option<CommitMarker>,
+        memory: Vec<crate::pipeline::memory::MemoryReservation>,
+    },
+    Typed {
+        tables: Vec<TableData>,
+        source_rows: u64,
+        commit_marker: Option<CommitMarker>,
+        memory: Vec<crate::pipeline::memory::MemoryReservation>,
+    },
+    Finished,
 }

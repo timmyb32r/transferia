@@ -11,6 +11,8 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
+    Postgres(SourceDescriptor),
+    PostgresSink,
     ClickHouse,
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
@@ -25,6 +27,7 @@ pub struct SourceDescriptor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceBehavior {
     ProducesRows,
+    FiniteSnapshotRows,
     /// Benchmark-only mode which advances source offsets without producing rows.
     BenchmarkDiscard,
 }
@@ -72,6 +75,7 @@ pub enum DiagnosticCode {
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
+    PostgresAtLeastOnce,
     BenchmarkDiscard,
     BenchmarkSourceDiscard,
 }
@@ -148,10 +152,7 @@ pub fn validate_pipeline(
             )],
         };
     }
-    if matches!(
-        (source, sink),
-        (EndpointDescriptor::PqV1(_), EndpointDescriptor::ClickHouse)
-    ) {
+    if matches!(sink, EndpointDescriptor::ClickHouse) {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
             diagnostics: vec![SemanticsDiagnostic {
@@ -163,40 +164,59 @@ pub fn validate_pipeline(
             }],
         };
     }
-    let (EndpointDescriptor::PqV1(_), EndpointDescriptor::S3(sink)) = (source, sink) else {
+    if matches!(sink, EndpointDescriptor::PostgresSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::PostgresAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.postgres".into()],
+                explanation: "PostgreSQL COPY completion precedes source progress commit, so a retry after an ambiguous COPY result may duplicate rows".into(),
+                remediation: Some("include a user-defined idempotency key and enforce it at the destination when duplicate-free final state is required".into()),
+            }],
+        };
+    }
+    let EndpointDescriptor::S3(sink) = sink else {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
             diagnostics: vec![error(
                 DiagnosticCode::UnsupportedPipeline,
                 &["source", "sink"],
-                "supported durable paths are PQv1 to ClickHouse or S3",
+                "the configured source/sink pair is not supported",
                 None,
             )],
         };
     };
 
     let mut diagnostics = Vec::new();
-    let main = match discovery.dataset(DatasetRole::Main) {
-        Ok(dataset) => Some(dataset),
-        Err(discovery_error) => {
-            diagnostics.push(error(
-                DiagnosticCode::InvalidDeliveryDiscovery,
-                &["source.pqv1.parser"],
-                &discovery_error.to_string(),
-                Some("configure a row-producing parser with one main and one DLQ dataset"),
-            ));
-            None
-        }
-    };
+    let mains = discovery
+        .datasets
+        .iter()
+        .filter(|dataset| dataset.role == DatasetRole::Main)
+        .collect::<Vec<_>>();
+    if mains.is_empty() {
+        diagnostics.push(error(
+            DiagnosticCode::InvalidDeliveryDiscovery,
+            &["source.pqv1.parser"],
+            "delivery discovery contains no main dataset",
+            Some("configure a row-producing parser with one main and one DLQ dataset"),
+        ));
+    }
     for kind in [
         SystemColumnKind::Topic,
         SystemColumnKind::Partition,
         SystemColumnKind::Offset,
         SystemColumnKind::MessageIndex,
     ] {
-        require_system_column(main, kind, &mut diagnostics);
+        for main in &mains {
+            require_system_column(Some(main), kind, &mut diagnostics);
+        }
     }
-    if keep_system_columns && main.is_some_and(|dataset| dataset.system_columns.is_empty()) {
+    if keep_system_columns
+        && mains
+            .iter()
+            .any(|dataset| dataset.system_columns.is_empty())
+    {
         diagnostics.push(error(
             DiagnosticCode::SystemColumnsNotProduced,
             &[
@@ -211,13 +231,13 @@ pub fn validate_pipeline(
     match &sink.partitioning {
         S3Partitioning::Fields(fields) => {
             for field in fields {
-                match main.and_then(|dataset| {
-                    dataset
+                for main in &mains {
+                    match main
                         .incoming_schema
                         .columns
                         .iter()
                         .find(|column| column.name == *field)
-                }) {
+                {
                     None => diagnostics.push(error(
                         DiagnosticCode::UnknownPartitionField,
                         &[
@@ -251,18 +271,40 @@ pub fn validate_pipeline(
                         )),
                     Some(_) => {}
                 }
+                }
             }
         }
         S3Partitioning::RecordTime => {
-            require_system_column(main, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
+            for main in &mains {
+                require_system_column(
+                    Some(main),
+                    SystemColumnKind::WriteTimestampMs,
+                    &mut diagnostics,
+                );
+            }
         }
         S3Partitioning::Source => {}
     }
     if sink.record_time_rotation {
-        require_system_column(main, SystemColumnKind::WriteTimestampMs, &mut diagnostics);
+        for main in &mains {
+            require_system_column(
+                Some(main),
+                SystemColumnKind::WriteTimestampMs,
+                &mut diagnostics,
+            );
+        }
     }
 
-    let guarantee = if sink.wall_clock_rotation {
+    let guarantee = if !matches!(source, EndpointDescriptor::PqV1(_)) {
+        diagnostics.push(SemanticsDiagnostic {
+            code: DiagnosticCode::DeterministicS3Commit,
+            severity: DiagnosticSeverity::Info,
+            config_paths: vec!["source".into(), "sink.s3".into()],
+            explanation: "S3 objects are committed before source progress, but a finite source snapshot can change between retries".into(),
+            remediation: Some("run against an immutable source snapshot when stable final contents are required".into()),
+        });
+        DeliveryGuarantee::AtLeastOnce
+    } else if sink.wall_clock_rotation {
         diagnostics.push(SemanticsDiagnostic {
             code: DiagnosticCode::WallClockRotationDisablesExactlyOnce,
             severity: DiagnosticSeverity::Info,

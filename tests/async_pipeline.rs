@@ -18,7 +18,7 @@ use transferia::pipeline::PipelineFailure;
 use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
-use transferia::types::message::{Message, MessageBatch, MessageMeta};
+use transferia::types::message::{Message, MessageMeta, SourceBatch};
 
 struct FakeSource {
     batches: VecDeque<Vec<Message>>,
@@ -36,7 +36,7 @@ struct MarkerOnlySource {
 }
 
 impl Source for FailedSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         Box::pin(async {
             Err(PipelineFailure::fatal(anyhow::anyhow!("corrupt compressed source batch")).into())
         })
@@ -51,16 +51,16 @@ impl Source for FailedSource {
 }
 
 impl Source for MarkerOnlySource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         Box::pin(async move {
             if let Some(marker) = self.marker.take() {
-                return Ok(MessageBatch {
+                return Ok(SourceBatch::Raw {
                     messages: Vec::new(),
                     commit_marker: Some(CommitMarker::new(marker)),
                     memory: Vec::new(),
                 });
             }
-            Ok(MessageBatch {
+            Ok(SourceBatch::Raw {
                 messages: Vec::new(),
                 commit_marker: None,
                 memory: Vec::new(),
@@ -101,7 +101,7 @@ impl FakeSource {
 }
 
 impl Source for FakeSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<MessageBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
         Box::pin(async move {
             self.reads.fetch_add(1, Ordering::AcqRel);
             let messages = if let Some(messages) = self.batches.pop_front() {
@@ -111,7 +111,7 @@ impl Source for FakeSource {
                 self.next_offset += 1;
                 vec![Self::message(offset)]
             } else {
-                return Ok(MessageBatch {
+                return Ok(SourceBatch::Raw {
                     messages: Vec::new(),
                     commit_marker: None,
                     memory: Vec::new(),
@@ -121,7 +121,7 @@ impl Source for FakeSource {
                 .last()
                 .and_then(|message| message.meta.offset)
                 .unwrap_or_default();
-            Ok(MessageBatch {
+            Ok(SourceBatch::Raw {
                 messages,
                 commit_marker: Some(CommitMarker::new(marker)),
                 memory: Vec::new(),

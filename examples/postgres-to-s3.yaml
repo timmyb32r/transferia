@@ -1,0 +1,33 @@
+source:
+  postgres:
+    connection: "host=localhost port=5432 user=postgres password=postgres dbname=postgres"
+    trusted_plaintext: true
+    tables:
+      - schema: public
+        name: events
+
+middlewares: []
+pipeline_memory_limit_bytes: 268435456
+keep_system_columns_in_sink: false
+
+sink:
+  s3:
+    bucket: transfer-bucket
+    object_layout_version: 5
+    prefix: postgres-snapshots
+    region: us-east-1
+    endpoint: "http://localhost:4566"
+    allow_http: true
+    credentials:
+      access_key: test
+      secret_key: test
+    partitioning:
+      type: source
+    rotation:
+      max_rows: 100000
+      max_bytes: 128MiB
+
+metrics:
+  enabled: true
+  interval_ms: 1000
+  per_partition: true

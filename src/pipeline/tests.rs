@@ -102,7 +102,7 @@ impl ParserSession for OverestimatedSession {
 impl Source for RecordingSource {
     fn read_batch(
         &mut self,
-    ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::types::message::MessageBatch>>
+    ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::types::message::SourceBatch>>
     {
         Box::pin(async { anyhow::bail!("recording source is commit-only") })
     }
@@ -153,7 +153,7 @@ async fn conservative_parser_estimate_is_not_a_correctness_rejection() {
     input_tx
         .send(ReadEnvelope {
             id: DeliveryId::new(1),
-            messages: vec![Message::new(bytes::Bytes::from_static(b"{}"))],
+            payload: ReadPayload::Raw(vec![Message::new(bytes::Bytes::from_static(b"{}"))]),
             memory: Vec::new(),
             meta: DeliveryMeta { source_messages: 1 },
         })
@@ -218,7 +218,7 @@ async fn parser_session_state_is_preserved_across_blocking_workers() {
         input_tx
             .send(ReadEnvelope {
                 id: DeliveryId::new(id),
-                messages: vec![Message::new(bytes::Bytes::from_static(b"{}"))],
+                payload: ReadPayload::Raw(vec![Message::new(bytes::Bytes::from_static(b"{}"))]),
                 memory: Vec::new(),
                 meta: DeliveryMeta { source_messages: 1 },
             })

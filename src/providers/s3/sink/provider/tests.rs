@@ -137,12 +137,14 @@ fn discovery_rejects_shared_main_and_dlq_namespace() -> anyhow::Result<()> {
     let provider = S3SinkProvider::from_config(serde_yaml::from_str("bucket: test\n")?)?;
     let mut discovered = discovery(DataType::Utf8, false);
     discovered.datasets[1].name = Arc::clone(&discovered.datasets[0].name);
-    assert!(provider
+    let error = provider
         .limits()
         .validate_discovery(&discovered)
-        .expect_err("main and DLQ objects must not share keys")
-        .to_string()
-        .contains("same object namespace"));
+        .expect_err("main and DLQ objects must not share keys");
+    assert!(
+        format!("{error:#}").contains("repeat object namespace"),
+        "{error:#}"
+    );
     Ok(())
 }
 

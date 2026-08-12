@@ -207,3 +207,27 @@ fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()
     )?;
     Ok(())
 }
+
+#[test]
+fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
+    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    for relative_path in [
+        "examples/postgres-to-clickhouse.yaml",
+        "examples/postgres-to-s3.yaml",
+    ] {
+        let path = format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR"));
+        let config = Config::from_file(&path)?;
+        let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
+        let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+        assert!(matches!(
+            source.compatibility(),
+            transferia::compatibility::EndpointDescriptor::Postgres(_)
+        ));
+        assert!(matches!(
+            sink.compatibility(),
+            transferia::compatibility::EndpointDescriptor::ClickHouse
+                | transferia::compatibility::EndpointDescriptor::S3(_)
+        ));
+    }
+    Ok(())
+}

@@ -10,8 +10,9 @@ PQv1 -> JSON parser -> middlewares -> ClickHouse | S3
 ```
 
 Source and sink providers are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers the `pqv1` source,
-durable `clickhouse` and `s3` sinks, and the non-durable `discard` sink used by
+kinds are validated explicitly. The executable registers the `pqv1` and
+finite-snapshot `postgres` sources, durable `clickhouse`, `postgres`, and `s3`
+sinks, and the non-durable `discard` sink used by
 explicit benchmark configurations.
 
 ## Quality checks

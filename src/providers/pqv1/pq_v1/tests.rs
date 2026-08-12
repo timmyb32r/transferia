@@ -1604,9 +1604,17 @@ async fn source_keeps_one_memory_reservation_per_decoded_part() {
     .unwrap();
 
     let batch = source.read_batch().await.unwrap();
-    assert_eq!(batch.messages.len(), 2);
-    assert_eq!(batch.memory.len(), 1);
-    assert_eq!(batch.memory[0].bytes(), retained);
+    let SourceBatch::Raw {
+        messages,
+        memory: reservations,
+        ..
+    } = batch
+    else {
+        panic!("expected raw batch");
+    };
+    assert_eq!(messages.len(), 2);
+    assert_eq!(reservations.len(), 1);
+    assert_eq!(reservations[0].bytes(), retained);
     assert_eq!(memory.source_used(), retained);
 }
 
@@ -1625,8 +1633,16 @@ async fn discarded_batch_emits_a_marker_without_messages() {
     .unwrap();
 
     let batch = source.read_batch().await.unwrap();
-    assert!(batch.messages.is_empty());
-    let marker = batch.commit_marker.expect("discarded batch commit marker");
+    let SourceBatch::Raw {
+        messages,
+        commit_marker,
+        ..
+    } = batch
+    else {
+        panic!("expected raw batch");
+    };
+    assert!(messages.is_empty());
+    let marker = commit_marker.expect("discarded batch commit marker");
     assert_eq!(
         marker.downcast_ref::<PqV1CommitMarker>().unwrap().cookies[0].partition_cookie,
         3
@@ -1735,16 +1751,22 @@ async fn source_groups_commit_markers_into_one_request_without_draining_data_bat
         .unwrap();
     }
 
-    let mut first_batch = source.read_batch().await.unwrap();
-    let first_marker = first_batch
-        .commit_marker
-        .take()
-        .expect("first commit marker");
-    let mut second_batch = source.read_batch().await.unwrap();
-    let second_marker = second_batch
-        .commit_marker
-        .take()
-        .expect("second commit marker");
+    let SourceBatch::Raw {
+        commit_marker: first_marker,
+        ..
+    } = source.read_batch().await.unwrap()
+    else {
+        panic!("expected raw batch");
+    };
+    let first_marker = first_marker.expect("first commit marker");
+    let SourceBatch::Raw {
+        commit_marker: second_marker,
+        ..
+    } = source.read_batch().await.unwrap()
+    else {
+        panic!("expected raw batch");
+    };
+    let second_marker = second_marker.expect("second commit marker");
 
     let markers = [
         first_marker,

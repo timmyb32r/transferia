@@ -90,6 +90,6 @@ fn reporter_tolerates_counter_generation_reset() {
         0,
         0,
     );
-    assert!(line.contains("pqv1: 0 msg/s"));
+    assert!(line.contains("source: 0 msg/s"));
     assert!(line.contains("guarantee: at-least-once"));
 }
