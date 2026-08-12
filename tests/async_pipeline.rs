@@ -225,12 +225,12 @@ impl InsertTransport for FakeClickHouse {
 
 fn sink_config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
-        connection_string: "fake".into(),
+        endpoint: "fake".into(),
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
-        max_insert_rows: 1,
-        max_insert_bytes: usize::MAX,
+        insert_target_rows: 1,
+        insert_target_bytes: usize::MAX,
         flush_interval_ms: 1,
         retry_initial_ms: 1,
         retry_max_ms: 10,
@@ -262,9 +262,8 @@ columns:
         raw,
         Arc::from("events"),
         &transferia::parsers::CommonParserConfig {
-            table_naming: transferia::parsers::TableNaming {
-                kind: "from_config".into(),
-                name: Some("events".into()),
+            table_naming: transferia::parsers::TableNaming::FromConfig {
+                name: "events".into(),
             },
             system_columns: transferia::parsers::SystemColumnsConfig::default(),
         },

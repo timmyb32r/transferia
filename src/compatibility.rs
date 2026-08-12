@@ -42,6 +42,7 @@ pub struct S3Descriptor {
     pub partitioning: S3Partitioning,
     pub record_time_rotation: bool,
     pub wall_clock_rotation: bool,
+    pub object_layout_version: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -270,13 +271,14 @@ pub fn validate_pipeline(
                 "sink.s3.endpoint".into(),
                 "sink.s3.region".into(),
                 "sink.s3.prefix".into(),
+                "sink.s3.object_layout_version".into(),
                 "sink.s3.partitioning".into(),
                 "sink.s3.rotation".into(),
                 "sink.s3.buffering.max_open_objects".into(),
                 "sink.s3.buffering.max_epoch_bytes".into(),
             ],
             explanation: "object boundaries and keys are deterministic for fixed transformation and destination configuration; successful overwrite precedes source commit".into(),
-            remediation: Some("do not change parser, middleware, projection, destination identity, S3 prefix, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
+            remediation: Some("do not change parser, middleware, projection, destination identity, S3 prefix, object_layout_version, partitioning, rotation, max_open_objects, or max_epoch_bytes while uncommitted data can replay".into()),
         });
         DeliveryGuarantee::ExactlyOnce
     };
@@ -376,6 +378,7 @@ mod tests {
             partitioning,
             record_time_rotation: false,
             wall_clock_rotation,
+            object_layout_version: 1,
         })
     }
 
@@ -384,6 +387,15 @@ mod tests {
         let report = validate_pipeline(&source(), &sink(S3Partitioning::Source, false), false);
         assert_eq!(report.guarantee, DeliveryGuarantee::ExactlyOnce);
         assert!(report.ensure_valid().is_ok());
+        let diagnostic = report
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.code == DiagnosticCode::DeterministicS3Commit)
+            .expect("deterministic S3 diagnostic");
+        assert!(diagnostic
+            .config_paths
+            .iter()
+            .any(|path| path == "sink.s3.object_layout_version"));
     }
 
     #[test]

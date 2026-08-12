@@ -29,14 +29,14 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   clickhouse:
-    connection_string: "${CLICKHOUSE_ENDPOINT:-localhost:9000}"
+    endpoint: "${CLICKHOUSE_ENDPOINT:-localhost:9000}"
     database: "${CLICKHOUSE_DATABASE:-default}"
     username: "${CLICKHOUSE_USERNAME:-default}"
     password: "${CLICKHOUSE_PASSWORD:-}"
     use_tls: false
     sorting_key: ["id", "ts"]
-    max_insert_rows: 10000
-    max_insert_bytes: 67108864
+    insert_target_rows: 10000
+    insert_target_bytes: 67108864
     flush_interval_ms: 500
     retry_initial_ms: 50
     retry_max_ms: 30000

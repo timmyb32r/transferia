@@ -82,7 +82,7 @@ mod tests {
     #[tokio::test]
     async fn provider_publishes_client_before_any_connect_attempt() -> anyhow::Result<()> {
         let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
-            "connection_string: 127.0.0.1:1\nuse_tls: false\nconnect_timeout_ms: 1\n",
+            "endpoint: 127.0.0.1:1\nuse_tls: false\nconnect_timeout_ms: 1\n",
         )?)?;
 
         let first = provider.client_slot().await;

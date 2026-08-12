@@ -52,29 +52,21 @@ impl SystemColumnsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct TableNaming {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(default)]
-    pub name: Option<String>,
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TableNaming {
+    FromConfig { name: String },
+    FromTopic,
 }
 
 impl ParserConfig {
     pub fn resolve_table_name(&self, topic_path: &str) -> anyhow::Result<String> {
-        match self.common.table_naming.kind.as_str() {
-            "from_config" => self
-                .common
-                .table_naming
-                .name
-                .clone()
-                .filter(|name| !name.is_empty())
-                .ok_or_else(|| {
+        match &self.common.table_naming {
+            TableNaming::FromConfig { name } => {
+                (!name.is_empty()).then(|| name.clone()).ok_or_else(|| {
                     anyhow::anyhow!("table_naming.name is required for type 'from_config'")
-                }),
-            "from_topic" => Ok(topic_path.to_string()),
-            other => {
-                anyhow::bail!("unknown table_naming.type '{other}' (use from_config | from_topic)")
+                })
             }
+            TableNaming::FromTopic => Ok(topic_path.to_string()),
         }
     }
 }

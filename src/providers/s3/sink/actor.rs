@@ -16,7 +16,9 @@ use crate::serializer::JsonBatchEncoder;
 
 use super::config::{PartitionPathChange, S3SinkConfig};
 use super::partitioning::{percent_encode, Partitioner, RowRoute};
-use super::upload::{upload_with_retry, ObjectUploader, UploadStats};
+use super::upload::{upload_with_retry, ObjectUploader};
+
+const MAX_GROUPS_BEFORE_YIELD: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct BufferKey {
@@ -102,7 +104,7 @@ fn routed_row_retained_bytes(row: &RoutedRow, serialized_bytes: usize) -> usize 
 
 struct ActiveUpload {
     object: ClosedObject,
-    result: Result<UploadStats, PipelineFailure>,
+    result: Result<(), PipelineFailure>,
 }
 
 pub struct S3Sink {
@@ -453,11 +455,18 @@ impl S3Sink {
         let uploader = Arc::clone(&self.uploader);
         let retry = self.config.retry.clone();
         let cancellation = cancellation.clone();
+        let counters = Arc::clone(&self.counters);
         self.in_flight_objects = self.in_flight_objects.saturating_add(1);
         uploads.spawn(async move {
-            let result =
-                upload_with_retry(uploader, retry, &object.key, &object.payload, &cancellation)
-                    .await;
+            let result = upload_with_retry(
+                uploader,
+                retry,
+                &object.key,
+                &object.payload,
+                &cancellation,
+                counters.as_ref(),
+            )
+            .await;
             ActiveUpload { object, result }
         });
         true
@@ -467,9 +476,7 @@ impl S3Sink {
         self.in_flight_objects = self.in_flight_objects.checked_sub(1).ok_or_else(|| {
             PipelineFailure::fatal(anyhow::anyhow!("S3 in-flight upload counter underflow"))
         })?;
-        let stats = active.result?;
-        self.counters.add_busy(stats.busy);
-        self.counters.add_retries(stats.retries);
+        active.result?;
         self.counters.add_rows(active.object.rows as u64);
         self.counters.add_bytes(active.object.payload.len() as u64);
         self.counters.add_flush();
@@ -573,6 +580,7 @@ impl S3Sink {
         let upload_cancellation = CancellationToken::new();
         let mut input_closed = false;
         let mut pending_delivery: Option<PendingDelivery> = None;
+        let mut groups_since_yield = 0_usize;
         let mut backpressure_started: Option<std::time::Instant> = None;
         let result: anyhow::Result<()> = async {
             loop {
@@ -623,8 +631,14 @@ impl S3Sink {
                     if done {
                         pending_delivery = None;
                     }
+                    groups_since_yield = groups_since_yield.saturating_add(1);
+                    if groups_since_yield >= MAX_GROUPS_BEFORE_YIELD {
+                        groups_since_yield = 0;
+                        tokio::task::yield_now().await;
+                    }
                     continue;
                 }
+                groups_since_yield = 0;
 
                 let can_accept = pending_delivery.is_none()
                     && !input_closed

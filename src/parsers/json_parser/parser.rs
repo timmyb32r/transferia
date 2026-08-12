@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use time::format_description::well_known::Rfc3339;
 
 use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
-use crate::parsers::{Parser, SystemColumnsConfig};
+use crate::parsers::{Parser, ParserSession, SystemColumnsConfig};
 use crate::types::message::{Message, MessageMeta};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -1462,11 +1462,10 @@ impl ParserWorkspace {
 // parse_into — main hot path
 // ---------------------------------------------------------------------------
 
-impl Parser for JsonParser {
-    fn parse_into(
+impl JsonParser {
+    pub fn parse_into(
         &self,
         messages: Vec<Message>,
-        _partition_id: i64,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let now = ws.now();
@@ -1575,6 +1574,29 @@ impl Parser for JsonParser {
         };
 
         Ok((valid_batch, dlq_batch))
+    }
+}
+
+struct JsonParserSession {
+    parser: Arc<JsonParser>,
+    workspace: ParserWorkspace,
+}
+
+impl ParserSession for JsonParserSession {
+    fn parse_into(
+        &mut self,
+        messages: Vec<Message>,
+    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        self.parser.parse_into(messages, &mut self.workspace)
+    }
+}
+
+impl Parser for JsonParser {
+    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+        Box::new(JsonParserSession {
+            parser: self,
+            workspace: ParserWorkspace::new(),
+        })
     }
 }
 // Regression tests — validate the simd-json invariant on real inputs
@@ -1708,7 +1730,7 @@ mod tests {
         let payload = b"{\"id\":\"a\",\"val\":1}\n{\"id\":\"b\",\"val\":2}\n\n{\"id\":\"c\"}";
         let msgs = vec![Message::new(Bytes::copy_from_slice(payload))];
 
-        let (good, dlq) = parser.parse_into(msgs, 0, &mut ws)?;
+        let (good, dlq) = parser.parse_into(msgs, &mut ws)?;
 
         anyhow::ensure!(
             good.batch.num_rows() == 3,
@@ -1761,7 +1783,7 @@ mod tests {
                 write_timestamp_ms: Some(1_234),
             },
         };
-        let (good, dlq) = parser.parse_into(vec![message], 7, &mut ParserWorkspace::new())?;
+        let (good, dlq) = parser.parse_into(vec![message], &mut ParserWorkspace::new())?;
         let offset = good.system_columns.get(SystemColumnKind::Offset).unwrap();
         anyhow::ensure!(int64_col(&good.batch, offset.index)?.value(0) == 42);
         let dlq = dlq.ok_or_else(|| anyhow::anyhow!("invalid row must reach DLQ"))?;
@@ -1799,7 +1821,6 @@ mod tests {
         )?;
         let (main, dlq) = parser.parse_into(
             vec![Message::new(Bytes::from_static(b"{\"tenant\":null}"))],
-            0,
             &mut ParserWorkspace::new(),
         )?;
         anyhow::ensure!(main.batch.num_rows() == 0);
@@ -1844,7 +1865,6 @@ mod tests {
                 )?;
                 let (main, dlq) = parser.parse_into(
                     vec![Message::new(Bytes::from(payload))],
-                    0,
                     &mut ParserWorkspace::new(),
                 )?;
                 anyhow::ensure!(
@@ -1894,7 +1914,7 @@ mod tests {
                 Message::new(Bytes::copy_from_slice(null_payload)),
                 Message::new(Bytes::copy_from_slice(invalid_payload)),
             ];
-            let (main, dlq) = parser.parse_into(messages, 0, &mut ParserWorkspace::new())?;
+            let (main, dlq) = parser.parse_into(messages, &mut ParserWorkspace::new())?;
             anyhow::ensure!(main.batch.num_rows() == 1, "{jsonpath}");
             anyhow::ensure!(main.batch.column(0).is_null(0), "{jsonpath}");
             anyhow::ensure!(
@@ -1925,7 +1945,6 @@ mod tests {
         )?;
         let (main, dlq) = parser.parse_into(
             vec![Message::new(Bytes::from_static(b"{\"ts\":123}"))],
-            0,
             &mut ParserWorkspace::new(),
         )?;
         anyhow::ensure!(dlq.is_none());

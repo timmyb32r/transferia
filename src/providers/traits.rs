@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::EndpointDescriptor;
 use crate::metrics::SinkCounters;
-use crate::parsers::ParserConfig;
+use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::Sink;
 use crate::pipeline::source::Source;
@@ -32,11 +32,7 @@ pub trait SourceProvider: Send + Sync {
         worker_index: u32,
     ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>>;
 
-    fn resolve_table_name(&self) -> anyhow::Result<String>;
-    fn parser_config(&self) -> &ParserConfig;
-
-    /// Runtime dataset schema produced by this source/parser pipeline.
-    fn schema(&self) -> &DatasetSchema;
+    fn parser_plan(&self) -> &ParserPlan;
 }
 
 // ---------------------------------------------------------------------------

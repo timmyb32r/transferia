@@ -369,9 +369,8 @@ fn pipeline_parser() -> Arc<dyn crate::parsers::Parser> {
         parser_raw,
         Arc::from("events"),
         &crate::parsers::CommonParserConfig {
-            table_naming: crate::parsers::TableNaming {
-                kind: "from_config".into(),
-                name: Some("events".into()),
+            table_naming: crate::parsers::TableNaming::FromConfig {
+                name: "events".into(),
             },
             system_columns: crate::parsers::SystemColumnsConfig {
                 topic_name: true,
@@ -453,10 +452,7 @@ async fn delivery(
                     .collect::<Vec<_>>(),
             ),
         }],
-        meta: DeliveryMeta {
-            source_messages: 1,
-            ..DeliveryMeta::default()
-        },
+        meta: DeliveryMeta { source_messages: 1 },
     }
 }
 
@@ -530,7 +526,6 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
         }],
         meta: DeliveryMeta {
             source_messages: rows as u64,
-            ..DeliveryMeta::default()
         },
     }
 }
@@ -1377,8 +1372,8 @@ async fn record_time_rotation_is_data_deterministic() {
 }
 
 #[tokio::test]
-async fn partition_change_mode_selects_confluent_or_keep_open_behavior() {
-    let rotation = "  on_partition_change: rotate\n";
+async fn partition_path_change_selects_rotate_or_keep_open_behavior() {
+    let rotation = "  on_partition_path_change: rotate\n";
     let partitioning = "partitioning:\n  type: fields\n  columns: [id]\n";
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
@@ -1449,7 +1444,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
     let sink = S3Sink::new(
         config_with_rotation(
             100,
-            "  on_partition_change: rotate\n",
+            "  on_partition_path_change: rotate\n",
             "partitioning:\n  type: fields\n  columns: [id]\n",
         ),
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
@@ -1569,8 +1564,26 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
         "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 2 }\n",
     )
     .unwrap();
-    let (tx, _events, _cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
-    tx.send(delivery(&memory, 1, 4, 1_000, false).await)
+    let counters = Arc::new(SinkCounters::new());
+    let (delivery_tx, delivery_rx) = mpsc::channel(8);
+    let (event_tx, _events) = mpsc::channel(8);
+    let cancellation = CancellationToken::new();
+    let sink = S3Sink::new(
+        config,
+        Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
+        Arc::clone(&counters),
+        false,
+        3,
+    )
+    .unwrap();
+    let task = tokio::spawn(Box::new(sink).run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation,
+    }));
+    delivery_tx
+        .send(delivery(&memory, 1, 4, 1_000, false).await)
         .await
         .unwrap();
 
@@ -1580,6 +1593,7 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .is_some_and(crate::pipeline::PipelineFailure::is_retryable));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
+    assert_eq!(counters.retries_total(), 1);
 }
 
 #[tokio::test]

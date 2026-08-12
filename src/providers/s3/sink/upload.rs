@@ -10,6 +10,7 @@ use object_store::{Error as ObjectStoreError, MultipartUpload, ObjectStore};
 use tokio_util::sync::CancellationToken;
 
 use super::config::{RetryConfig, UploadConfig};
+use crate::metrics::SinkCounters;
 use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use crate::pipeline::PipelineFailure;
 
@@ -246,25 +247,15 @@ fn classify_object_store_error(error: ObjectStoreError) -> UploadError {
     }
 }
 
-#[derive(Debug)]
-pub struct UploadStats {
-    pub retries: u64,
-    /// Sum of object-store attempt durations. Concurrent object uploads are
-    /// accumulated independently, so the aggregate sink busy metric may
-    /// exceed wall-clock time and 100% utilization.
-    pub busy: Duration,
-}
-
 pub async fn upload_with_retry(
     uploader: Arc<dyn ObjectUploader>,
     retry: RetryConfig,
     key: &str,
     payload: &Bytes,
     cancellation: &CancellationToken,
-) -> Result<UploadStats, PipelineFailure> {
+    counters: &SinkCounters,
+) -> Result<(), PipelineFailure> {
     let mut attempt = 1_usize;
-    let mut retries = 0_u64;
-    let mut busy = Duration::ZERO;
     loop {
         if cancellation.is_cancelled() {
             return Err(PipelineFailure::retryable(anyhow::anyhow!(
@@ -273,9 +264,9 @@ pub async fn upload_with_retry(
         }
         let started = Instant::now();
         let result = uploader.upload(key, payload.clone(), cancellation).await;
-        busy += started.elapsed();
+        counters.add_busy(started.elapsed());
         match result {
-            Ok(()) => return Ok(UploadStats { retries, busy }),
+            Ok(()) => return Ok(()),
             Err(UploadError::Cancelled) => {
                 return Err(PipelineFailure::retryable(anyhow::anyhow!(
                     "S3 upload cancelled"
@@ -293,7 +284,7 @@ pub async fn upload_with_retry(
                         retry.max_attempts
                     ))));
                 }
-                retries = retries.saturating_add(1);
+                counters.add_retries(1);
                 let delay =
                     retry_delay(&retry, u32::try_from(attempt - 1).unwrap_or(u32::MAX), key);
                 tracing::warn!(

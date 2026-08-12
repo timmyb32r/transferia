@@ -7,7 +7,7 @@ use arrow::record_batch::RecordBatch;
 use transferia::parsers::json_parser::{
     ChunkSplitter, ColumnMapping, JsonParser, JsonParserConfig, ParserWorkspace,
 };
-use transferia::parsers::{Parser as _, SystemColumnsConfig};
+use transferia::parsers::SystemColumnsConfig;
 use transferia::serializer::JsonBatchEncoder;
 use transferia::types::message::Message;
 
@@ -55,7 +55,7 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
         "test".into(),
     )?;
     let mut workspace = ParserWorkspace::new();
-    let (good, _dlq) = parser.parse_into(vec![Message::new(output.into())], 0, &mut workspace)?;
+    let (good, _dlq) = parser.parse_into(vec![Message::new(output.into())], &mut workspace)?;
 
     anyhow::ensure!(good.batch.num_rows() == 2, "expected two parsed rows");
     let parsed_id_arr = good

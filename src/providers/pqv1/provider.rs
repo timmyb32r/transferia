@@ -11,8 +11,7 @@ use crate::compatibility::{
     ColumnDescriptor, EndpointDescriptor, SourceBehavior, SourceDescriptor,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::json_parser::{JsonParser, JsonParserConfig};
-use crate::parsers::ParserConfig;
+use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::pipeline::PipelineFailure;
@@ -20,21 +19,46 @@ use crate::providers::pqv1::config::PqV1SourceConfig;
 use crate::providers::pqv1::credentials::load_access_token;
 use crate::providers::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;
-use crate::types::schema::DatasetSchema;
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
+const ENDPOINT_REFRESH_BACKOFF: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 struct CachedEndpoints {
     fetched_at: Instant,
+    refresh_retry_at: Option<Instant>,
     main_host: String,
     endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
 }
 
+impl CachedEndpoints {
+    fn should_refresh(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.fetched_at) >= ENDPOINT_CACHE_TTL
+            && self.refresh_retry_at.is_none_or(|retry_at| now >= retry_at)
+    }
+
+    fn defer_refresh(&mut self, now: Instant) {
+        self.refresh_retry_at = Some(now + ENDPOINT_REFRESH_BACKOFF);
+    }
+}
+
+fn connection_failure(
+    partition_id: i64,
+    errors: &[String],
+    fatal_error: Option<anyhow::Error>,
+) -> anyhow::Error {
+    fatal_error.unwrap_or_else(|| {
+        anyhow::anyhow!(
+            "PQv1 could not connect partition {partition_id} to any endpoint: {}",
+            errors.join("; ")
+        )
+    })
+}
+
 pub struct PqV1SourceProvider {
     cfg: PqV1SourceConfig,
-    cached_schema: DatasetSchema,
+    parser_plan: ParserPlan,
     metrics_registry: Arc<MetricsRegistry>,
     behavior: SourceBehavior,
     source_counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
@@ -121,24 +145,11 @@ impl PqV1SourceProvider {
         } else {
             SourceBehavior::ProducesRows
         };
-        let cached_schema = if parser_kind == "benchmark_discard" {
-            let _: crate::parsers::benchmark_discard::BenchmarkDiscardConfig =
-                serde_yaml::from_value(cfg.parser.parser.raw()?.clone())?;
-            DatasetSchema::default()
-        } else {
-            let parser_cfg: JsonParserConfig =
-                serde_yaml::from_value(cfg.parser.parser.raw()?.clone())?;
-            drop(JsonParser::new(
-                &parser_cfg,
-                &cfg.parser.common.system_columns,
-                Arc::from("__config_validation__"),
-            )?);
-            parser_cfg.to_dataset_schema()?
-        };
+        let parser_plan = ParserPlan::from_config(&cfg.parser, &cfg.topic_path)?;
         let decompression_slots = Arc::new(Semaphore::new(cfg.decompression_concurrency));
         Ok(Self {
             cfg,
-            cached_schema,
+            parser_plan,
             metrics_registry,
             behavior,
             source_counters: Mutex::new(HashMap::new()),
@@ -164,9 +175,10 @@ async fn resolve_proxies_cached(
         cache = cache.lock() => cache,
     };
     let fallback_main = parse_endpoint(discovery_endpoint)?;
+    let now = Instant::now();
     let refresh = cache
         .as_ref()
-        .is_none_or(|cached| cached.fetched_at.elapsed() >= ENDPOINT_CACHE_TTL);
+        .is_none_or(|cached| cached.should_refresh(now));
     if refresh {
         match PqV1Client::discover_endpoints(
             discovery_endpoint,
@@ -179,6 +191,7 @@ async fn resolve_proxies_cached(
             Ok((main_host, endpoints)) => {
                 *cache = Some(CachedEndpoints {
                     fetched_at: Instant::now(),
+                    refresh_retry_at: None,
                     main_host,
                     endpoints,
                 });
@@ -194,10 +207,14 @@ async fn resolve_proxies_cached(
                     tracing::warn!("PQv1 proxy discovery failed: {error}. Using main endpoint.");
                     *cache = Some(CachedEndpoints {
                         fetched_at: Instant::now(),
+                        refresh_retry_at: None,
                         main_host: fallback_main,
                         endpoints: Vec::new(),
                     });
                 } else {
+                    if let Some(cached) = cache.as_mut() {
+                        cached.defer_refresh(Instant::now());
+                    }
                     tracing::warn!(
                         "PQv1 proxy discovery refresh failed: {error}. Using stale endpoint cache."
                     );
@@ -223,7 +240,8 @@ impl SourceProvider for PqV1SourceProvider {
             behavior: self.behavior,
             system_columns: self.cfg.parser.common.system_columns.enabled().collect(),
             columns: self
-                .cached_schema
+                .parser_plan
+                .dataset_schema()
                 .columns
                 .iter()
                 .map(|column| ColumnDescriptor {
@@ -280,6 +298,7 @@ impl SourceProvider for PqV1SourceProvider {
             proxies.rotate_left(endpoint_attempt % proxy_count);
             let mut connected = None;
             let mut errors = Vec::new();
+            let mut fatal_error = None;
             for proxy in proxies {
                 match PqV1Client::connect(
                     &proxy,
@@ -306,16 +325,24 @@ impl SourceProvider for PqV1SourceProvider {
                             proxy,
                             "PQv1 proxy connection failed: {error}"
                         );
-                        errors.push(format!("{proxy}: {error}"));
+                        if error
+                            .downcast_ref::<PipelineFailure>()
+                            .is_some_and(|failure| !failure.is_retryable())
+                        {
+                            fatal_error.get_or_insert(error);
+                        } else {
+                            errors.push(format!("{proxy}: {error}"));
+                        }
                     }
                 }
             }
-            let (client, rx) = connected.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "PQv1 could not connect partition {partition_id} to any endpoint: {}",
-                    errors.join("; ")
-                )
-            })?;
+            if connected.is_none() {
+                if let Some(error) = fatal_error {
+                    return Err(error);
+                }
+            }
+            let (client, rx) =
+                connected.ok_or_else(|| connection_failure(partition_id, &errors, fatal_error))?;
             Ok(Box::new(PqV1Source::new(
                 client,
                 rx,
@@ -350,16 +377,8 @@ impl SourceProvider for PqV1SourceProvider {
         })
     }
 
-    fn resolve_table_name(&self) -> anyhow::Result<String> {
-        self.cfg.parser.resolve_table_name(&self.cfg.topic_path)
-    }
-
-    fn parser_config(&self) -> &ParserConfig {
-        &self.cfg.parser
-    }
-
-    fn schema(&self) -> &DatasetSchema {
-        &self.cached_schema
+    fn parser_plan(&self) -> &ParserPlan {
+        &self.parser_plan
     }
 }
 
@@ -370,6 +389,34 @@ mod tests {
     fn provider(config: &str) -> anyhow::Result<PqV1SourceProvider> {
         let value = serde_yaml::from_str(config)?;
         PqV1SourceProvider::from_config(value, Arc::new(MetricsRegistry::new()))
+    }
+
+    #[test]
+    fn endpoint_refresh_failure_is_backed_off_without_refreshing_stale_data() {
+        let now = Instant::now();
+        let mut cached = CachedEndpoints {
+            fetched_at: now
+                .checked_sub(ENDPOINT_CACHE_TTL + Duration::from_secs(1))
+                .expect("test clock has enough history"),
+            refresh_retry_at: None,
+            main_host: "localhost:2135".into(),
+            endpoints: Vec::new(),
+        };
+        assert!(cached.should_refresh(now));
+        cached.defer_refresh(now);
+        assert!(!cached.should_refresh(now));
+        assert!(cached.should_refresh(now + ENDPOINT_REFRESH_BACKOFF));
+        assert!(cached.fetched_at < now);
+    }
+
+    #[test]
+    fn proxy_failure_aggregation_preserves_a_fatal_disposition() {
+        let fatal = PipelineFailure::fatal(anyhow::anyhow!("invalid credentials"));
+        let error = connection_failure(7, &["proxy: timed out".into()], Some(fatal.into()));
+        let failure = error
+            .downcast_ref::<PipelineFailure>()
+            .expect("fatal disposition must survive endpoint aggregation");
+        assert!(!failure.is_retryable());
     }
 
     fn config(partition_ids: &str, extra: &str) -> String {

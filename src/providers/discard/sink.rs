@@ -82,10 +82,7 @@ mod tests {
             .send(Delivery {
                 id: DeliveryId::new(7),
                 outputs: Vec::new(),
-                meta: DeliveryMeta {
-                    source_messages: 3,
-                    ..DeliveryMeta::default()
-                },
+                meta: DeliveryMeta { source_messages: 3 },
             })
             .await?;
         assert_eq!(

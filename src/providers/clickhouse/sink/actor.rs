@@ -139,8 +139,8 @@ impl ClickHouseSink {
             .values()
             .map(|buffer| {
                 let full = memory_pressure
-                    || buffer.rows >= self.config.max_insert_rows
-                    || buffer.bytes >= self.config.max_insert_bytes;
+                    || buffer.rows >= self.config.insert_target_rows
+                    || buffer.bytes >= self.config.insert_target_bytes;
                 let wanted = if input_closed || full {
                     Instant::now()
                 } else {

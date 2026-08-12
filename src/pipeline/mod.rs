@@ -18,7 +18,7 @@ use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
 use crate::metrics::ParseCounters;
-use crate::parsers::{Parser, ParserWorkspace};
+use crate::parsers::{Parser, ParserSession};
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::{
@@ -111,7 +111,6 @@ impl std::error::Error for PipelineFailure {
 struct ReadEnvelope {
     id: DeliveryId,
     messages: Vec<Message>,
-    partition_id: i64,
     memory: Vec<MemoryReservation>,
     meta: DeliveryMeta,
 }
@@ -129,13 +128,9 @@ fn arrow_batch_bytes(batch: &RecordBatch) -> usize {
         .sum()
 }
 
-fn delivery_meta(messages: &[Message]) -> DeliveryMeta {
+const fn delivery_meta(messages: &[Message]) -> DeliveryMeta {
     DeliveryMeta {
         source_messages: messages.len() as u64,
-        source_bytes: messages
-            .iter()
-            .map(|message| message.value.len() as u64)
-            .sum(),
     }
 }
 
@@ -173,14 +168,13 @@ fn make_sink_batch(
 fn parser_loop(
     mut input: mpsc::Receiver<ReadEnvelope>,
     output: &mpsc::Sender<Delivery>,
-    parser: &dyn Parser,
+    parser: &mut dyn ParserSession,
     middlewares: &[Box<dyn Middleware>],
     memory: &PipelineMemory,
     counters: &ParseCounters,
     cancellation: &CancellationToken,
     runtime: &tokio::runtime::Handle,
 ) -> anyhow::Result<()> {
-    let mut workspace = ParserWorkspace::new();
     let mut downstream_pressured = false;
     while !cancellation.is_cancelled() {
         if downstream_pressured {
@@ -200,13 +194,12 @@ fn parser_loop(
         let ReadEnvelope {
             id,
             messages,
-            partition_id,
             memory: source_memory,
             meta,
         } = envelope;
         let started = std::time::Instant::now();
         let (valid, dlq) = parser
-            .parse_into(messages, partition_id, &mut workspace)
+            .parse_into(messages)
             .map_err(|error| anyhow::anyhow!("parser failed for delivery {}: {error}", id.get()))?;
         let valid = apply_middlewares(valid, middlewares).map_err(|error| {
             anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
@@ -357,14 +350,19 @@ async fn reader_loop(
             continue;
         }
         backoff_ms = INITIAL_BACKOFF_MS;
+        let source_payload_bytes = batch
+            .messages
+            .iter()
+            .map(|message| message.value.len() as u64)
+            .sum::<u64>();
         let meta = delivery_meta(&batch.messages);
-        if batch.memory.is_empty() && meta.source_bytes > 0 {
+        if batch.memory.is_empty() && source_payload_bytes > 0 {
             let Some(reservation) = reserve_source_memory_with_events(
                 &mut source,
                 &mut ledger,
                 &mut events,
                 &memory,
-                meta.source_bytes as usize,
+                source_payload_bytes as usize,
                 &cancellation,
                 progress.as_ref(),
             )
@@ -382,7 +380,6 @@ async fn reader_loop(
         let envelope = ReadEnvelope {
             id: next_id,
             messages: batch.messages,
-            partition_id: batch.partition_id,
             memory: batch.memory,
             meta,
         };
@@ -535,10 +532,11 @@ pub async fn run_partition_pipeline_with_progress(
     let parser_thread = thread::Builder::new()
         .name(format!("parser-{partition_id}"))
         .spawn(move || {
+            let mut parser = parser.create_session();
             let result = parser_loop(
                 read_rx,
                 &delivery_tx,
-                parser.as_ref(),
+                parser.as_mut(),
                 middlewares.as_slice(),
                 &parser_memory,
                 parse_counters.as_ref(),

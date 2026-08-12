@@ -71,6 +71,9 @@ const RELEASE_TRANSPORT_GRACE: core::time::Duration = core::time::Duration::from
 const PARTITION_CHANNEL_CAP: usize = 1;
 const DECODED_MESSAGE_METADATA_BYTES: usize = core::mem::size_of::<DecodedMessage>();
 const DECODED_PART_METADATA_BYTES: usize = core::mem::size_of::<DecodedPart>();
+/// `read_batch` converts every decoded item into a provider-neutral `Message` while the
+/// decoded vector is still alive. Account that short overlap before it is allocated.
+const OUTPUT_MESSAGE_METADATA_BYTES: usize = core::mem::size_of::<Message>();
 
 // ---------------------------------------------------------------------------
 // HTTP/2 prior-knowledge transport (Go-compatible)
@@ -2097,8 +2100,9 @@ fn declared_uncompressed_size(uncompressed_size: u64) -> anyhow::Result<usize> {
 }
 
 const fn decoded_part_retained_bytes(message_count: usize) -> usize {
-    DECODED_PART_METADATA_BYTES
-        .saturating_add(message_count.saturating_mul(DECODED_MESSAGE_METADATA_BYTES))
+    DECODED_PART_METADATA_BYTES.saturating_add(message_count.saturating_mul(
+        DECODED_MESSAGE_METADATA_BYTES.saturating_add(OUTPUT_MESSAGE_METADATA_BYTES),
+    ))
 }
 
 fn decoded_batch_retained_bytes(parts: &[RawPart]) -> anyhow::Result<usize> {
@@ -2119,11 +2123,9 @@ fn decoded_batch_bytes(parts: &[RawPart], include_raw_payload: bool) -> anyhow::
         retained = retained
             .checked_add(DECODED_PART_METADATA_BYTES)
             .and_then(|total| {
-                total.checked_add(
-                    part.msgs
-                        .len()
-                        .checked_mul(DECODED_MESSAGE_METADATA_BYTES)?,
-                )
+                total.checked_add(part.msgs.len().checked_mul(
+                    DECODED_MESSAGE_METADATA_BYTES.checked_add(OUTPUT_MESSAGE_METADATA_BYTES)?,
+                )?)
             })
             .ok_or_else(|| anyhow!("PQv1 decoded batch metadata estimate overflow"))?;
         for message in &part.msgs {
@@ -2395,7 +2397,7 @@ impl Source for PqV1Source {
             let Some(first) = first_part else {
                 anyhow::bail!("PQv1 decoded-part stream closed unexpectedly");
             };
-            let mut messages = Vec::new();
+            let mut messages = Vec::with_capacity(first.msgs.len());
             let mut memory = Vec::new();
             let mut cookies = Vec::new();
             if let Err(error) = self.append_part(first, &mut messages, &mut memory, &mut cookies) {
@@ -2461,11 +2463,18 @@ impl PqV1Source {
             self.partition_id,
             part.pid
         );
-        memory.push(part.memory);
-        if let Some(cookie) = part.cookie {
+        let DecodedPart {
+            cookie,
+            msgs,
+            memory: part_memory,
+            ..
+        } = part;
+        if let Some(cookie) = cookie {
             cookies.push(cookie);
         }
-        for message in part.msgs {
+        let decoded_metadata = DECODED_PART_METADATA_BYTES
+            .saturating_add(msgs.len().saturating_mul(DECODED_MESSAGE_METADATA_BYTES));
+        for message in msgs {
             let write_timestamp_ms = i64::try_from(message.write_timestamp_ms)?;
             messages.push(Message {
                 value: message.data,
@@ -2477,6 +2486,9 @@ impl PqV1Source {
                 },
             });
         }
+        let output_bytes = part_memory.bytes().saturating_sub(decoded_metadata).max(1);
+        let _shrunk = part_memory.shrink_to(output_bytes);
+        memory.push(part_memory);
         Ok(())
     }
 }
@@ -3575,7 +3587,10 @@ mod tests {
         }];
         assert_eq!(
             decoded_batch_retained_bytes(&raw).unwrap(),
-            DECODED_PART_METADATA_BYTES + DECODED_MESSAGE_METADATA_BYTES + 3
+            DECODED_PART_METADATA_BYTES
+                + DECODED_MESSAGE_METADATA_BYTES
+                + OUTPUT_MESSAGE_METADATA_BYTES
+                + 3
         );
 
         let half_plus_one = u64::try_from(MAX_DECOMPRESSED_BATCH_SIZE / 2 + 1).unwrap();
@@ -3952,7 +3967,9 @@ mod tests {
     #[tokio::test]
     async fn source_keeps_one_memory_reservation_per_decoded_part() {
         let memory = PipelineMemory::new(1024);
-        let reservation = memory.reserve(20).await;
+        let peak = decoded_part_retained_bytes(2) + 6;
+        let retained = peak - DECODED_PART_METADATA_BYTES - 2 * DECODED_MESSAGE_METADATA_BYTES;
+        let reservation = memory.reserve(peak).await;
         let (tx, rx) = mpsc::channel(1);
         let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         tx.send(DecodedPart {
@@ -3978,6 +3995,8 @@ mod tests {
         let batch = source.read_batch().await.unwrap();
         assert_eq!(batch.messages.len(), 2);
         assert_eq!(batch.memory.len(), 1);
+        assert_eq!(batch.memory[0].bytes(), retained);
+        assert_eq!(memory.source_used(), retained);
     }
 
     #[tokio::test]

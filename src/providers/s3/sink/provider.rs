@@ -39,6 +39,7 @@ impl SinkProvider for S3SinkProvider {
             partitioning,
             record_time_rotation: self.cfg.rotation.record_time_interval.is_some(),
             wall_clock_rotation: self.cfg.rotation.wall_clock_interval.is_some(),
+            object_layout_version: self.cfg.object_layout_version,
         })
     }
 

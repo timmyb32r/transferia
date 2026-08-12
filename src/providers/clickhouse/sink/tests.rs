@@ -107,12 +107,12 @@ impl InsertTransport for FakeTransport {
 
 fn config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
-        connection_string: "unused".into(),
+        endpoint: "unused".into(),
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
-        max_insert_rows: 1,
-        max_insert_bytes: usize::MAX,
+        insert_target_rows: 1,
+        insert_target_bytes: usize::MAX,
         flush_interval_ms: 100,
         retry_initial_ms: 10,
         retry_max_ms: 100,
@@ -150,10 +150,7 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
     Delivery {
         id: DeliveryId::new(id),
         outputs,
-        meta: DeliveryMeta {
-            source_messages: 1,
-            ..DeliveryMeta::default()
-        },
+        meta: DeliveryMeta { source_messages: 1 },
     }
 }
 
@@ -287,7 +284,7 @@ async fn low_volume_delivery_flushes_at_interval() {
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(false, []);
     let mut low_volume = config();
-    low_volume.max_insert_rows = 1_000;
+    low_volume.insert_target_rows = 1_000;
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(low_volume, transport, memory.clone(), Arc::clone(&counters));
 
@@ -345,7 +342,7 @@ async fn low_volume_tables_share_the_same_flush_deadline() {
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(false, []);
     let mut low_volume = config();
-    low_volume.max_insert_rows = 1_000;
+    low_volume.insert_target_rows = 1_000;
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(low_volume, transport, memory.clone(), counters);
 
@@ -369,7 +366,7 @@ async fn full_pipeline_budget_requests_an_immediate_insert() {
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(false, []);
     let mut high_targets = config();
-    high_targets.max_insert_rows = 1_000;
+    high_targets.insert_target_rows = 1_000;
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(high_targets, transport, memory.clone(), counters);
 
@@ -390,7 +387,7 @@ async fn source_read_credit_does_not_force_an_immediate_insert() {
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(false, []);
     let mut high_targets = config();
-    high_targets.max_insert_rows = 1_000;
+    high_targets.insert_target_rows = 1_000;
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(high_targets, transport, memory.clone(), counters);
 
@@ -534,10 +531,7 @@ async fn empty_delivery_commits_without_insert() {
     tx.send(Delivery {
         id: DeliveryId::new(1),
         outputs: Vec::new(),
-        meta: DeliveryMeta {
-            source_messages: 1,
-            ..DeliveryMeta::default()
-        },
+        meta: DeliveryMeta { source_messages: 1 },
     })
     .await
     .unwrap();

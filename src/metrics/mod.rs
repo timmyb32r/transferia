@@ -143,7 +143,7 @@ impl ParseCounters {
     pub fn add_source_messages(&self, n: u64) {
         self.source_messages.fetch_add(n, RELAXED);
     }
-    /// Parser busy = time in `parse_read_item` + `guard_middlewares`.
+    /// Parser busy = time spent parsing one delivery and applying its middlewares.
     #[inline]
     pub fn add_parse_busy(&self, d: Duration) {
         self.parse_busy_nanos

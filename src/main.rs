@@ -304,16 +304,10 @@ async fn main() -> anyhow::Result<()> {
     semantics.ensure_valid()?;
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
 
-    let table: Arc<str> = source_provider.resolve_table_name()?.into();
-    let parser_config = source_provider.parser_config();
-    let parser_kind = parser_config.parser.kind()?;
-    let parses_rows = parser_kind != "benchmark_discard";
-    let parser = transferia::parsers::build_parser(
-        parser_kind,
-        parser_config.parser.raw()?.clone(),
-        Arc::clone(&table),
-        &parser_config.common,
-    )?;
+    let parser_plan = source_provider.parser_plan();
+    let table = parser_plan.table();
+    let parses_rows = parser_plan.parses_rows();
+    let parser = parser_plan.parser();
     let middlewares = config
         .middlewares
         .iter()
@@ -328,21 +322,14 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let schema = transferia::parsers::json_parser::sink_dataset_schema(
-        source_provider.schema().clone(),
-        &parser_config.common.system_columns,
-        config.keep_system_columns_in_sink,
-    );
+    let schema = parser_plan.sink_schema(config.keep_system_columns_in_sink);
     let dlq_table: Arc<str> = dlq_name(&table).into();
     sink_provider
         .prepare(SinkPrepare {
             table: Arc::clone(&table),
             schema,
             dlq_table,
-            dlq_schema: transferia::parsers::json_parser::dlq_dataset_schema(
-                &parser_config.common.system_columns,
-                config.keep_system_columns_in_sink,
-            ),
+            dlq_schema: parser_plan.dlq_schema(config.keep_system_columns_in_sink),
         })
         .await?;
 
@@ -490,7 +477,7 @@ source:
           - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }
 sink:
   clickhouse:
-    connection_string: localhost:9000
+    endpoint: localhost:9000
     database: default
     use_tls: false
 ",

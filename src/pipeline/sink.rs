@@ -31,7 +31,6 @@ impl DeliveryId {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DeliveryMeta {
     pub source_messages: u64,
-    pub source_bytes: u64,
 }
 
 #[derive(Debug)]

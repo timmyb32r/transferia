@@ -9,7 +9,7 @@ use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
 use serde::Deserialize;
 
-use crate::parsers::{Parser, ParserWorkspace};
+use crate::parsers::{Parser, ParserSession};
 use crate::types::message::Message;
 use crate::types::system_columns::SystemColumns;
 use crate::types::table_data::TableData;
@@ -29,12 +29,14 @@ impl BenchmarkDiscardParser {
     }
 }
 
-impl Parser for BenchmarkDiscardParser {
+struct BenchmarkDiscardSession {
+    table: Arc<str>,
+}
+
+impl ParserSession for BenchmarkDiscardSession {
     fn parse_into(
-        &self,
+        &mut self,
         _messages: Vec<Message>,
-        _partition_id: i64,
-        _ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let batch = RecordBatch::new_empty(Arc::new(Schema::empty()));
         Ok((
@@ -46,6 +48,14 @@ impl Parser for BenchmarkDiscardParser {
             },
             None,
         ))
+    }
+}
+
+impl Parser for BenchmarkDiscardParser {
+    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+        Box::new(BenchmarkDiscardSession {
+            table: Arc::clone(&self.table),
+        })
     }
 }
 
@@ -61,7 +71,8 @@ mod tests {
             Message::new(Bytes::from_static(b"{\"id\":\"a\"}")),
             Message::new(Bytes::from_static(b"{\"id\":\"b\"}")),
         ];
-        let (valid, dlq) = parser.parse_into(messages, 0, &mut ParserWorkspace::new())?;
+        let mut session = Arc::new(parser).create_session();
+        let (valid, dlq) = session.parse_into(messages)?;
         assert_eq!(valid.batch.num_rows(), 0);
         assert!(!valid.is_dlq);
         assert!(dlq.is_none());
