@@ -214,7 +214,7 @@ fn parser_loop(
         {
             return Ok(());
         }
-        downstream_pressured = memory.transform_used() >= memory.limit();
+        downstream_pressured = memory.is_transform_pressured();
     }
     Ok(())
 }

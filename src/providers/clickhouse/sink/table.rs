@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr as _;
 use std::sync::Arc;
 
-use arrow::array::{Array as _, StringArray};
+use arrow::array::{Array as _, StringArray, UInt8Array};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::Type;
@@ -52,7 +52,7 @@ async fn create_table(
         .await
         .map_err(|error| anyhow::anyhow!("Failed to create table '{name}': {error}"))?;
     let target = fetch_target_schema(client, &config.database, name).await?;
-    validate_target_schema(name, schema, &target)
+    validate_target_schema(name, schema, &target, sorting_key)
 }
 
 fn create_table_ddl(
@@ -91,7 +91,10 @@ struct TargetColumn {
     data_type: Option<DataType>,
     nullable: bool,
     datetime_precision: Option<usize>,
+    datetime64: bool,
     timezone: Option<String>,
+    default_kind: String,
+    in_sorting_key: bool,
 }
 
 async fn fetch_target_schema(
@@ -100,7 +103,7 @@ async fn fetch_target_schema(
     table: &str,
 ) -> anyhow::Result<HashMap<String, TargetColumn>> {
     let query = format!(
-        "SELECT name, type FROM system.columns WHERE database = {} AND table = {} ORDER BY position",
+        "SELECT name, type, default_kind, is_in_sorting_key FROM system.columns WHERE database = {} AND table = {} ORDER BY position",
         quote_string_literal(database),
         quote_string_literal(table),
     );
@@ -111,8 +114,8 @@ async fn fetch_target_schema(
     let mut columns = HashMap::new();
     for batch in batches {
         anyhow::ensure!(
-            batch.num_columns() == 2,
-            "ClickHouse schema query for '{table}' returned {} columns instead of 2",
+            batch.num_columns() == 4,
+            "ClickHouse schema query for '{table}' returned {} columns instead of 4",
             batch.num_columns()
         );
         let names = cast(batch.column(0), &DataType::Utf8)?;
@@ -125,13 +128,31 @@ async fn fetch_target_schema(
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse schema types are not strings"))?;
+        let default_kinds = cast(batch.column(2), &DataType::Utf8)?;
+        let default_kinds = default_kinds
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse schema default kinds are not strings"))?;
+        let sorting_keys = cast(batch.column(3), &DataType::UInt8)?;
+        let sorting_keys = sorting_keys
+            .as_any()
+            .downcast_ref::<UInt8Array>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse schema sorting-key flags are not UInt8"))?;
         for row in 0..batch.num_rows() {
             anyhow::ensure!(
-                !names.is_null(row) && !types.is_null(row),
+                !names.is_null(row)
+                    && !types.is_null(row)
+                    && !default_kinds.is_null(row)
+                    && !sorting_keys.is_null(row),
                 "ClickHouse schema query for '{table}' returned NULL metadata"
             );
             let name = names.value(row).to_string();
-            let target = target_column(types.value(row)).map_err(|error| {
+            let target = target_column_with_metadata(
+                types.value(row),
+                default_kinds.value(row),
+                sorting_keys.value(row) != 0,
+            )
+            .map_err(|error| {
                 error.context(format!(
                     "Failed to parse ClickHouse type for '{table}.{name}'"
                 ))
@@ -149,22 +170,34 @@ async fn fetch_target_schema(
     Ok(columns)
 }
 
+#[cfg(test)]
 fn target_column(type_name: &str) -> anyhow::Result<TargetColumn> {
+    target_column_with_metadata(type_name, "", false)
+}
+
+fn target_column_with_metadata(
+    type_name: &str,
+    default_kind: &str,
+    in_sorting_key: bool,
+) -> anyhow::Result<TargetColumn> {
     let clickhouse_type = Type::from_str(type_name)?;
     let nullable = clickhouse_type.is_nullable();
     let data_type = target_data_type(&clickhouse_type);
-    let (datetime_precision, timezone) = match clickhouse_type.strip_null() {
-        Type::DateTime(timezone) => (Some(0), Some(timezone.name().to_string())),
+    let (datetime_precision, datetime64, timezone) = match clickhouse_type.strip_null() {
+        Type::DateTime(timezone) => (Some(0), false, Some(timezone.name().to_string())),
         Type::DateTime64(precision, timezone) => {
-            (Some(*precision), Some(timezone.name().to_string()))
+            (Some(*precision), true, Some(timezone.name().to_string()))
         }
-        _ => (None, None),
+        _ => (None, false, None),
     };
     Ok(TargetColumn {
         data_type,
         nullable,
         datetime_precision,
+        datetime64,
         timezone,
+        default_kind: default_kind.to_string(),
+        in_sorting_key,
     })
 }
 
@@ -205,6 +238,7 @@ fn validate_target_schema(
     table: &str,
     expected: &DatasetSchema,
     target: &HashMap<String, TargetColumn>,
+    sorting_key: &[String],
 ) -> anyhow::Result<()> {
     for column in &expected.columns {
         let actual = target.get(&column.name).ok_or_else(|| {
@@ -225,7 +259,25 @@ fn validate_target_schema(
             "ClickHouse table '{table}' column '{}' is non-nullable, but the input column is nullable",
             column.name,
         );
+        anyhow::ensure!(
+            matches!(actual.default_kind.as_str(), "" | "DEFAULT"),
+            "ClickHouse table '{table}' column '{}' is not writable because default_kind is '{}'",
+            column.name,
+            actual.default_kind,
+        );
     }
+    // `system.columns` exposes sorting-key membership, not the canonical ORDER BY
+    // expression. This validates the supported plain-column configuration without
+    // pretending to compare expression text or key order.
+    let expected_sorting: BTreeSet<_> = sorting_key.iter().map(String::as_str).collect();
+    let actual_sorting: BTreeSet<_> = target
+        .iter()
+        .filter_map(|(name, column)| column.in_sorting_key.then_some(name.as_str()))
+        .collect();
+    anyhow::ensure!(
+        actual_sorting == expected_sorting,
+        "ClickHouse table '{table}' has sorting-key columns {actual_sorting:?}, expected {expected_sorting:?}",
+    );
     Ok(())
 }
 
@@ -237,7 +289,7 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
         (DataType::Utf8 | DataType::LargeUtf8, DataType::Utf8)
         | (DataType::Boolean, DataType::UInt8) => true,
         (DataType::Date64, DataType::Timestamp(TimeUnit::Millisecond, _)) => {
-            target.datetime_precision == Some(3)
+            target.datetime64 && target.datetime_precision == Some(3)
         }
         (DataType::Timestamp(expected_unit, expected_timezone), DataType::Timestamp(unit, _)) => {
             let expected_precision = match expected_unit {
@@ -247,6 +299,7 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
                 TimeUnit::Nanosecond => 9,
             };
             expected_unit == unit
+                && target.datetime64
                 && target.datetime_precision == Some(expected_precision)
                 && expected_timezone
                     .as_deref()
@@ -280,23 +333,24 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
         DataType::Float32 => "Float32".into(),
         DataType::Float64 => "Float64".into(),
         DataType::Boolean => "Bool".into(),
-        DataType::Date32 => "Date32".into(),
+        DataType::Date32 => anyhow::bail!(
+            "Arrow Date32 is unavailable for ClickHouse: clickhouse-arrow 0.2 shifts values by 25,567 days"
+        ),
         DataType::Date64 => "DateTime64(3)".into(),
         DataType::Timestamp(unit, timezone) => {
             let timezone = timezone.as_deref().map(quote_string_literal);
             let precision = match unit {
-                TimeUnit::Second => None,
+                TimeUnit::Second => Some(0),
                 TimeUnit::Millisecond => Some(3),
                 TimeUnit::Microsecond => Some(6),
                 TimeUnit::Nanosecond => Some(9),
             };
             match (precision, timezone) {
-                (None, None) => "DateTime".into(),
-                (None, Some(timezone)) => format!("DateTime({timezone})"),
                 (Some(precision), None) => format!("DateTime64({precision})"),
                 (Some(precision), Some(timezone)) => {
                     format!("DateTime64({precision}, {timezone})")
                 }
+                (None, _) => unreachable!("every Arrow timestamp unit has a precision"),
             }
         }
         other => anyhow::bail!("No ClickHouse type mapping for Arrow type {other:?}"),
@@ -361,7 +415,7 @@ mod tests {
             ("enabled".into(), target_column("Bool")?),
             ("extra".into(), target_column("String")?),
         ]);
-        validate_target_schema("events", &expected, &target)
+        validate_target_schema("events", &expected, &target, &[])
     }
 
     #[test]
@@ -371,13 +425,13 @@ mod tests {
             DataType::Int64,
             true,
         )]);
-        assert!(validate_target_schema("events", &expected, &HashMap::new()).is_err());
+        assert!(validate_target_schema("events", &expected, &HashMap::new(), &[]).is_err());
 
         let wrong_type = HashMap::from([("value".into(), target_column("String")?)]);
-        assert!(validate_target_schema("events", &expected, &wrong_type).is_err());
+        assert!(validate_target_schema("events", &expected, &wrong_type, &[]).is_err());
 
         let non_nullable = HashMap::from([("value".into(), target_column("Int64")?)]);
-        assert!(validate_target_schema("events", &expected, &non_nullable).is_err());
+        assert!(validate_target_schema("events", &expected, &non_nullable, &[]).is_err());
 
         let date_schema = schema(vec![SchemaColumn::new(
             "date".into(),
@@ -385,7 +439,7 @@ mod tests {
             false,
         )]);
         let narrow_date = HashMap::from([("date".into(), target_column("Date")?)]);
-        assert!(validate_target_schema("events", &date_schema, &narrow_date).is_err());
+        assert!(validate_target_schema("events", &date_schema, &narrow_date, &[]).is_err());
         Ok(())
     }
 
@@ -400,16 +454,78 @@ mod tests {
             "ts".into(),
             target_column("DateTime64(6, 'Europe/Moscow')")?,
         )]);
-        validate_target_schema("events", &expected, &matching)?;
+        validate_target_schema("events", &expected, &matching, &[])?;
 
         let wrong_precision = HashMap::from([(
             "ts".into(),
             target_column("DateTime64(3, 'Europe/Moscow')")?,
         )]);
-        assert!(validate_target_schema("events", &expected, &wrong_precision).is_err());
+        assert!(validate_target_schema("events", &expected, &wrong_precision, &[]).is_err());
 
         let wrong_timezone = HashMap::from([("ts".into(), target_column("DateTime64(6, 'UTC')")?)]);
-        assert!(validate_target_schema("events", &expected, &wrong_timezone).is_err());
+        assert!(validate_target_schema("events", &expected, &wrong_timezone, &[]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn seconds_use_signed_datetime64_and_reject_legacy_datetime() -> anyhow::Result<()> {
+        let expected = schema(vec![SchemaColumn::new(
+            "ts".into(),
+            DataType::Timestamp(TimeUnit::Second, None),
+            false,
+        )]);
+        assert_eq!(
+            create_table_ddl("events", &expected, &[])?,
+            "CREATE TABLE IF NOT EXISTS `events` (`ts` DateTime64(0)) ENGINE = MergeTree ORDER BY (tuple())"
+        );
+
+        let signed = HashMap::from([("ts".into(), target_column("DateTime64(0)")?)]);
+        validate_target_schema("events", &expected, &signed, &[])?;
+        let unsigned = HashMap::from([("ts".into(), target_column("DateTime")?)]);
+        assert!(validate_target_schema("events", &expected, &unsigned, &[]).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn date32_is_rejected_before_table_creation() {
+        let date32 = schema(vec![SchemaColumn::new(
+            "date".into(),
+            DataType::Date32,
+            false,
+        )]);
+        let error = create_table_ddl("events", &date32, &[]).unwrap_err();
+        assert!(error.to_string().contains("shifts values by 25,567 days"));
+    }
+
+    #[test]
+    fn date64_uses_datetime64_milliseconds() -> anyhow::Result<()> {
+        let date64 = schema(vec![SchemaColumn::new(
+            "date".into(),
+            DataType::Date64,
+            false,
+        )]);
+        assert_eq!(
+            create_table_ddl("events", &date64, &[])?,
+            "CREATE TABLE IF NOT EXISTS `events` (`date` DateTime64(3)) ENGINE = MergeTree ORDER BY (tuple())"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn target_schema_rejects_generated_input_columns_and_wrong_sorting_set() -> anyhow::Result<()> {
+        let expected = schema(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+        let materialized = HashMap::from([(
+            "id".into(),
+            target_column_with_metadata("Int64", "MATERIALIZED", true)?,
+        )]);
+        assert!(
+            validate_target_schema("events", &expected, &materialized, &["id".into()]).is_err()
+        );
+
+        let sorted =
+            HashMap::from([("id".into(), target_column_with_metadata("Int64", "", true)?)]);
+        validate_target_schema("events", &expected, &sorted, &["id".into()])?;
+        assert!(validate_target_schema("events", &expected, &sorted, &[]).is_err());
         Ok(())
     }
 }

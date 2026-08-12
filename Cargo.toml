@@ -49,7 +49,7 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 
-# This is a private POC rather than a crates.io package, and duplicate
+# This is a private application rather than a crates.io package, and duplicate
 # transitive versions are controlled by upstream dependency graphs.
 cargo_common_metadata = "allow"
 multiple_crate_versions = "allow"
@@ -71,7 +71,7 @@ integer_division = "allow"                # integer division is a normal operati
 integer_division_remainder_used = "allow" # modulo is a normal operation, banning it is too strict
 missing_inline_in_public_items = "allow"  # inline decisions belong to the compiler, not manual annotation
 mod_module_files = "allow"                # mod.rs is a valid and accepted Rust module style
-module_name_repetitions = "allow"         # sometimes intentional for clarity (e.g. clickhouse::clickhouse_client)
+module_name_repetitions = "allow"         # repeated domain names are sometimes clearer at module boundaries
 rc_buffer = "allow"                       # Rc<Vec<T>> is fine, not always worth the refactor to Rc<[T]>
 ref_patterns = "allow"                    # `ref` is sometimes needed in match ergonomics edge cases
 return_and_then = "allow"                 # `return x.and_then(...)` is normal, readable code

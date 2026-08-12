@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
 
@@ -15,6 +15,7 @@ struct MemoryInner {
     used: AtomicUsize,
     source_used: AtomicUsize,
     transform_used: AtomicUsize,
+    progress_source_active: AtomicUsize,
     changed: Notify,
 }
 
@@ -26,6 +27,7 @@ pub struct MemoryReservation {
 
 struct MemoryLease {
     bytes: AtomicUsize,
+    resize: Mutex<()>,
     kind: ReservationKind,
     memory: Arc<MemoryInner>,
 }
@@ -33,6 +35,7 @@ struct MemoryLease {
 #[derive(Clone, Copy, Debug)]
 enum ReservationKind {
     Source,
+    ProgressSource,
     Transform,
 }
 
@@ -46,6 +49,7 @@ impl PipelineMemory {
                 used: AtomicUsize::new(0),
                 source_used: AtomicUsize::new(0),
                 transform_used: AtomicUsize::new(0),
+                progress_source_active: AtomicUsize::new(0),
                 changed: Notify::new(),
             }),
         }
@@ -75,10 +79,12 @@ impl PipelineMemory {
         self.inner.transform_used.load(Ordering::Acquire)
     }
 
-    /// Whether retained pipeline data has reached the shared admission limit.
+    /// Whether retained downstream/transform data has reached the admission limit.
+    /// Source read-ahead is deliberately excluded: it should throttle new source
+    /// reads, not force sink flushes or stop the parser from consuming that input.
     #[must_use]
-    pub fn is_pressured(&self) -> bool {
-        self.used() >= self.limit()
+    pub fn is_transform_pressured(&self) -> bool {
+        self.transform_used() >= self.limit()
     }
 
     /// Wait for byte capacity. A single oversized allocation is admitted only
@@ -117,6 +123,7 @@ impl PipelineMemory {
                     return MemoryReservation {
                         lease: Arc::new(MemoryLease {
                             bytes: AtomicUsize::new(bytes),
+                            resize: Mutex::new(()),
                             kind: ReservationKind::Source,
                             memory: Arc::clone(&self.inner),
                         }),
@@ -126,6 +133,54 @@ impl PipelineMemory {
             }
             warned |= oversized;
             changed.await;
+        }
+    }
+
+    /// Reserve one source read that must be admitted to let the pipeline make progress.
+    ///
+    /// The returned lease is globally serialized within this per-partition budget: another call
+    /// waits until every clone is dropped. It may cross the limit because downstream transform
+    /// bytes can otherwise prevent the source from producing the rows that close and release
+    /// them. The full read remains accounted and continues to pressure ordinary reservations.
+    pub(crate) async fn reserve_progress_source(&self, bytes: usize) -> MemoryReservation {
+        let bytes = bytes.max(1);
+        loop {
+            let changed = self.inner.changed.notified();
+            if self
+                .inner
+                .progress_source_active
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break;
+            }
+            changed.await;
+        }
+        let before = self
+            .inner
+            .used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(bytes)
+            })
+            .expect("pipeline memory accounting overflow");
+        let after = before + bytes;
+        self.inner.source_used.fetch_add(bytes, Ordering::AcqRel);
+        if after > self.inner.limit {
+            tracing::warn!(
+                required_bytes = bytes,
+                used_before = before,
+                used_after = after,
+                limit_bytes = self.inner.limit,
+                "progress-critical pipeline source read temporarily exceeded memory budget",
+            );
+        }
+        MemoryReservation {
+            lease: Arc::new(MemoryLease {
+                bytes: AtomicUsize::new(bytes),
+                resize: Mutex::new(()),
+                kind: ReservationKind::ProgressSource,
+                memory: Arc::clone(&self.inner),
+            }),
         }
     }
 
@@ -158,6 +213,7 @@ impl PipelineMemory {
         MemoryReservation {
             lease: Arc::new(MemoryLease {
                 bytes: AtomicUsize::new(bytes),
+                resize: Mutex::new(()),
                 kind: ReservationKind::Transform,
                 memory: Arc::clone(&self.inner),
             }),
@@ -170,7 +226,7 @@ impl PipelineMemory {
     pub async fn wait_transform_below_limit(&self) {
         loop {
             let changed = self.inner.changed.notified();
-            if self.transform_used() < self.inner.limit {
+            if !self.is_transform_pressured() {
                 return;
             }
             changed.await;
@@ -184,27 +240,70 @@ impl MemoryReservation {
         self.lease.bytes.load(Ordering::Acquire)
     }
 
+    /// Grow the single progress-source lease to cover overlapping raw and decoded buffers.
+    /// This is synchronous because acquiring the lease already proved it is the only bypass
+    /// allocation in this per-partition budget.
+    pub(crate) fn grow_progress_source_to(&self, bytes: usize) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            matches!(self.lease.kind, ReservationKind::ProgressSource),
+            "only a progress-source reservation can grow"
+        );
+        let bytes = bytes.max(1);
+        let _resize = self
+            .lease
+            .resize
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pipeline memory lease resize state is poisoned"))?;
+        let previous = self.lease.bytes.load(Ordering::Acquire);
+        if bytes <= previous {
+            return Ok(());
+        }
+        let added = bytes - previous;
+        self.lease
+            .memory
+            .used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(added)
+            })
+            .map_err(|_| anyhow::anyhow!("pipeline memory accounting overflow"))?;
+        self.lease
+            .memory
+            .source_used
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(added)
+            })
+            .map_err(|_| anyhow::anyhow!("pipeline source memory accounting overflow"))?;
+        self.lease.bytes.store(bytes, Ordering::Release);
+        if self.lease.memory.used.load(Ordering::Acquire) > self.lease.memory.limit {
+            tracing::warn!(
+                required_bytes = bytes,
+                limit_bytes = self.lease.memory.limit,
+                "progress-critical source transform temporarily exceeded memory budget",
+            );
+        }
+        Ok(())
+    }
+
     /// Reduce accounting after a peak allocation has been released. This is
     /// useful for decompression, where compressed and decoded buffers overlap
     /// briefly but only the decoded bytes continue through the pipeline.
     ///
-    /// Returns whether the reservation was reduced. Reservations never grow.
+    /// Returns whether the reservation was reduced. This operation never grows it.
     #[must_use]
     pub fn shrink_to(&self, bytes: usize) -> bool {
         let bytes = bytes.max(1);
-        let reduced =
-            self.lease
-                .bytes
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                    (bytes < current).then_some(bytes)
-                });
-        let Ok(previous) = reduced else {
+        let Ok(_resize) = self.lease.resize.lock() else {
             return false;
         };
+        let previous = self.lease.bytes.load(Ordering::Acquire);
+        if bytes >= previous {
+            return false;
+        }
+        self.lease.bytes.store(bytes, Ordering::Release);
         let released = previous - bytes;
         self.lease.memory.used.fetch_sub(released, Ordering::AcqRel);
         match self.lease.kind {
-            ReservationKind::Source => {
+            ReservationKind::Source | ReservationKind::ProgressSource => {
                 self.lease
                     .memory
                     .source_used
@@ -235,7 +334,7 @@ impl Drop for MemoryLease {
         let bytes = self.bytes.load(Ordering::Acquire);
         self.memory.used.fetch_sub(bytes, Ordering::AcqRel);
         match self.kind {
-            ReservationKind::Source => {
+            ReservationKind::Source | ReservationKind::ProgressSource => {
                 self.memory.source_used.fetch_sub(bytes, Ordering::AcqRel);
             }
             ReservationKind::Transform => {
@@ -243,6 +342,11 @@ impl Drop for MemoryLease {
                     .transform_used
                     .fetch_sub(bytes, Ordering::AcqRel);
             }
+        }
+        if matches!(self.kind, ReservationKind::ProgressSource) {
+            self.memory
+                .progress_source_active
+                .store(0, Ordering::Release);
         }
         self.memory.changed.notify_waiters();
     }
@@ -276,12 +380,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pressure_starts_at_the_limit_and_clears_on_release() {
+    async fn transform_pressure_starts_at_the_limit_and_clears_on_release() {
         let memory = PipelineMemory::new(10);
-        let lease = memory.reserve(10).await;
-        assert!(memory.is_pressured());
+        let lease = memory.reserve_transform(10);
+        assert!(memory.is_transform_pressured());
         drop(lease);
-        assert!(!memory.is_pressured());
+        assert!(!memory.is_transform_pressured());
     }
 
     #[tokio::test]
@@ -330,5 +434,41 @@ mod tests {
         .is_err());
         drop(lease);
         memory.wait_transform_below_limit().await;
+    }
+
+    #[tokio::test]
+    async fn progress_source_can_cross_retained_transform_pressure() {
+        let memory = PipelineMemory::new(10);
+        let transform = memory.reserve_transform(10);
+        let source = memory.reserve_progress_source(20).await;
+
+        assert_eq!(memory.used(), 30);
+        assert_eq!(memory.source_used(), 20);
+        assert_eq!(memory.transform_used(), 10);
+        drop(source);
+        assert_eq!(memory.used(), 10);
+        drop(transform);
+        assert_eq!(memory.used(), 0);
+    }
+
+    #[tokio::test]
+    async fn progress_source_is_singleton_and_grows_for_overlap() {
+        let memory = PipelineMemory::new(10);
+        let first = memory.reserve_progress_source(20).await;
+        first.grow_progress_source_to(35).unwrap();
+        assert_eq!(first.bytes(), 35);
+        assert_eq!(memory.source_used(), 35);
+
+        let mut second = Box::pin(memory.reserve_progress_source(30));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut second)
+                .await
+                .is_err()
+        );
+        assert!(first.shrink_to(12));
+        assert_eq!(memory.source_used(), 12);
+        drop(first);
+        let second = second.await;
+        assert_eq!(second.bytes(), 30);
     }
 }

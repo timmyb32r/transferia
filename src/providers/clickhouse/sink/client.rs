@@ -1,6 +1,8 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use clickhouse_arrow::{
     ArrowFormat, Client, ClientBuilder, ConnectionStatus, Error as ClickHouseError,
@@ -24,17 +26,11 @@ impl ReconnectingClient {
     pub(super) async fn connect(config: &ClickHouseSinkConfig) -> anyhow::Result<Self> {
         let connect_timeout = config.connect_timeout();
         let request_timeout = config.request_timeout();
-        let builder = timeout(connect_timeout, configured_builder(config).verify())
-            .await
-            .map_err(|_| {
-                anyhow::anyhow!(
-                    "ClickHouse destination resolution timed out after {} ms",
-                    connect_timeout.as_millis()
-                )
-            })?
-            .map_err(|error| anyhow::anyhow!("Failed to configure ClickHouse client: {error}"))?;
         let this = Self {
-            builder,
+            // Keep the hostname-bearing, unverified builder. `clickhouse-arrow::verify`
+            // replaces it with resolved socket addresses, so caching a verified builder
+            // would pin every reconnect to the DNS answer observed at process startup.
+            builder: configured_builder(config),
             client: Mutex::new(None),
             reconnect: AsyncMutex::new(()),
             connect_timeout,
@@ -53,6 +49,7 @@ impl ReconnectingClient {
         table: &str,
         batches: Vec<RecordBatch>,
     ) -> ClickHouseResult<()> {
+        let batches = normalize_insert_batches(batches)?;
         let schema = batches
             .first()
             .ok_or_else(|| clickhouse_arrow::Error::Client("empty INSERT batch list".into()))?
@@ -128,6 +125,8 @@ impl ReconnectingClient {
     }
 
     async fn build_client(&self) -> ClickHouseResult<Client<ArrowFormat>> {
+        // `build_arrow` verifies an unverified builder and therefore resolves DNS on
+        // every reconnect instead of retrying a stale address forever.
         let client = timeout(self.connect_timeout, self.builder.clone().build_arrow())
             .await
             .map_err(|_| {
@@ -183,6 +182,49 @@ impl ReconnectingClient {
             *current = None;
         }
     }
+}
+
+fn normalize_insert_batches(batches: Vec<RecordBatch>) -> ClickHouseResult<Vec<RecordBatch>> {
+    batches.into_iter().map(normalize_insert_batch).collect()
+}
+
+fn normalize_insert_batch(batch: RecordBatch) -> ClickHouseResult<RecordBatch> {
+    if !batch
+        .schema()
+        .fields()
+        .iter()
+        .any(|field| field.data_type() == &DataType::Date64)
+    {
+        return Ok(batch);
+    }
+
+    let target_type = DataType::Timestamp(TimeUnit::Millisecond, None);
+    let schema = batch.schema();
+    let fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .map(|field| {
+            if field.data_type() == &DataType::Date64 {
+                Arc::new(field.as_ref().clone().with_data_type(target_type.clone()))
+            } else {
+                Arc::clone(field)
+            }
+        })
+        .collect();
+    let columns = batch
+        .columns()
+        .iter()
+        .zip(schema.fields())
+        .map(|(column, field)| {
+            if field.data_type() == &DataType::Date64 {
+                cast(column, &target_type)
+            } else {
+                Ok(Arc::clone(column))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let schema = Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()));
+    Ok(RecordBatch::try_new(schema, columns)?)
 }
 
 struct InvalidateOnDrop<'client> {
@@ -247,6 +289,7 @@ fn insert_query(table: &str, schema: &arrow::datatypes::Schema) -> String {
 
 #[cfg(test)]
 mod tests {
+    use arrow::array::{Array as _, Date64Array, TimestampMillisecondArray};
     use arrow::datatypes::{DataType, Field, Schema};
 
     use super::*;
@@ -268,5 +311,46 @@ mod tests {
             insert_query("odd`table", &schema),
             "INSERT INTO `odd\\`table` (`first`, `odd\\`column`) VALUES"
         );
+    }
+
+    #[test]
+    fn normalizes_date64_to_timestamp_milliseconds_for_native_serialization() -> ClickHouseResult<()>
+    {
+        let schema = Arc::new(Schema::new_with_metadata(
+            vec![Field::new("date", DataType::Date64, true)],
+            [("schema-key".into(), "schema-value".into())].into(),
+        ));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Date64Array::from(vec![
+                Some(-1),
+                None,
+                Some(86_400_000),
+            ]))],
+        )?;
+
+        let normalized = normalize_insert_batch(batch)?;
+
+        assert_eq!(
+            normalized.schema().field(0).data_type(),
+            &DataType::Timestamp(TimeUnit::Millisecond, None)
+        );
+        assert_eq!(
+            normalized
+                .schema()
+                .metadata()
+                .get("schema-key")
+                .map(String::as_str),
+            Some("schema-value")
+        );
+        let values = normalized
+            .column(0)
+            .as_any()
+            .downcast_ref::<TimestampMillisecondArray>()
+            .expect("Date64 must be cast to TimestampMillisecond");
+        assert_eq!(values.value(0), -1);
+        assert!(values.is_null(1));
+        assert_eq!(values.value(2), 86_400_000);
+        Ok(())
     }
 }

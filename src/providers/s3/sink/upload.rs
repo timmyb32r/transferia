@@ -227,6 +227,9 @@ fn classify_object_store_error(error: ObjectStoreError) -> UploadError {
 #[derive(Debug)]
 pub struct UploadStats {
     pub retries: u64,
+    /// Sum of object-store attempt durations. Concurrent object uploads are
+    /// accumulated independently, so the aggregate sink busy metric may
+    /// exceed wall-clock time and 100% utilization.
     pub busy: Duration,
 }
 

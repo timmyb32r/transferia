@@ -1,7 +1,9 @@
 use alloc::sync::Arc;
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
-use tokio::sync::{OnceCell, Semaphore};
+use std::collections::HashMap;
+use std::sync::Mutex;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::{
@@ -23,11 +25,36 @@ pub struct PqV1SourceProvider {
     cached_schema: DatasetSchema,
     metrics_registry: Arc<MetricsRegistry>,
     behavior: SourceBehavior,
-    proxy: OnceCell<String>,
+    source_counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
+    endpoint_attempts: Mutex<HashMap<i64, usize>>,
     decompression_slots: Arc<Semaphore>,
 }
 
 impl PqV1SourceProvider {
+    fn counters_for_partition(&self, partition_id: i64) -> Arc<SourceCounters> {
+        let mut counters = self
+            .source_counters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Arc::clone(
+            counters
+                .entry(partition_id)
+                .or_insert_with(|| Arc::new(SourceCounters::new())),
+        )
+    }
+
+    fn next_endpoint_attempt(&self, partition_id: i64) -> usize {
+        let mut attempts = self
+            .endpoint_attempts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let attempt = attempts.entry(partition_id).or_default();
+        let current = *attempt;
+        *attempt = attempt.wrapping_add(1);
+        drop(attempts);
+        current
+    }
+
     pub fn from_config(
         value: Value,
         metrics_registry: Arc<MetricsRegistry>,
@@ -100,7 +127,8 @@ impl PqV1SourceProvider {
             cached_schema,
             metrics_registry,
             behavior,
-            proxy: OnceCell::new(),
+            source_counters: Mutex::new(HashMap::new()),
+            endpoint_attempts: Mutex::new(HashMap::new()),
             decompression_slots,
         })
     }
@@ -131,39 +159,66 @@ impl SourceProvider for PqV1SourceProvider {
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let cfg = self.cfg.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);
-        let proxy = &self.proxy;
+        let source_counters = self.counters_for_partition(partition_id);
+        let endpoint_attempt = self.next_endpoint_attempt(partition_id);
         let decompression_slots = Arc::clone(&self.decompression_slots);
 
         Box::pin(async move {
-            let source_counters = Arc::new(SourceCounters::new());
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
             let token = load_access_token(&cfg.auth)?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
-            let proxy = proxy
-                .get_or_try_init(|| {
-                    PqV1Client::resolve_proxy(
-                        &cfg.connection_string,
-                        &token,
-                        network_timeout,
-                        &cancel_token,
-                    )
-                })
-                .await?
-                .clone();
-            let (client, mut queues) = PqV1Client::connect(
-                &proxy,
-                &cfg.topic_path,
-                &cfg.consumer_name,
+            let mut proxies = PqV1Client::resolve_proxies(
+                &cfg.connection_string,
                 &token,
-                &[partition_id],
-                Arc::clone(&source_counters),
-                cancel_token,
-                cfg.benchmark_discard_before_decompression,
-                memory,
                 network_timeout,
-                decompression_slots,
+                &cancel_token,
+                partition_id,
             )
             .await?;
+            anyhow::ensure!(
+                !proxies.is_empty(),
+                "PQv1 endpoint resolver returned no endpoints"
+            );
+            let proxy_count = proxies.len();
+            proxies.rotate_left(endpoint_attempt % proxy_count);
+            let mut connected = None;
+            let mut errors = Vec::new();
+            for proxy in proxies {
+                match PqV1Client::connect(
+                    &proxy,
+                    &cfg.topic_path,
+                    &cfg.consumer_name,
+                    &token,
+                    &[partition_id],
+                    Arc::clone(&source_counters),
+                    cancel_token.clone(),
+                    cfg.benchmark_discard_before_decompression,
+                    memory.clone(),
+                    network_timeout,
+                    Arc::clone(&decompression_slots),
+                )
+                .await
+                {
+                    Ok(connection) => {
+                        connected = Some(connection);
+                        break;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            partition_id,
+                            proxy,
+                            "PQv1 proxy connection failed: {error}"
+                        );
+                        errors.push(format!("{proxy}: {error}"));
+                    }
+                }
+            }
+            let (client, mut queues) = connected.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "PQv1 could not connect partition {partition_id} to any endpoint: {}",
+                    errors.join("; ")
+                )
+            })?;
             let rx = queues
                 .remove(&partition_id)
                 .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
@@ -336,5 +391,25 @@ mod tests {
             source.partitions_for_worker(2, 1).await.unwrap(),
             vec![1, 4_294_967_297]
         );
+    }
+
+    #[test]
+    fn retries_reuse_partition_source_counters() {
+        let source = provider(&config("partition_ids: [0, 1]\n", "")).unwrap();
+        let first = source.counters_for_partition(0);
+        let retry = source.counters_for_partition(0);
+        let other = source.counters_for_partition(1);
+
+        assert!(Arc::ptr_eq(&first, &retry));
+        assert!(!Arc::ptr_eq(&first, &other));
+    }
+
+    #[test]
+    fn retries_advance_the_endpoint_failover_cursor_per_partition() {
+        let source = provider(&config("partition_ids: [0, 1]\n", "")).unwrap();
+
+        assert_eq!(source.next_endpoint_attempt(0), 0);
+        assert_eq!(source.next_endpoint_attempt(0), 1);
+        assert_eq!(source.next_endpoint_attempt(1), 0);
     }
 }

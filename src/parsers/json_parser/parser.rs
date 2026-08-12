@@ -16,7 +16,6 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
 use crate::parsers::{Parser, SystemColumnsConfig};
-use crate::types::message::SourcePartition;
 use crate::types::message::{Message, MessageMeta};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -751,14 +750,10 @@ fn append_system_columns(
     for (builder, kind) in builders[data_columns..].iter_mut().zip(kinds) {
         match (kind, builder) {
             (SystemColumnKind::TopicName, AnyBuilder::Utf8(builder)) => {
-                builder.append_value(meta.topic_name.as_deref().unwrap_or_default());
+                builder.append_value(meta.topic_path.as_deref().unwrap_or_default());
             }
             (SystemColumnKind::PartitionNum, AnyBuilder::Int64(builder)) => {
-                let value = match meta.partition.as_ref() {
-                    Some(SourcePartition::Int(value)) => *value,
-                    Some(SourcePartition::String(_)) | None => 0,
-                };
-                builder.append_value(value);
+                builder.append_value(meta.partition_id.unwrap_or_default());
             }
             (SystemColumnKind::Offset, AnyBuilder::Int64(builder)) => {
                 builder.append_value(meta.offset.unwrap_or_default());
@@ -887,8 +882,31 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
 }
 
 #[must_use]
-pub fn dlq_dataset_schema(config: &SystemColumnsConfig) -> DatasetSchema {
-    let system_kinds: Vec<_> = config.enabled().collect();
+pub fn sink_dataset_schema(
+    mut user_schema: DatasetSchema,
+    config: &SystemColumnsConfig,
+    keep_system_columns: bool,
+) -> DatasetSchema {
+    if keep_system_columns {
+        user_schema.columns.extend(
+            config
+                .enabled()
+                .map(|kind| SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)),
+        );
+    }
+    user_schema
+}
+
+#[must_use]
+pub fn dlq_dataset_schema(
+    config: &SystemColumnsConfig,
+    keep_system_columns: bool,
+) -> DatasetSchema {
+    let system_kinds: Vec<_> = if keep_system_columns {
+        config.enabled().collect()
+    } else {
+        Vec::new()
+    };
     DatasetSchema::new(
         dlq_schema(&system_kinds)
             .fields()
@@ -1143,10 +1161,8 @@ impl JsonParser {
         for msg in messages {
             for kind in &self.system_kinds {
                 let present = match kind {
-                    SystemColumnKind::TopicName => msg.meta.topic_name.is_some(),
-                    SystemColumnKind::PartitionNum => {
-                        matches!(msg.meta.partition, Some(SourcePartition::Int(_)))
-                    }
+                    SystemColumnKind::TopicName => msg.meta.topic_path.is_some(),
+                    SystemColumnKind::PartitionNum => msg.meta.partition_id.is_some(),
                     SystemColumnKind::Offset => msg.meta.offset.is_some(),
                     SystemColumnKind::MessageIndex => true,
                     SystemColumnKind::WriteTimestampMs => msg.meta.write_timestamp_ms.is_some(),
@@ -1739,8 +1755,8 @@ mod tests {
         let message = Message {
             value: Bytes::from_static(b"{\"id\":\"ok\"}\nnot-json"),
             meta: MessageMeta {
-                topic_name: Some(Arc::from("topic-a")),
-                partition: Some(SourcePartition::Int(7)),
+                topic_path: Some(Arc::from("topic-a")),
+                partition_id: Some(7),
                 offset: Some(42),
                 write_timestamp_ms: Some(1_234),
             },
@@ -1921,6 +1937,41 @@ mod tests {
             main.batch.column(0).data_type() == main.batch.schema().field(0).data_type()
         );
         Ok(())
+    }
+
+    #[test]
+    fn sink_schemas_follow_system_column_visibility() {
+        let system_config = crate::parsers::SystemColumnsConfig {
+            offset: true,
+            message_index: true,
+            ..crate::parsers::SystemColumnsConfig::default()
+        };
+        let user_schema = DatasetSchema::new(vec![SchemaColumn::new(
+            "value".into(),
+            DataType::Int64,
+            false,
+        )]);
+
+        let hidden = sink_dataset_schema(user_schema.clone(), &system_config, false);
+        assert_eq!(
+            hidden
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["value"]
+        );
+        let visible = sink_dataset_schema(user_schema, &system_config, true);
+        assert_eq!(
+            visible
+                .columns
+                .iter()
+                .map(|column| column.name.as_str())
+                .collect::<Vec<_>>(),
+            ["value", "_system_offset", "_system_message_index"]
+        );
+        assert_eq!(dlq_dataset_schema(&system_config, false).columns.len(), 3);
+        assert_eq!(dlq_dataset_schema(&system_config, true).columns.len(), 5);
     }
 
     fn string_col(batch: &RecordBatch, idx: usize) -> anyhow::Result<&arrow::array::StringArray> {

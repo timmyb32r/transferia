@@ -58,6 +58,8 @@ pub struct PqV1SourceConfig {
     pub auth: PqV1AuthConfig,
     pub parser: ParserConfig,
     pub partition_ids: Vec<i64>,
+    /// Bounds discovery/connect/open stages and the HTTP/2 keepalive interval/ACK wait for a
+    /// live streaming session. An idle topic remains valid; liveness uses transport PING frames.
     #[serde(default = "default_network_timeout_ms")]
     pub network_timeout_ms: u64,
     #[serde(default = "default_decompression_concurrency")]

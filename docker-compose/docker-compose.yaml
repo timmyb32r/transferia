@@ -1,13 +1,10 @@
-# Docker Compose — YDB Topic → ClickHouse Replicator Test Environment
+# Docker Compose — local transferia development dependencies
 #
-# Start:  docker-compose up -d
-# Verify: docker exec -it clickhouse clickhouse-client -q "SELECT count() FROM events"
+# Start:  docker compose up -d
+# Verify: docker exec -it clickhouse clickhouse-client -q "SELECT 1"
 #
-# Prerequisites:
-#   - YDB local binary or Docker image
-#   - Test data generator (write 1000 JSON messages to YDB Topic)
-
-version: "3.8"
+# transferia creates and validates ClickHouse tables at runtime; this compose
+# file intentionally does not install a separate, example-specific schema.
 
 services:
   # YDB local instance for development/testing
@@ -45,7 +42,6 @@ services:
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "0"
     volumes:
       - ch-data:/var/lib/clickhouse
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ulimits:
       nofile: 262144
 

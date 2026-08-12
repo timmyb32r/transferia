@@ -12,17 +12,17 @@ use arrow::record_batch::RecordBatch;
 /// Confluent S3 JSON format.
 ///
 /// **Optimization**: Column types are pre-classified into [`ColumnWriter`]
-/// variants during the first serialization. This eliminates per-value
+/// variants when the encoder is constructed. This eliminates per-value
 /// `downcast_ref` overhead — the type check happens once per column,
 /// not once per value.
 /// A pre-classified, optionally projected view of one Arrow batch.
-pub struct JsonBatchEncoder<'batch> {
-    columns: Vec<(String, ColumnWriter<'batch>)>,
+pub struct JsonBatchEncoder {
+    columns: Vec<(String, ColumnWriter)>,
 }
 
-impl<'batch> JsonBatchEncoder<'batch> {
+impl JsonBatchEncoder {
     pub fn new(
-        batch: &'batch RecordBatch,
+        batch: &RecordBatch,
         mut include_column: impl FnMut(usize) -> bool,
     ) -> anyhow::Result<Self> {
         let columns = batch
@@ -64,37 +64,38 @@ impl<'batch> JsonBatchEncoder<'batch> {
     }
 }
 
-/// Pre-classified column writer: holds a typed reference to the Arrow array
-/// so we never need `downcast_ref` during the value-writing loop.
+/// Pre-classified column writer. Arrow array clones retain shared immutable
+/// buffers, so the encoder is cheap to own and can outlive the `RecordBatch`
+/// wrapper without copying column data.
 ///
 /// Date and Timestamp types map to their integer representation:
 ///   Date32 → Int32, Date64 → Int64, Timestamp(*) → Int64.
-enum ColumnWriter<'array> {
-    Utf8(&'array arrow::array::StringArray),
-    LargeUtf8(&'array arrow::array::LargeStringArray),
-    Int8(&'array arrow::array::Int8Array),
-    Int16(&'array arrow::array::Int16Array),
-    Int32(&'array arrow::array::Int32Array),
-    Int64(&'array arrow::array::Int64Array),
-    UInt8(&'array arrow::array::UInt8Array),
-    UInt16(&'array arrow::array::UInt16Array),
-    UInt32(&'array arrow::array::UInt32Array),
-    UInt64(&'array arrow::array::UInt64Array),
-    Float32(&'array arrow::array::Float32Array),
-    Float64(&'array arrow::array::Float64Array),
-    Boolean(&'array arrow::array::BooleanArray),
-    Date32(&'array arrow::array::Date32Array),
-    Date64(&'array arrow::array::Date64Array),
-    TimestampSecond(&'array arrow::array::TimestampSecondArray),
-    TimestampMillisecond(&'array arrow::array::TimestampMillisecondArray),
-    TimestampMicrosecond(&'array arrow::array::TimestampMicrosecondArray),
-    TimestampNanosecond(&'array arrow::array::TimestampNanosecondArray),
+enum ColumnWriter {
+    Utf8(arrow::array::StringArray),
+    LargeUtf8(arrow::array::LargeStringArray),
+    Int8(arrow::array::Int8Array),
+    Int16(arrow::array::Int16Array),
+    Int32(arrow::array::Int32Array),
+    Int64(arrow::array::Int64Array),
+    UInt8(arrow::array::UInt8Array),
+    UInt16(arrow::array::UInt16Array),
+    UInt32(arrow::array::UInt32Array),
+    UInt64(arrow::array::UInt64Array),
+    Float32(arrow::array::Float32Array),
+    Float64(arrow::array::Float64Array),
+    Boolean(arrow::array::BooleanArray),
+    Date32(arrow::array::Date32Array),
+    Date64(arrow::array::Date64Array),
+    TimestampSecond(arrow::array::TimestampSecondArray),
+    TimestampMillisecond(arrow::array::TimestampMillisecondArray),
+    TimestampMicrosecond(arrow::array::TimestampMicrosecondArray),
+    TimestampNanosecond(arrow::array::TimestampNanosecondArray),
 }
 
-impl<'array> ColumnWriter<'array> {
+impl ColumnWriter {
     /// Classify an Arrow array into the appropriate writer variant.
     /// Returns `None` for unsupported types.
-    fn classify(name: &str, array: &'array dyn Array) -> Option<(String, Self)> {
+    fn classify(name: &str, array: &dyn Array) -> Option<(String, Self)> {
         use arrow::array::{
             BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
             Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array, UInt64Array,
@@ -105,89 +106,97 @@ impl<'array> ColumnWriter<'array> {
         let writer = match *dt {
             DataType::Utf8 => {
                 let a = array.as_any().downcast_ref::<StringArray>()?;
-                ColumnWriter::Utf8(a)
+                Self::Utf8(a.clone())
             }
             DataType::LargeUtf8 => {
                 let a = array.as_any().downcast_ref::<LargeStringArray>()?;
-                ColumnWriter::LargeUtf8(a)
+                Self::LargeUtf8(a.clone())
             }
             DataType::Int8 => {
                 let a = array.as_any().downcast_ref::<Int8Array>()?;
-                ColumnWriter::Int8(a)
+                Self::Int8(a.clone())
             }
             DataType::Int16 => {
                 let a = array.as_any().downcast_ref::<Int16Array>()?;
-                ColumnWriter::Int16(a)
+                Self::Int16(a.clone())
             }
             DataType::Int32 => {
                 let a = array.as_any().downcast_ref::<Int32Array>()?;
-                ColumnWriter::Int32(a)
+                Self::Int32(a.clone())
             }
             DataType::Int64 => {
                 let a = array.as_any().downcast_ref::<Int64Array>()?;
-                ColumnWriter::Int64(a)
+                Self::Int64(a.clone())
             }
-            DataType::Date32 => {
-                ColumnWriter::Date32(array.as_any().downcast_ref::<arrow::array::Date32Array>()?)
-            }
-            DataType::Date64 => {
-                ColumnWriter::Date64(array.as_any().downcast_ref::<arrow::array::Date64Array>()?)
-            }
-            DataType::Timestamp(arrow::datatypes::TimeUnit::Second, _) => {
-                ColumnWriter::TimestampSecond(
-                    array
-                        .as_any()
-                        .downcast_ref::<arrow::array::TimestampSecondArray>()?,
-                )
-            }
+            DataType::Date32 => Self::Date32(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::Date32Array>()?
+                    .clone(),
+            ),
+            DataType::Date64 => Self::Date64(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::Date64Array>()?
+                    .clone(),
+            ),
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Second, _) => Self::TimestampSecond(
+                array
+                    .as_any()
+                    .downcast_ref::<arrow::array::TimestampSecondArray>()?
+                    .clone(),
+            ),
             DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, _) => {
-                ColumnWriter::TimestampMillisecond(
+                Self::TimestampMillisecond(
                     array
                         .as_any()
-                        .downcast_ref::<arrow::array::TimestampMillisecondArray>()?,
+                        .downcast_ref::<arrow::array::TimestampMillisecondArray>()?
+                        .clone(),
                 )
             }
             DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, _) => {
-                ColumnWriter::TimestampMicrosecond(
+                Self::TimestampMicrosecond(
                     array
                         .as_any()
-                        .downcast_ref::<arrow::array::TimestampMicrosecondArray>()?,
+                        .downcast_ref::<arrow::array::TimestampMicrosecondArray>()?
+                        .clone(),
                 )
             }
             DataType::Timestamp(arrow::datatypes::TimeUnit::Nanosecond, _) => {
-                ColumnWriter::TimestampNanosecond(
+                Self::TimestampNanosecond(
                     array
                         .as_any()
-                        .downcast_ref::<arrow::array::TimestampNanosecondArray>()?,
+                        .downcast_ref::<arrow::array::TimestampNanosecondArray>()?
+                        .clone(),
                 )
             }
             DataType::UInt8 => {
                 let a = array.as_any().downcast_ref::<UInt8Array>()?;
-                ColumnWriter::UInt8(a)
+                Self::UInt8(a.clone())
             }
             DataType::UInt16 => {
                 let a = array.as_any().downcast_ref::<UInt16Array>()?;
-                ColumnWriter::UInt16(a)
+                Self::UInt16(a.clone())
             }
             DataType::UInt32 => {
                 let a = array.as_any().downcast_ref::<UInt32Array>()?;
-                ColumnWriter::UInt32(a)
+                Self::UInt32(a.clone())
             }
             DataType::UInt64 => {
                 let a = array.as_any().downcast_ref::<UInt64Array>()?;
-                ColumnWriter::UInt64(a)
+                Self::UInt64(a.clone())
             }
             DataType::Float32 => {
                 let a = array.as_any().downcast_ref::<Float32Array>()?;
-                ColumnWriter::Float32(a)
+                Self::Float32(a.clone())
             }
             DataType::Float64 => {
                 let a = array.as_any().downcast_ref::<Float64Array>()?;
-                ColumnWriter::Float64(a)
+                Self::Float64(a.clone())
             }
             DataType::Boolean => {
                 let a = array.as_any().downcast_ref::<BooleanArray>()?;
-                ColumnWriter::Boolean(a)
+                Self::Boolean(a.clone())
             }
             DataType::Null
             | DataType::Float16
@@ -223,31 +232,31 @@ impl<'array> ColumnWriter<'array> {
     #[inline]
     fn write_value(&self, buf: &mut Vec<u8>, row: usize) {
         match self {
-            ColumnWriter::Utf8(a) => write_json_string(buf, a.value(row)),
-            ColumnWriter::LargeUtf8(a) => write_json_string(buf, a.value(row)),
-            ColumnWriter::Int8(a) => write_int(buf, a.value(row)),
-            ColumnWriter::Int16(a) => write_int(buf, a.value(row)),
-            ColumnWriter::Int32(a) => write_int(buf, a.value(row)),
-            ColumnWriter::Int64(a) => write_int(buf, a.value(row)),
-            ColumnWriter::UInt8(a) => write_uint(buf, a.value(row)),
-            ColumnWriter::UInt16(a) => write_uint(buf, a.value(row)),
-            ColumnWriter::UInt32(a) => write_uint(buf, a.value(row)),
-            ColumnWriter::UInt64(a) => write_uint(buf, a.value(row)),
-            ColumnWriter::Float32(a) => {
+            Self::Utf8(a) => write_json_string(buf, a.value(row)),
+            Self::LargeUtf8(a) => write_json_string(buf, a.value(row)),
+            Self::Int8(a) => write_int(buf, a.value(row)),
+            Self::Int16(a) => write_int(buf, a.value(row)),
+            Self::Int32(a) => write_int(buf, a.value(row)),
+            Self::Int64(a) => write_int(buf, a.value(row)),
+            Self::UInt8(a) => write_uint(buf, a.value(row)),
+            Self::UInt16(a) => write_uint(buf, a.value(row)),
+            Self::UInt32(a) => write_uint(buf, a.value(row)),
+            Self::UInt64(a) => write_uint(buf, a.value(row)),
+            Self::Float32(a) => {
                 write_float(buf, a.value(row));
             }
-            ColumnWriter::Float64(a) => {
+            Self::Float64(a) => {
                 write_float(buf, a.value(row));
             }
-            ColumnWriter::Boolean(a) => {
+            Self::Boolean(a) => {
                 buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
             }
-            ColumnWriter::Date32(a) => write_int(buf, a.value(row)),
-            ColumnWriter::Date64(a) => write_int(buf, a.value(row)),
-            ColumnWriter::TimestampSecond(a) => write_int(buf, a.value(row)),
-            ColumnWriter::TimestampMillisecond(a) => write_int(buf, a.value(row)),
-            ColumnWriter::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
-            ColumnWriter::TimestampNanosecond(a) => write_int(buf, a.value(row)),
+            Self::Date32(a) => write_int(buf, a.value(row)),
+            Self::Date64(a) => write_int(buf, a.value(row)),
+            Self::TimestampSecond(a) => write_int(buf, a.value(row)),
+            Self::TimestampMillisecond(a) => write_int(buf, a.value(row)),
+            Self::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
+            Self::TimestampNanosecond(a) => write_int(buf, a.value(row)),
         }
     }
 
@@ -255,25 +264,25 @@ impl<'array> ColumnWriter<'array> {
     #[inline]
     fn is_null_at(&self, row: usize) -> bool {
         match self {
-            ColumnWriter::Utf8(a) => a.is_null(row),
-            ColumnWriter::LargeUtf8(a) => a.is_null(row),
-            ColumnWriter::Int8(a) => a.is_null(row),
-            ColumnWriter::Int16(a) => a.is_null(row),
-            ColumnWriter::Int32(a) => a.is_null(row),
-            ColumnWriter::Int64(a) => a.is_null(row),
-            ColumnWriter::UInt8(a) => a.is_null(row),
-            ColumnWriter::UInt16(a) => a.is_null(row),
-            ColumnWriter::UInt32(a) => a.is_null(row),
-            ColumnWriter::UInt64(a) => a.is_null(row),
-            ColumnWriter::Float32(a) => a.is_null(row),
-            ColumnWriter::Float64(a) => a.is_null(row),
-            ColumnWriter::Boolean(a) => a.is_null(row),
-            ColumnWriter::Date32(a) => a.is_null(row),
-            ColumnWriter::Date64(a) => a.is_null(row),
-            ColumnWriter::TimestampSecond(a) => a.is_null(row),
-            ColumnWriter::TimestampMillisecond(a) => a.is_null(row),
-            ColumnWriter::TimestampMicrosecond(a) => a.is_null(row),
-            ColumnWriter::TimestampNanosecond(a) => a.is_null(row),
+            Self::Utf8(a) => a.is_null(row),
+            Self::LargeUtf8(a) => a.is_null(row),
+            Self::Int8(a) => a.is_null(row),
+            Self::Int16(a) => a.is_null(row),
+            Self::Int32(a) => a.is_null(row),
+            Self::Int64(a) => a.is_null(row),
+            Self::UInt8(a) => a.is_null(row),
+            Self::UInt16(a) => a.is_null(row),
+            Self::UInt32(a) => a.is_null(row),
+            Self::UInt64(a) => a.is_null(row),
+            Self::Float32(a) => a.is_null(row),
+            Self::Float64(a) => a.is_null(row),
+            Self::Boolean(a) => a.is_null(row),
+            Self::Date32(a) => a.is_null(row),
+            Self::Date64(a) => a.is_null(row),
+            Self::TimestampSecond(a) => a.is_null(row),
+            Self::TimestampMillisecond(a) => a.is_null(row),
+            Self::TimestampMicrosecond(a) => a.is_null(row),
+            Self::TimestampNanosecond(a) => a.is_null(row),
         }
     }
 }

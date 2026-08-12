@@ -2,11 +2,6 @@ use bytes::Bytes;
 use std::sync::Arc;
 
 use crate::pipeline::source::CommitMarker;
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SourcePartition {
-    Int(i64),
-    String(Arc<str>),
-}
 
 /// A single message from the source.
 #[derive(Debug, Clone)]
@@ -18,8 +13,8 @@ pub struct Message {
 /// Provider-neutral source metadata that can be materialized as system columns.
 #[derive(Debug, Clone, Default)]
 pub struct MessageMeta {
-    pub topic_name: Option<Arc<str>>,
-    pub partition: Option<SourcePartition>,
+    pub topic_path: Option<Arc<str>>,
+    pub partition_id: Option<i64>,
     pub offset: Option<i64>,
     pub write_timestamp_ms: Option<i64>,
 }

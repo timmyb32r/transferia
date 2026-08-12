@@ -11,12 +11,14 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+use super::actor::without_system_columns;
 use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
 use crate::metrics::SinkCounters;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
+use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 #[derive(Clone, Copy)]
 enum Plan {
@@ -122,7 +124,7 @@ fn config() -> ClickHouseSinkConfig {
     }
 }
 
-async fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
+fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
     let mut outputs = Vec::new();
     for table in tables {
         let schema = Arc::new(Schema::new(vec![Field::new(
@@ -141,7 +143,7 @@ async fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery
             is_dlq: false,
             batch,
             byte_size: bytes,
-            memory: memory.reserve(bytes).await,
+            memory: memory.reserve_transform(bytes),
             system_columns: crate::types::system_columns::SystemColumns::default(),
         });
     }
@@ -199,6 +201,53 @@ async fn wait_calls(state: &FakeState, calls: usize) {
     }
 }
 
+#[test]
+fn removes_only_declared_system_columns_before_clickhouse_insert() -> anyhow::Result<()> {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("value", DataType::Int64, false),
+            Field::new(
+                SystemColumnKind::Offset.name(),
+                SystemColumnKind::Offset.data_type(),
+                false,
+            ),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![7])),
+            Arc::new(Int64Array::from(vec![42])),
+        ],
+    )?;
+    let system_columns = SystemColumns::new(vec![SystemColumn {
+        kind: SystemColumnKind::Offset,
+        index: 1,
+    }]);
+
+    let projected = without_system_columns(&batch, &system_columns)?;
+
+    assert_eq!(projected.num_columns(), 1);
+    assert_eq!(projected.schema().field(0).name(), "value");
+    Ok(())
+}
+
+#[test]
+fn rejects_inconsistent_system_column_metadata() -> anyhow::Result<()> {
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )])),
+        vec![Arc::new(Int64Array::from(vec![7]))],
+    )?;
+    let system_columns = SystemColumns::new(vec![SystemColumn {
+        kind: SystemColumnKind::Offset,
+        index: 0,
+    }]);
+
+    assert!(without_system_columns(&batch, &system_columns).is_err());
+    Ok(())
+}
+
 #[tokio::test(start_paused = true)]
 async fn full_buffer_starts_immediately_after_the_active_insert() {
     let memory = PipelineMemory::new(1_000_000);
@@ -207,13 +256,9 @@ async fn full_buffer_starts_immediately_after_the_active_insert() {
     let (tx, mut events, cancellation, task) =
         spawn_sink(transport, memory.clone(), Arc::clone(&counters));
 
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     wait_calls(&state, 1).await;
-    tx.send(delivery(&memory, 2, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 2, &["events"])).await.unwrap();
     tokio::task::yield_now().await;
     assert_eq!(state.calls.load(Ordering::Acquire), 1);
     assert_eq!(state.max_active.load(Ordering::Acquire), 1);
@@ -246,9 +291,7 @@ async fn low_volume_delivery_flushes_at_interval() {
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(low_volume, transport, memory.clone(), Arc::clone(&counters));
 
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     tokio::task::yield_now().await;
     assert_eq!(state.calls.load(Ordering::Acquire), 0);
     tokio::time::advance(Duration::from_millis(99)).await;
@@ -275,7 +318,7 @@ async fn low_volume_tables_share_the_same_flush_deadline() {
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(low_volume, transport, memory.clone(), counters);
 
-    tx.send(delivery(&memory, 1, &["events", "events_dlq"]).await)
+    tx.send(delivery(&memory, 1, &["events", "events_dlq"]))
         .await
         .unwrap();
     tokio::task::yield_now().await;
@@ -299,9 +342,7 @@ async fn full_pipeline_budget_requests_an_immediate_insert() {
     let (tx, mut events, cancellation, task) =
         spawn_sink_with_config(high_targets, transport, memory.clone(), counters);
 
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     wait_calls(&state, 1).await;
     assert_eq!(
         events.recv().await,
@@ -312,12 +353,40 @@ async fn full_pipeline_budget_requests_an_immediate_insert() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn source_read_credit_does_not_force_an_immediate_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let source_credit = memory.reserve_progress_source(1_000_000).await;
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(false, []);
+    let mut high_targets = config();
+    high_targets.max_insert_rows = 1_000;
+    let (tx, mut events, cancellation, task) =
+        spawn_sink_with_config(high_targets, transport, memory.clone(), counters);
+
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    tokio::time::advance(Duration::from_millis(99)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(state.calls.load(Ordering::Acquire), 0);
+    tokio::time::advance(Duration::from_millis(1)).await;
+    wait_calls(&state, 1).await;
+    assert_eq!(
+        events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    drop(source_credit);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
 async fn multi_table_delivery_commits_only_after_both_inserts() {
     let memory = PipelineMemory::new(1_000_000);
     let counters = Arc::new(SinkCounters::new());
     let (transport, state) = FakeTransport::new(true, []);
     let (tx, mut events, cancellation, task) = spawn_sink(transport, memory.clone(), counters);
-    tx.send(delivery(&memory, 1, &["events", "events_dlq"]).await)
+    tx.send(delivery(&memory, 1, &["events", "events_dlq"]))
         .await
         .unwrap();
     wait_calls(&state, 1).await;
@@ -341,9 +410,7 @@ async fn transient_error_retries_frozen_insert() {
     let (transport, state) = FakeTransport::new(false, [Plan::Transient, Plan::Success]);
     let (tx, mut events, cancellation, task) =
         spawn_sink(transport, memory.clone(), Arc::clone(&counters));
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     wait_calls(&state, 1).await;
     assert!(events.try_recv().is_err());
     tokio::time::advance(Duration::from_millis(12)).await;
@@ -371,9 +438,7 @@ async fn transient_error_stops_at_retry_limit() {
         Arc::new(SinkCounters::new()),
     );
 
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     wait_calls(&state, 1).await;
     tokio::time::advance(Duration::from_millis(12)).await;
     let error = task.await.unwrap().unwrap_err();
@@ -399,9 +464,7 @@ async fn hanging_insert_stops_at_attempt_deadline() {
         Arc::new(SinkCounters::new()),
     );
 
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     wait_calls(&state, 1).await;
     tokio::time::advance(Duration::from_millis(10)).await;
 
@@ -421,9 +484,7 @@ async fn permanent_error_is_fatal_and_never_commits() {
     let (transport, _state) = FakeTransport::new(false, [Plan::Permanent]);
     let (tx, mut events, _cancellation, task) =
         spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
-    tx.send(delivery(&memory, 1, &["events"]).await)
-        .await
-        .unwrap();
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()

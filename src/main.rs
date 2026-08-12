@@ -323,7 +323,11 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let schema = source_provider.schema().clone();
+    let schema = transferia::parsers::json_parser::sink_dataset_schema(
+        source_provider.schema().clone(),
+        &parser_config.common.system_columns,
+        config.keep_system_columns_in_sink,
+    );
     let dlq_table: Arc<str> = dlq_name(&table).into();
     sink_provider
         .prepare(SinkPrepare {
@@ -332,6 +336,7 @@ async fn main() -> anyhow::Result<()> {
             dlq_table,
             dlq_schema: transferia::parsers::json_parser::dlq_dataset_schema(
                 &parser_config.common.system_columns,
+                config.keep_system_columns_in_sink,
             ),
         })
         .await?;

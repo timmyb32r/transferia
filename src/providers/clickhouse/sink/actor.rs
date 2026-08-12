@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
@@ -12,6 +13,7 @@ use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::pipeline::PipelineFailure;
+use crate::types::system_columns::SystemColumns;
 
 struct BufferedBatch {
     delivery_id: DeliveryId,
@@ -38,8 +40,9 @@ pub struct ClickHouseSink {
     config: ClickHouseSinkConfig,
     counters: Arc<SinkCounters>,
     buffers: HashMap<Arc<str>, TableBuffer>,
-    progress: DeliveryTracker<()>,
+    progress: DeliveryTracker,
     partition_retry_seed: u64,
+    keep_system_columns: bool,
 }
 
 impl ClickHouseSink {
@@ -59,6 +62,22 @@ impl ClickHouseSink {
         transport: Arc<dyn InsertTransport>,
         partition_id: i64,
     ) -> Self {
+        Self::with_transport_for_partition_and_visibility(
+            config,
+            counters,
+            transport,
+            partition_id,
+            false,
+        )
+    }
+
+    pub(super) fn with_transport_for_partition_and_visibility(
+        config: ClickHouseSinkConfig,
+        counters: Arc<SinkCounters>,
+        transport: Arc<dyn InsertTransport>,
+        partition_id: i64,
+        keep_system_columns: bool,
+    ) -> Self {
         Self {
             transport,
             config,
@@ -66,6 +85,7 @@ impl ClickHouseSink {
             buffers: HashMap::new(),
             progress: DeliveryTracker::new(),
             partition_retry_seed: stable_retry_seed(&partition_id.to_le_bytes()),
+            keep_system_columns,
         }
     }
 
@@ -79,13 +99,17 @@ impl ClickHouseSink {
             delivery.id,
             remaining_outputs,
             delivery.meta.source_messages,
-            None,
         )?;
-        for batch in delivery
+        for mut batch in delivery
             .outputs
             .into_iter()
             .filter(|output| output.batch.num_rows() > 0)
         {
+            if !self.keep_system_columns && !batch.system_columns.is_empty() {
+                batch.batch = without_system_columns(&batch.batch, &batch.system_columns)?;
+                batch.byte_size = batch.batch.get_array_memory_size();
+                batch.system_columns = SystemColumns::default();
+            }
             let table = Arc::clone(&batch.table);
             let rows = batch.rows();
             let bytes = batch.bytes();
@@ -285,7 +309,7 @@ impl ClickHouseSink {
                 return Ok(());
             }
 
-            let memory_pressure = io.memory.is_pressured();
+            let memory_pressure = io.memory.is_transform_pressured();
             let Some((table, deadline)) = self.next_flush(input_closed, memory_pressure) else {
                 tokio::select! {
                     () = io.cancellation.cancelled() => return Ok(()),
@@ -320,6 +344,46 @@ impl ClickHouseSink {
             }
         }
     }
+}
+
+pub(super) fn without_system_columns(
+    batch: &RecordBatch,
+    system_columns: &crate::types::system_columns::SystemColumns,
+) -> anyhow::Result<RecordBatch> {
+    let mut visible = vec![true; batch.num_columns()];
+    for column in system_columns.iter() {
+        let field = batch
+            .schema()
+            .fields()
+            .get(column.index)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "system column {:?} points outside a {}-column ClickHouse batch",
+                    column.kind,
+                    batch.num_columns()
+                )
+            })?;
+        anyhow::ensure!(
+            visible[column.index],
+            "multiple system columns point to ClickHouse batch column {}",
+            column.index
+        );
+        anyhow::ensure!(
+            field.name() == column.kind.name() && field.data_type() == &column.kind.data_type(),
+            "system column metadata {:?} does not match ClickHouse batch field '{}' ({:?})",
+            column.kind,
+            field.name(),
+            field.data_type()
+        );
+        visible[column.index] = false;
+    }
+    let projection = visible
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, visible)| visible.then_some(index))
+        .collect::<Vec<_>>();
+    Ok(batch.project(&projection)?)
 }
 
 impl Sink for ClickHouseSink {

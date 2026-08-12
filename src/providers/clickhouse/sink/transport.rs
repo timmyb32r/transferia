@@ -65,6 +65,8 @@ fn classify_insert_error(error: ClickHouseError) -> InsertError {
         | ClickHouseError::ChannelClosed
         | ClickHouseError::OutgoingTimeout(_)
         | ClickHouseError::InsertArrowRetry(_) => true,
+        ClickHouseError::Protocol(message) => is_connection_protocol_error(message),
+        ClickHouseError::Client(message) => is_connection_client_error(message),
         ClickHouseError::ServerException(server) => is_transient_server_error(&server.error),
         _ => false,
     };
@@ -74,6 +76,20 @@ fn classify_insert_error(error: ClickHouseError) -> InsertError {
     } else {
         InsertError::Permanent(error)
     }
+}
+
+fn is_connection_protocol_error(message: &str) -> bool {
+    message.starts_with("Failed to receive response for query ")
+        || message.starts_with("Failed to receive header for query ")
+        || message.starts_with("Failed to receive response from insert ")
+}
+
+fn is_connection_client_error(message: &str) -> bool {
+    message == "No active connection"
+        || message == "channel closed"
+        || message == "Internal channel closed"
+        || message.starts_with("io error: ")
+        || message.starts_with("connection gone: ")
 }
 
 const fn is_transient_server_error(error: &Severity) -> bool {
@@ -125,6 +141,22 @@ mod tests {
             ))),
             InsertError::Transient(_)
         ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Client("No active connection".into())),
+            InsertError::Transient(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Protocol(
+                "Failed to receive response for query abc".into()
+            )),
+            InsertError::Transient(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Protocol(
+                "Failed to receive response from insert abc".into()
+            )),
+            InsertError::Transient(_)
+        ));
     }
 
     #[test]
@@ -137,6 +169,18 @@ mod tests {
         ));
         assert!(matches!(
             classify_insert_error(ClickHouseError::Unknown("network timeout".into())),
+            InsertError::Permanent(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Protocol(
+                "Unexpected packet Data, expected server hello".into()
+            )),
+            InsertError::Permanent(_)
+        ));
+        assert!(matches!(
+            classify_insert_error(ClickHouseError::Client(
+                "arrow serialize error: incompatible value".into()
+            )),
             InsertError::Permanent(_)
         ));
     }

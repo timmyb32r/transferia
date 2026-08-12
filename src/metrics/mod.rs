@@ -158,8 +158,8 @@ impl Default for ParseCounters {
 
 /// Counters for one partition's sink output.
 ///
-/// The sink actor records successful inserts, rows, Arrow bytes, acknowledged
-/// source messages, and time actively spent in `ClickHouse` INSERT attempts.
+/// The sink actor records successful writes, rows, Arrow bytes, acknowledged
+/// source messages, and time actively spent in destination I/O attempts.
 pub struct SinkCounters {
     rows: AtomicU64,
     bytes: AtomicU64,
@@ -208,8 +208,9 @@ impl SinkCounters {
     pub fn add_source_messages(&self, n: u64) {
         self.source_messages.fetch_add(n, RELAXED);
     }
-    /// Sink busy excludes buffering and retry backoff, so it remains a direct
-    /// measure of time occupied by `ClickHouse` INSERT attempts.
+    /// Sink busy excludes buffering and retry backoff. `ClickHouse` records its
+    /// serial INSERT attempt time; S3 sums concurrent object-upload attempts,
+    /// so an S3 aggregate can exceed wall-clock time and 100% utilization.
     #[inline]
     pub fn add_busy(&self, d: Duration) {
         self.busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);

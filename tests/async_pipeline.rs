@@ -17,7 +17,7 @@ use transferia::pipeline::PipelineFailure;
 use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
-use transferia::types::message::{Message, MessageBatch, MessageMeta, SourcePartition};
+use transferia::types::message::{Message, MessageBatch, MessageMeta};
 
 struct FakeSource {
     batches: VecDeque<Vec<Message>>,
@@ -93,7 +93,7 @@ impl FakeSource {
         Message {
             value: Bytes::from(format!(r#"{{"id":"{offset}","kind":"keep"}}"#)),
             meta: MessageMeta {
-                partition: Some(SourcePartition::Int(0)),
+                partition_id: Some(0),
                 offset: Some(offset),
                 ..MessageMeta::default()
             },

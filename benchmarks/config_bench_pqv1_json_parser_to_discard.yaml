@@ -6,7 +6,7 @@ source:
   pqv1:
     connection_string: "grpc://localhost:2135"
     topic_path: "/benchmark/events"
-    consumer_name: "transferia-benchmark"
+    consumer_name: "transferia-benchmark-json-parser"
     partition_ids: [0]
     auth:
       type: access_token

@@ -123,9 +123,7 @@ pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
         "Date32" => Ok(DataType::Date32),
         "Date64" => Ok(DataType::Date64),
         _ if value.starts_with("Timestamp(") => {
-            let inner = value
-                .trim_start_matches("Timestamp(")
-                .trim_end_matches(')');
+            let inner = value.trim_start_matches("Timestamp(").trim_end_matches(')');
             let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
             let unit = match parts.first().copied().unwrap_or("Microsecond") {
                 "Second" => TimeUnit::Second,
@@ -136,8 +134,8 @@ pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
                     "Unsupported Timestamp unit '{other}'. Use Second, Millisecond, Microsecond, or Nanosecond."
                 ),
             };
-            let timezone = (parts.len() > 1 && parts[1] != "None")
-                .then(|| parts[1].to_string().into());
+            let timezone =
+                (parts.len() > 1 && parts[1] != "None").then(|| parts[1].to_string().into());
             Ok(DataType::Timestamp(unit, timezone))
         }
         other => anyhow::bail!(

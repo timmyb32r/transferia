@@ -59,12 +59,15 @@ impl SinkProvider for ClickHouseSinkProvider {
                 partition = context.partition_id,
                 "building ClickHouse sink on shared client"
             );
-            Ok(Box::new(ClickHouseSink::with_transport_for_partition(
-                self.config.clone(),
-                context.counters,
-                Arc::new(NativeTransport::new(client)),
-                context.partition_id,
-            )) as Box<dyn Sink>)
+            Ok(
+                Box::new(ClickHouseSink::with_transport_for_partition_and_visibility(
+                    self.config.clone(),
+                    context.counters,
+                    Arc::new(NativeTransport::new(client)),
+                    context.partition_id,
+                    context.keep_system_columns,
+                )) as Box<dyn Sink>,
+            )
         })
     }
 }

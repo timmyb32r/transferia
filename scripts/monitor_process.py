@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Мониторинг процесса transferctl или ydb-ch-replicator.
+Мониторинг процесса transferia.
 
 Каждые N секунд печатает:
   - Текущее потребление CPU% и памяти (RSS)
@@ -115,7 +115,7 @@ def percentile(sorted_vals: list[float], p: float) -> float:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Мониторинг transferctl / ydb-ch-replicator"
+        description="Мониторинг transferia"
     )
     parser.add_argument(
         "-i", "--interval", type=float, default=3.0,
@@ -126,7 +126,7 @@ def main():
         help="Количество замеров (0 = бесконечно)",
     )
     parser.add_argument(
-        "--names", nargs="+", default=["transferctl", "ydb-ch-replicator"],
+        "--names", nargs="+", default=["transferia"],
         help="Имена процессов для поиска",
     )
     parser.add_argument(

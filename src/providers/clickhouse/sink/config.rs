@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unverified_tls_and_removed_hypothesis_options() -> anyhow::Result<()> {
+    fn rejects_unverified_tls_and_removed_options() -> anyhow::Result<()> {
         let tls: Value =
             serde_yaml::from_str("connection_string: localhost:9000\nuse_tls: true\n")?;
         let stale: Value = serde_yaml::from_str(

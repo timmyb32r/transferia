@@ -1,6 +1,6 @@
 # transferia
 
-A performance-oriented Rust data integrator proof of concept. The active runtime
+A performance-oriented Rust data integrator. The active runtime
 creates one logical pipeline and sink actor per PQv1 partition, while providers
 share expensive connection pools and upload clients:
 
@@ -98,6 +98,7 @@ sink:
       on_partition_change: keep_open # rotate = Confluent-compatible
 
     buffering:
+      # All buffering and upload-concurrency limits are per partition actor.
       max_open_objects: 128
       max_pending_upload_objects: 512
       max_buffered_bytes: 256MiB
@@ -134,7 +135,9 @@ and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
 ## Semantics
 
 The S3 sink uploads several ready objects concurrently, within its configured
-object and multipart limits. A rotation closes every main and DLQ object in a
+object and multipart limits. Buffering, memory, object-upload concurrency, and
+multipart concurrency are all enforced per PQv1 partition actor; they are not
+global limits across a worker. A rotation closes every main and DLQ object in a
 deterministic commit epoch, and source progress is committed only after the
 whole epoch is durable. The per-pipeline memory budget and S3 buffering limit
 propagate backpressure to PQv1. One oversized source message is admitted
@@ -153,6 +156,11 @@ settings (including `keep_system_columns_in_sink`), destination identity
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
+The normalized `(bucket, prefix)` namespace must be owned exclusively by one
+logical PQ/Logbroker source. Its workers and partitions may share that namespace
+because keys include source topic and partition, but an independent source must
+use another prefix. Object keys intentionally do not include cluster identity,
+so topic names from different clusters must never collide in one namespace.
 When omitted, `max_epoch_bytes` has a fixed 128MiB default; it must fit both
 `max_buffered_bytes` and `pipeline_memory_limit_bytes`, otherwise configuration
 validation fails instead of risking a backpressure deadlock.

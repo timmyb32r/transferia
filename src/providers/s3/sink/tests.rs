@@ -16,7 +16,7 @@ use crate::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
 use crate::pipeline::source::{CommitMarker, Source};
-use crate::types::message::{Message, MessageBatch, MessageMeta, SourcePartition};
+use crate::types::message::{Message, MessageBatch, MessageMeta};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 use super::actor::S3Sink;
@@ -27,9 +27,12 @@ struct FakeUploader {
     attempts: AtomicUsize,
     failures_left: AtomicUsize,
     uploads: Mutex<Vec<(String, Bytes)>>,
+    started_uploads: Mutex<Vec<(usize, String)>>,
     gate: Option<Arc<Semaphore>>,
+    attempt_gates: Option<Vec<Arc<Semaphore>>>,
     permanent: bool,
     started: Notify,
+    completed: Notify,
 }
 
 impl FakeUploader {
@@ -38,9 +41,12 @@ impl FakeUploader {
             attempts: AtomicUsize::new(0),
             failures_left: AtomicUsize::new(failures),
             uploads: Mutex::new(Vec::new()),
+            started_uploads: Mutex::new(Vec::new()),
             gate: None,
+            attempt_gates: None,
             permanent: false,
             started: Notify::new(),
+            completed: Notify::new(),
         })
     }
 
@@ -49,9 +55,26 @@ impl FakeUploader {
             attempts: AtomicUsize::new(0),
             failures_left: AtomicUsize::new(0),
             uploads: Mutex::new(Vec::new()),
+            started_uploads: Mutex::new(Vec::new()),
             gate: Some(Arc::new(Semaphore::new(0))),
+            attempt_gates: None,
             permanent: false,
             started: Notify::new(),
+            completed: Notify::new(),
+        })
+    }
+
+    fn controlled(attempts: usize) -> Arc<Self> {
+        Arc::new(Self {
+            attempts: AtomicUsize::new(0),
+            failures_left: AtomicUsize::new(0),
+            uploads: Mutex::new(Vec::new()),
+            started_uploads: Mutex::new(Vec::new()),
+            gate: None,
+            attempt_gates: Some((0..attempts).map(|_| Arc::new(Semaphore::new(0))).collect()),
+            permanent: false,
+            started: Notify::new(),
+            completed: Notify::new(),
         })
     }
 
@@ -60,9 +83,12 @@ impl FakeUploader {
             attempts: AtomicUsize::new(0),
             failures_left: AtomicUsize::new(0),
             uploads: Mutex::new(Vec::new()),
+            started_uploads: Mutex::new(Vec::new()),
             gate: None,
+            attempt_gates: None,
             permanent: true,
             started: Notify::new(),
+            completed: Notify::new(),
         })
     }
 
@@ -75,6 +101,65 @@ impl FakeUploader {
         .await
         .unwrap_or_else(|_| panic!("upload attempt {expected} did not start"));
     }
+
+    async fn wait_for_uploads(&self, expected: usize) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let completed = self.completed.notified();
+                if self
+                    .uploads
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len()
+                    >= expected
+                {
+                    return;
+                }
+                completed.await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("upload {expected} did not complete"));
+    }
+
+    async fn wait_for_started_uploads(&self, expected: usize) {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let started = self.started.notified();
+                if self
+                    .started_uploads
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .len()
+                    >= expected
+                {
+                    return;
+                }
+                started.await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("upload start {expected} was not recorded"));
+    }
+
+    fn release_attempt(&self, attempt: usize) {
+        self.attempt_gates
+            .as_ref()
+            .and_then(|gates| gates.get(attempt))
+            .unwrap_or_else(|| panic!("missing gate for upload attempt {attempt}"))
+            .add_permits(1);
+    }
+
+    fn release_key_suffix(&self, suffix: &str) {
+        let attempt = self
+            .started_uploads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .find_map(|(attempt, key)| key.ends_with(suffix).then_some(*attempt))
+            .unwrap_or_else(|| panic!("upload ending with {suffix:?} has not started"));
+        self.release_attempt(attempt);
+    }
 }
 
 impl ObjectUploader for FakeUploader {
@@ -84,8 +169,18 @@ impl ObjectUploader for FakeUploader {
         payload: Bytes,
         cancellation: &'a CancellationToken,
     ) -> BoxFuture<'a, Result<(), UploadError>> {
-        self.attempts.fetch_add(1, Ordering::AcqRel);
+        let attempt = self.attempts.fetch_add(1, Ordering::AcqRel);
+        self.started_uploads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((attempt, key.to_owned()));
         self.started.notify_waiters();
+        let gate = self
+            .attempt_gates
+            .as_ref()
+            .and_then(|gates| gates.get(attempt))
+            .cloned()
+            .or_else(|| self.gate.clone());
         Box::pin(async move {
             if self.permanent {
                 return Err(UploadError::Permanent(anyhow::anyhow!("permanent")));
@@ -99,7 +194,7 @@ impl ObjectUploader for FakeUploader {
             {
                 return Err(UploadError::Retryable(anyhow::anyhow!("temporary")));
             }
-            if let Some(gate) = &self.gate {
+            if let Some(gate) = gate {
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => return Err(UploadError::Cancelled),
@@ -114,6 +209,7 @@ impl ObjectUploader for FakeUploader {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push((key.to_owned(), payload));
+            self.completed.notify_waiters();
             Ok(())
         })
     }
@@ -274,6 +370,81 @@ async fn delivery(
         }],
         meta: DeliveryMeta {
             source_messages: 1,
+            ..DeliveryMeta::default()
+        },
+    }
+}
+
+fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> Delivery {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("nullable", DataType::Utf8, true),
+        Field::new(SystemColumnKind::TopicName.name(), DataType::Utf8, false),
+        Field::new(
+            SystemColumnKind::PartitionNum.name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
+        Field::new(
+            SystemColumnKind::MessageIndex.name(),
+            DataType::UInt64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::WriteTimestampMs.name(),
+            DataType::Int64,
+            false,
+        ),
+    ]));
+    let rows = offsets.len();
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(Int64Array::from(offsets.to_vec())),
+            Arc::new(StringArray::from(vec![None::<&str>; rows])),
+            Arc::new(StringArray::from(vec!["topic/a"; rows])),
+            Arc::new(Int64Array::from(vec![3; rows])),
+            Arc::new(Int64Array::from(offsets.to_vec())),
+            Arc::new(UInt64Array::from(vec![0; rows])),
+            Arc::new(Int64Array::from(
+                offsets
+                    .iter()
+                    .map(|offset| 1_000 + offset)
+                    .collect::<Vec<_>>(),
+            )),
+        ],
+    )
+    .unwrap();
+    let bytes = batch.get_array_memory_size();
+    let kinds = [
+        SystemColumnKind::TopicName,
+        SystemColumnKind::PartitionNum,
+        SystemColumnKind::Offset,
+        SystemColumnKind::MessageIndex,
+        SystemColumnKind::WriteTimestampMs,
+    ];
+    Delivery {
+        id: DeliveryId::new(id),
+        outputs: vec![SinkBatch {
+            table: Arc::from("events"),
+            is_dlq: false,
+            batch,
+            byte_size: bytes,
+            memory: memory.reserve_transform(bytes),
+            system_columns: SystemColumns::new(
+                kinds
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, kind)| SystemColumn {
+                        kind,
+                        index: position + 2,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        }],
+        meta: DeliveryMeta {
+            source_messages: rows as u64,
             ..DeliveryMeta::default()
         },
     }
@@ -652,8 +823,8 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
                 b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
             ),
             meta: MessageMeta {
-                topic_name: Some(Arc::from("topic/a")),
-                partition: Some(SourcePartition::Int(3)),
+                topic_path: Some(Arc::from("topic/a")),
+                partition_id: Some(3),
                 offset: Some(77),
                 write_timestamp_ms: Some(1_234),
             },
@@ -719,8 +890,8 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         .map(|offset| Message {
             value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
             meta: MessageMeta {
-                topic_name: Some(Arc::from("topic/a")),
-                partition: Some(SourcePartition::Int(3)),
+                topic_path: Some(Arc::from("topic/a")),
+                partition_id: Some(3),
                 offset: Some(offset),
                 write_timestamp_ms: Some(1_234 + offset),
             },
@@ -769,8 +940,8 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
     let message = |offset| Message {
         value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
         meta: MessageMeta {
-            topic_name: Some(Arc::from("topic/a")),
-            partition: Some(SourcePartition::Int(3)),
+            topic_path: Some(Arc::from("topic/a")),
+            partition_id: Some(3),
             offset: Some(offset),
             write_timestamp_ms: Some(1_234 + offset),
         },
@@ -811,6 +982,147 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
     }
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
     cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pressure_stops_at_the_next_deterministic_epoch_rotation() {
+    const GROUPS: i64 = 20;
+    const MEMORY_LIMIT: usize = 512;
+    const EPOCH_LIMIT: usize = 512;
+
+    let uploader = FakeUploader::blocked();
+    let memory = PipelineMemory::new(MEMORY_LIMIT);
+    let config: S3SinkConfig = serde_yaml::from_str(&format!(
+        "bucket: test\nrotation: {{ max_rows: 100, max_bytes: 1MiB }}\nbuffering: {{ max_open_objects: 8, max_pending_upload_objects: 32, max_buffered_bytes: 8MiB, max_epoch_bytes: {EPOCH_LIMIT} }}\nupload: {{ multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }}\nretry: {{ initial_backoff: 1ms, max_backoff: 2ms }}\n"
+    ))
+    .unwrap();
+    let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
+    let offsets = (1..=GROUPS).collect::<Vec<_>>();
+    let delivery = multi_message_delivery(&memory, 1, &offsets);
+    tx.send(delivery).await.unwrap();
+    drop(tx);
+
+    uploader.wait_for_attempts(1).await;
+    tokio::task::yield_now().await;
+    assert!(memory.transform_used() > MEMORY_LIMIT);
+    assert_eq!(
+        uploader.attempts.load(Ordering::Acquire),
+        1,
+        "pressure may include input, routes, and older epochs, but must not cascade past the next deterministic epoch rotation"
+    );
+
+    uploader
+        .gate
+        .as_ref()
+        .unwrap()
+        .add_permits(usize::try_from(GROUPS).unwrap());
+    assert_eq!(
+        tokio::time::timeout(core::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("resumable delivery did not finish after uploads were released"),
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn final_group_epoch_barrier_blocks_the_next_delivery_until_durable() {
+    let uploader = FakeUploader::blocked();
+    let memory = PipelineMemory::new(128);
+    let (tx, mut events, cancel, task) = spawn(
+        config_with_rotation(1, "", "partitioning: { type: source }\n"),
+        Arc::clone(&uploader),
+        memory.clone(),
+    );
+
+    tx.send(multi_message_delivery(&memory, 1, &[1]))
+        .await
+        .unwrap();
+    uploader.wait_for_attempts(1).await;
+    tx.send(multi_message_delivery(&memory, 2, &[2]))
+        .await
+        .unwrap();
+    assert!(
+        tokio::time::timeout(
+            core::time::Duration::from_millis(50),
+            uploader.wait_for_attempts(2),
+        )
+        .await
+        .is_err(),
+        "the second upload started before the first epoch became durable"
+    );
+    assert_eq!(
+        uploader.attempts.load(Ordering::Acquire),
+        1,
+        "dropping a completed PendingDelivery must not drop its epoch memory barrier"
+    );
+
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    uploader.wait_for_attempts(2).await;
+    uploader.gate.as_ref().unwrap().add_permits(1);
+    loop {
+        let event = tokio::time::timeout(core::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("deliveries did not finish after both exact epoch barriers completed");
+        if event == Some(SinkEvent::CommittedThrough(DeliveryId::new(2))) {
+            break;
+        }
+    }
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unrelated_epoch_completion_does_not_resume_a_pressured_delivery() {
+    const GROUPS: usize = 4;
+    const MEMORY_LIMIT: usize = 1 << 20;
+    const HEADROOM_FOR_FIRST_GROUP: usize = 250;
+    const EXTRA_PRESSURE: usize = 512;
+    const ROUTE_RETAINED_BYTES: usize =
+        128 + "events".len() + "topic/a".len() + "topic=topic%2Fa/partition=3".len();
+
+    let uploader = FakeUploader::controlled(GROUPS);
+    let memory = PipelineMemory::new(MEMORY_LIMIT);
+    let (tx, mut events, cancel, task) = spawn(
+        config_with_rotation(1, "", "partitioning: { type: source }\n"),
+        Arc::clone(&uploader),
+        memory.clone(),
+    );
+    let offsets = (1..=i64::try_from(GROUPS).unwrap()).collect::<Vec<_>>();
+    let delivery = multi_message_delivery(&memory, 1, &offsets);
+    let accounted_before_routing = memory.transform_used();
+    let route_bytes = GROUPS * ROUTE_RETAINED_BYTES;
+    let filler_bytes = MEMORY_LIMIT
+        .checked_sub(accounted_before_routing + route_bytes + HEADROOM_FOR_FIRST_GROUP)
+        .expect("test delivery must fit below the memory limit before its first group");
+    let _filler = memory.reserve_transform(filler_bytes);
+    tx.send(delivery).await.unwrap();
+
+    uploader.wait_for_started_uploads(2).await;
+    let _extra_pressure = memory.reserve_transform(EXTRA_PRESSURE);
+    uploader.release_key_suffix("+3+1.json");
+    uploader.wait_for_uploads(1).await;
+    tokio::task::yield_now().await;
+    assert_eq!(
+        uploader.attempts.load(Ordering::Acquire),
+        2,
+        "completing an unrelated epoch must not admit the third group"
+    );
+
+    uploader.release_key_suffix("+3+2.json");
+    uploader.wait_for_started_uploads(3).await;
+    uploader.release_key_suffix("+3+3.json");
+    uploader.wait_for_started_uploads(4).await;
+    uploader.release_key_suffix("+3+4.json");
+    assert_eq!(
+        tokio::time::timeout(core::time::Duration::from_secs(5), events.recv())
+            .await
+            .expect("delivery did not finish after its exact epoch barriers completed"),
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    cancel.cancel();
     task.await.unwrap().unwrap();
 }
 
@@ -880,6 +1192,62 @@ async fn partition_change_mode_selects_confluent_or_keep_open_behavior() {
     }
     assert_eq!(keep_open_uploader.attempts.load(Ordering::Acquire), 0);
     cancel.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
+    let uploader = FakeUploader::immediate(0);
+    let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
+    let message = |value: &'static [u8], offset| Message {
+        value: Bytes::from_static(value),
+        meta: MessageMeta {
+            topic_path: Some(Arc::from("topic/a")),
+            partition_id: Some(3),
+            offset: Some(offset),
+            write_timestamp_ms: Some(1_234 + offset),
+        },
+    };
+    let source = FakeSource {
+        batches: VecDeque::from([
+            vec![message(
+                b"{\"id\":10,\"nullable\":null}\n{\"id\":20,\"nullable\":null}",
+                1,
+            )],
+            vec![message(b"{\"id\":10,\"nullable\":null}", 2)],
+        ]),
+        commits: commit_tx,
+    };
+    let memory = PipelineMemory::new(1 << 20);
+    let cancellation = CancellationToken::new();
+    let sink = S3Sink::new(
+        config_with_rotation(
+            100,
+            "  on_partition_change: rotate\n",
+            "partitioning:\n  type: fields\n  columns: [id]\n",
+        ),
+        Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
+        Arc::new(SinkCounters::new()),
+        false,
+    )
+    .unwrap();
+    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+        Box::new(source),
+        pipeline_parser(),
+        Arc::new(Vec::new()),
+        Box::new(sink),
+        memory,
+        cancellation.clone(),
+        3,
+        Arc::new(crate::metrics::ParseCounters::new()),
+    ));
+
+    let committed = tokio::time::timeout(core::time::Duration::from_secs(5), commit_rx.recv())
+        .await
+        .expect("B -> A must close the epoch that contains the atomic A,B source message");
+    assert_eq!(committed, Some(1));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
+    cancellation.cancel();
     task.await.unwrap().unwrap();
 }
 

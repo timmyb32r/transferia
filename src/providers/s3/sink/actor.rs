@@ -56,20 +56,24 @@ struct ClosedEpoch {
     reservations: Vec<MemoryReservation>,
 }
 
-struct EncodedRow {
+struct RoutedRow {
+    output_index: usize,
+    row_index: usize,
     table: Arc<str>,
     is_dlq: bool,
     route: RowRoute,
-    payload: std::ops::Range<usize>,
 }
 
-struct EncodedDelivery {
-    delivery: Delivery,
-    rows: Vec<EncodedRow>,
-    payload: Vec<u8>,
+struct PendingDelivery {
+    delivery_id: DeliveryId,
+    rows: Vec<RoutedRow>,
+    encoders: Vec<JsonBatchEncoder>,
+    next_row: usize,
+    _input_reservations: Vec<MemoryReservation>,
+    _route_reservation: Option<MemoryReservation>,
 }
 
-fn encoded_row_order(left: &EncodedRow, right: &EncodedRow) -> core::cmp::Ordering {
+fn routed_row_order(left: &RoutedRow, right: &RoutedRow) -> core::cmp::Ordering {
     (
         left.route.topic.as_ref(),
         left.route.partition,
@@ -88,9 +92,8 @@ fn encoded_row_order(left: &EncodedRow, right: &EncodedRow) -> core::cmp::Orderi
 
 const ROUTE_RETAINED_OVERHEAD_BYTES: usize = 128;
 
-fn encoded_row_retained_bytes(row: &EncodedRow) -> usize {
-    row.payload
-        .len()
+fn routed_row_retained_bytes(row: &RoutedRow, serialized_bytes: usize) -> usize {
+    serialized_bytes
         .saturating_add(ROUTE_RETAINED_OVERHEAD_BYTES)
         .saturating_add(row.table.len())
         .saturating_add(row.route.topic.len())
@@ -112,10 +115,11 @@ pub struct S3Sink {
     ready: VecDeque<ClosedObject>,
     closed_epochs: BTreeMap<u64, ClosedEpoch>,
     next_epoch_id: u64,
-    progress: DeliveryTracker<()>,
+    progress: DeliveryTracker,
     buffered_bytes: usize,
     epoch_byte_limit: usize,
     in_flight_objects: usize,
+    memory_barrier_epoch: Option<u64>,
 }
 
 struct S3ActorConfig {
@@ -156,114 +160,125 @@ impl S3Sink {
             buffered_bytes: 0,
             epoch_byte_limit,
             in_flight_objects: 0,
+            memory_barrier_epoch: None,
         })
     }
 
-    fn encode(&mut self, delivery: Delivery) -> anyhow::Result<EncodedDelivery> {
+    fn route_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<Vec<RoutedRow>> {
         let mut rows = Vec::new();
-        let mut payload = Vec::new();
-        for output in &delivery.outputs {
-            let mut visible = vec![true; output.batch.num_columns()];
-            if !self.keep_system_columns {
-                for column in output.system_columns.iter() {
-                    visible[column.index] = false;
-                }
-            }
-            let encoder = JsonBatchEncoder::new(&output.batch, |index| visible[index])?;
+        for (output_index, output) in delivery.outputs.iter().enumerate() {
             let routes = self.partitioner.route_batch(output)?;
-            for (row, route) in routes.into_iter().enumerate() {
-                let start = payload.len();
-                encoder.write_row(row, &mut payload);
-                rows.push(EncodedRow {
+            for (row_index, route) in routes.into_iter().enumerate() {
+                rows.push(RoutedRow {
+                    output_index,
+                    row_index,
                     table: Arc::clone(&output.table),
                     is_dlq: output.is_dlq,
                     route,
-                    payload: start..payload.len(),
                 });
             }
         }
         if !rows.is_sorted_by(|left, right| {
-            encoded_row_order(left, right) != core::cmp::Ordering::Greater
+            routed_row_order(left, right) != core::cmp::Ordering::Greater
         }) {
-            rows.sort_unstable_by(encoded_row_order);
+            rows.sort_unstable_by(routed_row_order);
         }
-        Ok(EncodedDelivery {
-            delivery,
-            rows,
-            payload,
-        })
+        Ok(rows)
     }
 
-    fn accept(
+    fn prepare_delivery(
         &mut self,
         delivery: Delivery,
         memory: &crate::pipeline::memory::PipelineMemory,
-    ) -> anyhow::Result<()> {
-        let encoded = self.encode(delivery)?;
-        let serialized_bytes = encoded.payload.len();
-        let delivery_id = encoded.delivery.id;
-        let pending_rows = encoded.rows.len();
-        let copy_reservation =
-            (serialized_bytes > 0).then(|| memory.reserve_transform(serialized_bytes));
-        self.progress.accept(
+    ) -> anyhow::Result<PendingDelivery> {
+        let rows = self.route_delivery(&delivery)?;
+        let delivery_id = delivery.id;
+        let pending_rows = rows.len();
+        let route_bytes = rows.iter().fold(0_usize, |bytes, row| {
+            bytes.saturating_add(routed_row_retained_bytes(row, 0))
+        });
+        let route_reservation = (route_bytes > 0).then(|| memory.reserve_transform(route_bytes));
+        let encoders = delivery
+            .outputs
+            .iter()
+            .map(|output| {
+                let mut visible = vec![true; output.batch.num_columns()];
+                if !self.keep_system_columns {
+                    for column in output.system_columns.iter() {
+                        visible[column.index] = false;
+                    }
+                }
+                JsonBatchEncoder::new(&output.batch, |index| visible[index])
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        self.progress
+            .accept(delivery_id, pending_rows, delivery.meta.source_messages)?;
+        let input_reservations = delivery
+            .outputs
+            .into_iter()
+            .map(|output| output.memory)
+            .collect();
+        Ok(PendingDelivery {
             delivery_id,
-            pending_rows,
-            encoded.delivery.meta.source_messages,
-            None,
-        )?;
-        drop(encoded.delivery.outputs);
-        self.buffered_bytes = self.buffered_bytes.saturating_add(serialized_bytes);
-        if self.buffered_bytes > self.config.buffering.max_buffered_bytes.0 {
-            tracing::warn!(
-                buffered_bytes = self.buffered_bytes,
-                configured_limit_bytes = self.config.buffering.max_buffered_bytes.0,
-                "one source delivery temporarily exceeded the S3 buffering limit"
-            );
-        }
+            rows,
+            encoders,
+            next_row: 0,
+            _input_reservations: input_reservations,
+            _route_reservation: route_reservation,
+        })
+    }
 
-        let mut start = 0;
-        while start < encoded.rows.len() {
+    fn accept_next_message_group(
+        &mut self,
+        pending: &mut PendingDelivery,
+        memory: &crate::pipeline::memory::PipelineMemory,
+    ) -> bool {
+        let start = pending.next_row;
+        if start < pending.rows.len() {
             let identity = (
-                &encoded.rows[start].route.topic,
-                encoded.rows[start].route.partition,
-                encoded.rows[start].route.offset,
+                &pending.rows[start].route.topic,
+                pending.rows[start].route.partition,
+                pending.rows[start].route.offset,
             );
             let mut end = start + 1;
-            while end < encoded.rows.len()
+            while end < pending.rows.len()
                 && (
-                    &encoded.rows[end].route.topic,
-                    encoded.rows[end].route.partition,
-                    encoded.rows[end].route.offset,
+                    &pending.rows[end].route.topic,
+                    pending.rows[end].route.partition,
+                    pending.rows[end].route.offset,
                 ) == identity
             {
                 end += 1;
             }
+            let epoch_before = self.next_epoch_id;
             self.accept_message_group(
-                &encoded.rows[start..end],
-                &encoded.payload,
-                delivery_id,
+                &pending.rows[start..end],
+                &pending.encoders,
+                pending.delivery_id,
                 memory,
             );
-            start = end;
+            pending.next_row = end;
+            self.memory_barrier_epoch = (self.next_epoch_id != epoch_before
+                && memory.is_transform_pressured())
+            .then(|| self.next_epoch_id.saturating_sub(1));
         }
-        drop(encoded.payload);
-        drop(copy_reservation);
         self.update_buffer_gauges();
-        Ok(())
+        pending.next_row == pending.rows.len()
     }
 
     fn accept_message_group(
         &mut self,
-        rows: &[EncodedRow],
-        payload: &[u8],
+        rows: &[RoutedRow],
+        encoders: &[JsonBatchEncoder],
         delivery_id: DeliveryId,
         memory: &crate::pipeline::memory::PipelineMemory,
     ) {
-        let main = rows.iter().find(|row| !row.is_dlq);
+        let first_main = rows.iter().find(|row| !row.is_dlq);
+        let last_main = rows.iter().rfind(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
 
         let partition_changed = self.config.rotation.on_partition_change == PartitionChange::Rotate
-            && main.is_some_and(|row| {
+            && first_main.is_some_and(|row| {
                 self.epoch
                     .last_main_partition
                     .as_deref()
@@ -288,7 +303,7 @@ impl S3Sink {
             self.epoch.first_seen = Some(Instant::now());
             self.epoch.record_time_base_ms = record_time_ms;
         }
-        if let Some(main) = main {
+        if let Some(main) = last_main {
             self.epoch.last_main_partition = Some(Arc::clone(&main.route.partition_path));
         }
 
@@ -297,16 +312,9 @@ impl S3Sink {
         // than with the timing-dependent Delivery that happened to carry it.
         // A durable closed epoch can then release capacity even if a later
         // epoch still contains rows from the same Delivery.
-        let retained_bytes = rows.iter().fold(0_usize, |bytes, row| {
-            bytes.saturating_add(encoded_row_retained_bytes(row))
-        });
-        if retained_bytes > 0 {
-            self.epoch
-                .reservations
-                .push(memory.reserve_transform(retained_bytes));
-        }
-
         let mut object_limit_reached = false;
+        let mut retained_bytes = 0_usize;
+        let mut serialized_bytes = 0_usize;
         for row in rows {
             let key = BufferKey {
                 table: Arc::clone(&row.table),
@@ -325,11 +333,27 @@ impl S3Sink {
                 });
             buffer.start_offset = buffer.start_offset.min(row.route.offset);
             buffer.rows = buffer.rows.saturating_add(1);
-            buffer
-                .payload
-                .extend_from_slice(&payload[row.payload.clone()]);
+            let before = buffer.payload.len();
+            encoders[row.output_index].write_row(row.row_index, &mut buffer.payload);
+            let row_bytes = buffer.payload.len().saturating_sub(before);
+            serialized_bytes = serialized_bytes.saturating_add(row_bytes);
+            retained_bytes =
+                retained_bytes.saturating_add(routed_row_retained_bytes(row, row_bytes));
             object_limit_reached |= buffer.rows >= self.config.rotation.max_rows
                 || buffer.payload.len() >= self.config.rotation.max_bytes.0;
+        }
+        if retained_bytes > 0 {
+            self.epoch
+                .reservations
+                .push(memory.reserve_transform(retained_bytes));
+        }
+        self.buffered_bytes = self.buffered_bytes.saturating_add(serialized_bytes);
+        if self.buffered_bytes > self.config.buffering.max_buffered_bytes.0 {
+            tracing::warn!(
+                buffered_bytes = self.buffered_bytes,
+                configured_limit_bytes = self.config.buffering.max_buffered_bytes.0,
+                "one atomic source message temporarily exceeded the per-partition S3 buffering limit"
+            );
         }
         self.epoch.retained_bytes = self.epoch.retained_bytes.saturating_add(retained_bytes);
         match self.epoch.delivery_rows.last_mut() {
@@ -345,14 +369,7 @@ impl S3Sink {
             tracing::warn!(
                 open_objects = self.epoch.buffers.len(),
                 configured_limit = self.config.buffering.max_open_objects,
-                "one atomic source message temporarily exceeded the S3 open-object limit"
-            );
-        }
-        if self.pending_upload_objects() > self.config.buffering.max_pending_upload_objects {
-            tracing::warn!(
-                pending_upload_objects = self.pending_upload_objects(),
-                configured_limit = self.config.buffering.max_pending_upload_objects,
-                "one atomic source message temporarily exceeded the S3 pending-object limit"
+                "one atomic source message temporarily exceeded the per-partition S3 open-object limit"
             );
         }
         // Pending uploads are deliberately not a rotation input: their count
@@ -361,6 +378,13 @@ impl S3Sink {
         // enforced only by run-loop admission below.
         if object_limit_reached || budget_reached {
             self.close_epoch();
+        }
+        if self.pending_upload_objects() > self.config.buffering.max_pending_upload_objects {
+            tracing::warn!(
+                pending_upload_objects = self.pending_upload_objects(),
+                configured_limit = self.config.buffering.max_pending_upload_objects,
+                "one atomic source message temporarily exceeded the per-partition S3 pending-object soft limit"
+            );
         }
     }
 
@@ -538,11 +562,12 @@ impl S3Sink {
         let mut uploads = JoinSet::new();
         let upload_cancellation = CancellationToken::new();
         let mut input_closed = false;
+        let mut pending_delivery: Option<PendingDelivery> = None;
         let mut backpressure_started: Option<std::time::Instant> = None;
         let result: anyhow::Result<()> = async {
             loop {
                 self.emit_committed(&io.events).await?;
-                if input_closed && !self.epoch.buffers.is_empty() {
+                if input_closed && pending_delivery.is_none() && !self.epoch.buffers.is_empty() {
                     self.close_epoch();
                     continue;
                 }
@@ -550,7 +575,11 @@ impl S3Sink {
                     && self.start_upload(&mut uploads, &upload_cancellation)
                 {}
                 self.update_gauges();
-                if input_closed && uploads.is_empty() && self.ready.is_empty() {
+                if input_closed
+                    && pending_delivery.is_none()
+                    && uploads.is_empty()
+                    && self.ready.is_empty()
+                {
                     self.emit_committed(&io.events).await?;
                     if !self.progress.is_empty() || !self.closed_epochs.is_empty() {
                         return Err(PipelineFailure::fatal(anyhow::anyhow!(
@@ -561,7 +590,35 @@ impl S3Sink {
                     return Ok(());
                 }
 
-                let can_accept = !input_closed
+                let below_live_limits = self.buffered_bytes
+                    < self.config.buffering.max_buffered_bytes.0
+                    && self.pending_upload_objects()
+                        < self.config.buffering.max_pending_upload_objects;
+                if self.memory_barrier_epoch.is_some_and(|epoch_id| {
+                    !io.memory.is_transform_pressured()
+                        || !self.closed_epochs.contains_key(&epoch_id)
+                }) {
+                    self.memory_barrier_epoch = None;
+                }
+                let memory_admissible = self.memory_barrier_epoch.is_none();
+                let can_resume_pending =
+                    below_live_limits && memory_admissible && pending_delivery.is_some();
+                if can_resume_pending {
+                    let done = self.accept_next_message_group(
+                        pending_delivery
+                            .as_mut()
+                            .expect("resumable S3 delivery disappeared"),
+                        &io.memory,
+                    );
+                    if done {
+                        pending_delivery = None;
+                    }
+                    continue;
+                }
+
+                let can_accept = pending_delivery.is_none()
+                    && !input_closed
+                    && memory_admissible
                     && self.buffered_bytes < self.config.buffering.max_buffered_bytes.0
                     && self.pending_upload_objects()
                         < self.config.buffering.max_pending_upload_objects;
@@ -570,7 +627,10 @@ impl S3Sink {
                 } else if let Some(started) = backpressure_started.take() {
                     self.counters.add_backpressure(started.elapsed());
                 }
-                let deadline = self.wall_clock_deadline();
+                let deadline = pending_delivery
+                    .is_none()
+                    .then(|| self.wall_clock_deadline())
+                    .flatten();
                 let wall_sleep = async move {
                     match deadline {
                         Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -588,9 +648,16 @@ impl S3Sink {
                     }
                     delivery = io.deliveries.recv(), if can_accept => {
                         match delivery {
-                            Some(delivery) => self
-                                .accept(delivery, &io.memory)
-                                .map_err(PipelineFailure::fatal)?,
+                            Some(delivery) => {
+                                let prepared = self
+                                    .prepare_delivery(delivery, &io.memory)
+                                    .map_err(PipelineFailure::fatal)?;
+                                if prepared.rows.is_empty() {
+                                    drop(prepared);
+                                } else {
+                                    pending_delivery = Some(prepared);
+                                }
+                            }
                             None => input_closed = true,
                         }
                     }

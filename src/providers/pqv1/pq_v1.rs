@@ -6,7 +6,7 @@
 
 use alloc::sync::Arc;
 use core::pin::Pin;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::{Context, Poll};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex as StdMutex;
@@ -18,6 +18,7 @@ use futures_util::Stream;
 
 use crate::metrics::SourceCounters;
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
+use crate::pipeline::retry::stable_retry_seed;
 use crate::pipeline::PipelineFailure;
 use http::Uri;
 use hyper::client::conn::http2;
@@ -30,7 +31,6 @@ use tonic::Request;
 /// Always `/Root` in our deployment — hardcoded rather than configured.
 const YDB_DATABASE: &str = "/Root";
 use crate::pipeline::source::{CommitMarker, Source};
-use crate::types::message::SourcePartition;
 use crate::types::message::{Message, MessageBatch, MessageMeta};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
@@ -56,16 +56,21 @@ const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = MAX_MESSAGE_SIZE;
 /// oversized reservation, so it is not a substitute for a decompression safety limit.
 const MAX_DECOMPRESSED_BATCH_SIZE: usize = MAX_MESSAGE_SIZE;
 const MAX_ZSTD_WINDOW_LOG: u32 = 27; // log2(128 MiB)
+/// A size-only read limit does not bound allocations for empty or tiny messages. Keep the
+/// protocol's message-count credit finite as a second, independent admission limit.
+const MAX_READ_MESSAGES_COUNT: u32 = 10_000;
+const MAX_READ_SIZE: u32 = 1_048_576;
+const MAX_READ_BATCH_COUNT: usize = MAX_READ_MESSAGES_COUNT as usize;
+const MAX_READ_EXTRA_FIELD_COUNT: usize = MAX_READ_MESSAGES_COUNT as usize;
+const MIN_VEC_ALLOCATION_CAPACITY: usize = 8;
 const SESSION_INIT_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
 const COMMIT_ACK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
 const RELEASE_HANDOFF_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(1);
 const RELEASE_TRANSPORT_GRACE: core::time::Duration = core::time::Duration::from_millis(100);
-/// Capacity of the decompressed-batch channel (bg task → merge task). Bounded
-/// so that if decompress ever falls behind download, memory is capped; with
-/// parallel decompress keeping up, it stays near-empty.
-const DECODED_CHANNEL_CAP: usize = 128;
 const PARTITION_CHANNEL_CAP: usize = 1024;
 const MAX_PARTS_PER_SOURCE_BATCH: usize = 128;
+const DECODED_MESSAGE_METADATA_BYTES: usize = core::mem::size_of::<DecodedMessage>();
+const DECODED_PART_METADATA_BYTES: usize = core::mem::size_of::<DecodedPart>();
 
 // ---------------------------------------------------------------------------
 // HTTP/2 prior-knowledge transport (Go-compatible)
@@ -98,9 +103,7 @@ async fn connect_http2_prior_knowledge(
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<H2Service> {
-    let host = uri.host().unwrap_or("localhost");
-    let port = uri.port_u16().unwrap_or(2135);
-    let addr = format!("{host}:{port}");
+    let addr = socket_address(uri);
 
     let (send_request, conn) = network_stage("HTTP/2 connection", timeout, cancellation, async {
         let stream = tokio::net::TcpStream::connect(&addr)
@@ -108,7 +111,14 @@ async fn connect_http2_prior_knowledge(
             .map_err(|e| anyhow!("TCP connect to {addr}: {e}"))?;
         stream.set_nodelay(true)?;
         let io = hyper_util::rt::TokioIo::new(stream);
-        http2::handshake(hyper_util::rt::TokioExecutor::new(), io)
+        let mut builder = http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+        builder
+            .timer(hyper_util::rt::TokioTimer::new())
+            .keep_alive_interval(timeout)
+            .keep_alive_timeout(timeout)
+            .keep_alive_while_idle(true);
+        builder
+            .handshake(io)
             .await
             .map_err(|e| anyhow!("HTTP/2 handshake failed: {e}"))
     })
@@ -188,6 +198,21 @@ fn http_uri(host: &str) -> anyhow::Result<Uri> {
         .map_err(|e| anyhow!("bad uri http://{host}: {e}"))
 }
 
+fn format_host_port(host: &str, port: u16) -> String {
+    if host.parse::<std::net::Ipv6Addr>().is_ok() {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn socket_address(uri: &Uri) -> String {
+    format_host_port(
+        uri.host().unwrap_or("localhost"),
+        uri.port_u16().unwrap_or(2135),
+    )
+}
+
 fn init_request(topic_path: &str, consumer: &str, partition_group_ids: &[i64]) -> InitRequest {
     InitRequest {
         topics_read_settings: vec![TopicReadSettings {
@@ -202,8 +227,8 @@ fn init_request(topic_path: &str, consumer: &str, partition_group_ids: &[i64]) -
         max_supported_block_format_version: 0,
         max_meta_cache_size: 0,
         read_params: Some(ReadParams {
-            max_read_messages_count: 0,
-            max_read_size: 1_048_576,
+            max_read_messages_count: MAX_READ_MESSAGES_COUNT,
+            max_read_size: MAX_READ_SIZE,
         }),
         session_id: String::new(),
         connection_attempt: 0,
@@ -442,15 +467,298 @@ pub struct DecodedPart {
     memory: MemoryReservation,
 }
 
-pub enum PartitionEvent {
-    Data(DecodedPart),
+/// A server data response after protocol validation, but before downstream admission.
+/// The response task only enqueues this bounded work item; all waits happen in the data task so
+/// commit acknowledgements and partition releases remain observable under backpressure.
+enum PendingDataKind {
+    Decode { parts: Vec<RawPart> },
+    Discard { parts: Vec<(i64, CommitCookie)> },
 }
 
-/// A decompressed `DataBatch`, re-ordered by `seq` before dispatch.
-struct DecodedBatch {
-    seq: u64,
-    parts: anyhow::Result<Vec<DecodedPart>>,
-    failure_kind: TerminalFailureKind,
+struct PendingDataBatch {
+    kind: PendingDataKind,
+    /// Source-stage credit acquired before the corresponding `Read` request.
+    /// It accounts for this raw batch while it waits for transform admission.
+    raw_memory: MemoryReservation,
+}
+
+fn prepare_data_batch(
+    batch: migration_streaming_read_server_message::DataBatch,
+    active_assignments: &HashMap<i64, ActiveAssignment>,
+    discard_payload: bool,
+) -> Result<(PendingDataKind, u64, u64), SessionFailure> {
+    let result = (|| {
+        let mut compressed_bytes = 0_u64;
+        let mut message_count = 0_u64;
+        if discard_payload {
+            let mut parts = Vec::with_capacity(batch.partition_data.len());
+            for partition in batch.partition_data {
+                let (pid, cookie) = validate_data_partition(&partition, active_assignments)
+                    .map_err(|failure| failure.error)?;
+                for message_batch in partition.batches {
+                    for message in message_batch.message_data {
+                        compressed_bytes = compressed_bytes
+                            .checked_add(u64::try_from(message.data.len())?)
+                            .ok_or_else(|| anyhow!("PQv1 compressed byte count overflow"))?;
+                        message_count = message_count
+                            .checked_add(1)
+                            .ok_or_else(|| anyhow!("PQv1 message count overflow"))?;
+                    }
+                }
+                parts.push((pid, cookie));
+            }
+            validate_message_count(message_count)?;
+            return Ok((
+                PendingDataKind::Discard { parts },
+                compressed_bytes,
+                message_count,
+            ));
+        }
+
+        let mut parts = Vec::with_capacity(batch.partition_data.len());
+        for partition in batch.partition_data {
+            let (pid, cookie) = validate_data_partition(&partition, active_assignments)
+                .map_err(|failure| failure.error)?;
+            let mut messages = Vec::new();
+            for message_batch in partition.batches {
+                let write_timestamp_ms = message_batch.write_timestamp_ms;
+                for message in message_batch.message_data {
+                    compressed_bytes = compressed_bytes
+                        .checked_add(u64::try_from(message.data.len())?)
+                        .ok_or_else(|| anyhow!("PQv1 compressed byte count overflow"))?;
+                    message_count = message_count
+                        .checked_add(1)
+                        .ok_or_else(|| anyhow!("PQv1 message count overflow"))?;
+                    messages.push(RawMsg {
+                        data: message.data,
+                        codec: message.codec,
+                        uncompressed_size: message.uncompressed_size,
+                        offset: message.offset,
+                        write_timestamp_ms,
+                    });
+                }
+            }
+            parts.push(RawPart {
+                pid,
+                cookie: Some(cookie),
+                msgs: messages,
+            });
+        }
+        validate_message_count(message_count)?;
+        Ok((
+            PendingDataKind::Decode { parts },
+            compressed_bytes,
+            message_count,
+        ))
+    })();
+    result.map_err(SessionFailure::fatal)
+}
+
+fn checked_raw_add(total: usize, value: usize) -> anyhow::Result<usize> {
+    total
+        .checked_add(value)
+        .ok_or_else(|| anyhow!("PQv1 raw batch memory estimate overflow"))
+}
+
+fn checked_raw_capacity<T>(capacity: usize) -> anyhow::Result<usize> {
+    capacity
+        .checked_mul(core::mem::size_of::<T>())
+        .ok_or_else(|| anyhow!("PQv1 raw batch memory estimate overflow"))
+}
+
+/// Maximum source credit for one advertised read. Repeated protobuf fields can retain nearly
+/// twice their element count in `Vec` capacity, so fixed metadata is budgeted at 2x. Dynamic
+/// strings/bytes are likewise budgeted above the wire-size limit; the received object is checked
+/// against this credit before it can enter the admission queue.
+fn raw_read_credit_bytes(max_partitions: usize) -> anyhow::Result<usize> {
+    use migration_streaming_read_server_message::data_batch::{Batch, MessageData, PartitionData};
+
+    let max_messages = usize::try_from(MAX_READ_MESSAGES_COUNT)?;
+    let dynamic_container_count = max_partitions
+        .checked_mul(3)
+        .and_then(|count| count.checked_add(MAX_READ_BATCH_COUNT.checked_mul(2)?))
+        .and_then(|count| count.checked_add(MAX_READ_EXTRA_FIELD_COUNT.checked_mul(2)?))
+        .and_then(|count| count.checked_add(max_messages.checked_mul(3)?))
+        .ok_or_else(|| anyhow!("PQv1 raw read credit overflow"))?;
+    let dynamic_capacity_slack = dynamic_container_count
+        .checked_mul(MIN_VEC_ALLOCATION_CAPACITY)
+        .ok_or_else(|| anyhow!("PQv1 raw read credit overflow"))?;
+    let max_dynamic = usize::try_from(MAX_READ_SIZE)?
+        .checked_mul(2)
+        .and_then(|bytes| bytes.checked_add(dynamic_capacity_slack))
+        .ok_or_else(|| anyhow!("PQv1 raw read credit overflow"))?;
+    let repeated_capacity = |elements: usize, containers: usize| {
+        elements
+            .checked_mul(2)
+            .and_then(|capacity| {
+                capacity.checked_add(containers.checked_mul(MIN_VEC_ALLOCATION_CAPACITY)?)
+            })
+            .ok_or_else(|| anyhow!("PQv1 raw read credit overflow"))
+    };
+    let mut bytes = core::mem::size_of::<migration_streaming_read_server_message::DataBatch>();
+    bytes = checked_raw_add(
+        bytes,
+        checked_raw_capacity::<PartitionData>(repeated_capacity(max_partitions, 1)?)?,
+    )?;
+    bytes = checked_raw_add(
+        bytes,
+        checked_raw_capacity::<Batch>(repeated_capacity(MAX_READ_BATCH_COUNT, max_partitions)?)?,
+    )?;
+    bytes = checked_raw_add(
+        bytes,
+        checked_raw_capacity::<MessageData>(repeated_capacity(
+            max_messages,
+            MAX_READ_BATCH_COUNT,
+        )?)?,
+    )?;
+    bytes = checked_raw_add(
+        bytes,
+        checked_raw_capacity::<crate::Ydb::pers_queue::v1::KeyValue>(repeated_capacity(
+            MAX_READ_EXTRA_FIELD_COUNT,
+            MAX_READ_BATCH_COUNT,
+        )?)?,
+    )?;
+    checked_raw_add(bytes, max_dynamic)
+}
+
+fn validate_raw_data_batch(
+    batch: &migration_streaming_read_server_message::DataBatch,
+    max_partitions: usize,
+    reserved_bytes: usize,
+) -> anyhow::Result<usize> {
+    use migration_streaming_read_server_message::data_batch::{Batch, MessageData, PartitionData};
+
+    anyhow::ensure!(
+        batch.partition_data.len() <= max_partitions,
+        "PQv1 DataBatch contains {} partition parts, exceeding active partition count {max_partitions}",
+        batch.partition_data.len()
+    );
+
+    let mut seen_partitions = HashSet::with_capacity(batch.partition_data.len());
+    let mut batch_count = 0_usize;
+    let mut message_count = 0_usize;
+    let mut extra_field_count = 0_usize;
+    let mut raw_payload_bytes = 0_usize;
+    let mut bytes = core::mem::size_of::<migration_streaming_read_server_message::DataBatch>();
+    bytes = checked_raw_add(
+        bytes,
+        checked_raw_capacity::<PartitionData>(batch.partition_data.capacity())?,
+    )?;
+    for partition in &batch.partition_data {
+        anyhow::ensure!(
+            seen_partitions.insert(partition.partition),
+            "PQv1 DataBatch repeats partition {}",
+            partition.partition
+        );
+        bytes = checked_raw_add(bytes, partition.cluster.capacity())?;
+        bytes = checked_raw_add(bytes, partition.deprecated_topic.capacity())?;
+        if let Some(topic) = &partition.topic {
+            bytes = checked_raw_add(bytes, topic.path.capacity())?;
+        }
+        batch_count = batch_count
+            .checked_add(partition.batches.len())
+            .ok_or_else(|| anyhow!("PQv1 DataBatch batch count overflow"))?;
+        bytes = checked_raw_add(
+            bytes,
+            checked_raw_capacity::<Batch>(partition.batches.capacity())?,
+        )?;
+        for message_batch in &partition.batches {
+            bytes = checked_raw_add(bytes, message_batch.source_id.capacity())?;
+            bytes = checked_raw_add(bytes, message_batch.ip.capacity())?;
+            extra_field_count = extra_field_count
+                .checked_add(message_batch.extra_fields.len())
+                .ok_or_else(|| anyhow!("PQv1 DataBatch extra-field count overflow"))?;
+            bytes = checked_raw_add(
+                bytes,
+                checked_raw_capacity::<crate::Ydb::pers_queue::v1::KeyValue>(
+                    message_batch.extra_fields.capacity(),
+                )?,
+            )?;
+            for field in &message_batch.extra_fields {
+                bytes = checked_raw_add(bytes, field.key.capacity())?;
+                bytes = checked_raw_add(bytes, field.value.capacity())?;
+            }
+            message_count = message_count
+                .checked_add(message_batch.message_data.len())
+                .ok_or_else(|| anyhow!("PQv1 DataBatch message count overflow"))?;
+            bytes = checked_raw_add(
+                bytes,
+                checked_raw_capacity::<MessageData>(message_batch.message_data.capacity())?,
+            )?;
+            for message in &message_batch.message_data {
+                raw_payload_bytes = raw_payload_bytes
+                    .checked_add(message.data.len())
+                    .ok_or_else(|| anyhow!("PQv1 DataBatch raw payload size overflow"))?;
+                bytes = checked_raw_add(bytes, message.data.capacity())?;
+                bytes = checked_raw_add(bytes, message.partition_key.capacity())?;
+                bytes = checked_raw_add(bytes, message.explicit_hash.capacity())?;
+            }
+        }
+    }
+    anyhow::ensure!(
+        batch_count <= MAX_READ_BATCH_COUNT,
+        "PQv1 DataBatch contains {batch_count} batches, exceeding limit {MAX_READ_BATCH_COUNT}"
+    );
+    anyhow::ensure!(
+        extra_field_count <= MAX_READ_EXTRA_FIELD_COUNT,
+        "PQv1 DataBatch contains {extra_field_count} extra fields, exceeding limit {MAX_READ_EXTRA_FIELD_COUNT}"
+    );
+    anyhow::ensure!(
+        raw_payload_bytes <= usize::try_from(MAX_READ_SIZE)?,
+        "PQv1 DataBatch raw payload size {raw_payload_bytes} exceeds requested limit {MAX_READ_SIZE}"
+    );
+    validate_message_count(u64::try_from(message_count)?)?;
+    anyhow::ensure!(
+        bytes <= reserved_bytes,
+        "PQv1 DataBatch retained size {bytes} exceeds pre-reserved read credit {reserved_bytes}"
+    );
+    Ok(bytes.max(1))
+}
+
+fn pending_raw_bytes(kind: &PendingDataKind) -> anyhow::Result<usize> {
+    let mut bytes = core::mem::size_of::<PendingDataKind>();
+    match kind {
+        PendingDataKind::Decode { parts } => {
+            bytes = checked_raw_add(bytes, checked_raw_capacity::<RawPart>(parts.capacity())?)?;
+            for part in parts {
+                bytes =
+                    checked_raw_add(bytes, checked_raw_capacity::<RawMsg>(part.msgs.capacity())?)?;
+                for message in &part.msgs {
+                    bytes = checked_raw_add(bytes, message.data.capacity())?;
+                }
+            }
+        }
+        PendingDataKind::Discard { parts } => {
+            bytes = checked_raw_add(
+                bytes,
+                checked_raw_capacity::<(i64, CommitCookie)>(parts.capacity())?,
+            )?;
+        }
+    }
+    Ok(bytes.max(1))
+}
+
+fn validate_message_count(message_count: u64) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        message_count <= u64::from(MAX_READ_MESSAGES_COUNT),
+        "PQv1 DataBatch contains {message_count} messages, exceeding requested limit {MAX_READ_MESSAGES_COUNT}"
+    );
+    Ok(())
+}
+
+fn enqueue_pending_data(
+    sender: &mpsc::Sender<PendingDataBatch>,
+    batch: PendingDataBatch,
+) -> Result<(), SessionFailure> {
+    match sender.try_send(batch) {
+        Ok(()) => Ok(()),
+        Err(mpsc::error::TrySendError::Full(_)) => Err(SessionFailure::fatal(anyhow!(
+            "PQv1 protocol violation: received DataBatch without available read credit"
+        ))),
+        Err(mpsc::error::TrySendError::Closed(_)) => Err(SessionFailure::retryable(anyhow!(
+            "PQv1 data admission channel closed"
+        ))),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -530,6 +838,82 @@ const fn read_request() -> MigrationStreamingReadClientMessage {
         )),
         token: Vec::new(),
     }
+}
+
+fn send_read_request(
+    sender: &mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
+    outstanding: &AtomicBool,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        outstanding
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok(),
+        "PQv1 attempted to issue overlapping Read requests"
+    );
+    if sender.send(read_request()).is_err() {
+        outstanding.store(false, Ordering::Release);
+        anyhow::bail!("PQv1 request channel closed");
+    }
+    Ok(())
+}
+
+async fn send_read_request_with_credit(
+    memory: &PipelineMemory,
+    credit_bytes: usize,
+    sender: &mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
+    outstanding: &AtomicBool,
+    pending_credit: &StdMutex<Option<MemoryReservation>>,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<()> {
+    let reservation = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("PQv1 read credit reservation cancelled"),
+        reservation = memory.reserve_progress_source(credit_bytes) => reservation,
+    };
+    {
+        let mut pending = pending_credit
+            .lock()
+            .map_err(|_| anyhow!("PQv1 read credit state is poisoned"))?;
+        anyhow::ensure!(
+            pending.is_none(),
+            "PQv1 attempted to replace an outstanding raw read credit"
+        );
+        *pending = Some(reservation);
+    }
+    if let Err(error) = send_read_request(sender, outstanding) {
+        pending_credit
+            .lock()
+            .map_err(|_| anyhow!("PQv1 read credit state is poisoned"))?
+            .take();
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn request_next_read(sender: &mpsc::Sender<()>) -> anyhow::Result<()> {
+    sender.try_send(()).map_err(|error| match error {
+        mpsc::error::TrySendError::Full(()) => {
+            anyhow!("PQv1 attempted to queue overlapping read credit")
+        }
+        mpsc::error::TrySendError::Closed(()) => anyhow!("PQv1 read credit task closed"),
+    })
+}
+
+fn consume_read_credit(
+    outstanding: &AtomicBool,
+    pending_credit: &StdMutex<Option<MemoryReservation>>,
+) -> anyhow::Result<MemoryReservation> {
+    anyhow::ensure!(
+        outstanding
+            .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok(),
+        "PQv1 protocol violation: received DataBatch without an outstanding Read request"
+    );
+    pending_credit
+        .lock()
+        .map_err(|_| anyhow!("PQv1 read credit state is poisoned"))?
+        .take()
+        .ok_or_else(|| anyhow!("PQv1 DataBatch has no pre-reserved raw read credit"))
 }
 
 fn status_failure_kind(status: i32) -> TerminalFailureKind {
@@ -628,7 +1012,7 @@ pub struct PqV1Client {
 
 struct PqV1ClientInner {
     request_tx: mpsc::UnboundedSender<MigrationStreamingReadClientMessage>,
-    partition_queues: Mutex<HashMap<i64, mpsc::Sender<PartitionEvent>>>,
+    partition_queues: Mutex<HashMap<i64, mpsc::Sender<DecodedPart>>>,
     pending_commit_cookies: StdMutex<PendingCommitQueues>,
     terminal_failure: watch::Sender<Option<Arc<TerminalFailure>>>,
     session_token: CancellationToken,
@@ -636,7 +1020,18 @@ struct PqV1ClientInner {
 
 struct PendingCommit {
     remaining: AtomicUsize,
+    state: AtomicU8,
     completed: Notify,
+}
+
+const COMMIT_WAITING: u8 = 0;
+const COMMIT_ACKNOWLEDGED: u8 = 1;
+const COMMIT_ABANDONED: u8 = 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AbandonCommitResult {
+    Acknowledged,
+    Abandoned,
 }
 
 type CommitCookieKey = (u64, u64);
@@ -646,6 +1041,7 @@ impl PendingCommit {
     fn new(cookie_count: usize) -> Self {
         Self {
             remaining: AtomicUsize::new(cookie_count),
+            state: AtomicU8::new(COMMIT_WAITING),
             completed: Notify::new(),
         }
     }
@@ -653,7 +1049,7 @@ impl PendingCommit {
     async fn wait(&self) {
         loop {
             let completed = self.completed.notified();
-            if self.remaining.load(Ordering::Acquire) == 0 {
+            if self.state.load(Ordering::Acquire) != COMMIT_WAITING {
                 return;
             }
             completed.await;
@@ -710,14 +1106,27 @@ fn acknowledge_committed(
         }
         completed.push(waiter);
     }
-    drop(pending);
     for waiter in completed {
+        if waiter.state.load(Ordering::Acquire) == COMMIT_ABANDONED {
+            continue;
+        }
         let previous = waiter.remaining.fetch_sub(1, Ordering::AcqRel);
         anyhow::ensure!(previous > 0, "PQv1 commit acknowledgement underflow");
         if previous == 1 {
+            let changed = waiter.state.compare_exchange(
+                COMMIT_WAITING,
+                COMMIT_ACKNOWLEDGED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+            anyhow::ensure!(
+                changed.is_ok() || changed == Err(COMMIT_ABANDONED),
+                "PQv1 commit acknowledgement has invalid state"
+            );
             waiter.completed.notify_waiters();
         }
     }
+    drop(pending);
     Ok(())
 }
 
@@ -741,6 +1150,30 @@ fn remove_pending_commit(
     }
     drop(pending);
     Ok(())
+}
+
+/// Atomically arbitrate acknowledgement against timeout/cancellation while holding the same
+/// mutex that owns the cookie queues. Abandoned entries intentionally remain as tombstones until
+/// a possible late server acknowledgement consumes them; otherwise that acknowledgement could
+/// either fail the session as unknown or acknowledge a newer waiter for the same cookie.
+fn abandon_pending_commit(
+    inner: &PqV1ClientInner,
+    waiter: &Arc<PendingCommit>,
+) -> anyhow::Result<AbandonCommitResult> {
+    let _pending = inner
+        .pending_commit_cookies
+        .lock()
+        .map_err(|_| anyhow!("PQv1 pending commit state is poisoned"))?;
+    match waiter.state.compare_exchange(
+        COMMIT_WAITING,
+        COMMIT_ABANDONED,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) | Err(COMMIT_ABANDONED) => Ok(AbandonCommitResult::Abandoned),
+        Err(COMMIT_ACKNOWLEDGED) => Ok(AbandonCommitResult::Acknowledged),
+        Err(state) => anyhow::bail!("PQv1 commit waiter has invalid state {state}"),
+    }
 }
 
 fn broadcast_failure(inner: &PqV1ClientInner, error: &anyhow::Error, kind: TerminalFailureKind) {
@@ -779,15 +1212,23 @@ where
     });
 }
 
-async fn reserve_decoded_slot(
-    sender: &mpsc::Sender<DecodedBatch>,
-    cancellation: &CancellationToken,
-) -> anyhow::Result<mpsc::OwnedPermit<DecodedBatch>> {
-    tokio::select! {
-        biased;
-        () = cancellation.cancelled() => anyhow::bail!("PQv1 session cancelled"),
-        permit = sender.clone().reserve_owned() => {
-            permit.map_err(|_| anyhow!("PQv1 decoded-batch queue closed"))
+async fn dispatch_parts(inner: &PqV1ClientInner, parts: Vec<DecodedPart>) {
+    for part in parts {
+        let pid = part.pid;
+        let tx = inner.partition_queues.lock().await.get(&pid).cloned();
+        let Some(tx) = tx else {
+            continue;
+        };
+        let sent = tokio::select! {
+            biased;
+            () = inner.session_token.cancelled() => return,
+            sent = tx.send(part) => sent,
+        };
+        if sent.is_err() {
+            // Receiver dropped (shutdown) — remove the dead sender so future
+            // batches skip this partition.
+            inner.partition_queues.lock().await.remove(&pid);
+            tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
         }
     }
 }
@@ -816,12 +1257,12 @@ fn commit_session_stopped_error(inner: &PqV1ClientInner, partition_id: i64) -> a
 
 /// Discover a proxy endpoint via `ListEndpoints` over HTTP/2 prior knowledge.
 /// The gRPC response type is `GetOperationResponse` (matching Go's `conn.Invoke`).
-async fn discover_proxy(
+async fn discover_proxies(
     main_uri: &Uri,
     token: &str,
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<Vec<crate::Ydb::discovery::EndpointInfo>> {
     use crate::Ydb::discovery::{ListEndpointsRequest, ListEndpointsResult};
     use crate::Ydb::operations::GetOperationResponse;
     use prost::Message as _;
@@ -863,27 +1304,90 @@ async fn discover_proxy(
     }
     let result = op.result.ok_or_else(|| anyhow!("no result"))?;
     let eps = ListEndpointsResult::decode(result.value.as_slice())?;
-    eps.endpoints
-        .first()
-        .map(|e| format!("{}:{}", e.address, e.port))
-        .ok_or_else(|| anyhow!("no endpoints"))
+    anyhow::ensure!(!eps.endpoints.is_empty(), "no endpoints");
+    Ok(eps.endpoints)
+}
+
+fn ordered_plaintext_proxies(
+    endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
+    partition_id: i64,
+) -> anyhow::Result<Vec<String>> {
+    let mut proxies: Vec<_> = endpoints
+        .into_iter()
+        .filter(|endpoint| !endpoint.ssl)
+        .filter_map(|endpoint| {
+            let port = u16::try_from(endpoint.port).ok().filter(|port| *port > 0)?;
+            let address = endpoint.address.trim();
+            if address.is_empty() || !endpoint.load_factor.is_finite() || endpoint.load_factor < 0.0
+            {
+                return None;
+            }
+            Some((format_host_port(address, port), endpoint.load_factor))
+        })
+        .collect();
+    proxies.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.total_cmp(&right.1))
+    });
+    proxies.dedup_by(|left, right| left.0 == right.0);
+    anyhow::ensure!(
+        !proxies.is_empty(),
+        "discovery returned no usable plaintext endpoints"
+    );
+
+    // Weighted rendezvous ordering: every partition gets a stable primary and failover order,
+    // while a larger discovery load factor makes an endpoint proportionally less likely to lead.
+    let partition_bytes = partition_id.to_le_bytes();
+    let mut scored: Vec<_> = proxies
+        .into_iter()
+        .map(|(address, load_factor)| {
+            let mut key = Vec::with_capacity(partition_bytes.len() + address.len());
+            key.extend_from_slice(&partition_bytes);
+            key.extend_from_slice(address.as_bytes());
+            let hash = stable_retry_seed(&key);
+            let unit = (hash as f64 + 1.0) / (u64::MAX as f64 + 1.0);
+            let score = -unit.ln() * (1.0 + f64::from(load_factor));
+            (address, score)
+        })
+        .collect();
+    scored.sort_by(|left, right| {
+        left.1
+            .total_cmp(&right.1)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    Ok(scored.into_iter().map(|(address, _)| address).collect())
 }
 
 impl PqV1Client {
-    pub async fn resolve_proxy(
+    pub async fn resolve_proxies(
         endpoint: &str,
         token: &str,
         network_timeout: core::time::Duration,
         cancellation: &CancellationToken,
-    ) -> anyhow::Result<String> {
+        partition_id: i64,
+    ) -> anyhow::Result<Vec<String>> {
         auth_metadata_value(token)?;
         let main_host = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&main_host)?;
-        match discover_proxy(&main_uri, token, network_timeout, cancellation).await {
-            Ok(proxy) => Ok(proxy),
+        match discover_proxies(&main_uri, token, network_timeout, cancellation).await {
+            Ok(endpoints) => match ordered_plaintext_proxies(endpoints, partition_id) {
+                Ok(mut proxies) => {
+                    if !proxies.iter().any(|proxy| proxy == &main_host) {
+                        proxies.push(main_host);
+                    }
+                    Ok(proxies)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "Proxy discovery returned no compatible endpoint: {error}. Using main endpoint."
+                    );
+                    Ok(vec![main_host])
+                }
+            },
             Err(error) => {
                 tracing::warn!("Proxy discovery failed: {error}. Using main endpoint.");
-                Ok(main_host)
+                Ok(vec![main_host])
             }
         }
     }
@@ -900,7 +1404,7 @@ impl PqV1Client {
         memory: PipelineMemory,
         network_timeout: core::time::Duration,
         decompress_slots: Arc<tokio::sync::Semaphore>,
-    ) -> anyhow::Result<(Self, HashMap<i64, mpsc::Receiver<PartitionEvent>>)> {
+    ) -> anyhow::Result<(Self, HashMap<i64, mpsc::Receiver<DecodedPart>>)> {
         auth_metadata_value(token)?;
         let target_uri = http_uri(proxy)?;
         tracing::info!(
@@ -961,6 +1465,7 @@ impl PqV1Client {
 
         // Per-partition queues for the partitions we own.
         let assigned: HashSet<i64> = partition_group_ids.iter().copied().collect();
+        let raw_read_credit = raw_read_credit_bytes(assigned.len())?;
         let configured_topic: Arc<str> = Arc::from(topic_path);
         let mut pqs = HashMap::with_capacity(assigned.len());
         let mut prs = HashMap::with_capacity(assigned.len());
@@ -984,63 +1489,153 @@ impl PqV1Client {
             session_token: session_token.clone(),
         });
 
-        // Pipelined decompress: the read loop hands each DataBatch to a blocking
-        // task for decompression and immediately sends the next Read, so
-        // `decompress()` never blocks the download. A merge task re-orders the
-        // decompressed batches by `seq` to preserve server order and make
-        // contiguous commit-cookie acknowledgement possible.
-        let (decoded_tx, decoded_rx) = mpsc::channel::<DecodedBatch>(DECODED_CHANNEL_CAP);
-        let merge_inner = Arc::clone(&inner);
-        let merge_token = session_token.clone();
-        spawn_session_task(Arc::clone(&inner), "merge", async move {
-            let mut next_seq: u64 = 0;
-            let mut buffer: HashMap<u64, DecodedBatch> = HashMap::new();
-            let mut rx = decoded_rx;
-            loop {
-                let batch = tokio::select! {
-                    () = merge_token.cancelled() => break,
-                    batch = rx.recv() => batch,
-                };
-                let Some(batch) = batch else { break };
-                buffer.insert(batch.seq, batch);
-                while let Some(b) = buffer.remove(&next_seq) {
-                    let parts = match b.parts {
-                        Ok(parts) => parts,
-                        Err(error) => {
-                            tracing::error!("PQv1 decompression failed: {error}");
-                            broadcast_failure(&merge_inner, &error, b.failure_kind);
-                            return;
-                        }
-                    };
-                    for part in parts {
-                        let pid = part.pid;
-                        let tx = merge_inner.partition_queues.lock().await.get(&pid).cloned();
-                        let Some(tx) = tx else {
-                            continue;
-                        };
-                        if tx.send(PartitionEvent::Data(part)).await.is_err() {
-                            // Receiver dropped (shutdown) — remove the dead
-                            // sender so future batches skip this partition.
-                            merge_inner.partition_queues.lock().await.remove(&pid);
-                            tracing::info!("PQv1 partition {} queue closed; stopped dispatch", pid);
-                        }
+        // Capacity one is sufficient because each completed admission sends exactly one next
+        // `Read`. The response task never waits for memory, decompression, or partition dispatch,
+        // so control responses already in the stream remain observable while data is pressured.
+        let (data_tx, mut data_rx) = mpsc::channel::<PendingDataBatch>(1);
+        let (read_credit_tx, mut read_credit_rx) = mpsc::channel::<()>(1);
+        let read_outstanding = Arc::new(AtomicBool::new(false));
+        let pending_read_credit = Arc::new(StdMutex::new(None));
+
+        let credit_inner = Arc::clone(&inner);
+        let credit_token = session_token.clone();
+        let credit_memory = memory.clone();
+        let credit_request_tx = request_tx.clone();
+        let credit_outstanding = Arc::clone(&read_outstanding);
+        let credit_slot = Arc::clone(&pending_read_credit);
+        spawn_session_task(Arc::clone(&inner), "read credit", async move {
+            while let Some(()) = tokio::select! {
+                biased;
+                () = credit_token.cancelled() => None,
+                signal = read_credit_rx.recv() => signal,
+            } {
+                if let Err(error) = send_read_request_with_credit(
+                    &credit_memory,
+                    raw_read_credit,
+                    &credit_request_tx,
+                    credit_outstanding.as_ref(),
+                    credit_slot.as_ref(),
+                    &credit_token,
+                )
+                .await
+                {
+                    if !credit_token.is_cancelled() {
+                        broadcast_failure(&credit_inner, &error, TerminalFailureKind::Retryable);
                     }
-                    next_seq += 1;
+                    return;
                 }
             }
-            tracing::info!("PQv1 merge task exited");
+            tracing::info!("PQv1 read credit task exited");
+        });
+
+        let data_inner = Arc::clone(&inner);
+        let data_token = session_token.clone();
+        let data_counters = Arc::clone(&source_counters);
+        let data_read_credit_tx = read_credit_tx.clone();
+        spawn_session_task(Arc::clone(&inner), "data admission", async move {
+            while let Some(batch) = tokio::select! {
+                biased;
+                () = data_token.cancelled() => None,
+                batch = data_rx.recv() => batch,
+            } {
+                let output_bytes = match &batch.kind {
+                    PendingDataKind::Discard { parts } => parts
+                        .len()
+                        .checked_mul(DECODED_PART_METADATA_BYTES)
+                        .ok_or_else(|| anyhow!("PQv1 discarded batch metadata size overflow")),
+                    PendingDataKind::Decode { parts } => decoded_batch_retained_bytes(parts),
+                };
+                let Ok(output_bytes) = output_bytes else {
+                    let error = output_bytes.unwrap_err();
+                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                    return;
+                };
+                let raw_bytes = batch.raw_memory.bytes();
+                let Some(overlap_bytes) = raw_bytes.checked_add(output_bytes) else {
+                    let error = anyhow!("PQv1 raw/decoded overlap memory estimate overflow");
+                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                    return;
+                };
+                if let Err(error) = batch.raw_memory.grow_progress_source_to(overlap_bytes) {
+                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                    return;
+                }
+                let PendingDataBatch { kind, raw_memory } = batch;
+                let parts = match kind {
+                    PendingDataKind::Discard { parts } => {
+                        let _shrunk = raw_memory.shrink_to(output_bytes);
+                        let mut discarded = Vec::with_capacity(parts.len());
+                        for (pid, cookie) in parts {
+                            discarded.push(DecodedPart {
+                                pid,
+                                cookie: Some(cookie),
+                                msgs: Vec::new(),
+                                memory: raw_memory.clone(),
+                            });
+                        }
+                        discarded
+                    }
+                    PendingDataKind::Decode { parts } => {
+                        let slot = tokio::select! {
+                            biased;
+                            () = data_token.cancelled() => return,
+                            slot = Arc::clone(&decompress_slots).acquire_owned() => match slot {
+                                Ok(slot) => slot,
+                                Err(_) => {
+                                    let error = anyhow!("PQv1 decompression pool closed");
+                                    broadcast_failure(
+                                        &data_inner,
+                                        &error,
+                                        TerminalFailureKind::Retryable,
+                                    );
+                                    return;
+                                }
+                            },
+                        };
+                        let counters = Arc::clone(&data_counters);
+                        let decode_task = tokio::task::spawn_blocking(move || {
+                            let _slot = slot;
+                            decode_parts(parts, &raw_memory, counters.as_ref())
+                        });
+                        match decode_task.await {
+                            Ok(Ok(parts)) => parts,
+                            Ok(Err(error)) => {
+                                tracing::error!("PQv1 decompression failed: {error}");
+                                broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                                return;
+                            }
+                            Err(error) => {
+                                let error = anyhow!("PQv1 decompression worker failed: {error}");
+                                broadcast_failure(
+                                    &data_inner,
+                                    &error,
+                                    TerminalFailureKind::Retryable,
+                                );
+                                return;
+                            }
+                        }
+                    }
+                };
+                dispatch_parts(&data_inner, parts).await;
+
+                if let Err(error) = request_next_read(&data_read_credit_tx) {
+                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Retryable);
+                    return;
+                }
+            }
+            tracing::info!("PQv1 data admission task exited");
         });
 
         let stream_inner = Arc::clone(&inner);
         let stream_token = session_token;
+        let stream_pending_read_credit = Arc::clone(&pending_read_credit);
         spawn_session_task(Arc::clone(&inner), "response stream", async move {
             let mut stream = response_stream;
             let mut init_done = false;
             let init_deadline = tokio::time::Instant::now() + SESSION_INIT_TIMEOUT;
-            let mut seq_counter: u64 = 0;
             let mut terminal_error = None;
             let mut active_assignments: HashMap<i64, ActiveAssignment> = HashMap::new();
-            'stream: loop {
+            loop {
                 let await_start = std::time::Instant::now();
                 let msg = tokio::select! {
                     m = stream.message() => match m {
@@ -1092,10 +1687,8 @@ impl PqV1Client {
                 match msg.response {
                     Some(migration_streaming_read_server_message::Response::InitResponse(r)) => {
                         tracing::info!("PQv1 session: {}", r.session_id);
-                        if request_tx.send(read_request()).is_err() {
-                            terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                "PQv1 request channel closed"
-                            )));
+                        if let Err(error) = request_next_read(&read_credit_tx) {
+                            terminal_error = Some(SessionFailure::retryable(error));
                             break;
                         }
                     }
@@ -1126,176 +1719,53 @@ impl PqV1Client {
                         }
                     }
                     Some(migration_streaming_read_server_message::Response::DataBatch(db)) => {
-                        let seq = seq_counter;
-                        if benchmark_discard_before_decompression {
-                            // Bench: discard payload before decompression, but retain
-                            // commit cookies so the benchmark consumer still advances.
-                            let mut discarded = Vec::with_capacity(db.partition_data.len());
-                            let mut compressed_bytes = 0_u64;
-                            let mut message_count = 0_u64;
-                            for pd in db.partition_data {
-                                let (pid, cookie) =
-                                    match validate_data_partition(&pd, &active_assignments) {
-                                        Ok(validated) => validated,
-                                        Err(failure) => {
-                                            terminal_error = Some(failure);
-                                            break;
-                                        }
-                                    };
-                                for batch in pd.batches {
-                                    for md in batch.message_data {
-                                        compressed_bytes =
-                                            compressed_bytes.saturating_add(md.data.len() as u64);
-                                        message_count = message_count.saturating_add(1);
-                                    }
-                                }
-                                let reservation = tokio::select! {
-                                    reservation = memory.reserve(1) => reservation,
-                                    () = stream_token.cancelled() => break 'stream,
-                                };
-                                discarded.push(DecodedPart {
-                                    pid,
-                                    cookie: Some(cookie),
-                                    msgs: vec![],
-                                    memory: reservation,
-                                });
-                            }
-                            if terminal_error.is_some() {
+                        let raw_memory = match consume_read_credit(
+                            read_outstanding.as_ref(),
+                            stream_pending_read_credit.as_ref(),
+                        ) {
+                            Ok(reservation) => reservation,
+                            Err(error) => {
+                                terminal_error = Some(SessionFailure::fatal(error));
                                 break;
                             }
-                            source_counters.add_compressed_bytes(compressed_bytes);
-                            source_counters.add_messages(message_count);
-                            let decoded_slot =
-                                match reserve_decoded_slot(&decoded_tx, &stream_token).await {
-                                    Ok(slot) => slot,
-                                    Err(error) => {
-                                        terminal_error = Some(SessionFailure::retryable(error));
-                                        break;
-                                    }
-                                };
-                            let batch = DecodedBatch {
-                                seq,
-                                parts: Ok(discarded),
-                                failure_kind: TerminalFailureKind::Fatal,
-                            };
-                            decoded_slot.send(batch);
-                            seq_counter += 1;
-                            if request_tx.send(read_request()).is_err() {
-                                terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                    "PQv1 request channel closed"
-                                )));
-                                break;
-                            }
-                            continue;
-                        }
-                        let mut parts: Vec<RawPart> = Vec::with_capacity(db.partition_data.len());
-                        let mut compressed_bytes = 0_u64;
-                        let mut message_count = 0_u64;
-                        for pd in db.partition_data {
-                            let (pid, cookie) =
-                                match validate_data_partition(&pd, &active_assignments) {
-                                    Ok(validated) => validated,
-                                    Err(failure) => {
-                                        terminal_error = Some(failure);
-                                        break;
-                                    }
-                                };
-                            let mut msgs = Vec::new();
-                            for batch in pd.batches {
-                                let write_timestamp_ms = batch.write_timestamp_ms;
-                                for md in batch.message_data {
-                                    compressed_bytes =
-                                        compressed_bytes.saturating_add(md.data.len() as u64);
-                                    message_count = message_count.saturating_add(1);
-                                    msgs.push(RawMsg {
-                                        data: md.data,
-                                        codec: md.codec,
-                                        uncompressed_size: md.uncompressed_size,
-                                        offset: md.offset,
-                                        write_timestamp_ms,
-                                    });
-                                }
-                            }
-                            parts.push(RawPart {
-                                pid,
-                                cookie: Some(cookie),
-                                msgs,
-                            });
-                        }
-                        if terminal_error.is_some() {
+                        };
+                        if let Err(error) =
+                            validate_raw_data_batch(&db, assigned.len(), raw_memory.bytes())
+                        {
+                            terminal_error = Some(SessionFailure::fatal(error));
                             break;
                         }
-                        source_counters.add_compressed_bytes(compressed_bytes);
-                        source_counters.add_messages(message_count);
-                        if parts.is_empty() {
-                            if request_tx.send(read_request()).is_err() {
-                                terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                    "PQv1 request channel closed"
-                                )));
+                        let (kind, compressed_bytes, message_count) = match prepare_data_batch(
+                            db,
+                            &active_assignments,
+                            benchmark_discard_before_decompression,
+                        ) {
+                            Ok(prepared) => prepared,
+                            Err(failure) => {
+                                terminal_error = Some(failure);
                                 break;
                             }
-                            continue;
-                        }
-                        let decoded_slot =
-                            match reserve_decoded_slot(&decoded_tx, &stream_token).await {
-                                Ok(slot) => slot,
-                                Err(error) => {
-                                    terminal_error = Some(SessionFailure::retryable(error));
-                                    break;
-                                }
-                            };
-                        let peak_bytes = match peak_decode_bytes(&parts) {
+                        };
+                        let retained_bytes = match pending_raw_bytes(&kind) {
                             Ok(bytes) => bytes,
                             Err(error) => {
                                 terminal_error = Some(SessionFailure::fatal(error));
                                 break;
                             }
                         };
-                        let reservation = tokio::select! {
-                            reservation = memory.reserve(peak_bytes) => reservation,
-                            () = stream_token.cancelled() => break,
-                        };
-                        let slot = tokio::select! {
-                            slot = Arc::clone(&decompress_slots).acquire_owned() => match slot {
-                                Ok(slot) => slot,
-                                Err(_) => {
-                                    terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                        "PQv1 decompression pool closed"
-                                    )));
-                                    break;
-                                }
-                            },
-                            () = stream_token.cancelled() => break,
-                        };
-                        let sc = Arc::clone(&source_counters);
-                        seq_counter += 1;
-                        let decode_task = tokio::task::spawn_blocking(move || {
-                            let _slot = slot;
-                            decode_parts(parts, &reservation, sc.as_ref())
-                        });
-                        tokio::spawn(async move {
-                            let (parts, failure_kind) = match decode_task.await {
-                                Ok(parts) => (parts, TerminalFailureKind::Fatal),
-                                Err(error) => (
-                                    Err(anyhow!(
-                                        "PQv1 decompression worker failed for sequence {seq}: {error}"
-                                    )),
-                                    TerminalFailureKind::Retryable,
-                                ),
-                            };
-                            // Always send the sequence result. An error must advance
-                            // through the reorder point before it terminates the
-                            // partition streams, otherwise a later batch could pass it.
-                            decoded_slot.send(DecodedBatch {
-                                seq,
-                                parts,
-                                failure_kind,
-                            });
-                        });
-                        if request_tx.send(read_request()).is_err() {
-                            terminal_error = Some(SessionFailure::retryable(anyhow!(
-                                "PQv1 request channel closed"
+                        if retained_bytes > raw_memory.bytes() {
+                            terminal_error = Some(SessionFailure::fatal(anyhow!(
+                                "PQv1 pending raw batch size {retained_bytes} exceeds read credit {}",
+                                raw_memory.bytes()
                             )));
+                            break;
+                        }
+                        let _shrunk = raw_memory.shrink_to(retained_bytes);
+                        let pending_batch = PendingDataBatch { kind, raw_memory };
+                        source_counters.add_compressed_bytes(compressed_bytes);
+                        source_counters.add_messages(message_count);
+                        if let Err(failure) = enqueue_pending_data(&data_tx, pending_batch) {
+                            terminal_error = Some(failure);
                             break;
                         }
                     }
@@ -1422,18 +1892,30 @@ impl PqV1Client {
 
         tokio::select! {
             biased;
-            () = waiter.wait() => Ok(()),
+            () = waiter.wait() => match waiter.state.load(Ordering::Acquire) {
+                COMMIT_ACKNOWLEDGED => Ok(()),
+                COMMIT_ABANDONED => Err(commit_session_stopped_error(&self.inner, partition_id)),
+                state => anyhow::bail!("PQv1 commit waiter woke in invalid state {state}"),
+            },
             () = self.inner.session_token.cancelled() => {
-                remove_pending_commit(&self.inner, &keys, &waiter)?;
-                Err(commit_session_stopped_error(&self.inner, partition_id))
+                match abandon_pending_commit(&self.inner, &waiter)? {
+                    AbandonCommitResult::Acknowledged => Ok(()),
+                    AbandonCommitResult::Abandoned => {
+                        Err(commit_session_stopped_error(&self.inner, partition_id))
+                    }
+                }
             }
             () = tokio::time::sleep(COMMIT_ACK_TIMEOUT) => {
-                remove_pending_commit(&self.inner, &keys, &waiter)?;
-                let error = anyhow!(
-                    "PQv1 timed out waiting for commit acknowledgement for partition {partition_id}"
-                );
-                broadcast_failure(&self.inner, &error, TerminalFailureKind::Retryable);
-                Err(error)
+                match abandon_pending_commit(&self.inner, &waiter)? {
+                    AbandonCommitResult::Acknowledged => Ok(()),
+                    AbandonCommitResult::Abandoned => {
+                        let error = anyhow!(
+                            "PQv1 timed out waiting for commit acknowledgement for partition {partition_id}"
+                        );
+                        broadcast_failure(&self.inner, &error, TerminalFailureKind::Retryable);
+                        Err(error)
+                    }
+                }
             }
         }
     }
@@ -1453,39 +1935,50 @@ fn declared_uncompressed_size(uncompressed_size: u64) -> anyhow::Result<usize> {
     Ok(size)
 }
 
-fn peak_decode_bytes(parts: &[RawPart]) -> anyhow::Result<usize> {
-    parts
-        .iter()
-        .flat_map(|part| &part.msgs)
-        .try_fold((0_usize, 0_usize), |(peak, decoded_total), message| {
+const fn decoded_part_retained_bytes(message_count: usize) -> usize {
+    DECODED_PART_METADATA_BYTES
+        .saturating_add(message_count.saturating_mul(DECODED_MESSAGE_METADATA_BYTES))
+}
+
+fn decoded_batch_retained_bytes(parts: &[RawPart]) -> anyhow::Result<usize> {
+    let mut retained = 0_usize;
+    let mut decoded_total = 0_usize;
+    for part in parts {
+        retained = retained
+            .checked_add(DECODED_PART_METADATA_BYTES)
+            .and_then(|total| {
+                total.checked_add(
+                    part.msgs
+                        .len()
+                        .checked_mul(DECODED_MESSAGE_METADATA_BYTES)?,
+                )
+            })
+            .ok_or_else(|| anyhow!("PQv1 decoded batch metadata estimate overflow"))?;
+        for message in &part.msgs {
             let decoded = declared_uncompressed_size(message.uncompressed_size)?;
-            let decoded_total = decoded_total
+            let retained_payload = if message.codec == 1 {
+                anyhow::ensure!(
+                    message.data.len() == decoded,
+                    "RAW decoded size mismatch: declared={decoded}, actual={}",
+                    message.data.len()
+                );
+                message.data.capacity()
+            } else {
+                decoded
+            };
+            decoded_total = decoded_total
                 .checked_add(decoded)
                 .ok_or_else(|| anyhow!("PQv1 decoded batch size overflow"))?;
             anyhow::ensure!(
                 decoded_total <= MAX_DECOMPRESSED_BATCH_SIZE,
                 "declared uncompressed batch size {decoded_total} exceeds limit {MAX_DECOMPRESSED_BATCH_SIZE}"
             );
-            let message_peak = if message.codec == 1 {
-                anyhow::ensure!(
-                    message.data.len() == decoded,
-                    "RAW decoded size mismatch: declared={decoded}, actual={}",
-                    message.data.len()
-                );
-                message.data.len()
-            } else {
-                message
-                    .data
-                    .len()
-                    .checked_add(decoded)
-                    .ok_or_else(|| anyhow!("PQv1 message memory estimate overflow"))?
-            };
-            let peak = peak
-                .checked_add(message_peak)
-                .ok_or_else(|| anyhow!("PQv1 batch memory estimate overflow"))?;
-            Ok((peak, decoded_total))
-        })
-        .map(|(peak, _decoded_total)| peak)
+            retained = retained
+                .checked_add(retained_payload)
+                .ok_or_else(|| anyhow!("PQv1 decoded batch memory estimate overflow"))?;
+        }
+    }
+    Ok(retained.max(1))
 }
 
 fn decode_parts(
@@ -1496,12 +1989,16 @@ fn decode_parts(
     let mut decoded_parts = Vec::with_capacity(parts.len());
     let mut retained_bytes = 0_usize;
     for RawPart { pid, cookie, msgs } in parts {
+        retained_bytes = retained_bytes
+            .checked_add(decoded_part_retained_bytes(msgs.len()))
+            .ok_or_else(|| anyhow!("PQv1 decoded batch metadata size overflow"))?;
         let mut decoded = Vec::with_capacity(msgs.len());
         let mut decomp_busy = core::time::Duration::ZERO;
         let mut decompressed_bytes = 0_u64;
         for message in msgs {
             let codec = message.codec;
             let offset = message.offset;
+            let raw_capacity = message.data.capacity();
             let started = std::time::Instant::now();
             let data = match decompress(message.data, codec, message.uncompressed_size) {
                 Ok(data) => data,
@@ -1514,10 +2011,11 @@ fn decode_parts(
                     ));
                 }
             };
+            let retained_payload = if codec == 1 { raw_capacity } else { data.len() };
             decomp_busy += started.elapsed();
             decompressed_bytes = decompressed_bytes.saturating_add(data.len() as u64);
             retained_bytes = retained_bytes
-                .checked_add(data.len())
+                .checked_add(retained_payload)
                 .ok_or_else(|| anyhow!("PQv1 decoded batch size overflow"))?;
             decoded.push(DecodedMessage {
                 data,
@@ -1565,8 +2063,8 @@ fn decompress(data: Vec<u8>, codec: i32, uncompressed_size: u64) -> anyhow::Resu
 }
 
 /// Decode into an exactly-sized buffer, then probe one extra byte without growing it.
-/// This keeps the actual allocation within the size reserved by `peak_decode_bytes` even
-/// when a malformed stream expands beyond its declared size.
+/// This keeps the actual allocation within the pre-accounted decoded size even when a malformed
+/// stream expands beyond its declaration.
 fn read_exact_decoded(
     mut decoder: impl std::io::Read,
     expected_size: usize,
@@ -1601,19 +2099,19 @@ fn read_exact_decoded(
 
 pub struct PqV1Source {
     client: PqV1Client,
-    rx: mpsc::Receiver<PartitionEvent>,
+    rx: mpsc::Receiver<DecodedPart>,
     terminal_failure: watch::Receiver<Option<Arc<TerminalFailure>>>,
     partition_id: i64,
-    topic_name: Arc<str>,
+    topic_path: Arc<str>,
 }
 
 impl PqV1Source {
     #[must_use]
     pub fn new(
         client: PqV1Client,
-        rx: mpsc::Receiver<PartitionEvent>,
+        rx: mpsc::Receiver<DecodedPart>,
         partition_id: i64,
-        topic_name: Arc<str>,
+        topic_path: Arc<str>,
     ) -> Self {
         let terminal_failure = client.inner.terminal_failure.subscribe();
         Self {
@@ -1621,7 +2119,7 @@ impl PqV1Source {
             rx,
             terminal_failure,
             partition_id,
-            topic_name,
+            topic_path,
         }
     }
 }
@@ -1633,8 +2131,8 @@ impl Source for PqV1Source {
             if let Some(error) = current_failure {
                 return surface_terminal_failure(error.as_ref());
             }
-            let first_event = loop {
-                let event = tokio::select! {
+            let first_part = loop {
+                let part = tokio::select! {
                     biased;
                     changed = self.terminal_failure.changed() => {
                         if changed.is_err() {
@@ -1646,12 +2144,12 @@ impl Source for PqV1Source {
                         }
                         continue;
                     }
-                    event = self.rx.recv() => event,
+                    part = self.rx.recv() => part,
                 };
-                break event;
+                break part;
             };
-            let Some(PartitionEvent::Data(first)) = first_event else {
-                anyhow::bail!("PQv1 partition event stream closed unexpectedly");
+            let Some(first) = first_part else {
+                anyhow::bail!("PQv1 decoded-part stream closed unexpectedly");
             };
             let mut messages = Vec::new();
             let mut memory = Vec::new();
@@ -1663,14 +2161,10 @@ impl Source for PqV1Source {
                 let Ok(event) = self.rx.try_recv() else {
                     break;
                 };
-                match event {
-                    PartitionEvent::Data(part) => {
-                        if let Err(error) =
-                            self.append_part(part, &mut messages, &mut memory, &mut cookies)
-                        {
-                            return Err(PipelineFailure::fatal(error).into());
-                        }
-                    }
+                if let Err(error) =
+                    self.append_part(event, &mut messages, &mut memory, &mut cookies)
+                {
+                    return Err(PipelineFailure::fatal(error).into());
                 }
             }
             let current_failure = self.terminal_failure.borrow().clone();
@@ -1742,8 +2236,8 @@ impl PqV1Source {
             messages.push(Message {
                 value: message.data,
                 meta: MessageMeta {
-                    topic_name: Some(Arc::clone(&self.topic_name)),
-                    partition: Some(SourcePartition::Int(self.partition_id)),
+                    topic_path: Some(Arc::clone(&self.topic_path)),
+                    partition_id: Some(self.partition_id),
                     offset: Some(i64::try_from(message.offset)?),
                     write_timestamp_ms: Some(write_timestamp_ms),
                 },
@@ -1790,17 +2284,24 @@ mod tests {
         }
     }
 
-    fn decoded_batch(seq: u64) -> DecodedBatch {
-        DecodedBatch {
-            seq,
-            parts: Ok(Vec::new()),
-            failure_kind: TerminalFailureKind::Fatal,
-        }
-    }
-
     fn protocol_path(path: &str) -> crate::Ydb::pers_queue::v1::Path {
         crate::Ydb::pers_queue::v1::Path {
             path: path.to_string(),
+        }
+    }
+
+    fn discovery_endpoint(
+        address: &str,
+        port: u32,
+        load_factor: f32,
+        ssl: bool,
+    ) -> crate::Ydb::discovery::EndpointInfo {
+        crate::Ydb::discovery::EndpointInfo {
+            address: address.to_string(),
+            port,
+            load_factor,
+            ssl,
+            ..Default::default()
         }
     }
 
@@ -1840,6 +2341,22 @@ mod tests {
         }
     }
 
+    fn data_batch_with_empty_messages(
+        message_count: usize,
+    ) -> migration_streaming_read_server_message::DataBatch {
+        let mut partition = partition_data("topic", "cluster");
+        partition.batches = vec![migration_streaming_read_server_message::data_batch::Batch {
+            message_data: vec![
+                migration_streaming_read_server_message::data_batch::MessageData::default();
+                message_count
+            ],
+            ..Default::default()
+        }];
+        migration_streaming_read_server_message::DataBatch {
+            partition_data: vec![partition],
+        }
+    }
+
     fn release(
         topic: &str,
         cluster: &str,
@@ -1856,38 +2373,121 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decoded_slot_waits_while_the_channel_is_full() {
-        use core::future::Future as _;
+    async fn saturated_data_plane_does_not_delay_commit_acknowledgement() {
+        let memory = PipelineMemory::new(1024);
+        let (data_tx, _data_rx) = mpsc::channel(1);
+        enqueue_pending_data(
+            &data_tx,
+            PendingDataBatch {
+                kind: PendingDataKind::Decode { parts: Vec::new() },
+                raw_memory: memory.reserve(64).await,
+            },
+        )
+        .unwrap();
+        assert_eq!(memory.source_used(), 64);
+        let failure = enqueue_pending_data(
+            &data_tx,
+            PendingDataBatch {
+                kind: PendingDataKind::Decode { parts: Vec::new() },
+                raw_memory: memory.reserve(64).await,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(failure.kind, TerminalFailureKind::Fatal);
+        assert!(failure.error.to_string().contains("read credit"));
+        assert_eq!(
+            memory.source_used(),
+            64,
+            "only the queued raw batch lease must remain accounted"
+        );
 
-        let (sender, mut receiver) = mpsc::channel(1);
-        sender.send(decoded_batch(0)).await.unwrap();
-        let cancellation = CancellationToken::new();
-        let mut waiting = Box::pin(reserve_decoded_slot(&sender, &cancellation));
+        let client = test_client();
+        let waiter = Arc::new(PendingCommit::new(1));
+        client
+            .inner
+            .pending_commit_cookies
+            .lock()
+            .unwrap()
+            .entry((11, 1))
+            .or_default()
+            .push_back(Arc::clone(&waiter));
+        acknowledge_committed(
+            client.inner.as_ref(),
+            &migration_streaming_read_server_message::Committed {
+                cookies: vec![cookie(1)],
+                offset_ranges: Vec::new(),
+            },
+        )
+        .unwrap();
 
-        let was_pending = futures_util::future::poll_fn(|context| {
-            Poll::Ready(waiting.as_mut().poll(context).is_pending())
-        })
-        .await;
-        assert!(was_pending, "a full decoded queue must apply backpressure");
-
-        assert_eq!(receiver.recv().await.unwrap().seq, 0);
-        let permit = waiting.await.unwrap();
-        permit.send(decoded_batch(1));
-        assert_eq!(receiver.recv().await.unwrap().seq, 1);
+        tokio::time::timeout(core::time::Duration::from_millis(50), waiter.wait())
+            .await
+            .expect("control-plane acknowledgement must not wait for data admission");
+        assert_eq!(waiter.state.load(Ordering::Acquire), COMMIT_ACKNOWLEDGED);
     }
 
     #[tokio::test]
-    async fn decoded_slot_wait_is_cancelled_while_the_channel_is_full() {
-        let (sender, _receiver) = mpsc::channel(1);
-        sender.send(decoded_batch(0)).await.unwrap();
-        let cancellation = CancellationToken::new();
-        cancellation.cancel();
+    async fn acknowledgement_wins_timeout_arbitration_atomically() {
+        let client = test_client();
+        let waiter = Arc::new(PendingCommit::new(1));
+        client
+            .inner
+            .pending_commit_cookies
+            .lock()
+            .unwrap()
+            .entry((11, 1))
+            .or_default()
+            .push_back(Arc::clone(&waiter));
 
-        let error = reserve_decoded_slot(&sender, &cancellation)
-            .await
-            .unwrap_err();
+        acknowledge_committed(
+            client.inner.as_ref(),
+            &migration_streaming_read_server_message::Committed {
+                cookies: vec![cookie(1)],
+                offset_ranges: Vec::new(),
+            },
+        )
+        .unwrap();
 
-        assert!(error.to_string().contains("session cancelled"));
+        assert_eq!(
+            abandon_pending_commit(client.inner.as_ref(), &waiter).unwrap(),
+            AbandonCommitResult::Acknowledged
+        );
+        waiter.wait().await;
+    }
+
+    #[test]
+    fn late_ack_consumes_an_abandoned_tombstone_not_a_newer_commit() {
+        let client = test_client();
+        let abandoned = Arc::new(PendingCommit::new(1));
+        let newer = Arc::new(PendingCommit::new(1));
+        {
+            let mut pending = client.inner.pending_commit_cookies.lock().unwrap();
+            let queue = pending.entry((11, 1)).or_default();
+            queue.push_back(Arc::clone(&abandoned));
+            queue.push_back(Arc::clone(&newer));
+            drop(pending);
+        }
+        assert_eq!(
+            abandon_pending_commit(client.inner.as_ref(), &abandoned).unwrap(),
+            AbandonCommitResult::Abandoned
+        );
+
+        let committed = migration_streaming_read_server_message::Committed {
+            cookies: vec![cookie(1)],
+            offset_ranges: Vec::new(),
+        };
+        acknowledge_committed(client.inner.as_ref(), &committed).unwrap();
+        assert_eq!(abandoned.state.load(Ordering::Acquire), COMMIT_ABANDONED);
+        assert_eq!(newer.state.load(Ordering::Acquire), COMMIT_WAITING);
+
+        acknowledge_committed(client.inner.as_ref(), &committed).unwrap();
+        assert_eq!(newer.state.load(Ordering::Acquire), COMMIT_ACKNOWLEDGED);
+        assert!(client
+            .inner
+            .pending_commit_cookies
+            .lock()
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test(start_paused = true)]
@@ -1936,6 +2536,154 @@ mod tests {
             runtime.topics_read_settings[0].partition_group_ids,
             vec![3, 7]
         );
+        let read_params = runtime.read_params.expect("read parameters");
+        assert_eq!(read_params.max_read_messages_count, MAX_READ_MESSAGES_COUNT);
+        assert_ne!(read_params.max_read_messages_count, 0);
+        assert_eq!(read_params.max_read_size, MAX_READ_SIZE);
+    }
+
+    #[tokio::test]
+    async fn read_preaccounts_raw_credit_even_under_transform_pressure() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let outstanding = AtomicBool::new(false);
+        let pending_credit = StdMutex::new(None);
+        let cancellation = CancellationToken::new();
+        let memory = PipelineMemory::new(100);
+        let transform = memory.reserve_transform(100);
+
+        send_read_request_with_credit(
+            &memory,
+            200,
+            &sender,
+            &outstanding,
+            &pending_credit,
+            &cancellation,
+        )
+        .await
+        .unwrap();
+        assert!(outstanding.load(Ordering::Acquire));
+        assert_eq!(memory.source_used(), 200);
+        assert_eq!(memory.transform_used(), 100);
+        assert_eq!(
+            pending_credit.lock().unwrap().as_ref().unwrap().bytes(),
+            200
+        );
+        assert!(matches!(
+            receiver.try_recv().unwrap().request,
+            Some(migration_streaming_read_client_message::Request::Read(_))
+        ));
+
+        let lease = consume_read_credit(&outstanding, &pending_credit).unwrap();
+        assert_eq!(lease.bytes(), 200);
+        assert!(pending_credit.lock().unwrap().is_none());
+        drop(lease);
+        assert_eq!(memory.used(), 100);
+        drop(transform);
+        assert_eq!(memory.used(), 0);
+        assert!(consume_read_credit(&outstanding, &pending_credit)
+            .unwrap_err()
+            .to_string()
+            .contains("without an outstanding Read"));
+    }
+
+    #[tokio::test]
+    async fn waiting_read_credit_is_cancelled_without_sending_read() {
+        let memory = PipelineMemory::new(100);
+        let active = memory.reserve_progress_source(10).await;
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let outstanding = AtomicBool::new(false);
+        let pending_credit = StdMutex::new(None);
+        let cancellation = CancellationToken::new();
+        let mut sending = Box::pin(send_read_request_with_credit(
+            &memory,
+            20,
+            &sender,
+            &outstanding,
+            &pending_credit,
+            &cancellation,
+        ));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut sending)
+                .await
+                .is_err()
+        );
+        cancellation.cancel();
+
+        let error = tokio::time::timeout(core::time::Duration::from_millis(50), sending)
+            .await
+            .expect("cancellation must stop progress-credit acquisition")
+            .unwrap_err();
+
+        assert!(error.to_string().contains("cancelled"));
+        assert!(receiver.try_recv().is_err());
+        assert!(!outstanding.load(Ordering::Acquire));
+        assert!(pending_credit.lock().unwrap().is_none());
+        drop(active);
+    }
+
+    #[test]
+    fn read_credit_allows_exactly_one_outstanding_data_request() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let outstanding = AtomicBool::new(false);
+
+        send_read_request(&sender, &outstanding).unwrap();
+        assert!(send_read_request(&sender, &outstanding)
+            .unwrap_err()
+            .to_string()
+            .contains("overlapping Read"));
+        assert!(matches!(
+            receiver.try_recv().unwrap().request,
+            Some(migration_streaming_read_client_message::Request::Read(_))
+        ));
+    }
+
+    #[test]
+    fn server_message_count_cannot_exceed_the_advertised_credit() {
+        validate_message_count(u64::from(MAX_READ_MESSAGES_COUNT)).unwrap();
+        let error = validate_message_count(u64::from(MAX_READ_MESSAGES_COUNT) + 1).unwrap_err();
+        assert!(error.to_string().contains("exceeding requested limit"));
+    }
+
+    #[test]
+    fn raw_batch_validation_enforces_wire_and_repeated_field_limits() {
+        let credit = raw_read_credit_bytes(1).unwrap();
+
+        let mut oversized = data_batch_with_empty_messages(1);
+        oversized.partition_data[0].batches[0].message_data[0].data =
+            vec![0; usize::try_from(MAX_READ_SIZE).unwrap() + 1];
+        let error = validate_raw_data_batch(&oversized, 1, credit).unwrap_err();
+        assert!(error.to_string().contains("raw payload size"));
+
+        let too_many_messages =
+            data_batch_with_empty_messages(usize::try_from(MAX_READ_MESSAGES_COUNT).unwrap() + 1);
+        let error = validate_raw_data_batch(&too_many_messages, 1, credit).unwrap_err();
+        assert!(error.to_string().contains("messages"));
+
+        let mut too_many_batches = data_batch_with_empty_messages(0);
+        too_many_batches.partition_data[0].batches = vec![
+            migration_streaming_read_server_message::data_batch::Batch::default();
+            MAX_READ_BATCH_COUNT + 1
+        ];
+        let error = validate_raw_data_batch(&too_many_batches, 1, credit).unwrap_err();
+        assert!(error.to_string().contains("batches"));
+    }
+
+    #[test]
+    fn raw_batch_memory_includes_fixed_message_and_partition_metadata() {
+        let message_count = 2_000;
+        let batch = data_batch_with_empty_messages(message_count);
+        let credit = raw_read_credit_bytes(1).unwrap();
+        let retained = validate_raw_data_batch(&batch, 1, credit).unwrap();
+        let fixed_messages = message_count
+            * core::mem::size_of::<migration_streaming_read_server_message::data_batch::MessageData>(
+            );
+        assert!(retained >= fixed_messages);
+        assert!(retained > prost::Message::encoded_len(&batch));
+
+        let (kind, _, _) = prepare_data_batch(batch, &active_assignment(), false).unwrap();
+        let pending = pending_raw_bytes(&kind).unwrap();
+        assert!(pending >= message_count * core::mem::size_of::<RawMsg>());
+        assert!(pending <= retained);
     }
 
     #[test]
@@ -1949,6 +2697,69 @@ mod tests {
         assert!(error
             .to_string()
             .contains("must not contain a database path"));
+    }
+
+    #[test]
+    fn discovery_filters_tls_and_builds_a_stable_failover_order() {
+        let endpoints = vec![
+            discovery_endpoint("b.test", 2135, 0.5, false),
+            discovery_endpoint("tls.test", 2135, 0.0, true),
+            discovery_endpoint("a.test", 2135, 0.1, false),
+            discovery_endpoint("a.test", 2135, 0.9, false),
+            discovery_endpoint("", 2135, 0.0, false),
+            discovery_endpoint("invalid-port.test", 70_000, 0.0, false),
+        ];
+        let forward = ordered_plaintext_proxies(endpoints.clone(), 7).unwrap();
+        let reverse = ordered_plaintext_proxies(endpoints.into_iter().rev().collect(), 7).unwrap();
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.len(), 2);
+        assert!(forward.iter().any(|endpoint| endpoint == "a.test:2135"));
+        assert!(forward.iter().any(|endpoint| endpoint == "b.test:2135"));
+    }
+
+    #[test]
+    fn discovery_brackets_ipv6_literals() {
+        let endpoints =
+            ordered_plaintext_proxies(vec![discovery_endpoint("2001:db8::1", 2135, 0.0, false)], 7)
+                .unwrap();
+        assert_eq!(endpoints, vec!["[2001:db8::1]:2135"]);
+        let uri = http_uri(&endpoints[0]).unwrap();
+        assert_eq!(socket_address(&uri), "[2001:db8::1]:2135");
+    }
+
+    #[test]
+    fn discovery_load_factor_biases_stable_partition_selection() {
+        let mut low_load_primary = 0;
+        let mut high_load_primary = 0;
+        for partition_id in 0..256 {
+            let order = ordered_plaintext_proxies(
+                vec![
+                    discovery_endpoint("low.test", 2135, 0.0, false),
+                    discovery_endpoint("high.test", 2135, 20.0, false),
+                ],
+                partition_id,
+            )
+            .unwrap();
+            if order[0] == "low.test:2135" {
+                low_load_primary += 1;
+            } else {
+                high_load_primary += 1;
+            }
+        }
+
+        assert!(
+            low_load_primary > high_load_primary * 5,
+            "low={low_load_primary}, high={high_load_primary}"
+        );
+    }
+
+    #[test]
+    fn discovery_rejects_a_set_without_plaintext_endpoints() {
+        let error =
+            ordered_plaintext_proxies(vec![discovery_endpoint("tls.test", 2135, 0.0, true)], 7)
+                .unwrap_err();
+        assert!(error.to_string().contains("no usable plaintext"));
     }
 
     #[test]
@@ -2188,7 +2999,7 @@ mod tests {
     }
 
     #[test]
-    fn peak_accounting_is_zero_copy_for_raw_and_caps_the_decoded_batch() {
+    fn decoded_accounting_includes_fixed_metadata_and_caps_the_batch() {
         let raw = vec![RawPart {
             pid: 7,
             cookie: None,
@@ -2200,7 +3011,10 @@ mod tests {
                 write_timestamp_ms: 1,
             }],
         }];
-        assert_eq!(peak_decode_bytes(&raw).unwrap(), 3);
+        assert_eq!(
+            decoded_batch_retained_bytes(&raw).unwrap(),
+            DECODED_PART_METADATA_BYTES + DECODED_MESSAGE_METADATA_BYTES + 3
+        );
 
         let half_plus_one = u64::try_from(MAX_DECOMPRESSED_BATCH_SIZE / 2 + 1).unwrap();
         let compressed = vec![RawPart {
@@ -2223,7 +3037,7 @@ mod tests {
                 },
             ],
         }];
-        let error = peak_decode_bytes(&compressed).unwrap_err();
+        let error = decoded_batch_retained_bytes(&compressed).unwrap_err();
         assert!(error.to_string().contains("batch size"));
     }
 
@@ -2391,12 +3205,12 @@ mod tests {
         let memory = PipelineMemory::new(16);
         let (tx, rx) = mpsc::channel(1);
         let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
-        tx.send(PartitionEvent::Data(DecodedPart {
+        tx.send(DecodedPart {
             pid: 8,
             cookie: Some(cookie(1)),
             msgs: vec![],
             memory: memory.reserve(1).await,
-        }))
+        })
         .await
         .unwrap();
 
@@ -2490,7 +3304,7 @@ mod tests {
         let reservation = memory.reserve(20).await;
         let (tx, rx) = mpsc::channel(1);
         let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
-        tx.send(PartitionEvent::Data(DecodedPart {
+        tx.send(DecodedPart {
             pid: 7,
             cookie: None,
             msgs: vec![
@@ -2506,7 +3320,7 @@ mod tests {
                 },
             ],
             memory: reservation,
-        }))
+        })
         .await
         .unwrap();
 
@@ -2520,12 +3334,12 @@ mod tests {
         let memory = PipelineMemory::new(16);
         let (tx, rx) = mpsc::channel(1);
         let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
-        tx.send(PartitionEvent::Data(DecodedPart {
+        tx.send(DecodedPart {
             pid: 7,
             cookie: Some(cookie(3)),
             msgs: vec![],
             memory: memory.reserve(1).await,
-        }))
+        })
         .await
         .unwrap();
 
@@ -2539,9 +3353,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn decode_shrinks_peak_reservation_to_retained_bytes() {
-        let memory = PipelineMemory::new(1024);
-        let reservation = memory.reserve(20).await;
+    async fn decode_retains_the_preaccounted_source_reservation() {
+        let memory = PipelineMemory::new(64);
+        let transform = memory.reserve_transform(64);
         let parts = vec![RawPart {
             pid: 7,
             cookie: Some(cookie(1)),
@@ -2553,10 +3367,50 @@ mod tests {
                 write_timestamp_ms: 100,
             }],
         }];
+        let reservation = memory.reserve_progress_source(32).await;
+        let decoded_bytes = decoded_batch_retained_bytes(&parts).unwrap();
+        reservation
+            .grow_progress_source_to(reservation.bytes() + decoded_bytes)
+            .unwrap();
+        assert!(memory.used() > memory.limit());
 
         let decoded = decode_parts(parts, &reservation, &SourceCounters::new()).unwrap();
-        assert_eq!(decoded[0].memory.bytes(), 3);
-        assert_eq!(memory.used(), 3);
+        let retained = decoded_part_retained_bytes(1) + 3;
+        assert_eq!(decoded[0].memory.bytes(), retained);
+        assert_eq!(memory.used(), 64 + retained);
+        assert_eq!(memory.source_used(), retained);
+        assert_eq!(memory.transform_used(), 64);
+
+        let decoded_lease = decoded[0].memory.clone();
+        drop(reservation);
+        drop(decoded);
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let outstanding = AtomicBool::new(false);
+        let pending_credit = StdMutex::new(None);
+        let cancellation = CancellationToken::new();
+        let mut next = Box::pin(send_read_request_with_credit(
+            &memory,
+            16,
+            &sender,
+            &outstanding,
+            &pending_credit,
+            &cancellation,
+        ));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut next)
+                .await
+                .is_err()
+        );
+        assert!(receiver.try_recv().is_err());
+        drop(decoded_lease);
+        next.await.unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap().request,
+            Some(migration_streaming_read_client_message::Request::Read(_))
+        ));
+        drop(consume_read_credit(&outstanding, &pending_credit).unwrap());
+        drop(transform);
+        assert_eq!(memory.used(), 0);
     }
 
     #[tokio::test]
@@ -2586,7 +3440,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(2);
         let mut source = PqV1Source::new(client.clone(), rx, 7, test_topic());
         for partition_cookie in [1, 2] {
-            tx.send(PartitionEvent::Data(DecodedPart {
+            tx.send(DecodedPart {
                 pid: 7,
                 cookie: Some(cookie(partition_cookie)),
                 msgs: vec![DecodedMessage {
@@ -2595,7 +3449,7 @@ mod tests {
                     write_timestamp_ms: 10 + partition_cookie,
                 }],
                 memory: memory.reserve(7).await,
-            }))
+            })
             .await
             .unwrap();
         }
@@ -2701,12 +3555,12 @@ mod tests {
         let (tx, rx) = mpsc::channel(MAX_PARTS_PER_SOURCE_BATCH + 1);
         let mut source = PqV1Source::new(test_client(), rx, 7, test_topic());
         for partition_cookie in 0..=MAX_PARTS_PER_SOURCE_BATCH {
-            tx.send(PartitionEvent::Data(DecodedPart {
+            tx.send(DecodedPart {
                 pid: 7,
                 cookie: Some(cookie(partition_cookie as u64)),
                 msgs: vec![],
                 memory: memory.reserve(1).await,
-            }))
+            })
             .await
             .unwrap();
         }

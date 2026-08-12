@@ -93,10 +93,15 @@ pub enum PartitionChange {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BufferingConfig {
+    /// Soft deterministic limit for open objects in one partition actor.
     #[serde(default = "default_max_open_objects")]
     pub max_open_objects: usize,
+    /// Soft admission limit for pending uploads in one partition actor. An
+    /// atomic source message may temporarily take the actor above this value;
+    /// pending upload timing never changes deterministic object boundaries.
     #[serde(default = "default_max_pending_upload_objects")]
     pub max_pending_upload_objects: usize,
+    /// Soft admission limit for serialized bytes in one partition actor.
     #[serde(default = "default_max_buffered_bytes")]
     pub max_buffered_bytes: ByteSize,
     /// Stable limit for serialized payload plus retained routing metadata in
@@ -117,6 +122,7 @@ pub struct UploadConfig {
     pub part_size: ByteSize,
     #[serde(default = "default_parallel_parts")]
     pub parallel_parts: usize,
+    /// Maximum concurrent object uploads in one partition actor.
     #[serde(default = "default_max_in_flight_objects")]
     pub max_in_flight_objects: usize,
     /// Deadline applied independently to each object-store request.
