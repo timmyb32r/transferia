@@ -197,6 +197,7 @@ fn only_row_preserving_mergetree_engines_are_accepted() -> anyhow::Result<()> {
 
 #[test]
 fn sorting_key_requires_plain_columns_in_configured_order() -> anyhow::Result<()> {
+    validate_sorting_key("events", &[], "")?;
     validate_sorting_key("events", &[], "tuple()")?;
     validate_sorting_key("events", &["id".into(), "ts".into()], "id, ts")?;
     validate_sorting_key("events", &["id".into(), "ts".into()], "(`id`, `ts`)")?;

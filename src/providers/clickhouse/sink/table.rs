@@ -266,8 +266,8 @@ fn validate_target_engine(table: &str, engine: &str) -> anyhow::Result<()> {
 fn validate_sorting_key(table: &str, expected: &[String], actual: &str) -> anyhow::Result<()> {
     if expected.is_empty() {
         anyhow::ensure!(
-            actual == "tuple()",
-            "ClickHouse table '{table}' has sorting key '{actual}', expected exactly 'tuple()'"
+            matches!(actual, "" | "tuple()"),
+            "ClickHouse table '{table}' has sorting key '{actual}', expected the canonical empty key"
         );
         return Ok(());
     }

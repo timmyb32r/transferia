@@ -17,7 +17,7 @@ clickhouse-arrow = { version = "0.2", default-features = false, features = ["inn
 flate2 = "1"
 futures-util = "0.3"
 http = "1"
-hyper = { version = "1", features = ["client", "http2"] }
+hyper = { version = "1", features = ["client", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
 itoa = "1"
 jsonpath_lib = "0.3"
@@ -43,6 +43,11 @@ zstd = "0.13"
 
 [build-dependencies]
 tonic-prost-build = "0.14"
+
+[dev-dependencies]
+http-body-util = "0.1"
+reqwest = { version = "0.12", default-features = false }
+testcontainers = { version = "0.27.3", features = ["http_wait_plain"] }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
