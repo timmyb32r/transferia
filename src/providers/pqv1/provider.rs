@@ -458,16 +458,13 @@ mod tests {
     }
 
     #[test]
-    fn accepts_legacy_connection_string_alias() {
+    fn rejects_removed_connection_string_name() {
         let legacy = config("partition_ids: [0]\n", "").replacen(
             "discovery_endpoint:",
             "connection_string:",
             1,
         );
-        assert_eq!(
-            provider(&legacy).unwrap().cfg.discovery_endpoint,
-            "grpc://localhost"
-        );
+        assert!(provider(&legacy).is_err());
     }
 
     #[tokio::test]

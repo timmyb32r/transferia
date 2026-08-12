@@ -375,12 +375,12 @@ impl S3Sink {
             _ => self.epoch.delivery_rows.push((delivery_id, rows.len())),
         }
 
-        let budget_reached = self.epoch.buffers.len() > self.config.buffering.max_open_objects
+        let budget_reached = self.epoch.buffers.len() > self.config.buffering.max_epoch_buffers
             || self.epoch.retained_bytes >= self.epoch_byte_limit;
-        if self.epoch.buffers.len() > self.config.buffering.max_open_objects {
+        if self.epoch.buffers.len() > self.config.buffering.max_epoch_buffers {
             tracing::warn!(
                 open_objects = self.epoch.buffers.len(),
-                configured_limit = self.config.buffering.max_open_objects,
+                configured_limit = self.config.buffering.max_epoch_buffers,
                 "one atomic source message temporarily exceeded the per-partition S3 open-object limit"
             );
         }

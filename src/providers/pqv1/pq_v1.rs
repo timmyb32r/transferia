@@ -46,15 +46,16 @@ const YDB_STATUS_SUCCESS: i32 = 400_000;
 /// batch; only real error codes abort the stream.
 const YDB_STATUS_UNSPECIFIED: i32 = 0;
 
-/// tonic's default decode cap is 4 MiB; Logbroker `DataBatch` messages can exceed it.
-const MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
+/// Bound protobuf allocations before application-level validation. Normal reads request at most
+/// 1 MiB of payload; the remaining headroom covers repeated-field and protocol metadata.
+const MAX_GRPC_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 /// A corrupt or malicious declared size must not turn a small compressed message into an
 /// unbounded allocation. This deliberately matches the transport cap; normal reads are much
 /// smaller (`ReadParams.max_read_size` is 1 MiB).
-const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = MAX_MESSAGE_SIZE;
+const MAX_DECOMPRESSED_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
 /// Bound the sum as well as each individual message: `PipelineMemory` deliberately admits one
 /// oversized reservation, so it is not a substitute for a decompression safety limit.
-const MAX_DECOMPRESSED_BATCH_SIZE: usize = MAX_MESSAGE_SIZE;
+const MAX_DECOMPRESSED_BATCH_SIZE: usize = MAX_DECOMPRESSED_MESSAGE_SIZE;
 const MAX_ZSTD_WINDOW_LOG: u32 = 27; // log2(128 MiB)
 /// A size-only read limit does not bound allocations for empty or tiny messages. Keep the
 /// protocol's message-count credit finite as a second, independent admission limit.
@@ -64,8 +65,6 @@ const MAX_READ_BATCH_COUNT: usize = MAX_READ_MESSAGES_COUNT as usize;
 const MAX_READ_EXTRA_FIELD_COUNT: usize = MAX_READ_MESSAGES_COUNT as usize;
 const MIN_VEC_ALLOCATION_CAPACITY: usize = 8;
 const DECODE_READ_CHUNK_SIZE: usize = 64 * 1024;
-const SESSION_INIT_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
-const COMMIT_ACK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(30);
 const RELEASE_HANDOFF_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(1);
 const RELEASE_TRANSPORT_GRACE: core::time::Duration = core::time::Duration::from_millis(100);
 const PARTITION_CHANNEL_CAP: usize = 1;
@@ -1055,6 +1054,7 @@ struct PqV1ClientInner {
     pending_commit_cookies: StdMutex<PendingCommitQueues>,
     terminal_failure: watch::Sender<Option<Arc<TerminalFailure>>>,
     session_token: CancellationToken,
+    network_timeout: core::time::Duration,
 }
 
 struct PendingCommit {
@@ -1330,7 +1330,7 @@ where
     let stream_token = inner.session_token.clone();
     tokio::pin!(stream);
     let mut init_done = false;
-    let init_deadline = tokio::time::Instant::now() + SESSION_INIT_TIMEOUT;
+    let init_deadline = tokio::time::Instant::now() + network_timeout;
     let mut terminal_error = None;
     let mut active_assignments: HashMap<i64, ActiveAssignment> = HashMap::new();
     loop {
@@ -1747,8 +1747,8 @@ impl PqV1Client {
         set_ydb_headers(req.metadata_mut(), token)?;
 
         let mut grpc = tonic::client::Grpc::with_origin(h2_service, target_uri)
-            .max_decoding_message_size(MAX_MESSAGE_SIZE)
-            .max_encoding_message_size(MAX_MESSAGE_SIZE);
+            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
+            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
         let path = http::uri::PathAndQuery::from_static(
             "/Ydb.PersQueue.V1.PersQueueService/MigrationStreamingRead",
         );
@@ -1789,6 +1789,7 @@ impl PqV1Client {
             pending_commit_cookies: StdMutex::new(HashMap::new()),
             terminal_failure,
             session_token: session_token.clone(),
+            network_timeout,
         });
 
         // Capacity one is sufficient because each completed admission sends exactly one next
@@ -2069,7 +2070,7 @@ impl PqV1Client {
                     }
                 }
             }
-            () = tokio::time::sleep(COMMIT_ACK_TIMEOUT) => {
+            () = tokio::time::sleep(self.inner.network_timeout) => {
                 match abandon_pending_commit(&self.inner, &waiter)? {
                     AbandonCommitResult::Acknowledged => Ok(()),
                     AbandonCommitResult::Abandoned => {
@@ -2415,7 +2416,6 @@ impl Source for PqV1Source {
             });
             Ok(MessageBatch {
                 messages,
-                partition_id: self.partition_id,
                 commit_marker,
                 memory,
             })
@@ -2516,6 +2516,7 @@ mod tests {
                 pending_commit_cookies: StdMutex::new(HashMap::new()),
                 terminal_failure,
                 session_token: CancellationToken::new(),
+                network_timeout: core::time::Duration::from_secs(30),
             }),
         };
         (client, request_rx)

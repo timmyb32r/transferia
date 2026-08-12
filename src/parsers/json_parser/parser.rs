@@ -13,10 +13,9 @@ use core::fmt;
 use serde::{de, Deserializer};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use time::format_description::well_known::Rfc3339;
 
 use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
-use crate::parsers::{Parser, ParserSession, SystemColumnsConfig};
+use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 use crate::types::message::{Message, MessageMeta};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -32,18 +31,18 @@ enum CompiledPath {
 }
 
 fn compile_path(raw: &str) -> anyhow::Result<CompiledPath> {
+    let compiled = jsonpath_lib::Compiled::compile(raw)
+        .map_err(|error| anyhow::anyhow!("invalid JSONPath '{raw}': {error}"))?;
     if let Some(field) = raw.strip_prefix("$.") {
-        if !field.contains('.')
-            && !field.contains('[')
-            && !field.contains('*')
-            && !field.contains('$')
+        if !field.is_empty()
+            && field
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         {
             return Ok(CompiledPath::RootField(field.to_string()));
         }
     }
-    jsonpath_lib::Compiled::compile(raw)
-        .map(CompiledPath::Complex)
-        .map_err(|error| anyhow::anyhow!("invalid JSONPath '{raw}': {error}"))
+    Ok(CompiledPath::Complex(compiled))
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +877,7 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
     let mut fields = vec![
         Field::new("raw_base64", DataType::Utf8, false),
         Field::new("error_message", DataType::Utf8, false),
-        Field::new("timestamp", DataType::Utf8, false),
+        Field::new("source_write_timestamp_ms", DataType::Int64, false),
     ];
     for kind in system_kinds {
         fields.push(Field::new(kind.name(), kind.data_type(), false));
@@ -1157,21 +1156,14 @@ impl JsonParser {
         }
     }
 
-    fn build_dlq_batch(
-        &self,
-        dlq_payloads: &[DlqPayload],
-        now: time::OffsetDateTime,
-    ) -> anyhow::Result<TableData> {
+    fn build_dlq_batch(&self, dlq_payloads: &[DlqPayload]) -> anyhow::Result<TableData> {
         let n = dlq_payloads.len();
         let encoded_bytes = dlq_payloads.iter().fold(0_usize, |total, payload| {
             total.saturating_add(payload.raw.len().div_ceil(3).saturating_mul(4))
         });
         let mut raw_builder = StringBuilder::with_capacity(n, encoded_bytes);
         let mut err_builder = StringBuilder::with_capacity(n, n * 64);
-        let mut ts_builder = StringBuilder::with_capacity(n, n * 32);
-        let ts = now
-            .format(&Rfc3339)
-            .map_err(|e| anyhow::anyhow!("time format: {e}"))?;
+        let mut source_ts_builder = Int64Builder::with_capacity(n);
 
         let mut system_builders: Vec<_> = self
             .system_kinds
@@ -1183,7 +1175,7 @@ impl JsonParser {
             raw_builder
                 .append_value(base64::engine::general_purpose::STANDARD.encode(&payload.raw));
             err_builder.append_value(payload.reason.as_str());
-            ts_builder.append_value(&ts);
+            source_ts_builder.append_value(payload.meta.write_timestamp_ms.unwrap_or_default());
             append_system_columns(
                 &mut system_builders,
                 0,
@@ -1196,7 +1188,7 @@ impl JsonParser {
         let mut arrays: Vec<ArrayRef> = Vec::with_capacity(3 + system_builders.len());
         arrays.push(Arc::new(raw_builder.finish()));
         arrays.push(Arc::new(err_builder.finish()));
-        arrays.push(Arc::new(ts_builder.finish()));
+        arrays.push(Arc::new(source_ts_builder.finish()));
         arrays.extend(system_builders.iter_mut().map(AnyBuilder::finish));
         let batch = RecordBatch::try_new(Arc::new(dlq_schema(&self.system_kinds)), arrays)?;
 
@@ -1473,8 +1465,6 @@ pub struct ParserWorkspace {
     dlq_payloads: Vec<DlqPayload>,
     /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
     arrays: Vec<ArrayRef>,
-    /// Cached timestamp + Instant for coarse-grained `Utc::now()` (1ms resolution).
-    cached_ts: Option<(time::OffsetDateTime, std::time::Instant)>,
 }
 
 impl Default for ParserWorkspace {
@@ -1494,20 +1484,7 @@ impl ParserWorkspace {
             json_buf: Vec::new(),
             dlq_payloads: Vec::new(),
             arrays: Vec::new(),
-            cached_ts: None,
         }
-    }
-
-    fn now(&mut self) -> time::OffsetDateTime {
-        let now_inst = std::time::Instant::now();
-        if let Some((ts, last)) = &self.cached_ts {
-            if now_inst.duration_since(*last).as_millis() < 1 {
-                return *ts;
-            }
-        }
-        let ts = time::OffsetDateTime::now_utc();
-        self.cached_ts = Some((ts, now_inst));
-        ts
     }
 
     fn release_large_scratch(&mut self) {
@@ -1534,7 +1511,6 @@ impl JsonParser {
         messages: Vec<Message>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
-        let now = ws.now();
         self.check_system_column_preconditions(&messages)?;
 
         // Pre-split once for AllRootField+NewLine — the result sizes the
@@ -1650,7 +1626,7 @@ impl JsonParser {
         let dlq_batch = if dlq_payloads.is_empty() {
             None
         } else {
-            Some(self.build_dlq_batch(&dlq_payloads, now)?)
+            Some(self.build_dlq_batch(&dlq_payloads)?)
         };
         drop(dlq_payloads);
         ws.release_large_scratch();
@@ -1677,7 +1653,7 @@ impl ParserSession for JsonParserSession {
     }
 }
 
-impl Parser for JsonParser {
+impl ParserFactory for JsonParser {
     fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
         Box::new(JsonParserSession {
             parser: self,
@@ -1738,6 +1714,70 @@ mod tests {
         .err()
         .expect("invalid JSONPath must fail parser construction");
         assert!(error.to_string().contains("invalid JSONPath"));
+    }
+
+    #[test]
+    fn invalid_root_jsonpath_is_rejected_at_startup() {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let error = parser_for(vec![ColumnMapping::new(
+            "$.".into(),
+            "value".into(),
+            "Utf8".into(),
+            true,
+        )])
+        .err()
+        .expect("invalid root JSONPath must fail parser construction");
+        assert!(error.to_string().contains("invalid JSONPath"));
+    }
+
+    #[test]
+    fn empty_one_message_record_is_sent_to_dlq() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        let parser = parser_for(vec![ColumnMapping::new(
+            "$.id".into(),
+            "id".into(),
+            "Int64".into(),
+            false,
+        )])?;
+        let message = Message::new(Bytes::new());
+        let bound = parser.output_memory_bound(core::slice::from_ref(&message));
+        let (main, dlq) = parser.parse_into(vec![message], &mut ParserWorkspace::new())?;
+        let dlq = dlq.expect("empty JSON must reach DLQ");
+        assert_eq!(main.batch.num_rows(), 0);
+        assert_eq!(dlq.batch.num_rows(), 1);
+        assert!(dlq.batch.get_array_memory_size() <= bound);
+        Ok(())
+    }
+
+    #[test]
+    fn dlq_source_timestamp_is_deterministic() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+        use arrow::array::Int64Array;
+
+        let parser = parser_for(vec![ColumnMapping::new(
+            "$.id".into(),
+            "id".into(),
+            "Int64".into(),
+            false,
+        )])?;
+        let mut message = Message::new(Bytes::from_static(b"invalid"));
+        message.meta.write_timestamp_ms = Some(1_234);
+        let (_main, dlq) = parser.parse_into(vec![message], &mut ParserWorkspace::new())?;
+        let dlq = dlq.expect("invalid JSON must reach DLQ");
+        assert_eq!(
+            dlq.batch.schema().field(2).name(),
+            "source_write_timestamp_ms"
+        );
+        let timestamps = dlq
+            .batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("DLQ source timestamp must be Int64");
+        assert_eq!(timestamps.value(0), 1_234);
+        Ok(())
     }
 
     #[test]

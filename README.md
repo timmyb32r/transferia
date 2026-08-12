@@ -72,7 +72,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 2
+    object_layout_version: 3
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -96,11 +96,11 @@ sink:
       max_bytes: 128MiB
       record_time_interval: null
       wall_clock_interval: null
-      on_partition_path_change: keep_open # rotate = close between atomic source messages when the path changes
+      on_partition_path_change: keep_epoch # rotate = close between atomic source messages when the path changes
 
     buffering:
       # All buffering and upload-concurrency limits are per partition actor.
-      max_open_objects: 128
+      max_epoch_buffers: 128
       max_pending_upload_objects: 512
       max_buffered_bytes: 256MiB
       # Stable retained epoch budget (payload + routing metadata).
@@ -153,11 +153,11 @@ can change object boundaries; the report includes a remediation.
 The S3 exactly-once statement assumes that parser, middleware and projection
 settings (including `keep_system_columns_in_sink`), destination identity
 (bucket/endpoint/region), S3 prefix, `object_layout_version`, partitioning, rotation thresholds,
-`buffering.max_open_objects`, and `buffering.max_epoch_bytes` remain unchanged
+`buffering.max_epoch_buffers`, and `buffering.max_epoch_bytes` remain unchanged
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
-`object_layout_version: 2` pins the deterministic key/payload/epoch contract,
+`object_layout_version: 3` pins the deterministic key/payload/epoch contract,
 including lossless base64 DLQ payloads;
 this binary rejects unknown versions instead of silently changing replay
 semantics.
@@ -187,18 +187,15 @@ produce duplicate rows. See `docs/pqv1-clickhouse-delivery.md` for the precise
 runtime contract and unimplemented design options.
 
 Parser failures are written to the DLQ with the original payload encoded in
-`raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. The change
-is part of S3 `object_layout_version: 2`, so version 1 deployments must finish
-or deliberately abandon uncommitted replay before upgrading their layout.
-For ClickHouse, the DLQ schema change is intentionally fail-closed: an existing
-`<table>_dlq` with the old `raw_bytes` column is rejected at startup. Do not
-rename that historical column in place because its text is not base64. Create a
-new empty `<table>_dlq` with the current schema (or move the old table aside)
-after all offsets that may replay into the old layout have been committed.
+`raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. DLQ rows
+also store deterministic `source_write_timestamp_ms`, never parser wall-clock
+time. These semantics are part of S3 `object_layout_version: 3`.
+For ClickHouse, DLQ schema changes are intentionally fail-closed: create a new
+empty `<table>_dlq` with the current schema (or move the old table aside).
 
-ClickHouse currently requires an explicit `use_tls: false`. The bundled native
-client cannot verify server certificates, so `use_tls: true` is rejected; use a
-verified local TLS tunnel and keep only the trusted local hop plaintext.
+The ClickHouse native hop is plaintext because the bundled client cannot verify
+server certificates. Use a verified local TLS tunnel and keep only the trusted
+local hop plaintext.
 Connection/request deadlines and finite retries are configurable. The
 configured connect timeout is a strict deadline for the caller and does not
 block Tokio workers. Because the underlying client uses a non-cancellable

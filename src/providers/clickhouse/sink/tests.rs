@@ -117,7 +117,6 @@ fn config() -> ClickHouseSinkConfig {
         retry_initial_ms: 10,
         retry_max_ms: 100,
         retry_max_attempts: None,
-        use_tls: false,
         connect_timeout_ms: 30_000,
         request_timeout_ms: 30_000,
         sorting_key: Vec::new(),

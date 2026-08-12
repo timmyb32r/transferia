@@ -9,7 +9,7 @@ use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
 use serde::Deserialize;
 
-use crate::parsers::{Parser, ParserSession};
+use crate::parsers::{ParserFactory, ParserSession};
 use crate::types::message::Message;
 use crate::types::system_columns::SystemColumns;
 use crate::types::table_data::TableData;
@@ -55,7 +55,7 @@ impl ParserSession for BenchmarkDiscardSession {
     }
 }
 
-impl Parser for BenchmarkDiscardParser {
+impl ParserFactory for BenchmarkDiscardParser {
     fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
         Box::new(BenchmarkDiscardSession {
             table: Arc::clone(&self.table),

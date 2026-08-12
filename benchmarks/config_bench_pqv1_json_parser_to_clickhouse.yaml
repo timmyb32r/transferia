@@ -33,7 +33,6 @@ sink:
     database: "${CLICKHOUSE_DATABASE:-default}"
     username: "${CLICKHOUSE_USERNAME:-default}"
     password: "${CLICKHOUSE_PASSWORD:-}"
-    use_tls: false
     sorting_key: ["id", "ts"]
     insert_target_rows: 10000
     insert_target_bytes: 67108864

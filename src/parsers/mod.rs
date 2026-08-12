@@ -16,7 +16,7 @@ pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNam
 
 /// Common parser interface. Every parser converts raw [`Message`]s into
 /// Arrow [`TableData`] (valid + optional DLQ).
-pub trait Parser: Send + Sync {
+pub trait ParserFactory: Send + Sync {
     fn create_session(self: Arc<Self>) -> Box<dyn ParserSession>;
 }
 
@@ -36,7 +36,7 @@ pub trait ParserSession: Send {
 /// A parser compiled once from source configuration and shared by all partition pipelines.
 /// It is the single source of truth for the parser instance and its sink-facing schemas.
 pub struct ParserPlan {
-    parser: Arc<dyn Parser>,
+    parser: Arc<dyn ParserFactory>,
     table: Arc<str>,
     dataset_schema: DatasetSchema,
     system_columns: SystemColumnsConfig,
@@ -56,7 +56,7 @@ impl ParserPlan {
                     &parser_config,
                     &config.common.system_columns,
                     Arc::clone(&table),
-                )?) as Arc<dyn Parser>;
+                )?) as Arc<dyn ParserFactory>;
                 (parser, schema, true)
             }
             "benchmark_discard" => {
@@ -64,7 +64,7 @@ impl ParserPlan {
                     serde_yaml::from_value(config.parser.raw()?.clone())?;
                 let parser = Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::clone(
                     &table,
-                ))) as Arc<dyn Parser>;
+                ))) as Arc<dyn ParserFactory>;
                 (parser, DatasetSchema::default(), false)
             }
             other => anyhow::bail!(
@@ -81,7 +81,7 @@ impl ParserPlan {
     }
 
     #[must_use]
-    pub fn parser(&self) -> Arc<dyn Parser> {
+    pub fn parser(&self) -> Arc<dyn ParserFactory> {
         Arc::clone(&self.parser)
     }
 
@@ -151,51 +151,16 @@ impl ParserEntry {
     }
 }
 
-pub fn build_parser(
-    name: &str,
-    raw: Value,
-    table: Arc<str>,
-    common: &CommonParserConfig,
-) -> anyhow::Result<Arc<dyn Parser>> {
-    match name {
-        "json_parser" => {
-            let config: crate::parsers::json_parser::JsonParserConfig =
-                serde_yaml::from_value(raw)?;
-            Ok(Arc::new(crate::parsers::json_parser::JsonParser::new(
-                &config,
-                &common.system_columns,
-                table,
-            )?))
-        }
-        "benchmark_discard" => {
-            let _: crate::parsers::benchmark_discard::BenchmarkDiscardConfig =
-                serde_yaml::from_value(raw)?;
-            Ok(Arc::new(
-                crate::parsers::benchmark_discard::BenchmarkDiscardParser::new(table),
-            ))
-        }
-        other => anyhow::bail!(
-            "unknown parser '{other}'; supported parsers: json_parser, benchmark_discard"
-        ),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn common() -> CommonParserConfig {
-        serde_yaml::from_str("table_naming: { type: from_config, name: events }").unwrap()
-    }
-
     #[test]
     fn benchmark_discard_rejects_unknown_configuration() {
-        assert!(build_parser(
-            "benchmark_discard",
-            serde_yaml::from_str("{ typo: true }").unwrap(),
-            Arc::from("events"),
-            &common(),
+        let config: ParserConfig = serde_yaml::from_str(
+            "common: { table_naming: { type: from_config, name: events } }\nbenchmark_discard: { typo: true }",
         )
-        .is_err());
+        .unwrap();
+        assert!(ParserPlan::from_config(&config, "topic").is_err());
     }
 }

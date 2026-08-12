@@ -53,8 +53,9 @@ async fn create_table(
         .map_err(|error| anyhow::anyhow!("Failed to create table '{name}': {error}"))?;
     let target = fetch_target_schema(client, &config.database, name).await?;
     validate_target_schema(name, schema, &target, sorting_key)?;
-    let engine = fetch_target_engine(client, &config.database, name).await?;
-    validate_target_engine(name, &engine)
+    let metadata = fetch_target_table_metadata(client, &config.database, name).await?;
+    validate_target_engine(name, &metadata.engine)?;
+    validate_sorting_key(name, sorting_key, &metadata.sorting_key)
 }
 
 fn create_table_ddl(
@@ -179,49 +180,87 @@ async fn fetch_target_schema(
     Ok(columns)
 }
 
-async fn fetch_target_engine(
+struct TargetTableMetadata {
+    engine: String,
+    sorting_key: String,
+}
+
+async fn fetch_target_table_metadata(
     client: &ReconnectingClient,
     database: &str,
     table: &str,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<TargetTableMetadata> {
     let query = format!(
-        "SELECT engine FROM system.tables WHERE database = {} AND name = {}",
+        "SELECT engine, sorting_key FROM system.tables WHERE database = {} AND name = {}",
         quote_string_literal(database),
         quote_string_literal(table),
     );
     let batches = client.query_all(&query).await.map_err(|error| {
-        anyhow::anyhow!("Failed to inspect table engine for '{table}': {error}")
+        anyhow::anyhow!("Failed to inspect table metadata for '{table}': {error}")
     })?;
-    let mut engine: Option<String> = None;
+    let mut metadata = None;
     for batch in batches {
         anyhow::ensure!(
-            batch.num_columns() == 1,
-            "ClickHouse engine query for '{table}' returned {} columns instead of 1",
+            batch.num_columns() == 2,
+            "ClickHouse metadata query for '{table}' returned {} columns instead of 2",
             batch.num_columns()
         );
-        let values = cast(batch.column(0), &DataType::Utf8)?;
-        let values = values
+        let engines = cast(batch.column(0), &DataType::Utf8)?;
+        let engines = engines
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| anyhow::anyhow!("ClickHouse table engines are not strings"))?;
+        let sorting_keys = cast(batch.column(1), &DataType::Utf8)?;
+        let sorting_keys = sorting_keys
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse table sorting keys are not strings"))?;
         for row in 0..batch.num_rows() {
             anyhow::ensure!(
-                !values.is_null(row),
-                "ClickHouse engine query for '{table}' returned NULL"
+                !engines.is_null(row) && !sorting_keys.is_null(row),
+                "ClickHouse metadata query for '{table}' returned NULL"
             );
             anyhow::ensure!(
-                engine.replace(values.value(row).to_string()).is_none(),
-                "ClickHouse engine query for '{table}' returned multiple rows"
+                metadata
+                    .replace(TargetTableMetadata {
+                        engine: engines.value(row).to_string(),
+                        sorting_key: sorting_keys.value(row).to_string(),
+                    })
+                    .is_none(),
+                "ClickHouse metadata query for '{table}' returned multiple rows"
             );
         }
     }
-    engine.ok_or_else(|| anyhow::anyhow!("ClickHouse table '{table}' disappeared after CREATE"))
+    metadata.ok_or_else(|| anyhow::anyhow!("ClickHouse table '{table}' disappeared after CREATE"))
 }
 
 fn validate_target_engine(table: &str, engine: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         matches!(engine, "MergeTree" | "ReplicatedMergeTree"),
         "ClickHouse table '{table}' uses unsupported engine '{engine}'; expected exactly MergeTree or ReplicatedMergeTree"
+    );
+    Ok(())
+}
+
+fn validate_sorting_key(table: &str, expected: &[String], actual: &str) -> anyhow::Result<()> {
+    if expected.is_empty() {
+        anyhow::ensure!(
+            actual == "tuple()",
+            "ClickHouse table '{table}' has sorting key '{actual}', expected exactly 'tuple()'"
+        );
+        return Ok(());
+    }
+    let body = actual
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+        .unwrap_or(actual);
+    let actual_columns = body
+        .split(',')
+        .map(|column| column.trim().trim_matches('`'))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        actual_columns == expected.iter().map(String::as_str).collect::<Vec<_>>(),
+        "ClickHouse table '{table}' has sorting key '{actual}', expected plain columns in order {expected:?}"
     );
     Ok(())
 }
@@ -614,6 +653,16 @@ mod tests {
                 .to_string()
                 .contains("expected exactly MergeTree or ReplicatedMergeTree"));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn sorting_key_requires_plain_columns_in_configured_order() -> anyhow::Result<()> {
+        validate_sorting_key("events", &[], "tuple()")?;
+        validate_sorting_key("events", &["id".into(), "ts".into()], "id, ts")?;
+        validate_sorting_key("events", &["id".into(), "ts".into()], "(`id`, `ts`)")?;
+        assert!(validate_sorting_key("events", &["id".into(), "ts".into()], "ts, id").is_err());
+        assert!(validate_sorting_key("events", &["id".into()], "toDate(id)").is_err());
         Ok(())
     }
 }

@@ -72,7 +72,7 @@ mod tests {
     #[tokio::test]
     async fn provider_constructs_shared_client_without_connecting() -> anyhow::Result<()> {
         let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
-            "endpoint: 127.0.0.1:1\nuse_tls: false\nconnect_timeout_ms: 1\n",
+            "endpoint: 127.0.0.1:1\nconnect_timeout_ms: 1\n",
         )?)?;
 
         let first = Arc::clone(&provider.client);

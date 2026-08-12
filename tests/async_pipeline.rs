@@ -55,14 +55,12 @@ impl Source for MarkerOnlySource {
             if let Some(marker) = self.marker.take() {
                 return Ok(MessageBatch {
                     messages: Vec::new(),
-                    partition_id: 0,
                     commit_marker: Some(CommitMarker::new(marker)),
                     memory: Vec::new(),
                 });
             }
             Ok(MessageBatch {
                 messages: Vec::new(),
-                partition_id: 0,
                 commit_marker: None,
                 memory: Vec::new(),
             })
@@ -114,7 +112,6 @@ impl Source for FakeSource {
             } else {
                 return Ok(MessageBatch {
                     messages: Vec::new(),
-                    partition_id: 0,
                     commit_marker: None,
                     memory: Vec::new(),
                 });
@@ -125,7 +122,6 @@ impl Source for FakeSource {
                 .unwrap_or_default();
             Ok(MessageBatch {
                 messages,
-                partition_id: 0,
                 commit_marker: Some(CommitMarker::new(marker)),
                 memory: Vec::new(),
             })
@@ -235,40 +231,27 @@ fn sink_config() -> ClickHouseSinkConfig {
         retry_initial_ms: 1,
         retry_max_ms: 10,
         retry_max_attempts: None,
-        use_tls: false,
         connect_timeout_ms: 30_000,
         request_timeout_ms: 30_000,
         sorting_key: Vec::new(),
     }
 }
 
-fn parser() -> Arc<dyn transferia::parsers::Parser> {
-    let raw: serde_yaml::Value = serde_yaml::from_str(
+fn parser() -> Arc<dyn transferia::parsers::ParserFactory> {
+    let config: transferia::parsers::ParserConfig = serde_yaml::from_str(
         r#"
-columns:
-  - jsonpath: "$.id"
-    column_name: "id"
-    arrow_type: "Utf8"
-    nullable: false
-  - jsonpath: "$.kind"
-    column_name: "kind"
-    arrow_type: "Utf8"
-    nullable: false
+common:
+  table_naming: { type: from_config, name: events }
+json_parser:
+  columns:
+    - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.kind", column_name: "kind", arrow_type: "Utf8", nullable: false }
 "#,
     )
     .unwrap();
-    transferia::parsers::build_parser(
-        "json_parser",
-        raw,
-        Arc::from("events"),
-        &transferia::parsers::CommonParserConfig {
-            table_naming: transferia::parsers::TableNaming::FromConfig {
-                name: "events".into(),
-            },
-            system_columns: transferia::parsers::SystemColumnsConfig::default(),
-        },
-    )
-    .unwrap()
+    transferia::parsers::ParserPlan::from_config(&config, "topic")
+        .unwrap()
+        .parser()
 }
 
 async fn wait_for_insert(transport: &FakeClickHouse, count: usize) {

@@ -18,7 +18,7 @@ use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
 use crate::metrics::ParseCounters;
-use crate::parsers::{Parser, ParserSession};
+use crate::parsers::{ParserFactory, ParserSession};
 use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
 use crate::pipeline::middleware::Middleware;
 use crate::pipeline::sink::{
@@ -29,6 +29,7 @@ use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
+const MAX_PARSER_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
 const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
@@ -198,6 +199,11 @@ fn parser_loop(
             meta,
         } = envelope;
         let output_bound = parser.output_memory_bound(&messages);
+        anyhow::ensure!(
+            output_bound <= MAX_PARSER_DELIVERY_BYTES,
+            "parser delivery {} requires up to {output_bound} bytes, exceeding the hard per-delivery parser limit of {MAX_PARSER_DELIVERY_BYTES} bytes; reduce source read size, mapping width, or record size",
+            id.get(),
+        );
         let parse_memory =
             (!messages.is_empty()).then(|| memory.account_active_transform(output_bound));
         let started = std::time::Instant::now();
@@ -503,7 +509,7 @@ fn prefer_component_failure(
 
 pub async fn run_partition_pipeline(
     source: Box<dyn Source>,
-    parser: Arc<dyn Parser>,
+    parser: Arc<dyn ParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     sink: Box<dyn Sink>,
     memory: PipelineMemory,
@@ -527,7 +533,7 @@ pub async fn run_partition_pipeline(
 
 pub async fn run_partition_pipeline_with_progress(
     source: Box<dyn Source>,
-    parser: Arc<dyn Parser>,
+    parser: Arc<dyn ParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     sink: Box<dyn Sink>,
     memory: PipelineMemory,

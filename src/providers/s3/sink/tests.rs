@@ -311,7 +311,6 @@ impl Source for FakeSource {
             let Some(messages) = self.batches.pop_front() else {
                 return Ok(MessageBatch {
                     messages: Vec::new(),
-                    partition_id: 3,
                     commit_marker: None,
                     memory: Vec::new(),
                 });
@@ -322,7 +321,6 @@ impl Source for FakeSource {
                 .ok_or_else(|| anyhow::anyhow!("fake source message is missing an offset"))?;
             Ok(MessageBatch {
                 messages,
-                partition_id: 3,
                 commit_marker: Some(CommitMarker::new(marker)),
                 memory: Vec::new(),
             })
@@ -354,34 +352,19 @@ fn config(extra: &str) -> S3SinkConfig {
 
 fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S3SinkConfig {
     serde_yaml::from_str(&format!(
-        "bucket: test\nrotation:\n  max_rows: {max_rows}\n  max_bytes: 1MiB\n{rotation_extra}buffering:\n  max_open_objects: 8\n  max_buffered_bytes: 8MiB\n  max_epoch_bytes: 8MiB\nupload:\n  multipart_threshold: 25MiB\n  part_size: 5MiB\n  parallel_parts: 4\nretry:\n  initial_backoff: 1ms\n  max_backoff: 2ms\n{extra}"
+        "bucket: test\nrotation:\n  max_rows: {max_rows}\n  max_bytes: 1MiB\n{rotation_extra}buffering:\n  max_epoch_buffers: 8\n  max_buffered_bytes: 8MiB\n  max_epoch_bytes: 8MiB\nupload:\n  multipart_threshold: 25MiB\n  part_size: 5MiB\n  parallel_parts: 4\nretry:\n  initial_backoff: 1ms\n  max_backoff: 2ms\n{extra}"
     ))
     .unwrap()
 }
 
-fn pipeline_parser() -> Arc<dyn crate::parsers::Parser> {
-    let parser_raw: serde_yaml::Value = serde_yaml::from_str(
-        "columns:\n  - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n  - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\nchunk_splitter: new-line\n",
+fn pipeline_parser() -> Arc<dyn crate::parsers::ParserFactory> {
+    let config: crate::parsers::ParserConfig = serde_yaml::from_str(
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic_name: true, partition_num: true, offset: true, message_index: true, write_timestamp_ms: true }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\n  chunk_splitter: new-line\n",
     )
     .unwrap();
-    crate::parsers::build_parser(
-        "json_parser",
-        parser_raw,
-        Arc::from("events"),
-        &crate::parsers::CommonParserConfig {
-            table_naming: crate::parsers::TableNaming::FromConfig {
-                name: "events".into(),
-            },
-            system_columns: crate::parsers::SystemColumnsConfig {
-                topic_name: true,
-                partition_num: true,
-                offset: true,
-                message_index: true,
-                write_timestamp_ms: true,
-            },
-        },
-    )
-    .unwrap()
+    crate::parsers::ParserPlan::from_config(&config, "topic")
+        .unwrap()
+        .parser()
 }
 
 async fn delivery(
@@ -593,7 +576,7 @@ async fn replay_objects(uploader: Arc<FakeUploader>) -> Vec<(String, Bytes)> {
     let blocked = uploader.gate.is_some();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
@@ -648,7 +631,7 @@ async fn one_open_object_accumulates_rows_until_a_deterministic_rotation_limit()
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_open_objects: 1, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 2, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 1, max_buffered_bytes: 8MiB, max_epoch_bytes: 1MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
@@ -839,7 +822,7 @@ async fn commit_waits_for_every_object_before_advancing_within_an_epoch() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, _cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
@@ -981,7 +964,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
             commits,
         };
         let config: S3SinkConfig = serde_yaml::from_str(
-                "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 1 }\npartitioning: { type: fields, columns: [id] }\n",
+                "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_pending_upload_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 1 }\npartitioning: { type: fields, columns: [id] }\n",
             )
             .unwrap();
         let memory = PipelineMemory::new(1 << 20);
@@ -1215,7 +1198,7 @@ async fn pressure_stops_at_the_next_deterministic_epoch_rotation() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(MEMORY_LIMIT);
     let config: S3SinkConfig = serde_yaml::from_str(&format!(
-        "bucket: test\nrotation: {{ max_rows: 100, max_bytes: 1MiB }}\nbuffering: {{ max_open_objects: 8, max_pending_upload_objects: 32, max_buffered_bytes: 8MiB, max_epoch_bytes: {EPOCH_LIMIT} }}\nupload: {{ multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }}\nretry: {{ initial_backoff: 1ms, max_backoff: 2ms }}\n"
+        "bucket: test\nrotation: {{ max_rows: 100, max_bytes: 1MiB }}\nbuffering: {{ max_epoch_buffers: 8, max_pending_upload_objects: 32, max_buffered_bytes: 8MiB, max_epoch_bytes: {EPOCH_LIMIT} }}\nupload: {{ multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }}\nretry: {{ initial_backoff: 1ms, max_backoff: 2ms }}\n"
     ))
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());
@@ -1372,7 +1355,7 @@ async fn record_time_rotation_is_data_deterministic() {
 }
 
 #[tokio::test]
-async fn partition_path_change_selects_rotate_or_keep_open_behavior() {
+async fn partition_path_change_selects_rotate_or_keep_epoch_behavior() {
     let rotation = "  on_partition_path_change: rotate\n";
     let partitioning = "partitioning:\n  type: fields\n  columns: [id]\n";
     let uploader = FakeUploader::immediate(0);
@@ -1395,23 +1378,23 @@ async fn partition_path_change_selects_rotate_or_keep_open_behavior() {
     cancel.cancel();
     task.await.unwrap().unwrap();
 
-    let keep_open_uploader = FakeUploader::immediate(0);
-    let keep_open_memory = PipelineMemory::new(1 << 20);
+    let keep_epoch_uploader = FakeUploader::immediate(0);
+    let keep_epoch_memory = PipelineMemory::new(1 << 20);
     let (tx, _events, cancel, task) = spawn(
         config_with_rotation(100, "", partitioning),
-        Arc::clone(&keep_open_uploader),
-        keep_open_memory.clone(),
+        Arc::clone(&keep_epoch_uploader),
+        keep_epoch_memory.clone(),
     );
-    tx.send(delivery(&keep_open_memory, 1, 1, 1_000, false).await)
+    tx.send(delivery(&keep_epoch_memory, 1, 1, 1_000, false).await)
         .await
         .unwrap();
-    tx.send(delivery(&keep_open_memory, 2, 2, 1_001, false).await)
+    tx.send(delivery(&keep_epoch_memory, 2, 2, 1_001, false).await)
         .await
         .unwrap();
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
-    assert_eq!(keep_open_uploader.attempts.load(Ordering::Acquire), 0);
+    assert_eq!(keep_epoch_uploader.attempts.load(Ordering::Acquire), 0);
     cancel.cancel();
     task.await.unwrap().unwrap();
 }
@@ -1498,7 +1481,7 @@ async fn buffering_limit_stops_delivery_reception_during_an_outage() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 40, max_epoch_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_buffered_bytes: 40, max_epoch_bytes: 40 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, _events, cancel, task) =
@@ -1529,7 +1512,7 @@ async fn pending_object_limit_bounds_metadata_during_an_outage() {
     let uploader = FakeUploader::blocked();
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_pending_upload_objects: 2, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4, max_in_flight_objects: 1 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, _events, cancel, task) =
@@ -1561,7 +1544,7 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
     let uploader = FakeUploader::immediate(100);
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 2 }\n",
+        "bucket: test\nrotation: { max_rows: 1, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_buffered_bytes: 8MiB, max_epoch_bytes: 8MiB }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms, max_attempts: 2 }\n",
     )
     .unwrap();
     let counters = Arc::new(SinkCounters::new());
@@ -1679,7 +1662,7 @@ async fn explicit_epoch_byte_limit_rotates_independently_of_pipeline_memory() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let config: S3SinkConfig = serde_yaml::from_str(
-        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_open_objects: 8, max_pending_upload_objects: 8, max_buffered_bytes: 1MiB, max_epoch_bytes: 300 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
+        "bucket: test\nrotation: { max_rows: 100, max_bytes: 1MiB }\nbuffering: { max_epoch_buffers: 8, max_pending_upload_objects: 8, max_buffered_bytes: 1MiB, max_epoch_bytes: 300 }\nupload: { multipart_threshold: 25MiB, part_size: 5MiB, parallel_parts: 4 }\nretry: { initial_backoff: 1ms, max_backoff: 2ms }\n",
     )
     .unwrap();
     let (tx, mut events, cancel, task) = spawn(config, Arc::clone(&uploader), memory.clone());

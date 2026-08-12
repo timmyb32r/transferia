@@ -43,8 +43,21 @@ impl SinkProvider for S3SinkProvider {
         })
     }
 
-    fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
-        Box::pin(async { Ok(()) })
+    fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
+        let prefix = self.cfg.prefix.trim_matches('/').to_string();
+        Box::pin(async move {
+            for dataset in [&request.table, &request.dlq_table] {
+                let candidate = if prefix.is_empty() {
+                    format!("{dataset}/partition=0/probe+0+0.json")
+                } else {
+                    format!("{prefix}/{dataset}/partition=0/probe+0+0.json")
+                };
+                object_store::path::Path::parse(&candidate).map_err(|error| {
+                    anyhow::anyhow!("invalid S3 object namespace for dataset '{dataset}': {error}")
+                })?;
+            }
+            Ok(())
+        })
     }
 
     fn validate_pipeline_memory_limit(&self, limit_bytes: usize) -> anyhow::Result<()> {

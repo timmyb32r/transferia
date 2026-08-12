@@ -38,7 +38,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
-    object_layout_version: 2
+    object_layout_version: 3
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -50,9 +50,9 @@ sink:
     rotation:
       max_rows: 100000
       max_bytes: 128MiB
-      on_partition_path_change: keep_open
+      on_partition_path_change: keep_epoch
     buffering:
-      max_open_objects: 128
+      max_epoch_buffers: 128
       max_pending_upload_objects: 512
       max_buffered_bytes: 256MiB
       # Deterministic retained epoch budget (payload + routing metadata).

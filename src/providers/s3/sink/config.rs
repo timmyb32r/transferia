@@ -82,7 +82,7 @@ pub struct RotationConfig {
     pub record_time_interval: Option<DurationValue>,
     #[serde(default)]
     pub wall_clock_interval: Option<DurationValue>,
-    #[serde(default, alias = "on_partition_change")]
+    #[serde(default)]
     pub on_partition_path_change: PartitionPathChange,
 }
 
@@ -91,15 +91,15 @@ pub struct RotationConfig {
 pub enum PartitionPathChange {
     Rotate,
     #[default]
-    KeepOpen,
+    KeepEpoch,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BufferingConfig {
     /// Soft deterministic limit for open objects in one partition actor.
-    #[serde(default = "default_max_open_objects")]
-    pub max_open_objects: usize,
+    #[serde(default = "default_max_epoch_buffers")]
+    pub max_epoch_buffers: usize,
     /// Soft admission limit for pending uploads in one partition actor. An
     /// atomic source message may temporarily take the actor above this value;
     /// pending upload timing never changes deterministic object boundaries.
@@ -231,8 +231,8 @@ impl S3SinkConfig {
             "s3.rotation.max_bytes must be positive"
         );
         anyhow::ensure!(
-            self.buffering.max_open_objects > 0,
-            "s3.buffering.max_open_objects must be positive"
+            self.buffering.max_epoch_buffers > 0,
+            "s3.buffering.max_epoch_buffers must be positive"
         );
         anyhow::ensure!(
             self.buffering.max_pending_upload_objects > 0,
@@ -363,7 +363,7 @@ impl Default for RotationConfig {
 impl Default for BufferingConfig {
     fn default() -> Self {
         Self {
-            max_open_objects: default_max_open_objects(),
+            max_epoch_buffers: default_max_epoch_buffers(),
             max_pending_upload_objects: default_max_pending_upload_objects(),
             max_buffered_bytes: default_max_buffered_bytes(),
             max_epoch_bytes: None,
@@ -406,7 +406,7 @@ const fn default_max_rows() -> usize {
 const fn default_max_object_bytes() -> ByteSize {
     ByteSize(128 * MIB)
 }
-const fn default_max_open_objects() -> usize {
+const fn default_max_epoch_buffers() -> usize {
     128
 }
 const fn default_max_pending_upload_objects() -> usize {
@@ -440,7 +440,7 @@ const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
 const fn default_object_layout_version() -> u32 {
-    2
+    3
 }
 const fn default_max_attempts() -> usize {
     10

@@ -13,7 +13,7 @@ use transferia::compatibility::validate_pipeline;
 use transferia::config::yaml::Config;
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::middleware::build_middleware;
-use transferia::parsers::Parser as DataParser;
+use transferia::parsers::ParserFactory as DataParserFactory;
 use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
@@ -50,7 +50,7 @@ fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
 
 #[derive(Clone)]
 struct PipelineDeps {
-    parser: Arc<dyn DataParser>,
+    parser: Arc<dyn DataParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
     source_provider: Arc<dyn SourceProvider>,
     sink_provider: Arc<dyn SinkProvider>,
@@ -479,7 +479,6 @@ sink:
   clickhouse:
     endpoint: localhost:9000
     database: default
-    use_tls: false
 ",
         )?;
         let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;

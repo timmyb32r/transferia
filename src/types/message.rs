@@ -33,7 +33,6 @@ impl Message {
 #[derive(Debug)]
 pub struct MessageBatch {
     pub messages: Vec<Message>,
-    pub partition_id: i64,
     pub commit_marker: Option<CommitMarker>,
     /// Reservations for source-owned buffers backing `messages`.
     pub memory: Vec<crate::pipeline::memory::MemoryReservation>,

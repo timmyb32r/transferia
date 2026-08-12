@@ -28,7 +28,13 @@ Existing destination tables must use exactly `MergeTree` or
 rejected because a successful INSERT followed by a background merge can change
 or remove source rows.
 
-The current DLQ stores the lossless source payload in `raw_base64`. Deployments
+Every connection pins `async_insert=0`, `wait_for_async_insert=1`, and
+`insert_deduplicate=0`. This prevents server/user profiles from acknowledging
+an in-memory asynchronous insert or silently dropping a distinct source batch
+whose rows happen to equal an earlier replicated insert.
+
+The current DLQ stores the lossless source payload in `raw_base64` and the
+deterministic source timestamp in `source_write_timestamp_ms`. Deployments
 with the historical `raw_bytes` DLQ must create a new empty DLQ table (or move
 the old one aside) after replay into the old layout is impossible. Renaming
 `raw_bytes` to `raw_base64` is invalid because historical values were not base64.
@@ -39,7 +45,8 @@ client's socket connect cannot be cancelled, so its current socket call may
 continue for up to another 30 seconds on the blocking pool. An internal deadline
 then stops the remaining connection work, and reconnects reuse that single
 in-flight attempt. TLS is rejected because this client cannot verify server
-certificates; use a verified local TLS tunnel when encryption is required.
+certificates; the configuration therefore exposes no TLS switch. Use a verified
+local TLS tunnel when encryption is required.
 
 ## Possible exactly-once designs
 

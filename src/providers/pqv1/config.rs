@@ -52,7 +52,6 @@ impl fmt::Debug for PqV1AuthConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SourceConfig {
-    #[serde(alias = "connection_string")]
     pub discovery_endpoint: String,
     pub topic_path: String,
     pub consumer_name: String,

@@ -57,7 +57,7 @@ impl ChunkSplitter {
     #[must_use]
     pub fn count_records(self, buf: &[u8]) -> usize {
         match self {
-            Self::OneMessageOneRow => usize::from(!buf.is_empty()),
+            Self::OneMessageOneRow => 1,
             Self::NewLine if buf.is_empty() => 0,
             Self::NewLine if !buf.contains(&b'\n') => 1,
             Self::NewLine => buf

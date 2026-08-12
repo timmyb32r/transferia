@@ -19,7 +19,7 @@ backpressured until the sink is below its admission thresholds:
 
 - `rotation.max_rows` and `rotation.max_bytes` are soft object thresholds;
 - `buffering.max_epoch_bytes` (serialized payload, routing-string UTF-8 lengths,
-  and a fixed 128-byte logical overhead per row) and `max_open_objects` are
+  and a fixed 128-byte logical overhead per row) and `max_epoch_buffers` are
   soft deterministic epoch thresholds and semantic state across replay;
 - `buffering.max_pending_upload_objects` and `max_buffered_bytes` are soft
   per-partition admission thresholds for live state. An atomic source message
@@ -42,12 +42,12 @@ four-second bound. Configure an S3
 Successful deterministic overwrite is exactly-once only while
 parser, middleware and projection settings (including
 `keep_system_columns_in_sink`), destination identity (bucket/endpoint/region),
-S3 prefix, `object_layout_version`, partitioning/rotation, `max_open_objects`, and `max_epoch_bytes`
+S3 prefix, `object_layout_version`, partitioning/rotation, `max_epoch_buffers`, and `max_epoch_bytes`
 remain unchanged across replay. Wall-clock rotation is reported as
 at-least-once because restart timing changes object boundaries.
 
-`object_layout_version: 2` pins the deterministic key, NDJSON, lossless base64
-DLQ payload and epoch contract. This binary rejects any other version; future incompatible layout
+`object_layout_version: 3` pins the deterministic key, NDJSON, lossless base64
+DLQ payload, source-derived `source_write_timestamp_ms`, and epoch contract. This binary rejects any other version; future incompatible layout
 changes must introduce a new version rather than silently reinterpreting
 uncommitted replay.
 

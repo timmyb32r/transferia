@@ -322,7 +322,16 @@ fn configured_builder(config: &ClickHouseSinkConfig) -> ClientBuilder {
         .with_database(config.database.as_str())
         .with_username(config.username.as_str())
         .with_password(config.password.as_str())
-        .with_tls(config.use_tls)
+        // The sink owns batching and acknowledges source offsets as soon as the
+        // native INSERT completes. Never inherit a server/user profile that can
+        // acknowledge an asynchronous insert before it is flushed.
+        .with_setting("async_insert", 0_i64)
+        .with_setting("wait_for_async_insert", 1_i64)
+        // ReplicatedMergeTree deduplication is unsafe for this at-least-once
+        // sink: two distinct source offsets may legitimately contain identical
+        // rows. Preserve both and let ambiguous retries remain visible duplicates.
+        .with_setting("insert_deduplicate", 0_i64)
+        .with_tls(false)
 }
 
 pub(super) fn quote_identifier(identifier: &str) -> String {
@@ -545,6 +554,30 @@ mod tests {
             insert_query("odd`table", &schema),
             "INSERT INTO `odd\\`table` (`first`, `odd\\`column`) VALUES"
         );
+    }
+
+    #[test]
+    fn pins_lossless_insert_settings() {
+        let builder = configured_builder(&ClickHouseSinkConfig {
+            endpoint: "localhost:9000".into(),
+            database: "default".into(),
+            username: "default".into(),
+            password: String::new(),
+            insert_target_rows: 1,
+            insert_target_bytes: 1,
+            flush_interval_ms: 1,
+            retry_initial_ms: 1,
+            retry_max_ms: 1,
+            retry_max_attempts: Some(1),
+            connect_timeout_ms: 1,
+            request_timeout_ms: 1,
+            sorting_key: Vec::new(),
+        });
+        let settings = builder.settings().expect("insert settings must be pinned");
+        let values = settings.encode_to_key_value_strings();
+        assert!(values.contains(&("async_insert".into(), "0".into())));
+        assert!(values.contains(&("wait_for_async_insert".into(), "1".into())));
+        assert!(values.contains(&("insert_deduplicate".into(), "0".into())));
     }
 
     #[test]
