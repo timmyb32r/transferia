@@ -17,7 +17,37 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 3. Treat the principles in this file as strong defaults, not substitutes for
    engineering judgment. A principle may be violated when concrete evidence and
    common sense show that doing so is better. Keep the exception narrow and state
-   the reason and trade-off in the handoff.
+   the reason and trade-off in the handoff. The prohibition on silent user-visible
+   transformations below is not covered by this exception.
+
+## User-visible semantics: never guess or silently transform
+
+- **Never make a product or UX decision on the user's behalf by silently changing
+  their identifiers or data.** This includes renaming tables or columns, hashing,
+  truncating or escaping names or values, normalizing values, coercing types,
+  changing precision or timezone, rewriting paths, substituting defaults for
+  invalid input, dropping fields or rows, and any similar transformation visible
+  at the source or destination.
+- Do not invent an automatic fallback for a destination limitation. For example,
+  if S3 imposes a key-length limit and a source value can exceed it, reject the
+  configuration during discovery when possible and otherwise reject the offending
+  runtime value. **Do not silently replace the value with a hash, shortened form,
+  encoded alias, or generated name.**
+- Prefer fail-fast behavior for every unsupported edge case. Validate static
+  constraints while parsing the configuration or during delivery discovery,
+  before connecting workers or creating destination state. Revalidate
+  data-dependent constraints at runtime before buffering, INSERT, upload, commit,
+  or another side effect.
+- A transformation is allowed only when both conditions hold:
+  1. the user explicitly requests it through a deliberate, documented
+     configuration choice; and
+  2. the exact transformation is explicitly implemented, named, validated, and
+     covered by startup and runtime tests.
+- An explicit transformation must have deterministic, documented semantics and
+  must be observable in configuration and diagnostics. It must never be enabled
+  implicitly for compatibility, convenience, robustness, or performance.
+- When requirements call for a new transformation but the user has not selected
+  its semantics, stop and ask rather than choosing a policy in code.
 
 ## Performance and design
 
