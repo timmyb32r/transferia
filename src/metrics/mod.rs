@@ -50,12 +50,12 @@ const fn default_metrics_interval_ms() -> u64 {
 // ---------------------------------------------------------------------------
 
 /// Per-partition source counters (`PQv1`). Filled by the background session
-/// (bytes + download/decompress duty) and `read_batch` (messages).
+/// (bytes + response-wait/decompress duty) and `read_batch` (messages).
 pub struct SourceCounters {
     messages: AtomicU64,
     compressed_bytes: AtomicU64,
     decompressed_bytes: AtomicU64,
-    download_busy_nanos: AtomicU64,
+    response_wait_nanos: AtomicU64,
     decomp_busy_nanos: AtomicU64,
 }
 
@@ -66,7 +66,7 @@ impl SourceCounters {
             messages: AtomicU64::new(0),
             compressed_bytes: AtomicU64::new(0),
             decompressed_bytes: AtomicU64::new(0),
-            download_busy_nanos: AtomicU64::new(0),
+            response_wait_nanos: AtomicU64::new(0),
             decomp_busy_nanos: AtomicU64::new(0),
         }
     }
@@ -83,10 +83,11 @@ impl SourceCounters {
     pub fn add_decompressed_bytes(&self, n: u64) {
         self.decompressed_bytes.fetch_add(n, RELAXED);
     }
-    /// Downloader busy = time a `Read` request is in-flight (`stream.message().await`).
+    /// Wall time spent awaiting the next PQ server response. This includes
+    /// data and control-plane responses and is latency, not CPU utilization.
     #[inline]
-    pub fn add_download_busy(&self, d: Duration) {
-        self.download_busy_nanos
+    pub fn add_response_wait(&self, d: Duration) {
+        self.response_wait_nanos
             .fetch_add(d.as_nanos() as u64, RELAXED);
     }
     /// Decompressor busy = time inside `decompress()`.
@@ -166,7 +167,7 @@ pub struct SinkCounters {
     flushes: AtomicU64,
     source_messages: AtomicU64,
     busy_nanos: AtomicU64,
-    upload_retries: AtomicU64,
+    sink_retries: AtomicU64,
     buffered_bytes: AtomicU64,
     open_objects: AtomicU64,
     ready_objects: AtomicU64,
@@ -183,7 +184,7 @@ impl SinkCounters {
             flushes: AtomicU64::new(0),
             source_messages: AtomicU64::new(0),
             busy_nanos: AtomicU64::new(0),
-            upload_retries: AtomicU64::new(0),
+            sink_retries: AtomicU64::new(0),
             buffered_bytes: AtomicU64::new(0),
             open_objects: AtomicU64::new(0),
             ready_objects: AtomicU64::new(0),
@@ -216,8 +217,8 @@ impl SinkCounters {
         self.busy_nanos.fetch_add(d.as_nanos() as u64, RELAXED);
     }
     #[inline]
-    pub fn add_upload_retries(&self, retries: u64) {
-        self.upload_retries.fetch_add(retries, RELAXED);
+    pub fn add_retries(&self, retries: u64) {
+        self.sink_retries.fetch_add(retries, RELAXED);
     }
     #[inline]
     pub fn set_buffered_bytes(&self, bytes: u64) {
@@ -253,6 +254,10 @@ impl SinkCounters {
     pub fn source_messages_total(&self) -> u64 {
         self.source_messages.load(RELAXED)
     }
+    #[must_use]
+    pub fn retries_total(&self) -> u64 {
+        self.sink_retries.load(RELAXED)
+    }
 }
 
 impl Default for SinkCounters {
@@ -270,7 +275,7 @@ struct SourceSnapshot {
     messages: u64,
     compressed_bytes: u64,
     decompressed_bytes: u64,
-    download_busy_nanos: u64,
+    response_wait_nanos: u64,
     decomp_busy_nanos: u64,
 }
 
@@ -290,7 +295,7 @@ struct SinkSnapshot {
     flushes: u64,
     source_messages: u64,
     busy_nanos: u64,
-    upload_retries: u64,
+    sink_retries: u64,
     buffered_bytes: u64,
     open_objects: u64,
     ready_objects: u64,
@@ -303,7 +308,7 @@ fn src_snap(c: Option<&Arc<SourceCounters>>) -> SourceSnapshot {
         messages: s.messages.load(RELAXED),
         compressed_bytes: s.compressed_bytes.load(RELAXED),
         decompressed_bytes: s.decompressed_bytes.load(RELAXED),
-        download_busy_nanos: s.download_busy_nanos.load(RELAXED),
+        response_wait_nanos: s.response_wait_nanos.load(RELAXED),
         decomp_busy_nanos: s.decomp_busy_nanos.load(RELAXED),
     })
 }
@@ -325,7 +330,7 @@ fn sink_snap(c: Option<&Arc<SinkCounters>>) -> SinkSnapshot {
         flushes: s.flushes.load(RELAXED),
         source_messages: s.source_messages.load(RELAXED),
         busy_nanos: s.busy_nanos.load(RELAXED),
-        upload_retries: s.upload_retries.load(RELAXED),
+        sink_retries: s.sink_retries.load(RELAXED),
         buffered_bytes: s.buffered_bytes.load(RELAXED),
         open_objects: s.open_objects.load(RELAXED),
         ready_objects: s.ready_objects.load(RELAXED),
@@ -565,9 +570,9 @@ fn aggregate_line(
             s.decompressed_bytes += cur_src
                 .decompressed_bytes
                 .saturating_sub(psrc.decompressed_bytes);
-            s.download_busy_nanos += cur_src
-                .download_busy_nanos
-                .saturating_sub(psrc.download_busy_nanos);
+            s.response_wait_nanos += cur_src
+                .response_wait_nanos
+                .saturating_sub(psrc.response_wait_nanos);
             s.decomp_busy_nanos += cur_src
                 .decomp_busy_nanos
                 .saturating_sub(psrc.decomp_busy_nanos);
@@ -587,7 +592,7 @@ fn aggregate_line(
                 .source_messages
                 .saturating_sub(psink.source_messages);
             k.busy_nanos += cur_sink.busy_nanos.saturating_sub(psink.busy_nanos);
-            k.upload_retries += cur_sink.upload_retries.saturating_sub(psink.upload_retries);
+            k.sink_retries += cur_sink.sink_retries.saturating_sub(psink.sink_retries);
             k.buffered_bytes += cur_sink.buffered_bytes;
             k.open_objects += cur_sink.open_objects;
             k.ready_objects += cur_sink.ready_objects;
@@ -649,10 +654,10 @@ fn format_line(
     let d_decomp = cur_src
         .decompressed_bytes
         .saturating_sub(prev_src.decompressed_bytes);
-    let dl_pct = pct(
+    let response_wait_pct = pct(
         cur_src
-            .download_busy_nanos
-            .saturating_sub(prev_src.download_busy_nanos),
+            .response_wait_nanos
+            .saturating_sub(prev_src.response_wait_nanos),
         wall_ns,
     );
     let decomp_pct = pct(
@@ -662,11 +667,11 @@ fn format_line(
         wall_ns,
     );
     let source_part = format!(
-        "pqv1: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
+        "pqv1: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
         ((d_msg as f64) / sec) as u64,
         fmt_bytes(d_comp as f64 / sec),
         fmt_bytes(d_decomp as f64 / sec),
-        dl_pct,
+        response_wait_pct,
         decomp_pct,
     );
     let source_message_rate =
@@ -711,9 +716,7 @@ fn format_line(
             .saturating_sub(prev_sink.backpressure_nanos),
         wall_ns,
     );
-    let retries = cur_sink
-        .upload_retries
-        .saturating_sub(prev_sink.upload_retries);
+    let retries = cur_sink.sink_retries.saturating_sub(prev_sink.sink_retries);
     let sink_part = format!(
         "sink: {} rows/s | {} | {} flushes/s | {} | {}% busy | {} retries | buffered {} | objects {}/{}/{} | {}% backpressure",
         ((d_sink_rows as f64) / sec) as u64,
@@ -747,14 +750,14 @@ fn format_line_avg(
     rss: u64,
 ) -> String {
     let sec = wall_ns_sum as f64 / NANOS_PER_SEC_F;
-    let dl_pct = pct(s.download_busy_nanos, wall_ns_sum);
+    let response_wait_pct = pct(s.response_wait_nanos, wall_ns_sum);
     let decomp_pct = pct(s.decomp_busy_nanos, wall_ns_sum);
     let source_part = format!(
-        "pqv1: {} msg/s | comp {} | decomp {} | dl {}% busy | decomp {}% busy",
+        "pqv1: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
         ((s.messages as f64) / sec) as u64,
         fmt_bytes(s.compressed_bytes as f64 / sec),
         fmt_bytes(s.decompressed_bytes as f64 / sec),
-        dl_pct,
+        response_wait_pct,
         decomp_pct,
     );
     let source_message_rate =
@@ -781,7 +784,7 @@ fn format_line_avg(
         ((k.flushes as f64) / sec) as u64,
         source_message_rate(k.source_messages),
         sink_pct,
-        k.upload_retries,
+        k.sink_retries,
         fmt_rss(k.buffered_bytes),
         k.open_objects,
         k.ready_objects,
@@ -1001,13 +1004,13 @@ mod tests {
         s.add_messages(10);
         s.add_compressed_bytes(100);
         s.add_decompressed_bytes(200);
-        s.add_download_busy(Duration::from_nanos(42));
+        s.add_response_wait(Duration::from_nanos(42));
         s.add_decomp_busy(Duration::from_nanos(7));
         let snap = src_snap(Some(&s));
         assert_eq!(snap.messages, 10);
         assert_eq!(snap.compressed_bytes, 100);
         assert_eq!(snap.decompressed_bytes, 200);
-        assert_eq!(snap.download_busy_nanos, 42);
+        assert_eq!(snap.response_wait_nanos, 42);
         assert_eq!(snap.decomp_busy_nanos, 7);
     }
 
@@ -1018,7 +1021,7 @@ mod tests {
             messages: 100,
             compressed_bytes: 100,
             decompressed_bytes: 100,
-            download_busy_nanos: 100,
+            response_wait_nanos: 100,
             decomp_busy_nanos: 100,
         };
         let line = format_line(
@@ -1042,7 +1045,7 @@ mod tests {
                 flushes: 100,
                 source_messages: 100,
                 busy_nanos: 100,
-                upload_retries: 100,
+                sink_retries: 100,
                 buffered_bytes: 0,
                 open_objects: 0,
                 ready_objects: 0,

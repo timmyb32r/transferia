@@ -37,7 +37,7 @@ class StatsParsingTest(unittest.TestCase):
     def test_parses_partition_zero_stats_line(self):
         line = (
             "[stats p=0] pqv1: 1200 msg/s | comp 1.5 MiB/s | decomp 2.0 GiB/s | "
-            "dl 20% busy | decomp 40% busy || parse: 1100 rows/s | 2.5 MiB/s arrow | "
+            "response-wait 20% | decomp 40% busy || parse: 1100 rows/s | 2.5 MiB/s arrow | "
             "3 dlq/s | 1000 source-msg/s | 60% busy || sink: 1000 rows/s | "
             "3.0 MiB/s | 2 flushes/s | 1000 source-msg/s | 70% busy | 1 retries | "
             "buffered 4 MiB | objects 1/2/3 | 10% backpressure || "
@@ -50,6 +50,7 @@ class StatsParsingTest(unittest.TestCase):
         self.assertEqual(sample["pq_messages_per_s"], 1200)
         self.assertEqual(sample["compressed_bytes_per_s"], 1.5 * 1024 * 1024)
         self.assertEqual(sample["decompressed_bytes_per_s"], 2 * 1024**3)
+        self.assertEqual(sample["response_wait_percent"], 20)
         self.assertEqual(sample["parse_rows_per_s"], 1100)
         self.assertEqual(sample["sink_rows_per_s"], 1000)
         self.assertEqual(sample["sink_retries"], 1)
@@ -67,6 +68,17 @@ class StatsParsingTest(unittest.TestCase):
         sample = BENCH.parse_stats_line(line)
         self.assertIsNone(sample["parse_rows_per_s"])
         self.assertEqual(sample["rss_bytes"], 0)
+
+    def test_accepts_legacy_downloader_busy_field(self):
+        line = (
+            "[stats p=0] pqv1: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
+            "dl 7% busy | decomp 0% busy || parse: benchmark-discard || "
+            "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
+            "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
+            "guarantee: destructive-benchmark | cpu: 5% rss: N/A"
+        )
+        sample = BENCH.parse_stats_line(line)
+        self.assertEqual(sample["response_wait_percent"], 7)
 
     def test_rejects_sample_with_sink_retry(self):
         sample = {"sink_retries": 1}
@@ -328,7 +340,7 @@ class RunnerTest(unittest.TestCase):
                 "print('rep=' + os.environ['BENCHMARK_REPETITION'], flush=True)\n"
                 "print('destination=' + os.environ['BENCHMARK_RUN_NAMESPACE'], flush=True)\n"
                 "line = '[stats p=0] pqv1: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-                "dl 1% busy | decomp 0% busy || parse: benchmark-discard || "
+                "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
                 "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
                 "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
                 "guarantee: destructive-benchmark | cpu: 5% rss: N/A'\n"
@@ -357,7 +369,7 @@ class RunnerTest(unittest.TestCase):
             [
                 "pipeline failed, restarting: boom\n",
                 "[stats p=0] pqv1: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-                "dl 1% busy | decomp 0% busy || parse: benchmark-discard || "
+                "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
                 "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
                 "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
                 "guarantee: destructive-benchmark | cpu: 5% rss: N/A\n",

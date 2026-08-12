@@ -14,7 +14,7 @@ use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
 use crate::pipeline::PipelineFailure;
 use crate::serializer::JsonBatchEncoder;
 
-use super::config::{PartitionChange, S3SinkConfig};
+use super::config::{PartitionPathChange, S3SinkConfig};
 use super::partitioning::{percent_encode, Partitioner, RowRoute};
 use super::upload::{upload_with_retry, ObjectUploader, UploadStats};
 
@@ -111,6 +111,7 @@ pub struct S3Sink {
     partitioner: Partitioner,
     counters: Arc<SinkCounters>,
     keep_system_columns: bool,
+    expected_partition_id: i64,
     epoch: Epoch,
     ready: VecDeque<ClosedObject>,
     closed_epochs: BTreeMap<u64, ClosedEpoch>,
@@ -136,6 +137,7 @@ impl S3Sink {
         uploader: Arc<dyn ObjectUploader>,
         counters: Arc<SinkCounters>,
         keep_system_columns: bool,
+        expected_partition_id: i64,
     ) -> anyhow::Result<Self> {
         let partitioner = Partitioner::new(&config.partitioning)?;
         let epoch_byte_limit = config.epoch_byte_limit();
@@ -152,6 +154,7 @@ impl S3Sink {
             partitioner,
             counters,
             keep_system_columns,
+            expected_partition_id,
             epoch: Epoch::default(),
             ready: VecDeque::new(),
             closed_epochs: BTreeMap::new(),
@@ -169,6 +172,12 @@ impl S3Sink {
         for (output_index, output) in delivery.outputs.iter().enumerate() {
             let routes = self.partitioner.route_batch(output)?;
             for (row_index, route) in routes.into_iter().enumerate() {
+                anyhow::ensure!(
+                    route.partition == self.expected_partition_id,
+                    "S3 source partition mismatch: actor owns {}, routed row belongs to {}",
+                    self.expected_partition_id,
+                    route.partition,
+                );
                 rows.push(RoutedRow {
                     output_index,
                     row_index,
@@ -277,7 +286,8 @@ impl S3Sink {
         let last_main = rows.iter().rfind(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
 
-        let partition_changed = self.config.rotation.on_partition_change == PartitionChange::Rotate
+        let partition_changed = self.config.rotation.on_partition_path_change
+            == PartitionPathChange::Rotate
             && first_main.is_some_and(|row| {
                 self.epoch
                     .last_main_partition
@@ -459,7 +469,7 @@ impl S3Sink {
         })?;
         let stats = active.result?;
         self.counters.add_busy(stats.busy);
-        self.counters.add_upload_retries(stats.retries);
+        self.counters.add_retries(stats.retries);
         self.counters.add_rows(active.object.rows as u64);
         self.counters.add_bytes(active.object.payload.len() as u64);
         self.counters.add_flush();

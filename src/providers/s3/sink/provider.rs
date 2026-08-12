@@ -63,6 +63,7 @@ impl SinkProvider for S3SinkProvider {
             Arc::clone(&self.uploader),
             context.counters,
             context.keep_system_columns,
+            context.partition_id,
         );
         Box::pin(async move { Ok(Box::new(sink?) as Box<dyn Sink>) })
     }

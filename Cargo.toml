@@ -32,7 +32,7 @@ shellexpand = "3"
 simd-json = "0.17"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros", "test-util"] }
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["rt"] }
 tonic = { version = "0.14", default-features = false }
 tonic-prost = "0.14"
 tower = "0.5"

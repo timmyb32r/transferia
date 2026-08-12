@@ -15,6 +15,7 @@ use crate::pipeline::PipelineFailure;
 
 // Keep abort cleanup below the actor's five-second upload-drain grace period.
 const MULTIPART_ABORT_TIMEOUT: Duration = Duration::from_secs(4);
+const MAX_MULTIPART_PARTS: usize = 10_000;
 
 #[derive(Debug)]
 pub enum UploadError {
@@ -66,6 +67,8 @@ impl S3Uploader {
             return Ok(());
         }
 
+        validate_multipart_layout(key, payload.len(), self.config.part_size.0)?;
+
         let mut upload = tokio::select! {
             biased;
             () = cancellation.cancelled() => return Err(UploadError::Cancelled),
@@ -78,6 +81,25 @@ impl S3Uploader {
         };
         upload_multipart(upload.as_mut(), &self.config, key, payload, cancellation).await
     }
+}
+
+fn validate_multipart_layout(
+    key: &str,
+    payload_len: usize,
+    part_size: usize,
+) -> Result<(), UploadError> {
+    if part_size == 0 {
+        return Err(UploadError::Permanent(anyhow::anyhow!(
+            "S3 upload.part_size must be positive"
+        )));
+    }
+    let part_count = payload_len.div_ceil(part_size);
+    if part_count > MAX_MULTIPART_PARTS {
+        return Err(UploadError::Permanent(anyhow::anyhow!(
+            "S3 object '{key}' requires {part_count} multipart parts, exceeding the S3 limit of {MAX_MULTIPART_PARTS}; increase upload.part_size"
+        )));
+    }
+    Ok(())
 }
 
 async fn upload_multipart(
@@ -421,6 +443,14 @@ mod tests {
             classify_object_store_error(transport),
             UploadError::Retryable(_)
         ));
+    }
+
+    #[test]
+    fn rejects_objects_that_exceed_the_multipart_part_limit() {
+        assert!(validate_multipart_layout("object", 50_000, 5).is_ok());
+        let error = validate_multipart_layout("object", 50_001, 5)
+            .expect_err("10,001 parts must be rejected before starting an upload");
+        assert!(matches!(error, UploadError::Permanent(_)));
     }
 
     #[tokio::test]

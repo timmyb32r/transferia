@@ -27,7 +27,8 @@ from typing import Any
 STATS_PREFIX = re.compile(r"\[stats p=(?P<partition>-?\d+)]")
 SOURCE = re.compile(
     r"pqv1: (?P<messages>\d+) msg/s \| comp (?P<compressed>.+?) \| "
-    r"decomp (?P<decompressed>.+?) \| dl (?P<download_busy>\d+)% busy \| "
+    r"decomp (?P<decompressed>.+?) \| "
+    r"(?:response-wait (?P<response_wait>\d+)%|dl (?P<legacy_download_busy>\d+)% busy) \| "
     r"decomp (?P<decomp_busy>\d+)% busy"
 )
 PARSE = re.compile(
@@ -82,7 +83,7 @@ NUMERIC_SAMPLE_KEYS = (
     "pq_messages_per_s",
     "compressed_bytes_per_s",
     "decompressed_bytes_per_s",
-    "download_busy_percent",
+    "response_wait_percent",
     "decompression_busy_percent",
     "parse_rows_per_s",
     "parse_arrow_bytes_per_s",
@@ -123,7 +124,9 @@ def parse_stats_line(line: str) -> dict[str, Any] | None:
         "pq_messages_per_s": int(source.group("messages")),
         "compressed_bytes_per_s": parse_bytes(source.group("compressed")),
         "decompressed_bytes_per_s": parse_bytes(source.group("decompressed")),
-        "download_busy_percent": int(source.group("download_busy")),
+        "response_wait_percent": int(
+            source.group("response_wait") or source.group("legacy_download_busy")
+        ),
         "decompression_busy_percent": int(source.group("decomp_busy")),
         "parse_rows_per_s": int(parse.group("rows")) if parse else None,
         "parse_arrow_bytes_per_s": parse_bytes(parse.group("arrow")) if parse else None,

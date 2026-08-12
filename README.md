@@ -31,7 +31,7 @@ errors. Every quality recipe runs `rustfmt` first.
 source:
   pqv1:
     # Plaintext HTTP/2 only; use a trusted local endpoint or tunnel.
-    connection_string: "grpc://localhost:2135"
+    discovery_endpoint: "grpc://localhost:2135"
     topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
     # Required: consumer-session assignments are not authoritative topic metadata.
@@ -72,6 +72,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
+    object_layout_version: 1
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -95,7 +96,7 @@ sink:
       max_bytes: 128MiB
       record_time_interval: null
       wall_clock_interval: null
-      on_partition_change: keep_open # rotate = Confluent-compatible
+      on_partition_path_change: keep_open # rotate = Confluent-compatible
 
     buffering:
       # All buffering and upload-concurrency limits are per partition actor.
@@ -151,11 +152,14 @@ can change object boundaries; the report includes a remediation.
 
 The S3 exactly-once statement assumes that parser, middleware and projection
 settings (including `keep_system_columns_in_sink`), destination identity
-(bucket/endpoint/region), S3 prefix, partitioning, rotation thresholds,
+(bucket/endpoint/region), S3 prefix, `object_layout_version`, partitioning, rotation thresholds,
 `buffering.max_open_objects`, and `buffering.max_epoch_bytes` remain unchanged
 while uncommitted source data can replay. Treat those fields as semantic state
 during deployments; changing them can produce different object boundaries,
 keys, or payloads.
+`object_layout_version: 1` pins the deterministic key/payload/epoch contract;
+this binary rejects unknown versions instead of silently changing replay
+semantics.
 The normalized `(bucket, prefix)` namespace must be owned exclusively by one
 logical PQ/Logbroker source. Its workers and partitions may share that namespace
 because keys include source topic and partition, but an independent source must

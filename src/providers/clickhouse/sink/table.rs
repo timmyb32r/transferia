@@ -70,6 +70,13 @@ fn create_table_ddl(
         .map(column_definition)
         .collect::<anyhow::Result<Vec<_>>>()?
         .join(", ");
+    let mut unique_sorting_keys = BTreeSet::new();
+    for key in sorting_key {
+        anyhow::ensure!(
+            unique_sorting_keys.insert(key.as_str()),
+            "clickhouse.sorting_key contains duplicate column '{key}'"
+        );
+    }
     let sorting_key = sorting_key
         .iter()
         .map(|column| quote_identifier(column))
@@ -527,5 +534,13 @@ mod tests {
         validate_target_schema("events", &expected, &sorted, &["id".into()])?;
         assert!(validate_target_schema("events", &expected, &sorted, &[]).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn ddl_rejects_duplicate_sorting_columns() {
+        let schema = schema(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+        let error = create_table_ddl("events", &schema, &["id".into(), "id".into()])
+            .expect_err("duplicate sorting columns must fail");
+        assert!(error.to_string().contains("duplicate column 'id'"));
     }
 }

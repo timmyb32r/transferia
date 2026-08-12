@@ -42,9 +42,14 @@ four-second bound. Configure an S3
 Successful deterministic overwrite is exactly-once only while
 parser, middleware and projection settings (including
 `keep_system_columns_in_sink`), destination identity (bucket/endpoint/region),
-S3 prefix, partitioning/rotation, `max_open_objects`, and `max_epoch_bytes`
+S3 prefix, `object_layout_version`, partitioning/rotation, `max_open_objects`, and `max_epoch_bytes`
 remain unchanged across replay. Wall-clock rotation is reported as
 at-least-once because restart timing changes object boundaries.
+
+`object_layout_version: 1` pins the deterministic key, NDJSON and epoch
+contract. This binary rejects any other version; future incompatible layout
+changes must introduce a new version rather than silently reinterpreting
+uncommitted replay.
 
 The normalized `(bucket, prefix)` namespace must be owned exclusively by one
 logical PQ/Logbroker source. Multiple workers and partitions of that source may

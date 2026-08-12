@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use tokio::task::JoinHandle;
 use tokio::time::{Duration, Instant};
+use tokio_util::task::AbortOnDropHandle;
 
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
@@ -168,13 +168,13 @@ impl ClickHouseSink {
         &self,
         active: ActiveInsert,
         cancellation: tokio_util::sync::CancellationToken,
-    ) -> JoinHandle<Result<ActiveInsert, PipelineFailure>> {
+    ) -> AbortOnDropHandle<Result<ActiveInsert, PipelineFailure>> {
         let transport = Arc::clone(&self.transport);
         let counters = Arc::clone(&self.counters);
         let config = self.config.clone();
         let retry_seed =
             self.partition_retry_seed.rotate_left(17) ^ stable_retry_seed(active.table.as_bytes());
-        tokio::spawn(async move {
+        AbortOnDropHandle::new(tokio::spawn(async move {
             let mut attempts = 0_u32;
             let max_attempts = config.effective_retry_max_attempts();
             let mut backoff = Duration::from_millis(config.retry_initial_ms);
@@ -226,6 +226,7 @@ impl ClickHouseSink {
                             delay_ms = delay.as_millis() as u64,
                             "ClickHouse INSERT failed, retrying: {error}"
                         );
+                        counters.add_retries(1);
                         tokio::select! {
                             () = cancellation.cancelled() => {
                                 return Err(PipelineFailure::retryable(anyhow::anyhow!(
@@ -240,7 +241,7 @@ impl ClickHouseSink {
                     }
                 }
             }
-        })
+        }))
     }
 
     fn complete_insert(&mut self, active: ActiveInsert) -> anyhow::Result<()> {
@@ -267,7 +268,7 @@ impl ClickHouseSink {
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut active: Option<JoinHandle<Result<ActiveInsert, PipelineFailure>>> = None;
+        let mut active: Option<AbortOnDropHandle<Result<ActiveInsert, PipelineFailure>>> = None;
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
@@ -277,6 +278,7 @@ impl ClickHouseSink {
                 tokio::select! {
                     () = io.cancellation.cancelled() => {
                         task.abort();
+                        let _ = (&mut task).await;
                         return Ok(());
                     }
                     result = &mut task => completed = Some(result),

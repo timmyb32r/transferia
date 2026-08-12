@@ -7,6 +7,7 @@ pub mod source;
 
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 
@@ -31,6 +32,35 @@ const CHANNEL_CAPACITY: usize = 8;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
 const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
+
+/// Monotonic source-commit progress shared across retries of one partition.
+#[derive(Default)]
+pub struct PipelineProgress {
+    committed_groups: AtomicU64,
+}
+
+impl PipelineProgress {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            committed_groups: AtomicU64::new(0),
+        }
+    }
+
+    #[must_use]
+    pub fn checkpoint(&self) -> u64 {
+        self.committed_groups.load(Ordering::Acquire)
+    }
+
+    #[must_use]
+    pub fn advanced_since(&self, checkpoint: u64) -> bool {
+        self.checkpoint() > checkpoint
+    }
+
+    fn record_source_commit(&self) {
+        self.committed_groups.fetch_add(1, Ordering::AcqRel);
+    }
+}
 
 /// A pipeline failure with an explicit restart contract.
 ///
@@ -223,6 +253,7 @@ async fn commit_through(
     source: &mut Box<dyn Source>,
     ledger: &mut VecDeque<CommitEntry>,
     committed: DeliveryId,
+    progress: &PipelineProgress,
 ) -> anyhow::Result<()> {
     let valid_range = ledger
         .front()
@@ -250,6 +281,7 @@ async fn commit_through(
         source.commit_offsets(&markers).await.with_context(|| {
             format!("source commit failed through delivery {}", committed.get())
         })?;
+        progress.record_source_commit();
     }
     for _ in 0..committed_entries {
         ledger
@@ -266,6 +298,7 @@ async fn reserve_source_memory_with_events(
     memory: &PipelineMemory,
     bytes: usize,
     cancellation: &CancellationToken,
+    progress: &PipelineProgress,
 ) -> anyhow::Result<Option<MemoryReservation>> {
     let reservation = memory.reserve(bytes);
     tokio::pin!(reservation);
@@ -278,7 +311,7 @@ async fn reserve_source_memory_with_events(
                     "sink event stream closed while reserving source memory"
                 ))?;
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(source, ledger, id).await?;
+                commit_through(source, ledger, id, progress).await?;
             }
             reservation = &mut reservation => return Ok(Some(reservation)),
         }
@@ -291,6 +324,7 @@ async fn reader_loop(
     mut events: mpsc::Receiver<SinkEvent>,
     memory: PipelineMemory,
     cancellation: CancellationToken,
+    progress: Arc<PipelineProgress>,
 ) -> anyhow::Result<()> {
     let mut ledger = VecDeque::new();
     let mut next_id = DeliveryId::new(1);
@@ -302,7 +336,7 @@ async fn reader_loop(
             event = events.recv() => {
                 let event = event.ok_or_else(|| anyhow::anyhow!("sink event stream closed"))?;
                 let SinkEvent::CommittedThrough(id) = event;
-                commit_through(&mut source, &mut ledger, id).await?;
+                commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
                 continue;
             }
             read = source.read_batch() => read,
@@ -314,7 +348,7 @@ async fn reader_loop(
                 () = cancellation.cancelled() => return Ok(()),
                 event = events.recv() => {
                     if let Some(SinkEvent::CommittedThrough(id)) = event {
-                        commit_through(&mut source, &mut ledger, id).await?;
+                        commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
                     }
                 }
                 () = sleep(Duration::from_millis(backoff_ms)) => {}
@@ -332,6 +366,7 @@ async fn reader_loop(
                 &memory,
                 meta.source_bytes as usize,
                 &cancellation,
+                progress.as_ref(),
             )
             .await?
             else {
@@ -360,7 +395,7 @@ async fn reader_loop(
                 event = events.recv() => {
                     let event = event.ok_or_else(|| anyhow::anyhow!("sink event stream closed"))?;
                     let SinkEvent::CommittedThrough(id) = event;
-                    commit_through(&mut source, &mut ledger, id).await?;
+                    commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
                 }
                 permit = output.reserve() => {
                     let permit = permit.map_err(|_| anyhow::anyhow!("parser input closed"))?;
@@ -463,6 +498,31 @@ pub async fn run_partition_pipeline(
     partition_id: i64,
     parse_counters: Arc<ParseCounters>,
 ) -> anyhow::Result<()> {
+    run_partition_pipeline_with_progress(
+        source,
+        parser,
+        middlewares,
+        sink,
+        memory,
+        cancel_token,
+        partition_id,
+        parse_counters,
+        Arc::new(PipelineProgress::new()),
+    )
+    .await
+}
+
+pub async fn run_partition_pipeline_with_progress(
+    source: Box<dyn Source>,
+    parser: Arc<dyn Parser>,
+    middlewares: Arc<Vec<Box<dyn Middleware>>>,
+    sink: Box<dyn Sink>,
+    memory: PipelineMemory,
+    cancel_token: CancellationToken,
+    partition_id: i64,
+    parse_counters: Arc<ParseCounters>,
+    progress: Arc<PipelineProgress>,
+) -> anyhow::Result<()> {
     let local = cancel_token.child_token();
     let (read_tx, read_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (delivery_tx, delivery_rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -491,7 +551,15 @@ pub async fn run_partition_pipeline(
     let reader_token = local.clone();
     let reader_memory = memory.clone();
     let mut reader_task = tokio::spawn(async move {
-        reader_loop(source, read_tx, event_rx, reader_memory, reader_token).await
+        reader_loop(
+            source,
+            read_tx,
+            event_rx,
+            reader_memory,
+            reader_token,
+            progress,
+        )
+        .await
     });
     let sink_token = local.clone();
     let sink_io = SinkIo {
@@ -693,11 +761,13 @@ mod tests {
             },
         ]);
 
-        commit_through(&mut source, &mut ledger, DeliveryId::new(3))
+        let progress = PipelineProgress::new();
+        commit_through(&mut source, &mut ledger, DeliveryId::new(3), &progress)
             .await
             .unwrap();
 
         assert!(ledger.is_empty());
+        assert!(progress.advanced_since(0));
         assert_eq!(
             *groups
                 .lock()
@@ -717,9 +787,14 @@ mod tests {
             marker: Some(CommitMarker::new(11_i64)),
         }]);
 
-        let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2))
-            .await
-            .expect_err("sink cannot commit a delivery the source never issued");
+        let error = commit_through(
+            &mut source,
+            &mut ledger,
+            DeliveryId::new(2),
+            &PipelineProgress::new(),
+        )
+        .await
+        .expect_err("sink cannot commit a delivery the source never issued");
 
         let failure = error
             .downcast_ref::<PipelineFailure>()
@@ -745,7 +820,8 @@ mod tests {
             },
         ]);
 
-        let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2))
+        let progress = PipelineProgress::new();
+        let error = commit_through(&mut source, &mut ledger, DeliveryId::new(2), &progress)
             .await
             .expect_err("injected source commit failure must propagate");
 
@@ -753,5 +829,6 @@ mod tests {
             .to_string()
             .contains("source commit failed through delivery 2"));
         assert_eq!(ledger.len(), 2);
+        assert!(!progress.advanced_since(0));
     }
 }

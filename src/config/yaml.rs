@@ -117,7 +117,7 @@ mod tests {
             r"
 source:
   pqv1:
-    connection_string: grpc://localhost
+    discovery_endpoint: grpc://localhost
     topic_path: topic-a
     consumer_name: consumer-a
     partition_ids: [0]

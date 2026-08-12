@@ -3,7 +3,8 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tokio::sync::Semaphore;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::{
@@ -14,11 +15,22 @@ use crate::parsers::json_parser::{JsonParser, JsonParserConfig};
 use crate::parsers::ParserConfig;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
+use crate::pipeline::PipelineFailure;
 use crate::providers::pqv1::config::PqV1SourceConfig;
 use crate::providers::pqv1::credentials::load_access_token;
 use crate::providers::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;
 use crate::types::schema::DatasetSchema;
+
+const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
+const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+struct CachedEndpoints {
+    fetched_at: Instant,
+    main_host: String,
+    endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
+}
 
 pub struct PqV1SourceProvider {
     cfg: PqV1SourceConfig,
@@ -28,6 +40,8 @@ pub struct PqV1SourceProvider {
     source_counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
     endpoint_attempts: Mutex<HashMap<i64, usize>>,
     decompression_slots: Arc<Semaphore>,
+    token: Arc<OnceCell<Arc<str>>>,
+    endpoint_cache: Arc<AsyncMutex<Option<CachedEndpoints>>>,
 }
 
 impl PqV1SourceProvider {
@@ -61,10 +75,10 @@ impl PqV1SourceProvider {
     ) -> anyhow::Result<Self> {
         let cfg: PqV1SourceConfig = serde_yaml::from_value(value)
             .map_err(|e| anyhow::anyhow!("Failed to parse PQv1 source config: {e}"))?;
-        if cfg.connection_string.is_empty() {
-            anyhow::bail!("pqv1.connection_string must not be empty");
+        if cfg.discovery_endpoint.is_empty() {
+            anyhow::bail!("pqv1.discovery_endpoint must not be empty");
         }
-        parse_endpoint(&cfg.connection_string)?;
+        parse_endpoint(&cfg.discovery_endpoint)?;
         if cfg.topic_path.is_empty() {
             anyhow::bail!("pqv1.topic_path must not be empty");
         }
@@ -72,8 +86,8 @@ impl PqV1SourceProvider {
             anyhow::bail!("pqv1.consumer_name must not be empty");
         }
         anyhow::ensure!(
-            cfg.network_timeout_ms > 0,
-            "pqv1.network_timeout_ms must be positive"
+            cfg.network_timeout_ms >= MIN_NETWORK_TIMEOUT_MS,
+            "pqv1.network_timeout_ms must be at least {MIN_NETWORK_TIMEOUT_MS}ms"
         );
         anyhow::ensure!(
             cfg.decompression_concurrency > 0,
@@ -130,8 +144,77 @@ impl PqV1SourceProvider {
             source_counters: Mutex::new(HashMap::new()),
             endpoint_attempts: Mutex::new(HashMap::new()),
             decompression_slots,
+            token: Arc::new(OnceCell::new()),
+            endpoint_cache: Arc::new(AsyncMutex::new(None)),
         })
     }
+}
+
+async fn resolve_proxies_cached(
+    cache: &AsyncMutex<Option<CachedEndpoints>>,
+    discovery_endpoint: &str,
+    token: &str,
+    network_timeout: Duration,
+    cancellation: &CancellationToken,
+    partition_id: i64,
+) -> anyhow::Result<Vec<String>> {
+    let mut cache = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("PQv1 endpoint discovery cancelled"),
+        cache = cache.lock() => cache,
+    };
+    let fallback_main = parse_endpoint(discovery_endpoint)?;
+    let refresh = cache
+        .as_ref()
+        .is_none_or(|cached| cached.fetched_at.elapsed() >= ENDPOINT_CACHE_TTL);
+    if refresh {
+        match PqV1Client::discover_endpoints(
+            discovery_endpoint,
+            token,
+            network_timeout,
+            cancellation,
+        )
+        .await
+        {
+            Ok((main_host, endpoints)) => {
+                *cache = Some(CachedEndpoints {
+                    fetched_at: Instant::now(),
+                    main_host,
+                    endpoints,
+                });
+            }
+            Err(error) => {
+                if error
+                    .downcast_ref::<PipelineFailure>()
+                    .is_some_and(|failure| !failure.is_retryable())
+                {
+                    return Err(error);
+                }
+                if cache.is_none() {
+                    tracing::warn!("PQv1 proxy discovery failed: {error}. Using main endpoint.");
+                    *cache = Some(CachedEndpoints {
+                        fetched_at: Instant::now(),
+                        main_host: fallback_main,
+                        endpoints: Vec::new(),
+                    });
+                } else {
+                    tracing::warn!(
+                        "PQv1 proxy discovery refresh failed: {error}. Using stale endpoint cache."
+                    );
+                }
+            }
+        }
+    }
+    let cached = cache
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("PQv1 endpoint cache is unexpectedly empty"))?;
+    let proxies = PqV1Client::order_proxies(
+        cached.main_host.clone(),
+        cached.endpoints.clone(),
+        partition_id,
+    );
+    drop(cache);
+    Ok(proxies)
 }
 
 impl SourceProvider for PqV1SourceProvider {
@@ -162,14 +245,28 @@ impl SourceProvider for PqV1SourceProvider {
         let source_counters = self.counters_for_partition(partition_id);
         let endpoint_attempt = self.next_endpoint_attempt(partition_id);
         let decompression_slots = Arc::clone(&self.decompression_slots);
+        let token = Arc::clone(&self.token);
+        let endpoint_cache = Arc::clone(&self.endpoint_cache);
 
         Box::pin(async move {
+            anyhow::ensure!(
+                cfg.partition_ids.contains(&partition_id),
+                "partition {partition_id} is not declared in pqv1.partition_ids"
+            );
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
-            let token = load_access_token(&cfg.auth)?;
+            // Token rotation is intentionally not supported yet. Load lazily
+            // so config validation needs no runtime secret, then share the
+            // value across all partition starts and retries.
+            let token = token
+                .get_or_try_init(|| async {
+                    load_access_token(&cfg.auth).map(Into::<Arc<str>>::into)
+                })
+                .await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
-            let mut proxies = PqV1Client::resolve_proxies(
-                &cfg.connection_string,
-                &token,
+            let mut proxies = resolve_proxies_cached(
+                endpoint_cache.as_ref(),
+                &cfg.discovery_endpoint,
+                token.as_ref(),
                 network_timeout,
                 &cancel_token,
                 partition_id,
@@ -188,8 +285,8 @@ impl SourceProvider for PqV1SourceProvider {
                     &proxy,
                     &cfg.topic_path,
                     &cfg.consumer_name,
-                    &token,
-                    &[partition_id],
+                    token.as_ref(),
+                    partition_id,
                     Arc::clone(&source_counters),
                     cancel_token.clone(),
                     cfg.benchmark_discard_before_decompression,
@@ -213,15 +310,12 @@ impl SourceProvider for PqV1SourceProvider {
                     }
                 }
             }
-            let (client, mut queues) = connected.ok_or_else(|| {
+            let (client, rx) = connected.ok_or_else(|| {
                 anyhow::anyhow!(
                     "PQv1 could not connect partition {partition_id} to any endpoint: {}",
                     errors.join("; ")
                 )
             })?;
-            let rx = queues
-                .remove(&partition_id)
-                .ok_or_else(|| anyhow::anyhow!("No queue for partition {partition_id}"))?;
             Ok(Box::new(PqV1Source::new(
                 client,
                 rx,
@@ -280,13 +374,13 @@ mod tests {
 
     fn config(partition_ids: &str, extra: &str) -> String {
         format!(
-            "connection_string: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
+            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
         )
     }
 
     fn json_config(extra: &str) -> String {
         format!(
-            "connection_string: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        arrow_type: Int64\n        nullable: false\n"
+            "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        arrow_type: Int64\n        nullable: false\n"
         )
     }
 
@@ -303,17 +397,41 @@ mod tests {
     }
 
     #[test]
-    fn rejects_zero_network_timeout() {
-        let error = provider(&config("partition_ids: [0]\n", "network_timeout_ms: 0\n"))
+    fn rejects_unreasonably_short_network_timeout() {
+        let error = provider(&config("partition_ids: [0]\n", "network_timeout_ms: 99\n"))
             .err()
-            .expect("zero network timeout must fail");
+            .expect("a timeout that makes keepalive self-thrash must fail");
 
         assert!(
             error
                 .to_string()
-                .contains("network_timeout_ms must be positive"),
+                .contains("network_timeout_ms must be at least 100ms"),
             "{error:#}"
         );
+    }
+
+    #[test]
+    fn accepts_legacy_connection_string_alias() {
+        let legacy = config("partition_ids: [0]\n", "").replacen(
+            "discovery_endpoint:",
+            "connection_string:",
+            1,
+        );
+        assert_eq!(
+            provider(&legacy).unwrap().cfg.discovery_endpoint,
+            "grpc://localhost"
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_builds_for_undeclared_partitions_before_network_io() {
+        let source = provider(&config("partition_ids: [0]\n", "")).unwrap();
+        let error = source
+            .build_source(1, CancellationToken::new(), PipelineMemory::new(1 << 20))
+            .await
+            .err()
+            .expect("undeclared partition must fail locally");
+        assert!(error.to_string().contains("not declared"), "{error:#}");
     }
 
     #[test]
@@ -411,5 +529,28 @@ mod tests {
         assert_eq!(source.next_endpoint_attempt(0), 0);
         assert_eq!(source.next_endpoint_attempt(0), 1);
         assert_eq!(source.next_endpoint_attempt(1), 0);
+    }
+
+    #[test]
+    fn cached_endpoint_order_remains_partition_specific() {
+        let main = "main.test:2135".to_string();
+        let endpoints = vec![
+            crate::Ydb::discovery::EndpointInfo {
+                address: "a.test".into(),
+                port: 2135,
+                load_factor: 0.0,
+                ..Default::default()
+            },
+            crate::Ydb::discovery::EndpointInfo {
+                address: "b.test".into(),
+                port: 2135,
+                load_factor: 0.0,
+                ..Default::default()
+            },
+        ];
+
+        let first = PqV1Client::order_proxies(main.clone(), endpoints.clone(), 7);
+        assert_eq!(first, PqV1Client::order_proxies(main, endpoints, 7));
+        assert!(first.contains(&"main.test:2135".to_string()));
     }
 }

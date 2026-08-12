@@ -82,8 +82,10 @@ binary hashes identify the exact baseline and candidate executables even for
 
 The command exits with status `2` only when median PQ message throughput falls
 by more than 5% and at least four of five paired repetitions also fall by more
-than 5%. Treat CPU, RSS, busy time, backpressure, and stage rates in the JSON as
-diagnostics rather than replacing the primary throughput criterion.
+than 5%. Treat CPU, RSS, response wait, busy time, backpressure, and stage rates
+in the JSON as diagnostics rather than replacing the primary throughput
+criterion. `response_wait_percent` is wall time awaiting any PQ server response,
+including control-plane traffic; it is not downloader CPU utilization.
 
 The current PQv1 session deliberately allows one source batch in progress per
 partition to keep source memory bounded and control-plane ACK/Release messages

@@ -3,7 +3,7 @@ source:
   pqv1:
     # PQv1 currently supports plaintext HTTP/2 only. Point this at a trusted
     # local endpoint/tunnel; grpcs:// is rejected instead of silently skipping TLS.
-    connection_string: "grpc://localhost:2135"
+    discovery_endpoint: "grpc://localhost:2135"
     topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
     # PQv1 consumer assignments are not authoritative topic metadata, so list
@@ -38,6 +38,7 @@ keep_system_columns_in_sink: false
 sink:
   s3:
     bucket: transfer-bucket
+    object_layout_version: 1
     prefix: streams
     region: ru-central1
     endpoint: "https://storage.yandexcloud.net"
@@ -49,7 +50,7 @@ sink:
     rotation:
       max_rows: 100000
       max_bytes: 128MiB
-      on_partition_change: keep_open
+      on_partition_path_change: keep_open
     buffering:
       max_open_objects: 128
       max_pending_upload_objects: 512

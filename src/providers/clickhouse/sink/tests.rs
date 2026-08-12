@@ -304,8 +304,39 @@ async fn low_volume_delivery_flushes_at_interval() {
         Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
     );
     assert_eq!(counters.flushes_total(), 1);
+    assert_eq!(counters.retries_total(), 0);
     cancellation.cancel();
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn cancellation_aborts_and_joins_an_active_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(true, []);
+    let (tx, _events, cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
+    wait_calls(&state, 1).await;
+    assert_eq!(state.active.load(Ordering::Acquire), 1);
+
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+    assert_eq!(state.active.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn delivery_error_does_not_detach_an_active_insert() {
+    let memory = PipelineMemory::new(1_000_000);
+    let (transport, state) = FakeTransport::new(true, []);
+    let (tx, _events, _cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
+    wait_calls(&state, 1).await;
+
+    tx.send(delivery(&memory, 3, &["events"])).await.unwrap();
+    let error = task.await.unwrap().unwrap_err();
+    assert!(error.to_string().contains("delivery order"), "{error:#}");
+    assert_eq!(state.active.load(Ordering::Acquire), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -420,6 +451,7 @@ async fn transient_error_retries_frozen_insert() {
         Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
     );
     assert_eq!(counters.flushes_total(), 1);
+    assert_eq!(counters.retries_total(), 1);
     cancellation.cancel();
     task.await.unwrap().unwrap();
 }

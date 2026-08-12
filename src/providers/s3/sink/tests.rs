@@ -582,6 +582,7 @@ fn spawn_with_capacity(
         uploader as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         keep_system_columns,
+        3,
     )
     .unwrap();
     let task = tokio::spawn(Box::new(sink).run(SinkIo {
@@ -923,6 +924,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         false,
+        3,
     )
     .unwrap();
     let mut task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -994,6 +996,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
             uploader as Arc<dyn ObjectUploader>,
             Arc::new(SinkCounters::new()),
             false,
+            3,
         )
         .unwrap();
         let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1130,6 +1133,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         false,
+        3,
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1182,6 +1186,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         false,
+        3,
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1450,6 +1455,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
         Arc::clone(&uploader) as Arc<dyn ObjectUploader>,
         Arc::new(SinkCounters::new()),
         false,
+        3,
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1607,6 +1613,32 @@ async fn deterministic_routing_failure_is_non_retryable() {
         .expect("deterministic S3 routing errors must preserve their restart contract");
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("required system column"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn source_partition_mismatch_is_non_retryable_and_never_uploads() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
+    let mut invalid = delivery(&memory, 1, 4, 1_000, false).await;
+    let partition_index = invalid.outputs[0]
+        .system_columns
+        .get(SystemColumnKind::PartitionNum)
+        .expect("partition system column")
+        .index;
+    let mut columns = invalid.outputs[0].batch.columns().to_vec();
+    columns[partition_index] = Arc::new(Int64Array::from(vec![4]));
+    invalid.outputs[0].batch = RecordBatch::try_new(invalid.outputs[0].batch.schema(), columns)
+        .expect("valid mismatched batch");
+    tx.send(invalid).await.unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("partition mismatch must preserve its restart contract");
+    assert!(!failure.is_retryable());
+    assert!(error.to_string().contains("source partition mismatch"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
 }
 

@@ -28,6 +28,10 @@ impl fmt::Debug for S3CredentialsConfig {
 #[serde(deny_unknown_fields)]
 pub struct S3SinkConfig {
     pub bucket: String,
+    /// Version of the deterministic object key/payload/epoch contract. Keep
+    /// this pinned while uncommitted source data can replay.
+    #[serde(default = "default_object_layout_version")]
+    pub object_layout_version: u32,
     #[serde(default)]
     pub prefix: String,
     #[serde(default = "default_region")]
@@ -78,13 +82,13 @@ pub struct RotationConfig {
     pub record_time_interval: Option<DurationValue>,
     #[serde(default)]
     pub wall_clock_interval: Option<DurationValue>,
-    #[serde(default)]
-    pub on_partition_change: PartitionChange,
+    #[serde(default, alias = "on_partition_change")]
+    pub on_partition_path_change: PartitionPathChange,
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum PartitionChange {
+pub enum PartitionPathChange {
     Rotate,
     #[default]
     KeepOpen,
@@ -213,6 +217,12 @@ impl S3SinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
         anyhow::ensure!(
+            self.object_layout_version == default_object_layout_version(),
+            "unsupported s3.object_layout_version {}; this binary supports only version {}",
+            self.object_layout_version,
+            default_object_layout_version()
+        );
+        anyhow::ensure!(
             self.rotation.max_rows > 0,
             "s3.rotation.max_rows must be positive"
         );
@@ -315,10 +325,18 @@ impl S3SinkConfig {
     }
 
     pub fn build_store(&self) -> anyhow::Result<std::sync::Arc<dyn ObjectStore>> {
+        let store_retry = object_store::RetryConfig {
+            // Whole-object retry, jitter, cancellation and metrics are owned
+            // by `upload_with_retry`; hidden SDK attempts would multiply that
+            // budget and make the configured attempt count inaccurate.
+            max_retries: 0,
+            ..object_store::RetryConfig::default()
+        };
         let mut builder = object_store::aws::AmazonS3Builder::new()
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
-            .with_allow_http(self.allow_http);
+            .with_allow_http(self.allow_http)
+            .with_retry(store_retry);
         if let Some(endpoint) = &self.endpoint {
             builder = builder.with_endpoint(endpoint);
         }
@@ -338,7 +356,7 @@ impl Default for RotationConfig {
             max_bytes: default_max_object_bytes(),
             record_time_interval: None,
             wall_clock_interval: None,
-            on_partition_change: PartitionChange::default(),
+            on_partition_path_change: PartitionPathChange::default(),
         }
     }
 }
@@ -421,6 +439,9 @@ const fn default_initial_backoff() -> DurationValue {
 const fn default_max_backoff() -> DurationValue {
     DurationValue(Duration::from_secs(30))
 }
+const fn default_object_layout_version() -> u32 {
+    1
+}
 const fn default_max_attempts() -> usize {
     10
 }
@@ -444,6 +465,17 @@ mod tests {
             serde_yaml::from_str("bucket: test\nupload: { operation_timeout: 0ms }\n")?;
         let error = config.validate().expect_err("zero timeout must fail");
         assert!(error.to_string().contains("operation_timeout"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_unknown_object_layout_version() -> anyhow::Result<()> {
+        let config: S3SinkConfig =
+            serde_yaml::from_str("bucket: test\nobject_layout_version: 2\n")?;
+        let error = config
+            .validate()
+            .expect_err("unknown layout must not silently change replay semantics");
+        assert!(error.to_string().contains("object_layout_version"));
         Ok(())
     }
 

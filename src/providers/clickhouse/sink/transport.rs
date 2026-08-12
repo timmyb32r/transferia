@@ -105,7 +105,6 @@ const fn is_transient_server_error(error: &Severity) -> bool {
         Severity::Query(error) => matches!(
             error,
             ServerErrorCode::TimeoutExceeded
-                | ServerErrorCode::MemoryLimitExceeded
                 | ServerErrorCode::QueryWasCancelled
                 | ServerErrorCode::Aborted
         ),
@@ -161,6 +160,12 @@ mod tests {
 
     #[test]
     fn classifies_authentication_and_unknown_errors_as_permanent() {
+        assert!(matches!(
+            classify_insert_error(server_exception(Severity::Query(
+                ServerErrorCode::MemoryLimitExceeded
+            ))),
+            InsertError::Permanent(_)
+        ));
         assert!(matches!(
             classify_insert_error(server_exception(Severity::Protocol(
                 ServerErrorCode::WrongPassword

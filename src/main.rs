@@ -17,7 +17,9 @@ use transferia::parsers::Parser as DataParser;
 use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
 use transferia::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
-use transferia::pipeline::{run_partition_pipeline, PipelineFailure};
+use transferia::pipeline::{
+    run_partition_pipeline_with_progress, PipelineFailure, PipelineProgress,
+};
 use transferia::providers::traits::{
     ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
 };
@@ -63,6 +65,7 @@ async fn run_partition_attempt(
     parse_counters: Arc<ParseCounters>,
     sink_counters: Arc<SinkCounters>,
     attempt_token: CancellationToken,
+    progress: Arc<PipelineProgress>,
 ) -> anyhow::Result<()> {
     let memory = PipelineMemory::new(deps.memory_limit);
     let source = deps
@@ -79,7 +82,7 @@ async fn run_partition_attempt(
         })
         .await
         .context("sink creation failed")?;
-    run_partition_pipeline(
+    run_partition_pipeline_with_progress(
         source,
         Arc::clone(&deps.parser),
         Arc::clone(&deps.middlewares),
@@ -88,12 +91,12 @@ async fn run_partition_attempt(
         attempt_token,
         partition_id,
         parse_counters,
+        progress,
     )
     .await
 }
 
 const MAX_CONSECUTIVE_PIPELINE_FAILURES: u32 = 5;
-const STABLE_PIPELINE_ATTEMPT: core::time::Duration = core::time::Duration::from_mins(1);
 const INITIAL_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(1);
 const MAX_PARTITION_RESTART_DELAY: core::time::Duration = core::time::Duration::from_secs(30);
 
@@ -113,9 +116,9 @@ impl PartitionRestartPolicy {
 
     fn record_failure(
         &mut self,
-        attempt_runtime: core::time::Duration,
+        made_durable_progress: bool,
     ) -> Option<(u32, core::time::Duration)> {
-        if attempt_runtime >= STABLE_PIPELINE_ATTEMPT {
+        if made_durable_progress {
             self.consecutive_failures = 0;
             self.next_delay = INITIAL_PARTITION_RESTART_DELAY;
         }
@@ -141,19 +144,21 @@ async fn run_partition_task(
 ) -> anyhow::Result<()> {
     let mut restart_policy = PartitionRestartPolicy::new();
     let retry_seed = stable_retry_seed(&partition_id.to_le_bytes());
+    let progress = Arc::new(PipelineProgress::new());
 
     loop {
         if deps.cancellation.is_cancelled() {
             return Ok(());
         }
         let attempt_token = deps.cancellation.child_token();
-        let attempt_started = tokio::time::Instant::now();
+        let progress_checkpoint = progress.checkpoint();
         let result = run_partition_attempt(
             partition_id,
             &deps,
             Arc::clone(&parse_counters),
             Arc::clone(&sink_counters),
             attempt_token.clone(),
+            Arc::clone(&progress),
         )
         .await;
         // PQ background tasks are children of this token and must never
@@ -172,7 +177,7 @@ async fn run_partition_task(
             return Err(error).context("non-retryable partition failure");
         }
         let Some((consecutive_failure, base_restart_delay)) =
-            restart_policy.record_failure(attempt_started.elapsed())
+            restart_policy.record_failure(progress.advanced_since(progress_checkpoint))
         else {
             return Err(error).context(format!(
                 "partition pipeline exhausted {MAX_CONSECUTIVE_PIPELINE_FAILURES} consecutive failures"
@@ -432,36 +437,34 @@ mod tests {
 
         for expected_failure in 1..MAX_CONSECUTIVE_PIPELINE_FAILURES {
             let (failure, _) = policy
-                .record_failure(core::time::Duration::from_secs(1))
+                .record_failure(false)
                 .expect("short failure streak should still be retryable");
             assert_eq!(failure, expected_failure);
         }
         assert!(
-            policy
-                .record_failure(core::time::Duration::from_secs(1))
-                .is_none(),
+            policy.record_failure(false).is_none(),
             "the fifth consecutive failure must exhaust the restart budget"
         );
     }
 
     #[test]
-    fn stable_partition_attempt_resets_failure_streak_and_backoff() {
+    fn durable_progress_resets_failure_streak_and_backoff() {
         let mut policy = PartitionRestartPolicy::new();
         for _ in 0..(MAX_CONSECUTIVE_PIPELINE_FAILURES - 1) {
             policy
-                .record_failure(core::time::Duration::from_secs(1))
+                .record_failure(false)
                 .expect("precondition failure should be retryable");
         }
 
         let (failure, delay) = policy
-            .record_failure(STABLE_PIPELINE_ATTEMPT)
-            .expect("failure after stable operation starts a new streak");
+            .record_failure(true)
+            .expect("failure after durable progress starts a new streak");
 
         assert_eq!(failure, 1);
         assert_eq!(delay, INITIAL_PARTITION_RESTART_DELAY);
         for expected_failure in 2..MAX_CONSECUTIVE_PIPELINE_FAILURES {
             let (failure, _) = policy
-                .record_failure(core::time::Duration::from_secs(1))
+                .record_failure(false)
                 .expect("new failure streak should have a fresh budget");
             assert_eq!(failure, expected_failure);
         }
@@ -474,7 +477,7 @@ mod tests {
             r"
 source:
   pqv1:
-    connection_string: grpc://localhost
+    discovery_endpoint: grpc://localhost
     topic_path: topic
     consumer_name: consumer
     partition_ids: [0]
