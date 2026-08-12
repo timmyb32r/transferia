@@ -1,0 +1,82 @@
+use arrow::array::{ArrayRef, Int64Array, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
+use std::sync::Arc;
+
+use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat};
+use super::schema::{parse_schema, schema_to_yt};
+use super::sink::{encode_arrow, encode_yson, validate_row_weight};
+use crate::types::schema::{DatasetSchema, SchemaColumn};
+
+#[test]
+fn configs_require_explicit_trust_and_explicit_names() -> anyhow::Result<()> {
+    let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "endpoint: http://localhost:8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
+    )?;
+    source.validate()?;
+    assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "endpoint: http://localhost:8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+    )?
+    .validate()
+    .is_err());
+    assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "endpoint: http://localhost:8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: relative\n"
+    )?
+    .validate()
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
+    let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "endpoint: http://localhost:8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: //tmp/events\n",
+    )?;
+    assert_eq!(config.format, YTsaurusWriteFormat::Arrow);
+    Ok(())
+}
+
+#[test]
+fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false),
+        SchemaColumn::new("name".into(), DataType::Utf8, true),
+    ]);
+    let encoded = schema_to_yt(&schema)?;
+    let response = serde_json::json!({
+        "$attributes": { "strict": true },
+        "$value": encoded
+    });
+    let parsed = parse_schema(response)?;
+    assert_eq!(parsed.columns.len(), 2);
+    assert_eq!(parsed.columns[0].data_type, DataType::Int64);
+    assert_eq!(parsed.columns[1].data_type, DataType::Utf8);
+
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, true),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![1, 2])) as ArrayRef,
+            Arc::new(StringArray::from(vec![Some("alice"), None])) as ArrayRef,
+        ],
+    )?;
+    validate_row_weight(&batch)?;
+    assert!(!encode_arrow(&batch)?.is_empty());
+    assert_eq!(
+        encode_yson(&batch)?,
+        b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
+    );
+    Ok(())
+}
+
+#[test]
+fn unsupported_types_and_invalid_names_fail_before_runtime() {
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "@internal".into(),
+        DataType::Decimal128(20, 2),
+        false,
+    )]);
+    assert!(schema_to_yt(&schema).is_err());
+}

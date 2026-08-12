@@ -9,7 +9,7 @@ use tokio::signal;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use transferia::compatibility::validate_pipeline;
+use transferia::compatibility::{validate_pipeline, SourceBehavior};
 use transferia::config::yaml::Config;
 use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
 use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
@@ -58,6 +58,7 @@ struct PipelineDeps {
     memory_limit: usize,
     cancellation: CancellationToken,
     keep_system_columns: bool,
+    finite_source: bool,
 }
 
 async fn run_partition_attempt(
@@ -159,10 +160,12 @@ async fn run_partition_task(
         // survive into the next attempt.
         attempt_token.cancel();
 
-        let error = match result {
-            Ok(()) if deps.cancellation.is_cancelled() => return Ok(()),
-            Ok(()) => anyhow::anyhow!("partition pipeline stopped unexpectedly"),
-            Err(error) => error,
+        let Some(error) = classify_partition_completion(
+            result,
+            deps.cancellation.is_cancelled(),
+            deps.finite_source,
+        ) else {
+            return Ok(());
         };
         let retryable = error
             .downcast_ref::<PipelineFailure>()
@@ -188,6 +191,20 @@ async fn run_partition_task(
             () = deps.cancellation.cancelled() => return Ok(()),
             () = tokio::time::sleep(restart_delay) => {}
         }
+    }
+}
+
+fn classify_partition_completion(
+    result: anyhow::Result<()>,
+    cancelled: bool,
+    finite_source: bool,
+) -> Option<anyhow::Error> {
+    match result {
+        Ok(()) if cancelled || finite_source => None,
+        Ok(()) => Some(anyhow::Error::msg(
+            "partition pipeline stopped unexpectedly",
+        )),
+        Err(error) => Some(error),
     }
 }
 
@@ -230,6 +247,17 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             ))
         }
     });
+    registry.register_source("ytsaurus", {
+        let registry = Arc::clone(metrics_registry);
+        move |value| {
+            Ok(Box::new(
+                transferia::providers::ytsaurus::YTsaurusSourceProvider::from_config(
+                    value,
+                    Arc::clone(&registry),
+                )?,
+            ))
+        }
+    });
     registry.register_sink("clickhouse", |value| {
         Ok(Box::new(
             transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
@@ -248,6 +276,11 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
     registry.register_sink("postgres", |value| {
         Ok(Box::new(
             transferia::providers::postgres::PostgresSinkProvider::from_config(value)?,
+        ))
+    });
+    registry.register_sink("ytsaurus", |value| {
+        Ok(Box::new(
+            transferia::providers::ytsaurus::YTsaurusSinkProvider::from_config(value)?,
         ))
     });
     registry
@@ -340,6 +373,9 @@ async fn main() -> anyhow::Result<()> {
 
     let cancellation = CancellationToken::new();
     spawn_shutdown_listener(cancellation.clone())?;
+    let source_descriptor = source_provider.compatibility();
+    let finite_source =
+        source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
     let discovery = source_provider
         .delivery_discovery(
             DeliveryDiscoveryRequest {
@@ -359,7 +395,7 @@ async fn main() -> anyhow::Result<()> {
         .collect::<anyhow::Result<Vec<_>>>()?;
     validate_middlewares(&middlewares, &discovery)?;
     let semantics = validate_discovered_pipeline(
-        &source_provider.compatibility(),
+        &source_descriptor,
         &sink_provider.compatibility(),
         sink_provider.limits(),
         &discovery,
@@ -404,6 +440,7 @@ async fn main() -> anyhow::Result<()> {
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
         keep_system_columns: config.keep_system_columns_in_sink,
+        finite_source,
     };
     let mut tasks = JoinSet::new();
     for partition_id in partitions {
@@ -432,6 +469,7 @@ async fn main() -> anyhow::Result<()> {
         };
         match result {
             Ok(Ok(())) if cancellation.is_cancelled() => {}
+            Ok(Ok(())) if finite_source => {}
             Ok(Ok(())) => {
                 stop_partition_tasks(&mut tasks, &cancellation).await;
                 anyhow::bail!("partition task stopped while the service was still running");

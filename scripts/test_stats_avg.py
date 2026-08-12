@@ -36,6 +36,18 @@ def postgres_stats_line() -> str:
     )
 
 
+def ytsaurus_stats_line() -> str:
+    return (
+        "2026-08-13 INFO [stats p=0] source: 300 msg/s | comp 0 B/s | "
+        "decomp 4.0 MiB/s | response-wait 0% | decomp 0% busy || "
+        "parse: 300 rows/s | 4.0 MiB/s arrow | 0 dlq/s | "
+        "300 source-msg/s | 0% busy || sink: 300 rows/s | 4.0 MiB/s | "
+        "2 flushes/s | 300 source-msg/s | 55% busy | 0 retries | "
+        "buffered 0 B | objects 0/0/0 | 0% backpressure || "
+        "guarantee: at-least-once | cpu: 10% rss: 80 MiB\n"
+    )
+
+
 class StatsAverageTest(unittest.TestCase):
     def test_aggregates_pqv1_to_clickhouse_logs(self):
         samples = STATS.read_samples(
@@ -69,6 +81,13 @@ class StatsAverageTest(unittest.TestCase):
         self.assertEqual(averages["source_messages_per_s"], 40000)
         self.assertEqual(averages["sink_rows_per_s"], 40000)
         self.assertEqual(averages["sink_busy_percent"], 65)
+
+    def test_aggregates_native_ytsaurus_provider_logs(self):
+        averages = STATS.average_samples(STATS.read_samples([ytsaurus_stats_line()]))
+
+        self.assertEqual(averages["source_messages_per_s"], 300)
+        self.assertEqual(averages["sink_rows_per_s"], 300)
+        self.assertEqual(averages["sink_busy_percent"], 55)
 
 
 if __name__ == "__main__":

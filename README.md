@@ -5,14 +5,14 @@ creates one logical pipeline and sink actor per PQv1 partition, while providers
 share expensive connection pools and upload clients:
 
 ```text
-PQv1 -> JSON parser -> middlewares -> ClickHouse | S3
-     \-> benchmark discard modes ----------> discard sink
+PQv1 / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
+                                                    -> ClickHouse | PostgreSQL | S3 | YTsaurus
 ```
 
 Source and sink providers are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers the `pqv1` and
-finite-snapshot `postgres` sources, durable `clickhouse`, `postgres`, and `s3`
-sinks, and the non-durable `discard` sink used by
+kinds are validated explicitly. The executable registers `pqv1` plus
+finite-snapshot `postgres` and static-table `ytsaurus` sources; `clickhouse`,
+`postgres`, `s3`, and `ytsaurus` sinks; and the non-durable `discard` sink used by
 explicit benchmark configurations.
 
 ## Quality checks
@@ -133,6 +133,24 @@ transferia --config ./config.yaml --total-workers 1 --worker-index 0
 
 YAML supports environment expansion. Byte sizes accept `B`, `KiB`, `MiB`,
 and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
+
+### YTsaurus static tables
+
+YTsaurus source mappings always require both `path` and `output_name`; sink
+mappings always require both `dataset` and `path`. The runtime never derives,
+renames, escapes, truncates, or hashes identifiers. Discovery rejects dynamic
+tables, unsupported or drifting schemas, duplicate mappings, column names over
+256 characters, reserved `@` column names, and unsupported Arrow types before
+workers start. Representative configs are
+`config_ytsaurus_source_to_clickhouse.yaml` and `config_ytsaurus_sink.yaml`.
+
+The YTsaurus sink appends to static tables. `format: arrow` is the default and
+uses Arrow IPC streaming directly; `format: yson` is an explicit alternative
+for benchmarking. `replace_tables: true` is an explicit destructive setup
+choice that removes and recreates mapped tables. With `replace_tables: false`,
+the tables must already exist with exactly the discovered schema. Every runtime
+batch is revalidated, including the 128MiB static-row limit, before any write.
+Completion is at-least-once: an ambiguous append can be replayed and duplicated.
 
 ## Semantics
 

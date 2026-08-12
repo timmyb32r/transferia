@@ -170,6 +170,7 @@ pub struct TextLimit {
 #[serde(rename_all = "snake_case")]
 pub enum ArrowTypeFamily {
     Utf8,
+    Binary,
     SignedInteger,
     UnsignedInteger,
     FloatingPoint,

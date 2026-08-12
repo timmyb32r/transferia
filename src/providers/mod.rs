@@ -4,3 +4,4 @@ pub mod postgres;
 pub mod pqv1;
 pub mod s3;
 pub mod traits;
+pub mod ytsaurus;

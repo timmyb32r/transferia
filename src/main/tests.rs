@@ -111,6 +111,12 @@ fn durable_progress_resets_failure_streak_and_backoff() {
 }
 
 #[test]
+fn finite_source_completion_is_not_restarted() {
+    assert!(classify_partition_completion(Ok(()), false, true).is_none());
+    assert!(classify_partition_completion(Ok(()), false, false).is_some());
+}
+
+#[test]
 fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
     let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
     let config: Config = serde_yaml::from_str(
@@ -228,6 +234,31 @@ fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Resu
             transferia::compatibility::EndpointDescriptor::ClickHouse
                 | transferia::compatibility::EndpointDescriptor::S3(_)
         ));
+    }
+    Ok(())
+}
+
+#[test]
+fn ytsaurus_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
+    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    for relative_path in [
+        "config_ytsaurus_source_to_clickhouse.yaml",
+        "config_ytsaurus_sink.yaml",
+    ] {
+        let config = Config::from_file(&format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR")))?;
+        let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
+        let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+        if relative_path.contains("source") {
+            assert!(matches!(
+                source.compatibility(),
+                transferia::compatibility::EndpointDescriptor::YTsaurus(_)
+            ));
+        } else {
+            assert!(matches!(
+                sink.compatibility(),
+                transferia::compatibility::EndpointDescriptor::YTsaurusSink
+            ));
+        }
     }
     Ok(())
 }

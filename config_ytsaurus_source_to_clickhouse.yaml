@@ -1,0 +1,13 @@
+source:
+  ytsaurus:
+    endpoint: http://localhost:8000
+    trusted_plaintext: true
+    batch_rows: 65536
+    tables:
+      - path: //tmp/events
+        output_name: events
+sink:
+  clickhouse:
+    endpoint: localhost:9000
+    trusted_plaintext: true
+keep_system_columns_in_sink: false

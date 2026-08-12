@@ -12,11 +12,29 @@ use crate::types::system_columns::SystemColumnKind;
 pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
     Postgres(SourceDescriptor),
+    YTsaurus(SourceDescriptor),
     PostgresSink,
+    YTsaurusSink,
     ClickHouse,
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
     Discard,
+}
+
+impl EndpointDescriptor {
+    #[must_use]
+    pub const fn source_behavior(&self) -> Option<SourceBehavior> {
+        match self {
+            Self::PqV1(source) | Self::Postgres(source) | Self::YTsaurus(source) => {
+                Some(source.behavior)
+            }
+            Self::PostgresSink
+            | Self::YTsaurusSink
+            | Self::ClickHouse
+            | Self::S3(_)
+            | Self::Discard => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +94,7 @@ pub enum DiagnosticCode {
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
     PostgresAtLeastOnce,
+    YTsaurusAtLeastOnce,
     BenchmarkDiscard,
     BenchmarkSourceDiscard,
 }
@@ -173,6 +192,18 @@ pub fn validate_pipeline(
                 config_paths: vec!["sink.postgres".into()],
                 explanation: "PostgreSQL COPY completion precedes source progress commit, so a retry after an ambiguous COPY result may duplicate rows".into(),
                 remediation: Some("include a user-defined idempotency key and enforce it at the destination when duplicate-free final state is required".into()),
+            }],
+        };
+    }
+    if matches!(sink, EndpointDescriptor::YTsaurusSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::YTsaurusAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.ytsaurus".into()],
+                explanation: "YTsaurus append completion precedes source progress commit, so a retry after an ambiguous write may duplicate rows".into(),
+                remediation: Some("include a user-defined idempotency key when duplicate-free final state is required".into()),
             }],
         };
     }
