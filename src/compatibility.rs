@@ -13,6 +13,7 @@ pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
+    ClickHouseSource(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
     ClickHouse,
@@ -25,9 +26,10 @@ impl EndpointDescriptor {
     #[must_use]
     pub const fn source_behavior(&self) -> Option<SourceBehavior> {
         match self {
-            Self::PqV1(source) | Self::Postgres(source) | Self::YTsaurus(source) => {
-                Some(source.behavior)
-            }
+            Self::PqV1(source)
+            | Self::Postgres(source)
+            | Self::YTsaurus(source)
+            | Self::ClickHouseSource(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::ClickHouse

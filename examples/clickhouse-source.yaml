@@ -1,0 +1,22 @@
+source:
+  clickhouse:
+    endpoint: localhost:9000
+    trusted_plaintext: true
+    tables:
+      - database: default
+        name: events
+        output_name: events
+        order_by: [id]
+sink:
+  s3:
+    bucket: clickhouse-snapshots
+    region: us-east-1
+    prefix: snapshots
+    object_layout_version: 4
+    partitioning: source
+    rotation:
+      max_rows: 100000
+      max_bytes: 67108864
+      max_epoch_bytes: 134217728
+pipeline:
+  memory_limit_bytes: 268435456

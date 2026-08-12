@@ -7,7 +7,7 @@ use clickhouse_arrow::{
     ArrowFormat, Client, ClientBuilder, ConnectionStatus, Error as ClickHouseError,
     Result as ClickHouseResult,
 };
-use futures_util::StreamExt as _;
+use futures_util::{Stream, StreamExt as _};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::timeout;
@@ -16,7 +16,7 @@ use super::ClickHouseSinkConfig;
 
 type ConnectTask = JoinHandle<ClickHouseResult<Client<ArrowFormat>>>;
 
-pub(super) struct ReconnectingClient {
+pub struct ReconnectingClient {
     builder: ClientBuilder,
     client: Mutex<Option<Client<ArrowFormat>>>,
     reconnect: AsyncMutex<()>,
@@ -25,15 +25,60 @@ pub(super) struct ReconnectingClient {
     request_timeout: Duration,
 }
 
+pub struct QueryStream {
+    response: std::pin::Pin<Box<dyn Stream<Item = ClickHouseResult<RecordBatch>> + Send + 'static>>,
+    owner: std::sync::Arc<ReconnectingClient>,
+    client_id: u16,
+    active: bool,
+}
+
+impl Stream for QueryStream {
+    type Item = ClickHouseResult<RecordBatch>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        context: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let result = self.response.as_mut().poll_next(context);
+        match &result {
+            std::task::Poll::Ready(None) => self.active = false,
+            std::task::Poll::Ready(Some(Err(_))) => {
+                self.active = false;
+                self.owner.invalidate(self.client_id);
+            }
+            _ => {}
+        }
+        result
+    }
+}
+
+impl Drop for QueryStream {
+    fn drop(&mut self) {
+        if self.active {
+            self.owner.invalidate(self.client_id);
+        }
+    }
+}
+
 impl ReconnectingClient {
     pub(super) fn new(config: &ClickHouseSinkConfig) -> Self {
-        let connect_timeout = config.connect_timeout();
-        let request_timeout = config.request_timeout();
+        Self::from_connection(
+            configured_builder(config),
+            config.connect_timeout(),
+            config.request_timeout(),
+        )
+    }
+
+    pub(crate) fn from_connection(
+        builder: ClientBuilder,
+        connect_timeout: Duration,
+        request_timeout: Duration,
+    ) -> Self {
         Self {
             // Keep the hostname-bearing, unverified builder. `clickhouse-arrow::verify`
             // replaces it with resolved socket addresses, so caching a verified builder
             // would pin every reconnect to the DNS answer observed at process startup.
-            builder: configured_builder(config),
+            builder,
             client: Mutex::new(None),
             reconnect: AsyncMutex::new(()),
             connect_task: AsyncMutex::new(None),
@@ -87,7 +132,7 @@ impl ReconnectingClient {
         result
     }
 
-    pub(super) async fn query_all(&self, query: &str) -> ClickHouseResult<Vec<RecordBatch>> {
+    pub(crate) async fn query_all(&self, query: &str) -> ClickHouseResult<Vec<RecordBatch>> {
         let client = self.client().await?;
         let client_id = client.client_id;
         let mut invalidate = InvalidateOnDrop::new(self, client_id);
@@ -107,7 +152,24 @@ impl ReconnectingClient {
         result
     }
 
-    pub(super) async fn ensure_connected(&self) -> ClickHouseResult<()> {
+    pub(crate) async fn query_stream(
+        self: &std::sync::Arc<Self>,
+        query: &str,
+    ) -> ClickHouseResult<QueryStream> {
+        let client = self.client().await?;
+        let client_id = client.client_id;
+        let response = timeout(self.request_timeout, client.query(query, None))
+            .await
+            .map_err(|_| self.request_timeout_error("ClickHouse snapshot query"))??;
+        Ok(QueryStream {
+            response: Box::pin(response),
+            owner: std::sync::Arc::clone(self),
+            client_id,
+            active: true,
+        })
+    }
+
+    pub(crate) async fn ensure_connected(&self) -> ClickHouseResult<()> {
         drop(self.client().await?);
         Ok(())
     }
@@ -288,7 +350,7 @@ fn configured_builder(config: &ClickHouseSinkConfig) -> ClientBuilder {
         .with_tls(false)
 }
 
-pub(super) fn quote_identifier(identifier: &str) -> String {
+pub fn quote_identifier(identifier: &str) -> String {
     let mut quoted = String::with_capacity(identifier.len() + 2);
     quoted.push('`');
     for character in identifier.chars() {

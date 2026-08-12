@@ -1,9 +1,9 @@
 mod actor;
-mod client;
+pub(crate) mod client;
 mod config;
-mod identifier;
+pub(crate) mod identifier;
 mod provider;
-mod table;
+pub(crate) mod table;
 mod transport;
 
 #[cfg(test)]

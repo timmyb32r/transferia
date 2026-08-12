@@ -470,7 +470,7 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
     })
 }
 
-fn quote_string_literal(value: &str) -> String {
+pub fn quote_string_literal(value: &str) -> String {
     let mut quoted = String::with_capacity(value.len() + 2);
     quoted.push('\'');
     for character in value.chars() {

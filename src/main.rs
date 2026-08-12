@@ -258,6 +258,17 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             ))
         }
     });
+    registry.register_source("clickhouse", {
+        let registry = Arc::clone(metrics_registry);
+        move |value| {
+            Ok(Box::new(
+                transferia::providers::clickhouse::ClickHouseSourceProvider::from_config(
+                    value,
+                    Arc::clone(&registry),
+                )?,
+            ))
+        }
+    });
     registry.register_sink("clickhouse", |value| {
         Ok(Box::new(
             transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,

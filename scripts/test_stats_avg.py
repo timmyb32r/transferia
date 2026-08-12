@@ -48,6 +48,18 @@ def ytsaurus_stats_line() -> str:
     )
 
 
+def clickhouse_source_stats_line() -> str:
+    return (
+        "2026-08-13 INFO [stats p=0] source: 20000 msg/s | comp 0 B/s | "
+        "decomp 16.0 MiB/s | response-wait 65% | decomp 0% busy || "
+        "parse: 20000 rows/s | 16.0 MiB/s arrow | 0 dlq/s | "
+        "20000 source-msg/s | 4% busy || sink: 20000 rows/s | 12.0 MiB/s | "
+        "3 flushes/s | 20000 source-msg/s | 50% busy | 0 retries | "
+        "buffered 0 B | objects 0/0/0 | 0% backpressure || "
+        "guarantee: at-least-once | cpu: 45% rss: 160 MiB\n"
+    )
+
+
 class StatsAverageTest(unittest.TestCase):
     def test_aggregates_pqv1_to_clickhouse_logs(self):
         samples = STATS.read_samples(
@@ -88,6 +100,14 @@ class StatsAverageTest(unittest.TestCase):
         self.assertEqual(averages["source_messages_per_s"], 300)
         self.assertEqual(averages["sink_rows_per_s"], 300)
         self.assertEqual(averages["sink_busy_percent"], 55)
+
+    def test_aggregates_native_clickhouse_source_logs(self):
+        averages = STATS.average_samples(
+            STATS.read_samples([clickhouse_source_stats_line()])
+        )
+
+        self.assertEqual(averages["source_messages_per_s"], 20000)
+        self.assertEqual(averages["response_wait_percent"], 65)
 
 
 if __name__ == "__main__":
