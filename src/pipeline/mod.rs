@@ -29,7 +29,7 @@ use crate::types::message::Message;
 use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
-const MAX_PARSER_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
+const MAX_PARSER_DELIVERY_BYTES: usize = crate::parsers::json_parser::parser::MAX_DELIVERY_BYTES;
 const INITIAL_BACKOFF_MS: u64 = 10;
 const MAX_BACKOFF_MS: u64 = 30_000;
 const SINK_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
@@ -199,17 +199,30 @@ fn parser_loop(
             meta,
         } = envelope;
         let output_bound = parser.output_memory_bound(&messages);
-        anyhow::ensure!(
-            output_bound <= MAX_PARSER_DELIVERY_BYTES,
-            "parser delivery {} requires up to {output_bound} bytes, exceeding the hard per-delivery parser limit of {MAX_PARSER_DELIVERY_BYTES} bytes; reduce source read size, mapping width, or record size",
-            id.get(),
-        );
-        let parse_memory =
-            (!messages.is_empty()).then(|| memory.account_active_transform(output_bound));
+        let parse_memory = if messages.is_empty() {
+            None
+        } else {
+            Some(runtime.block_on(async {
+                tokio::select! {
+                    reservation = memory.admit_active_transform(
+                        output_bound.min(MAX_PARSER_DELIVERY_BYTES)
+                    ) => Some(reservation),
+                    () = cancellation.cancelled() => None,
+                }
+            }))
+            .flatten()
+        };
+        if !messages.is_empty() && parse_memory.is_none() {
+            return Ok(());
+        }
         let started = std::time::Instant::now();
         let (valid, dlq) = parser
             .parse_into(messages)
             .map_err(|error| anyhow::anyhow!("parser failed for delivery {}: {error}", id.get()))?;
+
+        // Parsing materializes owned Arrow arrays, so the source buffers can
+        // be released before middleware allocates any additional output.
+        drop(source_memory);
         let valid = apply_middlewares(valid, middlewares).map_err(|error| {
             anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
         })?;
@@ -225,18 +238,31 @@ fn parser_loop(
             counters.add_dlq_rows(dlq.batch.num_rows() as u64);
         }
 
-        // Source buffers are no longer needed after parse. Release them before
-        // waiting for Arrow capacity, avoiding a transform-stage deadlock.
-        drop(source_memory);
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
         let has_output = valid.batch.num_rows() > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
         anyhow::ensure!(
-            !has_output || output_bytes <= output_bound,
-            "parser output exceeded its pre-accounted memory bound: actual {output_bytes}, bound {output_bound}"
+            !has_output || output_bytes <= MAX_PARSER_DELIVERY_BYTES,
+            "parser delivery {} materialized {output_bytes} bytes, exceeding the hard per-delivery parser limit of {MAX_PARSER_DELIVERY_BYTES} bytes; reduce source read size, mapping width, or record size",
+            id.get(),
         );
-        let output_memory = has_output.then(|| memory.reserve_transform(output_bytes));
-        drop(parse_memory);
+        if has_output && output_bytes > output_bound {
+            tracing::warn!(
+                delivery_id = id.get(),
+                actual_bytes = output_bytes,
+                estimated_bytes = output_bound,
+                "parser output exceeded its admission estimate; accounting exact output",
+            );
+        }
+        let output_memory = match (has_output, parse_memory) {
+            (true, Some(reservation)) => Some(reservation.finish(output_bytes)),
+            (false, Some(reservation)) => {
+                drop(reservation);
+                None
+            }
+            (false, None) => None,
+            (true, None) => Some(memory.reserve_transform(output_bytes)),
+        };
         let mut outputs = Vec::with_capacity(2);
         if let Some(batch) = output_memory
             .as_ref()
@@ -708,10 +734,43 @@ pub async fn run_partition_pipeline_with_progress(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::array::Int64Array;
+    use arrow::datatypes::{Field, Schema};
 
     struct RecordingSource {
         groups: Arc<std::sync::Mutex<Vec<Vec<i64>>>>,
         fail_commit: bool,
+    }
+
+    struct OverestimatedSession;
+
+    impl ParserSession for OverestimatedSession {
+        fn output_memory_bound(&self, _messages: &[Message]) -> usize {
+            MAX_PARSER_DELIVERY_BYTES.saturating_mul(2)
+        }
+
+        fn parse_into(
+            &mut self,
+            _messages: Vec<Message>,
+        ) -> anyhow::Result<(TableData, Option<TableData>)> {
+            let batch = RecordBatch::try_new(
+                Arc::new(Schema::new(vec![Field::new(
+                    "value",
+                    arrow::datatypes::DataType::Int64,
+                    false,
+                )])),
+                vec![Arc::new(Int64Array::from(vec![1_i64]))],
+            )?;
+            Ok((
+                TableData::new(
+                    "events".into(),
+                    false,
+                    batch,
+                    crate::types::system_columns::SystemColumns::default(),
+                ),
+                None,
+            ))
+        }
     }
 
     impl Source for RecordingSource {
@@ -757,6 +816,42 @@ mod tests {
             .downcast_ref::<PipelineFailure>()
             .expect("parser timeout must preserve its restart contract");
         assert!(!failure.is_retryable());
+    }
+
+    #[test]
+    fn conservative_parser_estimate_is_not_a_correctness_rejection() {
+        let memory = PipelineMemory::new(1024);
+        let cancellation = CancellationToken::new();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let (input_tx, input_rx) = mpsc::channel(1);
+        let (output_tx, mut output_rx) = mpsc::channel(1);
+        input_tx
+            .blocking_send(ReadEnvelope {
+                id: DeliveryId::new(1),
+                messages: vec![Message::new(bytes::Bytes::from_static(b"{}"))],
+                memory: Vec::new(),
+                meta: DeliveryMeta { source_messages: 1 },
+            })
+            .unwrap();
+        drop(input_tx);
+        let mut parser = OverestimatedSession;
+
+        parser_loop(
+            input_rx,
+            &output_tx,
+            &mut parser,
+            &[],
+            &memory,
+            &ParseCounters::new(),
+            &cancellation,
+            runtime.handle(),
+        )
+        .unwrap();
+
+        let delivery = output_rx
+            .blocking_recv()
+            .expect("delivery must be produced");
+        assert_eq!(delivery.outputs[0].rows(), 1);
     }
 
     #[tokio::test]

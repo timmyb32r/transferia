@@ -189,7 +189,10 @@ runtime contract and unimplemented design options.
 Parser failures are written to the DLQ with the original payload encoded in
 `raw_base64`; this is lossless for arbitrary non-UTF-8 source bytes. DLQ rows
 also store deterministic `source_write_timestamp_ms`, never parser wall-clock
-time. These semantics are part of S3 `object_layout_version: 3`.
+time. To keep parser allocation bounded, a delivery whose conservative output
+working set exceeds 256MiB, or which contains a JSON record larger than 4MiB,
+is preserved unparsed in the DLQ with an explicit safety-limit reason. These
+semantics are part of S3 `object_layout_version: 3`.
 For ClickHouse, DLQ schema changes are intentionally fail-closed: create a new
 empty `<table>_dlq` with the current schema (or move the old table aside).
 

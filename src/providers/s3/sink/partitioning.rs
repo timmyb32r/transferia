@@ -179,9 +179,28 @@ fn record_time_path(slot: i64, path: &str, timezone: Tz) -> anyhow::Result<Arc<s
         .timestamp_millis_opt(slot)
         .single()
         .ok_or_else(|| anyhow::anyhow!("timestamp {slot}ms is out of range"))?;
-    Ok(Arc::from(
-        instant.with_timezone(&timezone).format(path).to_string(),
-    ))
+    let items = chrono::format::StrftimeItems::new(path)
+        .parse()
+        .map_err(|error| anyhow::anyhow!("invalid record-time path format '{path}': {error}"))?;
+    let mut rendered = String::new();
+    instant
+        .with_timezone(&timezone)
+        .format_with_items(items.iter())
+        .write_to(&mut rendered)
+        .map_err(|_| anyhow::anyhow!("record-time path '{path}' could not be formatted"))?;
+    validate_partition_path(&rendered)?;
+    Ok(Arc::from(rendered))
+}
+
+pub(super) fn validate_partition_path(path: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(!path.is_empty(), "partition path must not be empty");
+    anyhow::ensure!(
+        !path.starts_with('/') && !path.ends_with('/'),
+        "partition path must be relative and must not have an empty edge segment"
+    );
+    object_store::path::Path::parse(path)
+        .map(|_| ())
+        .map_err(|error| anyhow::anyhow!("invalid partition path '{path}': {error}"))
 }
 
 struct RouteColumns<'batch> {
@@ -356,4 +375,23 @@ pub fn percent_encode(value: &[u8]) -> String {
         }
     }
     encoded
+}
+
+#[cfg(test)]
+mod record_time_path_tests {
+    use super::*;
+
+    #[test]
+    fn dynamic_empty_record_time_segment_is_rejected_without_panicking() {
+        let error = record_time_path(0, "fraction/%.f/end", chrono_tz::UTC)
+            .expect_err("whole-second timestamp must not create an empty path segment");
+        assert!(error.to_string().contains("invalid partition path"));
+    }
+
+    #[test]
+    fn default_record_time_path_is_valid() -> anyhow::Result<()> {
+        let path = record_time_path(0, "dt=%Y-%m-%d/hour=%H", chrono_tz::UTC)?;
+        assert_eq!(path.as_ref(), "dt=1970-01-01/hour=00");
+        Ok(())
+    }
 }

@@ -34,25 +34,6 @@ pub enum ChunkSplitter {
 }
 
 impl ChunkSplitter {
-    /// Split a completed chunk into non-empty records.
-    #[must_use]
-    pub fn split_into_records(self, buf: &[u8]) -> Vec<&[u8]> {
-        match self {
-            Self::OneMessageOneRow => vec![buf],
-            Self::NewLine if !buf.contains(&b'\n') => {
-                if buf.is_empty() {
-                    Vec::new()
-                } else {
-                    vec![buf]
-                }
-            }
-            Self::NewLine => buf
-                .split(|&byte| byte == b'\n')
-                .filter(|line| !line.is_empty())
-                .collect(),
-        }
-    }
-
     /// Count records without allocating a `Vec`.
     #[must_use]
     pub fn count_records(self, buf: &[u8]) -> usize {

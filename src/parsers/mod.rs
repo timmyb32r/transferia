@@ -22,9 +22,9 @@ pub trait ParserFactory: Send + Sync {
 
 /// Mutable parser state owned by exactly one partition parser thread.
 pub trait ParserSession: Send {
-    /// Conservative Arrow/DLQ allocation bound used to account transform memory
-    /// before builders allocate it. The pipeline validates the materialized parser
-    /// output against this bound.
+    /// Conservative parser/Arrow/DLQ allocation estimate used for transform
+    /// admission before builders allocate. The pipeline accounts the exact
+    /// materialized output afterwards; an estimate is never a correctness gate.
     fn output_memory_bound(&self, messages: &[Message]) -> usize;
 
     fn parse_into(

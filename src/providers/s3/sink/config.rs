@@ -1,6 +1,8 @@
 use core::fmt;
 use std::time::Duration;
 
+use chrono::format::StrftimeItems;
+use chrono::TimeZone as _;
 use object_store::ObjectStore;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
@@ -307,9 +309,29 @@ impl S3SinkConfig {
                     "s3.partitioning.window must be positive"
                 );
                 anyhow::ensure!(!path.is_empty(), "s3.partitioning.path must not be empty");
-                let _: chrono_tz::Tz = timezone
+                let items = StrftimeItems::new(path).parse_to_owned().map_err(|error| {
+                    anyhow::anyhow!("invalid s3.partitioning.path format '{path}': {error}")
+                })?;
+                let timezone: chrono_tz::Tz = timezone
                     .parse()
                     .map_err(|_| anyhow::anyhow!("invalid IANA timezone '{timezone}'"))?;
+                let sample = chrono::Utc
+                    .timestamp_millis_opt(0)
+                    .single()
+                    .expect("Unix epoch must be representable")
+                    .with_timezone(&timezone);
+                let mut rendered = String::new();
+                sample
+                    .format_with_items(items.iter())
+                    .write_to(&mut rendered)
+                    .map_err(|_| {
+                        anyhow::anyhow!("s3.partitioning.path '{path}' could not be formatted")
+                    })?;
+                super::partitioning::validate_partition_path(&rendered).map_err(|error| {
+                    anyhow::anyhow!(
+                        "s3.partitioning.path '{path}' renders an invalid partition path: {error}"
+                    )
+                })?;
             }
             PartitioningConfig::Source => {}
         }
@@ -538,6 +560,21 @@ mod tests {
         )?;
         assert_eq!(explicit.epoch_byte_limit(), 7 * MIB);
         explicit.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_record_time_format_and_partition_path() -> anyhow::Result<()> {
+        for path in ["%Q", "year=%Y//month=%m", "year=%Y/../month=%m"] {
+            let yaml = format!(
+                "bucket: test\npartitioning: {{ type: record_time, window: 1h, path: '{path}', timezone: UTC }}\n"
+            );
+            let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
+            assert!(
+                config.validate().is_err(),
+                "unsafe record-time path {path:?} must fail during startup validation"
+            );
+        }
         Ok(())
     }
 }

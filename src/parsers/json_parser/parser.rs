@@ -7,12 +7,11 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
-use base64::Engine as _;
-use bytes::Bytes;
 use core::fmt;
 use serde::{de, Deserializer};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::io::Write as _;
 
 use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
@@ -20,6 +19,11 @@ use crate::types::message::{Message, MessageMeta};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::types::table_data::{dlq_name, TableData};
+
+/// Hard bound for one parser delivery's materialized Arrow data and the
+/// conservative working-set estimate used before builders allocate.
+pub(crate) const MAX_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
+const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Compiled JSONPath
@@ -188,6 +192,24 @@ impl ColumnKind {
             | DataType::RunEndEncoded(..) => return None,
         })
     }
+
+    const fn fixed_width_bytes(self) -> Option<usize> {
+        match self {
+            Self::Utf8 | Self::LargeUtf8 => None,
+            Self::Int8 | Self::UInt8 => Some(1),
+            Self::Int16 | Self::UInt16 => Some(2),
+            Self::Int32 | Self::UInt32 | Self::Float32 | Self::Date32 => Some(4),
+            Self::Int64
+            | Self::UInt64
+            | Self::Float64
+            | Self::Date64
+            | Self::TimestampSecond
+            | Self::TimestampMillisecond
+            | Self::TimestampMicrosecond
+            | Self::TimestampNanosecond => Some(8),
+            Self::Boolean => Some(0),
+        }
+    }
 }
 
 #[inline]
@@ -197,6 +219,14 @@ fn make_builder(
     n: usize,
     string_bytes: usize,
 ) -> AnyBuilder {
+    // Capacity is only a throughput hint. Bound eager allocations so one
+    // source delivery cannot reserve its full worst-case output before any
+    // value has been validated; builders grow on demand under the active
+    // transform reservation.
+    const MAX_INITIAL_ROWS: usize = 65_536;
+    const MAX_INITIAL_STRING_BYTES: usize = 1024 * 1024;
+    let n = n.min(MAX_INITIAL_ROWS);
+    let string_bytes = string_bytes.min(MAX_INITIAL_STRING_BYTES);
     match kind {
         ColumnKind::Utf8 => AnyBuilder::Utf8(StringBuilder::with_capacity(n, string_bytes)),
         ColumnKind::LargeUtf8 => {
@@ -728,9 +758,33 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
 }
 
 fn make_system_builder(kind: SystemColumnKind, capacity: usize) -> AnyBuilder {
+    const MAX_INITIAL_ROWS: usize = 65_536;
+    const MAX_INITIAL_TOPIC_BYTES: usize = 1024 * 1024;
+    let capacity = capacity.min(MAX_INITIAL_ROWS);
+    match kind {
+        SystemColumnKind::TopicName => AnyBuilder::Utf8(StringBuilder::with_capacity(
+            capacity,
+            capacity.saturating_mul(64).min(MAX_INITIAL_TOPIC_BYTES),
+        )),
+        SystemColumnKind::PartitionNum
+        | SystemColumnKind::Offset
+        | SystemColumnKind::WriteTimestampMs => {
+            AnyBuilder::Int64(Int64Builder::with_capacity(capacity))
+        }
+        SystemColumnKind::MessageIndex => {
+            AnyBuilder::UInt64(UInt64Builder::with_capacity(capacity))
+        }
+    }
+}
+
+fn make_exact_system_builder(
+    kind: SystemColumnKind,
+    capacity: usize,
+    topic_bytes: usize,
+) -> AnyBuilder {
     match kind {
         SystemColumnKind::TopicName => {
-            AnyBuilder::Utf8(StringBuilder::with_capacity(capacity, capacity * 64))
+            AnyBuilder::Utf8(StringBuilder::with_capacity(capacity, topic_bytes))
         }
         SystemColumnKind::PartitionNum
         | SystemColumnKind::Offset
@@ -773,20 +827,69 @@ fn append_system_columns(
     }
 }
 
-struct DlqPayload {
-    raw: Bytes,
+struct DlqRecord {
+    source_message: u32,
+    byte_start: u32,
+    byte_end: u32,
     reason: DlqReason,
-    meta: MessageMeta,
-    message_index: u64,
+    record_index: u32,
+}
+
+struct ArrowStringConsumer<'a>(&'a mut StringBuilder);
+
+impl base64::write::StrConsumer for ArrowStringConsumer<'_> {
+    fn consume(&mut self, encoded: &str) {
+        fmt::Write::write_str(self.0, encoded)
+            .expect("writing UTF-8 base64 into an Arrow string builder cannot fail");
+    }
+}
+
+fn append_base64(builder: &mut StringBuilder, raw: &[u8]) -> anyhow::Result<()> {
+    let mut encoder = base64::write::EncoderStringWriter::from_consumer(
+        ArrowStringConsumer(builder),
+        &base64::engine::general_purpose::STANDARD,
+    );
+    encoder.write_all(raw)?;
+    let ArrowStringConsumer(builder) = encoder.into_inner();
+    // Incremental writes append bytes to the current Arrow value; the next
+    // append finalizes its offset without copying the encoded payload.
+    builder.append_value("");
+    Ok(())
+}
+
+fn subslice_range(parent: &[u8], subslice: &[u8]) -> core::ops::Range<usize> {
+    let parent_start = parent.as_ptr() as usize;
+    let child_start = subslice.as_ptr() as usize;
+    let start = child_start
+        .checked_sub(parent_start)
+        .expect("record slice must start inside its source message");
+    let end = start
+        .checked_add(subslice.len())
+        .expect("record slice end overflow");
+    assert!(
+        end <= parent.len(),
+        "record slice must end inside its source message"
+    );
+    start..end
 }
 
 #[inline]
-fn dlq_payload(raw: Bytes, reason: DlqReason, msg: &Message, message_index: u64) -> DlqPayload {
-    DlqPayload {
-        raw,
+fn dlq_record(
+    source_message: usize,
+    byte_range: core::ops::Range<usize>,
+    reason: DlqReason,
+    record_index: u64,
+) -> DlqRecord {
+    DlqRecord {
+        source_message: u32::try_from(source_message)
+            .expect("PQv1 delivery message count is bounded far below u32::MAX"),
+        byte_start: u32::try_from(byte_range.start)
+            .expect("PQv1 decoded message size is bounded below u32::MAX"),
+        byte_end: u32::try_from(byte_range.end)
+            .expect("PQv1 decoded message size is bounded below u32::MAX"),
         reason,
-        meta: msg.meta.clone(),
-        message_index,
+        record_index: u32::try_from(record_index)
+            .expect("PQv1 record count is bounded by decoded bytes below u32::MAX"),
     }
 }
 
@@ -929,6 +1032,7 @@ pub fn dlq_dataset_schema(
 enum DlqReason {
     JsonParse,
     ExtractionFailed,
+    ParserLimitExceeded,
 }
 
 impl DlqReason {
@@ -936,6 +1040,9 @@ impl DlqReason {
         match self {
             Self::JsonParse => "JSON parse error",
             Self::ExtractionFailed => "JSONPath extraction failed for one or more columns",
+            Self::ParserLimitExceeded => {
+                "JSON parser safety limit exceeded; source message preserved without parsing"
+            }
         }
     }
 }
@@ -970,30 +1077,134 @@ struct ColumnMappingExt {
 
 impl JsonParser {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
-        const FIXED_BYTES_PER_COLUMN_ROW: usize = 1024;
-        let rows = messages.iter().fold(0_usize, |total, message| {
-            total.saturating_add(self.chunk_splitter.count_records(&message.value))
-        });
+        let row_counts = messages
+            .iter()
+            .map(|message| self.chunk_splitter.count_records(&message.value))
+            .collect::<Vec<_>>();
+        let rows = row_counts
+            .iter()
+            .fold(0_usize, |total, rows| total.saturating_add(*rows));
         let input_bytes = messages.iter().fold(0_usize, |total, message| {
             total.saturating_add(message.value.len())
         });
-        let string_columns = self
+        let validity_bytes = rows.div_ceil(8).saturating_add(64);
+        let mut main_bytes = 0_usize;
+        for kind in &self.kinds {
+            main_bytes = main_bytes.saturating_add(match kind {
+                ColumnKind::Utf8 => {
+                    input_bytes.saturating_add(rows.saturating_add(1).saturating_mul(4))
+                }
+                ColumnKind::LargeUtf8 => {
+                    input_bytes.saturating_add(rows.saturating_add(1).saturating_mul(8))
+                }
+                ColumnKind::Boolean => rows.div_ceil(8),
+                fixed => rows.saturating_mul(fixed.fixed_width_bytes().unwrap_or_default()),
+            });
+            main_bytes = main_bytes.saturating_add(validity_bytes);
+        }
+        for kind in &self.system_kinds {
+            main_bytes = main_bytes.saturating_add(match kind {
+                SystemColumnKind::TopicName => rows.saturating_add(1).saturating_mul(4),
+                SystemColumnKind::PartitionNum
+                | SystemColumnKind::Offset
+                | SystemColumnKind::MessageIndex
+                | SystemColumnKind::WriteTimestampMs => rows.saturating_mul(8),
+            });
+        }
+        let topic_rows =
+            messages
+                .iter()
+                .zip(&row_counts)
+                .fold(0_usize, |total, (message, rows)| {
+                    total.saturating_add(
+                        message
+                            .meta
+                            .topic_path
+                            .as_ref()
+                            .map_or(0, |topic| topic.len().saturating_mul(*rows)),
+                    )
+                });
+        let main_topic_bytes = if self.system_kinds.contains(&SystemColumnKind::TopicName) {
+            topic_rows
+        } else {
+            0
+        };
+        let dlq_topic_bytes = if self
+            .dlq_system_columns
+            .contains(SystemColumnKind::TopicName)
+        {
+            topic_rows
+        } else {
+            0
+        };
+        main_bytes = main_bytes.saturating_add(main_topic_bytes);
+        // Every source byte may instead become a base64 DLQ payload. Account its
+        // encoded representation, offsets, error text and fixed timestamp columns.
+        let dlq_bytes = input_bytes
+            .div_ceil(3)
+            .saturating_mul(4)
+            .saturating_add(rows.saturating_mul(96))
+            .saturating_add(dlq_topic_bytes);
+        // `get_array_memory_size` includes array/schema structs in addition to
+        // buffers. Keep a small fixed allowance per main/DLQ column so the
+        // estimate remains conservative for tiny and empty records.
+        let structural_bytes = self
             .kinds
-            .iter()
-            .filter(|kind| matches!(kind, ColumnKind::Utf8 | ColumnKind::LargeUtf8))
-            .count();
-        let fixed = rows
-            .saturating_mul(self.kinds.len().saturating_add(self.system_kinds.len()))
-            .saturating_mul(FIXED_BYTES_PER_COLUMN_ROW);
-        let strings = input_bytes.saturating_mul(string_columns.saturating_add(4));
-        let topics = messages.iter().fold(0_usize, |total, message| {
-            total.saturating_add(message.meta.topic_path.as_ref().map_or(0, |topic| {
-                topic
-                    .len()
-                    .saturating_mul(self.chunk_splitter.count_records(&message.value))
-            }))
-        });
-        fixed.saturating_add(strings).saturating_add(topics).max(1)
+            .len()
+            .saturating_add(self.system_kinds.len().saturating_mul(2))
+            .saturating_add(3)
+            .saturating_mul(256);
+        let retained_output_bytes = main_bytes
+            .saturating_add(dlq_bytes)
+            .saturating_add(structural_bytes)
+            .max(1);
+        // Arrow builders use growable Vec-backed buffers. Before finish, a
+        // growth step can transiently retain both old and new allocations;
+        // finished arrays may also retain spare capacity. Reserve a 2x
+        // capacity envelope for admission/fallback decisions.
+        retained_output_bytes.saturating_mul(2)
+    }
+
+    fn requires_safe_dlq_fallback(&self, messages: &[Message]) -> bool {
+        if self.output_memory_bound(messages) > MAX_DELIVERY_BYTES {
+            return true;
+        }
+        messages.iter().any(|message| match self.chunk_splitter {
+            ChunkSplitter::OneMessageOneRow => message.value.len() > MAX_RECORD_BYTES,
+            ChunkSplitter::NewLine => message
+                .value
+                .split(|byte| *byte == b'\n')
+                .any(|record| record.len() > MAX_RECORD_BYTES),
+        })
+    }
+
+    fn preserve_unparsed_delivery(
+        &self,
+        messages: &[Message],
+        ws: &mut ParserWorkspace,
+    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let mut payloads = Vec::with_capacity(messages.len());
+        for (source_message, message) in messages.iter().enumerate() {
+            payloads.push(dlq_record(
+                source_message,
+                0..message.value.len(),
+                DlqReason::ParserLimitExceeded,
+                0,
+            ));
+        }
+        ws.release_large_scratch();
+        let main = TableData {
+            batch: RecordBatch::new_empty(Arc::clone(&self.arrow_schema)),
+            table: Arc::clone(&self.table),
+            is_dlq: false,
+            system_columns: self.system_columns.clone(),
+        };
+        let dlq = if payloads.is_empty() {
+            None
+        } else {
+            Some(self.build_dlq_batch(messages, payloads)?)
+        };
+        Ok((main, dlq))
     }
 
     pub fn new(
@@ -1156,32 +1367,58 @@ impl JsonParser {
         }
     }
 
-    fn build_dlq_batch(&self, dlq_payloads: &[DlqPayload]) -> anyhow::Result<TableData> {
-        let n = dlq_payloads.len();
-        let encoded_bytes = dlq_payloads.iter().fold(0_usize, |total, payload| {
-            total.saturating_add(payload.raw.len().div_ceil(3).saturating_mul(4))
+    fn build_dlq_batch(
+        &self,
+        messages: &[Message],
+        dlq_records: Vec<DlqRecord>,
+    ) -> anyhow::Result<TableData> {
+        let n = dlq_records.len();
+        let encoded_bytes = dlq_records.iter().fold(0_usize, |total, record| {
+            total.saturating_add(
+                ((record.byte_end - record.byte_start) as usize)
+                    .div_ceil(3)
+                    .saturating_mul(4),
+            )
         });
+        let error_bytes = dlq_records.iter().fold(0_usize, |total, record| {
+            total.saturating_add(record.reason.as_str().len())
+        });
+        let topic_bytes = dlq_records.iter().fold(0_usize, |total, record| {
+            total.saturating_add(
+                messages[record.source_message as usize]
+                    .meta
+                    .topic_path
+                    .as_ref()
+                    .map_or(0, |topic| topic.len()),
+            )
+        });
+        // The encoded size is exact and bounded by the parser-delivery cap.
+        // Reserve it once: geometric Vec growth would briefly retain both the
+        // old and new base64 buffers at the largest allocation.
         let mut raw_builder = StringBuilder::with_capacity(n, encoded_bytes);
-        let mut err_builder = StringBuilder::with_capacity(n, n * 64);
+        let mut err_builder = StringBuilder::with_capacity(n, error_bytes);
         let mut source_ts_builder = Int64Builder::with_capacity(n);
 
         let mut system_builders: Vec<_> = self
             .system_kinds
             .iter()
-            .map(|kind| make_system_builder(*kind, n))
+            .map(|kind| make_exact_system_builder(*kind, n, topic_bytes))
             .collect();
 
-        for payload in dlq_payloads {
-            raw_builder
-                .append_value(base64::engine::general_purpose::STANDARD.encode(&payload.raw));
-            err_builder.append_value(payload.reason.as_str());
-            source_ts_builder.append_value(payload.meta.write_timestamp_ms.unwrap_or_default());
+        for record in dlq_records {
+            let message = &messages[record.source_message as usize];
+            append_base64(
+                &mut raw_builder,
+                &message.value[record.byte_start as usize..record.byte_end as usize],
+            )?;
+            err_builder.append_value(record.reason.as_str());
+            source_ts_builder.append_value(message.meta.write_timestamp_ms.unwrap_or_default());
             append_system_columns(
                 &mut system_builders,
                 0,
                 &self.system_kinds,
-                &payload.meta,
-                payload.message_index,
+                &message.meta,
+                u64::from(record.record_index),
             );
         }
 
@@ -1241,49 +1478,49 @@ impl JsonParser {
         );
     }
 
-    /// `NewLine` parse over pre-split records (`(line, msg_idx, row_idx)`), avoiding a
-    /// second `split_into_records` pass — the records were split once in
-    /// `parse_into` to size the builders and are reused here. `msg_idx`
-    /// preserves the owning `Message` for per-row source metadata columns.
-    fn parse_all_root_newline_records(
+    /// Parses `NewLine` records directly from their source buffers. Keeping
+    /// only compact DLQ descriptors avoids a second per-record allocation for
+    /// dense invalid input.
+    fn parse_all_root_newline(
         &self,
-        records: &[(&[u8], usize, u64)],
         messages: &[Message],
         info: &RootFieldInfo,
         builders: &mut [AnyBuilder],
         typed_scratch: &mut [TypedScratch],
         json_buf: &mut Vec<u8>,
-        dlq_payloads: &mut Vec<DlqPayload>,
+        dlq_records: &mut Vec<DlqRecord>,
     ) {
-        for &(line, msg_idx, message_index) in records {
-            let msg = &messages[msg_idx];
-            typed_scratch.fill(TypedScratch::Empty);
-            match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
-                Ok(true) => {
-                    Self::append_root_line(
-                        builders,
-                        typed_scratch,
-                        json_buf,
-                        msg,
-                        message_index,
-                        &self.system_kinds,
-                    );
-                }
-                Ok(false) => {
-                    dlq_payloads.push(dlq_payload(
-                        Bytes::copy_from_slice(line),
+        for (source_message, msg) in messages.iter().enumerate() {
+            for (record_index, line) in msg
+                .value
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
+                .enumerate()
+            {
+                typed_scratch.fill(TypedScratch::Empty);
+                match parse_root_fields_typed(line, json_buf, info, typed_scratch, &self.kinds) {
+                    Ok(true) => {
+                        Self::append_root_line(
+                            builders,
+                            typed_scratch,
+                            json_buf,
+                            msg,
+                            record_index as u64,
+                            &self.system_kinds,
+                        );
+                    }
+                    Ok(false) => dlq_records.push(dlq_record(
+                        source_message,
+                        subslice_range(&msg.value, line),
                         DlqReason::ExtractionFailed,
-                        msg,
-                        message_index,
-                    ));
-                }
-                Err(_e) => {
-                    dlq_payloads.push(dlq_payload(
-                        Bytes::copy_from_slice(line),
+                        record_index as u64,
+                    )),
+                    Err(_error) => dlq_records.push(dlq_record(
+                        source_message,
+                        subslice_range(&msg.value, line),
                         DlqReason::JsonParse,
-                        msg,
-                        message_index,
-                    ));
+                        record_index as u64,
+                    )),
                 }
             }
         }
@@ -1291,32 +1528,36 @@ impl JsonParser {
 
     fn parse_all_root_nosplit(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         info: &RootFieldInfo,
         builders: &mut [AnyBuilder],
         typed_scratch: &mut [TypedScratch],
         json_buf: &mut Vec<u8>,
-        dlq_payloads: &mut Vec<DlqPayload>,
+        dlq_records: &mut Vec<DlqRecord>,
     ) {
-        for mut msg in messages {
+        for (source_message, msg) in messages.iter().enumerate() {
             typed_scratch.fill(TypedScratch::Empty);
             match parse_root_fields_typed(&msg.value, json_buf, info, typed_scratch, &self.kinds) {
                 Ok(true) => Self::append_root_line(
                     builders,
                     typed_scratch,
                     json_buf,
-                    &msg,
+                    msg,
                     0,
                     &self.system_kinds,
                 ),
-                Ok(false) => {
-                    let raw = core::mem::take(&mut msg.value);
-                    dlq_payloads.push(dlq_payload(raw, DlqReason::ExtractionFailed, &msg, 0));
-                }
-                Err(_e) => {
-                    let raw = core::mem::take(&mut msg.value);
-                    dlq_payloads.push(dlq_payload(raw, DlqReason::JsonParse, &msg, 0));
-                }
+                Ok(false) => dlq_records.push(dlq_record(
+                    source_message,
+                    0..msg.value.len(),
+                    DlqReason::ExtractionFailed,
+                    0,
+                )),
+                Err(_error) => dlq_records.push(dlq_record(
+                    source_message,
+                    0..msg.value.len(),
+                    DlqReason::JsonParse,
+                    0,
+                )),
             }
         }
     }
@@ -1351,16 +1592,16 @@ impl JsonParser {
 
     fn parse_mixed_newline(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         builders: &mut [AnyBuilder],
-        dlq_payloads: &mut Vec<DlqPayload>,
+        dlq_records: &mut Vec<DlqRecord>,
         row: &mut Vec<Value>,
     ) {
-        for msg in messages {
-            for (message_index, line) in self
-                .chunk_splitter
-                .split_into_records(&msg.value)
-                .into_iter()
+        for (source_message, msg) in messages.iter().enumerate() {
+            for (message_index, line) in msg
+                .value
+                .split(|byte| *byte == b'\n')
+                .filter(|line| !line.is_empty())
                 .enumerate()
             {
                 let message_index = message_index as u64;
@@ -1376,19 +1617,19 @@ impl JsonParser {
                                 message_index,
                             );
                         } else {
-                            dlq_payloads.push(dlq_payload(
-                                Bytes::copy_from_slice(line),
+                            dlq_records.push(dlq_record(
+                                source_message,
+                                subslice_range(&msg.value, line),
                                 DlqReason::ExtractionFailed,
-                                &msg,
                                 message_index,
                             ));
                         }
                     }
                     Err(_e) => {
-                        dlq_payloads.push(dlq_payload(
-                            Bytes::copy_from_slice(line),
+                        dlq_records.push(dlq_record(
+                            source_message,
+                            subslice_range(&msg.value, line),
                             DlqReason::JsonParse,
-                            &msg,
                             message_index,
                         ));
                     }
@@ -1399,12 +1640,12 @@ impl JsonParser {
 
     fn parse_mixed_nosplit(
         &self,
-        messages: Vec<Message>,
+        messages: &[Message],
         builders: &mut [AnyBuilder],
-        dlq_payloads: &mut Vec<DlqPayload>,
+        dlq_records: &mut Vec<DlqRecord>,
         row: &mut Vec<Value>,
     ) {
-        for mut msg in messages {
+        for (source_message, msg) in messages.iter().enumerate() {
             match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
                     if self.fill_row(&json, row) {
@@ -1417,37 +1658,33 @@ impl JsonParser {
                             0,
                         );
                     } else {
-                        let raw = core::mem::take(&mut msg.value);
-                        dlq_payloads.push(dlq_payload(raw, DlqReason::ExtractionFailed, &msg, 0));
+                        dlq_records.push(dlq_record(
+                            source_message,
+                            0..msg.value.len(),
+                            DlqReason::ExtractionFailed,
+                            0,
+                        ));
                     }
                 }
-                Err(_e) => {
-                    let raw = core::mem::take(&mut msg.value);
-                    dlq_payloads.push(dlq_payload(raw, DlqReason::JsonParse, &msg, 0));
-                }
+                Err(_error) => dlq_records.push(dlq_record(
+                    source_message,
+                    0..msg.value.len(),
+                    DlqReason::JsonParse,
+                    0,
+                )),
             }
         }
     }
 
-    fn parse_mixed(&self, messages: Vec<Message>, ws: &mut ParserWorkspace) {
+    fn parse_mixed(&self, messages: &[Message], ws: &mut ParserWorkspace) {
         let n_cols = self.mappings.len();
         let mut row: Vec<Value> = Vec::with_capacity(n_cols);
         match self.chunk_splitter {
             ChunkSplitter::NewLine => {
-                self.parse_mixed_newline(
-                    messages,
-                    &mut ws.builders,
-                    &mut ws.dlq_payloads,
-                    &mut row,
-                );
+                self.parse_mixed_newline(messages, &mut ws.builders, &mut ws.dlq_records, &mut row);
             }
             ChunkSplitter::OneMessageOneRow => {
-                self.parse_mixed_nosplit(
-                    messages,
-                    &mut ws.builders,
-                    &mut ws.dlq_payloads,
-                    &mut row,
-                );
+                self.parse_mixed_nosplit(messages, &mut ws.builders, &mut ws.dlq_records, &mut row);
             }
         }
     }
@@ -1461,8 +1698,8 @@ pub struct ParserWorkspace {
     builders: Vec<AnyBuilder>,
     typed_scratch: Vec<TypedScratch>,
     json_buf: Vec<u8>,
-    /// DLQ rows retain the source metadata of the row that failed parsing.
-    dlq_payloads: Vec<DlqPayload>,
+    /// Compact references into the current source delivery for failed rows.
+    dlq_records: Vec<DlqRecord>,
     /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
     arrays: Vec<ArrayRef>,
 }
@@ -1482,7 +1719,7 @@ impl ParserWorkspace {
             builders: Vec::new(),
             typed_scratch: Vec::new(),
             json_buf: Vec::new(),
-            dlq_payloads: Vec::new(),
+            dlq_records: Vec::new(),
             arrays: Vec::new(),
         }
     }
@@ -1493,10 +1730,10 @@ impl ParserWorkspace {
         } else {
             self.json_buf.clear();
         }
-        if self.dlq_payloads.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES / 64 {
-            self.dlq_payloads = Vec::new();
+        if self.dlq_records.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES / 32 {
+            self.dlq_records = Vec::new();
         } else {
-            self.dlq_payloads.clear();
+            self.dlq_records.clear();
         }
     }
 }
@@ -1506,46 +1743,37 @@ impl ParserWorkspace {
 // ---------------------------------------------------------------------------
 
 impl JsonParser {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "the parser session consumes source ownership at this API boundary"
+    )]
     pub fn parse_into(
         &self,
         messages: Vec<Message>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         self.check_system_column_preconditions(&messages)?;
+        if self.requires_safe_dlq_fallback(&messages) {
+            return self.preserve_unparsed_delivery(&messages, ws);
+        }
 
-        // Pre-split once for AllRootField+NewLine — the result sizes the
-        // builders AND is reused for parsing (no second `split_into_records`
-        // pass on the hot path). Mixed+NewLine keeps the alloc-free
-        // `count_records` because `parse_mixed` re-splits (records not reused).
-        // OneMessageOneRow: one record per message, no split needed.
-        let newline_records: Option<Vec<(&[u8], usize, u64)>> =
-            match (&self.mode, self.chunk_splitter) {
-                (ParseMode::AllRootField(_), ChunkSplitter::NewLine) => {
-                    let mut recs: Vec<(&[u8], usize, u64)> = Vec::new();
-                    for (i, msg) in messages.iter().enumerate() {
-                        for (message_index, line) in self
-                            .chunk_splitter
-                            .split_into_records(&msg.value)
-                            .into_iter()
-                            .enumerate()
-                        {
-                            recs.push((line, i, message_index as u64));
-                        }
-                    }
-                    Some(recs)
-                }
-                _ => None,
-            };
-        let n_rows: usize = match (&self.mode, self.chunk_splitter) {
-            (ParseMode::Mixed, ChunkSplitter::NewLine) => messages
+        // Count rows without retaining a second per-record index. Parsing
+        // performs the same allocation-free split over the source buffers.
+        let n_rows: usize = match self.chunk_splitter {
+            ChunkSplitter::NewLine => messages
                 .iter()
                 .map(|msg| self.chunk_splitter.count_records(&msg.value))
                 .sum(),
-            _ => newline_records.as_ref().map_or(messages.len(), Vec::len),
+            ChunkSplitter::OneMessageOneRow => messages.len(),
         };
         let input_bytes = messages.iter().fold(0_usize, |total, message| {
             total.saturating_add(message.value.len())
         });
+        let estimated_dlq_rows = if matches!(self.chunk_splitter, ChunkSplitter::NewLine) {
+            n_rows
+        } else {
+            messages.len()
+        };
         // Total UTF-8 output cannot be estimated exactly before parsing. Sharing the
         // input-size estimate between string columns avoids the previous 128 × rows ×
         // columns allocation spike while still giving builders useful capacity.
@@ -1565,7 +1793,8 @@ impl JsonParser {
             ws.builders.push(make_system_builder(*kind, n_rows));
         }
 
-        ws.dlq_payloads.clear();
+        ws.dlq_records.clear();
+        ws.dlq_records.reserve_exact(estimated_dlq_rows);
 
         match &self.mode {
             ParseMode::AllRootField(info) => {
@@ -1574,36 +1803,32 @@ impl JsonParser {
                     builders,
                     typed_scratch,
                     json_buf,
-                    dlq_payloads,
+                    dlq_records,
                     ..
                 } = ws;
                 typed_scratch.clear();
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
-                match newline_records {
-                    Some(recs) => self.parse_all_root_newline_records(
-                        &recs,
+                match self.chunk_splitter {
+                    ChunkSplitter::NewLine => self.parse_all_root_newline(
                         &messages,
                         info,
                         builders,
                         typed_scratch,
                         json_buf,
-                        dlq_payloads,
+                        dlq_records,
                     ),
-                    None => self.parse_all_root_nosplit(
-                        messages,
+                    ChunkSplitter::OneMessageOneRow => self.parse_all_root_nosplit(
+                        &messages,
                         info,
                         builders,
                         typed_scratch,
                         json_buf,
-                        dlq_payloads,
+                        dlq_records,
                     ),
                 }
             }
             ParseMode::Mixed => {
-                // Mixed does its own split; release the pre-split borrow (if any)
-                // before `messages` is moved into `parse_mixed`.
-                drop(newline_records);
-                self.parse_mixed(messages, ws);
+                self.parse_mixed(&messages, ws);
             }
         }
 
@@ -1622,14 +1847,15 @@ impl JsonParser {
             system_columns: self.system_columns.clone(),
         };
 
-        let dlq_payloads = core::mem::take(&mut ws.dlq_payloads);
-        let dlq_batch = if dlq_payloads.is_empty() {
+        let dlq_records = core::mem::take(&mut ws.dlq_records);
+        // simd-json scratch can be as large as the source record. Release it
+        // before base64 materialization so both peaks cannot overlap.
+        ws.release_large_scratch();
+        let dlq_batch = if dlq_records.is_empty() {
             None
         } else {
-            Some(self.build_dlq_batch(&dlq_payloads)?)
+            Some(self.build_dlq_batch(&messages, dlq_records)?)
         };
-        drop(dlq_payloads);
-        ws.release_large_scratch();
 
         Ok((valid_batch, dlq_batch))
     }
@@ -1668,6 +1894,9 @@ impl ParserFactory for JsonParser {
 mod tests {
     use super::*;
     use crate::parsers::json_parser::config::JsonParserConfig;
+    use arrow::array::Array as _;
+    use base64::Engine as _;
+    use bytes::Bytes;
 
     fn parser_for(
         columns: Vec<crate::parsers::json_parser::ColumnMapping>,
@@ -1752,6 +1981,148 @@ mod tests {
     }
 
     #[test]
+    fn dense_fixed_width_rows_have_a_type_aware_memory_bound() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        const ROWS: usize = 32_769;
+        let parser = JsonParser::new(
+            &JsonParserConfig {
+                columns: (0..8)
+                    .map(|index| {
+                        ColumnMapping::new(
+                            format!("$.c{index}"),
+                            format!("c{index}"),
+                            "Int64".into(),
+                            false,
+                        )
+                    })
+                    .collect(),
+                chunk_splitter: ChunkSplitter::NewLine,
+            },
+            &crate::parsers::SystemColumnsConfig::default(),
+            "test".into(),
+        )?;
+        let row = r#"{"c0":0,"c1":1,"c2":2,"c3":3,"c4":4,"c5":5,"c6":6,"c7":7}"#;
+        let payload = Bytes::from(
+            core::iter::repeat_n(row, ROWS)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        let message = Message::new(payload);
+        let bound = parser.output_memory_bound(core::slice::from_ref(&message));
+
+        assert!(
+            bound < 256 * 1024 * 1024,
+            "dense primitive rows must not be rejected by a per-cell 1KiB heuristic: {bound}"
+        );
+        let (main, dlq) = parser.parse_into(vec![message], &mut ParserWorkspace::new())?;
+        assert_eq!(main.batch.num_rows(), ROWS);
+        assert!(dlq.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()> {
+        use crate::parsers::json_parser::ColumnMapping;
+
+        const ROWS: usize = 1_048_577;
+        assert!(core::mem::size_of::<DlqRecord>() <= 20);
+        let parser = JsonParser::new(
+            &JsonParserConfig {
+                columns: vec![ColumnMapping::new(
+                    "$.id".into(),
+                    "id".into(),
+                    "Int64".into(),
+                    false,
+                )],
+                chunk_splitter: ChunkSplitter::NewLine,
+            },
+            &crate::parsers::SystemColumnsConfig {
+                message_index: true,
+                ..crate::parsers::SystemColumnsConfig::default()
+            },
+            "test".into(),
+        )?;
+        let payload = Bytes::from(
+            core::iter::repeat_n("x", ROWS)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert!(!parser.requires_safe_dlq_fallback(&[Message::new(payload.clone())]));
+        let (main, dlq) =
+            parser.parse_into(vec![Message::new(payload)], &mut ParserWorkspace::new())?;
+
+        assert_eq!(main.batch.num_rows(), 0);
+        let dlq = dlq.expect("invalid records must reach DLQ");
+        assert_eq!(dlq.batch.num_rows(), ROWS);
+        let raw = string_col(&dlq.batch, 0)?;
+        assert_eq!(raw.value(0), "eA==");
+        assert_eq!(raw.value(ROWS - 1), "eA==");
+        let index = dlq
+            .system_columns
+            .get(crate::types::system_columns::SystemColumnKind::MessageIndex)
+            .expect("message index system column");
+        let indexes = dlq
+            .batch
+            .column(index.index)
+            .as_any()
+            .downcast_ref::<arrow::array::UInt64Array>()
+            .expect("message index values");
+        assert_eq!(indexes.value(0), 0);
+        assert_eq!(indexes.value(ROWS - 1), (ROWS - 1) as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn oversized_parser_working_set_is_preserved_in_dlq_before_builder_allocation(
+    ) -> anyhow::Result<()> {
+        let parser = parser_for(
+            (0..8)
+                .map(|index| {
+                    crate::parsers::json_parser::ColumnMapping::new(
+                        format!("$.c{index}"),
+                        format!("c{index}"),
+                        "Utf8".into(),
+                        false,
+                    )
+                })
+                .collect(),
+        )?;
+        // OneMessageOneRow counts this as one row, but every string mapping may
+        // retain the full source text. The preflight must reject the working
+        // set before any Arrow builder gets that capacity.
+        let payload = Bytes::from(vec![b'x'; 32 * 1024 * 1024]);
+        let mut workspace = ParserWorkspace::new();
+        let (main, dlq) = parser.parse_into(vec![Message::new(payload)], &mut workspace)?;
+        assert_eq!(main.batch.num_rows(), 0);
+        let dlq = dlq.expect("oversized source record must be preserved in DLQ");
+        assert_eq!(dlq.batch.num_rows(), 1);
+        let reasons = dlq
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow::array::StringArray>()
+            .expect("DLQ reason string");
+        assert!(reasons.value(0).contains("safety limit"));
+        assert!(workspace.builders.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn base64_is_streamed_directly_into_arrow_builder() -> anyhow::Result<()> {
+        let raw = vec![0x5a; 2 * 1024 * 1024 + 1];
+        let mut builder = StringBuilder::with_capacity(1, 0);
+        append_base64(&mut builder, &raw)?;
+        let array = builder.finish();
+        assert_eq!(array.len(), 1);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.decode(array.value(0))?,
+            raw
+        );
+        Ok(())
+    }
+
+    #[test]
     fn dlq_source_timestamp_is_deterministic() -> anyhow::Result<()> {
         use crate::parsers::json_parser::ColumnMapping;
         use arrow::array::Int64Array;
@@ -1802,7 +2173,7 @@ mod tests {
         let raw = string_col(&dlq.batch, 0)?.value(0);
         anyhow::ensure!(base64::engine::general_purpose::STANDARD.decode(raw)? == [0xff, 0x00]);
         anyhow::ensure!(dlq.batch.schema().field(0).name() == "raw_base64");
-        anyhow::ensure!(workspace.dlq_payloads.is_empty());
+        anyhow::ensure!(workspace.dlq_records.is_empty());
         anyhow::ensure!(
             workspace.json_buf.capacity() <= ParserWorkspace::MAX_RETAINED_SCRATCH_BYTES
         );

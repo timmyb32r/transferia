@@ -92,10 +92,27 @@ fn is_connection_client_error(message: &str) -> bool {
         || message.starts_with("connection gone: ")
 }
 
-fn is_transient_server_error(error: &clickhouse_arrow::ServerError) -> bool {
+const fn is_transient_server_error(error: &clickhouse_arrow::ServerError) -> bool {
+    // Native-protocol exception names are class names such as
+    // `DB::Exception`; the stable branch discriminator is the numeric server
+    // code. Keep this list narrow so configuration and data errors still fail
+    // fast instead of consuming both retry budgets.
     if matches!(
-        error.name.as_str(),
-        "NO_ACTIVE_REPLICAS" | "TOO_FEW_LIVE_REPLICAS" | "TOO_MANY_PARTS"
+        error.code,
+        202 // TOO_MANY_SIMULTANEOUS_QUERIES
+            | 203 // NO_FREE_CONNECTION
+            | 244 // UNEXPECTED_ZOOKEEPER_ERROR
+            | 252 // TOO_MANY_PARTS
+            | 254 // NO_ACTIVE_REPLICAS
+            | 265 // NO_AVAILABLE_REPLICA
+            | 285 // TOO_FEW_LIVE_REPLICAS
+            | 286 // UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE
+            | 289 // REPLICA_IS_NOT_IN_QUORUM
+            | 319 // UNKNOWN_STATUS_OF_INSERT
+            | 416 // REPLICA_STATUS_CHANGED
+            | 733 // TABLE_IS_BEING_RESTARTED
+            | 745 // SERVER_OVERLOADED
+            | 999 // KEEPER_EXCEPTION
     ) {
         return true;
     }
@@ -125,18 +142,18 @@ mod tests {
 
     use super::*;
 
-    fn server_exception_with_name(error: Severity, name: &str) -> ClickHouseError {
+    fn server_exception_with_code(error: Severity, code: i32) -> ClickHouseError {
         ClickHouseError::ServerException(ServerError {
             error,
-            code: 0,
-            name: name.into(),
+            code,
+            name: "DB::Exception".into(),
             message: "test".into(),
             stack_trace: String::new(),
         })
     }
 
     fn server_exception(error: Severity) -> ClickHouseError {
-        server_exception_with_name(error, "test")
+        server_exception_with_code(error, 0)
     }
 
     #[test]
@@ -174,9 +191,9 @@ mod tests {
             InsertError::Transient(_)
         ));
         assert!(matches!(
-            classify_insert_error(server_exception_with_name(
+            classify_insert_error(server_exception_with_code(
                 Severity::Unknown(ServerErrorCode::UnknownUser),
-                "NO_ACTIVE_REPLICAS",
+                254,
             )),
             InsertError::Transient(_)
         ));
@@ -212,5 +229,58 @@ mod tests {
             )),
             InsertError::Permanent(_)
         ));
+    }
+
+    #[test]
+    fn classifies_allowlisted_server_codes_as_transient() {
+        for (code, symbolic_name) in [
+            (202, "TOO_MANY_SIMULTANEOUS_QUERIES"),
+            (203, "NO_FREE_CONNECTION"),
+            (244, "UNEXPECTED_ZOOKEEPER_ERROR"),
+            (252, "TOO_MANY_PARTS"),
+            (254, "NO_ACTIVE_REPLICAS"),
+            (265, "NO_AVAILABLE_REPLICA"),
+            (285, "TOO_FEW_LIVE_REPLICAS"),
+            (286, "UNSATISFIED_QUORUM_FOR_PREVIOUS_WRITE"),
+            (289, "REPLICA_IS_NOT_IN_QUORUM"),
+            (319, "UNKNOWN_STATUS_OF_INSERT"),
+            (416, "REPLICA_STATUS_CHANGED"),
+            (733, "TABLE_IS_BEING_RESTARTED"),
+            (745, "SERVER_OVERLOADED"),
+            (999, "KEEPER_EXCEPTION"),
+        ] {
+            assert!(
+                matches!(
+                    classify_insert_error(server_exception_with_code(
+                        Severity::Unknown(ServerErrorCode::UnknownUser),
+                        code,
+                    )),
+                    InsertError::Transient(_)
+                ),
+                "{symbolic_name} ({code}) must be retried within the bounded sink retry budget",
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_non_allowlisted_server_codes_permanent() {
+        for (code, symbolic_name) in [
+            (117, "INCORRECT_DATA"),
+            (225, "NO_ZOOKEEPER"),
+            (251, "NO_SUCH_REPLICA"),
+            (415, "ALL_REPLICAS_LOST"),
+            (497, "ACCESS_DENIED"),
+        ] {
+            assert!(
+                matches!(
+                    classify_insert_error(server_exception_with_code(
+                        Severity::Unknown(ServerErrorCode::UnknownUser),
+                        code,
+                    )),
+                    InsertError::Permanent(_)
+                ),
+                "{symbolic_name} ({code}) requires configuration or data repair, not blind retry",
+            );
+        }
     }
 }

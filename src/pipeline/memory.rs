@@ -16,6 +16,7 @@ struct MemoryInner {
     source_used: AtomicUsize,
     transform_used: AtomicUsize,
     progress_source_active: AtomicUsize,
+    active_transform: AtomicUsize,
     changed: Notify,
 }
 
@@ -23,6 +24,16 @@ struct MemoryInner {
 #[derive(Clone)]
 pub struct MemoryReservation {
     lease: Arc<MemoryLease>,
+}
+
+/// Exclusive reservation for a transform currently materializing its output.
+///
+/// It is converted into a normal retained-transform lease without a temporary
+/// drop/re-add gap once the exact output size is known.
+pub struct ActiveTransformReservation {
+    memory: Arc<MemoryInner>,
+    bytes: usize,
+    finished: bool,
 }
 
 struct MemoryLease {
@@ -36,7 +47,6 @@ struct MemoryLease {
 enum ReservationKind {
     Source,
     ProgressSource,
-    ActiveTransform,
     Transform,
 }
 
@@ -51,6 +61,7 @@ impl PipelineMemory {
                 source_used: AtomicUsize::new(0),
                 transform_used: AtomicUsize::new(0),
                 progress_source_active: AtomicUsize::new(0),
+                active_transform: AtomicUsize::new(0),
                 changed: Notify::new(),
             }),
         }
@@ -221,28 +232,45 @@ impl PipelineMemory {
         }
     }
 
-    /// Account the conservative bound of the transform currently executing.
+    /// Admit one transform while respecting retained downstream pressure.
     ///
-    /// This is deliberately excluded from downstream pressure: the parser is
-    /// already consuming its source input and cannot wait without deadlocking
-    /// that progress. Once materialized, the exact output gets a normal retained
-    /// transform reservation and this temporary bound is released.
-    #[must_use]
-    pub fn account_active_transform(&self, bytes: usize) -> MemoryReservation {
+    /// Source bytes are deliberately excluded: consuming them is what releases
+    /// that memory. If retained transform bytes are below the limit but this one
+    /// estimate does not fit, exactly one active transform is admitted as a
+    /// progress exception; it may be the delivery that closes an S3 epoch.
+    pub async fn admit_active_transform(&self, bytes: usize) -> ActiveTransformReservation {
         let bytes = bytes.max(1);
-        self.inner
-            .used
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
-                used.checked_add(bytes)
-            })
-            .expect("pipeline memory accounting overflow");
-        MemoryReservation {
-            lease: Arc::new(MemoryLease {
-                bytes: AtomicUsize::new(bytes),
-                resize: Mutex::new(()),
-                kind: ReservationKind::ActiveTransform,
-                memory: Arc::clone(&self.inner),
-            }),
+        loop {
+            let changed = self.inner.changed.notified();
+            let retained = self.inner.transform_used.load(Ordering::Acquire);
+            if retained < self.inner.limit
+                && self
+                    .inner
+                    .active_transform
+                    .compare_exchange(0, bytes, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                self.inner
+                    .used
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                        used.checked_add(bytes)
+                    })
+                    .expect("pipeline memory accounting overflow");
+                if retained.saturating_add(bytes) > self.inner.limit {
+                    tracing::warn!(
+                        required_bytes = bytes,
+                        retained_transform_bytes = retained,
+                        limit_bytes = self.inner.limit,
+                        "progress-critical parser transform temporarily exceeded memory budget",
+                    );
+                }
+                return ActiveTransformReservation {
+                    memory: Arc::clone(&self.inner),
+                    bytes,
+                    finished: false,
+                };
+            }
+            changed.await;
         }
     }
 
@@ -257,6 +285,51 @@ impl PipelineMemory {
             }
             changed.await;
         }
+    }
+}
+
+impl ActiveTransformReservation {
+    /// Replace the conservative active estimate with the exact retained output.
+    #[must_use]
+    pub fn finish(mut self, bytes: usize) -> MemoryReservation {
+        let bytes = bytes.max(1);
+        if bytes >= self.bytes {
+            self.memory
+                .used
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                    used.checked_add(bytes - self.bytes)
+                })
+                .expect("pipeline memory accounting overflow");
+        } else {
+            self.memory
+                .used
+                .fetch_sub(self.bytes - bytes, Ordering::AcqRel);
+        }
+        self.memory
+            .transform_used
+            .fetch_add(bytes, Ordering::AcqRel);
+        self.memory.active_transform.store(0, Ordering::Release);
+        self.memory.changed.notify_waiters();
+        self.finished = true;
+        MemoryReservation {
+            lease: Arc::new(MemoryLease {
+                bytes: AtomicUsize::new(bytes),
+                resize: Mutex::new(()),
+                kind: ReservationKind::Transform,
+                memory: Arc::clone(&self.memory),
+            }),
+        }
+    }
+}
+
+impl Drop for ActiveTransformReservation {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.memory.used.fetch_sub(self.bytes, Ordering::AcqRel);
+        self.memory.active_transform.store(0, Ordering::Release);
+        self.memory.changed.notify_waiters();
     }
 }
 
@@ -341,7 +414,6 @@ impl MemoryReservation {
                     .transform_used
                     .fetch_sub(released, Ordering::AcqRel);
             }
-            ReservationKind::ActiveTransform => {}
         }
         self.lease.memory.changed.notify_waiters();
         true
@@ -369,7 +441,6 @@ impl Drop for MemoryLease {
                     .transform_used
                     .fetch_sub(bytes, Ordering::AcqRel);
             }
-            ReservationKind::ActiveTransform => {}
         }
         if matches!(self.kind, ReservationKind::ProgressSource) {
             self.memory
@@ -416,14 +487,64 @@ mod tests {
         assert!(!memory.is_transform_pressured());
     }
 
-    #[test]
-    fn active_transform_is_accounted_without_throttling_downstream() {
+    #[tokio::test]
+    async fn active_transform_is_admitted_once_and_converts_to_exact_output() {
         let memory = PipelineMemory::new(10);
-        let lease = memory.account_active_transform(20);
+        let lease = memory.admit_active_transform(20).await;
         assert_eq!(memory.used(), 20);
         assert_eq!(memory.transform_used(), 0);
         assert!(!memory.is_transform_pressured());
-        drop(lease);
+        let mut second = Box::pin(memory.admit_active_transform(1));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut second)
+                .await
+                .is_err()
+        );
+        let output = lease.finish(7);
+        assert_eq!(memory.used(), 7);
+        assert_eq!(memory.transform_used(), 7);
+        drop(output);
+        let second = second.await;
+        drop(second);
+        assert_eq!(memory.used(), 0);
+    }
+
+    #[tokio::test]
+    async fn active_transform_waits_at_limit_but_ignores_source_bytes() {
+        let memory = PipelineMemory::new(10);
+        let source = memory.reserve_progress_source(20).await;
+        let retained = memory.reserve_transform(10);
+        let mut active = Box::pin(memory.admit_active_transform(5));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut active)
+                .await
+                .is_err()
+        );
+        drop(retained);
+        let active = tokio::time::timeout(core::time::Duration::from_millis(50), active)
+            .await
+            .expect("source accounting must not deadlock parser admission");
+        drop(active);
+        drop(source);
+        assert_eq!(memory.used(), 0);
+    }
+
+    #[tokio::test]
+    async fn dropping_active_transform_releases_accounting_and_wakes_waiter() {
+        let memory = PipelineMemory::new(10);
+        let first = memory.admit_active_transform(7).await;
+        let mut second = Box::pin(memory.admit_active_transform(3));
+        assert!(
+            tokio::time::timeout(core::time::Duration::from_millis(20), &mut second)
+                .await
+                .is_err()
+        );
+        drop(first);
+        let second = tokio::time::timeout(core::time::Duration::from_millis(50), second)
+            .await
+            .expect("dropping an unfinished active reservation must wake its waiter");
+        assert_eq!(memory.used(), 3);
+        drop(second);
         assert_eq!(memory.used(), 0);
     }
 
