@@ -521,17 +521,8 @@ pub(super) fn decode_parts_with_cancellation(
     Ok(decoded_parts)
 }
 
-#[cfg(test)]
-pub(super) fn decode_parts(
-    parts: Vec<RawPart>,
-    reservation: &MemoryReservation,
-    counters: &SourceCounters,
-) -> anyhow::Result<Vec<DecodedPart>> {
-    decode_parts_with_cancellation(parts, reservation, counters, &CancellationToken::new())
-}
-
 /// Decompress a message body. RAW (codec 1) reuses the input buffer (zero-copy).
-fn decompress_with_cancellation(
+pub(super) fn decompress_with_cancellation(
     data: Vec<u8>,
     codec: i32,
     uncompressed_size: u64,
@@ -560,15 +551,6 @@ fn decompress_with_cancellation(
         decoded.len()
     );
     Ok(decoded)
-}
-
-#[cfg(test)]
-pub(super) fn decompress(
-    data: Vec<u8>,
-    codec: i32,
-    uncompressed_size: u64,
-) -> anyhow::Result<Bytes> {
-    decompress_with_cancellation(data, codec, uncompressed_size, &CancellationToken::new())
 }
 
 /// Decode into an exactly-sized buffer, then probe one extra byte without growing it.

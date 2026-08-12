@@ -1,4 +1,19 @@
+use bytes::Bytes;
+use tonic::metadata::MetadataMap;
+
 use super::*;
+
+fn decode_parts(
+    parts: Vec<RawPart>,
+    reservation: &MemoryReservation,
+    counters: &SourceCounters,
+) -> anyhow::Result<Vec<DecodedPart>> {
+    decode_parts_with_cancellation(parts, reservation, counters, &CancellationToken::new())
+}
+
+fn decompress(data: Vec<u8>, codec: i32, uncompressed_size: u64) -> anyhow::Result<Bytes> {
+    decompress_with_cancellation(data, codec, uncompressed_size, &CancellationToken::new())
+}
 
 fn test_client() -> PqV1Client {
     test_client_with_requests().0

@@ -21,8 +21,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex as StdMutex;
 
 use anyhow::anyhow;
-#[cfg(test)]
-use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
@@ -39,8 +37,6 @@ use crate::Ydb::pers_queue::v1::{
 use crate::Ydb::status_ids::StatusCode;
 use tokio::sync::{mpsc, watch, Notify};
 use tokio_util::sync::CancellationToken;
-#[cfg(test)]
-use tonic::metadata::MetadataMap;
 use tonic::Request;
 
 /// `Ydb.StatusIds.SUCCESS`. Status codes live in the reserved range [400000, 400999];
