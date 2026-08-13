@@ -14,6 +14,7 @@ pub enum EndpointDescriptor {
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
+    S3Source(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
     PqV1Sink,
@@ -30,7 +31,8 @@ impl EndpointDescriptor {
             Self::PqV1(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
-            | Self::ClickHouseSource(source) => Some(source.behavior),
+            | Self::ClickHouseSource(source)
+            | Self::S3Source(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::PqV1Sink

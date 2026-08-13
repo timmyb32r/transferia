@@ -60,6 +60,18 @@ def clickhouse_source_stats_line() -> str:
     )
 
 
+def s3_source_stats_line() -> str:
+    return (
+        "2026-08-13 INFO [stats p=0] source: 500 msg/s | comp 8.0 MiB/s | "
+        "decomp 8.0 MiB/s | response-wait 0% | decomp 0% busy || "
+        "parse: 500 rows/s | 7.0 MiB/s arrow | 0 dlq/s | "
+        "500 source-msg/s | 35% busy || sink: 500 rows/s | 6.0 MiB/s | "
+        "2 flushes/s | 500 source-msg/s | 45% busy | 0 retries | "
+        "buffered 0 B | objects 0/0/0 | 0% backpressure || "
+        "guarantee: at-least-once | cpu: 25% rss: 120 MiB\n"
+    )
+
+
 class StatsAverageTest(unittest.TestCase):
     def test_aggregates_pqv1_to_clickhouse_logs(self):
         samples = STATS.read_samples(
@@ -108,6 +120,12 @@ class StatsAverageTest(unittest.TestCase):
 
         self.assertEqual(averages["source_messages_per_s"], 20000)
         self.assertEqual(averages["response_wait_percent"], 65)
+
+    def test_aggregates_ordered_s3_source_logs(self):
+        averages = STATS.average_samples(STATS.read_samples([s3_source_stats_line()]))
+
+        self.assertEqual(averages["source_messages_per_s"], 500)
+        self.assertEqual(averages["compressed_bytes_per_s"], 8 * 1024 * 1024)
 
 
 if __name__ == "__main__":

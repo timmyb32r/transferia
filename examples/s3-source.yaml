@@ -1,0 +1,34 @@
+# Finite, immutable S3 JSON snapshot -> ClickHouse.
+# Objects are listed once, sorted by their complete object key, and read exactly once.
+source:
+  s3:
+    bucket: source-bucket
+    prefix: snapshots/2026-08-13
+    region: us-east-1
+    endpoint: https://s3.example.net
+    credentials:
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+    timeout_ms: 30000
+    parser:
+      common:
+        table_naming: { type: from_config, name: events }
+      json_parser:
+        chunk_splitter: one-message-one-row
+        columns:
+          - { jsonpath: "$.id", column_name: id, arrow_type: Int64, nullable: false }
+
+middlewares: []
+pipeline_memory_limit_bytes: 268435456
+keep_system_columns_in_sink: false
+
+sink:
+  clickhouse:
+    endpoint: clickhouse.internal:9000
+    database: default
+    trusted_plaintext: true
+
+metrics:
+  enabled: true
+  interval_ms: 1000
+  per_partition: true
