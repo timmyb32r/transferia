@@ -71,6 +71,48 @@ pub struct PqV1SourceConfig {
     pub benchmark_discard_before_decompression: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PqV1SinkConfig {
+    pub endpoint: String,
+    pub topic_path: String,
+    pub message_group_id: String,
+    pub partition_group_id: i64,
+    pub auth: PqV1AuthConfig,
+    pub trusted_plaintext: bool,
+    #[serde(default = "default_network_timeout_ms")]
+    pub network_timeout_ms: u64,
+}
+
+impl PqV1SinkConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        crate::providers::pqv1::pq_v1::parse_endpoint(&self.endpoint)?;
+        anyhow::ensure!(self.trusted_plaintext, "pqv1.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
+        anyhow::ensure!(
+            !self.topic_path.is_empty(),
+            "pqv1.topic_path must not be empty"
+        );
+        anyhow::ensure!(
+            !self.message_group_id.is_empty() && self.message_group_id.len() <= 2048,
+            "pqv1.message_group_id must contain 1..=2048 UTF-8 bytes"
+        );
+        anyhow::ensure!(
+            self.partition_group_id >= 0,
+            "pqv1.partition_group_id must be nonnegative"
+        );
+        anyhow::ensure!(
+            self.network_timeout_ms >= 100,
+            "pqv1.network_timeout_ms must be at least 100ms"
+        );
+        self.auth.validate()
+    }
+
+    #[must_use]
+    pub const fn network_timeout(&self) -> core::time::Duration {
+        core::time::Duration::from_millis(self.network_timeout_ms)
+    }
+}
+
 const fn default_network_timeout_ms() -> u64 {
     30_000
 }

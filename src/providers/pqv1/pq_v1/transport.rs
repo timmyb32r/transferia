@@ -25,7 +25,7 @@ use crate::Ydb::status_ids::StatusCode;
 const YDB_DATABASE: &str = "/Root";
 
 /// Bridges Hyper 1.x `SendRequest` (which doesn't impl `tower::Service`) to tonic.
-pub(super) struct H2Service {
+pub struct H2Service {
     inner: http2::SendRequest<tonic::body::Body>,
 }
 
@@ -46,7 +46,7 @@ impl tower::Service<http::Request<tonic::body::Body>> for H2Service {
 
 /// Establish an HTTP/2 prior-knowledge connection (sends the HTTP/2 preface directly,
 /// like grpc-go — no HTTP/1.1 upgrade).
-pub(super) async fn connect_http2_prior_knowledge(
+pub async fn connect_http2_prior_knowledge(
     uri: &Uri,
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
@@ -105,7 +105,7 @@ pub(super) fn auth_metadata_value(token: &str) -> anyhow::Result<AsciiMetadataVa
         .map_err(|_| anyhow!("PQv1 access token is not valid ASCII metadata"))
 }
 
-pub(super) fn set_ydb_headers(md: &mut MetadataMap, token: &str) -> anyhow::Result<()> {
+pub fn set_ydb_headers(md: &mut MetadataMap, token: &str) -> anyhow::Result<()> {
     md.insert("x-ydb-auth-ticket", auth_metadata_value(token)?);
     md.insert(
         "x-ydb-database",
@@ -143,7 +143,7 @@ pub fn parse_endpoint(endpoint: &str) -> anyhow::Result<String> {
     Ok(host)
 }
 
-pub(super) fn http_uri(host: &str) -> anyhow::Result<Uri> {
+pub fn http_uri(host: &str) -> anyhow::Result<Uri> {
     format!("http://{host}")
         .parse()
         .map_err(|e| anyhow!("bad uri http://{host}: {e}"))

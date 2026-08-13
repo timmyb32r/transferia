@@ -294,6 +294,11 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             transferia::providers::ytsaurus::YTsaurusSinkProvider::from_config(value)?,
         ))
     });
+    registry.register_sink("pqv1", |value| {
+        Ok(Box::new(
+            transferia::providers::pqv1::PqV1SinkProvider::from_config(value)?,
+        ))
+    });
     registry
 }
 

@@ -16,6 +16,7 @@ pub enum EndpointDescriptor {
     ClickHouseSource(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
+    PqV1Sink,
     ClickHouse,
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
@@ -32,6 +33,7 @@ impl EndpointDescriptor {
             | Self::ClickHouseSource(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
+            | Self::PqV1Sink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::Discard => None,
@@ -97,6 +99,7 @@ pub enum DiagnosticCode {
     ClickHouseAtLeastOnce,
     PostgresAtLeastOnce,
     YTsaurusAtLeastOnce,
+    PqV1AtLeastOnce,
     BenchmarkDiscard,
     BenchmarkSourceDiscard,
 }
@@ -208,6 +211,9 @@ pub fn validate_pipeline(
                 remediation: Some("include a user-defined idempotency key when duplicate-free final state is required".into()),
             }],
         };
+    }
+    if matches!(sink, EndpointDescriptor::PqV1Sink) {
+        return DeliverySemanticsReport { guarantee: DeliveryGuarantee::AtLeastOnce, diagnostics: vec![SemanticsDiagnostic { code: DiagnosticCode::PqV1AtLeastOnce, severity: DiagnosticSeverity::Info, config_paths: vec!["sink.pqv1".into()], explanation: "PQv1 write ACK precedes source progress commit, so an ambiguous retry may produce a duplicate unless the destination deduplicates the configured message group sequence".into(), remediation: None }] };
     }
     let EndpointDescriptor::S3(sink) = sink else {
         return DeliverySemanticsReport {

@@ -10,8 +10,8 @@ mod transport;
 
 use decode::*;
 pub use decode::{DecodedMessage, DecodedPart, PqV1CommitMarker};
-pub use transport::parse_endpoint;
 use transport::*;
+pub use transport::{connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers};
 
 use alloc::sync::Arc;
 use core::pin::Pin;
