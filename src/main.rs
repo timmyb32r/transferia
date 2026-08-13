@@ -32,7 +32,13 @@ static GLOBAL: MiMalloc = MiMalloc;
 #[command(name = "transferia", about = "PQv1 data transfer pipeline")]
 struct Cli {
     #[arg(long, env = "CONFIG_PATH")]
-    config: String,
+    config: Option<String>,
+    #[arg(long)]
+    server: bool,
+    #[arg(long, default_value = "127.0.0.1:8080")]
+    bind: std::net::SocketAddr,
+    #[arg(long, default_value = ".transferia-server")]
+    state_dir: std::path::PathBuf,
     #[arg(long, default_value_t = 1)]
     total_workers: u32,
     #[arg(long, default_value_t = 0)]
@@ -380,8 +386,15 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let cli = Cli::parse();
+    if cli.server {
+        return server::run(cli.bind, cli.state_dir).await;
+    }
     validate_worker_assignment(&cli)?;
-    let config = Config::from_file(&cli.config)?;
+    let config_path = cli
+        .config
+        .as_deref()
+        .context("--config is required unless --server is selected")?;
+    let config = Config::from_file(config_path)?;
     anyhow::ensure!(
         config.pipeline_memory_limit_bytes > 0,
         "pipeline_memory_limit_bytes must be positive"
@@ -517,3 +530,5 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 #[path = "main/tests.rs"]
 mod tests;
+
+mod server;

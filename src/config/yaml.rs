@@ -25,7 +25,11 @@ impl Config {
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)
             .map_err(|error| anyhow::anyhow!("Failed to read config file '{path}': {error}"))?;
-        let expanded = shellexpand::env(&contents)
+        Self::from_yaml(&contents)
+    }
+
+    pub fn from_yaml(contents: &str) -> anyhow::Result<Self> {
+        let expanded = shellexpand::env(contents)
             .map_err(|error| anyhow::anyhow!("Failed to expand env vars in config: {error}"))?;
         serde_yaml::from_str(&expanded)
             .map_err(|error| anyhow::anyhow!("Failed to parse YAML config: {error}"))

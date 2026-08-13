@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transferia deliveries</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header><h1>Transferia</h1><p>One delivery, from source to destination.</p></header>
+  <main>
+    <section class="panel">
+      <div class="title"><h2>Deliveries</h2><button id="create">Create delivery</button></div>
+      <div id="deliveries"></div>
+    </section>
+    <section class="panel hidden" id="editor">
+      <div class="title"><h2>New delivery</h2><button class="secondary" id="cancel">Close</button></div>
+      <div class="grid">
+        <label>Name<input id="name" value="demo-delivery"></label>
+        <label>Source<select id="source"></select></label>
+        <label>Destination<select id="sink"></select></label>
+      </div>
+      <p class="hint">Edit the source and destination contract as one YAML document. Discovery reruns after each change and shows the exact destination schema before anything is created.</p>
+      <textarea id="config" spellcheck="false"></textarea>
+      <div id="error"></div>
+      <div id="schema"></div>
+      <button id="save">Save as created</button>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

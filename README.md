@@ -15,6 +15,20 @@ finite-snapshot `postgres` and static-table `ytsaurus` sources; `clickhouse`,
 `postgres`, `s3`, and `ytsaurus` sinks; and the non-durable `discard` sink used by
 explicit benchmark configurations.
 
+For the demonstration control plane, run:
+
+```bash
+transferia --server --bind 127.0.0.1:8080 --state-dir .transferia-server
+```
+
+The printed URL opens a dependency-free JavaScript UI. It stores delivery
+definitions atomically in the local state directory, reruns real source
+discovery and sink-limit validation whenever YAML changes, previews the exact
+table schemas, and saves a valid definition as `created`. Activating a delivery
+writes an immutable config file and starts a child `transferia --config ...`
+process with stdout/stderr redirected to its own log file. This is intentionally
+a demo process launcher, not a scheduler or production process supervisor.
+
 ## Quality checks
 
 ```bash

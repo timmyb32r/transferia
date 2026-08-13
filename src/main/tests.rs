@@ -69,7 +69,10 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
 #[test]
 fn rejects_invalid_worker_assignment_before_partitioning() {
     let mut cli = Cli {
-        config: "unused".into(),
+        config: Some("unused".into()),
+        server: false,
+        bind: "127.0.0.1:8080".parse().unwrap(),
+        state_dir: ".transferia-server".into(),
         total_workers: 0,
         worker_index: 0,
     };

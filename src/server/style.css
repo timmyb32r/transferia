@@ -1,0 +1,24 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #15202b; background: #edf1f5; }
+body { margin: 0; }
+header { padding: 28px max(24px, calc((100vw - 1100px) / 2)); color: white; background: #172b4d; }
+header h1 { margin: 0; letter-spacing: -.03em; } header p { margin: 5px 0 0; color: #b9c8df; }
+main { max-width: 1100px; margin: 24px auto; padding: 0 20px 80px; display: grid; gap: 20px; }
+.panel { background: white; border: 1px solid #dce3eb; border-radius: 14px; box-shadow: 0 8px 30px #15202b10; padding: 22px; }
+.title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.title h2 { margin: 0; }
+button { border: 0; border-radius: 8px; background: #0b66e4; color: white; padding: 10px 16px; font-weight: 650; cursor: pointer; }
+button.secondary { background: #e9eef5; color: #253858; }
+.grid { margin-top: 18px; display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+label { display: grid; gap: 6px; font-size: 13px; color: #506079; }
+input, select, textarea { border: 1px solid #c7d1dd; border-radius: 7px; padding: 9px; font: inherit; }
+textarea { box-sizing: border-box; width: 100%; min-height: 320px; resize: vertical; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.hint { color: #607089; font-size: 13px; }
+.hidden { display: none; }
+.delivery { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid #edf1f5; }
+.delivery:first-child { border-top: 0; }
+.status { border-radius: 99px; background: #edf1f5; padding: 5px 10px; font-size: 12px; }
+#error { margin: 12px 0; color: #ae2e24; white-space: pre-wrap; }
+.dataset { margin: 14px 0; border: 1px solid #dce3eb; border-radius: 8px; overflow: hidden; }
+.dataset h3 { margin: 0; padding: 10px 12px; background: #f6f8fa; font-size: 14px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; } td, th { text-align: left; padding: 8px 12px; border-top: 1px solid #edf1f5; }
+@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .delivery { grid-template-columns: 1fr; } }
