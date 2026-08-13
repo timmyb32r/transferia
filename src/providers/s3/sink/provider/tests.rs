@@ -11,19 +11,23 @@ fn discovered_dataset(
     let system_columns = REQUIRED_ROUTING_COLUMNS.to_vec();
     let incoming_schema = DatasetSchema::new(vec![
         SchemaColumn::new("value".into(), value_type, value_nullable),
-        SchemaColumn::new(SystemColumnKind::Topic.name().into(), DataType::Utf8, false),
         SchemaColumn::new(
-            SystemColumnKind::Partition.name().into(),
+            SystemColumnKind::Topic.default_name().into(),
+            DataType::Utf8,
+            false,
+        ),
+        SchemaColumn::new(
+            SystemColumnKind::Partition.default_name().into(),
             DataType::Int64,
             false,
         ),
         SchemaColumn::new(
-            SystemColumnKind::Offset.name().into(),
+            SystemColumnKind::Offset.default_name().into(),
             DataType::Int64,
             false,
         ),
         SchemaColumn::new(
-            SystemColumnKind::MessageIndex.name().into(),
+            SystemColumnKind::MessageIndex.default_name().into(),
             DataType::UInt64,
             false,
         ),
@@ -37,7 +41,7 @@ fn discovered_dataset(
             value_nullable,
         )]),
         incoming_schema,
-        system_columns,
+        system_columns: system_columns.iter().copied().map(Into::into).collect(),
     }
 }
 
@@ -173,9 +177,9 @@ fn record_time_discovery_validates_the_rendered_namespace_without_rewriting() ->
     for dataset in &mut discovered.datasets {
         dataset
             .system_columns
-            .push(SystemColumnKind::WriteTimestampMs);
+            .push(SystemColumnKind::WriteTimestampMs.into());
         dataset.incoming_schema.columns.push(SchemaColumn::new(
-            SystemColumnKind::WriteTimestampMs.name().into(),
+            SystemColumnKind::WriteTimestampMs.default_name().into(),
             DataType::Int64,
             false,
         ));

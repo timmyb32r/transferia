@@ -12,7 +12,7 @@ fn benchmark_discard_rejects_unknown_configuration() {
 #[test]
 fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
     let config: ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: true, message_index: true }\njson_parser:\n  chunk_splitter: one-message-one-row\n  columns:\n    - { jsonpath: $.value, column_name: value, arrow_type: Int64, nullable: false }\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: true, message_index: true }\njson_parser:\n  chunk_splitter: one-message-one-row\n  columns:\n    - { jsonpath: $.value, column_name: value, json_data_type: integer, arrow_type: Int64, nullable: false }\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n  primary_key: [value, source_offset]\n  system_column_names: { offset: source_offset, message_index: source_message_index }\n",
     )?;
     let plan = ParserPlan::from_config(&config, "topic")?;
 
@@ -32,8 +32,10 @@ fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
             .iter()
             .map(|column| column.name.as_str())
             .collect::<Vec<_>>(),
-        ["value", "_system_offset", "_system_message_index"]
+        ["value", "source_offset", "source_message_index"]
     );
+    assert!(visible.columns[0].primary_key);
+    assert!(visible.columns[1].primary_key);
     assert_eq!(plan.dlq_schema(false).columns.len(), 3);
     assert_eq!(plan.dlq_schema(true).columns.len(), 5);
     Ok(())

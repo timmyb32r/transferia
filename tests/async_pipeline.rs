@@ -245,9 +245,11 @@ fn parser() -> Arc<dyn transferia::parsers::ParserFactory> {
 common:
   table_naming: { type: from_config, name: events }
 json_parser:
+  conversion_error: dlq
+  unknown_fields: { action: fail }
   columns:
-    - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
-    - { jsonpath: "$.kind", column_name: "kind", arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.id", column_name: "id", json_data_type: string, arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.kind", column_name: "kind", json_data_type: string, arrow_type: "Utf8", nullable: false }
 "#,
     )
     .unwrap();
@@ -262,9 +264,11 @@ fn discovery() -> Arc<DeliveryDiscovery> {
 common:
   table_naming: { type: from_config, name: events }
 json_parser:
+  conversion_error: dlq
+  unknown_fields: { action: fail }
   columns:
-    - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
-    - { jsonpath: "$.kind", column_name: "kind", arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.id", column_name: "id", json_data_type: string, arrow_type: "Utf8", nullable: false }
+    - { jsonpath: "$.kind", column_name: "kind", json_data_type: string, arrow_type: "Utf8", nullable: false }
 "#,
     )
     .unwrap();

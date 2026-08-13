@@ -23,12 +23,14 @@ source:
           message_index: true
           write_timestamp_ms: true
       json_parser:
+        conversion_error: dlq
+        unknown_fields: { action: fail }
         chunk_splitter: "one-message-one-row"
         columns:
-          - { jsonpath: "$.id", column_name: "id", arrow_type: "Utf8", nullable: false }
-          - { jsonpath: "$.ts", column_name: "ts", arrow_type: "Utf8", nullable: false }
-          - { jsonpath: "$.level", column_name: "level", arrow_type: "Utf8", nullable: true }
-          - { jsonpath: "$.msg", column_name: "msg", arrow_type: "Utf8", nullable: true }
+          - { jsonpath: "$.id", column_name: "id", json_data_type: string, arrow_type: "Utf8", nullable: false }
+          - { jsonpath: "$.ts", column_name: "ts", json_data_type: string, arrow_type: "Utf8", nullable: false }
+          - { jsonpath: "$.level", column_name: "level", json_data_type: string, arrow_type: "Utf8", nullable: true }
+          - { jsonpath: "$.msg", column_name: "msg", json_data_type: string, arrow_type: "Utf8", nullable: true }
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456

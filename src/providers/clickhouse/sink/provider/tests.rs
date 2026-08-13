@@ -5,7 +5,9 @@ use crate::delivery::{DiscoveredDataset, SchemaOrigin};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
-    let schema = DatasetSchema::new(vec![SchemaColumn::new("value".into(), data_type, false)]);
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("value".into(), data_type, false).with_constraints(true, false, None)
+    ]);
     DeliveryDiscovery {
         source_name: Arc::from("source-topic"),
         source_partitions: vec![0],

@@ -228,10 +228,13 @@ impl SinkLimits for S3SinkConfig {
             validate_schema(&dataset.name, "stored", &dataset.stored_schema)?;
             for required in REQUIRED_ROUTING_COLUMNS {
                 anyhow::ensure!(
-                    dataset.system_columns.contains(&required),
+                    dataset
+                        .system_columns
+                        .iter()
+                        .any(|column| column.kind == required),
                     "S3 dataset '{}' is missing required routing system column '{}'",
                     dataset.name,
-                    required.name(),
+                    required.default_name(),
                 );
             }
         }
@@ -277,9 +280,10 @@ impl SinkLimits for S3SinkConfig {
                 {
                     anyhow::ensure!(
                         main.system_columns
-                            .contains(&SystemColumnKind::WriteTimestampMs),
+                            .iter()
+                            .any(|column| column.kind == SystemColumnKind::WriteTimestampMs),
                         "S3 record-time partitioning requires system column '{}' in dataset '{}'",
-                        SystemColumnKind::WriteTimestampMs.name(),
+                        SystemColumnKind::WriteTimestampMs.default_name(),
                         main.name
                     );
                 }

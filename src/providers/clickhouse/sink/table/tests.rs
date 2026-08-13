@@ -155,6 +155,39 @@ fn ddl_rejects_duplicate_sorting_columns() {
 }
 
 #[test]
+fn ddl_materializes_low_cardinality_metadata() -> anyhow::Result<()> {
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "kind".into(),
+        DataType::Utf8,
+        false,
+    )
+    .with_constraints(true, true, Some(32))]);
+    let ddl = create_table_ddl("events", &schema, &["kind".into()])?;
+    assert!(ddl.contains("`kind` LowCardinality(String)"), "{ddl}");
+    assert!(ddl.contains("ORDER BY (`kind`)"), "{ddl}");
+    Ok(())
+}
+
+#[test]
+fn target_schema_rejects_low_cardinality_drift() -> anyhow::Result<()> {
+    let expected = DatasetSchema::new(vec![SchemaColumn::new(
+        "kind".into(),
+        DataType::Utf8,
+        false,
+    )
+    .with_constraints(false, true, None)]);
+    let mut target = HashMap::new();
+    target.insert(
+        "kind".into(),
+        target_column_with_metadata("String", "", false)?,
+    );
+    let error = validate_target_schema("events", &expected, &target, &[])
+        .expect_err("plain String must not satisfy LowCardinality discovery");
+    assert!(error.to_string().contains("LowCardinality"));
+    Ok(())
+}
+
+#[test]
 fn ddl_rejects_identifiers_outside_the_canonical_ascii_subset() {
     let valid_schema = schema(vec![SchemaColumn::new(
         "value".into(),

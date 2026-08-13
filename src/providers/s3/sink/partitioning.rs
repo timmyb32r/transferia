@@ -123,7 +123,7 @@ impl Partitioner {
                         let timestamp_ms = source_record_time.ok_or_else(|| {
                             anyhow::anyhow!(
                                 "required system column '{}' is absent",
-                                SystemColumnKind::WriteTimestampMs.name()
+                                SystemColumnKind::WriteTimestampMs.default_name()
                             )
                         })?;
                         let slot = timestamp_ms.div_euclid(*window_ms) * *window_ms;
@@ -310,10 +310,9 @@ impl<'batch> RouteColumns<'batch> {
 }
 
 fn system_index(columns: &SystemColumns, kind: SystemColumnKind) -> anyhow::Result<usize> {
-    columns
-        .get(kind)
-        .map(|column| column.index)
-        .ok_or_else(|| anyhow::anyhow!("required system column '{}' is absent", kind.name()))
+    columns.get(kind).map(|column| column.index).ok_or_else(|| {
+        anyhow::anyhow!("required system column '{}' is absent", kind.default_name())
+    })
 }
 
 fn system_array<'batch, T: Array + 'static>(
@@ -326,7 +325,12 @@ fn system_array<'batch, T: Array + 'static>(
         .column(index)
         .as_any()
         .downcast_ref::<T>()
-        .ok_or_else(|| anyhow::anyhow!("system column '{}' has invalid Arrow type", kind.name()))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "system column '{}' has invalid Arrow type",
+                kind.default_name()
+            )
+        })
 }
 
 fn optional_system_array<'batch, T: Array + 'static>(
@@ -342,14 +346,19 @@ fn optional_system_array<'batch, T: Array + 'static>(
         .as_any()
         .downcast_ref::<T>()
         .map(Some)
-        .ok_or_else(|| anyhow::anyhow!("system column '{}' has invalid Arrow type", kind.name()))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "system column '{}' has invalid Arrow type",
+                kind.default_name()
+            )
+        })
 }
 
 fn ensure_not_null(array: &dyn Array, kind: SystemColumnKind, row: usize) -> anyhow::Result<()> {
     anyhow::ensure!(
         !array.is_null(row),
         "system column '{}' is NULL",
-        kind.name()
+        kind.default_name()
     );
     Ok(())
 }

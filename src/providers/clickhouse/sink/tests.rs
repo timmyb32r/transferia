@@ -236,7 +236,7 @@ fn removes_only_declared_system_columns_before_clickhouse_insert() -> anyhow::Re
         Arc::new(Schema::new(vec![
             Field::new("value", DataType::Int64, false),
             Field::new(
-                SystemColumnKind::Offset.name(),
+                SystemColumnKind::Offset.default_name(),
                 SystemColumnKind::Offset.data_type(),
                 false,
             ),
@@ -248,6 +248,7 @@ fn removes_only_declared_system_columns_before_clickhouse_insert() -> anyhow::Re
     )?;
     let system_columns = SystemColumns::new(vec![SystemColumn {
         kind: SystemColumnKind::Offset,
+        name: Arc::from(SystemColumnKind::Offset.default_name()),
         index: 1,
     }]);
 
@@ -270,6 +271,7 @@ fn rejects_inconsistent_system_column_metadata() -> anyhow::Result<()> {
     )?;
     let system_columns = SystemColumns::new(vec![SystemColumn {
         kind: SystemColumnKind::Offset,
+        name: Arc::from(SystemColumnKind::Offset.default_name()),
         index: 0,
     }]);
 

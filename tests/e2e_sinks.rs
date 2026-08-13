@@ -46,7 +46,7 @@ fn discovery(
     source_name: &str,
     incoming: DatasetSchema,
     stored: DatasetSchema,
-    system_columns: Vec<SystemColumnKind>,
+    system_columns: &[SystemColumnKind],
     keep_system_columns: bool,
 ) -> Arc<DeliveryDiscovery> {
     Arc::new(DeliveryDiscovery {
@@ -60,14 +60,14 @@ fn discovery(
                 name: Arc::from("events"),
                 incoming_schema: incoming.clone(),
                 stored_schema: stored.clone(),
-                system_columns: system_columns.clone(),
+                system_columns: system_columns.iter().copied().map(Into::into).collect(),
             },
             DiscoveredDataset {
                 role: DatasetRole::DeadLetterQueue,
                 name: Arc::from("events_dlq"),
                 incoming_schema: incoming,
                 stored_schema: stored,
-                system_columns,
+                system_columns: system_columns.iter().copied().map(Into::into).collect(),
             },
         ],
     })
@@ -175,7 +175,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         ("id", DataType::Int64, false),
         ("name", DataType::Utf8, false),
     ]);
-    let discovery = discovery("topic-a", schema.clone(), schema.clone(), Vec::new(), false);
+    let discovery = discovery("topic-a", schema.clone(), schema.clone(), &[], false);
     provider.limits().validate_discovery(&discovery)?;
     let mut last_prepare_error = None;
     for _ in 0..50 {
@@ -301,17 +301,29 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     ];
     let incoming = dataset_schema(&[
         ("id", DataType::Int64, false),
-        (SystemColumnKind::Topic.name(), DataType::Utf8, false),
-        (SystemColumnKind::Partition.name(), DataType::Int64, false),
-        (SystemColumnKind::Offset.name(), DataType::Int64, false),
         (
-            SystemColumnKind::MessageIndex.name(),
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
+        (
+            SystemColumnKind::Partition.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        (
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        (
+            SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
             false,
         ),
     ]);
     let stored = dataset_schema(&[("id", DataType::Int64, false)]);
-    let discovery = discovery("topic-a", incoming, stored, system_kinds, false);
+    let discovery = discovery("topic-a", incoming, stored, &system_kinds, false);
     provider.limits().validate_discovery(&discovery)?;
     provider
         .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
@@ -328,11 +340,23 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         .await?;
     let fields = vec![
         Field::new("id", DataType::Int64, false),
-        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
-        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
-        Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
-            SystemColumnKind::MessageIndex.name(),
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Partition.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
             false,
         ),
@@ -362,18 +386,22 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
                 system_columns: SystemColumns::new(vec![
                     SystemColumn {
                         kind: SystemColumnKind::Topic,
+                        name: Arc::from(SystemColumnKind::Topic.default_name()),
                         index: 1,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::Partition,
+                        name: Arc::from(SystemColumnKind::Partition.default_name()),
                         index: 2,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::Offset,
+                        name: Arc::from(SystemColumnKind::Offset.default_name()),
                         index: 3,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::MessageIndex,
+                        name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
                         index: 4,
                     },
                 ]),

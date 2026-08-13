@@ -48,8 +48,19 @@ pub(super) async fn prepare_tables(
     request: &SinkPrepare,
 ) -> anyhow::Result<()> {
     for dataset in &request.datasets {
+        let schema_primary_key = dataset
+            .schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>();
         let sorting_key: &[String] = if dataset.role == crate::delivery::DatasetRole::Main {
-            &config.sorting_key
+            anyhow::ensure!(
+                config.sorting_key.is_empty() || config.sorting_key == schema_primary_key,
+                "clickhouse.sorting_key must be empty or exactly match json_parser.primary_key {schema_primary_key:?}"
+            );
+            &schema_primary_key
         } else {
             &[]
         };
@@ -118,6 +129,10 @@ fn create_table_ddl(
 }
 
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "orthogonal ClickHouse column facts"
+)]
 struct TargetColumn {
     data_type: Option<DataType>,
     nullable: bool,
@@ -126,6 +141,7 @@ struct TargetColumn {
     timezone: Option<String>,
     default_kind: String,
     in_sorting_key: bool,
+    low_cardinality: bool,
 }
 
 async fn fetch_target_schema(
@@ -293,6 +309,7 @@ fn target_column_with_metadata(
 ) -> anyhow::Result<TargetColumn> {
     let clickhouse_type = Type::from_str(type_name)?;
     let nullable = clickhouse_type.is_nullable();
+    let low_cardinality = contains_low_cardinality(&clickhouse_type);
     let data_type = target_data_type(&clickhouse_type);
     let (datetime_precision, datetime64, timezone) = match clickhouse_type.strip_null() {
         Type::DateTime(timezone) => (Some(0), false, Some(timezone.name().to_string())),
@@ -309,11 +326,24 @@ fn target_column_with_metadata(
         timezone,
         default_kind: default_kind.to_string(),
         in_sorting_key,
+        low_cardinality,
     })
 }
 
+fn contains_low_cardinality(clickhouse_type: &Type) -> bool {
+    match clickhouse_type {
+        Type::Nullable(inner) => contains_low_cardinality(inner),
+        Type::LowCardinality(_) => true,
+        _ => false,
+    }
+}
+
 fn target_data_type(clickhouse_type: &Type) -> Option<DataType> {
-    Some(match clickhouse_type.strip_null() {
+    let mut clickhouse_type = clickhouse_type.strip_null();
+    if let Type::LowCardinality(inner) = clickhouse_type {
+        clickhouse_type = inner.strip_null();
+    }
+    Some(match clickhouse_type {
         Type::Int8 => DataType::Int8,
         Type::Int16 => DataType::Int16,
         Type::Int32 => DataType::Int32,
@@ -371,6 +401,13 @@ fn validate_target_schema(
             column.name,
         );
         anyhow::ensure!(
+            column.low_cardinality == actual.low_cardinality,
+            "ClickHouse table '{table}' column '{}' LowCardinality={} but discovery requires {}",
+            column.name,
+            actual.low_cardinality,
+            column.low_cardinality,
+        );
+        anyhow::ensure!(
             matches!(actual.default_kind.as_str(), "" | "DEFAULT"),
             "ClickHouse table '{table}' column '{}' is not writable because default_kind is '{}'",
             column.name,
@@ -422,6 +459,16 @@ fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
         error.context(format!("invalid ClickHouse column name {:?}", column.name))
     })?;
     let data_type = clickhouse_type(&column.data_type)?;
+    let data_type = if column.low_cardinality {
+        anyhow::ensure!(
+            matches!(column.data_type, DataType::Utf8 | DataType::LargeUtf8),
+            "ClickHouse LowCardinality is supported only for string column '{}'",
+            column.name
+        );
+        format!("LowCardinality({data_type})")
+    } else {
+        data_type
+    };
     let data_type = if column.nullable {
         format!("Nullable({data_type})")
     } else {

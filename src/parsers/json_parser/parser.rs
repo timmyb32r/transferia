@@ -13,9 +13,13 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 
-use crate::parsers::json_parser::config::{parse_arrow_type, ChunkSplitter, JsonParserConfig};
+use crate::parsers::json_parser::config::{
+    parse_arrow_type, ChunkSplitter, ConversionErrorPolicy, EpochUnit, JsonDataType,
+    JsonParserConfig, TimeConversion, UnknownFieldPolicy,
+};
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 use crate::types::message::{Message, MessageMeta};
+use crate::types::schema::SchemaColumn;
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::types::table_data::{dlq_name, TableData};
 
@@ -31,6 +35,7 @@ const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 enum CompiledPath {
     RootField(String),
     Complex(jsonpath_lib::Compiled),
+    Rest,
 }
 
 fn compile_path(raw: &str) -> anyhow::Result<CompiledPath> {
@@ -46,6 +51,12 @@ fn compile_path(raw: &str) -> anyhow::Result<CompiledPath> {
         }
     }
     Ok(CompiledPath::Complex(compiled))
+}
+
+fn mapped_top_level_field(raw: &str) -> Option<&str> {
+    let path = raw.strip_prefix("$.")?;
+    let end = path.find(['.', '[']).unwrap_or(path.len());
+    (end > 0).then(|| &path[..end])
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +97,7 @@ struct RootFieldInfo {
     /// Number of `true` entries in `required` — the count that must be filled
     /// for a row to be valid (missing nullable fields become NULL, not DLQ).
     required_total: usize,
+    reject_unknown: bool,
 }
 
 enum ParseMode {
@@ -339,6 +351,66 @@ fn value_matches_kind(kind: ColumnKind, val: &Value) -> bool {
         }),
         ColumnKind::Boolean => val.as_bool().is_some(),
     }
+}
+
+fn json_value_matches(kind: JsonDataType, value: &Value) -> bool {
+    value.is_null()
+        || match kind {
+            JsonDataType::String => value.is_string(),
+            JsonDataType::Integer => value.as_i64().is_some(),
+            JsonDataType::UnsignedInteger => value.as_u64().is_some(),
+            JsonDataType::Number => value.as_f64().is_some_and(f64::is_finite),
+            JsonDataType::Boolean => value.is_boolean(),
+        }
+}
+
+fn convert_time_value(
+    value: &Value,
+    conversion: &TimeConversion,
+    target: ColumnKind,
+) -> Result<Value, RowConversionError> {
+    let source_ns = match conversion {
+        TimeConversion::Epoch { unit } => {
+            let raw = value
+                .as_i64()
+                .ok_or_else(|| RowConversionError("epoch value is not a signed integer".into()))?;
+            raw.checked_mul(match unit {
+                EpochUnit::Seconds => 1_000_000_000,
+                EpochUnit::Milliseconds => 1_000_000,
+                EpochUnit::Microseconds => 1_000,
+                EpochUnit::Nanoseconds => 1,
+            })
+            .ok_or_else(|| RowConversionError("epoch conversion overflow".into()))?
+        }
+        TimeConversion::String { format } => {
+            let raw = value
+                .as_str()
+                .ok_or_else(|| RowConversionError("time value is not a string".into()))?;
+            let description = time::format_description::parse_borrowed::<2>(format)
+                .map_err(|error| RowConversionError(error.to_string()))?;
+            let parsed = time::OffsetDateTime::parse(raw, &description)
+                .or_else(|_| {
+                    time::PrimitiveDateTime::parse(raw, &description)
+                        .map(time::PrimitiveDateTime::assume_utc)
+                })
+                .map_err(|error| RowConversionError(error.to_string()))?;
+            i64::try_from(parsed.unix_timestamp_nanos())
+                .map_err(|_| RowConversionError("parsed timestamp is outside Arrow range".into()))?
+        }
+    };
+    let converted = match target {
+        ColumnKind::TimestampSecond => source_ns.div_euclid(1_000_000_000),
+        ColumnKind::TimestampMillisecond | ColumnKind::Date64 => source_ns.div_euclid(1_000_000),
+        ColumnKind::TimestampMicrosecond => source_ns.div_euclid(1_000),
+        ColumnKind::TimestampNanosecond => source_ns,
+        ColumnKind::Date32 => source_ns.div_euclid(86_400_000_000_000),
+        _ => {
+            return Err(RowConversionError(
+                "time conversion target is not temporal".into(),
+            ))
+        }
+    };
+    Ok(Value::from(converted))
 }
 
 /// Append a value that has already passed [`value_matches_kind`].
@@ -915,6 +987,7 @@ struct TypedFieldExtractor<'ctx> {
     kinds: &'ctx [ColumnKind],
     /// Per-column requiredness (non-nullable), indexed by column position.
     required: &'ctx [bool],
+    reject_unknown: bool,
     /// Tracks mapped keys independently from their value because an explicit
     /// JSON null leaves the typed scratch empty.
     seen: &'ctx mut [bool],
@@ -926,6 +999,7 @@ struct TypedFieldExtractor<'ctx> {
     /// Total number of required columns — a row is valid once all are filled.
     required_total: usize,
     duplicate_mapped_field: bool,
+    unknown_field: bool,
 }
 
 struct DuplicateMappedRootVisitor<'a> {
@@ -979,12 +1053,16 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
                     self.required_filled += 1;
                 }
             } else {
+                self.unknown_field = true;
                 map.next_value::<de::IgnoredAny>()?;
             }
         }
         // Row is valid iff every *required* (non-nullable) column was found.
         // Missing nullable columns stay `TypedScratch::Empty` → appended as NULL.
-        Ok(!self.duplicate_mapped_field && self.required_filled == self.required_total)
+        Ok(
+            !(self.duplicate_mapped_field || self.reject_unknown && self.unknown_field)
+                && self.required_filled == self.required_total,
+        )
     }
 }
 
@@ -1013,11 +1091,13 @@ fn parse_root_fields_typed(
         scratch,
         kinds,
         required: &info.required,
+        reject_unknown: info.reject_unknown,
         seen,
         buf_ptr,
         required_filled: 0,
         required_total: info.required_total,
         duplicate_mapped_field: false,
+        unknown_field: false,
     };
     de.deserialize_map(&mut extractor).map_err(Into::into)
 }
@@ -1025,14 +1105,18 @@ fn parse_root_fields_typed(
 // ---------------------------------------------------------------------------
 // DLQ — source metadata uses the same typed system-column contract as main data
 // ---------------------------------------------------------------------------
-fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
+fn dlq_schema(system_columns: &SystemColumns) -> Schema {
     let mut fields = vec![
         Field::new("raw_base64", DataType::Utf8, false),
         Field::new("error_message", DataType::Utf8, false),
         Field::new("source_write_timestamp_ms", DataType::Int64, true),
     ];
-    for kind in system_kinds {
-        fields.push(Field::new(kind.name(), kind.data_type(), false));
+    for column in system_columns.iter() {
+        fields.push(Field::new(
+            column.name.as_ref(),
+            column.kind.data_type(),
+            false,
+        ));
     }
     Schema::new(fields)
 }
@@ -1040,6 +1124,15 @@ fn dlq_schema(system_kinds: &[SystemColumnKind]) -> Schema {
 enum DlqReason {
     JsonParse,
     ExtractionFailed,
+}
+
+#[derive(Debug)]
+struct RowConversionError(String);
+
+impl core::fmt::Display for RowConversionError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(&self.0)
+    }
 }
 
 impl DlqReason {
@@ -1074,12 +1167,18 @@ pub struct JsonParser {
     /// Unique top-level mapped fields. The mixed `JSONPath` path uses this to
     /// reject the same duplicate keys as the root-field fast path.
     mapped_root_fields: Vec<String>,
+    conversion_error: ConversionErrorPolicy,
+    unknown_fields: UnknownFieldPolicy,
+    mapped_top_level_fields: HashSet<String>,
 }
 
 struct ColumnMappingExt {
     path: CompiledPath,
     /// `true` when the column is non-nullable (a missing value routes the row to DLQ).
     required: bool,
+    json_data_type: JsonDataType,
+    max_length: Option<usize>,
+    time_conversion: Option<TimeConversion>,
 }
 
 impl JsonParser {
@@ -1190,13 +1289,14 @@ impl JsonParser {
         if config.columns.is_empty() {
             anyhow::bail!("columns must not be empty");
         }
-        let n = config.columns.len();
+        let mut n = config.columns.len();
         let mut mappings = Vec::with_capacity(n);
         let mut kinds = Vec::with_capacity(n);
         let mut data_types = Vec::with_capacity(n);
         let mut all_root = true;
         let mut column_names = HashSet::with_capacity(n);
         let mut mapped_root_fields = Vec::new();
+        let mut mapped_top_level_fields = HashSet::new();
 
         for col in &config.columns {
             anyhow::ensure!(
@@ -1219,28 +1319,47 @@ impl JsonParser {
                 all_root = false;
             }
             if let CompiledPath::RootField(field) = &path {
+                mapped_top_level_fields.insert(field.clone());
                 if !mapped_root_fields.contains(field) {
                     mapped_root_fields.push(field.clone());
                 }
+            }
+            if let Some(field) = mapped_top_level_field(&col.jsonpath) {
+                mapped_top_level_fields.insert(field.to_owned());
+            } else {
+                anyhow::bail!(
+                    "column '{}': JSONPath must begin with a named top-level field because unknown_fields is explicit",
+                    col.column_name
+                );
             }
             kinds.push(kind);
             data_types.push(arrow_type);
             mappings.push(ColumnMappingExt {
                 path,
                 required: !col.nullable,
+                json_data_type: col.json_data_type,
+                max_length: col.max_length,
+                time_conversion: col.time_conversion.clone(),
             });
         }
 
         let required: Vec<bool> = config.columns.iter().map(|c| !c.nullable).collect();
         let required_total = required.iter().filter(|r| **r).count();
 
-        let mode = if all_root {
+        let mode = if all_root
+            && !matches!(config.unknown_fields, UnknownFieldPolicy::Rest { .. })
+            && config.conversion_error == ConversionErrorPolicy::Dlq
+            && config
+                .columns
+                .iter()
+                .all(|column| column.time_conversion.is_none() && column.max_length.is_none())
+        {
             let pairs: Vec<(String, usize)> = mappings
                 .iter()
                 .enumerate()
                 .filter_map(|(i, m)| match &m.path {
                     CompiledPath::RootField(f) => Some((f.clone(), i)),
-                    CompiledPath::Complex(_) => None,
+                    CompiledPath::Complex(_) | CompiledPath::Rest => None,
                 })
                 .collect();
             let unique_fields = pairs
@@ -1260,6 +1379,7 @@ impl JsonParser {
                     index,
                     required,
                     required_total,
+                    reject_unknown: matches!(config.unknown_fields, UnknownFieldPolicy::Fail),
                 })
             } else {
                 // One JSON field may feed multiple output columns. The single-index
@@ -1270,12 +1390,32 @@ impl JsonParser {
             ParseMode::Mixed
         };
 
-        let fields: Vec<Field> = config
+        let mut fields: Vec<Field> = config
             .columns
             .iter()
-            .zip(data_types.iter())
-            .map(|(col, dt)| Field::new(&col.column_name, dt.clone(), col.nullable))
+            .zip(config.to_dataset_schema()?.columns.iter())
+            .map(|(col, schema)| {
+                Field::new(&col.column_name, schema.data_type.clone(), col.nullable)
+                    .with_metadata(schema.arrow_metadata())
+            })
             .collect();
+        if let UnknownFieldPolicy::Rest { column_name } = &config.unknown_fields {
+            anyhow::ensure!(
+                all_root,
+                "unknown_fields.action=rest currently requires only simple top-level JSONPaths"
+            );
+            fields.push(Field::new(column_name, DataType::Utf8, false));
+            data_types.push(DataType::Utf8);
+            kinds.push(ColumnKind::Utf8);
+            mappings.push(ColumnMappingExt {
+                path: CompiledPath::Rest,
+                required: true,
+                json_data_type: JsonDataType::String,
+                max_length: None,
+                time_conversion: None,
+            });
+            n += 1;
+        }
         let mut schema_fields = fields;
         let system_kinds: Vec<_> = system_config.enabled().collect();
         for kind in [
@@ -1285,19 +1425,23 @@ impl JsonParser {
             SystemColumnKind::MessageIndex,
             SystemColumnKind::WriteTimestampMs,
         ] {
-            if config
-                .columns
-                .iter()
-                .any(|column| column.column_name == kind.name())
-            {
-                anyhow::bail!(
-                    "user column '{}' conflicts with reserved system column",
-                    kind.name()
-                );
+            let name = config.system_column_names.name(kind);
+            if column_names.contains(name) {
+                anyhow::bail!("user column '{name}' conflicts with reserved system column");
             }
         }
         for kind in &system_kinds {
-            schema_fields.push(Field::new(kind.name(), kind.data_type(), false));
+            let name = config.system_column_names.name(*kind);
+            let field = Field::new(name, kind.data_type(), false);
+            schema_fields.push(if config.primary_key.iter().any(|key| key == name) {
+                field.with_metadata(
+                    SchemaColumn::new(name.to_owned(), kind.data_type(), false)
+                        .with_constraints(true, false, None)
+                        .arrow_metadata(),
+                )
+            } else {
+                field
+            });
         }
         let arrow_schema = Arc::new(Schema::new(schema_fields));
         let dlq_table: Arc<str> = dlq_name(&table).into();
@@ -1307,6 +1451,7 @@ impl JsonParser {
                 .enumerate()
                 .map(|(offset, kind)| SystemColumn {
                     kind: *kind,
+                    name: Arc::from(config.system_column_names.name(*kind)),
                     index: n + offset,
                 })
                 .collect::<Vec<_>>(),
@@ -1317,6 +1462,7 @@ impl JsonParser {
                 .enumerate()
                 .map(|(offset, kind)| SystemColumn {
                     kind: *kind,
+                    name: Arc::from(config.system_column_names.name(*kind)),
                     index: 3 + offset,
                 })
                 .collect::<Vec<_>>(),
@@ -1335,6 +1481,9 @@ impl JsonParser {
             system_columns,
             dlq_system_columns,
             mapped_root_fields,
+            conversion_error: config.conversion_error,
+            unknown_fields: config.unknown_fields.clone(),
+            mapped_top_level_fields,
         })
     }
 
@@ -1346,6 +1495,15 @@ impl JsonParser {
                 .select(json)
                 .ok()
                 .and_then(|r| r.first().map(|v| (*v).clone())),
+            CompiledPath::Rest => json.as_object().map(|object| {
+                Value::Object(
+                    object
+                        .iter()
+                        .filter(|(key, _)| !self.mapped_top_level_fields.contains(*key))
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                )
+            }),
         }
     }
 
@@ -1426,7 +1584,7 @@ impl JsonParser {
         arrays.push(Arc::new(err_builder.finish()));
         arrays.push(Arc::new(source_ts_builder.finish()));
         arrays.extend(system_builders.iter_mut().map(AnyBuilder::finish));
-        let batch = RecordBatch::try_new(Arc::new(dlq_schema(&self.system_kinds)), arrays)?;
+        let batch = RecordBatch::try_new(Arc::new(dlq_schema(&self.dlq_system_columns)), arrays)?;
 
         Ok(TableData {
             batch,
@@ -1449,7 +1607,10 @@ impl JsonParser {
                 anyhow::ensure!(
                     present,
                     "source message is missing metadata required for system column '{}'",
-                    kind.name()
+                    self.system_columns.get(*kind).map_or_else(
+                        || kind.default_name().to_owned(),
+                        |column| column.name.to_string()
+                    )
                 );
             }
         }
@@ -1580,20 +1741,58 @@ impl JsonParser {
     /// Fills and validates one parsed row before touching any Arrow builder.
     /// This two-phase contract prevents a late type/range error from leaving
     /// columns with different lengths.
-    fn fill_row(&self, json: &Value, row: &mut Vec<Value>) -> bool {
+    fn fill_row(&self, json: &Value, row: &mut Vec<Value>) -> Result<(), RowConversionError> {
+        if matches!(self.unknown_fields, UnknownFieldPolicy::Fail) {
+            let object = json
+                .as_object()
+                .ok_or_else(|| RowConversionError("JSON root is not an object".into()))?;
+            if let Some(field) = object
+                .keys()
+                .find(|field| !self.mapped_top_level_fields.contains(*field))
+            {
+                return Err(RowConversionError(format!("unknown JSON field '{field}'")));
+            }
+        }
         row.clear();
         for (mapping, kind) in self.mappings.iter().zip(self.kinds.iter().copied()) {
-            let value = match self.extract_value(json, mapping) {
+            let mut value = match self.extract_value(json, mapping) {
                 Some(value) => value,
                 None if !mapping.required => Value::Null,
-                None => return false,
+                None => return Err(RowConversionError("required JSONPath is missing".into())),
             };
-            if (value.is_null() && mapping.required) || !value_matches_kind(kind, &value) {
-                return false;
+            if matches!(mapping.path, CompiledPath::Rest) {
+                value = Value::String(
+                    serde_json::to_string(&value)
+                        .map_err(|error| RowConversionError(error.to_string()))?,
+                );
+            }
+            if (value.is_null() && mapping.required)
+                || !json_value_matches(mapping.json_data_type, &value)
+            {
+                return Err(RowConversionError(
+                    "JSON value does not satisfy the declared conversion".into(),
+                ));
+            }
+            if let Some(conversion) = &mapping.time_conversion {
+                value = convert_time_value(&value, conversion, kind)?;
+            }
+            if !value_matches_kind(kind, &value) {
+                return Err(RowConversionError(
+                    "converted value is outside the declared Arrow type".into(),
+                ));
+            }
+            if mapping.max_length.is_some_and(|limit| {
+                value
+                    .as_str()
+                    .is_some_and(|text| text.chars().count() > limit)
+            }) {
+                return Err(RowConversionError(
+                    "string exceeds configured max_length".into(),
+                ));
             }
             row.push(value);
         }
-        true
+        Ok(())
     }
 
     fn append_mixed_row(builders: &mut [AnyBuilder], row: &[Value]) {
@@ -1611,7 +1810,7 @@ impl JsonParser {
         builders: &mut [AnyBuilder],
         dlq_records: &mut Vec<DlqRecord>,
         row: &mut Vec<Value>,
-    ) {
+    ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
             for (message_index, line) in msg
                 .value
@@ -1631,7 +1830,17 @@ impl JsonParser {
                 }
                 match serde_json::from_slice::<Value>(line) {
                     Ok(json) => {
-                        if self.fill_row(&json, row) {
+                        if let Err(error) = self.fill_row(&json, row) {
+                            if self.conversion_error == ConversionErrorPolicy::Fail {
+                                return Err(anyhow::Error::msg(error.to_string()));
+                            }
+                            dlq_records.push(dlq_record(
+                                source_message,
+                                subslice_range(&msg.value, line),
+                                DlqReason::ExtractionFailed,
+                                message_index,
+                            ));
+                        } else {
                             Self::append_mixed_row(builders, row);
                             append_system_columns(
                                 builders,
@@ -1640,13 +1849,6 @@ impl JsonParser {
                                 &msg.meta,
                                 message_index,
                             );
-                        } else {
-                            dlq_records.push(dlq_record(
-                                source_message,
-                                subslice_range(&msg.value, line),
-                                DlqReason::ExtractionFailed,
-                                message_index,
-                            ));
                         }
                     }
                     Err(_e) => {
@@ -1660,6 +1862,7 @@ impl JsonParser {
                 }
             }
         }
+        Ok(())
     }
 
     fn parse_mixed_nosplit(
@@ -1668,7 +1871,7 @@ impl JsonParser {
         builders: &mut [AnyBuilder],
         dlq_records: &mut Vec<DlqRecord>,
         row: &mut Vec<Value>,
-    ) {
+    ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
             if self.has_duplicate_mapped_root_field(&msg.value) {
                 dlq_records.push(dlq_record(
@@ -1681,7 +1884,17 @@ impl JsonParser {
             }
             match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
-                    if self.fill_row(&json, row) {
+                    if let Err(error) = self.fill_row(&json, row) {
+                        if self.conversion_error == ConversionErrorPolicy::Fail {
+                            return Err(anyhow::Error::msg(error.to_string()));
+                        }
+                        dlq_records.push(dlq_record(
+                            source_message,
+                            0..msg.value.len(),
+                            DlqReason::ExtractionFailed,
+                            0,
+                        ));
+                    } else {
                         Self::append_mixed_row(builders, row);
                         append_system_columns(
                             builders,
@@ -1690,13 +1903,6 @@ impl JsonParser {
                             &msg.meta,
                             0,
                         );
-                    } else {
-                        dlq_records.push(dlq_record(
-                            source_message,
-                            0..msg.value.len(),
-                            DlqReason::ExtractionFailed,
-                            0,
-                        ));
                     }
                 }
                 Err(_error) => dlq_records.push(dlq_record(
@@ -1707,19 +1913,31 @@ impl JsonParser {
                 )),
             }
         }
+        Ok(())
     }
 
-    fn parse_mixed(&self, messages: &[Message], ws: &mut ParserWorkspace) {
+    fn parse_mixed(&self, messages: &[Message], ws: &mut ParserWorkspace) -> anyhow::Result<()> {
         let n_cols = self.mappings.len();
         let mut row: Vec<Value> = Vec::with_capacity(n_cols);
         match self.chunk_splitter {
             ChunkSplitter::NewLine => {
-                self.parse_mixed_newline(messages, &mut ws.builders, &mut ws.dlq_records, &mut row);
+                self.parse_mixed_newline(
+                    messages,
+                    &mut ws.builders,
+                    &mut ws.dlq_records,
+                    &mut row,
+                )?;
             }
             ChunkSplitter::OneMessageOneRow => {
-                self.parse_mixed_nosplit(messages, &mut ws.builders, &mut ws.dlq_records, &mut row);
+                self.parse_mixed_nosplit(
+                    messages,
+                    &mut ws.builders,
+                    &mut ws.dlq_records,
+                    &mut row,
+                )?;
             }
         }
+        Ok(())
     }
 }
 
@@ -1870,7 +2088,7 @@ impl JsonParser {
                 }
             }
             ParseMode::Mixed => {
-                self.parse_mixed(&messages, ws);
+                self.parse_mixed(&messages, ws)?;
             }
         }
 

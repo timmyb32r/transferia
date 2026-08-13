@@ -132,8 +132,10 @@ source:
       common:
         table_naming: { type: from_config, name: events }
       json_parser:
+        conversion_error: dlq
+        unknown_fields: { action: fail }
         columns:
-          - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }
+          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }
 sink:
   clickhouse:
     endpoint: localhost:9000

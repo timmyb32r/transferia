@@ -15,7 +15,6 @@ sink:
     endpoint: "localhost:9000"
     trusted_plaintext: true
     database: default
-    sorting_key: [id]
 
 metrics:
   enabled: true

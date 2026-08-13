@@ -5,7 +5,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 use transferia::parsers::json_parser::{
-    ChunkSplitter, ColumnMapping, JsonParser, JsonParserConfig, ParserWorkspace,
+    ChunkSplitter, ColumnMapping, JsonDataType, JsonParser, JsonParserConfig, ParserWorkspace,
 };
 use transferia::parsers::SystemColumnsConfig;
 use transferia::serializer::JsonBatchEncoder;
@@ -39,15 +39,27 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
                 column_name: "id".into(),
                 arrow_type: "Int64".into(),
                 nullable: false,
+                json_data_type: JsonDataType::Integer,
+                time_conversion: None,
+                low_cardinality: false,
+                max_length: None,
             },
             ColumnMapping {
                 jsonpath: "$.val".into(),
                 column_name: "val".into(),
                 arrow_type: "Utf8".into(),
                 nullable: true,
+                json_data_type: JsonDataType::String,
+                time_conversion: None,
+                low_cardinality: false,
+                max_length: None,
             },
         ],
         chunk_splitter: ChunkSplitter::NewLine,
+        conversion_error: transferia::parsers::json_parser::ConversionErrorPolicy::Dlq,
+        unknown_fields: transferia::parsers::json_parser::UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: transferia::parsers::json_parser::SystemColumnNames::default(),
     };
     let parser = JsonParser::new(
         &parser_config,

@@ -57,22 +57,22 @@ impl ClickHouseSource {
         let mut arrays = batch.columns().to_vec();
         fields.extend([
             Arc::new(Field::new(
-                SystemColumnKind::Topic.name(),
+                SystemColumnKind::Topic.default_name(),
                 DataType::Utf8,
                 false,
             )),
             Arc::new(Field::new(
-                SystemColumnKind::Partition.name(),
+                SystemColumnKind::Partition.default_name(),
                 DataType::Int64,
                 false,
             )),
             Arc::new(Field::new(
-                SystemColumnKind::Offset.name(),
+                SystemColumnKind::Offset.default_name(),
                 DataType::Int64,
                 false,
             )),
             Arc::new(Field::new(
-                SystemColumnKind::MessageIndex.name(),
+                SystemColumnKind::MessageIndex.default_name(),
                 DataType::UInt64,
                 false,
             )),
@@ -111,18 +111,22 @@ impl ClickHouseSource {
                 SystemColumns::new(vec![
                     SystemColumn {
                         kind: SystemColumnKind::Topic,
+                        name: Arc::from(SystemColumnKind::Topic.default_name()),
                         index: base,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::Partition,
+                        name: Arc::from(SystemColumnKind::Partition.default_name()),
                         index: base + 1,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::Offset,
+                        name: Arc::from(SystemColumnKind::Offset.default_name()),
                         index: base + 2,
                     },
                     SystemColumn {
                         kind: SystemColumnKind::MessageIndex,
+                        name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
                         index: base + 3,
                     },
                 ]),

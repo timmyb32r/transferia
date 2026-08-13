@@ -3,11 +3,11 @@ use super::*;
 #[test]
 fn parses_arrow_types() -> anyhow::Result<()> {
     anyhow::ensure!(parse_arrow_type("Utf8")? == DataType::Utf8);
-    anyhow::ensure!(parse_arrow_type("int64")? == DataType::Int64);
+    anyhow::ensure!(parse_arrow_type("Int64")? == DataType::Int64);
     anyhow::ensure!(parse_arrow_type("Float64")? == DataType::Float64);
-    anyhow::ensure!(parse_arrow_type("bool")? == DataType::Boolean);
+    anyhow::ensure!(parse_arrow_type("Boolean")? == DataType::Boolean);
     anyhow::ensure!(
-        parse_arrow_type("Timestamp(Millisecond, None)")?
+        parse_arrow_type("Timestamp(Millisecond)")?
             == DataType::Timestamp(TimeUnit::Millisecond, None)
     );
     anyhow::ensure!(
@@ -22,7 +22,7 @@ fn rejects_unknown_arrow_type() -> anyhow::Result<()> {
     let error = parse_arrow_type("Blob")
         .err()
         .ok_or_else(|| anyhow::anyhow!("expected Blob to be rejected"))?;
-    anyhow::ensure!(error.to_string().contains("Unsupported arrow_type"));
+    anyhow::ensure!(error.to_string().contains("unsupported arrow_type"));
     Ok(())
 }
 
@@ -46,7 +46,7 @@ fn rejects_malformed_timestamp_types() {
 #[test]
 fn produces_sink_neutral_schema() -> anyhow::Result<()> {
     let config: JsonParserConfig = serde_yaml::from_str(
-        "columns:\n  - jsonpath: $.id\n    column_name: id\n    arrow_type: UInt64\n    nullable: false\n",
+        "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: unsigned_integer\n    arrow_type: UInt64\n    nullable: false\nconversion_error: dlq\nunknown_fields: { action: fail }\n",
     )?;
     let schema = config.to_dataset_schema()?;
     anyhow::ensure!(schema.columns.len() == 1);

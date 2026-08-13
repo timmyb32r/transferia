@@ -37,9 +37,11 @@ source:
           message_index: true
           write_timestamp_ms: true
       json_parser:
+        conversion_error: dlq
+        unknown_fields: { action: fail }
         chunk_splitter: one-message-one-row
         columns:
-          - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }
+          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }
 sink:
   s3:
     bucket: transfer-bucket

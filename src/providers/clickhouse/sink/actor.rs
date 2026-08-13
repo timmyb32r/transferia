@@ -387,7 +387,7 @@ pub(super) fn without_system_columns(
             column.index
         );
         anyhow::ensure!(
-            field.name() == column.kind.name() && field.data_type() == &column.kind.data_type(),
+            field.name() == column.name.as_ref() && field.data_type() == &column.kind.data_type(),
             "system column metadata {:?} does not match ClickHouse batch field '{}' ({:?})",
             column.kind,
             field.name(),

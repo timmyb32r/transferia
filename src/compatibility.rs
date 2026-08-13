@@ -390,11 +390,19 @@ fn require_system_column(
     kind: SystemColumnKind,
     diagnostics: &mut Vec<SemanticsDiagnostic>,
 ) {
-    if dataset.is_none_or(|dataset| !dataset.system_columns.contains(&kind)) {
+    if dataset.is_none_or(|dataset| {
+        !dataset
+            .system_columns
+            .iter()
+            .any(|column| column.kind == kind)
+    }) {
         diagnostics.push(error(
             DiagnosticCode::MissingSystemColumn,
             &["source.pqv1.parser.common.system_columns", "sink.s3"],
-            &format!("S3 sink requires parser system column '{}'", kind.name()),
+            &format!(
+                "S3 sink requires parser system column '{}'",
+                kind.default_name()
+            ),
             Some(&format!(
                 "enable {} in parser.common.system_columns",
                 config_name(kind)

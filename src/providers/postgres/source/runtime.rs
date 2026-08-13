@@ -122,18 +122,22 @@ fn routing_system_columns(base: usize) -> SystemColumns {
     SystemColumns::new(vec![
         SystemColumn {
             kind: SystemColumnKind::Topic,
+            name: Arc::from(SystemColumnKind::Topic.default_name()),
             index: base,
         },
         SystemColumn {
             kind: SystemColumnKind::Partition,
+            name: Arc::from(SystemColumnKind::Partition.default_name()),
             index: base + 1,
         },
         SystemColumn {
             kind: SystemColumnKind::Offset,
+            name: Arc::from(SystemColumnKind::Offset.default_name()),
             index: base + 2,
         },
         SystemColumn {
             kind: SystemColumnKind::MessageIndex,
+            name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
             index: base + 3,
         },
     ])
@@ -173,11 +177,23 @@ fn rows_to_batch(
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
     fields.extend([
-        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
-        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
-        Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
-            SystemColumnKind::MessageIndex.name(),
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Partition.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
             false,
         ),

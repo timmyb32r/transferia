@@ -9,6 +9,7 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_yaml::Value;
 
+use crate::delivery::DiscoveredSystemColumn;
 use crate::types::message::Message;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::table_data::TableData;
@@ -45,8 +46,9 @@ pub struct ParserPlan {
     parser: Arc<dyn ParserFactory>,
     table: Arc<str>,
     dataset_schema: DatasetSchema,
-    system_columns: SystemColumnsConfig,
     parses_rows: bool,
+    discovered_system_columns: Vec<DiscoveredSystemColumn>,
+    primary_key: Arc<[String]>,
 }
 
 impl ParserPlan {
@@ -56,44 +58,74 @@ impl ParserPlan {
             parser: Arc::new(native_source::NativeSourceParser),
             table: Arc::from(""),
             dataset_schema: DatasetSchema::default(),
-            system_columns: SystemColumnsConfig::default(),
             parses_rows: true,
+            discovered_system_columns: Vec::new(),
+            primary_key: Arc::from([]),
         }
     }
 
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {
         let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
         let kind = config.parser.kind()?;
-        let (parser, dataset_schema, parses_rows) = match kind {
-            "json_parser" => {
-                let parser_config: json_parser::JsonParserConfig =
-                    serde_yaml::from_value(config.parser.raw()?.clone())?;
-                let schema = parser_config.to_dataset_schema()?;
-                let parser = Arc::new(json_parser::JsonParser::new(
-                    &parser_config,
-                    &config.common.system_columns,
-                    Arc::clone(&table),
-                )?) as Arc<dyn ParserFactory>;
-                (parser, schema, true)
-            }
-            "benchmark_discard" => {
-                let _: benchmark_discard::BenchmarkDiscardConfig =
-                    serde_yaml::from_value(config.parser.raw()?.clone())?;
-                let parser = Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::clone(
-                    &table,
-                ))) as Arc<dyn ParserFactory>;
-                (parser, DatasetSchema::default(), false)
-            }
-            other => anyhow::bail!(
-                "unknown parser '{other}'; supported parsers: json_parser, benchmark_discard"
-            ),
-        };
+        let (parser, dataset_schema, parses_rows, discovered_system_columns, primary_key) =
+            match kind {
+                "json_parser" => {
+                    let parser_config: json_parser::JsonParserConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    let schema = parser_config.to_dataset_schema()?;
+                    let discovered_system_columns = config
+                        .common
+                        .system_columns
+                        .enabled()
+                        .map(|kind| DiscoveredSystemColumn {
+                            kind,
+                            name: Arc::from(parser_config.system_column_names.name(kind)),
+                        })
+                        .collect::<Vec<_>>();
+                    validate_primary_key(
+                        &parser_config,
+                        &config.common.system_columns,
+                        &schema,
+                        &discovered_system_columns,
+                    )?;
+                    let parser = Arc::new(json_parser::JsonParser::new(
+                        &parser_config,
+                        &config.common.system_columns,
+                        Arc::clone(&table),
+                    )?) as Arc<dyn ParserFactory>;
+                    (
+                        parser,
+                        schema,
+                        true,
+                        discovered_system_columns,
+                        Arc::from(parser_config.primary_key),
+                    )
+                }
+                "benchmark_discard" => {
+                    let _: benchmark_discard::BenchmarkDiscardConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    let parser = Arc::new(benchmark_discard::BenchmarkDiscardParser::new(
+                        Arc::clone(&table),
+                    )) as Arc<dyn ParserFactory>;
+                    (
+                        parser,
+                        DatasetSchema::default(),
+                        false,
+                        Vec::new(),
+                        Arc::from([]),
+                    )
+                }
+                other => anyhow::bail!(
+                    "unknown parser '{other}'; supported parsers: json_parser, benchmark_discard"
+                ),
+            };
         Ok(Self {
             parser,
             table,
             dataset_schema,
-            system_columns: config.common.system_columns.clone(),
             parses_rows,
+            discovered_system_columns,
+            primary_key,
         })
     }
 
@@ -113,8 +145,8 @@ impl ParserPlan {
     }
 
     #[must_use]
-    pub const fn system_columns(&self) -> &SystemColumnsConfig {
-        &self.system_columns
+    pub fn system_columns(&self) -> Vec<DiscoveredSystemColumn> {
+        self.discovered_system_columns.clone()
     }
 
     #[must_use]
@@ -126,11 +158,18 @@ impl ParserPlan {
     pub fn sink_schema(&self, keep_system_columns: bool) -> DatasetSchema {
         let mut schema = self.dataset_schema.clone();
         if keep_system_columns {
-            schema.columns.extend(
-                self.system_columns.enabled().map(|kind| {
-                    SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)
-                }),
-            );
+            schema
+                .columns
+                .extend(self.discovered_system_columns.iter().map(|column| {
+                    SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+                        .with_constraints(
+                            self.primary_key
+                                .iter()
+                                .any(|name| name == column.name.as_ref()),
+                            false,
+                            None,
+                        )
+                }));
         }
         schema
     }
@@ -155,14 +194,52 @@ impl ParserPlan {
             ),
         ];
         if keep_system_columns {
-            columns.extend(
-                self.system_columns.enabled().map(|kind| {
-                    SchemaColumn::new(kind.name().to_string(), kind.data_type(), false)
-                }),
-            );
+            columns.extend(self.discovered_system_columns.iter().map(|column| {
+                SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+            }));
         }
         DatasetSchema::new(columns)
     }
+}
+
+fn validate_primary_key(
+    parser: &json_parser::JsonParserConfig,
+    enabled: &SystemColumnsConfig,
+    schema: &DatasetSchema,
+    system_columns: &[DiscoveredSystemColumn],
+) -> anyhow::Result<()> {
+    let mut available = schema
+        .columns
+        .iter()
+        .map(|column| (column.name.as_str(), column.nullable))
+        .collect::<HashMap<_, _>>();
+    for system in system_columns {
+        anyhow::ensure!(
+            enabled.enabled().any(|kind| kind == system.kind),
+            "system primary-key column '{}' is not enabled",
+            system.name,
+        );
+        anyhow::ensure!(
+            available.insert(system.name.as_ref(), false).is_none(),
+            "system column '{}' conflicts with a JSON output column",
+            system.name,
+        );
+    }
+    let mut unique = std::collections::HashSet::with_capacity(parser.primary_key.len());
+    for key in &parser.primary_key {
+        anyhow::ensure!(
+            unique.insert(key),
+            "json_parser.primary_key repeats column '{key}'"
+        );
+        let nullable = available.get(key.as_str()).ok_or_else(|| {
+            anyhow::anyhow!("json_parser.primary_key column '{key}' is not produced by the parser")
+        })?;
+        anyhow::ensure!(
+            !nullable,
+            "json_parser.primary_key column '{key}' must be non-nullable"
+        );
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

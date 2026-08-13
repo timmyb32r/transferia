@@ -5,7 +5,9 @@ use serde::Serialize;
 
 use crate::parsers::ParserPlan;
 use crate::pipeline::sink::SinkBatch;
-use crate::types::schema::DatasetSchema;
+use crate::types::schema::{
+    DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
+};
 use crate::types::system_columns::SystemColumnKind;
 use crate::types::table_data::dlq_name;
 
@@ -51,7 +53,28 @@ pub struct DiscoveredDataset {
     pub incoming_schema: DatasetSchema,
     /// Schema visible in the destination after the system-column policy.
     pub stored_schema: DatasetSchema,
-    pub system_columns: Vec<SystemColumnKind>,
+    pub system_columns: Vec<DiscoveredSystemColumn>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredSystemColumn {
+    pub kind: SystemColumnKind,
+    pub name: Arc<str>,
+}
+
+impl From<SystemColumnKind> for DiscoveredSystemColumn {
+    fn from(kind: SystemColumnKind) -> Self {
+        Self {
+            kind,
+            name: Arc::from(kind.default_name()),
+        }
+    }
+}
+
+impl PartialEq<SystemColumnKind> for DiscoveredSystemColumn {
+    fn eq(&self, other: &SystemColumnKind) -> bool {
+        self.kind == *other
+    }
 }
 
 /// Source metadata and every dataset produced by its parser.
@@ -94,7 +117,7 @@ impl DeliveryDiscovery {
         }
 
         let datasets = if parser_plan.parses_rows() {
-            let system_columns = parser_plan.system_columns().enabled().collect::<Vec<_>>();
+            let system_columns = parser_plan.system_columns();
             let table = parser_plan.table();
             let dlq_table: Arc<str> = dlq_name(&table).into();
             vec![
@@ -272,6 +295,26 @@ pub fn validate_batch_against_discovery<'a>(
             expected_column.data_type,
             expected_column.nullable,
         );
+        let metadata = actual.metadata();
+        anyhow::ensure!(
+            metadata
+                .get(META_PRIMARY_KEY)
+                .is_some_and(|value| value == "true")
+                == expected_column.primary_key
+                && metadata
+                    .get(META_LOW_CARDINALITY)
+                    .is_some_and(|value| value == "true")
+                    == expected_column.low_cardinality
+                && metadata.get(META_MAX_LENGTH).map(String::as_str)
+                    == expected_column
+                        .max_length
+                        .as_ref()
+                        .map(usize::to_string)
+                        .as_deref(),
+            "runtime dataset '{}' column '{}' metadata does not match discovery",
+            batch.table,
+            actual.name(),
+        );
     }
 
     let mut actual_system_kinds = HashSet::with_capacity(batch.system_columns.iter().len());
@@ -297,7 +340,7 @@ pub fn validate_batch_against_discovery<'a>(
             )
         })?;
         anyhow::ensure!(
-            field.name() == column.kind.name() && field.data_type() == &column.kind.data_type(),
+            field.name() == column.name.as_ref() && field.data_type() == &column.kind.data_type(),
             "runtime dataset '{}' system column {:?} does not match field '{}' ({:?})",
             batch.table,
             column.kind,
@@ -308,7 +351,7 @@ pub fn validate_batch_against_discovery<'a>(
     let expected_system_kinds = expected
         .system_columns
         .iter()
-        .copied()
+        .map(|column| column.kind)
         .collect::<HashSet<_>>();
     anyhow::ensure!(
         actual_system_kinds == expected_system_kinds,
@@ -330,7 +373,7 @@ pub fn validate_stored_projection(
     let system_names = dataset
         .system_columns
         .iter()
-        .map(|kind| kind.name())
+        .map(|column| column.name.as_ref())
         .collect::<HashSet<_>>();
     anyhow::ensure!(
         system_names.len() == dataset.system_columns.len(),
@@ -338,22 +381,22 @@ pub fn validate_stored_projection(
         dataset.role,
         dataset.name,
     );
-    for kind in &dataset.system_columns {
+    for system in &dataset.system_columns {
         let matching = dataset
             .incoming_schema
             .columns
             .iter()
-            .filter(|column| column.name == kind.name())
+            .filter(|column| column.name == system.name.as_ref())
             .collect::<Vec<_>>();
         anyhow::ensure!(
             matching.len() == 1
-                && matching[0].data_type == kind.data_type()
+                && matching[0].data_type == system.kind.data_type()
                 && !matching[0].nullable,
             "discovered {:?} dataset '{}' system column '{}' must occur exactly once with Arrow type {:?} and be non-nullable",
             dataset.role,
             dataset.name,
-            kind.name(),
-            kind.data_type(),
+            system.name,
+            system.kind.data_type(),
         );
     }
     let expected = dataset
@@ -375,6 +418,9 @@ pub fn validate_stored_projection(
                     stored.name == incoming.name
                         && stored.data_type == incoming.data_type
                         && stored.nullable == incoming.nullable
+                        && stored.primary_key == incoming.primary_key
+                        && stored.low_cardinality == incoming.low_cardinality
+                        && stored.max_length == incoming.max_length
                 }),
         "stored schema for {:?} dataset '{}' is not the exact incoming schema after system-column projection",
         dataset.role,

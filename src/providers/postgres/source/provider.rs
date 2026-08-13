@@ -91,18 +91,23 @@ impl SourceProvider for PostgresSourceProvider {
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables() => tables? };
-            let system_columns = vec![
+            let system_columns = [
                 SystemColumnKind::Topic,
                 SystemColumnKind::Partition,
                 SystemColumnKind::Offset,
                 SystemColumnKind::MessageIndex,
             ];
+            let discovered_system_columns = system_columns
+                .iter()
+                .copied()
+                .map(Into::into)
+                .collect::<Vec<_>>();
             let datasets = tables
                 .iter()
                 .map(|table| {
                     let mut incoming = table.schema.clone();
                     incoming.columns.extend(system_columns.iter().map(|kind| {
-                        SchemaColumn::new(kind.name().to_owned(), kind.data_type(), false)
+                        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
                     let stored = if request.keep_system_columns {
                         incoming.clone()
@@ -114,7 +119,7 @@ impl SourceProvider for PostgresSourceProvider {
                         name: Arc::from(table.config.name.as_str()),
                         incoming_schema: incoming,
                         stored_schema: stored,
-                        system_columns: system_columns.clone(),
+                        system_columns: discovered_system_columns.clone(),
                     }
                 })
                 .collect();

@@ -1,29 +1,145 @@
 use super::*;
-use crate::parsers::json_parser::config::JsonParserConfig;
-use arrow::array::Array as _;
+use crate::parsers::json_parser::{
+    ColumnMapping, ConversionErrorPolicy, EpochUnit, JsonDataType, JsonParserConfig,
+    TimeConversion, UnknownFieldPolicy,
+};
+use arrow::array::{Array as _, AsArray as _};
 use base64::Engine as _;
 use bytes::Bytes;
+
+fn mapping(jsonpath: &str, name: &str, arrow_type: &str, nullable: bool) -> ColumnMapping {
+    ColumnMapping::new(jsonpath.into(), name.into(), arrow_type.into(), nullable)
+}
+
+fn parser_config(columns: Vec<ColumnMapping>, chunk_splitter: ChunkSplitter) -> JsonParserConfig {
+    JsonParserConfig {
+        columns,
+        chunk_splitter,
+        conversion_error: ConversionErrorPolicy::Dlq,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
+    }
+}
 
 fn parser_for(
     columns: Vec<crate::parsers::json_parser::ColumnMapping>,
 ) -> anyhow::Result<JsonParser> {
     JsonParser::new(
-        &JsonParserConfig {
-            columns,
-            chunk_splitter: ChunkSplitter::OneMessageOneRow,
-        },
+        &parser_config(columns, ChunkSplitter::OneMessageOneRow),
         &crate::parsers::SystemColumnsConfig::default(),
         "test".into(),
     )
 }
 
+fn parse_with_config(
+    config: &JsonParserConfig,
+    system: &crate::parsers::SystemColumnsConfig,
+    payload: &'static [u8],
+) -> anyhow::Result<(TableData, Option<TableData>)> {
+    JsonParser::new(config, system, "test".into())?.parse_into(
+        vec![Message::new(Bytes::from_static(payload))],
+        &mut ParserWorkspace::new(),
+    )
+}
+
+#[test]
+fn conversion_policy_and_time_conversion_are_explicit() -> anyhow::Result<()> {
+    let mut mapping = mapping("$.at", "at", "Timestamp(Millisecond, UTC)", false);
+    mapping.json_data_type = JsonDataType::String;
+    mapping.time_conversion = Some(TimeConversion::String {
+        format: "[year]-[month]-[day]T[hour]:[minute]:[second]Z".into(),
+    });
+    let mut config = parser_config(vec![mapping], ChunkSplitter::OneMessageOneRow);
+    let (main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"at\":\"1970-01-01T00:00:01Z\"}",
+    )?;
+    assert!(dlq.is_none());
+    let values = main
+        .batch
+        .column(0)
+        .as_primitive::<arrow::datatypes::TimestampMillisecondType>();
+    assert_eq!(values.value(0), 1_000);
+
+    config.conversion_error = ConversionErrorPolicy::Fail;
+    let error = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"at\":\"bad\"}",
+    )
+    .expect_err("conversion_error=fail must stop the delivery");
+    assert!(error.to_string().contains("parse"));
+    Ok(())
+}
+
+#[test]
+fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
+    let mapping = mapping("$.id", "id", "Int64", false);
+    let fail = parser_config(vec![mapping.clone()], ChunkSplitter::OneMessageOneRow);
+    let (main, dlq) = parse_with_config(
+        &fail,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"id\":1,\"extra\":true}",
+    )?;
+    assert_eq!(main.batch.num_rows(), 0);
+    assert_eq!(
+        dlq.expect("unknown field must reach DLQ").batch.num_rows(),
+        1
+    );
+
+    let mut rest = parser_config(vec![mapping], ChunkSplitter::OneMessageOneRow);
+    rest.unknown_fields = UnknownFieldPolicy::Rest {
+        column_name: "rest".into(),
+    };
+    let (main, dlq) = parse_with_config(
+        &rest,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"id\":1,\"extra\":true}",
+    )?;
+    assert!(dlq.is_none());
+    assert_eq!(string_col(&main.batch, 1)?.value(0), "{\"extra\":true}");
+    Ok(())
+}
+
+#[test]
+fn renamed_system_columns_are_materialized_physically() -> anyhow::Result<()> {
+    let mut config = parser_config(
+        vec![mapping("$.id", "id", "Int64", false)],
+        ChunkSplitter::OneMessageOneRow,
+    );
+    config.system_column_names.offset = Some("source_offset".into());
+    let system = crate::parsers::SystemColumnsConfig {
+        offset: true,
+        ..Default::default()
+    };
+    let parser = JsonParser::new(&config, &system, "test".into())?;
+    let message = Message {
+        value: Bytes::from_static(b"{\"id\":1}"),
+        meta: crate::types::message::MessageMeta {
+            offset: Some(42),
+            ..Default::default()
+        },
+    };
+    let (main, _) = parser.parse_into(vec![message], &mut ParserWorkspace::new())?;
+    assert_eq!(main.batch.schema().field(1).name(), "source_offset");
+    assert_eq!(
+        main.system_columns
+            .get(SystemColumnKind::Offset)
+            .expect("offset metadata")
+            .name
+            .as_ref(),
+        "source_offset"
+    );
+    Ok(())
+}
+
 #[test]
 fn duplicate_root_path_populates_every_output_column() -> anyhow::Result<()> {
-    use crate::parsers::json_parser::ColumnMapping;
-
     let parser = parser_for(vec![
-        ColumnMapping::new("$.id".into(), "left".into(), "Int64".into(), false),
-        ColumnMapping::new("$.id".into(), "right".into(), "Int64".into(), true),
+        mapping("$.id", "left", "Int64", false),
+        mapping("$.id", "right", "Int64", true),
     ])?;
     anyhow::ensure!(matches!(parser.mode, ParseMode::Mixed));
     let (main, dlq) = parser.parse_into(
@@ -49,8 +165,8 @@ fn duplicate_mapped_root_key_reaches_dlq_in_fast_and_mixed_modes() -> anyhow::Re
     anyhow::ensure!(matches!(fast.mode, ParseMode::AllRootField(_)));
 
     let mixed = parser_for(vec![
-        ColumnMapping::new("$.id".into(), "left".into(), "Int64".into(), false),
-        ColumnMapping::new("$.id".into(), "right".into(), "Int64".into(), true),
+        mapping("$.id", "left", "Int64", false),
+        mapping("$.id", "right", "Int64", true),
     ])?;
     anyhow::ensure!(matches!(mixed.mode, ParseMode::Mixed));
 
@@ -133,6 +249,10 @@ fn dense_fixed_width_rows_have_a_type_aware_memory_bound() -> anyhow::Result<()>
                 })
                 .collect(),
             chunk_splitter: ChunkSplitter::NewLine,
+            conversion_error: ConversionErrorPolicy::Dlq,
+            unknown_fields: UnknownFieldPolicy::Fail,
+            primary_key: Vec::new(),
+            system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
         },
         &crate::parsers::SystemColumnsConfig::default(),
         "test".into(),
@@ -171,6 +291,10 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
                 false,
             )],
             chunk_splitter: ChunkSplitter::NewLine,
+            conversion_error: ConversionErrorPolicy::Dlq,
+            unknown_fields: UnknownFieldPolicy::Fail,
+            primary_key: Vec::new(),
+            system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
         },
         &crate::parsers::SystemColumnsConfig {
             message_index: true,
@@ -354,6 +478,7 @@ fn str_val_matches_simd_json_output() -> anyhow::Result<()> {
         index: idx,
         required: vec![true, true, true],
         required_total: 3,
+        reject_unknown: false,
     };
 
     let mut scratch = vec![TypedScratch::Empty; kinds.len()];
@@ -395,6 +520,7 @@ fn str_val_with_escapes() -> anyhow::Result<()> {
         index: idx,
         required: vec![true],
         required_total: 1,
+        reject_unknown: false,
     };
 
     let mut scratch = vec![TypedScratch::Empty; 1];
@@ -431,15 +557,27 @@ fn newline_chunk_splitter() -> anyhow::Result<()> {
                 column_name: "id".into(),
                 arrow_type: "Utf8".into(),
                 nullable: false,
+                json_data_type: JsonDataType::String,
+                time_conversion: None,
+                low_cardinality: false,
+                max_length: None,
             },
             ColumnMapping {
                 jsonpath: "$.val".into(),
                 column_name: "val".into(),
                 arrow_type: "Int64".into(),
                 nullable: true,
+                json_data_type: JsonDataType::Integer,
+                time_conversion: None,
+                low_cardinality: false,
+                max_length: None,
             },
         ],
         chunk_splitter: ChunkSplitter::NewLine,
+        conversion_error: ConversionErrorPolicy::Dlq,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
     };
 
     let parser = JsonParser::new(
@@ -486,8 +624,16 @@ fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
             column_name: "id".into(),
             arrow_type: "Utf8".into(),
             nullable: false,
+            json_data_type: JsonDataType::String,
+            time_conversion: None,
+            low_cardinality: false,
+            max_length: None,
         }],
         chunk_splitter: ChunkSplitter::NewLine,
+        conversion_error: ConversionErrorPolicy::Dlq,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
     };
     let system = SystemColumnsConfig {
         topic: true,
@@ -534,8 +680,16 @@ fn null_in_non_nullable_partition_candidate_goes_to_dlq() -> anyhow::Result<()> 
             column_name: "tenant".into(),
             arrow_type: "Utf8".into(),
             nullable: false,
+            json_data_type: JsonDataType::String,
+            time_conversion: None,
+            low_cardinality: false,
+            max_length: None,
         }],
         chunk_splitter: ChunkSplitter::OneMessageOneRow,
+        conversion_error: ConversionErrorPolicy::Dlq,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
     };
     let parser = JsonParser::new(
         &config,
@@ -578,8 +732,22 @@ fn invalid_types_and_ranges_go_to_dlq_in_root_and_mixed_modes() -> anyhow::Resul
                     column_name: "value".into(),
                     arrow_type: arrow_type.into(),
                     nullable: false,
+                    json_data_type: match arrow_type {
+                        "UInt8" | "UInt16" => JsonDataType::UnsignedInteger,
+                        "Float32" => JsonDataType::Number,
+                        "Boolean" => JsonDataType::Boolean,
+                        "Utf8" => JsonDataType::String,
+                        _ => JsonDataType::Integer,
+                    },
+                    time_conversion: None,
+                    low_cardinality: false,
+                    max_length: None,
                 }],
                 chunk_splitter: ChunkSplitter::OneMessageOneRow,
+                conversion_error: ConversionErrorPolicy::Dlq,
+                unknown_fields: UnknownFieldPolicy::Fail,
+                primary_key: Vec::new(),
+                system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
             };
             let parser = JsonParser::new(
                 &config,
@@ -625,8 +793,16 @@ fn nullable_root_and_mixed_values_accept_null_but_not_wrong_type() -> anyhow::Re
                 column_name: "value".into(),
                 arrow_type: "Int32".into(),
                 nullable: true,
+                json_data_type: JsonDataType::Integer,
+                time_conversion: None,
+                low_cardinality: false,
+                max_length: None,
             }],
             chunk_splitter: ChunkSplitter::OneMessageOneRow,
+            conversion_error: ConversionErrorPolicy::Dlq,
+            unknown_fields: UnknownFieldPolicy::Fail,
+            primary_key: Vec::new(),
+            system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
         };
         let parser = JsonParser::new(
             &config,
@@ -658,8 +834,18 @@ fn timestamp_timezone_is_preserved_in_record_batch() -> anyhow::Result<()> {
             column_name: "ts".into(),
             arrow_type: "Timestamp(Millisecond, UTC)".into(),
             nullable: false,
+            json_data_type: JsonDataType::Integer,
+            time_conversion: Some(TimeConversion::Epoch {
+                unit: EpochUnit::Milliseconds,
+            }),
+            low_cardinality: false,
+            max_length: None,
         }],
         chunk_splitter: ChunkSplitter::OneMessageOneRow,
+        conversion_error: ConversionErrorPolicy::Dlq,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        primary_key: Vec::new(),
+        system_column_names: crate::parsers::json_parser::SystemColumnNames::default(),
     };
     let parser = JsonParser::new(
         &config,

@@ -54,16 +54,26 @@ source:
           message_index: true
           write_timestamp_ms: true
       json_parser:
+        conversion_error: dlq
+        unknown_fields: { action: fail }
+        primary_key: [id, source_partition, source_offset]
+        system_column_names:
+          partition: source_partition
+          offset: source_offset
         chunk_splitter: one-message-one-row
         columns:
           - jsonpath: "$.id"
             column_name: id
+            json_data_type: integer
             arrow_type: Int64
             nullable: false
           - jsonpath: "$.tenant"
             column_name: tenant
+            json_data_type: string
             arrow_type: Utf8
             nullable: false
+            low_cardinality: true
+            max_length: 128
 
 middlewares: []
 
@@ -124,6 +134,20 @@ metrics:
   interval_ms: 1000
   per_partition: true
 ```
+
+The JSON conversion contract is deliberately explicit. `json_data_type` is one
+of `string`, `integer`, `unsigned_integer`, `number`, or `boolean`; compatible
+Arrow targets are strings, matching signed/unsigned integers, floating point,
+booleans, and temporal types. Temporal targets additionally require
+`time_conversion: { type: epoch, unit: ... }` or
+`time_conversion: { type: string, format: ... }`. Conversion failures either
+enter DLQ (`conversion_error: dlq`) or stop the delivery (`fail`). Unknown
+top-level fields either fail validation of the row or are captured as compact
+JSON in the explicitly named rest column. `primary_key` uses physical output
+names, including renamed enabled system columns; ClickHouse derives `ORDER BY`
+from it and rejects a conflicting sink `sorting_key`. `low_cardinality` and
+`max_length` are Arrow field metadata and are revalidated at the sink boundary;
+ClickHouse materializes `LowCardinality(String)`.
 
 Run it with:
 

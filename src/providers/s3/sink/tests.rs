@@ -361,7 +361,7 @@ fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S
 
 fn pipeline_parser() -> Arc<dyn crate::parsers::ParserFactory> {
     let config: crate::parsers::ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic: true, partition: true, offset: true, message_index: true, write_timestamp_ms: true }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, arrow_type: Utf8, nullable: true }\n  chunk_splitter: new-line\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic: true, partition: true, offset: true, message_index: true, write_timestamp_ms: true }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, json_data_type: string, arrow_type: Utf8, nullable: true }\n  chunk_splitter: new-line\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n",
     )
     .unwrap();
     crate::parsers::ParserPlan::from_config(&config, "topic")
@@ -370,7 +370,7 @@ fn pipeline_parser() -> Arc<dyn crate::parsers::ParserFactory> {
 }
 
 fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
-    let system_columns = vec![
+    let system_columns = [
         SystemColumnKind::Topic,
         SystemColumnKind::Partition,
         SystemColumnKind::Offset,
@@ -380,24 +380,28 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
     let incoming_schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("nullable".into(), DataType::Utf8, true),
-        SchemaColumn::new(SystemColumnKind::Topic.name().into(), DataType::Utf8, false),
         SchemaColumn::new(
-            SystemColumnKind::Partition.name().into(),
+            SystemColumnKind::Topic.default_name().into(),
+            DataType::Utf8,
+            false,
+        ),
+        SchemaColumn::new(
+            SystemColumnKind::Partition.default_name().into(),
             DataType::Int64,
             false,
         ),
         SchemaColumn::new(
-            SystemColumnKind::Offset.name().into(),
+            SystemColumnKind::Offset.default_name().into(),
             DataType::Int64,
             false,
         ),
         SchemaColumn::new(
-            SystemColumnKind::MessageIndex.name().into(),
+            SystemColumnKind::MessageIndex.default_name().into(),
             DataType::UInt64,
             false,
         ),
         SchemaColumn::new(
-            SystemColumnKind::WriteTimestampMs.name().into(),
+            SystemColumnKind::WriteTimestampMs.default_name().into(),
             DataType::Int64,
             false,
         ),
@@ -422,7 +426,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
             name: Arc::from(name),
             incoming_schema: incoming_schema.clone(),
             stored_schema: stored_schema.clone(),
-            system_columns: system_columns.clone(),
+            system_columns: system_columns.iter().copied().map(Into::into).collect(),
         })
         .collect(),
     })
@@ -438,16 +442,28 @@ async fn delivery(
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("nullable", DataType::Utf8, true),
-        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
-        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
-        Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
-            SystemColumnKind::MessageIndex.name(),
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Partition.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
             false,
         ),
         Field::new(
-            SystemColumnKind::WriteTimestampMs.name(),
+            SystemColumnKind::WriteTimestampMs.default_name(),
             DataType::Int64,
             false,
         ),
@@ -487,6 +503,7 @@ async fn delivery(
                     .enumerate()
                     .map(|(position, kind)| SystemColumn {
                         kind,
+                        name: Arc::from(kind.default_name()),
                         index: position + 2,
                     })
                     .collect::<Vec<_>>(),
@@ -500,16 +517,28 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int64, false),
         Field::new("nullable", DataType::Utf8, true),
-        Field::new(SystemColumnKind::Topic.name(), DataType::Utf8, false),
-        Field::new(SystemColumnKind::Partition.name(), DataType::Int64, false),
-        Field::new(SystemColumnKind::Offset.name(), DataType::Int64, false),
         Field::new(
-            SystemColumnKind::MessageIndex.name(),
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Partition.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
+        Field::new(
+            SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
             false,
         ),
         Field::new(
-            SystemColumnKind::WriteTimestampMs.name(),
+            SystemColumnKind::WriteTimestampMs.default_name(),
             DataType::Int64,
             false,
         ),
@@ -555,6 +584,7 @@ fn multi_message_delivery(memory: &PipelineMemory, id: u64, offsets: &[i64]) -> 
                     .enumerate()
                     .map(|(position, kind)| SystemColumn {
                         kind,
+                        name: Arc::from(kind.default_name()),
                         index: position + 2,
                     })
                     .collect::<Vec<_>>(),
@@ -924,8 +954,11 @@ async fn can_explicitly_keep_system_columns_in_json() {
         let uploads = uploader.uploads.lock().unwrap();
         let json: serde_json::Value = serde_json::from_slice(&uploads[0].1).unwrap();
         drop(uploads);
-        assert_eq!(json[SystemColumnKind::Topic.name()], "topic-a");
-        assert_eq!(json[SystemColumnKind::WriteTimestampMs.name()], 1_234);
+        assert_eq!(json[SystemColumnKind::Topic.default_name()], "topic-a");
+        assert_eq!(
+            json[SystemColumnKind::WriteTimestampMs.default_name()],
+            1_234
+        );
     }
     cancel.cancel();
     task.await.unwrap().unwrap();
@@ -1692,6 +1725,42 @@ async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
     assert!(error
         .to_string()
         .contains("has no Main dataset named 'renamed_after_discovery'"));
+    assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn runtime_schema_metadata_drift_is_fatal_before_upload() {
+    let uploader = FakeUploader::immediate(0);
+    let memory = PipelineMemory::new(1 << 20);
+    let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
+    let mut invalid = delivery(&memory, 1, 4, 1_000, false).await;
+    let schema = invalid.outputs[0].batch.schema();
+    let mut fields = schema
+        .fields()
+        .iter()
+        .map(|field| (**field).clone())
+        .collect::<Vec<_>>();
+    fields[0] = fields[0]
+        .clone()
+        .with_metadata(std::collections::HashMap::from([(
+            crate::types::schema::META_LOW_CARDINALITY.to_owned(),
+            "true".to_owned(),
+        )]));
+    invalid.outputs[0].batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        invalid.outputs[0].batch.columns().to_vec(),
+    )
+    .expect("metadata-only schema drift remains an Arrow-valid batch");
+    tx.send(invalid).await.unwrap();
+
+    let error = task.await.unwrap().unwrap_err();
+    let failure = error
+        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .expect("runtime metadata drift must be fatal");
+    assert!(!failure.is_retryable());
+    assert!(error
+        .to_string()
+        .contains("metadata does not match discovery"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
 }
 

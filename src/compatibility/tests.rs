@@ -28,11 +28,11 @@ fn discovery() -> DeliveryDiscovery {
                 false,
             )]),
             system_columns: vec![
-                SystemColumnKind::Topic,
-                SystemColumnKind::Partition,
-                SystemColumnKind::Offset,
-                SystemColumnKind::MessageIndex,
-                SystemColumnKind::WriteTimestampMs,
+                SystemColumnKind::Topic.into(),
+                SystemColumnKind::Partition.into(),
+                SystemColumnKind::Offset.into(),
+                SystemColumnKind::MessageIndex.into(),
+                SystemColumnKind::WriteTimestampMs.into(),
             ],
         }],
     }

@@ -6,7 +6,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
     let incoming_schema = DatasetSchema::new(vec![
         SchemaColumn::new("value".into(), DataType::Int64, false),
         SchemaColumn::new(
-            SystemColumnKind::Offset.name().into(),
+            SystemColumnKind::Offset.default_name().into(),
             DataType::Int64,
             false,
         ),
@@ -26,7 +26,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
             name: Arc::from("events"),
             incoming_schema,
             stored_schema,
-            system_columns: vec![SystemColumnKind::Offset],
+            system_columns: vec![SystemColumnKind::Offset.into()],
         }],
     }
 }
@@ -59,7 +59,7 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
     let mut duplicate = projection_discovery(false);
     duplicate.datasets[0]
         .system_columns
-        .push(SystemColumnKind::Offset);
+        .push(SystemColumnKind::Offset.into());
     assert!(validate_stored_projection(&duplicate, &duplicate.datasets[0]).is_err());
 
     let mut wrong_type = projection_discovery(false);

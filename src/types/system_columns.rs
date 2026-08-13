@@ -14,7 +14,7 @@ pub enum SystemColumnKind {
 
 impl SystemColumnKind {
     #[must_use]
-    pub const fn name(self) -> &'static str {
+    pub const fn default_name(self) -> &'static str {
         match self {
             Self::Topic => "_system_topic",
             Self::Partition => "_system_partition",
@@ -35,10 +35,11 @@ impl SystemColumnKind {
 }
 
 /// Physical Arrow location of one semantic system column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemColumn {
     pub kind: SystemColumnKind,
     pub index: usize,
+    pub name: Arc<str>,
 }
 
 /// Immutable metadata carried next to a [`RecordBatch`](arrow::record_batch::RecordBatch).
@@ -53,7 +54,7 @@ impl SystemColumns {
 
     #[must_use]
     pub fn get(&self, kind: SystemColumnKind) -> Option<SystemColumn> {
-        self.0.iter().copied().find(|column| column.kind == kind)
+        self.0.iter().find(|column| column.kind == kind).cloned()
     }
 
     #[must_use]
@@ -62,8 +63,8 @@ impl SystemColumns {
     }
 
     #[must_use]
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = SystemColumn> + '_ {
-        self.0.iter().copied()
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &SystemColumn> + '_ {
+        self.0.iter()
     }
 
     #[must_use]
