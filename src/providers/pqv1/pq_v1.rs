@@ -813,7 +813,7 @@ async fn join_decode_or_cancel<T: Send + 'static>(
             // `abort` prevents a queued blocking task from starting. Once started, Tokio cannot
             // preempt it, so the decoder also observes this token between bounded read chunks.
             // Awaiting it here guarantees its semaphore permit and memory lease are released.
-            let _ = task.await;
+            drop(task.await);
             None
         }
         result = &mut task => Some(result),
@@ -1224,19 +1224,23 @@ impl PqV1Client {
                         .ok_or_else(|| anyhow!("PQv1 discarded batch metadata size overflow")),
                     PendingDataKind::Decode { parts } => decoded_batch_retained_bytes(parts),
                 };
-                let Ok(output_bytes) = output_bytes else {
-                    let error = output_bytes.unwrap_err();
-                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
-                    return;
+                let output_bytes = match output_bytes {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                        return;
+                    }
                 };
                 let additional_output_bytes = match &batch.kind {
                     PendingDataKind::Discard { .. } => Ok(output_bytes),
                     PendingDataKind::Decode { parts } => decoded_batch_additional_bytes(parts),
                 };
-                let Ok(additional_output_bytes) = additional_output_bytes else {
-                    let error = additional_output_bytes.unwrap_err();
-                    broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
-                    return;
+                let additional_output_bytes = match additional_output_bytes {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        broadcast_failure(&data_inner, &error, TerminalFailureKind::Fatal);
+                        return;
+                    }
                 };
                 let raw_bytes = batch.raw_memory.bytes();
                 let Some(overlap_bytes) = raw_bytes.checked_add(additional_output_bytes) else {

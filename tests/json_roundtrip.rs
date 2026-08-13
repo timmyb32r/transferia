@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions intentionally fail fast"
+)]
+
 use std::sync::Arc;
 
 use arrow::array::{Int64Array, StringArray, StringBuilder};

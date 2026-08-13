@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions intentionally fail fast"
+)]
+
 mod support;
 
 use std::convert::Infallible;
@@ -69,9 +76,11 @@ impl PqFixture {
                         let committed = Arc::clone(&committed);
                         async move { Ok::<_, Infallible>(handle_request(request, address, committed)) }
                     });
-                    let _ = http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-                        .serve_connection(io, service)
-                        .await;
+                    drop(
+                        http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(io, service)
+                            .await,
+                    );
                 });
             }
         });
@@ -89,7 +98,7 @@ impl PqFixture {
 
     async fn stop(self) {
         self.shutdown.cancel();
-        let _ = self.task.await;
+        drop(self.task.await);
     }
 }
 

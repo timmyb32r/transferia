@@ -293,7 +293,7 @@ impl ClickHouseSink {
                 tokio::select! {
                     () = io.cancellation.cancelled() => {
                         task.abort();
-                        let _ = (&mut task).await;
+                        drop((&mut task).await);
                         return Ok(());
                     }
                     result = &mut task => completed = Some(result),

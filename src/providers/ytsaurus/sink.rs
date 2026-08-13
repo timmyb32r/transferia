@@ -307,7 +307,7 @@ fn write_yson_string(output: &mut Vec<u8>, value: &[u8]) {
 }
 
 macro_rules! primitive_yson {
-    ($array:expr, $ty:ty, $row:expr, $output:expr) => {{
+    ($array:expr_2021, $ty:ty, $row:expr_2021, $output:expr_2021) => {{
         let value = $array
             .as_any()
             .downcast_ref::<$ty>()

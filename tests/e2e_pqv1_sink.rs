@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions intentionally fail fast"
+)]
+
 mod support;
 
 use std::convert::Infallible;
@@ -51,9 +58,11 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
             let observed = Arc::clone(&server_observed);
             async move { Ok::<_, Infallible>(handle_write(request, observed)) }
         });
-        let _ = http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-            .serve_connection(io, service)
-            .await;
+        drop(
+            http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                .serve_connection(io, service)
+                .await,
+        );
     });
 
     let provider = PqV1SinkProvider::from_config(serde_yaml::from_str(&format!("endpoint: 'grpc://{address}'\ntopic_path: '{TOPIC}'\nmessage_group_id: e2e-writer\npartition_group_id: 0\ntrusted_plaintext: true\nnetwork_timeout_ms: 5000\nauth:\n  type: access_token\n  token: {TOKEN}\n"))?)?;

@@ -95,6 +95,10 @@ struct ColumnView {
     max_length: Option<usize>,
 }
 
+#[expect(
+    clippy::print_stdout,
+    reason = "the interactive demo intentionally prints its discoverable UI URL"
+)]
 pub async fn run(bind: SocketAddr, state_dir: PathBuf) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(&state_dir).await?;
     let stored = load_state(&state_dir).await?;
@@ -357,18 +361,22 @@ fn json_response(value: &impl Serialize) -> anyhow::Result<Response<HttpBody>> {
 }
 
 fn asset(value: &'static str, content_type: &'static str) -> Response<HttpBody> {
-    Response::builder()
-        .header(hyper::header::CONTENT_TYPE, content_type)
-        .body(Full::new(Bytes::from_static(value.as_bytes())))
-        .expect("static asset response is valid")
+    let mut response = Response::new(Full::new(Bytes::from_static(value.as_bytes())));
+    response.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static(content_type),
+    );
+    response
 }
 
 fn text_response(status: StatusCode, value: impl Into<Bytes>) -> Response<HttpBody> {
-    Response::builder()
-        .status(status)
-        .header(hyper::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(Full::new(value.into()))
-        .expect("text response is valid")
+    let mut response = Response::new(Full::new(value.into()));
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    response
 }
 
 fn error_response(error: &anyhow::Error) -> Response<HttpBody> {

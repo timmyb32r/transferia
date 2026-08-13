@@ -338,7 +338,7 @@ impl S3SinkConfig {
                 let sample = chrono::Utc
                     .timestamp_millis_opt(0)
                     .single()
-                    .expect("Unix epoch must be representable")
+                    .ok_or_else(|| anyhow::anyhow!("Unix epoch is not representable"))?
                     .with_timezone(&timezone);
                 let mut rendered = String::new();
                 sample

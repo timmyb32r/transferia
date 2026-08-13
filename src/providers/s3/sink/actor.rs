@@ -725,14 +725,13 @@ impl S3Sink {
                 let can_resume_pending =
                     below_live_limits && memory_admissible && pending_delivery.is_some();
                 if can_resume_pending {
-                    let done = self
-                        .accept_next_message_group(
-                            pending_delivery
-                                .as_mut()
-                                .expect("resumable S3 delivery disappeared"),
-                            &io.memory,
-                        )
-                        .await?;
+                    let Some(pending) = pending_delivery.as_mut() else {
+                        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+                            "S3 resumable delivery state disappeared"
+                        ))
+                        .into());
+                    };
+                    let done = self.accept_next_message_group(pending, &io.memory).await?;
                     if done {
                         pending_delivery = None;
                     }

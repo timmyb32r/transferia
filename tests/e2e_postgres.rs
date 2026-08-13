@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions intentionally fail fast"
+)]
+
 mod support;
 
 use std::sync::Arc;
@@ -56,7 +63,7 @@ async fn wait_for_postgres(connection: &str) -> anyhow::Result<tokio_postgres::C
             match tokio_postgres::connect(connection, tokio_postgres::NoTls).await {
                 Ok((client, connection)) => {
                     tokio::spawn(async move {
-                        let _ = connection.await;
+                        drop(connection.await);
                     });
                     return client;
                 }

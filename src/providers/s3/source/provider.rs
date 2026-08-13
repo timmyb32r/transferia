@@ -79,7 +79,7 @@ impl SourceProvider for S3SourceProvider {
         cancellation: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
-            let _ = self.snapshot(&cancellation).await?;
+            drop(self.snapshot(&cancellation).await?);
             DeliveryDiscovery::parser_projection(
                 Arc::from(self.config.prefix.as_str()),
                 vec![0],

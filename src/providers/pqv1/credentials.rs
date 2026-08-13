@@ -1,6 +1,10 @@
 use crate::providers::pqv1::config::PqV1AuthConfig;
 
 /// Load the raw access token required by the legacy `PQv1` protocol.
+#[expect(
+    clippy::unreachable,
+    reason = "PqV1AuthConfig::validate requires exactly one token source"
+)]
 pub fn load_access_token(auth: &PqV1AuthConfig) -> anyhow::Result<String> {
     auth.validate()?;
     if let Some(path) = auth.token_file.as_deref() {

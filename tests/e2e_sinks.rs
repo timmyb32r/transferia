@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test assertions intentionally fail fast"
+)]
+
 mod support;
 
 use std::sync::Arc;

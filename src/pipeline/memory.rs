@@ -154,6 +154,10 @@ impl PipelineMemory {
     /// waits until every clone is dropped. It may cross the limit because downstream transform
     /// bytes can otherwise prevent the source from producing the rows that close and release
     /// them. The full read remains accounted and continues to pressure ordinary reservations.
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize-sized process cannot reserve more than usize::MAX bytes"
+    )]
     pub(crate) async fn reserve_progress_source(&self, bytes: usize) -> MemoryReservation {
         let bytes = bytes.max(1);
         loop {
@@ -202,6 +206,10 @@ impl PipelineMemory {
     /// [`Self::wait_transform_below_limit`] before starting the next transform,
     /// so the overage cannot cascade.
     #[must_use]
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize-sized process cannot reserve more than usize::MAX bytes"
+    )]
     pub fn reserve_transform(&self, bytes: usize) -> MemoryReservation {
         let bytes = bytes.max(1);
         let before = self
@@ -238,6 +246,10 @@ impl PipelineMemory {
     /// that memory. If retained transform bytes are below the limit but this one
     /// estimate does not fit, exactly one active transform is admitted as a
     /// progress exception; it may be the delivery that closes an S3 epoch.
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize-sized process cannot reserve more than usize::MAX bytes"
+    )]
     pub async fn admit_active_transform(&self, bytes: usize) -> ActiveTransformReservation {
         let bytes = bytes.max(1);
         loop {
@@ -291,6 +303,10 @@ impl PipelineMemory {
 impl ActiveTransformReservation {
     /// Replace the conservative active estimate with the exact retained output.
     #[must_use]
+    #[expect(
+        clippy::expect_used,
+        reason = "a usize-sized process cannot reserve more than usize::MAX bytes"
+    )]
     pub fn finish(mut self, bytes: usize) -> MemoryReservation {
         let bytes = bytes.max(1);
         if bytes >= self.bytes {

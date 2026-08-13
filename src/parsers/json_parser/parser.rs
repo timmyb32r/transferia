@@ -679,9 +679,13 @@ impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
 /// private to this module. The compiler physically prevents any other code path
 /// from calling this function with arbitrary byte ranges.
 #[inline]
+#[expect(
+    unsafe_code,
+    reason = "ValidatedStr proves this hot-path slice was already UTF-8 validated"
+)]
 fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
-    // SAFETY: see doc comment above — ValidatedStr acts as a type-level
-    // witness that the byte range has already been UTF-8-validated by simd-json.
+    // SAFETY: ValidatedStr can only be constructed from a validated `str`
+    // pointing into this exact buffer.
     unsafe { core::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
 }
 
@@ -869,6 +873,11 @@ fn make_exact_system_builder(
 }
 
 #[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::unreachable,
+    reason = "metadata and builder preconditions are validated once before this per-row hot path"
+)]
 fn append_system_columns(
     builders: &mut [AnyBuilder],
     data_columns: usize,
@@ -922,6 +931,10 @@ struct DlqRecord {
 struct ArrowStringConsumer<'a>(&'a mut StringBuilder);
 
 impl base64::write::StrConsumer for ArrowStringConsumer<'_> {
+    #[expect(
+        clippy::expect_used,
+        reason = "Arrow StringBuilder implements fmt::Write infallibly"
+    )]
     fn consume(&mut self, encoded: &str) {
         fmt::Write::write_str(self.0, encoded)
             .expect("writing UTF-8 base64 into an Arrow string builder cannot fail");
@@ -941,6 +954,10 @@ fn append_base64(builder: &mut StringBuilder, raw: &[u8]) -> anyhow::Result<()> 
     Ok(())
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "subslice is produced directly by splitting parent"
+)]
 fn subslice_range(parent: &[u8], subslice: &[u8]) -> core::ops::Range<usize> {
     let parent_start = parent.as_ptr() as usize;
     let child_start = subslice.as_ptr() as usize;
@@ -958,6 +975,10 @@ fn subslice_range(parent: &[u8], subslice: &[u8]) -> core::ops::Range<usize> {
 }
 
 #[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "upstream PQv1 delivery and decoded-size caps are strictly below u32::MAX"
+)]
 fn dlq_record(
     source_message: usize,
     byte_range: core::ops::Range<usize>,

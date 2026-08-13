@@ -113,7 +113,7 @@ fn discard_sink_is_explicitly_supported_for_benchmarks() {
 fn durable_sinks_reject_a_discarding_source() {
     let mut source_endpoint = source();
     let EndpointDescriptor::PqV1(source) = &mut source_endpoint else {
-        unreachable!()
+        panic!("test source must be PQv1")
     };
     source.behavior = SourceBehavior::BenchmarkDiscard;
 

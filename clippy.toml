@@ -1,0 +1,6 @@
+# Tests are allowed to terminate immediately when an asserted invariant fails.
+# Production code remains governed by the deny-level lints in Cargo.toml.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true

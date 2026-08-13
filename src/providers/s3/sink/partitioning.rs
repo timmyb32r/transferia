@@ -363,6 +363,10 @@ fn ensure_not_null(array: &dyn Array, kind: SystemColumnKind, row: usize) -> any
     Ok(())
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "RecordBatch construction guarantees schema/array type agreement"
+)]
 fn scalar_partition_value(batch: &RecordBatch, index: usize, row: usize) -> anyhow::Result<String> {
     let array = batch.column(index);
     anyhow::ensure!(

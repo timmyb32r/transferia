@@ -477,6 +477,10 @@ fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
     Ok(format!("{} {data_type}", quote_identifier(&column.name)))
 }
 
+#[expect(
+    clippy::unreachable,
+    reason = "every Arrow TimeUnit variant maps to a fixed ClickHouse precision"
+)]
 fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
     Ok(match data_type {
         DataType::Utf8 | DataType::LargeUtf8 => "String".into(),

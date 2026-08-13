@@ -135,6 +135,10 @@ impl SinkProvider for PostgresSinkProvider {
     }
 }
 
+#[expect(
+    clippy::unreachable,
+    reason = "arrow_to_postgres rejects every type outside this exhaustive supported subset"
+)]
 fn postgres_sql_type(data_type: &DataType) -> anyhow::Result<&'static str> {
     arrow_to_postgres(data_type)?;
     Ok(match data_type {

@@ -71,10 +71,7 @@ impl DeliveryTracker {
             .get(&self.next_commit)
             .is_some_and(|state| state.remaining == 0)
         {
-            let state = self
-                .entries
-                .remove(&self.next_commit)
-                .expect("completed delivery disappeared");
+            let state = self.entries.remove(&self.next_commit)?;
             source_messages = source_messages.saturating_add(state.source_messages);
             through = Some(self.next_commit);
             self.next_commit = self.next_commit.next();

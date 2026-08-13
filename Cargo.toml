@@ -52,11 +52,42 @@ tonic-prost-build = "0.14"
 [dev-dependencies]
 testcontainers = { version = "0.27.3", features = ["http_wait_plain"] }
 
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_lifetimes = "deny"
+non_ascii_idents = "deny"
+keyword_idents_2024 = "deny"
+let_underscore_drop = "deny"
+
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+
+# Production code must propagate or explicitly model failures. Test code may
+# panic for concise assertions; clippy.toml scopes those exceptions to tests.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+exit = "deny"
+
+# Keep debugging output and intentionally leaked resources out of production.
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+mem_forget = "deny"
+
+# Suppressions must remain narrow, justified, and self-expiring where possible.
+allow_attributes_without_reason = "deny"
+
+# Resource-shape diagnostics are useful but may require measured exceptions.
+large_futures = "warn"
+large_stack_arrays = "warn"
 
 # This is a private application rather than a crates.io package, and duplicate
 # transitive versions are controlled by upstream dependency graphs.

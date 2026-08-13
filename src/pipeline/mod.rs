@@ -167,6 +167,10 @@ fn make_sink_batch(
     })
 }
 
+#[expect(
+    clippy::unreachable,
+    reason = "typed and raw variants are separated before parser dispatch"
+)]
 async fn parser_loop(
     mut input: mpsc::Receiver<ReadEnvelope>,
     output: mpsc::Sender<Delivery>,
@@ -481,6 +485,10 @@ async fn reserve_source_memory_with_events(
     }
 }
 
+#[expect(
+    clippy::unreachable,
+    reason = "Finished is handled immediately before exhaustive payload extraction"
+)]
 async fn reader_loop(
     mut source: Box<dyn Source>,
     output: mpsc::Sender<ReadEnvelope>,
@@ -877,11 +885,13 @@ pub async fn run_partition_pipeline_with_progress(
     let mut outcomes = Vec::with_capacity(3);
     match first_component {
         Some(FirstComponent::Reader) => {
-            outcomes.push(reader_outcome.take().expect("reader outcome"));
+            outcomes.push(reader_outcome.take().unwrap_or_else(missing_outcome));
         }
-        Some(FirstComponent::Sink) => outcomes.push(sink_outcome.take().expect("sink outcome")),
+        Some(FirstComponent::Sink) => {
+            outcomes.push(sink_outcome.take().unwrap_or_else(missing_outcome));
+        }
         Some(FirstComponent::Parser) => {
-            outcomes.push(parser_outcome.take().expect("parser outcome"));
+            outcomes.push(parser_outcome.take().unwrap_or_else(missing_outcome));
         }
         None => {}
     }
