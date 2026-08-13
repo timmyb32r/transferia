@@ -160,6 +160,7 @@ async fn route_fallible(
                 !body.name.trim().is_empty(),
                 "delivery name must not be empty"
             );
+            let configured_delivery_id = Config::from_yaml(&body.config_yaml)?.delivery_id;
             discover(&body.config_yaml).await?;
             let id = new_id(&state);
             let delivery = StoredDelivery {
@@ -172,6 +173,16 @@ async fn route_fallible(
             };
             {
                 let mut stored = state.stored.lock().await;
+                for existing in stored.deliveries.values() {
+                    let existing_delivery_id = Config::from_yaml(&existing.config_yaml)
+                        .context("saved delivery contains an invalid configuration")?
+                        .delivery_id;
+                    anyhow::ensure!(
+                        existing_delivery_id != configured_delivery_id,
+                        "delivery_id '{configured_delivery_id}' is already used by saved delivery '{}'",
+                        existing.name
+                    );
+                }
                 stored.deliveries.insert(id, delivery.clone());
                 save_state(&state.state_dir, &stored).await?;
                 drop(stored);
@@ -192,6 +203,7 @@ async fn route_fallible(
 
 async fn discover(config_yaml: &str) -> anyhow::Result<DiscoveryResponse> {
     let config = Config::from_yaml(config_yaml)?;
+    let _durable = config.durable_storage.build(&config.delivery_id)?;
     let metrics = Arc::new(MetricsRegistry::new());
     let registry = super::build_provider_registry(&metrics);
     let source_kind = config.source.kind()?.to_owned();

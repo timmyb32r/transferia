@@ -140,6 +140,7 @@ impl SourceProvider for PostgresSourceProvider {
         partition_id: i64,
         _cancel_token: CancellationToken,
         _memory: PipelineMemory,
+        _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             let tables = self.discovered_tables().await?;

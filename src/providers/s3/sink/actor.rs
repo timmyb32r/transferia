@@ -8,6 +8,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
+use crate::durable::DurableStorage;
 use crate::metrics::SinkCounters;
 use crate::pipeline::delivery_tracker::DeliveryTracker;
 use crate::pipeline::memory::MemoryReservation;
@@ -16,6 +17,7 @@ use crate::pipeline::PipelineFailure;
 use crate::serializer::JsonBatchEncoder;
 
 use super::config::{PartitionPathChange, S3SinkConfig};
+use super::journal::{EpochJournal, OpenDisposition};
 use super::object_key::ObjectKey;
 use super::partitioning::{Partitioner, RowRoute};
 use super::upload::{upload_with_retry, ObjectUploader};
@@ -47,17 +49,19 @@ struct Epoch {
     first_seen: Option<Instant>,
 }
 
-struct ClosedObject {
-    epoch_id: u64,
-    key: ObjectKey,
-    payload: Bytes,
-    rows: usize,
+pub(super) struct ClosedObject {
+    pub(super) epoch_id: u64,
+    pub(super) key: ObjectKey,
+    pub(super) payload: Bytes,
+    pub(super) rows: usize,
 }
 
 struct ClosedEpoch {
     remaining_objects: usize,
     delivery_rows: Vec<(DeliveryId, usize)>,
     reservations: Vec<MemoryReservation>,
+    journal: Arc<EpochJournal>,
+    journal_closed: bool,
 }
 
 struct RoutedRow {
@@ -126,6 +130,7 @@ pub struct S3Sink {
     epoch_byte_limit: usize,
     in_flight_objects: usize,
     memory_barrier_epoch: Option<u64>,
+    durable_storage: Arc<dyn DurableStorage>,
 }
 
 struct S3ActorConfig {
@@ -144,6 +149,7 @@ impl S3Sink {
         keep_system_columns: bool,
         expected_partition_id: i64,
         discovery: Arc<DeliveryDiscovery>,
+        durable_storage: Arc<dyn DurableStorage>,
     ) -> anyhow::Result<Self> {
         let partitioner = Partitioner::new(&config.partitioning)?;
         let epoch_byte_limit = config.epoch_byte_limit();
@@ -171,6 +177,7 @@ impl S3Sink {
             epoch_byte_limit,
             in_flight_objects: 0,
             memory_barrier_epoch: None,
+            durable_storage,
         })
     }
 
@@ -278,7 +285,7 @@ impl S3Sink {
         })
     }
 
-    fn accept_next_message_group(
+    async fn accept_next_message_group(
         &mut self,
         pending: &mut PendingDelivery,
         memory: &crate::pipeline::memory::PipelineMemory,
@@ -306,7 +313,8 @@ impl S3Sink {
                 &pending.encoders,
                 pending.delivery_id,
                 memory,
-            )?;
+            )
+            .await?;
             pending.next_row = end;
             self.memory_barrier_epoch = (self.next_epoch_id != epoch_before
                 && memory.is_transform_pressured())
@@ -316,7 +324,7 @@ impl S3Sink {
         Ok(pending.next_row == pending.rows.len())
     }
 
-    fn accept_message_group(
+    async fn accept_message_group(
         &mut self,
         rows: &[RoutedRow],
         encoders: &[JsonBatchEncoder],
@@ -348,7 +356,7 @@ impl S3Sink {
                         })
                 });
         if partition_changed || record_time_rotated {
-            self.close_epoch()?;
+            self.close_epoch().await?;
         }
         if self.epoch.first_seen.is_none() {
             self.epoch.first_seen = Some(Instant::now());
@@ -428,7 +436,7 @@ impl S3Sink {
         // when the same source deliveries are replayed. The pending limit is
         // enforced only by run-loop admission below.
         if object_limit_reached || budget_reached {
-            self.close_epoch()?;
+            self.close_epoch().await?;
         }
         if self.pending_upload_objects() > self.config.buffering.max_pending_upload_objects {
             tracing::warn!(
@@ -440,7 +448,7 @@ impl S3Sink {
         Ok(())
     }
 
-    fn close_epoch(&mut self) -> Result<(), PipelineFailure> {
+    async fn close_epoch(&mut self) -> Result<(), PipelineFailure> {
         if self.epoch.buffers.is_empty() {
             return Ok(());
         }
@@ -448,6 +456,7 @@ impl S3Sink {
         let epoch_id = self.next_epoch_id;
         self.next_epoch_id = self.next_epoch_id.saturating_add(1);
         let remaining_objects = epoch.buffers.len();
+        let mut objects = Vec::with_capacity(remaining_objects);
         for (buffer_key, buffer) in epoch.buffers {
             let key = ObjectKey::for_json_object(
                 &self.config.prefix,
@@ -458,21 +467,48 @@ impl S3Sink {
                 buffer.start_offset,
             )
             .map_err(PipelineFailure::fatal)?;
-            self.ready.push_back(ClosedObject {
+            objects.push(ClosedObject {
                 epoch_id,
                 key,
                 payload: Bytes::from(buffer.payload),
                 rows: buffer.rows,
             });
         }
+        let journal = Arc::new(EpochJournal::new(
+            Arc::clone(&self.durable_storage),
+            self.expected_partition_id,
+            &objects,
+        )?);
+        let disposition = journal.ensure_open().await?;
         self.closed_epochs.insert(
             epoch_id,
             ClosedEpoch {
                 remaining_objects,
                 delivery_rows: epoch.delivery_rows,
                 reservations: epoch.reservations,
+                journal: Arc::clone(&journal),
+                journal_closed: disposition == OpenDisposition::AlreadyClosed,
             },
         );
+        match disposition {
+            OpenDisposition::Upload => self.ready.extend(objects),
+            OpenDisposition::AlreadyClosed => {
+                for object in objects {
+                    self.counters.add_rows(object.rows as u64);
+                    self.counters.add_bytes(object.payload.len() as u64);
+                    self.counters.add_flush();
+                    self.buffered_bytes = self
+                        .buffered_bytes
+                        .checked_sub(object.payload.len())
+                        .ok_or_else(|| {
+                            PipelineFailure::fatal(anyhow::anyhow!(
+                                "S3 replayed buffered byte counter underflow"
+                            ))
+                        })?;
+                    self.complete_durable_object(&object)?;
+                }
+            }
+        }
         self.update_buffer_gauges();
         Ok(())
     }
@@ -520,14 +556,19 @@ impl S3Sink {
                 PipelineFailure::fatal(anyhow::anyhow!("S3 buffered byte counter underflow"))
             })?;
 
+        self.complete_durable_object(&active.object)?;
+        Ok(())
+    }
+
+    fn complete_durable_object(&mut self, object: &ClosedObject) -> Result<(), PipelineFailure> {
         let epoch_complete = {
             let epoch = self
                 .closed_epochs
-                .get_mut(&active.object.epoch_id)
+                .get_mut(&object.epoch_id)
                 .ok_or_else(|| {
                     PipelineFailure::fatal(anyhow::anyhow!(
                         "missing S3 epoch progress {}",
-                        active.object.epoch_id
+                        object.epoch_id
                     ))
                 })?;
             epoch.remaining_objects = epoch.remaining_objects.checked_sub(1).ok_or_else(|| {
@@ -536,29 +577,55 @@ impl S3Sink {
             epoch.remaining_objects == 0
         };
         if epoch_complete {
-            let epoch = self
-                .closed_epochs
-                .remove(&active.object.epoch_id)
-                .ok_or_else(|| {
-                    PipelineFailure::fatal(anyhow::anyhow!(
-                        "completed S3 epoch {} disappeared",
-                        active.object.epoch_id
-                    ))
-                })?;
-            for (delivery_id, rows) in epoch.delivery_rows {
-                self.progress
-                    .complete(delivery_id, rows)
-                    .map_err(PipelineFailure::fatal)?;
+            // Actual upload completion is finalized asynchronously in the actor loop. Replayed
+            // CLOSED epochs may finalize synchronously because the journal already proves the
+            // entire object set durable.
+            if self.closed_epochs[&object.epoch_id].journal_closed {
+                self.finalize_epoch(object.epoch_id)?;
             }
-            drop(epoch.reservations);
         }
         tracing::info!(
-            object_key = active.object.key.as_str(),
-            rows = active.object.rows,
-            bytes = active.object.payload.len(),
-            "S3 object upload completed"
+            object_key = object.key.as_str(),
+            rows = object.rows,
+            bytes = object.payload.len(),
+            "S3 object is durable"
         );
         Ok(())
+    }
+
+    fn finalize_epoch(&mut self, epoch_id: u64) -> Result<(), PipelineFailure> {
+        let epoch = self.closed_epochs.remove(&epoch_id).ok_or_else(|| {
+            PipelineFailure::fatal(anyhow::anyhow!("completed S3 epoch {epoch_id} disappeared"))
+        })?;
+        for (delivery_id, rows) in epoch.delivery_rows {
+            self.progress
+                .complete(delivery_id, rows)
+                .map_err(PipelineFailure::fatal)?;
+        }
+        drop(epoch.reservations);
+        Ok(())
+    }
+
+    async fn close_completed_epoch_journal(&mut self) -> Result<bool, PipelineFailure> {
+        let Some((&epoch_id, epoch)) = self
+            .closed_epochs
+            .iter()
+            .find(|(_, epoch)| epoch.remaining_objects == 0 && !epoch.journal_closed)
+        else {
+            return Ok(false);
+        };
+        let journal = Arc::clone(&epoch.journal);
+        journal.mark_closed().await?;
+        self.closed_epochs
+            .get_mut(&epoch_id)
+            .ok_or_else(|| {
+                PipelineFailure::fatal(anyhow::anyhow!(
+                    "S3 epoch {epoch_id} disappeared while closing its journal"
+                ))
+            })?
+            .journal_closed = true;
+        self.finalize_epoch(epoch_id)?;
+        Ok(true)
     }
 
     async fn emit_committed(
@@ -618,8 +685,11 @@ impl S3Sink {
         let result: anyhow::Result<()> = async {
             loop {
                 self.emit_committed(&io.events).await?;
+                if self.close_completed_epoch_journal().await? {
+                    continue;
+                }
                 if input_closed && pending_delivery.is_none() && !self.epoch.buffers.is_empty() {
-                    self.close_epoch()?;
+                    self.close_epoch().await?;
                     continue;
                 }
                 while self.in_flight_objects < max_in_flight_objects
@@ -655,12 +725,14 @@ impl S3Sink {
                 let can_resume_pending =
                     below_live_limits && memory_admissible && pending_delivery.is_some();
                 if can_resume_pending {
-                    let done = self.accept_next_message_group(
-                        pending_delivery
-                            .as_mut()
-                            .expect("resumable S3 delivery disappeared"),
-                        &io.memory,
-                    )?;
+                    let done = self
+                        .accept_next_message_group(
+                            pending_delivery
+                                .as_mut()
+                                .expect("resumable S3 delivery disappeared"),
+                            &io.memory,
+                        )
+                        .await?;
                     if done {
                         pending_delivery = None;
                     }
@@ -718,7 +790,7 @@ impl S3Sink {
                             None => input_closed = true,
                         }
                     }
-                    () = &mut wall_sleep => self.close_epoch()?,
+                    () = &mut wall_sleep => self.close_epoch().await?,
                 }
             }
         }

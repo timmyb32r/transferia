@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat};
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
+use super::source::validate_runtime_schema;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
@@ -79,4 +80,21 @@ fn unsupported_types_and_invalid_names_fail_before_runtime() {
         false,
     )]);
     assert!(schema_to_yt(&schema).is_err());
+}
+
+#[test]
+fn source_rejects_runtime_type_or_nullability_drift_instead_of_casting() -> anyhow::Result<()> {
+    let expected = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+    let wrong_type = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)])),
+        vec![Arc::new(StringArray::from(vec!["1"])) as ArrayRef],
+    )?;
+    let nullable = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, true)])),
+        vec![Arc::new(Int64Array::from(vec![Some(1)])) as ArrayRef],
+    )?;
+
+    assert!(validate_runtime_schema(&wrong_type, &expected).is_err());
+    assert!(validate_runtime_schema(&nullable, &expected).is_err());
+    Ok(())
 }

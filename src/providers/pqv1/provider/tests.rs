@@ -160,7 +160,12 @@ fn rejects_unknown_discovery_endpoint_field() {
 async fn rejects_builds_for_undeclared_partitions_before_network_io() {
     let source = provider(&config("partition_group_ids: [0]\n", "")).unwrap();
     let error = source
-        .build_source(1, CancellationToken::new(), PipelineMemory::new(1 << 20))
+        .build_source(
+            1,
+            CancellationToken::new(),
+            PipelineMemory::new(1 << 20),
+            crate::durable::test_support::context(),
+        )
         .await
         .err()
         .expect("undeclared partition must fail locally");

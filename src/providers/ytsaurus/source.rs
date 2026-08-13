@@ -169,6 +169,7 @@ impl SourceProvider for YTsaurusSourceProvider {
         partition_id: i64,
         cancellation: CancellationToken,
         _memory: PipelineMemory,
+        _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             let tables = self.discover_tables().await?;
@@ -235,12 +236,12 @@ struct YTsaurusSource {
 }
 
 impl YTsaurusSource {
-    fn queue_normalized(&mut self, batch: &RecordBatch) -> anyhow::Result<()> {
-        let normalized = normalize_batch(batch, &self.table.schema)?;
+    fn queue_validated(&mut self, batch: &RecordBatch) -> anyhow::Result<()> {
+        validate_runtime_schema(batch, &self.table.schema)?;
         let mut offset = 0;
-        while offset < normalized.num_rows() {
-            let len = self.batch_rows.min(normalized.num_rows() - offset);
-            self.queued.push_back(normalized.slice(offset, len));
+        while offset < batch.num_rows() {
+            let len = self.batch_rows.min(batch.num_rows() - offset);
+            self.queued.push_back(batch.slice(offset, len));
             offset += len;
         }
         Ok(())
@@ -250,7 +251,7 @@ impl YTsaurusSource {
         let mut buffer = Buffer::from(bytes);
         while !buffer.is_empty() {
             match self.decoder.decode(&mut buffer) {
-                Ok(Some(batch)) => self.queue_normalized(&batch)?,
+                Ok(Some(batch)) => self.queue_validated(&batch)?,
                 Ok(None) => {}
                 Err(arrow::error::ArrowError::IpcError(message)) if message == "Unexpected EOS" => {
                     self.decoder = StreamDecoder::new();
@@ -377,15 +378,16 @@ impl Source for YTsaurusSource {
     }
 }
 
-fn normalize_batch(batch: &RecordBatch, expected: &DatasetSchema) -> anyhow::Result<RecordBatch> {
+pub(super) fn validate_runtime_schema(
+    batch: &RecordBatch,
+    expected: &DatasetSchema,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         batch.num_columns() == expected.columns.len(),
         "YTsaurus runtime schema has {} columns, discovery declared {}",
         batch.num_columns(),
         expected.columns.len()
     );
-    let mut arrays = Vec::with_capacity(batch.num_columns());
-    let mut fields = Vec::with_capacity(batch.num_columns());
     for (position, (field, column)) in batch
         .schema()
         .fields()
@@ -399,28 +401,23 @@ fn normalize_batch(batch: &RecordBatch, expected: &DatasetSchema) -> anyhow::Res
             field.name(),
             column.name
         );
-        let array = if field.data_type() == &column.data_type {
-            Arc::clone(batch.column(position))
-        } else {
-            arrow::compute::cast(batch.column(position), &column.data_type).map_err(|error| {
-                anyhow::anyhow!(
-                    "YTsaurus runtime column '{}' cannot be normalized from {:?} to discovered {:?}: {error}",
-                    column.name,
-                    field.data_type(),
-                    column.data_type
-                )
-            })?
-        };
-        arrays.push(array);
-        fields.push(Field::new(
-            &column.name,
-            column.data_type.clone(),
-            column.nullable,
-        ));
+        anyhow::ensure!(
+            field.data_type() == &column.data_type,
+            "YTsaurus runtime column '{}' has type {:?}, discovery declared {:?}",
+            column.name,
+            field.data_type(),
+            column.data_type
+        );
+        anyhow::ensure!(
+            field.is_nullable() == column.nullable,
+            "YTsaurus runtime column '{}' has nullable={}, discovery declared nullable={}",
+            column.name,
+            field.is_nullable(),
+            column.nullable
+        );
     }
-    let normalized = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
     let actual = DatasetSchema::new(
-        normalized
+        batch
             .schema()
             .fields()
             .iter()
@@ -437,5 +434,5 @@ fn normalize_batch(batch: &RecordBatch, expected: &DatasetSchema) -> anyhow::Res
         schemas_equal(&actual, expected),
         "YTsaurus runtime schema drifted"
     );
-    Ok(normalized)
+    Ok(())
 }

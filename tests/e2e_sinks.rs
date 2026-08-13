@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
@@ -113,6 +115,7 @@ async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -200,6 +203,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = provider
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -329,9 +333,16 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
         .await?;
 
+    let durable_root =
+        std::env::temp_dir().join(format!("transferia-s3-e2e-durable-{}", std::process::id()));
+    let durable = transferia::durable::DurableStorageConfig::LocalFile {
+        path: durable_root.clone(),
+    }
+    .build("s3-e2e")?;
     let memory = PipelineMemory::new(256 * 1024 * 1024);
     let sink = provider
         .build_sink(SinkContext {
+            durable: durable.clone(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -372,6 +383,29 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         ],
     )?;
     let bytes = batch.get_array_memory_size();
+    let replay_batch = batch.clone();
+    let replay_system_columns = SystemColumns::new(vec![
+        SystemColumn {
+            kind: SystemColumnKind::Topic,
+            name: Arc::from(SystemColumnKind::Topic.default_name()),
+            index: 1,
+        },
+        SystemColumn {
+            kind: SystemColumnKind::Partition,
+            name: Arc::from(SystemColumnKind::Partition.default_name()),
+            index: 2,
+        },
+        SystemColumn {
+            kind: SystemColumnKind::Offset,
+            name: Arc::from(SystemColumnKind::Offset.default_name()),
+            index: 3,
+        },
+        SystemColumn {
+            kind: SystemColumnKind::MessageIndex,
+            name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
+            index: 4,
+        },
+    ]);
     run_one_delivery(
         sink,
         memory.clone(),
@@ -383,28 +417,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
                 batch,
                 byte_size: bytes,
                 memory: memory.reserve_transform(bytes),
-                system_columns: SystemColumns::new(vec![
-                    SystemColumn {
-                        kind: SystemColumnKind::Topic,
-                        name: Arc::from(SystemColumnKind::Topic.default_name()),
-                        index: 1,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::Partition,
-                        name: Arc::from(SystemColumnKind::Partition.default_name()),
-                        index: 2,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::Offset,
-                        name: Arc::from(SystemColumnKind::Offset.default_name()),
-                        index: 3,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::MessageIndex,
-                        name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
-                        index: 4,
-                    },
-                ]),
+                system_columns: replay_system_columns.clone(),
             }],
             meta: DeliveryMeta { source_messages: 1 },
         },
@@ -429,5 +442,47 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         object.location.as_ref(),
         "e2e/events/topic=topic-a/partition=0/topic-a+0+11.json"
     );
+    let modified_before_replay = object.last_modified;
+
+    // Recreate the production provider and local durable-storage handle exactly as a process
+    // restart would. CLOSED state must recover source commit without issuing another PUT.
+    tokio::time::sleep(core::time::Duration::from_millis(20)).await;
+    let replay_provider = S3SinkProvider::from_config(serde_yaml::from_str(&yaml)?)?;
+    let replay_sink = replay_provider
+        .build_sink(SinkContext {
+            durable: transferia::durable::DurableStorageConfig::LocalFile {
+                path: durable_root.clone(),
+            }
+            .build("s3-e2e")?,
+            partition_id: 0,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery,
+        })
+        .await?;
+    let replay_memory = PipelineMemory::new(256 * 1024 * 1024);
+    run_one_delivery(
+        replay_sink,
+        replay_memory.clone(),
+        Delivery {
+            id: DeliveryId::new(1),
+            outputs: vec![SinkBatch {
+                table: Arc::from("events"),
+                is_dlq: false,
+                batch: replay_batch,
+                byte_size: bytes,
+                memory: replay_memory.reserve_transform(bytes),
+                system_columns: replay_system_columns,
+            }],
+            meta: DeliveryMeta { source_messages: 1 },
+        },
+    )
+    .await?;
+    let after_replay = store.head(&object.location).await?;
+    assert_eq!(
+        after_replay.last_modified, modified_before_replay,
+        "CLOSED recovery must not rewrite the real S3 object"
+    );
+    std::fs::remove_dir_all(durable_root)?;
     Ok(())
 }

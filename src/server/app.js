@@ -39,7 +39,7 @@ function rebuildConfig() {
     $('#error').textContent = 'This provider has no explicit demo template.';
     return;
   }
-  $('#config').value = `${source}${sink}middlewares: []\npipeline_memory_limit_bytes: 268435456\nkeep_system_columns_in_sink: false\n`;
+  $('#config').value = `delivery_id: demo-delivery\ndurable_storage: { type: local_file, path: .transferia-state }\n${source}${sink}middlewares: []\npipeline_memory_limit_bytes: 268435456\nkeep_system_columns_in_sink: false\n`;
   scheduleDiscovery();
 }
 

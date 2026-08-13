@@ -3,12 +3,15 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use serde_yaml::Value;
 
+use crate::durable::DurableStorageConfig;
 use crate::metrics::MetricsConfig;
 use crate::middleware::MiddlewareEntry;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub delivery_id: String,
+    pub durable_storage: DurableStorageConfig,
     pub source: SourceEntry,
     pub sink: SinkEntry,
     #[serde(default)]

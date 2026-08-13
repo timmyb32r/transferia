@@ -1,3 +1,5 @@
+delivery_id: ytsaurus-clickhouse-demo
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   ytsaurus:
     endpoint: http://localhost:8000

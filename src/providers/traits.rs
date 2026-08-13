@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
+use crate::durable::DurableContext;
 use crate::metrics::SinkCounters;
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -31,6 +32,7 @@ pub trait SourceProvider: Send + Sync {
         partition_id: i64,
         cancel_token: CancellationToken,
         memory: PipelineMemory,
+        durable: DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
     fn partitions_for_worker(
@@ -65,6 +67,7 @@ pub struct SinkContext {
     pub counters: Arc<SinkCounters>,
     pub keep_system_columns: bool,
     pub discovery: Arc<DeliveryDiscovery>,
+    pub durable: DurableContext,
 }
 
 pub struct SinkPrepare {

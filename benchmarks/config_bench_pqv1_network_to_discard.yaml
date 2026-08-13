@@ -2,6 +2,8 @@
 # before decompression.
 # cargo run --release -- --config benchmarks/config_bench_pqv1_network_to_discard.yaml
 
+delivery_id: benchmark-pqv1-network
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
     discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"

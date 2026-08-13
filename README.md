@@ -43,6 +43,11 @@ errors. Every quality recipe runs `rustfmt` first.
 ## Configuration
 
 ```yaml
+delivery_id: pqv1-s3-production
+durable_storage:
+  type: local_file
+  path: .transferia-state
+
 source:
   pqv1:
     # Plaintext HTTP/2 only; use a trusted local endpoint or tunnel.
@@ -196,8 +201,12 @@ The S3 sink uploads several ready objects concurrently, within its configured
 object and multipart limits. Buffering, memory, object-upload concurrency, and
 multipart concurrency are all enforced per PQv1 partition actor; they are not
 global limits across a worker. A rotation closes every main and DLQ object in a
-deterministic commit epoch, and source progress is committed only after the
-whole epoch is durable. The per-pipeline memory budget and S3 buffering limit
+deterministic commit epoch. Before the first PUT, the sink persists an `OPEN`
+manifest containing every object key, payload digest and size. Only after every
+PUT succeeds does it atomically transition the manifest to `CLOSED`; source
+progress is committed only after that transition. A restart replays a matching
+`OPEN` epoch and recovers commit from a matching `CLOSED` epoch without another
+PUT. Payload or key drift fails fatally. The per-pipeline memory budget and S3 buffering limit
 propagate backpressure to PQv1. One oversized source message is admitted
 atomically with a warning.
 
@@ -211,8 +220,10 @@ are validated against it before destination preparation. The same contract is
 checked again for every runtime batch before ClickHouse INSERT or S3 upload, so
 schema drift fails closed before a source offset can be committed.
 
-Deterministic source/field/record-time partitioning and deterministic
-rotation are exactly-once through idempotent object overwrite. Enabling
+Deterministic source/field/record-time partitioning and deterministic rotation
+are exactly-once through idempotent object overwrite plus the durable epoch
+state machine. `delivery_id` is the explicit ASCII identity of that state, and
+`durable_storage.path` selects its crash-safe local-file root. Enabling
 `wall_clock_interval` makes the delivery at-least-once because restart timing
 can change object boundaries; the report includes a remediation.
 

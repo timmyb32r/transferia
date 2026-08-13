@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -236,6 +238,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let arrow_sink = arrow_provider
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -259,6 +262,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let yson_sink = yson_provider
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -327,6 +331,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
             0,
             CancellationToken::new(),
             PipelineMemory::new(16 * 1024 * 1024),
+            support::durable_context(),
         )
         .await?;
     let mut rows = 0;

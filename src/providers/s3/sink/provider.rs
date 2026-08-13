@@ -366,6 +366,7 @@ impl SinkProvider for S3SinkProvider {
             context.keep_system_columns,
             context.partition_id,
             context.discovery,
+            context.durable.storage,
         );
         Box::pin(async move { Ok(Box::new(sink?) as Box<dyn Sink>) })
     }

@@ -1264,11 +1264,11 @@ impl JsonParser {
         // Arrow builders use growable Vec-backed buffers. Before finish, a
         // growth step can transiently retain both old and new allocations;
         // finished arrays may also retain spare capacity. Reserve a 2x
-        // capacity envelope for admission/fallback decisions.
+        // capacity envelope for admission and fail-fast decisions.
         retained_output_bytes.saturating_mul(2)
     }
 
-    fn requires_safe_dlq_fallback(&self, messages: &[Message]) -> bool {
+    fn exceeds_safety_limits(&self, messages: &[Message]) -> bool {
         if self.output_memory_bound(messages) > MAX_DELIVERY_BYTES {
             return true;
         }
@@ -2006,7 +2006,7 @@ impl JsonParser {
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         self.check_system_column_preconditions(&messages)?;
-        if self.requires_safe_dlq_fallback(&messages) {
+        if self.exceeds_safety_limits(&messages) {
             anyhow::bail!(
                 "JSON parser input exceeds the configured 256MiB delivery or 4MiB record safety limit"
             );

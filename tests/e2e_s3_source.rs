@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::Arc;
 
 use arrow::array::Int64Array;
@@ -102,6 +104,7 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
             0,
             CancellationToken::new(),
             PipelineMemory::new(16 * 1024 * 1024),
+            support::durable_context(),
         )
         .await?;
     let mut parser = provider.parser_plan().parser().create_session();

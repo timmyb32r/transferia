@@ -60,7 +60,7 @@ class StatsParsingTest(unittest.TestCase):
         self.assertIsNone(BENCH.parse_stats_line("unrelated log line"))
         line = (
             "[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-            "dl 1% busy | decomp 0% busy || parse: benchmark-discard || "
+            "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
             "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
             "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
             "guarantee: destructive-benchmark | cpu: 5% rss: N/A"
@@ -69,7 +69,7 @@ class StatsParsingTest(unittest.TestCase):
         self.assertIsNone(sample["parse_rows_per_s"])
         self.assertEqual(sample["rss_bytes"], 0)
 
-    def test_accepts_legacy_downloader_busy_field(self):
+    def test_rejects_removed_downloader_busy_field(self):
         line = (
             "[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
             "dl 7% busy | decomp 0% busy || parse: benchmark-discard || "
@@ -77,8 +77,8 @@ class StatsParsingTest(unittest.TestCase):
             "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
             "guarantee: destructive-benchmark | cpu: 5% rss: N/A"
         )
-        sample = BENCH.parse_stats_line(line)
-        self.assertEqual(sample["response_wait_percent"], 7)
+        with self.assertRaisesRegex(ValueError, "unrecognized stats line"):
+            BENCH.parse_stats_line(line)
 
     def test_rejects_sample_with_sink_retry(self):
         sample = {"sink_retries": 1}

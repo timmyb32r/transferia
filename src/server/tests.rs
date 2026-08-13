@@ -1,7 +1,7 @@
 use super::*;
 
 fn valid_config() -> &'static str {
-    "source:\n  s3:\n    bucket: demo\n    prefix: input\n    region: us-east-1\n    allow_http: true\n    endpoint: http://localhost:4566\n    credentials: { access_key: test, secret_key: test }\n    parser:\n      common:\n        table_naming: { type: from_config, name: events }\n      json_parser:\n        conversion_error: dlq\n        unknown_fields: { action: fail }\n        columns:\n          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\nsink:\n  discard: {}\nmiddlewares: []\n"
+    "delivery_id: server-test\ndurable_storage: { type: local_file, path: /tmp/transferia-server-test-state }\nsource:\n  s3:\n    bucket: demo\n    prefix: input\n    region: us-east-1\n    allow_http: true\n    endpoint: http://localhost:4566\n    credentials: { access_key: test, secret_key: test }\n    parser:\n      common:\n        table_naming: { type: from_config, name: events }\n      json_parser:\n        conversion_error: dlq\n        unknown_fields: { action: fail }\n        columns:\n          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\nsink:\n  discard: {}\nmiddlewares: []\n"
 }
 
 #[test]

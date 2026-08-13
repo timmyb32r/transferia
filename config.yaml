@@ -1,4 +1,6 @@
 # PQv1 partition -> JSON -> S3
+delivery_id: pqv1-s3-demo
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
     # PQv1 currently supports plaintext HTTP/2 only. Point this at a trusted

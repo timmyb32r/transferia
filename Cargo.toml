@@ -2,7 +2,7 @@
 name = "transferia"
 version = "0.1.0"
 edition = "2021"
-description = "PQv1 to ClickHouse or S3 data transfer pipeline"
+description = "Native Rust data transfer pipeline demo"
 publish = false
 
 [dependencies]
@@ -32,6 +32,7 @@ ryu = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+sha2 = "0.10"
 shellexpand = "3"
 simd-json = "0.17"
 time = { version = "0.3", features = ["formatting", "parsing"] }

@@ -33,6 +33,7 @@ pub mod Ydb {
 pub mod compatibility;
 pub mod config;
 pub mod delivery;
+pub mod durable;
 pub mod metrics;
 pub mod middleware;
 pub mod parsers;

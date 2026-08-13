@@ -205,6 +205,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
 
     let first = provider
         .build_sink(SinkContext {
+            durable: crate::durable::test_support::context(),
             partition_id: 1,
             counters: Arc::new(crate::metrics::SinkCounters::new()),
             keep_system_columns: false,
@@ -213,6 +214,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
         .await?;
     let second = provider
         .build_sink(SinkContext {
+            durable: crate::durable::test_support::context(),
             partition_id: 2,
             counters: Arc::new(crate::metrics::SinkCounters::new()),
             keep_system_columns: false,

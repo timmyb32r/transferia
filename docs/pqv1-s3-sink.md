@@ -7,6 +7,14 @@ durable before the source delivery can be acknowledged. All PQv1 cookies in a
 newly durable contiguous prefix are submitted together in one commit request
 and acknowledged before the local progress ledger advances.
 
+Each epoch also has a revisioned durable-storage manifest. The actor writes
+`OPEN` with all object keys and payload SHA-256 digests before any PUT, then
+changes it to `CLOSED` only after every object succeeds. On restart, matching
+`OPEN` state is replayed and matching `CLOSED` state completes the delivery
+without another PUT. A mismatch is fatal. Configure one stable `delivery_id`
+and a local-file durable-storage path; changing either selects another state
+namespace.
+
 Important thresholds are configuration-derived and stable across restarts.
 Every buffering, memory, object-upload-concurrency, and multipart-concurrency
 limit below applies independently to one PQv1 partition actor; there is no

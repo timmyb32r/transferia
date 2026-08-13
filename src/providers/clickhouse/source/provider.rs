@@ -159,6 +159,7 @@ impl SourceProvider for ClickHouseSourceProvider {
         partition_id: i64,
         cancellation: CancellationToken,
         _memory: PipelineMemory,
+        _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             let tables = self.discovered_tables().await?;

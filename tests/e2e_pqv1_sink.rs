@@ -1,3 +1,5 @@
+mod support;
+
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
@@ -75,6 +77,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

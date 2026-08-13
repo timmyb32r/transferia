@@ -2,6 +2,8 @@
 # Replace the endpoint/topic/consumer/token values before running.
 # cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_discard.yaml
 
+delivery_id: benchmark-pqv1-parser
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
     discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"

@@ -1,3 +1,5 @@
+mod support;
+
 use arrow::array::{Array as _, BinaryArray, Int64Array};
 use std::sync::Arc;
 use testcontainers::core::wait::HttpWaitStrategy;
@@ -75,6 +77,7 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
             0,
             CancellationToken::new(),
             PipelineMemory::new(256 * 1024 * 1024),
+            support::durable_context(),
         )
         .await?;
     let first = source.read_batch().await?;

@@ -1,3 +1,5 @@
+mod support;
+
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -393,6 +395,7 @@ parser:
             0,
             cancellation.child_token(),
             PipelineMemory::new(16 * 1024 * 1024),
+            support::durable_context(),
         )
         .await?;
     let batch =

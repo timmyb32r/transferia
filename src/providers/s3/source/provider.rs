@@ -93,6 +93,7 @@ impl SourceProvider for S3SourceProvider {
         partition_id: i64,
         cancellation: CancellationToken,
         memory: PipelineMemory,
+        _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
             anyhow::ensure!(partition_id == 0, "S3 source has only partition 0");

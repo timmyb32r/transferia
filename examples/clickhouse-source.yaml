@@ -1,3 +1,5 @@
+delivery_id: clickhouse-source-demo
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   clickhouse:
     endpoint: localhost:9000

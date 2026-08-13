@@ -307,7 +307,7 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    assert!(!parser.requires_safe_dlq_fallback(&[Message::new(payload.clone())]));
+    assert!(!parser.exceeds_safety_limits(&[Message::new(payload.clone())]));
     let (main, dlq) =
         parser.parse_into(vec![Message::new(payload)], &mut ParserWorkspace::new())?;
 

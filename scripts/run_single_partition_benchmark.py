@@ -28,7 +28,7 @@ STATS_PREFIX = re.compile(r"\[stats p=(?P<partition>-?\d+)]")
 SOURCE = re.compile(
     r"source: (?P<messages>\d+) msg/s \| comp (?P<compressed>.+?) \| "
     r"decomp (?P<decompressed>.+?) \| "
-    r"(?:response-wait (?P<response_wait>\d+)%|dl (?P<legacy_download_busy>\d+)% busy) \| "
+    r"response-wait (?P<response_wait>\d+)% \| "
     r"decomp (?P<decomp_busy>\d+)% busy"
 )
 PARSE = re.compile(
@@ -124,9 +124,7 @@ def parse_stats_line(line: str) -> dict[str, Any] | None:
         "source_messages_per_s": int(source.group("messages")),
         "compressed_bytes_per_s": parse_bytes(source.group("compressed")),
         "decompressed_bytes_per_s": parse_bytes(source.group("decompressed")),
-        "response_wait_percent": int(
-            source.group("response_wait") or source.group("legacy_download_busy")
-        ),
+        "response_wait_percent": int(source.group("response_wait")),
         "decompression_busy_percent": int(source.group("decomp_busy")),
         "parse_rows_per_s": int(parse.group("rows")) if parse else None,
         "parse_arrow_bytes_per_s": parse_bytes(parse.group("arrow")) if parse else None,

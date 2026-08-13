@@ -65,6 +65,7 @@ struct PipelineDeps {
     cancellation: CancellationToken,
     keep_system_columns: bool,
     finite_source: bool,
+    durable: transferia::durable::DurableContext,
 }
 
 async fn run_partition_attempt(
@@ -78,7 +79,12 @@ async fn run_partition_attempt(
     let memory = PipelineMemory::new(deps.memory_limit);
     let source = deps
         .source_provider
-        .build_source(partition_id, attempt_token.clone(), memory.clone())
+        .build_source(
+            partition_id,
+            attempt_token.clone(),
+            memory.clone(),
+            deps.durable.clone(),
+        )
         .await
         .context("source creation failed")?;
     let sink = deps
@@ -88,6 +94,7 @@ async fn run_partition_attempt(
             counters: sink_counters,
             keep_system_columns: deps.keep_system_columns,
             discovery: Arc::clone(&deps.discovery),
+            durable: deps.durable.clone(),
         })
         .await
         .context("sink creation failed")?;
@@ -395,6 +402,7 @@ async fn main() -> anyhow::Result<()> {
         .as_deref()
         .context("--config is required unless --server is selected")?;
     let config = Config::from_file(config_path)?;
+    let durable = config.durable_storage.build(&config.delivery_id)?;
     anyhow::ensure!(
         config.pipeline_memory_limit_bytes > 0,
         "pipeline_memory_limit_bytes must be positive"
@@ -481,6 +489,7 @@ async fn main() -> anyhow::Result<()> {
         cancellation: cancellation.clone(),
         keep_system_columns: config.keep_system_columns_in_sink,
         finite_source,
+        durable,
     };
     let mut tasks = JoinSet::new();
     for partition_id in partitions {

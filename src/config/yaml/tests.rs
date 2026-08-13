@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn rejects_multiple_source_providers() -> anyhow::Result<()> {
     let config: Config =
-        serde_yaml::from_str("source: {a: {}, b: {}}\nsink: {clickhouse: {}}\nmiddlewares: []\n")?;
+        serde_yaml::from_str("delivery_id: test\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}, b: {}}\nsink: {clickhouse: {}}\nmiddlewares: []\n")?;
     anyhow::ensure!(config.source.kind().is_err());
     Ok(())
 }
@@ -17,9 +17,23 @@ fn rejects_provider_specific_top_level_fields() {
 }
 
 #[test]
+fn durable_identity_and_storage_are_required_and_validated_explicitly() {
+    let missing = serde_yaml::from_str::<Config>("source: {a: {}}\nsink: {b: {}}\n");
+    assert!(missing.is_err());
+
+    let invalid: Config = serde_yaml::from_str(
+        "delivery_id: 'not/a/path'\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}}\nsink: {b: {}}\n",
+    )
+    .unwrap();
+    assert!(invalid.durable_storage.build(&invalid.delivery_id).is_err());
+}
+
+#[test]
 fn pqv1_to_s3_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
     let config: Config = serde_yaml::from_str(
         r"
+delivery_id: pqv1-s3-test
+durable_storage: { type: local_file, path: /tmp/state }
 source:
   pqv1:
     discovery_endpoint: grpc://localhost

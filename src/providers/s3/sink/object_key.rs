@@ -27,7 +27,8 @@ impl ObjectKey {
         Self::parse(key)
     }
 
-    fn parse(key: String) -> anyhow::Result<Self> {
+    pub(super) fn parse(key: impl Into<String>) -> anyhow::Result<Self> {
+        let key = key.into();
         anyhow::ensure!(
             key.len() <= MAX_OBJECT_KEY_BYTES,
             "S3 object key is {} UTF-8 bytes, exceeding the {MAX_OBJECT_KEY_BYTES}-byte limit",

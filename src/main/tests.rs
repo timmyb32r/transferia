@@ -124,6 +124,8 @@ fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
     let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
     let config: Config = serde_yaml::from_str(
         r"
+delivery_id: pqv1-clickhouse-test
+durable_storage: { type: local_file, path: /tmp/transferia-test-state }
 source:
   pqv1:
     discovery_endpoint: grpc://localhost

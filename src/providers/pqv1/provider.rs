@@ -442,6 +442,7 @@ impl SourceProvider for PqV1SourceProvider {
         partition_id: i64,
         cancel_token: CancellationToken,
         memory: PipelineMemory,
+        _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         let cfg = self.cfg.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);

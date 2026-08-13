@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,10 +93,16 @@ async fn run_pipeline(
     }
     let memory = PipelineMemory::new(256 * 1024 * 1024);
     let source_actor = source
-        .build_source(0, CancellationToken::new(), memory.clone())
+        .build_source(
+            0,
+            CancellationToken::new(),
+            memory.clone(),
+            support::durable_context(),
+        )
         .await?;
     let sink_actor = sink
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -309,6 +317,7 @@ async fn postgres_source_reaches_clickhouse_and_s3_and_binary_copy_is_real() -> 
         .await?;
     let sink = postgres_sink
         .build_sink(SinkContext {
+            durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,

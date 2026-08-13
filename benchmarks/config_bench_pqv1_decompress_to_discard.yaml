@@ -1,6 +1,8 @@
 # PQv1 -> discard sink: measures download + decompression without parsing.
 # cargo run --release -- --config benchmarks/config_bench_pqv1_decompress_to_discard.yaml
 
+delivery_id: benchmark-pqv1-decompress
+durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
     discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"

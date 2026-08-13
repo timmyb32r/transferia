@@ -25,6 +25,10 @@ use super::actor::S3Sink;
 use super::config::S3SinkConfig;
 use super::upload::{ObjectUploader, UploadError};
 
+fn durable_storage() -> Arc<dyn crate::durable::DurableStorage> {
+    crate::durable::test_support::context().storage
+}
+
 struct FakeUploader {
     attempts: AtomicUsize,
     failures_left: AtomicUsize,
@@ -635,6 +639,29 @@ fn spawn_with_capacity(
     CancellationToken,
     tokio::task::JoinHandle<anyhow::Result<()>>,
 ) {
+    spawn_with_storage(
+        config,
+        uploader,
+        memory,
+        keep_system_columns,
+        channel_capacity,
+        durable_storage(),
+    )
+}
+
+fn spawn_with_storage(
+    config: S3SinkConfig,
+    uploader: Arc<FakeUploader>,
+    memory: PipelineMemory,
+    keep_system_columns: bool,
+    channel_capacity: usize,
+    storage: Arc<dyn crate::durable::DurableStorage>,
+) -> (
+    mpsc::Sender<Delivery>,
+    mpsc::Receiver<SinkEvent>,
+    CancellationToken,
+    tokio::task::JoinHandle<anyhow::Result<()>>,
+) {
     let (delivery_tx, delivery_rx) = mpsc::channel(channel_capacity);
     let (event_tx, event_rx) = mpsc::channel(8);
     let cancellation = CancellationToken::new();
@@ -645,6 +672,7 @@ fn spawn_with_capacity(
         keep_system_columns,
         3,
         test_discovery(keep_system_columns),
+        storage,
     )
     .unwrap();
     let task = tokio::spawn(Box::new(sink).run(SinkIo {
@@ -654,6 +682,58 @@ fn spawn_with_capacity(
         cancellation: cancellation.clone(),
     }));
     (delivery_tx, event_rx, cancellation, task)
+}
+
+#[tokio::test]
+async fn closed_epoch_replay_after_actor_restart_skips_put_and_commits() {
+    let durable = durable_storage();
+    let first_uploader = FakeUploader::immediate(0);
+    let first_memory = PipelineMemory::new(1 << 20);
+    let (first_tx, mut first_events, first_cancel, first_task) = spawn_with_storage(
+        config(""),
+        Arc::clone(&first_uploader),
+        first_memory.clone(),
+        false,
+        8,
+        Arc::clone(&durable),
+    );
+    first_tx
+        .send(delivery(&first_memory, 1, 4, 1_000, false).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        first_events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(first_uploader.attempts.load(Ordering::Acquire), 1);
+    first_cancel.cancel();
+    first_task.await.unwrap().unwrap();
+
+    let replay_uploader = FakeUploader::immediate(0);
+    let replay_memory = PipelineMemory::new(1 << 20);
+    let (replay_tx, mut replay_events, replay_cancel, replay_task) = spawn_with_storage(
+        config(""),
+        Arc::clone(&replay_uploader),
+        replay_memory.clone(),
+        false,
+        8,
+        durable,
+    );
+    replay_tx
+        .send(delivery(&replay_memory, 1, 4, 1_000, false).await)
+        .await
+        .unwrap();
+    assert_eq!(
+        replay_events.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(
+        replay_uploader.attempts.load(Ordering::Acquire),
+        0,
+        "CLOSED durable epoch must recover commit without another PUT"
+    );
+    replay_cancel.cancel();
+    replay_task.await.unwrap().unwrap();
 }
 
 async fn replay_objects(uploader: Arc<FakeUploader>) -> Vec<(String, Bytes)> {
@@ -867,13 +947,9 @@ async fn late_time_slot_and_replay_are_routed_deterministically() {
         .iter()
         .map(|(key, _)| key.clone())
         .collect::<Vec<_>>();
-    assert_eq!(keys.len(), 3);
+    assert_eq!(keys.len(), 2, "CLOSED replay must not issue another PUT");
     assert!(keys[0].contains("hour=02"));
     assert!(keys[1].contains("hour=01"));
-    assert_eq!(
-        keys[1], keys[2],
-        "replaying an offset must overwrite its key"
-    );
     cancel.cancel();
     task.await.unwrap().unwrap();
 }
@@ -991,6 +1067,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
         false,
         3,
         test_discovery(false),
+        durable_storage(),
     )
     .unwrap();
     let mut task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1064,6 +1141,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
             false,
             3,
             test_discovery(false),
+            durable_storage(),
         )
         .unwrap();
         let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1202,6 +1280,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         false,
         3,
         test_discovery(false),
+        durable_storage(),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1256,6 +1335,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
         false,
         3,
         test_discovery(false),
+        durable_storage(),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1526,6 +1606,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
         false,
         3,
         test_discovery(false),
+        durable_storage(),
     )
     .unwrap();
     let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
@@ -1650,6 +1731,7 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
         false,
         3,
         test_discovery(false),
+        durable_storage(),
     )
     .unwrap();
     let task = tokio::spawn(Box::new(sink).run(SinkIo {
