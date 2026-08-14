@@ -13,7 +13,7 @@ use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
-use super::client::{runtime_http_failure, YTsaurusClient};
+use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{YTsaurusSinkConfig, YTsaurusWriteFormat};
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, validate_column_name, MAX_COLUMNS,
@@ -212,7 +212,7 @@ impl YTsaurusSink {
             self.client
                 .write_table(self.config.path_for_dataset(&batch.table)?, format, payload)
                 .await
-                .map_err(runtime_http_failure)?;
+                .map_err(classify_http_failure)?;
             self.counters.add_busy(started.elapsed());
             self.counters.add_rows(batch.rows() as u64);
             self.counters.add_bytes(batch.bytes() as u64);

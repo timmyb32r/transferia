@@ -153,7 +153,7 @@ fn rows_to_batch(
     let mut arrays = Vec::with_capacity(statement.columns().len() + 4);
     anyhow::ensure!(
         discovered_schema.columns.len() == statement.columns().len(),
-        "PostgreSQL runtime schema has {} columns, discovery declared {}",
+        "PostgreSQL query schema has {} columns, discovery declared {}",
         statement.columns().len(),
         discovered_schema.columns.len()
     );
@@ -166,7 +166,7 @@ fn rows_to_batch(
         let data_type = crate::providers::postgres::common::postgres_to_arrow(column.type_())?;
         anyhow::ensure!(
             column.name() == discovered.name && data_type == discovered.data_type,
-            "PostgreSQL runtime schema drifted at column '{}': discovered {:?}, runtime {:?}",
+            "PostgreSQL query schema drifted at column '{}': discovered {:?}, query returned {:?}",
             column.name(),
             discovered.data_type,
             data_type

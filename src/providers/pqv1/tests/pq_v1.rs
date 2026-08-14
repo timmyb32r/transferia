@@ -527,13 +527,10 @@ async fn network_stage_honors_cancellation() {
 }
 
 #[test]
-fn runtime_init_scopes_the_session_to_requested_partition_groups() {
-    let runtime = init_request("topic", "consumer", &[3, 7]);
-    assert_eq!(
-        runtime.topics_read_settings[0].partition_group_ids,
-        vec![3, 7]
-    );
-    let read_params = runtime.read_params.expect("read parameters");
+fn init_scopes_the_session_to_requested_partition_groups() {
+    let init = init_request("topic", "consumer", &[3, 7]);
+    assert_eq!(init.topics_read_settings[0].partition_group_ids, vec![3, 7]);
+    let read_params = init.read_params.expect("read parameters");
     assert_eq!(read_params.max_read_messages_count, MAX_READ_MESSAGES_COUNT);
     assert_ne!(read_params.max_read_messages_count, 0);
     assert_eq!(read_params.max_read_size, MAX_READ_SIZE);

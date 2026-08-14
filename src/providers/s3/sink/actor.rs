@@ -217,7 +217,7 @@ impl S3Sink {
         for output in &delivery.outputs {
             validate_batch_against_discovery(&self.discovery, output).map_err(|error| {
                 anyhow::anyhow!(
-                    "S3 runtime delivery validation failed for dataset '{}': {error}",
+                    "S3 delivery validation failed for dataset '{}': {error}",
                     output.table,
                 )
             })?;

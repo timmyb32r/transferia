@@ -6,7 +6,7 @@ use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
-use super::runtime::PostgresSource;
+use super::reader::PostgresSource;
 use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,

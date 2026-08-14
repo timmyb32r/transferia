@@ -11,7 +11,7 @@ use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::{ClickHouseSourceConfig, TableConfig};
-use super::runtime::ClickHouseSource;
+use super::reader::ClickHouseSource;
 use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,

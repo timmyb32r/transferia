@@ -8,7 +8,7 @@ use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
-use super::runtime::S3Source;
+use super::reader::S3Source;
 use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::metrics::{MetricsRegistry, SourceCounters};

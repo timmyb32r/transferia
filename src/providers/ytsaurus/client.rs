@@ -124,7 +124,7 @@ impl YTsaurusClient {
     }
 }
 
-pub fn runtime_http_failure(error: anyhow::Error) -> anyhow::Error {
+pub fn classify_http_failure(error: anyhow::Error) -> anyhow::Error {
     let permanent = error
         .downcast_ref::<YTsaurusHttpError>()
         .is_some_and(|http| {

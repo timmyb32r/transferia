@@ -49,7 +49,7 @@ impl ClickHouseSource {
     }
 
     fn output(&mut self, batch: &RecordBatch) -> anyhow::Result<SourceBatch> {
-        validate_runtime_schema(batch, &self.table)?;
+        validate_snapshot_schema(batch, &self.table)?;
         let rows = batch.num_rows();
         let rows_i64 = i64::try_from(rows)?;
         let base = batch.num_columns();
@@ -163,7 +163,7 @@ impl Source for ClickHouseSource {
                     })?;
                 match next {
                     Some(Ok(batch)) if batch.num_rows() > 0 => {
-                        validate_runtime_schema(&batch, &self.table)?;
+                        validate_snapshot_schema(&batch, &self.table)?;
                         self.pending = Some((batch, 0));
                     }
                     Some(Ok(_)) => {}
@@ -186,17 +186,17 @@ impl Source for ClickHouseSource {
     }
 }
 
-fn validate_runtime_schema(batch: &RecordBatch, table: &DiscoveredTable) -> anyhow::Result<()> {
+fn validate_snapshot_schema(batch: &RecordBatch, table: &DiscoveredTable) -> anyhow::Result<()> {
     anyhow::ensure!(
         batch.num_columns() == table.schema.columns.len(),
-        "ClickHouse runtime table '{}.{}' returned {} columns, discovery declared {}",
+        "ClickHouse snapshot query for '{}.{}' returned {} columns, discovery declared {}",
         table.config.database,
         table.config.name,
         batch.num_columns(),
         table.schema.columns.len()
     );
     for (actual, expected) in batch.schema().fields().iter().zip(&table.schema.columns) {
-        anyhow::ensure!(actual.name() == &expected.name && actual.data_type() == &expected.data_type && actual.is_nullable() == expected.nullable, "ClickHouse runtime schema drifted at '{}.{}': discovered '{} {:?} nullable={}', runtime '{} {:?} nullable={}'", table.config.database, table.config.name, expected.name, expected.data_type, expected.nullable, actual.name(), actual.data_type(), actual.is_nullable());
+        anyhow::ensure!(actual.name() == &expected.name && actual.data_type() == &expected.data_type && actual.is_nullable() == expected.nullable, "ClickHouse snapshot schema drifted at '{}.{}': discovered '{} {:?} nullable={}', query returned '{} {:?} nullable={}'", table.config.database, table.config.name, expected.name, expected.data_type, expected.nullable, actual.name(), actual.data_type(), actual.is_nullable());
     }
     Ok(())
 }

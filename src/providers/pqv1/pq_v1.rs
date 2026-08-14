@@ -1,6 +1,6 @@
 //! `PQv1` (`PersQueue` V1) gRPC client for Logbroker.
 //!
-//! Startup discovery runs `ListEndpoints` and `DescribeTopic`; runtime then opens a
+//! Startup discovery runs `ListEndpoints` and `DescribeTopic`; each worker then opens a
 //! `MigrationStreamingRead` bidi stream on a proxy → `InitResponse` → Assigned → `StartRead`
 //! → `DataBatch`. Transport is HTTP/2 with prior knowledge (Go-compatible), bridged into
 //! tonic via a small `tower::Service`.
@@ -1150,7 +1150,7 @@ impl PqV1Client {
         )
         .await?;
 
-        // Runtime ownership is intentionally one stream/session per partition.
+        // Session ownership is intentionally one stream per partition.
         let assigned = HashSet::from([partition_id]);
         let raw_read_credit = raw_read_credit_bytes(1)?;
         let configured_topic: Arc<str> = Arc::from(topic_path);

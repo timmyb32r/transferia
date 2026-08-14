@@ -194,10 +194,10 @@ impl ReconnectingClient {
         // It also performs a synchronous 30-second socket connect, so keep that poll
         // off Tokio workers until the dependency provides a cancellable connector.
         let builder = self.builder.clone();
-        let runtime = tokio::runtime::Handle::current();
+        let runtime_handle = tokio::runtime::Handle::current();
         let connect_timeout = self.connect_timeout;
         self.build_client_with(move || {
-            spawn_bounded_connect_task(runtime, connect_timeout, builder.build_arrow())
+            spawn_bounded_connect_task(runtime_handle, connect_timeout, builder.build_arrow())
         })
         .await
     }
@@ -269,13 +269,13 @@ impl ReconnectingClient {
 }
 
 fn spawn_bounded_connect_task(
-    runtime: tokio::runtime::Handle,
+    runtime_handle: tokio::runtime::Handle,
     connect_timeout: Duration,
     connect: impl Future<Output = ClickHouseResult<Client<ArrowFormat>>> + Send + 'static,
 ) -> ConnectTask {
     let deadline = tokio::time::Instant::now() + connect_timeout;
     tokio::task::spawn_blocking(move || {
-        runtime.block_on(async move {
+        runtime_handle.block_on(async move {
             // Tokio timeout polls its child before checking the deadline. Check
             // explicitly so a task delayed in the blocking queue cannot start a
             // synchronous socket call after its deadline has already expired.

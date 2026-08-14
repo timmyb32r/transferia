@@ -1,6 +1,6 @@
 mod config;
 mod provider;
-mod runtime;
+mod reader;
 
 pub use provider::PostgresSourceProvider;
 

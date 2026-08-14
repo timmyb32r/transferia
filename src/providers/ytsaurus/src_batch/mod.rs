@@ -12,7 +12,7 @@ use futures_util::{Stream, StreamExt as _};
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
-use super::client::{runtime_http_failure, YTsaurusClient};
+use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{SourceTableConfig, YTsaurusSourceConfig};
 use super::schema::{parse_schema, schemas_equal};
 use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
@@ -185,7 +185,7 @@ impl SourceProvider for YTsaurusSourceProvider {
             let response = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YTsaurus read cancelled"),
-                response = self.client.read_arrow(&table.config.path) => response.map_err(runtime_http_failure)?,
+                response = self.client.read_arrow(&table.config.path) => response.map_err(classify_http_failure)?,
             };
             Ok(Box::new(YTsaurusSource {
                 table,
@@ -237,7 +237,7 @@ struct YTsaurusSource {
 
 impl YTsaurusSource {
     fn queue_validated(&mut self, batch: &RecordBatch) -> anyhow::Result<()> {
-        validate_runtime_schema(batch, &self.table.schema)?;
+        validate_read_schema(batch, &self.table.schema)?;
         let mut offset = 0;
         while offset < batch.num_rows() {
             let len = self.batch_rows.min(batch.num_rows() - offset);
@@ -360,7 +360,7 @@ impl Source for YTsaurusSource {
                 }
                 match self.stream.next().await {
                     Some(Ok(bytes)) => self.decode_bytes(bytes)?,
-                    Some(Err(error)) => return Err(runtime_http_failure(error.into())),
+                    Some(Err(error)) => return Err(classify_http_failure(error.into())),
                     None => {
                         self.decoder.finish()?;
                         self.finished = true;
@@ -378,13 +378,13 @@ impl Source for YTsaurusSource {
     }
 }
 
-pub(super) fn validate_runtime_schema(
+pub(super) fn validate_read_schema(
     batch: &RecordBatch,
     expected: &DatasetSchema,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
         batch.num_columns() == expected.columns.len(),
-        "YTsaurus runtime schema has {} columns, discovery declared {}",
+        "YTsaurus read schema has {} columns, discovery declared {}",
         batch.num_columns(),
         expected.columns.len()
     );
@@ -397,20 +397,20 @@ pub(super) fn validate_runtime_schema(
     {
         anyhow::ensure!(
             field.name() == &column.name,
-            "YTsaurus runtime column {position} is '{}', expected '{}'",
+            "YTsaurus read column {position} is '{}', expected '{}'",
             field.name(),
             column.name
         );
         anyhow::ensure!(
             field.data_type() == &column.data_type,
-            "YTsaurus runtime column '{}' has type {:?}, discovery declared {:?}",
+            "YTsaurus read column '{}' has type {:?}, discovery declared {:?}",
             column.name,
             field.data_type(),
             column.data_type
         );
         anyhow::ensure!(
             field.is_nullable() == column.nullable,
-            "YTsaurus runtime column '{}' has nullable={}, discovery declared nullable={}",
+            "YTsaurus read column '{}' has nullable={}, discovery declared nullable={}",
             column.name,
             field.is_nullable(),
             column.nullable
@@ -432,7 +432,7 @@ pub(super) fn validate_runtime_schema(
     );
     anyhow::ensure!(
         schemas_equal(&actual, expected),
-        "YTsaurus runtime schema drifted"
+        "YTsaurus read schema drifted"
     );
     Ok(())
 }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat};
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
-use super::src_batch::validate_runtime_schema;
+use super::src_batch::validate_read_schema;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
@@ -73,7 +73,7 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
 }
 
 #[test]
-fn unsupported_types_and_invalid_names_fail_before_runtime() {
+fn unsupported_types_and_invalid_names_fail_during_validation() {
     let schema = DatasetSchema::new(vec![SchemaColumn::new(
         "@internal".into(),
         DataType::Decimal128(20, 2),
@@ -83,7 +83,7 @@ fn unsupported_types_and_invalid_names_fail_before_runtime() {
 }
 
 #[test]
-fn source_rejects_runtime_type_or_nullability_drift_instead_of_casting() -> anyhow::Result<()> {
+fn source_rejects_read_type_or_nullability_drift_instead_of_casting() -> anyhow::Result<()> {
     let expected = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
     let wrong_type = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)])),
@@ -94,7 +94,7 @@ fn source_rejects_runtime_type_or_nullability_drift_instead_of_casting() -> anyh
         vec![Arc::new(Int64Array::from(vec![Some(1)])) as ArrayRef],
     )?;
 
-    assert!(validate_runtime_schema(&wrong_type, &expected).is_err());
-    assert!(validate_runtime_schema(&nullable, &expected).is_err());
+    assert!(validate_read_schema(&wrong_type, &expected).is_err());
+    assert!(validate_read_schema(&nullable, &expected).is_err());
     Ok(())
 }

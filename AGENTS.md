@@ -83,6 +83,10 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   transport in the provider root; each mode extends those common pieces with
   its own settings. Do not create empty mode modules before an implementation
   exists.
+- Reserve `runtime` for an actual execution environment or executor (for
+  example, Tokio, Kubernetes, or EC2). Name provider components after their
+  responsibility, such as `reader`, `writer`, `client`, or `actor`; never use a
+  generic `runtime` module for provider logic.
 - `src/providers/clickhouse/` and `src/providers/s3/` own all destination-specific
   validation and runtime behavior.
 - `tests/` contains cross-component integration and end-to-end tests.

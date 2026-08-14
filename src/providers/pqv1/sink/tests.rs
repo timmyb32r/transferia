@@ -1,4 +1,4 @@
-use super::runtime::validate_ack;
+use super::writer::validate_ack;
 
 #[test]
 fn acknowledgements_must_match_the_exact_write_sequence_set() -> anyhow::Result<()> {

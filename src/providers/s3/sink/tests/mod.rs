@@ -1784,14 +1784,12 @@ async fn deterministic_routing_failure_is_non_retryable() {
         .downcast_ref::<crate::pipeline::PipelineFailure>()
         .expect("deterministic S3 routing errors must preserve their restart contract");
     assert!(!failure.is_retryable());
-    assert!(error
-        .to_string()
-        .contains("S3 runtime delivery validation failed"));
+    assert!(error.to_string().contains("S3 delivery validation failed"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
 }
 
 #[tokio::test]
-async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
+async fn dataset_mismatch_is_fatal_before_routing_or_upload() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
@@ -1802,7 +1800,7 @@ async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .expect("runtime contract violations must preserve their fatal disposition");
+        .expect("contract violations must preserve their fatal disposition");
     assert!(!failure.is_retryable());
     assert!(error
         .to_string()
@@ -1811,7 +1809,7 @@ async fn runtime_dataset_mismatch_is_fatal_before_routing_or_upload() {
 }
 
 #[tokio::test]
-async fn runtime_schema_metadata_drift_is_fatal_before_upload() {
+async fn schema_metadata_drift_is_fatal_before_upload() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let (tx, _events, _cancel, task) = spawn(config(""), Arc::clone(&uploader), memory.clone());
@@ -1838,7 +1836,7 @@ async fn runtime_schema_metadata_drift_is_fatal_before_upload() {
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .expect("runtime metadata drift must be fatal");
+        .expect("metadata drift must be fatal");
     assert!(!failure.is_retryable());
     assert!(error
         .to_string()

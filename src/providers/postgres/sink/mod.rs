@@ -1,7 +1,7 @@
 mod config;
 mod copy_binary;
 mod provider;
-mod runtime;
+mod writer;
 
 pub use provider::PostgresSinkProvider;
 

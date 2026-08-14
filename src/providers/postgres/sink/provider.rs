@@ -5,7 +5,7 @@ use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
 use super::config::PostgresSinkConfig;
-use super::runtime::PostgresSink;
+use super::writer::PostgresSink;
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,

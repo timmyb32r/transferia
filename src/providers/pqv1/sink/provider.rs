@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
-use super::runtime::PqV1Sink;
+use super::writer::PqV1Sink;
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,

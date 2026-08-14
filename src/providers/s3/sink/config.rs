@@ -114,7 +114,7 @@ pub struct BufferingConfig {
     /// one epoch. Metadata is measured as its UTF-8 lengths plus a fixed
     /// 128-byte logical overhead per row, independent of Rust's ABI. When
     /// omitted, the limit is derived only from sink configuration, never from
-    /// runtime memory state.
+    /// in-memory delivery state.
     #[serde(default)]
     pub max_epoch_bytes: Option<ByteSize>,
 }

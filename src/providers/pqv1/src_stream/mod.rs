@@ -462,7 +462,7 @@ impl SourceProvider for PqV1SourceProvider {
             );
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
             // Token rotation is intentionally not supported yet. Load lazily
-            // so config validation needs no runtime secret, then share the
+            // so config validation needs no loaded secret, then share the
             // value across all partition starts and retries.
             let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);

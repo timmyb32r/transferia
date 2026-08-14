@@ -557,7 +557,7 @@ async fn permanent_error_is_fatal_and_never_commits() {
 }
 
 #[tokio::test]
-async fn runtime_delivery_mismatch_is_fatal_before_insert() {
+async fn delivery_mismatch_is_fatal_before_insert() {
     let memory = PipelineMemory::new(1_000_000);
     let (transport, state) = FakeTransport::new(false, []);
     let (tx, mut events, _cancellation, task) =
@@ -569,7 +569,7 @@ async fn runtime_delivery_mismatch_is_fatal_before_insert() {
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .expect("runtime discovery mismatch must preserve its fatal contract");
+        .expect("discovery mismatch must preserve its fatal contract");
     assert!(!failure.is_retryable());
     assert!(format!("{error:#}").contains("has no Main dataset named 'unexpected_table'"));
     assert_eq!(state.calls.load(Ordering::Acquire), 0);
@@ -577,7 +577,7 @@ async fn runtime_delivery_mismatch_is_fatal_before_insert() {
 }
 
 #[tokio::test]
-async fn runtime_schema_mismatch_is_fatal_before_insert() {
+async fn schema_mismatch_is_fatal_before_insert() {
     let memory = PipelineMemory::new(1_000_000);
     let (transport, state) = FakeTransport::new(false, []);
     let (tx, mut events, _cancellation, task) =
@@ -598,7 +598,7 @@ async fn runtime_schema_mismatch_is_fatal_before_insert() {
     let error = task.await.unwrap().unwrap_err();
     let failure = error
         .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .expect("runtime schema mismatch must preserve its fatal contract");
+        .expect("schema mismatch must preserve its fatal contract");
     assert!(!failure.is_retryable());
     assert!(format!("{error:#}").contains("column 0"));
     assert_eq!(state.calls.load(Ordering::Acquire), 0);
