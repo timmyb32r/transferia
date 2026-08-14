@@ -242,7 +242,7 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
         let registry = Arc::clone(metrics_registry);
         move |value| {
             Ok(Box::new(
-                transferia::providers::pqv1::provider::PqV1SourceProvider::from_config(
+                transferia::providers::pqv1::src_stream::PqV1SourceProvider::from_config(
                     value,
                     Arc::clone(&registry),
                 )?,

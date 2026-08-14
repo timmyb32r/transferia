@@ -14,7 +14,6 @@ use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::pipeline::PipelineFailure;
-use crate::providers::pqv1::config::PqV1SourceConfig;
 use crate::providers::pqv1::credentials::load_access_token;
 use crate::providers::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;
@@ -23,6 +22,10 @@ use crate::Ydb::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
 const ENDPOINT_REFRESH_BACKOFF: Duration = Duration::from_secs(1);
+
+mod config;
+
+pub use config::PqV1SourceConfig;
 
 #[derive(Clone)]
 struct CachedEndpoints {

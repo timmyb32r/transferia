@@ -1,4 +1,4 @@
 pub mod sink;
-pub mod source;
+pub mod src_batch;
 
-pub use source::S3SourceProvider;
+pub use src_batch::S3SourceProvider;

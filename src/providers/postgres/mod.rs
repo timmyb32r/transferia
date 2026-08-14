@@ -1,6 +1,6 @@
 mod common;
 pub mod sink;
-pub mod source;
+pub mod src_batch;
 
 pub use sink::PostgresSinkProvider;
-pub use source::PostgresSourceProvider;
+pub use src_batch::PostgresSourceProvider;

@@ -78,6 +78,11 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   and commit ordering.
 - `src/providers/pqv1/` owns PQv1 discovery, transport, protocol, decoding, and
   source behavior.
+- Provider source implementations live in mode-specific `src_batch/`,
+  `src_stream/`, or `src_dblog/` modules. Keep provider-wide configuration and
+  transport in the provider root; each mode extends those common pieces with
+  its own settings. Do not create empty mode modules before an implementation
+  exists.
 - `src/providers/clickhouse/` and `src/providers/s3/` own all destination-specific
   validation and runtime behavior.
 - `tests/` contains cross-component integration and end-to-end tests.

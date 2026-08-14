@@ -63,7 +63,7 @@ sink:
 keep_system_columns_in_sink: false
 ",
     )?;
-    let source: crate::providers::pqv1::config::PqV1SourceConfig =
+    let source: crate::providers::pqv1::src_stream::PqV1SourceConfig =
         serde_yaml::from_value(config.source.raw()?.clone())?;
     drop(serde_yaml::from_value::<
         crate::parsers::json_parser::JsonParserConfig,

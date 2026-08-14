@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat};
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
-use super::source::validate_runtime_schema;
+use super::src_batch::validate_runtime_schema;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 #[test]

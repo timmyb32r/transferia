@@ -15,6 +15,14 @@ finite-snapshot `postgres` and static-table `ytsaurus` sources; `clickhouse`,
 `postgres`, `s3`, and `ytsaurus` sinks; and the non-durable `discard` sink used by
 explicit benchmark configurations.
 
+Source implementations are grouped by delivery mode inside each provider:
+`src_batch` contains finite snapshot readers and `src_stream` contains live
+streams. `src_dblog` is reserved for database-log readers and will be added with
+the first implementation. Provider-wide transport, credentials, and shared
+configuration remain at the provider root; mode-specific configuration belongs
+to the corresponding source module. A provider may expose more than one source
+mode without duplicating its common contract.
+
 For the demonstration control plane, run:
 
 ```bash

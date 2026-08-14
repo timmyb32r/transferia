@@ -16,7 +16,7 @@ use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::providers::postgres::common::{
-    postgres_to_arrow, quote_identifier, validate_identifier,
+    connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
 use crate::providers::traits::SourceProvider;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
@@ -189,16 +189,6 @@ impl SourceProvider for PostgresSourceProvider {
     fn parser_plan(&self) -> &ParserPlan {
         &self.parser_plan
     }
-}
-
-pub async fn connect(connection: &str) -> anyhow::Result<tokio_postgres::Client> {
-    let (client, connection) = tokio_postgres::connect(connection, tokio_postgres::NoTls).await?;
-    tokio::spawn(async move {
-        if let Err(error) = connection.await {
-            tracing::error!("PostgreSQL connection failed: {error}");
-        }
-    });
-    Ok(client)
 }
 
 async fn discover_table(

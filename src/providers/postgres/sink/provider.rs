@@ -13,9 +13,8 @@ use crate::delivery::{
 };
 use crate::pipeline::sink::Sink;
 use crate::providers::postgres::common::{
-    arrow_to_postgres, quote_identifier, validate_identifier, MAX_IDENTIFIER_BYTES,
+    arrow_to_postgres, connect, quote_identifier, validate_identifier, MAX_IDENTIFIER_BYTES,
 };
-use crate::providers::postgres::source::connect;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct PostgresSinkProvider {

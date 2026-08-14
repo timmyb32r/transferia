@@ -3,6 +3,16 @@ use tokio_postgres::types::Type;
 
 pub const MAX_IDENTIFIER_BYTES: usize = 63;
 
+pub async fn connect(connection: &str) -> anyhow::Result<tokio_postgres::Client> {
+    let (client, connection) = tokio_postgres::connect(connection, tokio_postgres::NoTls).await?;
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            tracing::error!("PostgreSQL connection failed: {error}");
+        }
+    });
+    Ok(client)
+}
+
 pub fn validate_identifier(kind: &str, value: &str) -> anyhow::Result<()> {
     let mut bytes = value.bytes();
     let valid = bytes

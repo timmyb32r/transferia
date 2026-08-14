@@ -1,7 +1,7 @@
 pub mod sink;
-pub mod source;
+pub mod src_batch;
 
 pub use sink::{
     ClickHouseSink, ClickHouseSinkConfig, ClickHouseSinkProvider, InsertError, InsertTransport,
 };
-pub use source::ClickHouseSourceProvider;
+pub use src_batch::ClickHouseSourceProvider;
