@@ -42,6 +42,7 @@
           <section class="compact-section panel">
             <div class="compact-heading"><h2>Delivery</h2><span>Name shown in this control plane</span></div>
             <div class="compact-fields">
+              <div id="delivery-type-form"></div>
               <div class="field"><div class="field-label"><label for="name">Display name</label><button type="button" class="help" aria-label="Shown in this control plane" data-tooltip="Shown in this control plane">?</button></div><input id="name" autocomplete="off"></div>
             </div>
           </section>
@@ -53,6 +54,7 @@
           </section>
 
           <div class="provider-grid">
+            <div class="compatibility-callout hidden" id="compatibility-error" role="status"></div>
             <section class="provider-panel panel source-accent">
               <div class="provider-heading"><div><span>Source</span><h2 id="source-title">—</h2></div><b>IN</b></div>
               <div class="provider-fields" id="source-form"></div>
@@ -70,15 +72,25 @@
           </section>
         </div>
 
-        <aside class="inspection panel">
-          <div class="inspection-head">
-            <div><p class="eyebrow">Live contract</p><h2>Discovery</h2></div>
-            <span id="provider-route">— → —</span>
-          </div>
-          <div id="error" role="alert"></div>
-          <div id="schema" aria-live="polite">
-            <div class="empty-state"><span>⌁</span><p>Complete the source connection to inspect the discovered dataset contract.</p></div>
-          </div>
+        <aside class="inspection-column">
+          <section class="config-output panel">
+            <div class="inspection-head">
+              <div><p class="eyebrow">Runnable configuration</p><h2>YAML</h2></div>
+              <button class="copy-yaml" id="copy-yaml" disabled>Copy</button>
+            </div>
+            <pre class="yaml-preview"><code id="config-yaml">Preparing configuration…</code></pre>
+          </section>
+
+          <section class="inspection panel">
+            <div class="inspection-head">
+              <div><p class="eyebrow">Live contract</p><h2>Discovery</h2></div>
+              <span id="provider-route">— → —</span>
+            </div>
+            <div id="error" role="alert"></div>
+            <div id="schema" aria-live="polite">
+              <div class="empty-state"><span>⌁</span><p>Complete the source connection to inspect the discovered dataset contract.</p></div>
+            </div>
+          </section>
         </aside>
       </div>
     </section>

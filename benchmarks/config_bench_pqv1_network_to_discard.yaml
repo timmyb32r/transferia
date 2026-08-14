@@ -3,6 +3,7 @@
 # cargo run --release -- --config benchmarks/config_bench_pqv1_network_to_discard.yaml
 
 delivery_id: benchmark-pqv1-network
+delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:

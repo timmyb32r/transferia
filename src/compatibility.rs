@@ -5,6 +5,7 @@
 use arrow::datatypes::DataType;
 use serde::Serialize;
 
+use crate::config::yaml::DeliveryType;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset};
 use crate::types::system_columns::SystemColumnKind;
 
@@ -43,11 +44,61 @@ impl EndpointDescriptor {
             | Self::Discard => None,
         }
     }
+
+    #[must_use]
+    pub const fn supports_delivery_type(&self, delivery_type: DeliveryType) -> bool {
+        match self {
+            Self::PqV1(source)
+            | Self::YdbTopic(source)
+            | Self::Postgres(source)
+            | Self::YTsaurus(source)
+            | Self::ClickHouseSource(source)
+            | Self::S3Source(source) => source.delivery_modes.supports(delivery_type),
+            Self::PostgresSink
+            | Self::YTsaurusSink
+            | Self::PqV1Sink
+            | Self::ClickHouse
+            | Self::S3(_)
+            | Self::Discard => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SourceDescriptor {
     pub behavior: SourceBehavior,
+
+    pub delivery_modes: SourceDeliveryModes,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceDeliveryModes {
+    batch: bool,
+    stream: bool,
+}
+
+impl SourceDeliveryModes {
+    pub const BATCH: Self = Self {
+        batch: true,
+        stream: false,
+    };
+    pub const STREAM: Self = Self {
+        batch: false,
+        stream: true,
+    };
+    pub const BATCH_AND_STREAM: Self = Self {
+        batch: true,
+        stream: true,
+    };
+
+    #[must_use]
+    pub const fn supports(self, delivery_type: DeliveryType) -> bool {
+        match delivery_type {
+            DeliveryType::Batch => self.batch,
+            DeliveryType::Stream => self.stream,
+            DeliveryType::BatchAndStream => self.batch && self.stream,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

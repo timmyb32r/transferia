@@ -19,13 +19,20 @@ fn static_assets_are_embedded() {
     assert!(APP_JS.contains("createDropdown"));
     assert!(APP_JS.contains("label.removeAttribute('for')"));
     assert!(APP_JS.contains("renderColumnMappings"));
-    assert!(APP_JS.contains("'Системные колонки'"));
-    assert!(APP_JS.contains("'Не выбрано'"));
-    assert!(APP_JS.contains("search.placeholder = 'Поиск'"));
+    assert!(APP_JS.contains("renderSystemColumnsEditor"));
+    assert!(APP_JS.contains("'System columns'"));
+    assert!(APP_JS.contains("'Not selected'"));
+    assert!(APP_JS.contains("search.placeholder = 'Search'"));
+    assert!(APP_JS.contains("deliveryCompatibilityIssue"));
+    assert!(APP_JS.contains("/api/config/yaml"));
+    assert!(APP_JS.contains("navigator.clipboard.writeText"));
     assert!(APP_JS.contains("crypto.getRandomValues"));
     assert!(APP_JS.contains("updateSaveState"));
     assert!(!APP_JS.contains("document.createElement('select')"));
-    assert!(APP_JS.contains("Расширенные настройки"));
+    assert!(APP_JS.contains("Advanced settings"));
+    assert!(!APP_JS
+        .chars()
+        .any(|character| ('А'..='я').contains(&character)));
     assert!(STYLE_CSS.contains(".dataset"));
     assert!(STYLE_CSS.contains(".discovery-loading"));
     assert!(STYLE_CSS.contains("top: calc(100% + 4px)"));
@@ -39,8 +46,11 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     let definition = config_form_definition()?;
     let schema = definition.schema.to_string();
     assert!(schema.contains("oneOf"));
-    assert!(schema.contains("PostgreSQL batch"));
-    assert!(schema.contains("PQv1 stream"));
+    assert!(schema.contains("PostgreSQL"));
+    assert!(schema.contains("PQv1"));
+    assert!(!schema.contains("PostgreSQL batch"));
+    assert!(!schema.contains("PQv1 stream"));
+    assert!(schema.contains("delivery_modes"));
     assert!(schema.contains("x-ui"));
     assert!(schema.contains("password"));
     assert!(schema.contains("native port"));
@@ -78,6 +88,15 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     );
     assert_eq!(definition.sink_presets["clickhouse"]["database"], "");
     assert_eq!(definition.sink_presets["clickhouse"]["username"], "");
+    assert_eq!(definition.initial["delivery_type"], Value::Null);
+    assert_eq!(
+        definition.source_presets["pqv1"]["parser"],
+        serde_json::json!({})
+    );
+    assert_eq!(
+        definition.source_presets["ydb_topic"]["parser"],
+        serde_json::json!({})
+    );
     Ok(())
 }
 
@@ -87,8 +106,23 @@ fn structured_form_data_renders_as_runtime_yaml() -> anyhow::Result<()> {
     assert_eq!(definition.initial["source"], serde_json::json!({}));
     assert_eq!(definition.initial["sink"], serde_json::json!({}));
     let mut configured = definition.initial.clone();
+    configured["delivery_type"] = serde_json::json!("stream");
     configured["source"] = serde_json::json!({
         "pqv1": definition.source_presets["pqv1"].clone()
+    });
+    configured["source"]["pqv1"]["parser"] = serde_json::json!({
+        "common": { "table_naming": { "type": "from_config", "name": "events" } },
+        "json_parser": {
+            "columns": [{
+                "jsonpath": "$.id",
+                "column_name": "id",
+                "json_data_type": "integer",
+                "arrow_type": "Int64",
+                "nullable": false
+            }],
+            "conversion_error": "dlq",
+            "unknown_fields": { "action": "fail" }
+        }
     });
     configured["sink"] = serde_json::json!({
         "clickhouse": definition.sink_presets["clickhouse"].clone()
@@ -96,8 +130,21 @@ fn structured_form_data_renders_as_runtime_yaml() -> anyhow::Result<()> {
     let yaml = config_yaml_from_json(&configured)?;
     let config = Config::from_yaml(&yaml)?;
     assert_eq!(config.delivery_id, "demo-delivery");
+    assert_eq!(
+        config.delivery_type,
+        transferia::config::yaml::DeliveryType::Stream
+    );
     assert_eq!(config.source.kind()?, "pqv1");
     assert_eq!(config.sink.kind()?, "clickhouse");
+    Ok(())
+}
+
+#[test]
+fn incomplete_form_still_renders_copyable_yaml() -> anyhow::Result<()> {
+    let definition = config_form_definition()?;
+    let yaml = render_config_yaml(&definition.initial)?;
+    assert!(yaml.contains("delivery_type: null"));
+    assert!(yaml.contains("source: {}"));
     Ok(())
 }
 
@@ -117,7 +164,11 @@ async fn file_state_round_trips_atomically() -> anyhow::Result<()> {
         StoredDelivery {
             id: "one".into(),
             name: "test".into(),
-            config_yaml: valid_config().into(),
+            config_yaml: valid_config().replacen(
+                "delivery_id: server-test\n",
+                "delivery_id: server-test\ndelivery_type: batch\n",
+                1,
+            ),
             status: DeliveryStatus::Created,
             config_path: None,
             log_path: None,

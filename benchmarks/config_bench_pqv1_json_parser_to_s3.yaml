@@ -3,6 +3,7 @@
 # cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_s3.yaml
 
 delivery_id: benchmark-pqv1-s3
+delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:

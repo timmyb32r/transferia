@@ -12,7 +12,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::{ClickHouseSourceConfig, TableConfig};
 use super::reader::ClickHouseSource;
-use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::compatibility::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -107,6 +109,7 @@ impl SourceProvider for ClickHouseSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::ClickHouseSource(SourceDescriptor {
             behavior: SourceBehavior::FiniteSnapshotRows,
+            delivery_modes: SourceDeliveryModes::BATCH,
         })
     }
 

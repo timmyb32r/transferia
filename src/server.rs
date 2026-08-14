@@ -75,6 +75,9 @@ struct CreateRequest {
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
 struct ConfigFormSchema {
+    #[schemars(title = "Delivery type")]
+    delivery_type: transferia::config::yaml::DeliveryType,
+
     source: SourceFormSchema,
 
     sink: SinkFormSchema,
@@ -94,18 +97,18 @@ struct ConfigFormSchema {
 #[serde(rename_all = "lowercase")]
 #[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
 enum SourceFormSchema {
-    #[schemars(title = "PQv1 stream")]
+    #[schemars(title = "PQv1", extend("x-ui" = { "delivery_modes": ["stream"] }))]
     Pqv1(transferia::providers::pqv1::src_stream::PqV1SourceConfig),
     #[serde(rename = "ydb_topic")]
-    #[schemars(title = "YDB Topic stream")]
+    #[schemars(title = "YDB Topic", extend("x-ui" = { "delivery_modes": ["stream"] }))]
     YdbTopic(transferia::providers::ydb_topic::src_stream::YdbTopicSourceConfig),
-    #[schemars(title = "PostgreSQL batch")]
+    #[schemars(title = "PostgreSQL", extend("x-ui" = { "delivery_modes": ["batch"] }))]
     Postgres(transferia::providers::postgres::src_batch::PostgresSourceConfig),
-    #[schemars(title = "ClickHouse batch")]
+    #[schemars(title = "ClickHouse", extend("x-ui" = { "delivery_modes": ["batch"] }))]
     Clickhouse(transferia::providers::clickhouse::src_batch::ClickHouseSourceConfig),
-    #[schemars(title = "S3 batch")]
+    #[schemars(title = "S3", extend("x-ui" = { "delivery_modes": ["batch"] }))]
     S3(transferia::providers::s3::src_batch::S3SourceConfig),
-    #[schemars(title = "YTsaurus batch")]
+    #[schemars(title = "YTsaurus", extend("x-ui" = { "delivery_modes": ["batch"] }))]
     Ytsaurus(transferia::providers::ytsaurus::YTsaurusSourceConfig),
 }
 
@@ -143,6 +146,11 @@ struct ConfigFormDefinition {
     initial: Value,
     source_presets: BTreeMap<&'static str, Value>,
     sink_presets: BTreeMap<&'static str, Value>,
+}
+
+#[derive(Serialize)]
+struct YamlResponse {
+    yaml: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -222,6 +230,12 @@ async fn route_fallible(
         (&Method::GET, "/app.js") => Ok(asset(APP_JS, "text/javascript; charset=utf-8")),
         (&Method::GET, "/style.css") => Ok(asset(STYLE_CSS, "text/css; charset=utf-8")),
         (&Method::GET, "/api/config/schema") => json_response(&config_form_definition()?),
+        (&Method::POST, "/api/config/yaml") => {
+            let body: DiscoveryRequest = read_json(request).await?;
+            json_response(&YamlResponse {
+                yaml: render_config_yaml(&body.config)?,
+            })
+        }
         (&Method::GET, "/api/deliveries") => {
             let stored = state.stored.lock().await;
             json_response(&stored.deliveries.values().collect::<Vec<_>>())
@@ -290,7 +304,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "consumer_name": "transferia-demo",
                 "partition_group_ids": [0],
                 "auth": { "type": "access_token", "token": "demo" },
-                "parser": json_parser_preset(),
+                "parser": {},
                 "network_timeout_ms": 30000,
                 "decompression_concurrency": 4,
                 "benchmark_discard_before_decompression": false
@@ -306,7 +320,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "topology_discovery": "topic_api",
                 "auth": { "type": "token", "token": "demo" },
                 "trusted_plaintext": true,
-                "parser": json_parser_preset(),
+                "parser": {},
                 "partition_ids": [],
                 "network_timeout_ms": 30000,
                 "read_buffer_bytes": 1_048_576
@@ -354,7 +368,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "port": 4566,
                 "allow_http": true,
                 "credentials": { "access_key": "test", "secret_key": "test" },
-                "parser": json_parser_preset(),
+                "parser": {},
                 "timeout_ms": 30000
             }),
         ),
@@ -448,6 +462,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
     let initial = serde_json::json!({
         "delivery_id": "demo-delivery",
         "durable_storage": { "type": "local_file", "path": ".transferia-state" },
+        "delivery_type": null,
         "source": {},
         "sink": {},
         "middlewares": [],
@@ -463,34 +478,14 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
     })
 }
 
-fn json_parser_preset() -> Value {
-    serde_json::json!({
-        "common": {
-            "table_naming": { "type": "from_config", "name": "events" },
-            "system_columns": {}
-        },
-        "json_parser": {
-            "conversion_error": "dlq",
-            "unknown_fields": { "action": "fail" },
-            "chunk_splitter": "one-message-one-row",
-            "primary_key": [],
-            "system_column_names": {},
-            "columns": [{
-                "jsonpath": "$.id",
-                "column_name": "id",
-                "json_data_type": "integer",
-                "arrow_type": "Int64",
-                "nullable": false,
-                "low_cardinality": false
-            }]
-        }
-    })
-}
-
 fn config_yaml_from_json(config: &Value) -> anyhow::Result<String> {
-    let yaml = serde_yaml::to_string(config).context("failed to render configuration as YAML")?;
+    let yaml = render_config_yaml(config)?;
     Config::from_yaml(&yaml)?;
     Ok(yaml)
+}
+
+fn render_config_yaml(config: &Value) -> anyhow::Result<String> {
+    serde_yaml::to_string(config).context("failed to render configuration as YAML")
 }
 
 async fn discover(config_yaml: &str) -> anyhow::Result<DiscoveryResponse> {
@@ -504,6 +499,13 @@ async fn discover(config_yaml: &str) -> anyhow::Result<DiscoveryResponse> {
         Arc::from(registry.build_source(&source_kind, config.source.raw()?.clone())?);
     let sink: Arc<dyn SinkProvider> =
         Arc::from(registry.build_sink(&sink_kind, config.sink.raw()?.clone())?);
+    anyhow::ensure!(
+        source
+            .compatibility()
+            .supports_delivery_type(config.delivery_type),
+        "source '{source_kind}' does not support delivery_type '{}'",
+        config.delivery_type.label()
+    );
     let discovery = source
         .delivery_discovery(
             DeliveryDiscoveryRequest {

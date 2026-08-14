@@ -15,7 +15,9 @@ use tokio_util::sync::CancellationToken;
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{SourceTableConfig, YTsaurusSourceConfig};
 use super::schema::{parse_schema, schemas_equal};
-use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::compatibility::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -107,6 +109,7 @@ impl SourceProvider for YTsaurusSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YTsaurus(SourceDescriptor {
             behavior: SourceBehavior::FiniteSnapshotRows,
+            delivery_modes: SourceDeliveryModes::BATCH,
         })
     }
 

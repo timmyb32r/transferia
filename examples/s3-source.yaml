@@ -1,6 +1,7 @@
 # Finite, immutable S3 JSON snapshot -> ClickHouse.
 # Objects are listed once, sorted by their complete object key, and read exactly once.
 delivery_id: s3-source-demo
+delivery_type: batch
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   s3:

@@ -52,6 +52,7 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
     let source = transferia::compatibility::EndpointDescriptor::PqV1(
         transferia::compatibility::SourceDescriptor {
             behavior: transferia::compatibility::SourceBehavior::BenchmarkDiscard,
+            delivery_modes: transferia::compatibility::SourceDeliveryModes::STREAM,
         },
     );
 
@@ -125,6 +126,7 @@ fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
     let config: Config = serde_yaml::from_str(
         r"
 delivery_id: pqv1-clickhouse-test
+delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/transferia-test-state }
 source:
   pqv1:

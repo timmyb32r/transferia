@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::compatibility::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -389,6 +391,7 @@ impl SourceProvider for PqV1SourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::PqV1(SourceDescriptor {
             behavior: self.behavior,
+            delivery_modes: SourceDeliveryModes::STREAM,
         })
     }
 

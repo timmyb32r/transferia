@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn rejects_multiple_source_providers() -> anyhow::Result<()> {
     let config: Config =
-        serde_yaml::from_str("delivery_id: test\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}, b: {}}\nsink: {clickhouse: {}}\nmiddlewares: []\n")?;
+        serde_yaml::from_str("delivery_id: test\ndelivery_type: batch\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}, b: {}}\nsink: {clickhouse: {}}\nmiddlewares: []\n")?;
     anyhow::ensure!(config.source.kind().is_err());
     Ok(())
 }
@@ -22,7 +22,7 @@ fn durable_identity_and_storage_are_required_and_validated_explicitly() {
     assert!(missing.is_err());
 
     let invalid: Config = serde_yaml::from_str(
-        "delivery_id: 'not/a/path'\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}}\nsink: {b: {}}\n",
+        "delivery_id: 'not/a/path'\ndelivery_type: batch\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}}\nsink: {b: {}}\n",
     )
     .unwrap();
     assert!(invalid.durable_storage.build(&invalid.delivery_id).is_err());
@@ -33,6 +33,7 @@ fn pqv1_to_s3_config_matches_registered_provider_shapes() -> anyhow::Result<()> 
     let config: Config = serde_yaml::from_str(
         r"
 delivery_id: pqv1-s3-test
+delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/state }
 source:
   pqv1:

@@ -9,7 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
 use super::reader::S3Source;
-use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::compatibility::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -71,6 +73,7 @@ impl SourceProvider for S3SourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::S3Source(SourceDescriptor {
             behavior: SourceBehavior::FiniteSnapshotRows,
+            delivery_modes: SourceDeliveryModes::BATCH,
         })
     }
     fn delivery_discovery(

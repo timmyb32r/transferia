@@ -433,6 +433,11 @@ async fn main() -> anyhow::Result<()> {
     let cancellation = CancellationToken::new();
     spawn_shutdown_listener(cancellation.clone())?;
     let source_descriptor = source_provider.compatibility();
+    anyhow::ensure!(
+        source_descriptor.supports_delivery_type(config.delivery_type),
+        "source '{source_kind}' does not support delivery_type '{}'",
+        config.delivery_type.label()
+    );
     let finite_source =
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
     let discovery = source_provider

@@ -27,7 +27,7 @@ pub struct JsonParserConfig {
     pub primary_key: Vec<String>,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub system_column_names: SystemColumnNames,
 }
 

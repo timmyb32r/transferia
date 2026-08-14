@@ -3,12 +3,15 @@ const $ = selector => document.querySelector(selector);
 let definition;
 let formData;
 let timer;
+let yamlTimer;
+let latestYaml = '';
 let discoveryController;
 let discoverySequence = 0;
 let lastDiscoveryValid = false;
 let activeDropdown;
 
 const containers = {
+  deliveryType: $('#delivery-type-form'),
   sourcePicker: $('#source-picker'),
   sinkPicker: $('#sink-picker'),
   source: $('#source-form'),
@@ -42,7 +45,7 @@ function createDropdown(id, value, placeholder, options, onChange) {
   const menu = element('div', 'select-menu');
   const search = document.createElement('input');
   const optionsList = element('div', 'select-options');
-  const empty = element('div', 'select-empty', 'Ничего не найдено');
+  const empty = element('div', 'select-empty', 'No matching options');
   const listboxId = `${id}-options`;
 
   trigger.type = 'button';
@@ -55,8 +58,8 @@ function createDropdown(id, value, placeholder, options, onChange) {
   menu.hidden = true;
   search.type = 'search';
   search.className = 'select-search';
-  search.placeholder = 'Поиск';
-  search.setAttribute('aria-label', 'Поиск вариантов');
+  search.placeholder = 'Search';
+  search.setAttribute('aria-label', 'Search options');
   optionsList.id = listboxId;
   optionsList.setAttribute('role', 'listbox');
   empty.hidden = true;
@@ -166,12 +169,40 @@ document.addEventListener('pointerdown', event => {
 });
 
 function humanize(value) {
+  if (value === 'batch_and_stream') return 'Batch + stream';
   return String(value)
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, character => character.toUpperCase())
     .replace(/Pqv1/gi, 'PQv1')
     .replace(/Ydb/gi, 'YDB')
     .replace(/S3/gi, 'S3');
+}
+
+function sourceBranch(providerKey) {
+  if (!providerKey) return null;
+  const sourceSchema = resolveSchema(resolveSchema(definition.schema).properties.source);
+  return (sourceSchema.oneOf || sourceSchema.anyOf || [])
+    .map(resolveSchema)
+    .find(branch => branchKey(branch) === providerKey) || null;
+}
+
+function deliveryCompatibilityIssue() {
+  const deliveryType = formData?.delivery_type;
+  if (!deliveryType) return 'Choose a delivery type before configuring the route.';
+  const providerKey = Object.keys(formData?.source || {})[0];
+  if (!providerKey) {
+    if (deliveryType === 'batch_and_stream') {
+      return 'No source currently implements both batch and stream delivery. Choose Batch or Stream.';
+    }
+    return null;
+  }
+  const modes = sourceBranch(providerKey)?.['x-ui']?.delivery_modes || [];
+  const compatible = deliveryType === 'batch_and_stream'
+    ? modes.includes('batch') && modes.includes('stream')
+    : modes.includes(deliveryType);
+  if (compatible) return null;
+  const supported = modes.length ? modes.map(humanize).join(' + ') : 'no declared delivery modes';
+  return `${humanize(providerKey)} supports ${supported} delivery, not ${humanize(deliveryType)}. Choose a compatible delivery type or source.`;
 }
 
 function newDeliveryId() {
@@ -359,7 +390,7 @@ function renderUnion(schema, value, path, name, options = {}) {
     const dropdown = createDropdown(
       id,
       selectedIndex >= 0 ? selectedIndex : undefined,
-      'Не выбрано',
+      'Not selected',
       choices.map((choice, index) => ({value: index, label: branchLabel(choice, index)})),
       index => {
         const choice = choices[index];
@@ -389,6 +420,9 @@ function renderUnion(schema, value, path, name, options = {}) {
     } else {
       renderObjectFields(selected, value || {}, path, body, new Set(discriminator ? [discriminator] : []));
     }
+    if (path.at(-1) === 'parser' && value?.common && value?.json_parser) {
+      body.append(renderSystemColumnsEditor(value, path));
+    }
     wrapper.append(body);
   }
   return wrapper;
@@ -410,7 +444,7 @@ function renderObjectFields(schema, value, path, target, excluded = new Set()) {
   }
   for (const [section, fields] of sections) {
     const details = element('details', `advanced-settings ${section}-settings`);
-    const summary = element('summary', '', section === 'system_columns' ? 'Системные колонки' : 'Расширенные настройки');
+    const summary = element('summary', '', section === 'system_columns' ? 'System columns' : 'Advanced settings');
     const body = element('div', 'advanced-settings-body');
     for (const [propertyName, propertySchema] of fields) {
       const propertyPath = [...path, propertyName];
@@ -424,6 +458,52 @@ function renderObjectFields(schema, value, path, target, excluded = new Set()) {
     details.append(summary, body);
     target.append(details);
   }
+}
+
+function renderSystemColumnsEditor(parser, path) {
+  const kinds = [
+    ['topic', 'Topic', '_system_topic'],
+    ['partition', 'Partition', '_system_partition'],
+    ['offset', 'Offset', '_system_offset'],
+    ['message_index', 'Message index', '_system_message_index'],
+    ['write_timestamp_ms', 'Write timestamp', '_system_write_timestamp_ms']
+  ];
+  parser.common.system_columns ||= {};
+  parser.json_parser.system_column_names ||= {};
+  const enabled = parser.common.system_columns;
+  const names = parser.json_parser.system_column_names;
+  const details = element('details', 'advanced-settings system-columns-editor');
+  const summary = element('summary', '', 'System columns');
+  const body = element('div', 'system-columns-body');
+  const header = element('div', 'system-column-row system-column-header');
+  ['', 'Column', 'Output name'].forEach(text => header.append(element('span', '', text)));
+  body.append(header);
+
+  for (const [kind, label, defaultName] of kinds) {
+    const row = element('div', 'system-column-row');
+    const include = document.createElement('input');
+    include.type = 'checkbox';
+    include.checked = Boolean(enabled[kind]);
+    include.setAttribute('aria-label', `Include ${label} system column`);
+    include.onchange = () => {
+      enabled[kind] = include.checked;
+      scheduleDiscovery();
+      renderEditor();
+    };
+    const check = element('label', 'table-check');
+    check.append(include);
+    row.append(check, element('span', 'system-column-name', label));
+    const outputName = compactInput(names[kind] || '', `${label} output name`, next => {
+      if (next) names[kind] = next; else delete names[kind];
+      scheduleDiscovery();
+    });
+    outputName.placeholder = defaultName;
+    outputName.disabled = !include.checked;
+    row.append(outputName);
+    body.append(row);
+  }
+  details.append(summary, body);
+  return details;
 }
 
 function compactInput(value, ariaLabel, onInput) {
@@ -440,7 +520,7 @@ function renderColumnMappings(schema, value, path) {
   const shell = element('section', 'column-editor');
   const heading = element('div', 'column-editor-heading');
   const title = element('div');
-  title.append(element('strong', '', resolved.title || 'Схема данных'));
+  title.append(element('strong', '', resolved.title || 'Data schema'));
   if (resolved.description) {
     const help = element('button', 'help', '?');
     help.type = 'button';
@@ -448,7 +528,7 @@ function renderColumnMappings(schema, value, path) {
     help.setAttribute('aria-label', resolved.description);
     title.append(help);
   }
-  const add = element('button', 'icon-button', '＋ Поле');
+  const add = element('button', 'icon-button', '＋ Field');
   add.type = 'button';
   heading.append(title, add);
   shell.append(heading);
@@ -463,12 +543,12 @@ function renderColumnMappings(schema, value, path) {
   };
 
   if (!items.length) {
-    shell.append(element('div', 'column-editor-empty', 'Добавьте хотя бы одну результирующую колонку'));
+    shell.append(element('div', 'column-editor-empty', 'Add at least one output column'));
     return shell;
   }
 
   const table = element('div', 'column-grid');
-  const headers = ['', 'Имя', 'JSON тип', 'Arrow тип', 'Ключ', 'Обязательно', 'Путь', ''];
+  const headers = ['', 'Name', 'JSON type', 'Arrow type', 'Key', 'Not null', 'Path', ''];
   const header = element('div', 'column-grid-row column-grid-header');
   headers.forEach(text => header.append(element('span', '', text)));
   table.append(header);
@@ -479,7 +559,7 @@ function renderColumnMappings(schema, value, path) {
     const main = element('div', 'column-grid-row');
     main.append(element('span', 'column-number', String(index + 1)));
 
-    main.append(compactInput(item.column_name, `Имя колонки ${index + 1}`, next => {
+    main.append(compactInput(item.column_name, `Column ${index + 1} name`, next => {
       const previous = item.column_name;
       item.column_name = next;
       const keyIndex = primaryKey.indexOf(previous);
@@ -491,7 +571,7 @@ function renderColumnMappings(schema, value, path) {
     const jsonType = createDropdown(
       `field-${itemPath.join('-')}-json-data-type`,
       item.json_data_type,
-      'Не выбрано',
+      'Not selected',
       ['string', 'integer', 'unsigned_integer', 'number', 'boolean'].map(option => ({value: option, label: humanize(option)})),
       next => {
         item.json_data_type = next;
@@ -500,7 +580,7 @@ function renderColumnMappings(schema, value, path) {
       }
     );
     main.append(jsonType);
-    main.append(compactInput(item.arrow_type, `Arrow тип колонки ${index + 1}`, next => {
+    main.append(compactInput(item.arrow_type, `Column ${index + 1} Arrow type`, next => {
       item.arrow_type = next;
       scheduleDiscovery();
     }));
@@ -508,7 +588,7 @@ function renderColumnMappings(schema, value, path) {
     const key = document.createElement('input');
     key.type = 'checkbox';
     key.checked = primaryKey.includes(item.column_name);
-    key.setAttribute('aria-label', `Колонка ${item.column_name || index + 1} входит в первичный ключ`);
+    key.setAttribute('aria-label', `Include column ${item.column_name || index + 1} in the primary key`);
     key.onchange = () => {
       const next = primaryKey.filter(name => name !== item.column_name);
       if (key.checked) next.push(item.column_name);
@@ -521,7 +601,7 @@ function renderColumnMappings(schema, value, path) {
     const required = document.createElement('input');
     required.type = 'checkbox';
     required.checked = !item.nullable;
-    required.setAttribute('aria-label', `Колонка ${item.column_name || index + 1} обязательна`);
+    required.setAttribute('aria-label', `Column ${item.column_name || index + 1} is not null`);
     required.onchange = () => {
       item.nullable = !required.checked;
       scheduleDiscovery();
@@ -530,14 +610,14 @@ function renderColumnMappings(schema, value, path) {
     requiredCell.append(required);
     main.append(requiredCell);
 
-    main.append(compactInput(item.jsonpath, `JSONPath колонки ${index + 1}`, next => {
+    main.append(compactInput(item.jsonpath, `Column ${index + 1} JSONPath`, next => {
       item.jsonpath = next;
       scheduleDiscovery();
     }));
 
     const remove = element('button', 'column-remove', '×');
     remove.type = 'button';
-    remove.title = `Удалить колонку ${item.column_name || index + 1}`;
+    remove.title = `Remove column ${item.column_name || index + 1}`;
     remove.setAttribute('aria-label', remove.title);
     remove.onclick = () => {
       items.splice(index, 1);
@@ -553,7 +633,7 @@ function renderColumnMappings(schema, value, path) {
       .filter(name => itemSchema.properties?.[name]);
     if (advanced.length) {
       const details = element('details', 'column-row-advanced');
-      const summary = element('summary', '', 'Дополнительные настройки колонки');
+      const summary = element('summary', '', 'Column settings');
       const body = element('div', 'column-row-advanced-body');
       for (const name of advanced) {
         body.append(renderNode(itemSchema.properties[name], item[name], [...itemPath, name], name));
@@ -640,7 +720,7 @@ function renderScalar(schema, value, path, name) {
     const dropdown = createDropdown(
       id,
       resolved.enum.includes(value) ? value : undefined,
-      'Не выбрано',
+      'Not selected',
       resolved.enum.map(optionValue => ({value: optionValue, label: humanize(optionValue)})),
       optionValue => {
         updateAndDiscover(path, optionValue);
@@ -697,15 +777,26 @@ function renderEditor() {
   Object.values(containers).forEach(container => container.replaceChildren());
   const root = resolveSchema(definition.schema);
   const properties = root.properties;
+  containers.deliveryType.append(renderNode(properties.delivery_type, formData.delivery_type, ['delivery_type'], 'delivery_type'));
   containers.sourcePicker.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {pickerOnly: true}));
   containers.sinkPicker.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {pickerOnly: true}));
-  containers.source.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {bodyOnly: true}));
-  containers.sink.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {bodyOnly: true}));
+  const compatibilityIssue = deliveryCompatibilityIssue();
+  const callout = $('#compatibility-error');
+  const providerPanels = document.querySelectorAll('.provider-panel');
+  callout.textContent = compatibilityIssue || '';
+  callout.classList.toggle('hidden', !compatibilityIssue);
+  providerPanels.forEach(panel => panel.classList.toggle('hidden', Boolean(compatibilityIssue)));
+  if (!compatibilityIssue) {
+    containers.source.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {bodyOnly: true}));
+    containers.sink.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {bodyOnly: true}));
+  }
   for (const name of ['pipeline_memory_limit_bytes', 'keep_system_columns_in_sink', 'metrics', 'middlewares']) {
     containers.pipeline.append(renderNode(properties[name], formData[name], [name], name));
   }
   const source = Object.keys(formData.source || {})[0] || '—';
   const sink = Object.keys(formData.sink || {})[0] || '—';
+  const parserSelected = Object.keys(formData.source?.[source]?.parser || {}).length > 0;
+  $('.provider-grid').classList.toggle('parser-selected', parserSelected && !compatibilityIssue);
   $('#source-title').textContent = humanize(source);
   $('#sink-title').textContent = humanize(sink);
   $('#provider-route').textContent = `${source} → ${sink}`;
@@ -731,21 +822,48 @@ function setValidation(mode, message) {
 
 function renderDiscoveryLoading() {
   $('#error').textContent = '';
-  $('#schema').innerHTML = '<div class="discovery-loading"><span class="spinner" aria-hidden="true"></span><strong>Проверяем подключение</strong><p>Discovery выполняется в фоне — форму можно продолжать редактировать.</p></div>';
+  $('#schema').innerHTML = '<div class="discovery-loading"><span class="spinner" aria-hidden="true"></span><strong>Checking connection</strong><p>Discovery runs in the background while the form remains editable.</p></div>';
+}
+
+function scheduleYaml() {
+  clearTimeout(yamlTimer);
+  yamlTimer = setTimeout(async () => {
+    try {
+      const result = await api('/api/config/yaml', {
+        method: 'POST',
+        body: JSON.stringify({config: formData})
+      });
+      latestYaml = result.yaml;
+      $('#config-yaml').textContent = latestYaml;
+      $('#copy-yaml').disabled = false;
+    } catch (error) {
+      latestYaml = '';
+      $('#config-yaml').textContent = `Unable to render YAML: ${error.message}`;
+      $('#copy-yaml').disabled = true;
+    }
+  }, 80);
 }
 
 function scheduleDiscovery() {
+  scheduleYaml();
   clearTimeout(timer);
   discoveryController?.abort();
   discoveryController = undefined;
   const sequence = ++discoverySequence;
   lastDiscoveryValid = false;
   $('#save').disabled = true;
+  const compatibilityIssue = deliveryCompatibilityIssue();
+  if (compatibilityIssue) {
+    $('#error').textContent = '';
+    $('#schema').innerHTML = `<div class="empty-state endpoint-empty"><span>!</span><p>${escapeHtml(compatibilityIssue)}</p></div>`;
+    setValidation('invalid', 'Choose a compatible delivery');
+    return;
+  }
   const hasSource = Object.keys(formData?.source || {}).length === 1;
   const hasSink = Object.keys(formData?.sink || {}).length === 1;
   if (!hasSource || !hasSink) {
     $('#error').textContent = '';
-    $('#schema').innerHTML = '<div class="empty-state endpoint-empty"><span>↘</span><p>Выберите источник и приёмник — после этого здесь появится результат discovery.</p></div>';
+    $('#schema').innerHTML = '<div class="empty-state endpoint-empty"><span>↘</span><p>Select a source and destination to run discovery.</p></div>';
     setValidation('idle', 'Select source and destination');
     return;
   }
@@ -812,8 +930,31 @@ $('#create').onclick = () => {
 
 $('#name').oninput = updateSaveState;
 
+$('#copy-yaml').onclick = async () => {
+  if (!latestYaml) return;
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(latestYaml);
+  } else {
+    const textarea = document.createElement('textarea');
+    textarea.value = latestYaml;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.append(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  const button = $('#copy-yaml');
+  button.textContent = 'Copied';
+  setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+};
+
 $('#cancel').onclick = () => {
   clearTimeout(timer);
+  clearTimeout(yamlTimer);
   discoveryController?.abort();
   discoveryController = undefined;
   discoverySequence += 1;

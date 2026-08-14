@@ -87,6 +87,7 @@ committing consumer offsets.
 
 ```yaml
 delivery_id: pqv1-s3-production
+delivery_type: stream
 durable_storage:
   type: local_file
   path: .transferia-state

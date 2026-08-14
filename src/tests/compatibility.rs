@@ -5,7 +5,15 @@ use crate::types::schema::{DatasetSchema, SchemaColumn};
 fn source() -> EndpointDescriptor {
     EndpointDescriptor::PqV1(SourceDescriptor {
         behavior: SourceBehavior::ProducesRows,
+        delivery_modes: SourceDeliveryModes::STREAM,
     })
+}
+
+#[test]
+fn source_delivery_modes_are_explicit() {
+    assert!(source().supports_delivery_type(crate::config::yaml::DeliveryType::Stream));
+    assert!(!source().supports_delivery_type(crate::config::yaml::DeliveryType::Batch));
+    assert!(!source().supports_delivery_type(crate::config::yaml::DeliveryType::BatchAndStream));
 }
 
 fn discovery() -> DeliveryDiscovery {

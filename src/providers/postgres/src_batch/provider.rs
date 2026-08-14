@@ -7,7 +7,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use super::reader::PostgresSource;
-use crate::compatibility::{EndpointDescriptor, SourceBehavior, SourceDescriptor};
+use crate::compatibility::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -80,6 +82,7 @@ impl SourceProvider for PostgresSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Postgres(SourceDescriptor {
             behavior: SourceBehavior::FiniteSnapshotRows,
+            delivery_modes: SourceDeliveryModes::BATCH,
         })
     }
 

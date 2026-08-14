@@ -1,4 +1,5 @@
 delivery_id: postgres-clickhouse-demo
+delivery_type: batch
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   postgres:

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
 use crate::durable::DurableStorageConfig;
@@ -13,6 +14,8 @@ pub struct Config {
     pub delivery_id: String,
 
     pub durable_storage: DurableStorageConfig,
+
+    pub delivery_type: DeliveryType,
 
     pub source: SourceEntry,
 
@@ -29,6 +32,25 @@ pub struct Config {
 
     #[serde(default)]
     pub metrics: Option<MetricsConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryType {
+    Batch,
+    Stream,
+    BatchAndStream,
+}
+
+impl DeliveryType {
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Batch => "batch",
+            Self::Stream => "stream",
+            Self::BatchAndStream => "batch + stream",
+        }
+    }
 }
 
 impl Config {
