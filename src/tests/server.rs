@@ -49,6 +49,8 @@ fn static_assets_are_embedded() {
     assert!(STYLE_CSS.contains(".select-chevron"));
     assert!(STYLE_CSS.contains(".select-search"));
     assert!(STYLE_CSS.contains(".column-grid-row"));
+    assert!(STYLE_CSS
+        .contains(".provider-grid.parser-selected { grid-template-columns: minmax(0, 1fr); }"));
     assert!(STYLE_CSS.contains("white-space: pre-wrap"));
 }
 
