@@ -1,6 +1,7 @@
+use schemars::JsonSchema;
 use serde::Deserialize;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PostgresSinkConfig {
     pub connection: String,

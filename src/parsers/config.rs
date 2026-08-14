@@ -1,16 +1,46 @@
+use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::ParserEntry;
 use crate::types::system_columns::SystemColumnKind;
 
-#[derive(Debug, Clone, Deserialize)]
+/// Complete parser schema used by the control plane. Runtime dispatch remains
+/// registry-based, while this tagged union gives JSON Schema an explicit set
+/// of currently supported forms.
+#[derive(JsonSchema)]
+#[serde(untagged)]
+pub enum ParserSchema {
+    #[schemars(title = "JSON parser")]
+    Json(JsonParserSchema),
+    #[schemars(title = "Discard messages (benchmark)")]
+    BenchmarkDiscard(BenchmarkDiscardParserSchema),
+}
+
+#[derive(JsonSchema)]
+pub struct JsonParserSchema {
+    pub common: CommonParserConfig,
+    pub json_parser: JsonParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct BenchmarkDiscardParserSchema {
+    pub common: CommonParserConfig,
+    pub benchmark_discard: EmptyParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct EmptyParserConfig {}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ParserConfig {
     pub common: CommonParserConfig,
     #[serde(flatten)]
+    #[schemars(skip)]
     pub parser: ParserEntry,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
     pub table_naming: TableNaming,
@@ -18,7 +48,7 @@ pub struct CommonParserConfig {
     pub system_columns: SystemColumnsConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -51,7 +81,7 @@ impl SystemColumnsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TableNaming {
     FromConfig { name: String },

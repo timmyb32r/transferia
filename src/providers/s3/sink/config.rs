@@ -4,15 +4,17 @@ use std::time::Duration;
 use chrono::format::StrftimeItems;
 use chrono::TimeZone as _;
 use object_store::ObjectStore;
+use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
 const MIB: usize = 1024 * 1024;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct S3CredentialsConfig {
     pub access_key: String,
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub secret_key: String,
 }
 
@@ -26,7 +28,7 @@ impl fmt::Debug for S3CredentialsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct S3SinkConfig {
     pub bucket: String,
@@ -56,7 +58,7 @@ pub struct S3SinkConfig {
     pub retry: RetryConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PartitioningConfig {
     #[default]
@@ -65,6 +67,7 @@ pub enum PartitioningConfig {
         columns: Vec<String>,
     },
     RecordTime {
+        #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
         window: DurationValue,
         #[serde(default = "default_time_path")]
         path: String,
@@ -73,22 +76,25 @@ pub enum PartitioningConfig {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RotationConfig {
     #[serde(default = "default_max_rows")]
     pub max_rows: usize,
     #[serde(default = "default_max_object_bytes")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub max_bytes: ByteSize,
     #[serde(default)]
+    #[schemars(with = "Option<String>", extend("x-ui" = { "widget": "duration" }))]
     pub record_time_interval: Option<DurationValue>,
     #[serde(default)]
+    #[schemars(with = "Option<String>", extend("x-ui" = { "widget": "duration" }))]
     pub wall_clock_interval: Option<DurationValue>,
     #[serde(default)]
     pub on_partition_path_change: PartitionPathChange,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PartitionPathChange {
     Rotate,
@@ -96,7 +102,7 @@ pub enum PartitionPathChange {
     KeepEpoch,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BufferingConfig {
     /// Soft deterministic limit for open objects in one partition actor.
@@ -109,6 +115,7 @@ pub struct BufferingConfig {
     pub max_pending_upload_objects: usize,
     /// Soft admission limit for serialized bytes in one partition actor.
     #[serde(default = "default_max_buffered_bytes")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub max_buffered_bytes: ByteSize,
     /// Stable limit for serialized payload plus retained routing metadata in
     /// one epoch. Metadata is measured as its UTF-8 lengths plus a fixed
@@ -116,15 +123,18 @@ pub struct BufferingConfig {
     /// omitted, the limit is derived only from sink configuration, never from
     /// in-memory delivery state.
     #[serde(default)]
+    #[schemars(with = "Option<String>", extend("x-ui" = { "widget": "byte_size" }))]
     pub max_epoch_bytes: Option<ByteSize>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UploadConfig {
     #[serde(default = "default_multipart_threshold")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub multipart_threshold: ByteSize,
     #[serde(default = "default_part_size")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub part_size: ByteSize,
     #[serde(default = "default_parallel_parts")]
     pub parallel_parts: usize,
@@ -133,15 +143,18 @@ pub struct UploadConfig {
     pub max_in_flight_objects: usize,
     /// Deadline applied independently to each object-store request.
     #[serde(default = "default_operation_timeout")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
     pub operation_timeout: DurationValue,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RetryConfig {
     #[serde(default = "default_initial_backoff")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
     pub initial_backoff: DurationValue,
     #[serde(default = "default_max_backoff")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
     pub max_backoff: DurationValue,
     #[serde(default = "default_max_attempts")]
     pub max_attempts: usize,

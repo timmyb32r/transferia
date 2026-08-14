@@ -1,11 +1,12 @@
 use core::fmt;
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_yaml::Value;
 
 use super::identifier::validate_identifier;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSinkConfig {
     pub endpoint: String,
@@ -17,6 +18,7 @@ pub struct ClickHouseSinkConfig {
     #[serde(default = "default_username")]
     pub username: String,
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
     #[serde(default = "default_insert_rows")]
     pub insert_target_rows: usize,

@@ -1,15 +1,17 @@
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::parsers::ParserConfig;
 use crate::providers::pqv1::config::{default_network_timeout_ms, PqV1AuthConfig};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SourceConfig {
     pub discovery_endpoint: String,
     pub topic_path: String,
     pub consumer_name: String,
     pub auth: PqV1AuthConfig,
+    #[schemars(with = "crate::parsers::config::ParserSchema")]
     pub parser: ParserConfig,
     pub partition_group_ids: Vec<i64>,
     /// Bounds discovery/connect/open stages and the HTTP/2 keepalive interval/ACK wait for a

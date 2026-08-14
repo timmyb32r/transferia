@@ -14,7 +14,9 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -61,13 +63,84 @@ struct ServerState {
 
 #[derive(Deserialize)]
 struct DiscoveryRequest {
-    config_yaml: String,
+    config: Value,
 }
 
 #[derive(Deserialize)]
 struct CreateRequest {
     name: String,
-    config_yaml: String,
+    config: Value,
+}
+
+#[derive(JsonSchema)]
+#[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
+struct ConfigFormSchema {
+    #[schemars(
+        title = "Delivery ID",
+        description = "Stable identifier used for durable progress"
+    )]
+    delivery_id: String,
+    durable_storage: transferia::durable::DurableStorageConfig,
+    source: SourceFormSchema,
+    sink: SinkFormSchema,
+    middlewares: Vec<MiddlewareFormSchema>,
+    #[schemars(title = "Pipeline memory limit", extend("x-ui" = { "widget": "byte_size" }))]
+    pipeline_memory_limit_bytes: usize,
+    #[schemars(title = "Keep system columns in sink")]
+    keep_system_columns_in_sink: bool,
+    metrics: Option<transferia::metrics::MetricsConfig>,
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
+enum SourceFormSchema {
+    #[schemars(title = "PQv1 stream")]
+    Pqv1(transferia::providers::pqv1::src_stream::PqV1SourceConfig),
+    #[schemars(title = "PostgreSQL batch")]
+    Postgres(transferia::providers::postgres::src_batch::PostgresSourceConfig),
+    #[schemars(title = "ClickHouse batch")]
+    Clickhouse(transferia::providers::clickhouse::src_batch::ClickHouseSourceConfig),
+    #[schemars(title = "S3 batch")]
+    S3(transferia::providers::s3::src_batch::S3SourceConfig),
+    #[schemars(title = "YTsaurus batch")]
+    Ytsaurus(transferia::providers::ytsaurus::YTsaurusSourceConfig),
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
+enum SinkFormSchema {
+    #[schemars(title = "ClickHouse")]
+    Clickhouse(transferia::providers::clickhouse::ClickHouseSinkConfig),
+    #[schemars(title = "PostgreSQL")]
+    Postgres(transferia::providers::postgres::sink::PostgresSinkConfig),
+    #[schemars(title = "PQv1")]
+    Pqv1(transferia::providers::pqv1::config::PqV1SinkConfig),
+    #[schemars(title = "S3")]
+    S3(Box<transferia::providers::s3::sink::S3SinkConfig>),
+    #[schemars(title = "YTsaurus")]
+    Ytsaurus(transferia::providers::ytsaurus::YTsaurusSinkConfig),
+    #[schemars(title = "Discard (benchmark)")]
+    Discard(EmptyFormSchema),
+}
+
+#[derive(JsonSchema)]
+#[serde(rename_all = "lowercase")]
+#[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
+enum MiddlewareFormSchema {
+    Filter(transferia::middleware::filter::FilterConfig),
+}
+
+#[derive(JsonSchema)]
+struct EmptyFormSchema {}
+
+#[derive(Serialize)]
+struct ConfigFormDefinition {
+    schema: Value,
+    initial: Value,
+    source_presets: BTreeMap<&'static str, Value>,
+    sink_presets: BTreeMap<&'static str, Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,17 +219,15 @@ async fn route_fallible(
         (&Method::GET, "/") => Ok(asset(INDEX_HTML, "text/html; charset=utf-8")),
         (&Method::GET, "/app.js") => Ok(asset(APP_JS, "text/javascript; charset=utf-8")),
         (&Method::GET, "/style.css") => Ok(asset(STYLE_CSS, "text/css; charset=utf-8")),
-        (&Method::GET, "/api/providers") => json_response(&serde_json::json!({
-            "sources": ["pqv1", "postgres", "clickhouse", "s3", "ytsaurus"],
-            "sinks": ["clickhouse", "postgres", "pqv1", "s3", "ytsaurus", "discard"]
-        })),
+        (&Method::GET, "/api/config/schema") => json_response(&config_form_definition()?),
         (&Method::GET, "/api/deliveries") => {
             let stored = state.stored.lock().await;
             json_response(&stored.deliveries.values().collect::<Vec<_>>())
         }
         (&Method::POST, "/api/discover") => {
             let body: DiscoveryRequest = read_json(request).await?;
-            json_response(&discover(&body.config_yaml).await?)
+            let config_yaml = config_yaml_from_json(&body.config)?;
+            json_response(&discover(&config_yaml).await?)
         }
         (&Method::POST, "/api/deliveries") => {
             let body: CreateRequest = read_json(request).await?;
@@ -164,13 +235,14 @@ async fn route_fallible(
                 !body.name.trim().is_empty(),
                 "delivery name must not be empty"
             );
-            let configured_delivery_id = Config::from_yaml(&body.config_yaml)?.delivery_id;
-            discover(&body.config_yaml).await?;
+            let config_yaml = config_yaml_from_json(&body.config)?;
+            let configured_delivery_id = Config::from_yaml(&config_yaml)?.delivery_id;
+            discover(&config_yaml).await?;
             let id = new_id(&state);
             let delivery = StoredDelivery {
                 id: id.clone(),
                 name: body.name,
-                config_yaml: body.config_yaml,
+                config_yaml,
                 status: DeliveryStatus::Created,
                 config_path: None,
                 log_path: None,
@@ -203,6 +275,189 @@ async fn route_fallible(
         }
         _ => Ok(text_response(StatusCode::NOT_FOUND, "not found")),
     }
+}
+
+fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
+    let source_presets = BTreeMap::from([
+        (
+            "pqv1",
+            serde_json::json!({
+                "discovery_endpoint": "grpc://localhost:2135",
+                "topic_path": "/demo/events",
+                "consumer_name": "transferia-demo",
+                "partition_group_ids": [0],
+                "auth": { "type": "access_token", "token": "demo" },
+                "parser": json_parser_preset(),
+                "network_timeout_ms": 30000,
+                "decompression_concurrency": 4,
+                "benchmark_discard_before_decompression": false
+            }),
+        ),
+        (
+            "postgres",
+            serde_json::json!({
+                "connection": "host=localhost port=5432 user=postgres password=postgres dbname=postgres",
+                "trusted_plaintext": true,
+                "tables": [{ "schema": "public", "name": "events" }],
+                "batch_rows": 65536
+            }),
+        ),
+        (
+            "clickhouse",
+            serde_json::json!({
+                "endpoint": "localhost:9000",
+                "trusted_plaintext": true,
+                "username": "default",
+                "password": "",
+                "tables": [{
+                    "database": "default",
+                    "name": "events",
+                    "output_name": "events",
+                    "order_by": ["id"]
+                }],
+                "batch_rows": 65536,
+                "connect_timeout_ms": 30000,
+                "request_timeout_ms": 30000
+            }),
+        ),
+        (
+            "s3",
+            serde_json::json!({
+                "bucket": "demo",
+                "prefix": "input",
+                "region": "us-east-1",
+                "endpoint": "http://localhost:4566",
+                "allow_http": true,
+                "credentials": { "access_key": "test", "secret_key": "test" },
+                "parser": json_parser_preset(),
+                "timeout_ms": 30000
+            }),
+        ),
+        (
+            "ytsaurus",
+            serde_json::json!({
+                "endpoint": "http://localhost:8000",
+                "trusted_plaintext": true,
+                "timeout_ms": 30000,
+                "tables": [{ "path": "//home/demo/events", "output_name": "events" }],
+                "batch_rows": 65536
+            }),
+        ),
+    ]);
+    let sink_presets = BTreeMap::from([
+        (
+            "clickhouse",
+            serde_json::json!({
+                "endpoint": "localhost:9000",
+                "trusted_plaintext": true,
+                "database": "default",
+                "username": "default",
+                "password": "",
+                "insert_target_rows": 100_000,
+                "insert_target_bytes": 67_108_864,
+                "flush_interval_ms": 100,
+                "retry_initial_ms": 50,
+                "retry_max_ms": 30000,
+                "connect_timeout_ms": 30000,
+                "request_timeout_ms": 30000,
+                "sorting_key": []
+            }),
+        ),
+        (
+            "postgres",
+            serde_json::json!({
+                "connection": "host=localhost port=5432 user=postgres password=postgres dbname=postgres",
+                "trusted_plaintext": true,
+                "create_tables": true
+            }),
+        ),
+        (
+            "pqv1",
+            serde_json::json!({
+                "endpoint": "grpc://localhost:2135",
+                "topic_path": "/demo/output",
+                "message_group_id": "transferia-demo",
+                "partition_group_id": 0,
+                "auth": { "type": "access_token", "token": "demo" },
+                "trusted_plaintext": true,
+                "network_timeout_ms": 30000
+            }),
+        ),
+        (
+            "s3",
+            serde_json::json!({
+                "bucket": "demo",
+                "object_layout_version": 5,
+                "region": "us-east-1",
+                "endpoint": "http://localhost:4566",
+                "allow_http": true,
+                "credentials": { "access_key": "test", "secret_key": "test" },
+                "partitioning": { "type": "source" },
+                "rotation": { "max_rows": 10000, "max_bytes": "32MiB", "on_partition_path_change": "keep_epoch" },
+                "buffering": { "max_epoch_buffers": 32, "max_pending_upload_objects": 64, "max_buffered_bytes": "128MiB", "max_epoch_bytes": "64MiB" },
+                "upload": { "multipart_threshold": "25MiB", "part_size": "5MiB", "parallel_parts": 2, "max_in_flight_objects": 2, "operation_timeout": "30s" },
+                "retry": { "initial_backoff": "100ms", "max_backoff": "5s", "max_attempts": 10 }
+            }),
+        ),
+        (
+            "ytsaurus",
+            serde_json::json!({
+                "endpoint": "http://localhost:8000",
+                "trusted_plaintext": true,
+                "timeout_ms": 30000,
+                "tables": [{ "dataset": "events", "path": "//home/demo/events_out" }],
+                "replace_tables": true,
+                "format": "arrow"
+            }),
+        ),
+        ("discard", serde_json::json!({})),
+    ]);
+    let initial = serde_json::json!({
+        "delivery_id": "demo-delivery",
+        "durable_storage": { "type": "local_file", "path": ".transferia-state" },
+        "source": { "pqv1": source_presets["pqv1"].clone() },
+        "sink": { "clickhouse": sink_presets["clickhouse"].clone() },
+        "middlewares": [],
+        "pipeline_memory_limit_bytes": 268_435_456,
+        "keep_system_columns_in_sink": false,
+        "metrics": null
+    });
+    Ok(ConfigFormDefinition {
+        schema: serde_json::to_value(schema_for!(ConfigFormSchema))?,
+        initial,
+        source_presets,
+        sink_presets,
+    })
+}
+
+fn json_parser_preset() -> Value {
+    serde_json::json!({
+        "common": {
+            "table_naming": { "type": "from_config", "name": "events" },
+            "system_columns": {}
+        },
+        "json_parser": {
+            "conversion_error": "dlq",
+            "unknown_fields": { "action": "fail" },
+            "chunk_splitter": "one-message-one-row",
+            "primary_key": [],
+            "system_column_names": {},
+            "columns": [{
+                "jsonpath": "$.id",
+                "column_name": "id",
+                "json_data_type": "integer",
+                "arrow_type": "Int64",
+                "nullable": false,
+                "low_cardinality": false
+            }]
+        }
+    })
+}
+
+fn config_yaml_from_json(config: &Value) -> anyhow::Result<String> {
+    let yaml = serde_yaml::to_string(config).context("failed to render configuration as YAML")?;
+    Config::from_yaml(&yaml)?;
+    Ok(yaml)
 }
 
 async fn discover(config_yaml: &str) -> anyhow::Result<DiscoveryResponse> {

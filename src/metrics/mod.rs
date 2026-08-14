@@ -20,6 +20,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use alloc::sync::Arc;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::task::JoinHandle;
 
@@ -30,7 +31,7 @@ const RELAXED: Ordering = Ordering::Relaxed;
 /// contradiction (`separated` vs `unseparated` are both enabled here).
 const NANOS_PER_SEC_F: f64 = 1_000_000_000.0;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
     #[serde(default)]

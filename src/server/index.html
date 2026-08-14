@@ -3,28 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Transferia deliveries</title>
+  <meta name="color-scheme" content="dark">
+  <title>Transferia Control Plane</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><h1>Transferia</h1><p>One delivery, from source to destination.</p></header>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Transferia home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><strong>TRANSFERIA</strong><small>CONTROL PLANE</small></span>
+    </a>
+    <div class="system-state"><span class="pulse"></span> schema-driven configuration</div>
+  </header>
+
   <main>
-    <section class="panel">
-      <div class="title"><h2>Deliveries</h2><button id="create">Create delivery</button></div>
-      <div id="deliveries"></div>
-    </section>
-    <section class="panel hidden" id="editor">
-      <div class="title"><h2>New delivery</h2><button class="secondary" id="cancel">Close</button></div>
-      <div class="grid">
-        <label>Name<input id="name" value="demo-delivery"></label>
-        <label>Source<select id="source"></select></label>
-        <label>Destination<select id="sink"></select></label>
+    <section class="deliveries-view" id="deliveries-view">
+      <div class="view-heading">
+        <div><p class="eyebrow">Delivery registry</p><h1>Data routes</h1></div>
+        <button id="create"><span>＋</span> New delivery</button>
       </div>
-      <p class="hint">Edit the source and destination contract as one YAML document. Discovery reruns after each change and shows the exact destination schema before anything is created.</p>
-      <textarea id="config" spellcheck="false"></textarea>
-      <div id="error"></div>
-      <div id="schema"></div>
-      <button id="save">Save as created</button>
+      <div class="delivery-list panel" id="deliveries" aria-live="polite"></div>
+    </section>
+
+    <section class="editor hidden" id="editor">
+      <div class="editor-heading">
+        <div>
+          <button class="back" id="cancel" aria-label="Close editor">←</button>
+          <div><p class="eyebrow">New route</p><h1>Configure delivery</h1></div>
+        </div>
+        <div class="editor-actions">
+          <span class="validation-state checking" id="validation-state"><i></i> Waiting for discovery</span>
+          <button id="save">Save delivery</button>
+        </div>
+      </div>
+
+      <div class="workspace">
+        <div class="form-column">
+          <section class="config-section panel" data-section="identity">
+            <div class="section-index">01</div>
+            <div class="section-copy"><p class="eyebrow">Identity</p><h2>Delivery</h2><p>Name the route and choose where durable progress is stored.</p></div>
+            <div class="section-fields">
+              <div class="field"><label for="name">Display name</label><input id="name" value="demo-delivery" autocomplete="off"><p class="field-help">Shown in this control plane.</p></div>
+              <div id="identity-form"></div>
+            </div>
+          </section>
+
+          <section class="config-section panel provider-section source-accent">
+            <div class="section-index">02</div>
+            <div class="section-copy"><p class="eyebrow">Input contract</p><h2>Source</h2><p>Select a capability. Its Rust config type defines the controls below.</p></div>
+            <div class="section-fields" id="source-form"></div>
+          </section>
+
+          <section class="route-link" aria-hidden="true"><span></span><b>discovery</b><span></span></section>
+
+          <section class="config-section panel provider-section sink-accent">
+            <div class="section-index">03</div>
+            <div class="section-copy"><p class="eyebrow">Output contract</p><h2>Destination</h2><p>Only destination-specific controls are shown for the selected sink.</p></div>
+            <div class="section-fields" id="sink-form"></div>
+          </section>
+
+          <section class="config-section panel">
+            <div class="section-index">04</div>
+            <div class="section-copy"><p class="eyebrow">Runtime policy</p><h2>Pipeline</h2><p>Memory, metrics and optional transformations.</p></div>
+            <div class="section-fields" id="pipeline-form"></div>
+          </section>
+        </div>
+
+        <aside class="inspection panel">
+          <div class="inspection-head">
+            <div><p class="eyebrow">Live contract</p><h2>Discovery</h2></div>
+            <span id="provider-route">— → —</span>
+          </div>
+          <div id="error" role="alert"></div>
+          <div id="schema" aria-live="polite">
+            <div class="empty-state"><span>⌁</span><p>Complete the source connection to inspect the discovered dataset contract.</p></div>
+          </div>
+        </aside>
+      </div>
     </section>
   </main>
   <script src="/app.js"></script>

@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use tokio::sync::Mutex;
@@ -41,7 +42,7 @@ pub struct DurableContext {
     pub storage: Arc<dyn DurableStorage>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DurableStorageConfig {
     LocalFile { path: PathBuf },

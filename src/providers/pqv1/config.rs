@@ -1,12 +1,14 @@
 use core::fmt;
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1AuthConfig {
     #[serde(rename = "type")]
     pub auth_type: String,
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub token: Option<String>,
     pub token_file: Option<String>,
 }
@@ -47,7 +49,7 @@ impl fmt::Debug for PqV1AuthConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SinkConfig {
     pub endpoint: String,

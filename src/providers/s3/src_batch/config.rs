@@ -1,14 +1,15 @@
 use std::time::Duration;
 
 use object_store::ObjectStore;
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::parsers::ParserConfig;
 use crate::providers::s3::sink::S3CredentialsConfig;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(super) struct S3SourceConfig {
+pub struct S3SourceConfig {
     pub bucket: String,
     #[serde(default)]
     pub prefix: String,
@@ -20,6 +21,7 @@ pub(super) struct S3SourceConfig {
     pub allow_http: bool,
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
+    #[schemars(with = "crate::parsers::config::JsonParserSchema")]
     pub parser: ParserConfig,
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,

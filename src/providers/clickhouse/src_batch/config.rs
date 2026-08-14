@@ -1,18 +1,20 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::providers::clickhouse::sink::identifier::validate_identifier;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ClickHouseSourceConfig {
+pub struct ClickHouseSourceConfig {
     pub endpoint: String,
     pub trusted_plaintext: bool,
     #[serde(default = "default_username")]
     pub username: String,
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
     pub tables: Vec<TableConfig>,
     #[serde(default = "default_batch_rows")]
@@ -23,9 +25,9 @@ pub(super) struct ClickHouseSourceConfig {
     pub request_timeout_ms: u64,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TableConfig {
+pub struct TableConfig {
     #[serde(default = "default_database")]
     pub database: String,
     pub name: String,

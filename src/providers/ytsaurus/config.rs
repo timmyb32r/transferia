@@ -1,16 +1,18 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_BATCH_ROWS: usize = 65_536;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
     pub endpoint: String,
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub token: Option<String>,
     pub trusted_plaintext: bool,
     #[serde(default = "default_timeout_ms")]
@@ -45,7 +47,7 @@ impl YTsaurusConnectionConfig {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusSourceConfig {
     #[serde(flatten)]
@@ -55,7 +57,7 @@ pub struct YTsaurusSourceConfig {
     pub batch_rows: usize,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTableConfig {
     pub path: String,
@@ -90,7 +92,7 @@ impl YTsaurusSourceConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum YTsaurusWriteFormat {
     #[default]
@@ -98,7 +100,7 @@ pub enum YTsaurusWriteFormat {
     Yson,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusSinkConfig {
     #[serde(flatten)]
@@ -109,7 +111,7 @@ pub struct YTsaurusSinkConfig {
     pub format: YTsaurusWriteFormat,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SinkTableConfig {
     pub dataset: String,

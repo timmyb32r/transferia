@@ -4,13 +4,14 @@ use arrow::array::Scalar;
 use arrow::compute;
 use arrow::compute::kernels::cmp::eq;
 use arrow::datatypes::DataType;
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::pipeline::middleware::Middleware;
 use crate::types::schema::DatasetSchema;
 use crate::types::table_data::TableData;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FilterConfig {
     pub field: String,

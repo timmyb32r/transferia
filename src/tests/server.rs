@@ -6,9 +6,37 @@ fn valid_config() -> &'static str {
 
 #[test]
 fn static_assets_are_embedded() {
-    assert!(INDEX_HTML.contains("Create delivery"));
+    assert!(INDEX_HTML.contains("New delivery"));
+    assert!(!INDEX_HTML.contains("<textarea"));
+    assert!(INDEX_HTML.contains("source-form"));
     assert!(APP_JS.contains("/api/discover"));
+    assert!(APP_JS.contains("renderUnion"));
     assert!(STYLE_CSS.contains(".dataset"));
+}
+
+#[test]
+fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
+    let definition = config_form_definition()?;
+    let schema = definition.schema.to_string();
+    assert!(schema.contains("oneOf"));
+    assert!(schema.contains("PostgreSQL batch"));
+    assert!(schema.contains("PQv1 stream"));
+    assert!(schema.contains("x-ui"));
+    assert!(schema.contains("password"));
+    assert!(definition.source_presets.contains_key("s3"));
+    assert!(definition.sink_presets.contains_key("discard"));
+    Ok(())
+}
+
+#[test]
+fn structured_form_data_renders_as_runtime_yaml() -> anyhow::Result<()> {
+    let definition = config_form_definition()?;
+    let yaml = config_yaml_from_json(&definition.initial)?;
+    let config = Config::from_yaml(&yaml)?;
+    assert_eq!(config.delivery_id, "demo-delivery");
+    assert_eq!(config.source.kind()?, "pqv1");
+    assert_eq!(config.sink.kind()?, "clickhouse");
+    Ok(())
 }
 
 #[tokio::test]

@@ -1,13 +1,14 @@
 use std::collections::HashSet;
 
 use arrow::datatypes::{DataType, TimeUnit};
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::SystemColumnKind;
 
 /// JSON parser configuration deserialized from the `json_parser:` block.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
     pub columns: Vec<ColumnMapping>,
@@ -63,7 +64,7 @@ impl JsonParserConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SystemColumnNames {
     pub topic: Option<String>,
@@ -109,7 +110,7 @@ impl SystemColumnNames {
 }
 
 /// Record framing policy owned by the JSON parser.
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum ChunkSplitter {
     #[default]
@@ -133,21 +134,21 @@ impl ChunkSplitter {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversionErrorPolicy {
     Dlq,
     Fail,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UnknownFieldPolicy {
     Fail,
     Rest { column_name: String },
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JsonDataType {
     String,
@@ -157,7 +158,7 @@ pub enum JsonDataType {
     Boolean,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EpochUnit {
     Seconds,
@@ -166,7 +167,7 @@ pub enum EpochUnit {
     Nanoseconds,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TimeConversion {
     String { format: String },
@@ -174,7 +175,7 @@ pub enum TimeConversion {
 }
 
 /// Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ColumnMapping {
     pub jsonpath: String,

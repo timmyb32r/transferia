@@ -1,8 +1,9 @@
+use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::providers::postgres::common::validate_identifier;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PostgresSourceConfig {
     pub connection: String,
@@ -12,7 +13,7 @@ pub struct PostgresSourceConfig {
     pub batch_rows: usize,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
     #[serde(default = "default_schema")]
