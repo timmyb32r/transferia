@@ -57,4 +57,5 @@ pub(super) fn validate_path_component(label: &str, value: &str) -> anyhow::Resul
 }
 
 #[cfg(test)]
+#[path = "tests/object_key.rs"]
 mod tests;

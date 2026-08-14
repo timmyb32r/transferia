@@ -351,4 +351,5 @@ pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
 }
 
 #[cfg(test)]
+#[path = "tests/config.rs"]
 mod tests;

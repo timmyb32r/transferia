@@ -58,4 +58,5 @@ impl Sink for DiscardSink {
 }
 
 #[cfg(test)]
+#[path = "tests/sink.rs"]
 mod tests;

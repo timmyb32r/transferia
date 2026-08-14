@@ -374,4 +374,5 @@ fn insert_query(table: &str, schema: &arrow::datatypes::Schema) -> String {
 }
 
 #[cfg(test)]
+#[path = "tests/client.rs"]
 mod tests;

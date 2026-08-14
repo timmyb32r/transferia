@@ -98,6 +98,10 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
   sibling `tests.rs` or `tests/` subtree. Put cross-component tests in the root
   `tests/` directory. Test helpers shared by integration tests belong in a
   dedicated test-support module, not in production modules.
+- When several production modules in one component have separate test files,
+  collect them under that component's `tests/` directory (for example,
+  `json_parser/tests/parser.rs`). Never create a directory named after a
+  production file solely to hold its `tests.rs`.
 - Every sink must have an automated end-to-end test that exercises its real
   wire/storage implementation. Use `testcontainers` or an equivalent hermetic,
   pinned service fixture. Fake transports are useful unit-test seams but do not

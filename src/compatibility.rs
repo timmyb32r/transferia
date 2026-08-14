@@ -457,4 +457,5 @@ fn error(
 }
 
 #[cfg(test)]
+#[path = "tests/compatibility.rs"]
 mod tests;

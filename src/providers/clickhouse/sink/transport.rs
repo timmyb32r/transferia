@@ -137,4 +137,5 @@ const fn is_transient_server_error(error: &clickhouse_arrow::ServerError) -> boo
 }
 
 #[cfg(test)]
+#[path = "tests/transport.rs"]
 mod tests;

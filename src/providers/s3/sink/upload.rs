@@ -336,4 +336,5 @@ fn retry_delay(config: &RetryConfig, attempt: u32, key: &str) -> Duration {
 }
 
 #[cfg(test)]
+#[path = "tests/upload.rs"]
 mod tests;

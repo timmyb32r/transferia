@@ -140,4 +140,5 @@ impl SinkProvider for ClickHouseSinkProvider {
 }
 
 #[cfg(test)]
+#[path = "tests/provider.rs"]
 mod tests;

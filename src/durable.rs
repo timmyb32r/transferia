@@ -240,4 +240,5 @@ fn write_file(path: &Path, value: &DurableValue) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "tests/durable.rs"]
 mod tests;

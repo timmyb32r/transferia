@@ -384,4 +384,5 @@ fn error_response(error: &anyhow::Error) -> Response<HttpBody> {
 }
 
 #[cfg(test)]
+#[path = "tests/server.rs"]
 mod tests;

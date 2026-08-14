@@ -98,4 +98,5 @@ const fn default_pipeline_memory_limit() -> usize {
 }
 
 #[cfg(test)]
+#[path = "tests/yaml.rs"]
 mod tests;

@@ -430,4 +430,5 @@ pub fn validate_stored_projection(
 }
 
 #[cfg(test)]
+#[path = "tests/delivery.rs"]
 mod tests;

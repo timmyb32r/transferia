@@ -35,4 +35,5 @@ pub fn jittered_retry_delay(delay: Duration, attempt: u32, seed: u64) -> Duratio
 }
 
 #[cfg(test)]
+#[path = "tests/retry.rs"]
 mod tests;

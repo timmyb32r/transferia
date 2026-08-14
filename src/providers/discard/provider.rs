@@ -41,4 +41,5 @@ impl SinkProvider for DiscardSinkProvider {
 }
 
 #[cfg(test)]
+#[path = "tests/provider.rs"]
 mod tests;

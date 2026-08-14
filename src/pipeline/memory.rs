@@ -468,4 +468,5 @@ impl Drop for MemoryLease {
 }
 
 #[cfg(test)]
+#[path = "tests/memory.rs"]
 mod tests;

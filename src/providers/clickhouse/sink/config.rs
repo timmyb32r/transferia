@@ -179,4 +179,5 @@ const fn default_request_timeout() -> u64 {
 }
 
 #[cfg(test)]
+#[path = "tests/config.rs"]
 mod tests;

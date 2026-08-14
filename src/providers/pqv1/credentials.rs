@@ -24,4 +24,5 @@ pub fn load_access_token(auth: &PqV1AuthConfig) -> anyhow::Result<String> {
 }
 
 #[cfg(test)]
+#[path = "tests/credentials.rs"]
 mod tests;

@@ -537,7 +537,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-#[path = "main/tests.rs"]
+#[path = "tests/main.rs"]
 mod tests;
 
 mod server;

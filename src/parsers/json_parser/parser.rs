@@ -2176,4 +2176,5 @@ impl ParserFactory for JsonParser {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[path = "tests/parser.rs"]
 mod tests;

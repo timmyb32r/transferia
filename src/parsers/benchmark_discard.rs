@@ -68,4 +68,5 @@ impl ParserFactory for BenchmarkDiscardParser {
 }
 
 #[cfg(test)]
+#[path = "tests/benchmark_discard.rs"]
 mod tests;

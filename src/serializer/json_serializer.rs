@@ -330,4 +330,5 @@ fn write_json_string(buf: &mut Vec<u8>, s: &str) {
 }
 
 #[cfg(test)]
+#[path = "tests/json_serializer.rs"]
 mod tests;

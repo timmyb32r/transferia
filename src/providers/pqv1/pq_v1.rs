@@ -1620,4 +1620,5 @@ impl PqV1Source {
 }
 
 #[cfg(test)]
+#[path = "tests/pq_v1.rs"]
 mod tests;

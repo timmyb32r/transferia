@@ -542,4 +542,5 @@ pub fn quote_string_literal(value: &str) -> String {
 }
 
 #[cfg(test)]
+#[path = "tests/table.rs"]
 mod tests;

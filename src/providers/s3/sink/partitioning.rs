@@ -418,4 +418,5 @@ fn scalar_partition_value(batch: &RecordBatch, index: usize, row: usize) -> anyh
 }
 
 #[cfg(test)]
+#[path = "tests/partitioning.rs"]
 mod tests;

@@ -489,4 +489,5 @@ const fn default_max_attempts() -> usize {
 }
 
 #[cfg(test)]
+#[path = "tests/config.rs"]
 mod tests;

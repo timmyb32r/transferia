@@ -15,4 +15,5 @@ pub fn validate_identifier(identifier: &str) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "tests/identifier.rs"]
 mod tests;

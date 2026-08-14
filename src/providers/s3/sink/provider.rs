@@ -373,4 +373,5 @@ impl SinkProvider for S3SinkProvider {
 }
 
 #[cfg(test)]
+#[path = "tests/provider.rs"]
 mod tests;
