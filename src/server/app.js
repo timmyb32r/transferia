@@ -7,6 +7,8 @@ let lastDiscoveryValid = false;
 
 const containers = {
   identity: $('#identity-form'),
+  sourcePicker: $('#source-picker'),
+  sinkPicker: $('#sink-picker'),
   source: $('#source-form'),
   sink: $('#sink-form'),
   pipeline: $('#pipeline-form')
@@ -151,10 +153,18 @@ function branchMatches(schema, value) {
 function fieldShell(schema, name, path) {
   const resolved = resolveSchema(schema);
   const shell = element('div', 'field');
+  const labelRow = element('div', 'field-label');
   const label = element('label', '', resolved.title || humanize(name));
   label.htmlFor = `field-${path.join('-')}`;
-  shell.append(label);
-  if (resolved.description) shell.append(element('p', 'field-help', resolved.description));
+  labelRow.append(label);
+  if (resolved.description) {
+    const help = element('button', 'help', '?');
+    help.type = 'button';
+    help.dataset.tooltip = resolved.description;
+    help.setAttribute('aria-label', resolved.description);
+    labelRow.append(help);
+  }
+  shell.append(labelRow);
   return shell;
 }
 
@@ -182,7 +192,7 @@ function renderNullable(schema, value, path, name) {
   return wrapper;
 }
 
-function renderUnion(schema, value, path, name) {
+function renderUnion(schema, value, path, name, options = {}) {
   const resolved = resolveSchema(schema);
   const choices = resolved.oneOf || resolved.anyOf;
   const selectedIndex = Math.max(0, choices.findIndex(choice => branchMatches(choice, value)));
@@ -198,7 +208,7 @@ function renderUnion(schema, value, path, name) {
     select.append(option);
   });
   shell.append(select);
-  wrapper.append(shell);
+  if (!options.bodyOnly) wrapper.append(shell);
   select.onchange = () => {
     const choice = choices[Number(select.value)];
     const key = branchKey(choice);
@@ -211,10 +221,16 @@ function renderUnion(schema, value, path, name) {
     renderEditor();
   };
 
-  if (selected.type === 'object' || selected.properties) {
+  if (!options.pickerOnly && (selected.type === 'object' || selected.properties)) {
     const discriminator = Object.entries(selected.properties || {}).find(([, property]) => constValue(property) !== undefined)?.[0];
     const body = element('div', 'union-body');
-    renderObjectFields(selected, value || {}, path, body, new Set(discriminator ? [discriminator] : []));
+    const providerKey = path.length === 1 ? branchKey(selected) : null;
+    const providerSchema = providerKey ? selected.properties?.[providerKey] : null;
+    if (providerKey && providerSchema && value?.[providerKey]) {
+      renderObjectFields(resolveSchema(providerSchema), value[providerKey], [...path, providerKey], body);
+    } else {
+      renderObjectFields(selected, value || {}, path, body, new Set(discriminator ? [discriminator] : []));
+    }
     wrapper.append(body);
   }
   return wrapper;
@@ -235,8 +251,16 @@ function renderArray(schema, value, path, name) {
   const shell = element('div', 'array-field');
   const heading = element('div', 'array-heading');
   const copy = element('div');
-  copy.append(element('label', '', resolved.title || humanize(name)));
-  if (resolved.description) copy.append(element('p', 'field-help', resolved.description));
+  const labelRow = element('div', 'field-label');
+  labelRow.append(element('label', '', resolved.title || humanize(name)));
+  if (resolved.description) {
+    const help = element('button', 'help', '?');
+    help.type = 'button';
+    help.dataset.tooltip = resolved.description;
+    help.setAttribute('aria-label', resolved.description);
+    labelRow.append(help);
+  }
+  copy.append(labelRow);
   const add = element('button', 'icon-button', '＋ Add');
   add.type = 'button';
   heading.append(copy, add);
@@ -323,12 +347,18 @@ function renderScalar(schema, value, path, name) {
 function renderNode(schema, value, path, name, options = {}) {
   const resolved = resolveSchema(schema);
   if (nullableSchema(resolved)) return renderNullable(resolved, value, path, name);
-  if (resolved.oneOf || resolved.anyOf) return renderUnion(resolved, value, path, name);
+  if (resolved.oneOf || resolved.anyOf) return renderUnion(resolved, value, path, name, options);
   if (resolved.type === 'array') return renderArray(resolved, value, path, name);
   if (resolved.type === 'object' || resolved.properties) {
     const group = element('fieldset', options.arrayItem ? 'object-group array-object' : 'object-group');
     if (!options.arrayItem) group.append(element('legend', '', resolved.title || humanize(name)));
-    if (resolved.description) group.append(element('p', 'field-help group-help', resolved.description));
+    if (resolved.description) {
+      const help = element('button', 'help group-help', '?');
+      help.type = 'button';
+      help.dataset.tooltip = resolved.description;
+      help.setAttribute('aria-label', resolved.description);
+      group.append(help);
+    }
     renderObjectFields(resolved, value || {}, path, group);
     return group;
   }
@@ -341,13 +371,17 @@ function renderEditor() {
   const root = resolveSchema(definition.schema);
   const properties = root.properties;
   for (const name of ['delivery_id', 'durable_storage']) containers.identity.append(renderNode(properties[name], formData[name], [name], name));
-  containers.source.append(renderNode(properties.source, formData.source, ['source'], 'Source type'));
-  containers.sink.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type'));
+  containers.sourcePicker.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {pickerOnly: true}));
+  containers.sinkPicker.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {pickerOnly: true}));
+  containers.source.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {bodyOnly: true}));
+  containers.sink.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {bodyOnly: true}));
   for (const name of ['pipeline_memory_limit_bytes', 'keep_system_columns_in_sink', 'metrics', 'middlewares']) {
     containers.pipeline.append(renderNode(properties[name], formData[name], [name], name));
   }
   const source = Object.keys(formData.source || {})[0] || '—';
   const sink = Object.keys(formData.sink || {})[0] || '—';
+  $('#source-title').textContent = humanize(source);
+  $('#sink-title').textContent = humanize(sink);
   $('#provider-route').textContent = `${source} → ${sink}`;
 }
 

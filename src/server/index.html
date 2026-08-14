@@ -39,33 +39,35 @@
 
       <div class="workspace">
         <div class="form-column">
-          <section class="config-section panel" data-section="identity">
-            <div class="section-index">01</div>
-            <div class="section-copy"><p class="eyebrow">Identity</p><h2>Delivery</h2><p>Name the route and choose where durable progress is stored.</p></div>
-            <div class="section-fields">
-              <div class="field"><label for="name">Display name</label><input id="name" value="demo-delivery" autocomplete="off"><p class="field-help">Shown in this control plane.</p></div>
+          <section class="compact-section panel">
+            <div class="compact-heading"><h2>Delivery</h2><span>Identity and durable state</span></div>
+            <div class="compact-fields">
+              <div class="field"><div class="field-label"><label for="name">Display name</label><button type="button" class="help" aria-label="Shown in this control plane" data-tooltip="Shown in this control plane">?</button></div><input id="name" value="demo-delivery" autocomplete="off"></div>
               <div id="identity-form"></div>
             </div>
           </section>
 
-          <section class="config-section panel provider-section source-accent">
-            <div class="section-index">02</div>
-            <div class="section-copy"><p class="eyebrow">Input contract</p><h2>Source</h2><p>Select a capability. Its Rust config type defines the controls below.</p></div>
-            <div class="section-fields" id="source-form"></div>
+          <section class="route-selector panel">
+            <div class="route-select"><span>Source</span><div id="source-picker"></div></div>
+            <span class="route-arrow" aria-hidden="true">→</span>
+            <div class="route-select"><span>Destination</span><div id="sink-picker"></div></div>
           </section>
 
-          <section class="route-link" aria-hidden="true"><span></span><b>discovery</b><span></span></section>
+          <div class="provider-grid">
+            <section class="provider-panel panel source-accent">
+              <div class="provider-heading"><div><span>Source</span><h2 id="source-title">—</h2></div><b>IN</b></div>
+              <div class="provider-fields" id="source-form"></div>
+            </section>
 
-          <section class="config-section panel provider-section sink-accent">
-            <div class="section-index">03</div>
-            <div class="section-copy"><p class="eyebrow">Output contract</p><h2>Destination</h2><p>Only destination-specific controls are shown for the selected sink.</p></div>
-            <div class="section-fields" id="sink-form"></div>
-          </section>
+            <section class="provider-panel panel sink-accent">
+              <div class="provider-heading"><div><span>Destination</span><h2 id="sink-title">—</h2></div><b>OUT</b></div>
+              <div class="provider-fields" id="sink-form"></div>
+            </section>
+          </div>
 
-          <section class="config-section panel">
-            <div class="section-index">04</div>
-            <div class="section-copy"><p class="eyebrow">Runtime policy</p><h2>Pipeline</h2><p>Memory, metrics and optional transformations.</p></div>
-            <div class="section-fields" id="pipeline-form"></div>
+          <section class="compact-section panel">
+            <div class="compact-heading"><h2>Pipeline</h2><span>Runtime policy and transformations</span></div>
+            <div class="compact-fields" id="pipeline-form"></div>
           </section>
         </div>
 
