@@ -1,6 +1,6 @@
 mod actor;
 pub(crate) mod client;
-mod config;
+pub(crate) mod config;
 pub(crate) mod identifier;
 mod provider;
 pub(crate) mod table;

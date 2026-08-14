@@ -16,7 +16,9 @@ pub struct S3SourceConfig {
     #[serde(default = "default_region")]
     pub region: String,
     #[serde(default)]
-    pub endpoint: Option<String>,
+    pub host: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
     #[serde(default)]
     pub allow_http: bool,
     #[serde(default)]
@@ -39,14 +41,7 @@ impl S3SourceConfig {
             );
         }
         anyhow::ensure!(self.timeout_ms > 0, "s3.timeout_ms must be positive");
-        if let Some(endpoint) = &self.endpoint {
-            let endpoint = reqwest::Url::parse(endpoint)
-                .map_err(|error| anyhow::anyhow!("invalid s3.endpoint: {error}"))?;
-            anyhow::ensure!(
-                endpoint.scheme() == "https" || (endpoint.scheme() == "http" && self.allow_http),
-                "s3.endpoint must use https:// unless allow_http is true"
-            );
-        }
+        self.validate_custom_address()?;
         anyhow::ensure!(
             self.parser.parser.kind()? == "json_parser",
             "S3 source currently supports only parser.json_parser"
@@ -59,7 +54,7 @@ impl S3SourceConfig {
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
             .with_allow_http(self.allow_http);
-        if let Some(endpoint) = &self.endpoint {
+        if let Some(endpoint) = self.custom_endpoint() {
             builder = builder.with_endpoint(endpoint);
         }
         if let Some(credentials) = &self.credentials {
@@ -71,6 +66,28 @@ impl S3SourceConfig {
     }
     pub(super) const fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
+    }
+
+    fn validate_custom_address(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.host.is_some() == self.port.is_some(),
+            "s3.host and s3.port must be configured together"
+        );
+        if let (Some(host), Some(port)) = (&self.host, self.port) {
+            crate::providers::address::validate_host("s3.host", host)?;
+            crate::providers::address::validate_port("s3.port", port)?;
+        }
+        Ok(())
+    }
+
+    fn custom_endpoint(&self) -> Option<String> {
+        self.host.as_ref().zip(self.port).map(|(host, port)| {
+            crate::providers::address::url(
+                if self.allow_http { "http" } else { "https" },
+                host,
+                port,
+            )
+        })
     }
 }
 

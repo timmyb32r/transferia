@@ -2,8 +2,10 @@ delivery_id: clickhouse-source-demo
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   clickhouse:
-    endpoint: localhost:9000
+    hosts: [localhost]
+    port: 9000
     trusted_plaintext: true
+    username: default
     tables:
       - database: default
         name: events
@@ -14,7 +16,7 @@ sink:
     bucket: clickhouse-snapshots
     region: us-east-1
     prefix: snapshots
-    object_layout_version: 4
+    object_layout_version: 5
     partitioning: source
     rotation:
       max_rows: 100000

@@ -1,7 +1,7 @@
 use super::*;
 
 fn valid_config() -> &'static str {
-    "delivery_id: server-test\ndurable_storage: { type: local_file, path: /tmp/transferia-server-test-state }\nsource:\n  s3:\n    bucket: demo\n    prefix: input\n    region: us-east-1\n    allow_http: true\n    endpoint: http://localhost:4566\n    credentials: { access_key: test, secret_key: test }\n    parser:\n      common:\n        table_naming: { type: from_config, name: events }\n      json_parser:\n        conversion_error: dlq\n        unknown_fields: { action: fail }\n        columns:\n          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\nsink:\n  discard: {}\nmiddlewares: []\n"
+    "delivery_id: server-test\ndurable_storage: { type: local_file, path: /tmp/transferia-server-test-state }\nsource:\n  s3:\n    bucket: demo\n    prefix: input\n    region: us-east-1\n    allow_http: true\n    host: localhost\n    port: 4566\n    credentials: { access_key: test, secret_key: test }\n    parser:\n      common:\n        table_naming: { type: from_config, name: events }\n      json_parser:\n        conversion_error: dlq\n        unknown_fields: { action: fail }\n        columns:\n          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\nsink:\n  discard: {}\nmiddlewares: []\n"
 }
 
 #[test]
@@ -11,7 +11,12 @@ fn static_assets_are_embedded() {
     assert!(INDEX_HTML.contains("source-form"));
     assert!(APP_JS.contains("/api/discover"));
     assert!(APP_JS.contains("renderUnion"));
+    assert!(APP_JS.contains("new AbortController()"));
+    assert!(APP_JS.contains("sequence !== discoverySequence"));
+    assert!(APP_JS.contains("element('label', 'switch-row')"));
+    assert!(APP_JS.contains("Расширенные настройки"));
     assert!(STYLE_CSS.contains(".dataset"));
+    assert!(STYLE_CSS.contains(".discovery-loading"));
 }
 
 #[test]
@@ -23,8 +28,13 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     assert!(schema.contains("PQv1 stream"));
     assert!(schema.contains("x-ui"));
     assert!(schema.contains("password"));
+    assert!(schema.contains("native port"));
+    assert!(schema.contains("advanced"));
+    assert!(!schema.contains("sorting_key"));
     assert!(definition.source_presets.contains_key("s3"));
     assert!(definition.sink_presets.contains_key("discard"));
+    assert_eq!(definition.sink_presets["clickhouse"]["database"], "");
+    assert_eq!(definition.sink_presets["clickhouse"]["username"], "");
     Ok(())
 }
 

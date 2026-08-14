@@ -27,7 +27,7 @@ impl YTsaurusClient {
     pub fn new(config: &YTsaurusConnectionConfig) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
-            endpoint: config.endpoint.trim_end_matches('/').to_owned(),
+            endpoint: config.endpoint(),
             token: config.token.clone(),
             client: reqwest::Client::builder()
                 .timeout(config.timeout())

@@ -10,7 +10,8 @@ const DEFAULT_BATCH_ROWS: usize = 65_536;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
-    pub endpoint: String,
+    pub host: String,
+    pub port: u16,
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub token: Option<String>,
@@ -21,20 +22,8 @@ pub struct YTsaurusConnectionConfig {
 
 impl YTsaurusConnectionConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
-        let endpoint = reqwest::Url::parse(&self.endpoint)
-            .map_err(|error| anyhow::anyhow!("invalid ytsaurus.endpoint: {error}"))?;
-        anyhow::ensure!(
-            endpoint.scheme() == "http" || endpoint.scheme() == "https",
-            "ytsaurus.endpoint must use http:// or https://"
-        );
-        anyhow::ensure!(
-            endpoint.path() == "/" && endpoint.query().is_none() && endpoint.fragment().is_none(),
-            "ytsaurus.endpoint must contain only scheme and authority"
-        );
-        anyhow::ensure!(
-            endpoint.scheme() != "http" || self.trusted_plaintext,
-            "ytsaurus.trusted_plaintext must be true for an http:// endpoint"
-        );
+        crate::providers::address::validate_host("ytsaurus.host", &self.host)?;
+        crate::providers::address::validate_port("ytsaurus.port", self.port)?;
         anyhow::ensure!(self.timeout_ms > 0, "ytsaurus.timeout_ms must be positive");
         if let Some(token) = &self.token {
             anyhow::ensure!(!token.is_empty(), "ytsaurus.token must not be empty");
@@ -44,6 +33,18 @@ impl YTsaurusConnectionConfig {
 
     pub const fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
+    }
+
+    pub(crate) fn endpoint(&self) -> String {
+        crate::providers::address::url(
+            if self.trusted_plaintext {
+                "http"
+            } else {
+                "https"
+            },
+            &self.host,
+            self.port,
+        )
     }
 }
 

@@ -24,7 +24,7 @@ uses the suffix `manual`. Preload enough data that the backlog remains non-empty
 for every warmup and sample period. A drained backlog invalidates the run.
 
 Every endpoint and credential in the YAML files has an environment override:
-`PQ_ENDPOINT`, `PQ_TOPIC`, `PQ_TOKEN`, the profile-specific `PQ_CONSUMER_*`,
+`PQ_HOST`, `PQ_PORT`, `PQ_TOPIC`, `PQ_TOKEN`, the profile-specific `PQ_CONSUMER_*`,
 `CLICKHOUSE_*`, and `S3_*`. Defaults describe local plaintext development
 services; production credentials should be supplied only through the
 environment.
@@ -45,7 +45,7 @@ Build and collect five 30-second warmups followed by 90-second samples:
 
 ```shell
 PQ_CONSUMER_JSON=transferia-json-baseline \
-PQ_ENDPOINT=grpc://broker:2135 \
+PQ_HOST=broker PQ_PORT=2135 \
 PQ_TOPIC=/benchmark/events \
 PQ_TOKEN=... \
 python3 scripts/run_single_partition_benchmark.py \
@@ -65,7 +65,7 @@ backlog, machine, and downstream state:
 
 ```shell
 PQ_CONSUMER_JSON=transferia-json-candidate \
-PQ_ENDPOINT=grpc://broker:2135 \
+PQ_HOST=broker PQ_PORT=2135 \
 PQ_TOPIC=/benchmark/events \
 PQ_TOKEN=... \
 python3 scripts/run_single_partition_benchmark.py \

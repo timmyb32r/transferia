@@ -65,7 +65,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
         );
     });
 
-    let provider = PqV1SinkProvider::from_config(serde_yaml::from_str(&format!("endpoint: 'grpc://{address}'\ntopic_path: '{TOPIC}'\nmessage_group_id: e2e-writer\npartition_group_id: 0\ntrusted_plaintext: true\nnetwork_timeout_ms: 5000\nauth:\n  type: access_token\n  token: {TOKEN}\n"))?)?;
+    let provider = PqV1SinkProvider::from_config(serde_yaml::from_str(&format!("host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nmessage_group_id: e2e-writer\npartition_group_id: 0\ntrusted_plaintext: true\nnetwork_timeout_ms: 5000\nauth:\n  type: access_token\n  token: {TOKEN}\n", address.ip(), address.port()))?)?;
     let schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("name".into(), DataType::Utf8, true),

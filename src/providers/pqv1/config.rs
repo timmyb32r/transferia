@@ -52,7 +52,8 @@ impl fmt::Debug for PqV1AuthConfig {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SinkConfig {
-    pub endpoint: String,
+    pub host: String,
+    pub port: u16,
     pub topic_path: String,
     pub message_group_id: String,
     pub partition_group_id: i64,
@@ -64,7 +65,8 @@ pub struct PqV1SinkConfig {
 
 impl PqV1SinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
-        crate::providers::pqv1::pq_v1::parse_endpoint(&self.endpoint)?;
+        crate::providers::address::validate_host("pqv1.host", &self.host)?;
+        crate::providers::address::validate_port("pqv1.port", self.port)?;
         anyhow::ensure!(self.trusted_plaintext, "pqv1.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
         anyhow::ensure!(
             !self.topic_path.is_empty(),
@@ -88,6 +90,10 @@ impl PqV1SinkConfig {
     #[must_use]
     pub const fn network_timeout(&self) -> core::time::Duration {
         core::time::Duration::from_millis(self.network_timeout_ms)
+    }
+
+    pub(crate) fn endpoint(&self) -> String {
+        crate::providers::address::url("grpc", &self.host, self.port)
     }
 }
 

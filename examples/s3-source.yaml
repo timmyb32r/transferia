@@ -7,7 +7,8 @@ source:
     bucket: source-bucket
     prefix: snapshots/2026-08-13
     region: us-east-1
-    endpoint: https://s3.example.net
+    host: s3.example.net
+    port: 443
     credentials:
       access_key: "${S3_ACCESS_KEY}"
       secret_key: "${S3_SECRET_KEY}"
@@ -28,8 +29,10 @@ keep_system_columns_in_sink: false
 
 sink:
   clickhouse:
-    endpoint: clickhouse.internal:9000
+    hosts: [clickhouse.internal]
+    port: 9000
     database: default
+    username: default
     trusted_plaintext: true
 
 metrics:

@@ -93,7 +93,7 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
 
     let provider = S3SourceProvider::from_config(
         serde_yaml::from_str(&format!(
-            "bucket: transferia-source-e2e\nprefix: snapshot\nregion: us-east-1\nendpoint: '{endpoint}'\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nparser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n    chunk_splitter: one-message-one-row\n    columns:\n      - {{ jsonpath: '$.id', column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n"
+            "bucket: transferia-source-e2e\nprefix: snapshot\nregion: us-east-1\nhost: '{host}'\nport: {port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nparser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n    chunk_splitter: one-message-one-row\n    columns:\n      - {{ jsonpath: '$.id', column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

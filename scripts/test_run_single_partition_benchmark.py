@@ -87,7 +87,8 @@ class StatsParsingTest(unittest.TestCase):
 
     def test_reproducibility_environment_never_records_secrets(self):
         environment = {
-            "PQ_ENDPOINT": "grpc://broker",
+            "PQ_HOST": "broker",
+            "PQ_PORT": "2135",
             "PQ_TOKEN": "super-secret",
             "CLICKHOUSE_PASSWORD": "also-secret",
             "S3_SECRET_KEY": "third-secret",
@@ -95,7 +96,7 @@ class StatsParsingTest(unittest.TestCase):
         }
         self.assertEqual(
             BENCH.reproducibility_environment(environment),
-            {"PQ_ENDPOINT": "grpc://broker", "S3_BUCKET": "benchmark"},
+            {"PQ_HOST": "broker", "PQ_PORT": "2135", "S3_BUCKET": "benchmark"},
         )
 
 
@@ -133,14 +134,16 @@ class SummaryTest(unittest.TestCase):
     def test_comparison_allows_distinct_consumer_prefixes_only(self):
         baseline = comparison_document(
             environment={
-                "PQ_ENDPOINT": "grpc://broker:2135",
+                "PQ_HOST": "broker",
+                "PQ_PORT": "2135",
                 "PQ_CONSUMER_JSON": "transferia-json-baseline",
             },
             binary_sha256="baseline-binary",
         )
         current = comparison_document(
             environment={
-                "PQ_ENDPOINT": "grpc://broker:2135",
+                "PQ_HOST": "broker",
+                "PQ_PORT": "2135",
                 "PQ_CONSUMER_JSON": "transferia-json-candidate",
             },
             binary_sha256="candidate-binary",
@@ -148,7 +151,7 @@ class SummaryTest(unittest.TestCase):
 
         BENCH.validate_comparison_context(current, baseline)
 
-        current["environment"]["PQ_ENDPOINT"] = "grpc://other-broker:2135"
+        current["environment"]["PQ_HOST"] = "other-broker"
         with self.assertRaisesRegex(ValueError, "environment"):
             BENCH.validate_comparison_context(current, baseline)
 

@@ -128,7 +128,8 @@ delivery_id: pqv1-clickhouse-test
 durable_storage: { type: local_file, path: /tmp/transferia-test-state }
 source:
   pqv1:
-    discovery_endpoint: grpc://localhost
+    host: localhost
+    port: 2135
     topic_path: topic
     consumer_name: consumer
     partition_group_ids: [0]
@@ -143,9 +144,11 @@ source:
           - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }
 sink:
   clickhouse:
-    endpoint: localhost:9000
+    hosts: [localhost]
+    port: 9000
     trusted_plaintext: true
     database: default
+    username: default
 ",
     )?;
     let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;

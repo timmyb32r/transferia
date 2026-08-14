@@ -3,6 +3,16 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
+use super::config::PostgresSinkConfig;
+
+#[test]
+fn sink_rejects_the_old_connection_string() {
+    assert!(serde_yaml::from_str::<PostgresSinkConfig>(
+        "connection: host=localhost port=5432\ntrusted_plaintext: true\ncreate_tables: true\n"
+    )
+    .is_err());
+}
+
 #[test]
 fn binary_copy_encoder_writes_header_rows_null_and_trailer() {
     let batch = RecordBatch::try_new(

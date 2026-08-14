@@ -2,7 +2,11 @@ delivery_id: postgres-s3-demo
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   postgres:
-    connection: "host=localhost port=5432 user=postgres password=postgres dbname=postgres"
+    host: localhost
+    port: 5432
+    database: postgres
+    username: postgres
+    password: postgres
     trusted_plaintext: true
     tables:
       - schema: public
@@ -18,7 +22,8 @@ sink:
     object_layout_version: 5
     prefix: postgres-snapshots
     region: us-east-1
-    endpoint: "http://localhost:4566"
+    host: localhost
+    port: 4566
     allow_http: true
     credentials:
       access_key: test

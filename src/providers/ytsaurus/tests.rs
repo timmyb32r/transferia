@@ -10,18 +10,18 @@ use super::src_batch::validate_read_schema;
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
-fn configs_require_explicit_trust_and_explicit_names() -> anyhow::Result<()> {
+fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "endpoint: http://localhost:8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
+        "host: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
     )?;
     source.validate()?;
-    assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "endpoint: http://localhost:8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
-    )?
-    .validate()
-    .is_err());
+    let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "host: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+    )?;
+    tls_source.validate()?;
+    assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "endpoint: http://localhost:8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: relative\n"
+        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: relative\n"
     )?
     .validate()
     .is_err());
@@ -31,7 +31,7 @@ fn configs_require_explicit_trust_and_explicit_names() -> anyhow::Result<()> {
 #[test]
 fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "endpoint: http://localhost:8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: //tmp/events\n",
+        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: //tmp/events\n",
     )?;
     assert_eq!(config.format, YTsaurusWriteFormat::Arrow);
     Ok(())

@@ -17,7 +17,7 @@ use super::ClickHouseSinkConfig;
 type ConnectTask = JoinHandle<ClickHouseResult<Client<ArrowFormat>>>;
 
 pub struct ReconnectingClient {
-    builder: ClientBuilder,
+    builders: Vec<ClientBuilder>,
     client: Mutex<Option<Client<ArrowFormat>>>,
     reconnect: AsyncMutex<()>,
     connect_task: AsyncMutex<Option<ConnectTask>>,
@@ -62,23 +62,24 @@ impl Drop for QueryStream {
 
 impl ReconnectingClient {
     pub(super) fn new(config: &ClickHouseSinkConfig) -> Self {
-        Self::from_connection(
-            configured_builder(config),
+        Self::from_connections(
+            configured_builders(config),
             config.connect_timeout(),
             config.request_timeout(),
         )
     }
 
-    pub(crate) fn from_connection(
-        builder: ClientBuilder,
+    pub(crate) fn from_connections(
+        builders: Vec<ClientBuilder>,
         connect_timeout: Duration,
         request_timeout: Duration,
     ) -> Self {
+        debug_assert!(!builders.is_empty());
         Self {
             // Keep the hostname-bearing, unverified builder. `clickhouse-arrow::verify`
             // replaces it with resolved socket addresses, so caching a verified builder
             // would pin every reconnect to the DNS answer observed at process startup.
-            builder,
+            builders,
             client: Mutex::new(None),
             reconnect: AsyncMutex::new(()),
             connect_task: AsyncMutex::new(None),
@@ -193,11 +194,15 @@ impl ReconnectingClient {
         // every reconnect instead of retrying a stale address forever.
         // It also performs a synchronous 30-second socket connect, so keep that poll
         // off Tokio workers until the dependency provides a cancellable connector.
-        let builder = self.builder.clone();
+        let builders = self.builders.clone();
         let runtime_handle = tokio::runtime::Handle::current();
         let connect_timeout = self.connect_timeout;
         self.build_client_with(move || {
-            spawn_bounded_connect_task(runtime_handle, connect_timeout, builder.build_arrow())
+            spawn_bounded_connect_task(
+                runtime_handle,
+                connect_timeout,
+                connect_first_available(builders, connect_timeout),
+            )
         })
         .await
     }
@@ -268,6 +273,27 @@ impl ReconnectingClient {
     }
 }
 
+async fn connect_first_available(
+    builders: Vec<ClientBuilder>,
+    connect_timeout: Duration,
+) -> ClickHouseResult<Client<ArrowFormat>> {
+    let mut errors = Vec::with_capacity(builders.len());
+    for builder in builders {
+        match timeout(connect_timeout, builder.build_arrow()).await {
+            Ok(Ok(client)) => return Ok(client),
+            Ok(Err(error)) => errors.push(error.to_string()),
+            Err(_) => errors.push(format!(
+                "connect timed out after {} ms",
+                connect_timeout.as_millis()
+            )),
+        }
+    }
+    Err(ClickHouseError::Client(format!(
+        "ClickHouse native protocol connection failed for every configured host: {}. Verify that clickhouse.port is the native port (usually 9000 for plaintext), not the HTTP port",
+        errors.join("; ")
+    )))
+}
+
 fn spawn_bounded_connect_task(
     runtime_handle: tokio::runtime::Handle,
     connect_timeout: Duration,
@@ -332,22 +358,28 @@ impl Drop for InvalidateOnDrop<'_> {
     }
 }
 
-fn configured_builder(config: &ClickHouseSinkConfig) -> ClientBuilder {
-    ClientBuilder::new()
-        .with_destination(config.endpoint.as_str())
-        .with_database(config.database.as_str())
-        .with_username(config.username.as_str())
-        .with_password(config.password.as_str())
-        // The sink owns batching and acknowledges source offsets as soon as the
-        // native INSERT completes. Never inherit a server/user profile that can
-        // acknowledge an asynchronous insert before it is flushed.
-        .with_setting("async_insert", 0_i64)
-        .with_setting("wait_for_async_insert", 1_i64)
-        // ReplicatedMergeTree deduplication is unsafe for this at-least-once
-        // sink: two distinct source offsets may legitimately contain identical
-        // rows. Preserve both and let ambiguous retries remain visible duplicates.
-        .with_setting("insert_deduplicate", 0_i64)
-        .with_tls(false)
+fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
+    config
+        .hosts
+        .iter()
+        .map(|host| {
+            ClientBuilder::new()
+                .with_destination(crate::providers::address::host_port(host, config.port))
+                .with_database(config.database.as_str())
+                .with_username(config.username.as_str())
+                .with_password(config.password.as_str())
+                // The sink owns batching and acknowledges source offsets as soon as the
+                // native INSERT completes. Never inherit a server/user profile that can
+                // acknowledge an asynchronous insert before it is flushed.
+                .with_setting("async_insert", 0_i64)
+                .with_setting("wait_for_async_insert", 1_i64)
+                // ReplicatedMergeTree deduplication is unsafe for this at-least-once
+                // sink: two distinct source offsets may legitimately contain identical
+                // rows. Preserve both and let ambiguous retries remain visible duplicates.
+                .with_setting("insert_deduplicate", 0_i64)
+                .with_tls(false)
+        })
+        .collect()
 }
 
 pub fn quote_identifier(identifier: &str) -> String {

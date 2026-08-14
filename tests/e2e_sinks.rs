@@ -179,7 +179,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     wait_for_tcp(&host, native_port).await?;
 
     let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "endpoint: '{host}:{native_port}'\ntrusted_plaintext: true\nflush_interval_ms: 10\n"
+        "hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
     ))?)?;
     let schema = dataset_schema(&[
         ("id", DataType::Int64, false),
@@ -301,7 +301,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     );
 
     let yaml = format!(
-        "bucket: transferia-e2e\nobject_layout_version: 5\nprefix: e2e\nregion: us-east-1\nendpoint: 'http://{host}:{port}'\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
+        "bucket: transferia-e2e\nobject_layout_version: 5\nprefix: e2e\nregion: us-east-1\nhost: '{host}'\nport: {port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
     );
     let provider = S3SinkProvider::from_config(serde_yaml::from_str(&yaml)?)?;
     let system_kinds = vec![

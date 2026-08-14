@@ -9,9 +9,10 @@ use crate::providers::clickhouse::sink::identifier::validate_identifier;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSourceConfig {
-    pub endpoint: String,
+    pub hosts: Vec<String>,
+    #[schemars(description = "native port")]
+    pub port: u16,
     pub trusted_plaintext: bool,
-    #[serde(default = "default_username")]
     pub username: String,
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
@@ -28,7 +29,6 @@ pub struct ClickHouseSourceConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
-    #[serde(default = "default_database")]
     pub database: String,
     pub name: String,
     pub output_name: String,
@@ -37,10 +37,13 @@ pub struct TableConfig {
 
 impl ClickHouseSourceConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.endpoint.trim().is_empty(),
-            "clickhouse.endpoint must not be empty"
-        );
+        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
+        let mut hosts = HashSet::with_capacity(self.hosts.len());
+        for host in &self.hosts {
+            crate::providers::address::validate_host("clickhouse.hosts", host)?;
+            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
+        }
+        crate::providers::clickhouse::sink::config::validate_native_port(self.port)?;
         anyhow::ensure!(self.trusted_plaintext, "clickhouse.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
         anyhow::ensure!(
             !self.username.is_empty(),
@@ -107,12 +110,6 @@ impl ClickHouseSourceConfig {
     }
 }
 
-fn default_database() -> String {
-    "default".into()
-}
-fn default_username() -> String {
-    "default".into()
-}
 const fn default_batch_rows() -> usize {
     65_536
 }

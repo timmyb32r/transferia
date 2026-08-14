@@ -65,7 +65,7 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
     }
 
     let provider = ClickHouseSourceProvider::from_config(
-        serde_yaml::from_str(&format!("endpoint: '{host}:{native_port}'\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - name: events\n    output_name: events\n    order_by: [id]\n"))?,
+        serde_yaml::from_str(&format!("hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\nusername: default\nbatch_rows: 2\ntables:\n  - database: default\n    name: events\n    output_name: events\n    order_by: [id]\n"))?,
         Arc::new(MetricsRegistry::new()),
     )?;
     let discovery = provider

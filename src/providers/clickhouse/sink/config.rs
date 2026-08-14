@@ -4,40 +4,44 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use super::identifier::validate_identifier;
-
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSinkConfig {
-    pub endpoint: String,
+    pub hosts: Vec<String>,
+    #[schemars(description = "native port")]
+    pub port: u16,
     /// Explicit acknowledgement that the native hop is plaintext and must be
     /// protected by a trusted local network boundary or verified TLS tunnel.
     pub trusted_plaintext: bool,
-    #[serde(default = "default_database")]
     pub database: String,
-    #[serde(default = "default_username")]
     pub username: String,
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
     #[serde(default = "default_insert_rows")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub insert_target_rows: usize,
     #[serde(default = "default_insert_bytes")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub insert_target_bytes: usize,
     #[serde(default = "default_flush_interval")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub flush_interval_ms: u64,
     #[serde(default = "default_retry_initial")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_initial_ms: u64,
     #[serde(default = "default_retry_max")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_max_ms: u64,
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_max_attempts: Option<u32>,
     #[serde(default = "default_connect_timeout")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub connect_timeout_ms: u64,
     #[serde(default = "default_request_timeout")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub request_timeout_ms: u64,
-    #[serde(default)]
-    pub sorting_key: Vec<String>,
 }
 
 impl ClickHouseSinkConfig {
@@ -49,10 +53,13 @@ impl ClickHouseSinkConfig {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.endpoint.is_empty(),
-            "clickhouse.endpoint must not be empty"
-        );
+        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
+        let mut hosts = std::collections::HashSet::with_capacity(self.hosts.len());
+        for host in &self.hosts {
+            crate::providers::address::validate_host("clickhouse.hosts", host)?;
+            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
+        }
+        validate_native_port(self.port)?;
         anyhow::ensure!(
             self.trusted_plaintext,
             "clickhouse.trusted_plaintext must be true; use a verified TLS tunnel when the destination is not on a trusted local network"
@@ -60,6 +67,10 @@ impl ClickHouseSinkConfig {
         anyhow::ensure!(
             !self.database.is_empty(),
             "clickhouse.database must not be empty"
+        );
+        anyhow::ensure!(
+            !self.username.is_empty(),
+            "clickhouse.username must not be empty"
         );
         anyhow::ensure!(
             self.insert_target_rows > 0,
@@ -93,16 +104,6 @@ impl ClickHouseSinkConfig {
             self.request_timeout_ms > 0,
             "clickhouse.request_timeout_ms must be positive"
         );
-        let mut sorting_columns = std::collections::HashSet::with_capacity(self.sorting_key.len());
-        for column in &self.sorting_key {
-            validate_identifier(column).map_err(|error| {
-                error.context(format!("invalid clickhouse.sorting_key column {column:?}"))
-            })?;
-            anyhow::ensure!(
-                sorting_columns.insert(column),
-                "clickhouse.sorting_key repeats column '{column}'"
-            );
-        }
         Ok(())
     }
 
@@ -124,7 +125,8 @@ impl fmt::Debug for ClickHouseSinkConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ClickHouseSinkConfig")
-            .field("endpoint", &self.endpoint)
+            .field("hosts", &self.hosts)
+            .field("port", &self.port)
             .field("trusted_plaintext", &self.trusted_plaintext)
             .field("database", &self.database)
             .field("username", &self.username)
@@ -137,23 +139,23 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("retry_max_attempts", &self.retry_max_attempts)
             .field("connect_timeout_ms", &self.connect_timeout_ms)
             .field("request_timeout_ms", &self.request_timeout_ms)
-            .field("sorting_key", &self.sorting_key)
             .finish()
     }
 }
 
 const DEFAULT_RETRY_MAX_ATTEMPTS: u32 = 20;
 
-fn default_database() -> String {
-    "default".into()
-}
-
-fn default_username() -> String {
-    "default".into()
-}
-
 const fn default_insert_rows() -> usize {
     100_000
+}
+
+pub fn validate_native_port(port: u16) -> anyhow::Result<()> {
+    crate::providers::address::validate_port("clickhouse.port", port)?;
+    anyhow::ensure!(
+        !matches!(port, 8123 | 8443),
+        "clickhouse.port {port} is a ClickHouse HTTP port, but this provider uses the native protocol; configure the native port (usually 9000 for plaintext)"
+    );
+    Ok(())
 }
 
 const fn default_insert_bytes() -> usize {

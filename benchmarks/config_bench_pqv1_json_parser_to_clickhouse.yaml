@@ -6,7 +6,8 @@ delivery_id: benchmark-pqv1-clickhouse
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
-    discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"
+    host: "${PQ_HOST:-localhost}"
+    port: ${PQ_PORT:-2136}
     topic_path: "${PQ_TOPIC:-/benchmark/events}"
     consumer_name: "${PQ_CONSUMER_CLICKHOUSE:-transferia-benchmark-clickhouse}-${BENCHMARK_REPETITION:-manual}"
     partition_group_ids: [0]
@@ -34,12 +35,12 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   clickhouse:
-    endpoint: "${CLICKHOUSE_ENDPOINT:-localhost:9000}"
+    hosts: ["${CLICKHOUSE_HOST:-localhost}"]
+    port: ${CLICKHOUSE_PORT:-9000}
     trusted_plaintext: true
     database: "${CLICKHOUSE_DATABASE:-default}"
     username: "${CLICKHOUSE_USERNAME:-default}"
     password: "${CLICKHOUSE_PASSWORD:-}"
-    sorting_key: ["id", "ts"]
     insert_target_rows: 10000
     insert_target_bytes: 67108864
     flush_interval_ms: 500

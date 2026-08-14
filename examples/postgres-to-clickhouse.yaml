@@ -2,7 +2,11 @@ delivery_id: postgres-clickhouse-demo
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   postgres:
-    connection: "host=localhost port=5432 user=postgres password=postgres dbname=postgres"
+    host: localhost
+    port: 5432
+    database: postgres
+    username: postgres
+    password: postgres
     trusted_plaintext: true
     tables:
       - schema: public
@@ -14,9 +18,11 @@ keep_system_columns_in_sink: false
 
 sink:
   clickhouse:
-    endpoint: "localhost:9000"
+    hosts: [localhost]
+    port: 9000
     trusted_plaintext: true
     database: default
+    username: default
 
 metrics:
   enabled: true

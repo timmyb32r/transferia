@@ -92,10 +92,6 @@ impl PqFixture {
         })
     }
 
-    fn endpoint(&self) -> String {
-        format!("grpc://{}", self.address)
-    }
-
     async fn stop(self) {
         self.shutdown.cancel();
         drop(self.task.await);
@@ -370,7 +366,8 @@ async fn pqv1_source_discovers_reads_and_commits_over_real_grpc() -> anyhow::Res
     let fixture = PqFixture::start().await?;
     let config = serde_yaml::from_str(&format!(
         r"
-discovery_endpoint: {}
+host: {}
+port: {}
 topic_path: {TOPIC}
 consumer_name: {CONSUMER}
 partition_group_ids: [0]
@@ -384,7 +381,8 @@ parser:
     table_naming: {{ type: from_config, name: events }}
   benchmark_discard: {{}}
 ",
-        fixture.endpoint()
+        fixture.address.ip(),
+        fixture.address.port()
     ))?;
     let provider = PqV1SourceProvider::from_config(config, Arc::new(MetricsRegistry::new()))?;
     let cancellation = CancellationToken::new();

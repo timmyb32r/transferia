@@ -1,13 +1,13 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::providers::postgres::common::validate_identifier;
+use crate::providers::postgres::common::{validate_identifier, PostgresConnectionConfig};
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PostgresSourceConfig {
-    pub connection: String,
-    pub trusted_plaintext: bool,
+    #[serde(flatten)]
+    pub connection: PostgresConnectionConfig,
     pub tables: Vec<TableConfig>,
     #[serde(default = "default_batch_rows")]
     pub batch_rows: usize,
@@ -23,11 +23,7 @@ pub struct TableConfig {
 
 impl PostgresSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.connection.trim().is_empty(),
-            "postgres.connection must not be empty"
-        );
-        anyhow::ensure!(self.trusted_plaintext, "postgres.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
+        self.connection.validate()?;
         anyhow::ensure!(!self.tables.is_empty(), "postgres.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "postgres.batch_rows must be positive");
         let mut names = std::collections::HashSet::new();

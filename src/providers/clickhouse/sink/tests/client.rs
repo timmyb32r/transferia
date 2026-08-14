@@ -35,7 +35,7 @@ impl BlockingGate {
 
 fn reconnecting_client(connect_timeout: Duration) -> ReconnectingClient {
     ReconnectingClient {
-        builder: ClientBuilder::new().with_destination("127.0.0.1:1"),
+        builders: vec![ClientBuilder::new().with_destination("127.0.0.1:1")],
         client: Mutex::new(None),
         reconnect: AsyncMutex::new(()),
         connect_task: AsyncMutex::new(None),
@@ -196,8 +196,9 @@ fn insert_names_escaped_table_and_columns() {
 
 #[test]
 fn pins_lossless_insert_settings() {
-    let builder = configured_builder(&ClickHouseSinkConfig {
-        endpoint: "localhost:9000".into(),
+    let builders = configured_builders(&ClickHouseSinkConfig {
+        hosts: vec!["localhost".into()],
+        port: 9000,
         trusted_plaintext: true,
         database: "default".into(),
         username: "default".into(),
@@ -210,8 +211,8 @@ fn pins_lossless_insert_settings() {
         retry_max_attempts: Some(1),
         connect_timeout_ms: 1,
         request_timeout_ms: 1,
-        sorting_key: Vec::new(),
     });
+    let builder = builders.first().expect("one host must produce one builder");
     let settings = builder.settings().expect("insert settings must be pinned");
     let values = settings.encode_to_key_value_strings();
     assert!(values.contains(&("async_insert".into(), "0".into())));

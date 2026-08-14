@@ -48,14 +48,20 @@ impl ClickHouseSourceProvider {
             anyhow::anyhow!("Failed to parse ClickHouse source config: {error}")
         })?;
         config.validate()?;
-        let builder = ClientBuilder::new()
-            .with_destination(config.endpoint.as_str())
-            .with_database("default")
-            .with_username(config.username.as_str())
-            .with_password(config.password.as_str())
-            .with_tls(false);
-        let client = Arc::new(ReconnectingClient::from_connection(
-            builder,
+        let builders = config
+            .hosts
+            .iter()
+            .map(|host| {
+                ClientBuilder::new()
+                    .with_destination(crate::providers::address::host_port(host, config.port))
+                    .with_database("default")
+                    .with_username(config.username.as_str())
+                    .with_password(config.password.as_str())
+                    .with_tls(false)
+            })
+            .collect();
+        let client = Arc::new(ReconnectingClient::from_connections(
+            builders,
             config.connect_timeout(),
             config.request_timeout(),
         ));

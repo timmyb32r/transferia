@@ -109,7 +109,8 @@ impl InsertTransport for FakeTransport {
 
 fn config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
-        endpoint: "unused".into(),
+        hosts: vec!["unused".into()],
+        port: 9000,
         trusted_plaintext: true,
         database: "default".into(),
         username: "default".into(),
@@ -122,7 +123,6 @@ fn config() -> ClickHouseSinkConfig {
         retry_max_attempts: None,
         connect_timeout_ms: 30_000,
         request_timeout_ms: 30_000,
-        sorting_key: Vec::new(),
     }
 }
 

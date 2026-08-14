@@ -59,7 +59,8 @@ durable_storage:
 source:
   pqv1:
     # Plaintext HTTP/2 only; use a trusted local endpoint or tunnel.
-    discovery_endpoint: "grpc://localhost:2135"
+    host: localhost
+    port: 2135
     topic_path: "/cdc/prod/events"
     consumer_name: "transferia-consumer"
     # Required: consumer-session assignments are not authoritative topic metadata.
@@ -113,7 +114,8 @@ sink:
     object_layout_version: 5
     prefix: streams
     region: ru-central1
-    endpoint: "https://storage.yandexcloud.net"
+    host: storage.yandexcloud.net
+    port: 443
     credentials:
       access_key: "${S3_ACCESS_KEY}"
       secret_key: "${S3_SECRET_KEY}"
@@ -172,7 +174,7 @@ enter DLQ (`conversion_error: dlq`) or stop the delivery (`fail`). Unknown
 top-level fields either fail validation of the row or are captured as compact
 JSON in the explicitly named rest column. `primary_key` uses physical output
 names, including renamed enabled system columns; ClickHouse derives `ORDER BY`
-from it and rejects a conflicting sink `sorting_key`. `low_cardinality` and
+from it directly. `low_cardinality` and
 `max_length` are Arrow field metadata and are revalidated at the sink boundary;
 ClickHouse materializes `LowCardinality(String)`.
 

@@ -36,7 +36,8 @@ delivery_id: pqv1-s3-test
 durable_storage: { type: local_file, path: /tmp/state }
 source:
   pqv1:
-    discovery_endpoint: grpc://localhost
+    host: localhost
+    port: 2135
     topic_path: topic-a
     consumer_name: consumer-a
     partition_group_ids: [0]

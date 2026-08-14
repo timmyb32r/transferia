@@ -6,7 +6,8 @@ delivery_id: benchmark-pqv1-s3
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
-    discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"
+    host: "${PQ_HOST:-localhost}"
+    port: ${PQ_PORT:-2136}
     topic_path: "${PQ_TOPIC:-/benchmark/events}"
     consumer_name: "${PQ_CONSUMER_S3:-transferia-benchmark-s3}-${BENCHMARK_REPETITION:-manual}"
     partition_group_ids: [0]
@@ -43,7 +44,8 @@ sink:
     object_layout_version: 5
     prefix: "${S3_PREFIX:-pqv1-s3}/${BENCHMARK_RUN_NAMESPACE:-manual}"
     region: "${S3_REGION:-us-east-1}"
-    endpoint: "${S3_ENDPOINT:-http://localhost:9002}"
+    host: "${S3_HOST:-localhost}"
+    port: ${S3_PORT:-9002}
     allow_http: true
     credentials:
       access_key: "${S3_ACCESS_KEY:-test}"

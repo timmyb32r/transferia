@@ -181,7 +181,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
 
     let source = PostgresSourceProvider::from_config(
         serde_yaml::from_str(&format!(
-            "connection: '{pg_connection}'\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  - name: events\n"
+            "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  - name: events\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -212,7 +212,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     let ch_http = clickhouse.get_host_port_ipv4(8123.tcp()).await?;
     wait_for_tcp(&ch_host, ch_native).await?;
     let clickhouse_sink = ClickHouseSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "endpoint: '{ch_host}:{ch_native}'\ntrusted_plaintext: true\nflush_interval_ms: 10\n"
+        "hosts: ['{ch_host}']\nport: {ch_native}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
     ))?)?;
     let mut last_error = None;
     for _ in 0..50 {
@@ -283,7 +283,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         "LocalStack bucket creation failed: {create_bucket_stderr}"
     );
     let s3_yaml = format!(
-        "bucket: postgres-source-e2e\nobject_layout_version: 5\nprefix: pg\nregion: us-east-1\nendpoint: 'http://{s3_host}:{s3_port}'\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
+        "bucket: postgres-source-e2e\nobject_layout_version: 5\nprefix: pg\nregion: us-east-1\nhost: '{s3_host}'\nport: {s3_port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
     );
     let s3_sink = S3SinkProvider::from_config(serde_yaml::from_str(&s3_yaml)?)?;
     run_pipeline(&source, &s3_sink, Arc::clone(&discovery)).await?;
@@ -334,7 +334,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         }],
     });
     let postgres_sink = PostgresSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "connection: '{pg_connection}'\ntrusted_plaintext: true\ncreate_tables: true\n"
+        "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\n"
     ))?)?;
     postgres_sink.limits().validate_discovery(&copy_discovery)?;
     postgres_sink

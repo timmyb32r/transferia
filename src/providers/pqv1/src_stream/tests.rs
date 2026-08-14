@@ -51,13 +51,13 @@ fn proxy_failure_aggregation_preserves_a_fatal_disposition() {
 
 fn config(partition_group_ids: &str, extra: &str) -> String {
     format!(
-        "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_group_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
+        "host: localhost\nport: 2135\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\n{partition_group_ids}{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  benchmark_discard: {{}}\n"
     )
 }
 
 fn json_config(extra: &str) -> String {
     format!(
-        "discovery_endpoint: grpc://localhost\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_group_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        json_data_type: integer\n        arrow_type: Int64\n        nullable: false\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
+        "host: localhost\nport: 2135\ntopic_path: topic\nconsumer_name: consumer\nauth: {{ type: access_token, token: test }}\npartition_group_ids: [0]\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - jsonpath: $.id\n        column_name: id\n        json_data_type: integer\n        arrow_type: Int64\n        nullable: false\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
     )
 }
 
@@ -147,12 +147,8 @@ fn rejects_unreasonably_short_network_timeout() {
 }
 
 #[test]
-fn rejects_unknown_discovery_endpoint_field() {
-    let invalid = config("partition_group_ids: [0]\n", "").replacen(
-        "discovery_endpoint:",
-        "discovery_endpoint_typo:",
-        1,
-    );
+fn rejects_unknown_host_field() {
+    let invalid = config("partition_group_ids: [0]\n", "").replacen("host:", "host_typo:", 1);
     assert!(provider(&invalid).is_err());
 }
 

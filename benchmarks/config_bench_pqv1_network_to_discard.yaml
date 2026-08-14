@@ -6,7 +6,8 @@ delivery_id: benchmark-pqv1-network
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   pqv1:
-    discovery_endpoint: "${PQ_ENDPOINT:-grpc://localhost:2136}"
+    host: "${PQ_HOST:-localhost}"
+    port: ${PQ_PORT:-2136}
     topic_path: "${PQ_TOPIC:-/benchmark/events}"
     consumer_name: "${PQ_CONSUMER_NETWORK:-transferia-benchmark-network}-${BENCHMARK_REPETITION:-manual}"
     partition_group_ids: [0]

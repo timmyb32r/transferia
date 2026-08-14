@@ -282,7 +282,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "pqv1",
             serde_json::json!({
-                "discovery_endpoint": "grpc://localhost:2135",
+                "host": "localhost",
+                "port": 2135,
                 "topic_path": "/demo/events",
                 "consumer_name": "transferia-demo",
                 "partition_group_ids": [0],
@@ -296,7 +297,11 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "postgres",
             serde_json::json!({
-                "connection": "host=localhost port=5432 user=postgres password=postgres dbname=postgres",
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "username": "postgres",
+                "password": "postgres",
                 "trusted_plaintext": true,
                 "tables": [{ "schema": "public", "name": "events" }],
                 "batch_rows": 65536
@@ -305,12 +310,13 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "clickhouse",
             serde_json::json!({
-                "endpoint": "localhost:9000",
+                "hosts": ["localhost"],
+                "port": 9000,
                 "trusted_plaintext": true,
-                "username": "default",
+                "username": "",
                 "password": "",
                 "tables": [{
-                    "database": "default",
+                    "database": "",
                     "name": "events",
                     "output_name": "events",
                     "order_by": ["id"]
@@ -326,7 +332,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "bucket": "demo",
                 "prefix": "input",
                 "region": "us-east-1",
-                "endpoint": "http://localhost:4566",
+                "host": "localhost",
+                "port": 4566,
                 "allow_http": true,
                 "credentials": { "access_key": "test", "secret_key": "test" },
                 "parser": json_parser_preset(),
@@ -336,7 +343,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "ytsaurus",
             serde_json::json!({
-                "endpoint": "http://localhost:8000",
+                "host": "localhost",
+                "port": 8000,
                 "trusted_plaintext": true,
                 "timeout_ms": 30000,
                 "tables": [{ "path": "//home/demo/events", "output_name": "events" }],
@@ -348,10 +356,11 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "clickhouse",
             serde_json::json!({
-                "endpoint": "localhost:9000",
+                "hosts": ["localhost"],
+                "port": 9000,
                 "trusted_plaintext": true,
-                "database": "default",
-                "username": "default",
+                "database": "",
+                "username": "",
                 "password": "",
                 "insert_target_rows": 100_000,
                 "insert_target_bytes": 67_108_864,
@@ -359,14 +368,17 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "retry_initial_ms": 50,
                 "retry_max_ms": 30000,
                 "connect_timeout_ms": 30000,
-                "request_timeout_ms": 30000,
-                "sorting_key": []
+                "request_timeout_ms": 30000
             }),
         ),
         (
             "postgres",
             serde_json::json!({
-                "connection": "host=localhost port=5432 user=postgres password=postgres dbname=postgres",
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "username": "postgres",
+                "password": "postgres",
                 "trusted_plaintext": true,
                 "create_tables": true
             }),
@@ -374,7 +386,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "pqv1",
             serde_json::json!({
-                "endpoint": "grpc://localhost:2135",
+                "host": "localhost",
+                "port": 2135,
                 "topic_path": "/demo/output",
                 "message_group_id": "transferia-demo",
                 "partition_group_id": 0,
@@ -389,7 +402,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
                 "bucket": "demo",
                 "object_layout_version": 5,
                 "region": "us-east-1",
-                "endpoint": "http://localhost:4566",
+                "host": "localhost",
+                "port": 4566,
                 "allow_http": true,
                 "credentials": { "access_key": "test", "secret_key": "test" },
                 "partitioning": { "type": "source" },
@@ -402,7 +416,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "ytsaurus",
             serde_json::json!({
-                "endpoint": "http://localhost:8000",
+                "host": "localhost",
+                "port": 8000,
                 "trusted_plaintext": true,
                 "timeout_ms": 30000,
                 "tables": [{ "dataset": "events", "path": "//home/demo/events_out" }],

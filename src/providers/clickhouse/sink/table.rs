@@ -56,10 +56,6 @@ pub(super) async fn prepare_tables(
             .map(|column| column.name.clone())
             .collect::<Vec<_>>();
         let sorting_key: &[String] = if dataset.role == crate::delivery::DatasetRole::Main {
-            anyhow::ensure!(
-                config.sorting_key.is_empty() || config.sorting_key == schema_primary_key,
-                "clickhouse.sorting_key must be empty or exactly match json_parser.primary_key {schema_primary_key:?}"
-            );
             &schema_primary_key
         } else {
             &[]
@@ -71,7 +67,7 @@ pub(super) async fn prepare_tables(
                     .columns
                     .iter()
                     .any(|column| &column.name == key),
-                "clickhouse.sorting_key column '{key}' is absent from dataset '{}'",
+                "derived ClickHouse sorting-key column '{key}' is absent from dataset '{}'",
                 dataset.table,
             );
         }
@@ -109,7 +105,7 @@ fn create_table_ddl(
     for key in sorting_key {
         anyhow::ensure!(
             unique_sorting_keys.insert(key.as_str()),
-            "clickhouse.sorting_key contains duplicate column '{key}'"
+            "discovered primary key contains duplicate column '{key}'"
         );
     }
     let sorting_key = sorting_key

@@ -1,7 +1,7 @@
 use arrow::datatypes::DataType;
 
 use super::*;
-use crate::delivery::{DiscoveredDataset, SchemaOrigin};
+use crate::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
@@ -35,7 +35,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
 #[tokio::test]
 async fn provider_constructs_shared_client_without_connecting() -> anyhow::Result<()> {
     let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
-        "endpoint: 127.0.0.1:1\ntrusted_plaintext: true\nconnect_timeout_ms: 1\n",
+        "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: default\nusername: default\nconnect_timeout_ms: 1\n",
     )?)?;
 
     let first = Arc::clone(&provider.client);
@@ -48,7 +48,7 @@ async fn provider_constructs_shared_client_without_connecting() -> anyhow::Resul
 #[test]
 fn limits_are_declarative_and_validate_discovered_schema() -> anyhow::Result<()> {
     let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(
-        "endpoint: 127.0.0.1:1\ntrusted_plaintext: true\nsorting_key: [value]\n",
+        "hosts: [127.0.0.1]\nport: 1\ntrusted_plaintext: true\ndatabase: default\nusername: default\n",
     )?)?;
 
     let description = provider.limits().description();

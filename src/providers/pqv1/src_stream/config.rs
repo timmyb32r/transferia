@@ -7,7 +7,8 @@ use crate::providers::pqv1::config::{default_network_timeout_ms, PqV1AuthConfig}
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SourceConfig {
-    pub discovery_endpoint: String,
+    pub host: String,
+    pub port: u16,
     pub topic_path: String,
     pub consumer_name: String,
     pub auth: PqV1AuthConfig,
@@ -25,6 +26,12 @@ pub struct PqV1SourceConfig {
     pub decompression_concurrency: usize,
     #[serde(default)]
     pub benchmark_discard_before_decompression: bool,
+}
+
+impl PqV1SourceConfig {
+    pub(super) fn discovery_endpoint(&self) -> String {
+        crate::providers::address::url("grpc", &self.host, self.port)
+    }
 }
 
 const fn default_decompression_concurrency() -> usize {

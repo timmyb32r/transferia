@@ -1,10 +1,48 @@
 use arrow::datatypes::{DataType, TimeUnit};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use tokio_postgres::types::Type;
 
 pub const MAX_IDENTIFIER_BYTES: usize = 63;
 
-pub async fn connect(connection: &str) -> anyhow::Result<tokio_postgres::Client> {
-    let (client, connection) = tokio_postgres::connect(connection, tokio_postgres::NoTls).await?;
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PostgresConnectionConfig {
+    pub host: String,
+    pub port: u16,
+    pub database: String,
+    pub username: String,
+    #[schemars(extend("x-ui" = { "widget": "password" }))]
+    pub password: String,
+    pub trusted_plaintext: bool,
+}
+
+impl PostgresConnectionConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        crate::providers::address::validate_host("postgres.host", &self.host)?;
+        crate::providers::address::validate_port("postgres.port", self.port)?;
+        anyhow::ensure!(
+            !self.database.is_empty(),
+            "postgres.database must not be empty"
+        );
+        anyhow::ensure!(
+            !self.username.is_empty(),
+            "postgres.username must not be empty"
+        );
+        anyhow::ensure!(self.trusted_plaintext, "postgres.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
+        Ok(())
+    }
+}
+
+pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_postgres::Client> {
+    let mut connection_config = tokio_postgres::Config::new();
+    connection_config
+        .host(&config.host)
+        .port(config.port)
+        .dbname(&config.database)
+        .user(&config.username)
+        .password(&config.password);
+    let (client, connection) = connection_config.connect(tokio_postgres::NoTls).await?;
     tokio::spawn(async move {
         if let Err(error) = connection.await {
             tracing::error!("PostgreSQL connection failed: {error}");

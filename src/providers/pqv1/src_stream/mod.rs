@@ -151,10 +151,8 @@ impl PqV1SourceProvider {
     ) -> anyhow::Result<Self> {
         let cfg: PqV1SourceConfig = serde_yaml::from_value(value)
             .map_err(|e| anyhow::anyhow!("Failed to parse PQv1 source config: {e}"))?;
-        if cfg.discovery_endpoint.is_empty() {
-            anyhow::bail!("pqv1.discovery_endpoint must not be empty");
-        }
-        parse_endpoint(&cfg.discovery_endpoint)?;
+        crate::providers::address::validate_host("pqv1.host", &cfg.host)?;
+        crate::providers::address::validate_port("pqv1.port", cfg.port)?;
         if cfg.topic_path.is_empty() {
             anyhow::bail!("pqv1.topic_path must not be empty");
         }
@@ -409,14 +407,15 @@ impl SourceProvider for PqV1SourceProvider {
             validate_partition_group_ids(&cfg.partition_group_ids)?;
             let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
+            let discovery_endpoint = cfg.discovery_endpoint();
             let endpoints = PqV1Client::discover_endpoints(
-                &cfg.discovery_endpoint,
+                &discovery_endpoint,
                 token.as_ref(),
                 network_timeout,
                 &cancellation,
             );
             let topic = PqV1Client::describe_topic(
-                &cfg.discovery_endpoint,
+                &discovery_endpoint,
                 &cfg.topic_path,
                 token.as_ref(),
                 network_timeout,
@@ -466,9 +465,10 @@ impl SourceProvider for PqV1SourceProvider {
             // value across all partition starts and retries.
             let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
+            let discovery_endpoint = cfg.discovery_endpoint();
             let mut proxies = resolve_proxies_cached(
                 Arc::clone(&endpoint_cache),
-                &cfg.discovery_endpoint,
+                &discovery_endpoint,
                 token.as_ref(),
                 network_timeout,
                 &cancel_token,

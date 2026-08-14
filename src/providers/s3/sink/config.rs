@@ -41,7 +41,9 @@ pub struct S3SinkConfig {
     #[serde(default = "default_region")]
     pub region: String,
     #[serde(default)]
-    pub endpoint: Option<String>,
+    pub host: Option<String>,
+    #[serde(default)]
+    pub port: Option<u16>,
     #[serde(default)]
     pub allow_http: bool,
     #[serde(default)]
@@ -231,6 +233,14 @@ fn parse_human_value(value: &str, suffixes: &[(&str, u64)]) -> anyhow::Result<u6
 impl S3SinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
+        anyhow::ensure!(
+            self.host.is_some() == self.port.is_some(),
+            "s3.host and s3.port must be configured together"
+        );
+        if let (Some(host), Some(port)) = (&self.host, self.port) {
+            crate::providers::address::validate_host("s3.host", host)?;
+            crate::providers::address::validate_port("s3.port", port)?;
+        }
         if !self.prefix.is_empty() {
             let parsed = object_store::path::Path::parse(&self.prefix)
                 .map_err(|error| anyhow::anyhow!("invalid s3.prefix {:?}: {error}", self.prefix))?;
@@ -392,7 +402,7 @@ impl S3SinkConfig {
             .with_region(&self.region)
             .with_allow_http(self.allow_http)
             .with_retry(store_retry);
-        if let Some(endpoint) = &self.endpoint {
+        if let Some(endpoint) = self.custom_endpoint() {
             builder = builder.with_endpoint(endpoint);
         }
         if let Some(credentials) = &self.credentials {
@@ -401,6 +411,16 @@ impl S3SinkConfig {
                 .with_secret_access_key(&credentials.secret_key);
         }
         Ok(std::sync::Arc::new(builder.build()?))
+    }
+
+    fn custom_endpoint(&self) -> Option<String> {
+        self.host.as_ref().zip(self.port).map(|(host, port)| {
+            crate::providers::address::url(
+                if self.allow_http { "http" } else { "https" },
+                host,
+                port,
+            )
+        })
     }
 }
 

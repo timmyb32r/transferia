@@ -9,8 +9,8 @@ use super::transport::NativeTransport;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{
-    validate_stored_projection, ArrowTypeFamily, DatasetRole, DeliveryDiscovery, NameSyntax,
-    SinkLimits, SinkLimitsDescription, TextLimit,
+    validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
+    SinkLimitsDescription, TextLimit,
 };
 use crate::pipeline::sink::Sink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
@@ -78,25 +78,6 @@ impl SinkLimits for ClickHouseSinkConfig {
                     dataset.role, dataset.name,
                 ))
             })?;
-        }
-
-        for main in discovery
-            .datasets
-            .iter()
-            .filter(|dataset| dataset.role == DatasetRole::Main)
-        {
-            let primary_key = main
-                .stored_schema
-                .columns
-                .iter()
-                .filter(|column| column.primary_key)
-                .map(|column| column.name.as_str())
-                .collect::<Vec<_>>();
-            anyhow::ensure!(
-                self.sorting_key.is_empty()
-                    || self.sorting_key.iter().map(String::as_str).eq(primary_key.iter().copied()),
-                "clickhouse.sorting_key must be empty or exactly match json_parser.primary_key {primary_key:?}"
-            );
         }
         Ok(())
     }

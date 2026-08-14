@@ -235,7 +235,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     create_table(&client, &endpoint, "//tmp/input").await?;
 
     let arrow_provider = YTsaurusSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "endpoint: {endpoint}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\ntables:\n  - dataset: events\n    path: //tmp/arrow_output\n"
+        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\ntables:\n  - dataset: events\n    path: //tmp/arrow_output\n"
     ))?)?;
     let discovered = discovery();
     arrow_provider.limits().validate_discovery(&discovered)?;
@@ -260,7 +260,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     .await?;
 
     let yson_provider = YTsaurusSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "endpoint: {endpoint}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\ntables:\n  - dataset: events\n    path: //tmp/yson_output\n"
+        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\ntables:\n  - dataset: events\n    path: //tmp/yson_output\n"
     ))?)?;
     yson_provider.limits().validate_discovery(&discovered)?;
     yson_provider
@@ -317,7 +317,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceProvider::from_config(
         serde_yaml::from_str(&format!(
-            "endpoint: {endpoint}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+            "host: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n    output_name: events\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

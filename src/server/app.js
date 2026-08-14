@@ -3,6 +3,8 @@ const $ = selector => document.querySelector(selector);
 let definition;
 let formData;
 let timer;
+let discoveryController;
+let discoverySequence = 0;
 let lastDiscoveryValid = false;
 
 const containers = {
@@ -238,10 +240,23 @@ function renderUnion(schema, value, path, name, options = {}) {
 
 function renderObjectFields(schema, value, path, target, excluded = new Set()) {
   const resolved = resolveSchema(schema);
-  for (const [propertyName, propertySchema] of Object.entries(resolved.properties || {})) {
-    if (excluded.has(propertyName)) continue;
+  const properties = Object.entries(resolved.properties || {})
+    .filter(([propertyName]) => !excluded.has(propertyName));
+  const regular = properties.filter(([, propertySchema]) => resolveSchema(propertySchema)['x-ui']?.section !== 'advanced');
+  const advanced = properties.filter(([, propertySchema]) => resolveSchema(propertySchema)['x-ui']?.section === 'advanced');
+  for (const [propertyName, propertySchema] of regular) {
     const propertyPath = [...path, propertyName];
     target.append(renderNode(propertySchema, value?.[propertyName], propertyPath, propertyName));
+  }
+  if (advanced.length) {
+    const details = element('details', 'advanced-settings');
+    const summary = element('summary', '', 'Расширенные настройки');
+    const body = element('div', 'advanced-settings-body');
+    for (const [propertyName, propertySchema] of advanced) {
+      body.append(renderNode(propertySchema, value?.[propertyName], [...path, propertyName], propertyName));
+    }
+    details.append(summary, body);
+    target.append(details);
   }
 }
 
@@ -305,7 +320,7 @@ function renderScalar(schema, value, path, name) {
     input.id = id;
     input.checked = Boolean(value);
     const visual = element('span', 'switch');
-    const row = element('div', 'switch-row');
+    const row = element('label', 'switch-row');
     row.append(input, visual, element('span', '', input.checked ? 'Enabled' : 'Disabled'));
     input.onchange = () => {
       row.lastChild.textContent = input.checked ? 'Enabled' : 'Disabled';
@@ -403,23 +418,43 @@ function setValidation(mode, message) {
   state.innerHTML = `<i></i>${escapeHtml(message)}`;
 }
 
+function renderDiscoveryLoading() {
+  $('#error').textContent = '';
+  $('#schema').innerHTML = '<div class="discovery-loading"><span class="spinner" aria-hidden="true"></span><strong>Проверяем подключение</strong><p>Discovery выполняется в фоне — форму можно продолжать редактировать.</p></div>';
+}
+
 function scheduleDiscovery() {
   clearTimeout(timer);
+  discoveryController?.abort();
+  discoveryController = undefined;
+  const sequence = ++discoverySequence;
   lastDiscoveryValid = false;
   $('#save').disabled = true;
   setValidation('checking', 'Checking contract');
+  renderDiscoveryLoading();
   timer = setTimeout(async () => {
+    if (sequence !== discoverySequence) return;
+    const controller = new AbortController();
+    discoveryController = controller;
     try {
-      const result = await api('/api/discover', {method: 'POST', body: JSON.stringify({config: formData})});
+      const result = await api('/api/discover', {
+        method: 'POST',
+        body: JSON.stringify({config: formData}),
+        signal: controller.signal
+      });
+      if (sequence !== discoverySequence) return;
       $('#error').textContent = '';
       renderSchema(result);
       lastDiscoveryValid = true;
       $('#save').disabled = false;
       setValidation('valid', 'Contract valid');
     } catch (error) {
+      if (controller.signal.aborted || sequence !== discoverySequence) return;
       $('#schema').innerHTML = '<div class="empty-state"><span>!</span><p>Discovery will resume when the configuration is valid and the source is reachable.</p></div>';
       $('#error').textContent = error.message;
       setValidation('invalid', 'Needs attention');
+    } finally {
+      if (discoveryController === controller) discoveryController = undefined;
     }
   }, 450);
 }
@@ -457,6 +492,9 @@ $('#create').onclick = () => {
 
 $('#cancel').onclick = () => {
   clearTimeout(timer);
+  discoveryController?.abort();
+  discoveryController = undefined;
+  discoverySequence += 1;
   $('#editor').classList.add('hidden');
   $('#deliveries-view').classList.remove('hidden');
 };

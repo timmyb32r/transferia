@@ -59,7 +59,7 @@ impl PqV1Sink {
     }
 
     async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
-        let host = parse_endpoint(&self.config.endpoint)?;
+        let host = parse_endpoint(&self.config.endpoint())?;
         let uri = http_uri(&host)?;
         let transport =
             connect_http2_prior_knowledge(&uri, self.config.network_timeout(), &io.cancellation)
