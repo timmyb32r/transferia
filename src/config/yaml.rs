@@ -11,15 +11,22 @@ use crate::middleware::MiddlewareEntry;
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub delivery_id: String,
+
     pub durable_storage: DurableStorageConfig,
+
     pub source: SourceEntry,
+
     pub sink: SinkEntry,
+
     #[serde(default)]
     pub middlewares: Vec<MiddlewareEntry>,
+
     #[serde(default = "default_pipeline_memory_limit")]
     pub pipeline_memory_limit_bytes: usize,
+
     #[serde(default)]
     pub keep_system_columns_in_sink: bool,
+
     #[serde(default)]
     pub metrics: Option<MetricsConfig>,
 }

@@ -8,7 +8,9 @@ use crate::providers::postgres::common::{validate_identifier, PostgresConnection
 pub struct PostgresSourceConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
+
     pub tables: Vec<TableConfig>,
+
     #[serde(default = "default_batch_rows")]
     pub batch_rows: usize,
 }
@@ -18,6 +20,7 @@ pub struct PostgresSourceConfig {
 pub struct TableConfig {
     #[serde(default = "default_schema")]
     pub schema: String,
+
     pub name: String,
 }
 

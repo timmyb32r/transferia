@@ -8,6 +8,7 @@ use crate::providers::postgres::common::PostgresConnectionConfig;
 pub struct PostgresSinkConfig {
     #[serde(flatten)]
     pub connection: PostgresConnectionConfig,
+
     pub create_tables: bool,
 }
 

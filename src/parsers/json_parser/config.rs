@@ -12,13 +12,18 @@ use crate::types::system_columns::SystemColumnKind;
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
     pub columns: Vec<ColumnMapping>,
+
     /// How incoming message bytes are split into individual JSON objects.
     #[serde(default)]
     pub chunk_splitter: ChunkSplitter,
+
     pub conversion_error: ConversionErrorPolicy,
+
     pub unknown_fields: UnknownFieldPolicy,
+
     #[serde(default)]
     pub primary_key: Vec<String>,
+
     #[serde(default)]
     pub system_column_names: SystemColumnNames,
 }
@@ -68,9 +73,13 @@ impl JsonParserConfig {
 #[serde(deny_unknown_fields)]
 pub struct SystemColumnNames {
     pub topic: Option<String>,
+
     pub partition: Option<String>,
+
     pub offset: Option<String>,
+
     pub message_index: Option<String>,
+
     pub write_timestamp_ms: Option<String>,
 }
 
@@ -179,15 +188,22 @@ pub enum TimeConversion {
 #[serde(deny_unknown_fields)]
 pub struct ColumnMapping {
     pub jsonpath: String,
+
     pub column_name: String,
+
     pub json_data_type: JsonDataType,
+
     pub arrow_type: String,
+
     #[serde(default)]
     pub nullable: bool,
+
     #[serde(default)]
     pub time_conversion: Option<TimeConversion>,
+
     #[serde(default)]
     pub low_cardinality: bool,
+
     #[serde(default)]
     pub max_length: Option<usize>,
 }

@@ -3,7 +3,7 @@ durable_storage: { type: local_file, path: .transferia-state }
 source:
   clickhouse:
     hosts: [localhost]
-    port: 9000
+    port: 9440
     trusted_plaintext: true
     username: default
     tables:

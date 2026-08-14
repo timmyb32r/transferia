@@ -36,7 +36,7 @@ pipeline_memory_limit_bytes: 268435456
 sink:
   clickhouse:
     hosts: ["${CLICKHOUSE_HOST:-localhost}"]
-    port: ${CLICKHOUSE_PORT:-9000}
+    port: ${CLICKHOUSE_PORT:-9440}
     trusted_plaintext: true
     database: "${CLICKHOUSE_DATABASE:-default}"
     username: "${CLICKHOUSE_USERNAME:-default}"

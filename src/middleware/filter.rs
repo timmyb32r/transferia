@@ -15,6 +15,7 @@ use crate::types::table_data::TableData;
 #[serde(deny_unknown_fields)]
 pub struct FilterConfig {
     pub field: String,
+
     pub value: String,
 }
 

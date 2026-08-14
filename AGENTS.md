@@ -164,6 +164,13 @@ not executed.
 
 ## Change hygiene
 
+- In every non-empty Rust configuration struct and struct-like configuration
+  enum variant, separate adjacent fields with exactly one blank line. A field's
+  doc comments and attributes belong to that field: keep them together without
+  blank lines, and put the separator before the comments or attributes of the
+  following field. Apply this convention to shared, nested, provider, parser,
+  sink, source, and internal configuration types alike, even when a helper type
+  does not have a `Config` suffix.
 - Search for and remove obsolete names, options, comments, tests, and docs after
   each conceptual change.
 - Keep the working tree's unrelated user changes intact.

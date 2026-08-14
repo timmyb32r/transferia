@@ -135,9 +135,13 @@ pub struct S3Sink {
 
 struct S3ActorConfig {
     prefix: String,
+
     rotation: super::config::RotationConfig,
+
     buffering: super::config::BufferingConfig,
+
     retry: super::config::RetryConfig,
+
     max_in_flight_objects: usize,
 }
 

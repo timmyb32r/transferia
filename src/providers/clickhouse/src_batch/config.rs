@@ -10,18 +10,26 @@ use crate::providers::clickhouse::sink::identifier::validate_identifier;
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSourceConfig {
     pub hosts: Vec<String>,
+
     #[schemars(description = "native port")]
     pub port: u16,
+
     pub trusted_plaintext: bool,
+
     pub username: String,
+
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
+
     pub tables: Vec<TableConfig>,
+
     #[serde(default = "default_batch_rows")]
     pub batch_rows: usize,
+
     #[serde(default = "default_connect_timeout_ms")]
     pub connect_timeout_ms: u64,
+
     #[serde(default = "default_request_timeout_ms")]
     pub request_timeout_ms: u64,
 }
@@ -30,8 +38,11 @@ pub struct ClickHouseSourceConfig {
 #[serde(deny_unknown_fields)]
 pub struct TableConfig {
     pub database: String,
+
     pub name: String,
+
     pub output_name: String,
+
     pub order_by: Vec<String>,
 }
 

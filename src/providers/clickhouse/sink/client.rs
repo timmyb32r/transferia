@@ -289,8 +289,9 @@ async fn connect_first_available(
         }
     }
     Err(ClickHouseError::Client(format!(
-        "ClickHouse native protocol connection failed for every configured host: {}. Verify that clickhouse.port is the native port (usually 9000 for plaintext), not the HTTP port",
-        errors.join("; ")
+        "ClickHouse native protocol connection failed for every configured host: {}. Verify that clickhouse.port is the native port (default: {}), not the HTTP port",
+        errors.join("; "),
+        crate::providers::clickhouse::DEFAULT_NATIVE_PORT
     )))
 }
 

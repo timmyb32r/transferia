@@ -12,7 +12,7 @@ source:
 sink:
   clickhouse:
     hosts: [localhost]
-    port: 9000
+    port: 9440
     trusted_plaintext: true
     database: default
     username: default

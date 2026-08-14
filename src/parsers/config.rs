@@ -20,12 +20,14 @@ pub enum ParserSchema {
 #[derive(JsonSchema)]
 pub struct JsonParserSchema {
     pub common: CommonParserConfig,
+
     pub json_parser: JsonParserConfig,
 }
 
 #[derive(JsonSchema)]
 pub struct BenchmarkDiscardParserSchema {
     pub common: CommonParserConfig,
+
     pub benchmark_discard: EmptyParserConfig,
 }
 
@@ -35,6 +37,7 @@ pub struct EmptyParserConfig {}
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ParserConfig {
     pub common: CommonParserConfig,
+
     #[serde(flatten)]
     #[schemars(skip)]
     pub parser: ParserEntry,
@@ -44,6 +47,7 @@ pub struct ParserConfig {
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
     pub table_naming: TableNaming,
+
     #[serde(default)]
     pub system_columns: SystemColumnsConfig,
 }
@@ -57,12 +61,16 @@ pub struct CommonParserConfig {
 pub struct SystemColumnsConfig {
     #[serde(default)]
     pub topic: bool,
+
     #[serde(default)]
     pub partition: bool,
+
     #[serde(default)]
     pub offset: bool,
+
     #[serde(default)]
     pub message_index: bool,
+
     #[serde(default)]
     pub write_timestamp_ms: bool,
 }

@@ -11,11 +11,15 @@ const DEFAULT_BATCH_ROWS: usize = 65_536;
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
     pub host: String,
+
     pub port: u16,
+
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub token: Option<String>,
+
     pub trusted_plaintext: bool,
+
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
 }
@@ -53,7 +57,9 @@ impl YTsaurusConnectionConfig {
 pub struct YTsaurusSourceConfig {
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
+
     pub tables: Vec<SourceTableConfig>,
+
     #[serde(default = "default_batch_rows")]
     pub batch_rows: usize,
 }
@@ -62,6 +68,7 @@ pub struct YTsaurusSourceConfig {
 #[serde(deny_unknown_fields)]
 pub struct SourceTableConfig {
     pub path: String,
+
     pub output_name: String,
 }
 
@@ -106,8 +113,11 @@ pub enum YTsaurusWriteFormat {
 pub struct YTsaurusSinkConfig {
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
+
     pub tables: Vec<SinkTableConfig>,
+
     pub replace_tables: bool,
+
     #[serde(default)]
     pub format: YTsaurusWriteFormat,
 }
@@ -116,6 +126,7 @@ pub struct YTsaurusSinkConfig {
 #[serde(deny_unknown_fields)]
 pub struct SinkTableConfig {
     pub dataset: String,
+
     pub path: String,
 }
 

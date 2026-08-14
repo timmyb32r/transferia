@@ -1,6 +1,8 @@
 pub mod sink;
 pub mod src_batch;
 
+pub const DEFAULT_NATIVE_PORT: u16 = 9440;
+
 pub use sink::{
     ClickHouseSink, ClickHouseSinkConfig, ClickHouseSinkProvider, InsertError, InsertTransport,
 };

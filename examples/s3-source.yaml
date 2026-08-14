@@ -30,7 +30,7 @@ keep_system_columns_in_sink: false
 sink:
   clickhouse:
     hosts: [clickhouse.internal]
-    port: 9000
+    port: 9440
     database: default
     username: default
     trusted_plaintext: true

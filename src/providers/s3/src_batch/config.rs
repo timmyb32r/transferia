@@ -11,20 +11,28 @@ use crate::providers::s3::sink::S3CredentialsConfig;
 #[serde(deny_unknown_fields)]
 pub struct S3SourceConfig {
     pub bucket: String,
+
     #[serde(default)]
     pub prefix: String,
+
     #[serde(default = "default_region")]
     pub region: String,
+
     #[serde(default)]
     pub host: Option<String>,
+
     #[serde(default)]
     pub port: Option<u16>,
+
     #[serde(default)]
     pub allow_http: bool,
+
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
+
     #[schemars(with = "crate::parsers::config::JsonParserSchema")]
     pub parser: ParserConfig,
+
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
 }

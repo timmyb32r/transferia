@@ -36,8 +36,10 @@ const NANOS_PER_SEC_F: f64 = 1_000_000_000.0;
 pub struct MetricsConfig {
     #[serde(default)]
     pub enabled: bool,
+
     #[serde(default = "default_metrics_interval_ms")]
     pub interval_ms: u64,
+
     #[serde(default)]
     pub per_partition: bool,
 }

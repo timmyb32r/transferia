@@ -33,6 +33,14 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     assert!(!schema.contains("sorting_key"));
     assert!(definition.source_presets.contains_key("s3"));
     assert!(definition.sink_presets.contains_key("discard"));
+    assert_eq!(
+        definition.source_presets["clickhouse"]["port"],
+        transferia::providers::clickhouse::DEFAULT_NATIVE_PORT
+    );
+    assert_eq!(
+        definition.sink_presets["clickhouse"]["port"],
+        transferia::providers::clickhouse::DEFAULT_NATIVE_PORT
+    );
     assert_eq!(definition.sink_presets["clickhouse"]["database"], "");
     assert_eq!(definition.sink_presets["clickhouse"]["username"], "");
     Ok(())

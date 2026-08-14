@@ -9,11 +9,16 @@ pub const MAX_IDENTIFIER_BYTES: usize = 63;
 #[serde(deny_unknown_fields)]
 pub struct PostgresConnectionConfig {
     pub host: String,
+
     pub port: u16,
+
     pub database: String,
+
     pub username: String,
+
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
+
     pub trusted_plaintext: bool,
 }
 

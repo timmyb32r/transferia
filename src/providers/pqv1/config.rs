@@ -8,8 +8,10 @@ use serde::Deserialize;
 pub struct PqV1AuthConfig {
     #[serde(rename = "type")]
     pub auth_type: String,
+
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub token: Option<String>,
+
     pub token_file: Option<String>,
 }
 
@@ -53,12 +55,19 @@ impl fmt::Debug for PqV1AuthConfig {
 #[serde(deny_unknown_fields)]
 pub struct PqV1SinkConfig {
     pub host: String,
+
     pub port: u16,
+
     pub topic_path: String,
+
     pub message_group_id: String,
+
     pub partition_group_id: i64,
+
     pub auth: PqV1AuthConfig,
+
     pub trusted_plaintext: bool,
+
     #[serde(default = "default_network_timeout_ms")]
     pub network_timeout_ms: u64,
 }

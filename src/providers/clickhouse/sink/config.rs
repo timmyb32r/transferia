@@ -8,37 +8,50 @@ use serde_yaml::Value;
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSinkConfig {
     pub hosts: Vec<String>,
+
     #[schemars(description = "native port")]
     pub port: u16,
+
     /// Explicit acknowledgement that the native hop is plaintext and must be
     /// protected by a trusted local network boundary or verified TLS tunnel.
     pub trusted_plaintext: bool,
+
     pub database: String,
+
     pub username: String,
+
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
+
     #[serde(default = "default_insert_rows")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub insert_target_rows: usize,
+
     #[serde(default = "default_insert_bytes")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub insert_target_bytes: usize,
+
     #[serde(default = "default_flush_interval")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub flush_interval_ms: u64,
+
     #[serde(default = "default_retry_initial")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_initial_ms: u64,
+
     #[serde(default = "default_retry_max")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_max_ms: u64,
+
     #[serde(default)]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry_max_attempts: Option<u32>,
+
     #[serde(default = "default_connect_timeout")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub connect_timeout_ms: u64,
+
     #[serde(default = "default_request_timeout")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub request_timeout_ms: u64,
@@ -153,7 +166,8 @@ pub fn validate_native_port(port: u16) -> anyhow::Result<()> {
     crate::providers::address::validate_port("clickhouse.port", port)?;
     anyhow::ensure!(
         !matches!(port, 8123 | 8443),
-        "clickhouse.port {port} is a ClickHouse HTTP port, but this provider uses the native protocol; configure the native port (usually 9000 for plaintext)"
+        "clickhouse.port {port} is a ClickHouse HTTP port, but this provider uses the native protocol; configure the native port (default: {})",
+        crate::providers::clickhouse::DEFAULT_NATIVE_PORT
     );
     Ok(())
 }

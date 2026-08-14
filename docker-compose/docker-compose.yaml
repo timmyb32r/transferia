@@ -33,7 +33,7 @@ services:
     container_name: clickhouse
     hostname: clickhouse
     ports:
-      - "9000:9000"    # Native Protocol
+      - "9440:9000"    # Native Protocol
       - "8123:8123"    # HTTP Interface
     environment:
       CLICKHOUSE_DB: default

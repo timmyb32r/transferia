@@ -311,7 +311,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
             "clickhouse",
             serde_json::json!({
                 "hosts": ["localhost"],
-                "port": 9000,
+                "port": transferia::providers::clickhouse::DEFAULT_NATIVE_PORT,
                 "trusted_plaintext": true,
                 "username": "",
                 "password": "",
@@ -357,7 +357,7 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
             "clickhouse",
             serde_json::json!({
                 "hosts": ["localhost"],
-                "port": 9000,
+                "port": transferia::providers::clickhouse::DEFAULT_NATIVE_PORT,
                 "trusted_plaintext": true,
                 "database": "",
                 "username": "",

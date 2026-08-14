@@ -14,6 +14,7 @@ const MIB: usize = 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub struct S3CredentialsConfig {
     pub access_key: String,
+
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub secret_key: String,
 }
@@ -32,30 +33,42 @@ impl fmt::Debug for S3CredentialsConfig {
 #[serde(deny_unknown_fields)]
 pub struct S3SinkConfig {
     pub bucket: String,
+
     /// Version of the deterministic object key/payload/epoch contract. Keep
     /// this pinned while uncommitted source data can replay.
     #[serde(default = "default_object_layout_version")]
     pub object_layout_version: u32,
+
     #[serde(default)]
     pub prefix: String,
+
     #[serde(default = "default_region")]
     pub region: String,
+
     #[serde(default)]
     pub host: Option<String>,
+
     #[serde(default)]
     pub port: Option<u16>,
+
     #[serde(default)]
     pub allow_http: bool,
+
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
+
     #[serde(default)]
     pub partitioning: PartitioningConfig,
+
     #[serde(default)]
     pub rotation: RotationConfig,
+
     #[serde(default)]
     pub buffering: BufferingConfig,
+
     #[serde(default)]
     pub upload: UploadConfig,
+
     #[serde(default)]
     pub retry: RetryConfig,
 }
@@ -71,8 +84,10 @@ pub enum PartitioningConfig {
     RecordTime {
         #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
         window: DurationValue,
+
         #[serde(default = "default_time_path")]
         path: String,
+
         #[serde(default = "default_timezone")]
         timezone: String,
     },
@@ -83,15 +98,19 @@ pub enum PartitioningConfig {
 pub struct RotationConfig {
     #[serde(default = "default_max_rows")]
     pub max_rows: usize,
+
     #[serde(default = "default_max_object_bytes")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub max_bytes: ByteSize,
+
     #[serde(default)]
     #[schemars(with = "Option<String>", extend("x-ui" = { "widget": "duration" }))]
     pub record_time_interval: Option<DurationValue>,
+
     #[serde(default)]
     #[schemars(with = "Option<String>", extend("x-ui" = { "widget": "duration" }))]
     pub wall_clock_interval: Option<DurationValue>,
+
     #[serde(default)]
     pub on_partition_path_change: PartitionPathChange,
 }
@@ -110,15 +129,18 @@ pub struct BufferingConfig {
     /// Soft deterministic limit for open objects in one partition actor.
     #[serde(default = "default_max_epoch_buffers")]
     pub max_epoch_buffers: usize,
+
     /// Soft admission limit for pending uploads in one partition actor. An
     /// atomic source message may temporarily take the actor above this value;
     /// pending upload timing never changes deterministic object boundaries.
     #[serde(default = "default_max_pending_upload_objects")]
     pub max_pending_upload_objects: usize,
+
     /// Soft admission limit for serialized bytes in one partition actor.
     #[serde(default = "default_max_buffered_bytes")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub max_buffered_bytes: ByteSize,
+
     /// Stable limit for serialized payload plus retained routing metadata in
     /// one epoch. Metadata is measured as its UTF-8 lengths plus a fixed
     /// 128-byte logical overhead per row, independent of Rust's ABI. When
@@ -135,14 +157,18 @@ pub struct UploadConfig {
     #[serde(default = "default_multipart_threshold")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub multipart_threshold: ByteSize,
+
     #[serde(default = "default_part_size")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
     pub part_size: ByteSize,
+
     #[serde(default = "default_parallel_parts")]
     pub parallel_parts: usize,
+
     /// Maximum concurrent object uploads in one partition actor.
     #[serde(default = "default_max_in_flight_objects")]
     pub max_in_flight_objects: usize,
+
     /// Deadline applied independently to each object-store request.
     #[serde(default = "default_operation_timeout")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
@@ -155,9 +181,11 @@ pub struct RetryConfig {
     #[serde(default = "default_initial_backoff")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
     pub initial_backoff: DurationValue,
+
     #[serde(default = "default_max_backoff")]
     #[schemars(with = "String", extend("x-ui" = { "widget": "duration" }))]
     pub max_backoff: DurationValue,
+
     #[serde(default = "default_max_attempts")]
     pub max_attempts: usize,
 }
