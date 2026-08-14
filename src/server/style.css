@@ -109,9 +109,10 @@ input:hover { border-color: #706e77; } input:focus { border-color: var(--blue); 
 .column-editor-heading strong { color: #dddbe1; font-size: 12px; font-weight: 500; }
 .column-editor-empty { padding: 12px; border: 1px dashed #504e58; border-radius: 3px; color: var(--muted); font-size: 11px; text-align: center; }
 .column-grid { min-width: 0; overflow-x: auto; border: 1px solid var(--line-soft); border-radius: 3px; background: #29282e; }
-.column-grid-row { min-width: 510px; display: grid; grid-template-columns: 20px minmax(72px, 1.05fr) minmax(86px, .95fr) minmax(68px, .85fr) 32px 66px minmax(90px, 1.25fr) 22px; align-items: center; gap: 5px; padding: 5px 6px; }
+.column-grid-row { min-width: 650px; display: grid; grid-template-columns: 20px minmax(90px, 1fr) minmax(115px, 1.2fr) minmax(95px, .9fr) minmax(120px, 1fr) 32px 66px 22px; align-items: center; gap: 5px; padding: 5px 6px; }
+.column-grid.with-low-cardinality .column-grid-row { min-width: 760px; grid-template-columns: 20px minmax(85px, 1fr) minmax(110px, 1.15fr) minmax(90px, .85fr) minmax(115px, 1fr) 32px 66px 92px 22px; }
 .column-grid-header { min-height: 32px; padding-top: 7px; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); color: #aaa7b0; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .025em; }
-.column-grid-header span:nth-child(5), .column-grid-header span:nth-child(6) { text-align: center; }
+.column-grid-header span:nth-child(6), .column-grid-header span:nth-child(7), .column-grid-header span:nth-child(8) { text-align: center; }
 .column-grid-entry + .column-grid-entry { border-top: 1px solid var(--line-soft); }
 .column-grid-entry input, .column-grid-entry .select-trigger { min-height: 32px; padding: 5px 8px; font-size: 12px; }
 .column-grid-entry .select-menu { min-width: 150px; }
@@ -139,7 +140,7 @@ input:hover { border-color: #706e77; } input:focus { border-color: var(--blue); 
 .inspection { position: static; max-height: none; overflow: visible; }.inspection-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); }.inspection h2, .config-output h2 { margin: 2px 0 0; font-size: 16px; }.inspection-head > span { color: var(--muted); font-size: 10px; }
 .copy-yaml { min-height: 28px; padding: 4px 10px; border: 1px solid #66636e; border-radius: 4px; background: #47454e; color: #f0eef3; font-size: 11px; }
 .copy-yaml:hover:not(:disabled) { border-color: var(--blue); color: white; }
-.yaml-preview { max-height: 340px; margin: 0; padding: 13px 15px; overflow: auto; background: #27262c; color: #d7e7f8; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; tab-size: 2; white-space: pre; }
+.yaml-preview { max-height: 340px; margin: 0; padding: 13px 15px; overflow: auto; background: #27262c; color: #d7e7f8; font: 11px/1.55 "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; tab-size: 2; white-space: pre-wrap; }
 #error { margin: 0; padding: 0 15px; color: #ffaaa6; background: #4a3033; white-space: pre-wrap; font: 11px/1.45 monospace; max-height: 160px; overflow: auto; }#error:not(:empty) { padding-top: 10px; padding-bottom: 10px; border-bottom: 1px solid #654348; }
 .empty-state { min-height: 210px; display: grid; place-content: center; justify-items: center; padding: 25px; color: var(--muted); text-align: center; }.empty-state span { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #55535d; color: var(--blue); }.empty-state p { max-width: 270px; font-size: 11px; line-height: 1.5; }
 .discovery-loading { min-height: 210px; display: grid; place-content: center; justify-items: center; padding: 25px; color: var(--muted); text-align: center; }.discovery-loading strong { margin-top: 11px; color: #e5e3e8; font-size: 12px; }.discovery-loading p { max-width: 270px; margin: 5px 0 0; font-size: 11px; line-height: 1.5; }.spinner { width: 25px; height: 25px; border: 2px solid #56545d; border-top-color: var(--blue); border-radius: 50%; animation: discovery-spin .75s linear infinite; }

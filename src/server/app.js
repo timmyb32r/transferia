@@ -130,7 +130,6 @@ function createDropdown(id, value, placeholder, options, onChange) {
     root.classList.add('open');
     trigger.setAttribute('aria-expanded', 'true');
     activeDropdown = {root, close};
-    search.focus({preventScroll: true});
   }
 
   search.oninput = filterOptions;
@@ -188,7 +187,7 @@ function sourceBranch(providerKey) {
 
 function deliveryCompatibilityIssue() {
   const deliveryType = formData?.delivery_type;
-  if (!deliveryType) return 'Choose a delivery type before configuring the route.';
+  if (!deliveryType) return null;
   const providerKey = Object.keys(formData?.source || {})[0];
   if (!providerKey) {
     if (deliveryType === 'batch_and_stream') {
@@ -528,8 +527,10 @@ function renderColumnMappings(schema, value, path) {
     help.setAttribute('aria-label', resolved.description);
     title.append(help);
   }
-  const add = element('button', 'icon-button', '＋ Field');
+  const add = element('button', 'icon-button', '+');
   add.type = 'button';
+  add.title = 'Add field';
+  add.setAttribute('aria-label', 'Add field');
   heading.append(title, add);
   shell.append(heading);
 
@@ -547,26 +548,53 @@ function renderColumnMappings(schema, value, path) {
     return shell;
   }
 
-  const table = element('div', 'column-grid');
-  const headers = ['', 'Name', 'JSON type', 'Arrow type', 'Key', 'Not null', 'Path', ''];
+  const sinkKey = Object.keys(formData?.sink || {})[0];
+  const supportsLowCardinality = sinkKey === 'clickhouse';
+  const table = element('div', `column-grid${supportsLowCardinality ? ' with-low-cardinality' : ''}`);
+  const headers = ['', 'Name', 'Path', 'JSON type', 'Arrow type', 'Key', 'Not null'];
+  if (supportsLowCardinality) headers.push('Low cardinality');
+  headers.push('');
   const header = element('div', 'column-grid-row column-grid-header');
   headers.forEach(text => header.append(element('span', '', text)));
   table.append(header);
 
   items.forEach((item, index) => {
     const itemPath = [...path, index];
+    if (!Object.hasOwn(item, '__jsonpathDetached')) {
+      const generatedPath = item.column_name ? `$.${item.column_name}` : '';
+      Object.defineProperty(item, '__jsonpathDetached', {
+        value: Boolean(item.jsonpath && item.jsonpath !== generatedPath),
+        writable: true,
+        configurable: true
+      });
+    }
     const row = element('div', 'column-grid-entry');
     const main = element('div', 'column-grid-row');
     main.append(element('span', 'column-number', String(index + 1)));
 
+    const pathInput = compactInput(item.jsonpath, `Column ${index + 1} JSONPath`, next => {
+      Object.defineProperty(item, '__jsonpathDetached', {
+        value: true,
+        writable: true,
+        configurable: true
+      });
+      item.jsonpath = next;
+      scheduleDiscovery();
+    });
     main.append(compactInput(item.column_name, `Column ${index + 1} name`, next => {
       const previous = item.column_name;
       item.column_name = next;
+      if (!item.__jsonpathDetached) {
+        item.jsonpath = next ? `$.${next}` : '';
+        pathInput.value = item.jsonpath;
+      }
       const keyIndex = primaryKey.indexOf(previous);
       if (keyIndex >= 0) primaryKey[keyIndex] = next;
       setPath(primaryKeyPath, primaryKey);
       scheduleDiscovery();
     }));
+
+    main.append(pathInput);
 
     const jsonType = createDropdown(
       `field-${itemPath.join('-')}-json-data-type`,
@@ -580,10 +608,24 @@ function renderColumnMappings(schema, value, path) {
       }
     );
     main.append(jsonType);
-    main.append(compactInput(item.arrow_type, `Column ${index + 1} Arrow type`, next => {
-      item.arrow_type = next;
-      scheduleDiscovery();
-    }));
+    main.append(createDropdown(
+      `field-${itemPath.join('-')}-arrow-type`,
+      item.arrow_type,
+      'Not selected',
+      [
+        'Utf8', 'LargeUtf8',
+        'Int64', 'Int32', 'Int16', 'Int8',
+        'UInt64', 'UInt32', 'UInt16', 'UInt8',
+        'Float64', 'Float32', 'Boolean', 'Date32', 'Date64',
+        'Timestamp(Second)', 'Timestamp(Millisecond)',
+        'Timestamp(Microsecond)', 'Timestamp(Nanosecond)'
+      ].map(option => ({value: option, label: option})),
+      next => {
+        item.arrow_type = next;
+        scheduleDiscovery();
+        renderEditor();
+      }
+    ));
 
     const key = document.createElement('input');
     key.type = 'checkbox';
@@ -610,10 +652,19 @@ function renderColumnMappings(schema, value, path) {
     requiredCell.append(required);
     main.append(requiredCell);
 
-    main.append(compactInput(item.jsonpath, `Column ${index + 1} JSONPath`, next => {
-      item.jsonpath = next;
-      scheduleDiscovery();
-    }));
+    if (supportsLowCardinality) {
+      const lowCardinality = document.createElement('input');
+      lowCardinality.type = 'checkbox';
+      lowCardinality.checked = Boolean(item.low_cardinality);
+      lowCardinality.setAttribute('aria-label', `Use low cardinality for column ${item.column_name || index + 1}`);
+      lowCardinality.onchange = () => {
+        item.low_cardinality = lowCardinality.checked;
+        scheduleDiscovery();
+      };
+      const lowCardinalityCell = element('label', 'table-check');
+      lowCardinalityCell.append(lowCardinality);
+      main.append(lowCardinalityCell);
+    }
 
     const remove = element('button', 'column-remove', '×');
     remove.type = 'button';
@@ -629,7 +680,7 @@ function renderColumnMappings(schema, value, path) {
     row.append(main);
 
     const itemSchema = resolveSchema(resolved.items);
-    const advanced = ['time_conversion', 'low_cardinality', 'max_length']
+    const advanced = ['time_conversion', 'max_length']
       .filter(name => itemSchema.properties?.[name]);
     if (advanced.length) {
       const details = element('details', 'column-row-advanced');
@@ -663,8 +714,10 @@ function renderArray(schema, value, path, name) {
     labelRow.append(help);
   }
   copy.append(labelRow);
-  const add = element('button', 'icon-button', '＋ Add');
+  const add = element('button', 'icon-button', '+');
   add.type = 'button';
+  add.title = `Add ${humanize(name)}`;
+  add.setAttribute('aria-label', add.title);
   heading.append(copy, add);
   shell.append(heading);
   add.onclick = () => {
@@ -857,6 +910,12 @@ function scheduleDiscovery() {
     $('#error').textContent = '';
     $('#schema').innerHTML = `<div class="empty-state endpoint-empty"><span>!</span><p>${escapeHtml(compatibilityIssue)}</p></div>`;
     setValidation('invalid', 'Choose a compatible delivery');
+    return;
+  }
+  if (!formData?.delivery_type) {
+    $('#error').textContent = '';
+    $('#schema').innerHTML = '<div class="empty-state endpoint-empty"><span>↘</span><p>Choose a delivery type, source, and destination to run discovery.</p></div>';
+    setValidation('idle', 'Configure delivery');
     return;
   }
   const hasSource = Object.keys(formData?.source || {}).length === 1;

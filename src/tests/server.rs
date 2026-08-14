@@ -7,6 +7,9 @@ fn valid_config() -> &'static str {
 #[test]
 fn static_assets_are_embedded() {
     assert!(INDEX_HTML.contains("New delivery"));
+    assert!(
+        INDEX_HTML.find("Delivery name").unwrap() < INDEX_HTML.find("delivery-type-form").unwrap()
+    );
     assert!(!INDEX_HTML.contains("<textarea"));
     assert!(!INDEX_HTML.contains("identity-form"));
     assert!(!INDEX_HTML.contains("value=\"demo-delivery\""));
@@ -23,6 +26,13 @@ fn static_assets_are_embedded() {
     assert!(APP_JS.contains("'System columns'"));
     assert!(APP_JS.contains("'Not selected'"));
     assert!(APP_JS.contains("search.placeholder = 'Search'"));
+    assert!(!APP_JS.contains("search.focus({preventScroll: true})"));
+    assert!(APP_JS.contains("'Name', 'Path', 'JSON type', 'Arrow type'"));
+    assert!(APP_JS.contains("'Timestamp(Nanosecond)'"));
+    assert!(APP_JS.contains("__jsonpathDetached"));
+    assert!(APP_JS.contains("supportsLowCardinality = sinkKey === 'clickhouse'"));
+    assert!(!APP_JS.contains("'＋ Field'"));
+    assert!(!APP_JS.contains("'＋ Add'"));
     assert!(APP_JS.contains("deliveryCompatibilityIssue"));
     assert!(APP_JS.contains("/api/config/yaml"));
     assert!(APP_JS.contains("navigator.clipboard.writeText"));
@@ -39,6 +49,7 @@ fn static_assets_are_embedded() {
     assert!(STYLE_CSS.contains(".select-chevron"));
     assert!(STYLE_CSS.contains(".select-search"));
     assert!(STYLE_CSS.contains(".column-grid-row"));
+    assert!(STYLE_CSS.contains("white-space: pre-wrap"));
 }
 
 #[test]
