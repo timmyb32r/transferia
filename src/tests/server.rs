@@ -31,6 +31,9 @@ fn static_assets_are_embedded() {
     assert!(APP_JS.contains("'Timestamp(Nanosecond)'"));
     assert!(APP_JS.contains("__jsonpathDetached"));
     assert!(APP_JS.contains("supportsLowCardinality = sinkKey === 'clickhouse'"));
+    assert!(APP_JS.contains("animateProviderLayout"));
+    assert!(APP_JS.contains("Object.hasOwn(parser, 'json_parser')"));
+    assert!(APP_JS.contains("prefers-reduced-motion: reduce"));
     assert!(!APP_JS.contains("'＋ Field'"));
     assert!(!APP_JS.contains("'＋ Add'"));
     assert!(APP_JS.contains("deliveryCompatibilityIssue"));

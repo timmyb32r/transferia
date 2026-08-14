@@ -824,8 +824,40 @@ function renderNode(schema, value, path, name, options = {}) {
   return renderScalar(resolved, value, path, name);
 }
 
+function animateProviderLayout(previousRects, wasExpanded, isExpanded) {
+  if (wasExpanded === isExpanded || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  requestAnimationFrame(() => {
+    const panels = [...document.querySelectorAll('.provider-panel')];
+    const sourceRect = panels[0]?.getBoundingClientRect();
+    const sinkRect = panels[1]?.getBoundingClientRect();
+    if (!sourceRect || !sinkRect || previousRects.length !== 2) return;
+
+    panels[0].animate(
+      [
+        {width: `${previousRects[0].width}px`},
+        {width: `${sourceRect.width}px`}
+      ],
+      {duration: 280, easing: 'cubic-bezier(.2,.7,.2,1)'}
+    );
+
+    const translateX = previousRects[1].left - sinkRect.left;
+    const translateY = previousRects[1].top - sinkRect.top;
+    panels[1].animate(
+      [
+        {transform: `translate(${translateX}px, ${translateY}px)`},
+        {transform: 'translate(0, 0)'}
+      ],
+      {duration: 340, easing: 'cubic-bezier(.2,.75,.15,1)'}
+    );
+  });
+}
+
 function renderEditor() {
   if (!definition || !formData) return;
+  const providerGrid = $('.provider-grid');
+  const wasExpanded = providerGrid.classList.contains('parser-selected');
+  const previousRects = [...document.querySelectorAll('.provider-panel')]
+    .map(panel => panel.getBoundingClientRect());
   closeActiveDropdown(false);
   Object.values(containers).forEach(container => container.replaceChildren());
   const root = resolveSchema(definition.schema);
@@ -848,8 +880,11 @@ function renderEditor() {
   }
   const source = Object.keys(formData.source || {})[0] || '—';
   const sink = Object.keys(formData.sink || {})[0] || '—';
-  const parserSelected = Object.keys(formData.source?.[source]?.parser || {}).length > 0;
-  $('.provider-grid').classList.toggle('parser-selected', parserSelected && !compatibilityIssue);
+  const parser = formData.source?.[source]?.parser || {};
+  const jsonParserSelected = Object.hasOwn(parser, 'json_parser');
+  const isExpanded = jsonParserSelected && !compatibilityIssue;
+  providerGrid.classList.toggle('parser-selected', isExpanded);
+  animateProviderLayout(previousRects, wasExpanded, isExpanded);
   $('#source-title').textContent = humanize(source);
   $('#sink-title').textContent = humanize(sink);
   $('#provider-route').textContent = `${source} → ${sink}`;
