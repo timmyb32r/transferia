@@ -157,7 +157,8 @@ async fn run_one_delivery(
 }
 
 #[tokio::test]
-async fn postgres_source_reaches_clickhouse_and_s3_and_binary_copy_is_real() -> anyhow::Result<()> {
+async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binary_copy_is_real(
+) -> anyhow::Result<()> {
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5432.tcp())
         .with_wait_for(WaitFor::message_on_stderr(
@@ -173,7 +174,7 @@ async fn postgres_source_reaches_clickhouse_and_s3_and_binary_copy_is_real() -> 
         format!("host={pg_host} port={pg_port} user=postgres password=test dbname=transferia");
     let pg = wait_for_postgres(&pg_connection).await?;
     pg.batch_execute(
-        "CREATE TABLE events (id bigint PRIMARY KEY, name text NULL, active boolean NOT NULL);\
+        "CREATE TABLE events (id bigint NOT NULL, name text NULL, active boolean NOT NULL);\
          INSERT INTO events VALUES (1, 'one', true), (2, NULL, false);",
     )
     .await?;
@@ -233,16 +234,24 @@ async fn postgres_source_reaches_clickhouse_and_s3_and_binary_copy_is_real() -> 
         .get(format!("http://{ch_host}:{ch_http}"))
         .query(&[(
             "query",
-            "SELECT id, name, active FROM events ORDER BY id FORMAT JSONEachRow",
+            "SELECT id, name, active FROM events FORMAT JSONEachRow",
         )])
         .send()
         .await?
         .error_for_status()?
         .text()
         .await?;
+    let mut ch_rows = ch_rows
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    ch_rows.sort_by_key(|row| row["id"].as_i64());
     assert_eq!(
         ch_rows,
-        "{\"id\":1,\"name\":\"one\",\"active\":true}\n{\"id\":2,\"name\":null,\"active\":false}\n"
+        vec![
+            serde_json::json!({"id": 1, "name": "one", "active": true}),
+            serde_json::json!({"id": 2, "name": null, "active": false}),
+        ]
     );
 
     let localstack = GenericImage::new(LOCALSTACK_IMAGE, LOCALSTACK_TAG)
@@ -287,9 +296,18 @@ async fn postgres_source_reaches_clickhouse_and_s3_and_binary_copy_is_real() -> 
         .expect("PostgreSQL source must create an S3 object");
     assert!(objects.next().await.is_none());
     let json = store.get(&object.location).await?.bytes().await?;
+    let mut rows = json
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(serde_json::from_slice::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.sort_by_key(|row| row["id"].as_i64());
     assert_eq!(
-        json.as_ref(),
-        b"{\"id\":1,\"name\":\"one\",\"active\":true}\n{\"id\":2,\"name\":null,\"active\":false}\n"
+        rows,
+        vec![
+            serde_json::json!({"id": 1, "name": "one", "active": true}),
+            serde_json::json!({"id": 2, "name": null, "active": false}),
+        ]
     );
 
     let copy_schema = DatasetSchema::new(vec![

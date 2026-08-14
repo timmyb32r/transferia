@@ -25,7 +25,6 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Clone)]
 struct DiscoveredTable {
     config: TableConfig,
-    primary_key: Vec<String>,
     schema: DatasetSchema,
 }
 
@@ -159,7 +158,6 @@ impl SourceProvider for PostgresSourceProvider {
                 PostgresSource::new(
                     client,
                     table.config,
-                    &table.primary_key,
                     table.schema,
                     self.config.batch_rows,
                     counters,
@@ -217,19 +215,6 @@ async fn discover_table(
         "SELECT column_name, is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
         &[&table.schema, &table.name],
     ).await?.into_iter().map(|row| (row.get::<_, String>(0), row.get::<_, bool>(1))).collect::<HashMap<_, _>>();
-    let primary_key = client.query(
-        "SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) WHERE i.indrelid = to_regclass($1) AND i.indisprimary ORDER BY array_position(i.indkey, a.attnum)",
-        &[&format!("{}.{}", table.schema, table.name)],
-    ).await?.into_iter().map(|row| row.get::<_, String>(0)).collect::<Vec<_>>();
-    anyhow::ensure!(
-        !primary_key.is_empty(),
-        "PostgreSQL source table '{}.{}' must have a primary key for deterministic batch order",
-        table.schema,
-        table.name
-    );
-    for key in &primary_key {
-        validate_identifier("primary-key column", key)?;
-    }
     let columns = statement
         .columns()
         .iter()
@@ -250,7 +235,6 @@ async fn discover_table(
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(DiscoveredTable {
         config: table,
-        primary_key,
         schema: DatasetSchema::new(columns),
     })
 }

@@ -33,24 +33,12 @@ impl PostgresSource {
     pub async fn new(
         client: Client,
         table: TableConfig,
-        primary_key: &[String],
         schema: DatasetSchema,
         batch_rows: usize,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            !primary_key.is_empty(),
-            "PostgreSQL source table '{}.{}' has no primary key",
-            table.schema,
-            table.name
-        );
-        let order_by = primary_key
-            .iter()
-            .map(|column| quote_identifier(column))
-            .collect::<Vec<_>>()
-            .join(", ");
         let query = format!(
-            "DECLARE transferia_source_cursor NO SCROLL CURSOR FOR SELECT * FROM {}.{} ORDER BY {order_by}",
+            "DECLARE transferia_source_cursor NO SCROLL CURSOR FOR SELECT * FROM {}.{}",
             quote_identifier(&table.schema),
             quote_identifier(&table.name)
         );
