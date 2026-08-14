@@ -249,6 +249,17 @@ fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderR
             ))
         }
     });
+    registry.register_source("ydb_topic", {
+        let registry = Arc::clone(metrics_registry);
+        move |value| {
+            Ok(Box::new(
+                transferia::providers::ydb_topic::YdbTopicSourceProvider::from_config(
+                    value,
+                    Arc::clone(&registry),
+                )?,
+            ))
+        }
+    });
     registry.register_source("postgres", {
         let registry = Arc::clone(metrics_registry);
         move |value| {

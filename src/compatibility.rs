@@ -11,6 +11,7 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
     PqV1(SourceDescriptor),
+    YdbTopic(SourceDescriptor),
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
@@ -29,6 +30,7 @@ impl EndpointDescriptor {
     pub const fn source_behavior(&self) -> Option<SourceBehavior> {
         match self {
             Self::PqV1(source)
+            | Self::YdbTopic(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
@@ -336,7 +338,10 @@ pub fn validate_pipeline(
         }
     }
 
-    let guarantee = if !matches!(source, EndpointDescriptor::PqV1(_)) {
+    let guarantee = if !matches!(
+        source,
+        EndpointDescriptor::PqV1(_) | EndpointDescriptor::YdbTopic(_)
+    ) {
         diagnostics.push(SemanticsDiagnostic {
             code: DiagnosticCode::DeterministicS3Commit,
             severity: DiagnosticSeverity::Info,
@@ -359,9 +364,9 @@ pub fn validate_pipeline(
             code: DiagnosticCode::DeterministicS3Commit,
             severity: DiagnosticSeverity::Info,
             config_paths: vec![
-                "source.pqv1.parser".into(),
-                "source.pqv1.topic_path".into(),
-                "source.pqv1.consumer_name".into(),
+                stream_source_path(source, "parser"),
+                stream_source_path(source, "topic_path"),
+                stream_source_path(source, "consumer_name"),
                 "middlewares".into(),
                 "keep_system_columns_in_sink".into(),
                 "sink.s3.bucket".into(),
@@ -384,6 +389,15 @@ pub fn validate_pipeline(
         guarantee,
         diagnostics,
     }
+}
+
+fn stream_source_path(source: &EndpointDescriptor, field: &str) -> String {
+    let provider = if matches!(source, EndpointDescriptor::YdbTopic(_)) {
+        "ydb_topic"
+    } else {
+        "pqv1"
+    };
+    format!("source.{provider}.{field}")
 }
 
 fn require_system_column(

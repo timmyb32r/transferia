@@ -8,15 +8,26 @@ fn valid_config() -> &'static str {
 fn static_assets_are_embedded() {
     assert!(INDEX_HTML.contains("New delivery"));
     assert!(!INDEX_HTML.contains("<textarea"));
+    assert!(!INDEX_HTML.contains("identity-form"));
+    assert!(!INDEX_HTML.contains("value=\"demo-delivery\""));
     assert!(INDEX_HTML.contains("source-form"));
     assert!(APP_JS.contains("/api/discover"));
     assert!(APP_JS.contains("renderUnion"));
     assert!(APP_JS.contains("new AbortController()"));
     assert!(APP_JS.contains("sequence !== discoverySequence"));
     assert!(APP_JS.contains("element('label', 'switch-row')"));
+    assert!(APP_JS.contains("createDropdown"));
+    assert!(APP_JS.contains("'Не выбрано'"));
+    assert!(APP_JS.contains("search.placeholder = 'Поиск'"));
+    assert!(APP_JS.contains("crypto.getRandomValues"));
+    assert!(APP_JS.contains("updateSaveState"));
+    assert!(!APP_JS.contains("document.createElement('select')"));
     assert!(APP_JS.contains("Расширенные настройки"));
     assert!(STYLE_CSS.contains(".dataset"));
     assert!(STYLE_CSS.contains(".discovery-loading"));
+    assert!(STYLE_CSS.contains("top: calc(100% + 4px)"));
+    assert!(STYLE_CSS.contains(".select-chevron"));
+    assert!(STYLE_CSS.contains(".select-search"));
 }
 
 #[test]
@@ -31,8 +42,15 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     assert!(schema.contains("native port"));
     assert!(schema.contains("advanced"));
     assert!(!schema.contains("sorting_key"));
+    assert!(!schema.contains("Delivery ID"));
+    assert!(!schema.contains("durable_storage"));
     assert!(definition.source_presets.contains_key("s3"));
+    assert!(definition.source_presets.contains_key("ydb_topic"));
     assert!(definition.sink_presets.contains_key("discard"));
+    assert_eq!(
+        definition.source_presets["ydb_topic"]["topology_discovery"],
+        "topic_api"
+    );
     assert_eq!(
         definition.source_presets["clickhouse"]["port"],
         transferia::providers::clickhouse::DEFAULT_NATIVE_PORT
@@ -49,7 +67,16 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
 #[test]
 fn structured_form_data_renders_as_runtime_yaml() -> anyhow::Result<()> {
     let definition = config_form_definition()?;
-    let yaml = config_yaml_from_json(&definition.initial)?;
+    assert_eq!(definition.initial["source"], serde_json::json!({}));
+    assert_eq!(definition.initial["sink"], serde_json::json!({}));
+    let mut configured = definition.initial.clone();
+    configured["source"] = serde_json::json!({
+        "pqv1": definition.source_presets["pqv1"].clone()
+    });
+    configured["sink"] = serde_json::json!({
+        "clickhouse": definition.sink_presets["clickhouse"].clone()
+    });
+    let yaml = config_yaml_from_json(&configured)?;
     let config = Config::from_yaml(&yaml)?;
     assert_eq!(config.delivery_id, "demo-delivery");
     assert_eq!(config.source.kind()?, "pqv1");

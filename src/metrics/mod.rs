@@ -8,7 +8,7 @@
 //!   rows, source messages, parser busy time).
 //!
 //! [`MetricsRegistry`] merges them by `partition_id` (source and parse counters
-//! are registered independently — the source by the `PQv1` provider inside
+//! are registered independently — the source by its provider inside
 //! `build_source`, the parse counters by `main`). [`spawn_stats_reporter`]
 //! snapshots the registry every `interval_ms` and prints a per-partition
 //! (or aggregated) line via `tracing::info!`.
@@ -52,7 +52,7 @@ const fn default_metrics_interval_ms() -> u64 {
 // Counters
 // ---------------------------------------------------------------------------
 
-/// Per-partition source counters (`PQv1`). Filled by the background session
+/// Per-partition source counters. Filled by the provider's background session
 /// (bytes + response-wait/decompress duty) and `read_batch` (messages).
 pub struct SourceCounters {
     messages: AtomicU64,

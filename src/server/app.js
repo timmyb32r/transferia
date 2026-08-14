@@ -6,9 +6,9 @@ let timer;
 let discoveryController;
 let discoverySequence = 0;
 let lastDiscoveryValid = false;
+let activeDropdown;
 
 const containers = {
-  identity: $('#identity-form'),
   sourcePicker: $('#source-picker'),
   sinkPicker: $('#sink-picker'),
   source: $('#source-form'),
@@ -30,12 +30,156 @@ function element(tag, className, text) {
   return node;
 }
 
+function closeActiveDropdown(restoreFocus = false) {
+  activeDropdown?.close(restoreFocus);
+}
+
+function createDropdown(id, value, placeholder, options, onChange) {
+  const root = element('div', 'select-control');
+  const trigger = element('button', 'select-trigger');
+  const label = element('span', value === undefined ? 'select-placeholder' : '', value === undefined ? placeholder : options.find(option => Object.is(option.value, value))?.label ?? placeholder);
+  const chevron = element('span', 'select-chevron');
+  const menu = element('div', 'select-menu');
+  const search = document.createElement('input');
+  const optionsList = element('div', 'select-options');
+  const empty = element('div', 'select-empty', 'Ничего не найдено');
+  const listboxId = `${id}-options`;
+
+  trigger.type = 'button';
+  trigger.id = id;
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-controls', listboxId);
+  trigger.setAttribute('aria-expanded', 'false');
+  chevron.setAttribute('aria-hidden', 'true');
+  menu.id = `${id}-menu`;
+  menu.hidden = true;
+  search.type = 'search';
+  search.className = 'select-search';
+  search.placeholder = 'Поиск';
+  search.setAttribute('aria-label', 'Поиск вариантов');
+  optionsList.id = listboxId;
+  optionsList.setAttribute('role', 'listbox');
+  empty.hidden = true;
+  trigger.append(label, chevron);
+
+  const optionButtons = options.map((option, index) => {
+    const button = element('button', 'select-option', option.label);
+    button.type = 'button';
+    button.id = `${listboxId}-${index}`;
+    button.setAttribute('role', 'option');
+    button.setAttribute('aria-selected', String(Object.is(option.value, value)));
+    if (Object.is(option.value, value)) button.classList.add('selected');
+    button.onclick = () => {
+      close(false);
+      onChange(option.value);
+    };
+    button.onkeydown = event => {
+      const visible = visibleOptions();
+      const current = visible.indexOf(button);
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        visible[(current + 1) % visible.length].focus();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        visible[(current - 1 + visible.length) % visible.length].focus();
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        visible[0].focus();
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        visible.at(-1).focus();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        close(true);
+      } else if (event.key === 'Tab') {
+        close(false);
+      }
+    };
+    optionsList.append(button);
+    return button;
+  });
+
+  function visibleOptions() {
+    return optionButtons.filter(button => !button.hidden);
+  }
+
+  function filterOptions() {
+    const query = search.value.trim().toLocaleLowerCase();
+    for (const button of optionButtons) {
+      button.hidden = !button.textContent.toLocaleLowerCase().includes(query);
+    }
+    empty.hidden = visibleOptions().length !== 0;
+  }
+
+  function close(restoreFocus = false) {
+    menu.hidden = true;
+    root.classList.remove('open');
+    trigger.setAttribute('aria-expanded', 'false');
+    search.value = '';
+    filterOptions();
+    if (activeDropdown?.root === root) activeDropdown = undefined;
+    if (restoreFocus) trigger.focus();
+  }
+
+  function open() {
+    closeActiveDropdown(false);
+    menu.hidden = false;
+    root.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    activeDropdown = {root, close};
+    search.focus({preventScroll: true});
+  }
+
+  search.oninput = filterOptions;
+  search.onkeydown = event => {
+    const visible = visibleOptions();
+    if (event.key === 'ArrowDown' && visible.length) {
+      event.preventDefault();
+      visible[0].focus();
+    } else if (event.key === 'ArrowUp' && visible.length) {
+      event.preventDefault();
+      visible.at(-1).focus();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      close(true);
+    } else if (event.key === 'Tab') {
+      close(false);
+    }
+  };
+  trigger.onclick = () => menu.hidden ? open() : close(false);
+  trigger.onkeydown = event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      open();
+      if (event.key === 'ArrowUp') optionButtons.at(-1)?.focus({preventScroll: true});
+    } else if (event.key === 'Escape') {
+      close(false);
+    }
+  };
+  menu.append(search, optionsList, empty);
+  root.append(trigger, menu);
+  return root;
+}
+
+document.addEventListener('pointerdown', event => {
+  if (activeDropdown && !activeDropdown.root.contains(event.target)) closeActiveDropdown(false);
+});
+
 function humanize(value) {
   return String(value)
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, character => character.toUpperCase())
     .replace(/Pqv1/gi, 'PQv1')
     .replace(/S3/gi, 'S3');
+}
+
+function newDeliveryId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `delivery-${Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function updateSaveState() {
+  $('#save').disabled = !lastDiscoveryValid || !$('#name').value.trim();
 }
 
 function escapeHtml(value) {
@@ -197,33 +341,35 @@ function renderNullable(schema, value, path, name) {
 function renderUnion(schema, value, path, name, options = {}) {
   const resolved = resolveSchema(schema);
   const choices = resolved.oneOf || resolved.anyOf;
-  const selectedIndex = Math.max(0, choices.findIndex(choice => branchMatches(choice, value)));
-  const selected = resolveSchema(choices[selectedIndex]);
+  const selectedIndex = choices.findIndex(choice => branchMatches(choice, value));
+  const selected = selectedIndex >= 0 ? resolveSchema(choices[selectedIndex]) : null;
   const wrapper = element('div', 'union');
-  const shell = fieldShell(resolved, name, path);
-  const select = document.createElement('select');
-  select.id = `field-${path.join('-')}`;
-  choices.forEach((choice, index) => {
-    const option = element('option', '', branchLabel(choice, index));
-    option.value = String(index);
-    option.selected = index === selectedIndex;
-    select.append(option);
-  });
-  shell.append(select);
-  if (!options.bodyOnly) wrapper.append(shell);
-  select.onchange = () => {
-    const choice = choices[Number(select.value)];
-    const key = branchKey(choice);
-    let next = createValue(choice);
-    if (path.length === 1 && (path[0] === 'source' || path[0] === 'sink') && key) {
-      const presets = path[0] === 'source' ? definition.source_presets : definition.sink_presets;
-      next = {[key]: structuredClone(presets[key] ?? next[key])};
-    }
-    updateAndDiscover(path, next);
-    renderEditor();
-  };
+  if (!options.bodyOnly) {
+    const shell = fieldShell(resolved, name, path);
+    const id = `field-${path.join('-')}`;
+    const dropdown = createDropdown(
+      id,
+      selectedIndex >= 0 ? selectedIndex : undefined,
+      'Не выбрано',
+      choices.map((choice, index) => ({value: index, label: branchLabel(choice, index)})),
+      index => {
+        const choice = choices[index];
+        const key = branchKey(choice);
+        let next = createValue(choice);
+        if (path.length === 1 && (path[0] === 'source' || path[0] === 'sink') && key) {
+          const presets = path[0] === 'source' ? definition.source_presets : definition.sink_presets;
+          next = {[key]: structuredClone(presets[key] ?? next[key])};
+        }
+        updateAndDiscover(path, next);
+        renderEditor();
+        document.getElementById(id)?.focus();
+      }
+    );
+    shell.append(dropdown);
+    wrapper.append(shell);
+  }
 
-  if (!options.pickerOnly && (selected.type === 'object' || selected.properties)) {
+  if (!options.pickerOnly && selected && (selected.type === 'object' || selected.properties)) {
     const discriminator = Object.entries(selected.properties || {}).find(([, property]) => constValue(property) !== undefined)?.[0];
     const body = element('div', 'union-body');
     const providerKey = path.length === 1 ? branchKey(selected) : null;
@@ -330,16 +476,17 @@ function renderScalar(schema, value, path, name) {
     return shell;
   }
   if (resolved.enum) {
-    const select = document.createElement('select');
-    select.id = id;
-    resolved.enum.forEach(optionValue => {
-      const option = element('option', '', humanize(optionValue));
-      option.value = optionValue;
-      option.selected = value === optionValue;
-      select.append(option);
-    });
-    select.onchange = () => updateAndDiscover(path, select.value);
-    shell.append(select);
+    shell.append(createDropdown(
+      id,
+      resolved.enum.includes(value) ? value : undefined,
+      'Не выбрано',
+      resolved.enum.map(optionValue => ({value: optionValue, label: humanize(optionValue)})),
+      optionValue => {
+        updateAndDiscover(path, optionValue);
+        renderEditor();
+        document.getElementById(id)?.focus();
+      }
+    ));
     return shell;
   }
   const input = document.createElement('input');
@@ -382,10 +529,10 @@ function renderNode(schema, value, path, name, options = {}) {
 
 function renderEditor() {
   if (!definition || !formData) return;
+  closeActiveDropdown(false);
   Object.values(containers).forEach(container => container.replaceChildren());
   const root = resolveSchema(definition.schema);
   const properties = root.properties;
-  for (const name of ['delivery_id', 'durable_storage']) containers.identity.append(renderNode(properties[name], formData[name], [name], name));
   containers.sourcePicker.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {pickerOnly: true}));
   containers.sinkPicker.append(renderNode(properties.sink, formData.sink, ['sink'], 'Destination type', {pickerOnly: true}));
   containers.source.append(renderNode(properties.source, formData.source, ['source'], 'Source type', {bodyOnly: true}));
@@ -430,6 +577,14 @@ function scheduleDiscovery() {
   const sequence = ++discoverySequence;
   lastDiscoveryValid = false;
   $('#save').disabled = true;
+  const hasSource = Object.keys(formData?.source || {}).length === 1;
+  const hasSink = Object.keys(formData?.sink || {}).length === 1;
+  if (!hasSource || !hasSink) {
+    $('#error').textContent = '';
+    $('#schema').innerHTML = '<div class="empty-state endpoint-empty"><span>↘</span><p>Выберите источник и приёмник — после этого здесь появится результат discovery.</p></div>';
+    setValidation('idle', 'Select source and destination');
+    return;
+  }
   setValidation('checking', 'Checking contract');
   renderDiscoveryLoading();
   timer = setTimeout(async () => {
@@ -446,7 +601,7 @@ function scheduleDiscovery() {
       $('#error').textContent = '';
       renderSchema(result);
       lastDiscoveryValid = true;
-      $('#save').disabled = false;
+      updateSaveState();
       setValidation('valid', 'Contract valid');
     } catch (error) {
       if (controller.signal.aborted || sequence !== discoverySequence) return;
@@ -483,12 +638,15 @@ async function activate(id) {
 
 $('#create').onclick = () => {
   formData = structuredClone(definition.initial);
-  $('#name').value = formData.delivery_id;
+  formData.delivery_id = newDeliveryId();
+  $('#name').value = '';
   $('#deliveries-view').classList.add('hidden');
   $('#editor').classList.remove('hidden');
   renderEditor();
   scheduleDiscovery();
 };
+
+$('#name').oninput = updateSaveState;
 
 $('#cancel').onclick = () => {
   clearTimeout(timer);

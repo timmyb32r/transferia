@@ -75,19 +75,18 @@ struct CreateRequest {
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
 struct ConfigFormSchema {
-    #[schemars(
-        title = "Delivery ID",
-        description = "Stable identifier used for durable progress"
-    )]
-    delivery_id: String,
-    durable_storage: transferia::durable::DurableStorageConfig,
     source: SourceFormSchema,
+
     sink: SinkFormSchema,
+
     middlewares: Vec<MiddlewareFormSchema>,
+
     #[schemars(title = "Pipeline memory limit", extend("x-ui" = { "widget": "byte_size" }))]
     pipeline_memory_limit_bytes: usize,
+
     #[schemars(title = "Keep system columns in sink")]
     keep_system_columns_in_sink: bool,
+
     metrics: Option<transferia::metrics::MetricsConfig>,
 }
 
@@ -97,6 +96,9 @@ struct ConfigFormSchema {
 enum SourceFormSchema {
     #[schemars(title = "PQv1 stream")]
     Pqv1(transferia::providers::pqv1::src_stream::PqV1SourceConfig),
+    #[serde(rename = "ydb_topic")]
+    #[schemars(title = "YDB Topic stream")]
+    YdbTopic(transferia::providers::ydb_topic::src_stream::YdbTopicSourceConfig),
     #[schemars(title = "PostgreSQL batch")]
     Postgres(transferia::providers::postgres::src_batch::PostgresSourceConfig),
     #[schemars(title = "ClickHouse batch")]
@@ -295,6 +297,23 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
             }),
         ),
         (
+            "ydb_topic",
+            serde_json::json!({
+                "hosts": ["localhost"],
+                "port": 2135,
+                "database": "/Root",
+                "topic_path": "/demo/events",
+                "consumer_name": "transferia-demo",
+                "topology_discovery": "topic_api",
+                "auth": { "type": "access_token", "token": "demo" },
+                "trusted_plaintext": true,
+                "parser": json_parser_preset(),
+                "partition_ids": [],
+                "network_timeout_ms": 30000,
+                "read_buffer_bytes": 1_048_576
+            }),
+        ),
+        (
             "postgres",
             serde_json::json!({
                 "host": "localhost",
@@ -430,8 +449,8 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
     let initial = serde_json::json!({
         "delivery_id": "demo-delivery",
         "durable_storage": { "type": "local_file", "path": ".transferia-state" },
-        "source": { "pqv1": source_presets["pqv1"].clone() },
-        "sink": { "clickhouse": sink_presets["clickhouse"].clone() },
+        "source": {},
+        "sink": {},
         "middlewares": [],
         "pipeline_memory_limit_bytes": 268_435_456,
         "keep_system_columns_in_sink": false,

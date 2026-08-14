@@ -1,16 +1,16 @@
 # transferia
 
 A performance-oriented Rust data integrator. The active runtime
-creates one logical pipeline and sink actor per PQv1 partition, while providers
+creates one logical pipeline and sink actor per stream partition or batch split, while providers
 share expensive connection pools and upload clients:
 
 ```text
-PQv1 / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
-                                                    -> ClickHouse | PostgreSQL | S3 | YTsaurus
+PQv1 / YDB Topic / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
+                                                                -> ClickHouse | PostgreSQL | S3 | YTsaurus
 ```
 
 Source and sink providers are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers `pqv1` plus
+kinds are validated explicitly. The executable registers `pqv1`, `ydb_topic`, plus
 finite-snapshot `postgres` and static-table `ytsaurus` sources; `clickhouse`,
 `postgres`, `s3`, and `ytsaurus` sinks; and the non-durable `discard` sink used by
 explicit benchmark configurations.
@@ -49,6 +49,45 @@ cargo test --all-targets
 errors. Every quality recipe runs `rustfmt` first.
 
 ## Configuration
+
+`ydb_topic` uses the official low-level Rust YDB gRPC crate and the Topic API
+`StreamRead` protocol. YDB-native topics can discover their active partitions
+through `topology_discovery: topic_api`. Legacy Logbroker names may be readable
+through `StreamRead` while absent from the YDB scheme API; configure their
+partition IDs explicitly instead of guessing or rewriting the topic path:
+
+```yaml
+source:
+  ydb_topic:
+    hosts:
+      - sas.logbroker.yandex.net
+      - vla.logbroker.yandex.net
+      - klg.logbroker.yandex.net
+    port: 2135
+    database: /Root
+    topic_path: cdc/project/topic
+    consumer_name: /cdc/project/consumer
+    topology_discovery: configured
+    partition_ids: [0]
+    trusted_plaintext: true
+    auth:
+      type: access_token
+      token_file: "${HOME}/.logbroker/token"
+    parser: # same parser contract as pqv1
+      common:
+        table_naming: { type: from_config, name: events }
+      json_parser:
+        conversion_error: dlq
+        unknown_fields: { action: fail }
+        chunk_splitter: one-message-one-row
+        columns:
+          - { jsonpath: "$.id", column_name: id, json_data_type: string, arrow_type: Utf8, nullable: false }
+```
+
+`examples/ydb_topic_read_one.rs` is a credential-safe connectivity probe. It
+opens every configured partition concurrently, reports only partition/offset
+and byte counts for the first non-empty batch, and deliberately exits without
+committing consumer offsets.
 
 ```yaml
 delivery_id: pqv1-s3-production

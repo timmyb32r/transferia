@@ -5,4 +5,6 @@ pub mod postgres;
 pub mod pqv1;
 pub mod s3;
 pub mod traits;
+pub mod ydb_topic;
+pub mod ydb_transport;
 pub mod ytsaurus;

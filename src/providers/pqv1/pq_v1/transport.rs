@@ -2,12 +2,8 @@
 // HTTP/2 prior-knowledge transport (Go-compatible)
 // ---------------------------------------------------------------------------
 
-use core::pin::Pin;
-use core::task::{Context, Poll};
-
 use anyhow::anyhow;
 use http::Uri;
-use hyper::client::conn::http2;
 use tokio_util::sync::CancellationToken;
 use tonic::metadata::{AsciiMetadataValue, MetadataMap};
 use tonic::Request;
@@ -18,70 +14,12 @@ use super::{
 };
 use crate::pipeline::retry::stable_retry_seed;
 use crate::pipeline::PipelineFailure;
+pub use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 use crate::Ydb::status_ids::StatusCode;
 
 /// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
 /// Always `/Root` in our deployment — hardcoded rather than configured.
 const YDB_DATABASE: &str = "/Root";
-
-/// Bridges Hyper 1.x `SendRequest` (which doesn't impl `tower::Service`) to tonic.
-pub struct H2Service {
-    inner: http2::SendRequest<tonic::body::Body>,
-}
-
-impl tower::Service<http::Request<tonic::body::Body>> for H2Service {
-    type Response = http::Response<hyper::body::Incoming>;
-    type Error = hyper::Error;
-    type Future =
-        Pin<Box<dyn core::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: http::Request<tonic::body::Body>) -> Self::Future {
-        Box::pin(self.inner.send_request(req))
-    }
-}
-
-/// Establish an HTTP/2 prior-knowledge connection (sends the HTTP/2 preface directly,
-/// like grpc-go — no HTTP/1.1 upgrade).
-pub async fn connect_http2_prior_knowledge(
-    uri: &Uri,
-    timeout: core::time::Duration,
-    cancellation: &CancellationToken,
-) -> anyhow::Result<H2Service> {
-    let addr = socket_address(uri);
-
-    let (send_request, conn) = network_stage("HTTP/2 connection", timeout, cancellation, async {
-        let stream = tokio::net::TcpStream::connect(&addr)
-            .await
-            .map_err(|e| anyhow!("TCP connect to {addr}: {e}"))?;
-        stream.set_nodelay(true)?;
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let mut builder = http2::Builder::new(hyper_util::rt::TokioExecutor::new());
-        builder
-            .timer(hyper_util::rt::TokioTimer::new())
-            .keep_alive_interval(timeout)
-            .keep_alive_timeout(timeout)
-            .keep_alive_while_idle(true);
-        builder
-            .handshake(io)
-            .await
-            .map_err(|e| anyhow!("HTTP/2 handshake failed: {e}"))
-    })
-    .await?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            tracing::error!("HTTP/2 connection error: {}", e);
-        }
-    });
-
-    tracing::debug!("HTTP/2 prior-knowledge connection to {}", addr);
-    Ok(H2Service {
-        inner: send_request,
-    })
-}
 
 pub(super) async fn network_stage<T>(
     name: &str,
@@ -157,8 +95,9 @@ fn format_host_port(host: &str, port: u16) -> String {
     }
 }
 
+#[cfg(test)]
 pub(super) fn socket_address(uri: &Uri) -> String {
-    format_host_port(
+    crate::providers::address::host_port(
         uri.host().unwrap_or("localhost"),
         uri.port_u16().unwrap_or(2135),
     )

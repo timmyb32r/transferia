@@ -11,7 +11,9 @@ mod transport;
 use decode::*;
 pub use decode::{DecodedMessage, DecodedPart, PqV1CommitMarker};
 use transport::*;
-pub use transport::{connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers};
+pub use transport::{
+    connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers, H2Service,
+};
 
 use alloc::sync::Arc;
 use core::pin::Pin;

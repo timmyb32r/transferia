@@ -38,6 +38,7 @@ shellexpand = "3"
 simd-json = "0.17"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros", "net", "test-util"] }
+tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tonic = { version = "0.14", default-features = false }
@@ -45,6 +46,7 @@ tonic-prost = "0.14"
 tower = "0.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ydb-grpc = "0.2.2"
 zstd = "0.13"
 
 [build-dependencies]
