@@ -13,55 +13,47 @@ pub enum TopologyDiscovery {
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct YdbTopicAuthConfig {
-    #[serde(rename = "type")]
-    pub auth_type: String,
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum YdbTopicAuthConfig {
+    #[schemars(title = "Token")]
+    Token {
+        #[schemars(extend("x-ui" = { "widget": "password" }))]
+        token: String,
+    },
 
-    #[schemars(extend("x-ui" = { "widget": "password" }))]
-    pub token: Option<String>,
-
-    pub token_file: Option<String>,
+    #[schemars(title = "Token file")]
+    TokenFile { token_file: String },
 }
 
 impl YdbTopicAuthConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.auth_type == "access_token",
-            "ydb_topic.auth.type must be 'access_token'"
-        );
-        anyhow::ensure!(
-            self.token.is_some() ^ self.token_file.is_some(),
-            "ydb_topic.auth requires exactly one of 'token' or 'token_file'"
-        );
-        if let Some(token) = &self.token {
-            anyhow::ensure!(
+        match self {
+            Self::Token { token } => anyhow::ensure!(
                 !token.trim().is_empty(),
                 "ydb_topic.auth.token must not be empty"
-            );
-        }
-        if let Some(path) = &self.token_file {
-            anyhow::ensure!(
-                !path.trim().is_empty(),
+            ),
+            Self::TokenFile { token_file } => anyhow::ensure!(
+                !token_file.trim().is_empty(),
                 "ydb_topic.auth.token_file must not be empty"
-            );
+            ),
         }
         Ok(())
     }
 
     pub(super) fn load_token(&self) -> anyhow::Result<String> {
         self.validate()?;
-        let token = if let Some(path) = self.token_file.as_deref() {
-            let expanded = shellexpand::full(path).map_err(|error| {
-                anyhow::anyhow!("Failed to expand ydb_topic.auth.token_file '{path}': {error}")
-            })?;
-            std::fs::read_to_string(expanded.as_ref()).map_err(|error| {
-                anyhow::anyhow!("Failed to read YDB access token from '{expanded}': {error}")
-            })?
-        } else if let Some(token) = self.token.as_deref() {
-            token.to_owned()
-        } else {
-            anyhow::bail!("ydb_topic.auth has no configured token source");
+        let token = match self {
+            Self::Token { token } => token.clone(),
+            Self::TokenFile { token_file } => {
+                let expanded = shellexpand::full(token_file).map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to expand ydb_topic.auth.token_file '{token_file}': {error}"
+                    )
+                })?;
+                std::fs::read_to_string(expanded.as_ref()).map_err(|error| {
+                    anyhow::anyhow!("Failed to read YDB access token from '{expanded}': {error}")
+                })?
+            }
         };
         let token = token.trim().to_owned();
         anyhow::ensure!(!token.is_empty(), "YDB access token is empty");
@@ -71,25 +63,25 @@ impl YdbTopicAuthConfig {
 
 impl fmt::Debug for YdbTopicAuthConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("YdbTopicAuthConfig")
-            .field("auth_type", &self.auth_type)
-            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
-            .field("token_file", &self.token_file)
-            .finish()
+        match self {
+            Self::Token { .. } => formatter
+                .debug_struct("Token")
+                .field("token", &"[REDACTED]")
+                .finish(),
+            Self::TokenFile { token_file } => formatter
+                .debug_struct("TokenFile")
+                .field("token_file", token_file)
+                .finish(),
+        }
     }
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YdbTopicSourceConfig {
-    #[schemars(description = "YDB or Logbroker entry points tried in order")]
-    pub hosts: Vec<String>,
+    pub host: String,
 
     pub port: u16,
-
-    #[schemars(description = "YDB database path, for Logbroker usually /Root")]
-    pub database: String,
 
     pub topic_path: String,
 

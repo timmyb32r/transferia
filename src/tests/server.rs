@@ -17,6 +17,9 @@ fn static_assets_are_embedded() {
     assert!(APP_JS.contains("sequence !== discoverySequence"));
     assert!(APP_JS.contains("element('label', 'switch-row')"));
     assert!(APP_JS.contains("createDropdown"));
+    assert!(APP_JS.contains("label.removeAttribute('for')"));
+    assert!(APP_JS.contains("renderColumnMappings"));
+    assert!(APP_JS.contains("'Системные колонки'"));
     assert!(APP_JS.contains("'Не выбрано'"));
     assert!(APP_JS.contains("search.placeholder = 'Поиск'"));
     assert!(APP_JS.contains("crypto.getRandomValues"));
@@ -28,6 +31,7 @@ fn static_assets_are_embedded() {
     assert!(STYLE_CSS.contains("top: calc(100% + 4px)"));
     assert!(STYLE_CSS.contains(".select-chevron"));
     assert!(STYLE_CSS.contains(".select-search"));
+    assert!(STYLE_CSS.contains(".column-grid-row"));
 }
 
 #[test]
@@ -41,6 +45,8 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     assert!(schema.contains("password"));
     assert!(schema.contains("native port"));
     assert!(schema.contains("advanced"));
+    assert!(schema.contains("column_mappings"));
+    assert!(schema.contains("system_columns"));
     assert!(!schema.contains("sorting_key"));
     assert!(!schema.contains("Delivery ID"));
     assert!(!schema.contains("durable_storage"));
@@ -50,6 +56,17 @@ fn form_schema_exposes_provider_unions_and_ui_hints() -> anyhow::Result<()> {
     assert_eq!(
         definition.source_presets["ydb_topic"]["topology_discovery"],
         "topic_api"
+    );
+    assert_eq!(definition.source_presets["ydb_topic"]["host"], "localhost");
+    assert!(definition.source_presets["ydb_topic"]
+        .get("hosts")
+        .is_none());
+    assert!(definition.source_presets["ydb_topic"]
+        .get("database")
+        .is_none());
+    assert_eq!(
+        definition.source_presets["ydb_topic"]["auth"]["type"],
+        "token"
     );
     assert_eq!(
         definition.source_presets["clickhouse"]["port"],

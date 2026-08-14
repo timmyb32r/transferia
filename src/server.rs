@@ -299,13 +299,12 @@ fn config_form_definition() -> anyhow::Result<ConfigFormDefinition> {
         (
             "ydb_topic",
             serde_json::json!({
-                "hosts": ["localhost"],
+                "host": "localhost",
                 "port": 2135,
-                "database": "/Root",
                 "topic_path": "/demo/events",
                 "consumer_name": "transferia-demo",
                 "topology_discovery": "topic_api",
-                "auth": { "type": "access_token", "token": "demo" },
+                "auth": { "type": "token", "token": "demo" },
                 "trusted_plaintext": true,
                 "parser": json_parser_preset(),
                 "partition_ids": [],

@@ -59,19 +59,15 @@ partition IDs explicitly instead of guessing or rewriting the topic path:
 ```yaml
 source:
   ydb_topic:
-    hosts:
-      - sas.logbroker.yandex.net
-      - vla.logbroker.yandex.net
-      - klg.logbroker.yandex.net
+    host: sas.logbroker.yandex.net
     port: 2135
-    database: /Root
     topic_path: cdc/project/topic
     consumer_name: /cdc/project/consumer
     topology_discovery: configured
     partition_ids: [0]
     trusted_plaintext: true
     auth:
-      type: access_token
+      type: token_file
       token_file: "${HOME}/.logbroker/token"
     parser: # same parser contract as pqv1
       common:

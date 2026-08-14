@@ -8,28 +8,41 @@ use super::*;
 
 fn provider(extra: &str) -> anyhow::Result<YdbTopicSourceProvider> {
     let value = serde_yaml::from_str(&format!(
-        "hosts: [localhost]\nport: 2135\ndatabase: /Root\ntopic_path: topic\nconsumer_name: consumer\ntopology_discovery: topic_api\nauth: {{ type: access_token, token: test }}\ntrusted_plaintext: true\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
+        "host: localhost\nport: 2135\ntopic_path: topic\nconsumer_name: consumer\ntopology_discovery: topic_api\nauth: {{ type: token, token: test }}\ntrusted_plaintext: true\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
     ))?;
     YdbTopicSourceProvider::from_config(value, Arc::new(MetricsRegistry::new()))
 }
 
 #[test]
-fn accepts_explicit_logbroker_shape_without_partition_ids() -> anyhow::Result<()> {
+fn accepts_single_host_logbroker_shape_without_partition_ids() -> anyhow::Result<()> {
     let provider = provider("")?;
-    assert_eq!(provider.cfg.hosts, ["localhost"]);
+    assert_eq!(provider.cfg.host, "localhost");
     assert!(provider.cfg.partition_ids.is_empty());
-    assert_eq!(provider.cfg.database, "/Root");
     Ok(())
 }
 
 #[test]
-fn rejects_implicit_database_and_plaintext_trust() {
-    let mut config = provider("").expect("base config is valid").cfg;
-    config.database.clear();
-    let error = validate_config(&config).expect_err("database must fail");
-    assert!(error.to_string().contains("explicit absolute"), "{error:#}");
+fn rejects_old_hosts_and_database_fields() {
+    let Err(error) = provider("hosts: [localhost]\n") else {
+        panic!("hosts must be rejected");
+    };
+    assert!(
+        error.to_string().contains("unknown field `hosts`"),
+        "{error:#}"
+    );
 
-    config.database = "/Root".to_owned();
+    let Err(error) = provider("database: /Root\n") else {
+        panic!("database must be rejected");
+    };
+    assert!(
+        error.to_string().contains("unknown field `database`"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn rejects_implicit_plaintext_trust() {
+    let mut config = provider("").expect("base config is valid").cfg;
     config.trusted_plaintext = false;
     let error = validate_config(&config).expect_err("trust must fail");
     assert!(error.to_string().contains("trusted_plaintext"), "{error:#}");
@@ -48,14 +61,25 @@ fn configured_topology_requires_explicit_partitions() {
 
 #[test]
 fn token_debug_output_is_redacted() {
-    let auth = YdbTopicAuthConfig {
-        auth_type: "access_token".to_owned(),
-        token: Some("secret".to_owned()),
-        token_file: None,
+    let auth = YdbTopicAuthConfig::Token {
+        token: "secret".to_owned(),
     };
     let debug = format!("{auth:?}");
     assert!(!debug.contains("secret"));
     assert!(debug.contains("[REDACTED]"));
+}
+
+#[test]
+fn auth_is_exactly_one_explicit_variant() -> anyhow::Result<()> {
+    let token_file: YdbTopicAuthConfig =
+        serde_yaml::from_str("type: token_file\ntoken_file: ~/.logbroker/token\n")?;
+    token_file.validate()?;
+
+    let error =
+        serde_yaml::from_str::<YdbTopicAuthConfig>("type: token\ntoken_file: ~/.logbroker/token\n")
+            .expect_err("mismatched auth field must fail");
+    assert!(error.to_string().contains("token"), "{error:#}");
+    Ok(())
 }
 
 #[test]

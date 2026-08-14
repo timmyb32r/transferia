@@ -33,6 +33,7 @@ use source::YdbTopicSource;
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
+const YDB_DATABASE: &str = "/Root";
 
 pub struct YdbTopicSourceProvider {
     cfg: YdbTopicSourceConfig,
@@ -103,20 +104,8 @@ impl YdbTopicSourceProvider {
 }
 
 fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
-    anyhow::ensure!(!cfg.hosts.is_empty(), "ydb_topic.hosts must not be empty");
-    let mut hosts = HashSet::with_capacity(cfg.hosts.len());
-    for host in &cfg.hosts {
-        crate::providers::address::validate_host("ydb_topic.hosts[]", host)?;
-        anyhow::ensure!(
-            hosts.insert(host),
-            "ydb_topic.hosts contains duplicate host '{host}'"
-        );
-    }
+    crate::providers::address::validate_host("ydb_topic.host", &cfg.host)?;
     crate::providers::address::validate_port("ydb_topic.port", cfg.port)?;
-    anyhow::ensure!(
-        !cfg.database.is_empty() && cfg.database.starts_with('/'),
-        "ydb_topic.database must be an explicit absolute YDB path"
-    );
     anyhow::ensure!(
         !cfg.topic_path.is_empty(),
         "ydb_topic.topic_path must not be empty"
@@ -157,11 +146,7 @@ fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
     cfg.auth.validate()
 }
 
-fn set_ydb_headers(
-    metadata: &mut tonic::metadata::MetadataMap,
-    token: &str,
-    database: &str,
-) -> anyhow::Result<()> {
+fn set_ydb_headers(metadata: &mut tonic::metadata::MetadataMap, token: &str) -> anyhow::Result<()> {
     metadata.insert(
         "x-ydb-auth-ticket",
         tonic::metadata::AsciiMetadataValue::try_from(token)
@@ -169,8 +154,7 @@ fn set_ydb_headers(
     );
     metadata.insert(
         "x-ydb-database",
-        tonic::metadata::AsciiMetadataValue::try_from(database)
-            .map_err(|_| anyhow::anyhow!("ydb_topic.database is not valid ASCII metadata"))?,
+        tonic::metadata::AsciiMetadataValue::from_static(YDB_DATABASE),
     );
     Ok(())
 }
@@ -208,52 +192,38 @@ async fn describe_topic(
     cancellation: &CancellationToken,
 ) -> anyhow::Result<DescribeTopicResult> {
     let timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
-    let mut errors = Vec::new();
-    for host in &cfg.hosts {
-        let result = async {
-            let (mut client, _) = connect_client(host, cfg.port, timeout, cancellation).await?;
-            let mut request = Request::new(DescribeTopicRequest {
-                operation_params: Some(OperationParams {
-                    operation_mode: OperationMode::Sync as i32,
-                    ..OperationParams::default()
-                }),
-                path: cfg.topic_path.clone(),
-                include_stats: false,
-                include_location: false,
-            });
-            set_ydb_headers(request.metadata_mut(), token, &cfg.database)?;
-            let response = tokio::time::timeout(timeout, client.describe_topic(request))
-                .await
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "DescribeTopic timed out after {} ms",
-                        cfg.network_timeout_ms
-                    )
-                })??
-                .into_inner();
-            let operation = response
-                .operation
-                .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no operation"))?;
-            anyhow::ensure!(operation.ready, "DescribeTopic operation is not ready");
-            if operation.status != StatusCode::Success as i32 {
-                return Err(operation_failure(&operation));
-            }
-            let result = operation
-                .result
-                .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no result"))?;
-            DescribeTopicResult::decode(result.value.as_slice())
-                .map_err(|error| anyhow::anyhow!("Failed to decode DescribeTopic result: {error}"))
-        }
-        .await;
-        match result {
-            Ok(topic) => return Ok(topic),
-            Err(error) => errors.push(format!("{host}: {error}")),
-        }
+    let (mut client, _) = connect_client(&cfg.host, cfg.port, timeout, cancellation).await?;
+    let mut request = Request::new(DescribeTopicRequest {
+        operation_params: Some(OperationParams {
+            operation_mode: OperationMode::Sync as i32,
+            ..OperationParams::default()
+        }),
+        path: cfg.topic_path.clone(),
+        include_stats: false,
+        include_location: false,
+    });
+    set_ydb_headers(request.metadata_mut(), token)?;
+    let response = tokio::time::timeout(timeout, client.describe_topic(request)).await;
+    let response = response
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "DescribeTopic timed out after {} ms",
+                cfg.network_timeout_ms
+            )
+        })??
+        .into_inner();
+    let operation = response
+        .operation
+        .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no operation"))?;
+    anyhow::ensure!(operation.ready, "DescribeTopic operation is not ready");
+    if operation.status != StatusCode::Success as i32 {
+        return Err(operation_failure(&operation));
     }
-    anyhow::bail!(
-        "YDB Topic discovery could not use any configured host: {}",
-        errors.join("; ")
-    )
+    let result = operation
+        .result
+        .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no result"))?;
+    DescribeTopicResult::decode(result.value.as_slice())
+        .map_err(|error| anyhow::anyhow!("Failed to decode DescribeTopic result: {error}"))
 }
 
 fn select_partitions(

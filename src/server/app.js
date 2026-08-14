@@ -170,6 +170,7 @@ function humanize(value) {
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, character => character.toUpperCase())
     .replace(/Pqv1/gi, 'PQv1')
+    .replace(/Ydb/gi, 'YDB')
     .replace(/S3/gi, 'S3');
 }
 
@@ -314,6 +315,14 @@ function fieldShell(schema, name, path) {
   return shell;
 }
 
+function labelDropdown(shell, id) {
+  const label = shell.querySelector('.field-label label');
+  if (!label) return;
+  label.removeAttribute('for');
+  label.id = `${id}-label`;
+  shell.querySelector('.select-trigger')?.setAttribute('aria-labelledby', label.id);
+}
+
 function updateAndDiscover(path, value) {
   setPath(path, value);
   scheduleDiscovery();
@@ -366,6 +375,7 @@ function renderUnion(schema, value, path, name, options = {}) {
       }
     );
     shell.append(dropdown);
+    labelDropdown(shell, id);
     wrapper.append(shell);
   }
 
@@ -387,23 +397,174 @@ function renderUnion(schema, value, path, name, options = {}) {
 function renderObjectFields(schema, value, path, target, excluded = new Set()) {
   const resolved = resolveSchema(schema);
   const properties = Object.entries(resolved.properties || {})
-    .filter(([propertyName]) => !excluded.has(propertyName));
-  const regular = properties.filter(([, propertySchema]) => resolveSchema(propertySchema)['x-ui']?.section !== 'advanced');
-  const advanced = properties.filter(([, propertySchema]) => resolveSchema(propertySchema)['x-ui']?.section === 'advanced');
+    .filter(([propertyName, propertySchema]) => !excluded.has(propertyName) && resolveSchema(propertySchema)['x-ui']?.widget !== 'hidden');
+  const regular = properties.filter(([, propertySchema]) => !resolveSchema(propertySchema)['x-ui']?.section);
+  const sections = new Map();
+  for (const property of properties) {
+    const section = resolveSchema(property[1])['x-ui']?.section;
+    if (section) sections.set(section, [...(sections.get(section) || []), property]);
+  }
   for (const [propertyName, propertySchema] of regular) {
     const propertyPath = [...path, propertyName];
     target.append(renderNode(propertySchema, value?.[propertyName], propertyPath, propertyName));
   }
-  if (advanced.length) {
-    const details = element('details', 'advanced-settings');
-    const summary = element('summary', '', 'Расширенные настройки');
+  for (const [section, fields] of sections) {
+    const details = element('details', `advanced-settings ${section}-settings`);
+    const summary = element('summary', '', section === 'system_columns' ? 'Системные колонки' : 'Расширенные настройки');
     const body = element('div', 'advanced-settings-body');
-    for (const [propertyName, propertySchema] of advanced) {
-      body.append(renderNode(propertySchema, value?.[propertyName], [...path, propertyName], propertyName));
+    for (const [propertyName, propertySchema] of fields) {
+      const propertyPath = [...path, propertyName];
+      const property = resolveSchema(propertySchema);
+      if (section === 'system_columns' && (property.type === 'object' || property.properties)) {
+        renderObjectFields(property, value?.[propertyName] || {}, propertyPath, body);
+      } else {
+        body.append(renderNode(propertySchema, value?.[propertyName], propertyPath, propertyName));
+      }
     }
     details.append(summary, body);
     target.append(details);
   }
+}
+
+function compactInput(value, ariaLabel, onInput) {
+  const input = document.createElement('input');
+  input.value = value ?? '';
+  input.setAttribute('aria-label', ariaLabel);
+  input.oninput = () => onInput(input.value);
+  return input;
+}
+
+function renderColumnMappings(schema, value, path) {
+  const resolved = resolveSchema(schema);
+  const items = Array.isArray(value) ? value : [];
+  const shell = element('section', 'column-editor');
+  const heading = element('div', 'column-editor-heading');
+  const title = element('div');
+  title.append(element('strong', '', resolved.title || 'Схема данных'));
+  if (resolved.description) {
+    const help = element('button', 'help', '?');
+    help.type = 'button';
+    help.dataset.tooltip = resolved.description;
+    help.setAttribute('aria-label', resolved.description);
+    title.append(help);
+  }
+  const add = element('button', 'icon-button', '＋ Поле');
+  add.type = 'button';
+  heading.append(title, add);
+  shell.append(heading);
+
+  const parentPath = path.slice(0, -1);
+  const primaryKeyPath = [...parentPath, 'primary_key'];
+  const primaryKey = Array.isArray(atPath(primaryKeyPath)) ? atPath(primaryKeyPath) : [];
+  add.onclick = () => {
+    items.push(createValue(resolved.items));
+    updateAndDiscover(path, items);
+    renderEditor();
+  };
+
+  if (!items.length) {
+    shell.append(element('div', 'column-editor-empty', 'Добавьте хотя бы одну результирующую колонку'));
+    return shell;
+  }
+
+  const table = element('div', 'column-grid');
+  const headers = ['', 'Имя', 'JSON тип', 'Arrow тип', 'Ключ', 'Обязательно', 'Путь', ''];
+  const header = element('div', 'column-grid-row column-grid-header');
+  headers.forEach(text => header.append(element('span', '', text)));
+  table.append(header);
+
+  items.forEach((item, index) => {
+    const itemPath = [...path, index];
+    const row = element('div', 'column-grid-entry');
+    const main = element('div', 'column-grid-row');
+    main.append(element('span', 'column-number', String(index + 1)));
+
+    main.append(compactInput(item.column_name, `Имя колонки ${index + 1}`, next => {
+      const previous = item.column_name;
+      item.column_name = next;
+      const keyIndex = primaryKey.indexOf(previous);
+      if (keyIndex >= 0) primaryKey[keyIndex] = next;
+      setPath(primaryKeyPath, primaryKey);
+      scheduleDiscovery();
+    }));
+
+    const jsonType = createDropdown(
+      `field-${itemPath.join('-')}-json-data-type`,
+      item.json_data_type,
+      'Не выбрано',
+      ['string', 'integer', 'unsigned_integer', 'number', 'boolean'].map(option => ({value: option, label: humanize(option)})),
+      next => {
+        item.json_data_type = next;
+        scheduleDiscovery();
+        renderEditor();
+      }
+    );
+    main.append(jsonType);
+    main.append(compactInput(item.arrow_type, `Arrow тип колонки ${index + 1}`, next => {
+      item.arrow_type = next;
+      scheduleDiscovery();
+    }));
+
+    const key = document.createElement('input');
+    key.type = 'checkbox';
+    key.checked = primaryKey.includes(item.column_name);
+    key.setAttribute('aria-label', `Колонка ${item.column_name || index + 1} входит в первичный ключ`);
+    key.onchange = () => {
+      const next = primaryKey.filter(name => name !== item.column_name);
+      if (key.checked) next.push(item.column_name);
+      updateAndDiscover(primaryKeyPath, next);
+    };
+    const keyCell = element('label', 'table-check');
+    keyCell.append(key);
+    main.append(keyCell);
+
+    const required = document.createElement('input');
+    required.type = 'checkbox';
+    required.checked = !item.nullable;
+    required.setAttribute('aria-label', `Колонка ${item.column_name || index + 1} обязательна`);
+    required.onchange = () => {
+      item.nullable = !required.checked;
+      scheduleDiscovery();
+    };
+    const requiredCell = element('label', 'table-check');
+    requiredCell.append(required);
+    main.append(requiredCell);
+
+    main.append(compactInput(item.jsonpath, `JSONPath колонки ${index + 1}`, next => {
+      item.jsonpath = next;
+      scheduleDiscovery();
+    }));
+
+    const remove = element('button', 'column-remove', '×');
+    remove.type = 'button';
+    remove.title = `Удалить колонку ${item.column_name || index + 1}`;
+    remove.setAttribute('aria-label', remove.title);
+    remove.onclick = () => {
+      items.splice(index, 1);
+      setPath(primaryKeyPath, primaryKey.filter(name => name !== item.column_name));
+      updateAndDiscover(path, items);
+      renderEditor();
+    };
+    main.append(remove);
+    row.append(main);
+
+    const itemSchema = resolveSchema(resolved.items);
+    const advanced = ['time_conversion', 'low_cardinality', 'max_length']
+      .filter(name => itemSchema.properties?.[name]);
+    if (advanced.length) {
+      const details = element('details', 'column-row-advanced');
+      const summary = element('summary', '', 'Дополнительные настройки колонки');
+      const body = element('div', 'column-row-advanced-body');
+      for (const name of advanced) {
+        body.append(renderNode(itemSchema.properties[name], item[name], [...itemPath, name], name));
+      }
+      details.append(summary, body);
+      row.append(details);
+    }
+    table.append(row);
+  });
+  shell.append(table);
+  return shell;
 }
 
 function renderArray(schema, value, path, name) {
@@ -476,7 +637,7 @@ function renderScalar(schema, value, path, name) {
     return shell;
   }
   if (resolved.enum) {
-    shell.append(createDropdown(
+    const dropdown = createDropdown(
       id,
       resolved.enum.includes(value) ? value : undefined,
       'Не выбрано',
@@ -486,7 +647,9 @@ function renderScalar(schema, value, path, name) {
         renderEditor();
         document.getElementById(id)?.focus();
       }
-    ));
+    );
+    shell.append(dropdown);
+    labelDropdown(shell, id);
     return shell;
   }
   const input = document.createElement('input');
@@ -508,6 +671,7 @@ function renderScalar(schema, value, path, name) {
 
 function renderNode(schema, value, path, name, options = {}) {
   const resolved = resolveSchema(schema);
+  if (resolved['x-ui']?.widget === 'column_mappings') return renderColumnMappings(resolved, value, path);
   if (nullableSchema(resolved)) return renderNullable(resolved, value, path, name);
   if (resolved.oneOf || resolved.anyOf) return renderUnion(resolved, value, path, name, options);
   if (resolved.type === 'array') return renderArray(resolved, value, path, name);

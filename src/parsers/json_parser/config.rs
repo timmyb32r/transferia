@@ -11,6 +11,7 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
+    #[schemars(title = "Data schema", extend("x-ui" = { "widget": "column_mappings" }))]
     pub columns: Vec<ColumnMapping>,
 
     /// How incoming message bytes are split into individual JSON objects.
@@ -22,9 +23,11 @@ pub struct JsonParserConfig {
     pub unknown_fields: UnknownFieldPolicy,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub primary_key: Vec<String>,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub system_column_names: SystemColumnNames,
 }
 

@@ -70,60 +70,45 @@ impl YdbTopicSource {
         memory: PipelineMemory,
     ) -> anyhow::Result<Self> {
         let timeout = core::time::Duration::from_millis(config.network_timeout_ms);
-        let mut errors = Vec::new();
-        for host in &config.hosts {
-            let result: anyhow::Result<Self> = async {
-                let (mut client, _) =
-                    connect_client(host, config.port, timeout, &cancellation).await?;
-                client = client.max_decoding_message_size(MAX_DECOMPRESSED_BATCH_BYTES);
-                let (outgoing, receiver) = mpsc::channel(OUTGOING_CHANNEL_CAPACITY);
-                let mut request = Request::new(ReceiverStream::new(receiver));
-                set_ydb_headers(request.metadata_mut(), token.as_ref(), &config.database)?;
-                outgoing
-                    .send(init_message(config, partition_id))
-                    .await
-                    .map_err(|_| anyhow!("YDB Topic request stream closed before init"))?;
-                let incoming = tokio::time::timeout(timeout, client.stream_read(request))
-                    .await
-                    .map_err(|_| {
-                        anyhow!(
-                            "YDB Topic StreamRead timed out after {} ms",
-                            config.network_timeout_ms
-                        )
-                    })??
-                    .into_inner();
-                let mut source = Self {
-                    outgoing,
-                    incoming,
-                    buffered_batches: VecDeque::new(),
-                    partition_id,
-                    partition_session_id: None,
-                    topic_path: Arc::from(config.topic_path.as_str()),
-                    cancellation: cancellation.clone(),
-                    memory: memory.clone(),
-                    counters: Arc::clone(&counters),
-                    pending_credit: 0,
-                };
-                source.await_init(timeout).await?;
-                source
-                    .send(ClientMessage::ReadRequest(ReadRequest {
-                        bytes_size: i64::try_from(config.read_buffer_bytes)
-                            .map_err(|_| anyhow!("ydb_topic.read_buffer_bytes exceeds i64"))?,
-                    }))
-                    .await?;
-                Ok(source)
-            }
-            .await;
-            match result {
-                Ok(source) => return Ok(source),
-                Err(error) => errors.push(format!("{host}: {error}")),
-            }
-        }
-        Err(PipelineFailure::retryable(anyhow!(
-            "YDB Topic could not open partition {partition_id} on any host: {}",
-            errors.join("; ")
-        ))
-        .into())
+        let (mut client, _) =
+            connect_client(&config.host, config.port, timeout, &cancellation).await?;
+        client = client.max_decoding_message_size(MAX_DECOMPRESSED_BATCH_BYTES);
+        let (outgoing, receiver) = mpsc::channel(OUTGOING_CHANNEL_CAPACITY);
+        let mut request = Request::new(ReceiverStream::new(receiver));
+        set_ydb_headers(request.metadata_mut(), token.as_ref())?;
+        outgoing
+            .send(init_message(config, partition_id))
+            .await
+            .map_err(|_| anyhow!("YDB Topic request stream closed before init"))?;
+        let incoming = tokio::time::timeout(timeout, client.stream_read(request))
+            .await
+            .map_err(|_| {
+                anyhow!(
+                    "YDB Topic StreamRead timed out after {} ms",
+                    config.network_timeout_ms
+                )
+            })??
+            .into_inner();
+        let mut source = Self {
+            outgoing,
+            incoming,
+            buffered_batches: VecDeque::new(),
+            partition_id,
+            partition_session_id: None,
+            topic_path: Arc::from(config.topic_path.as_str()),
+            cancellation,
+            memory,
+            counters,
+            pending_credit: 0,
+        };
+        source.await_init(timeout).await?;
+        source
+            .send(ClientMessage::ReadRequest(ReadRequest {
+                bytes_size: i64::try_from(config.read_buffer_bytes)
+                    .map_err(|_| anyhow!("ydb_topic.read_buffer_bytes exceeds i64"))?,
+            }))
+            .await?;
+        Ok(source)
     }
 
     async fn await_init(&mut self, timeout: core::time::Duration) -> anyhow::Result<()> {
