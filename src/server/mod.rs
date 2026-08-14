@@ -1,0 +1,68 @@
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+
+mod assets;
+mod http;
+mod model;
+mod service;
+mod store;
+mod supervisor;
+mod ui_catalog;
+
+pub async fn run(bind: SocketAddr, state_dir: PathBuf) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        bind.ip().is_loopback(),
+        "the local control plane may only bind to a loopback address"
+    );
+    let store = Arc::new(store::JsonDeliveryStore::open(state_dir.clone()).await?);
+    let supervisor = Arc::new(supervisor::LocalWorkerSupervisor::new(
+        std::env::current_exe()?,
+        state_dir.clone(),
+    ));
+    let control_plane = Arc::new(service::ControlPlane::new(store, supervisor));
+    control_plane.spawn_supervisor_monitor();
+    let catalog = ui_catalog::build_ui_catalog()?;
+    let listener = TcpListener::bind(bind).await?;
+    let address = listener.local_addr()?;
+    tracing::info!(%address, "local control plane is ready");
+
+    let shutdown = CancellationToken::new();
+    spawn_shutdown_listener(shutdown.clone())?;
+    let result = http::serve(listener, Arc::clone(&control_plane), catalog, shutdown).await;
+    control_plane.shutdown().await?;
+    result
+}
+
+#[cfg(test)]
+#[path = "tests/mod.rs"]
+mod tests;
+
+fn spawn_shutdown_listener(shutdown: CancellationToken) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::spawn(async move {
+            tokio::select! {
+                result = tokio::signal::ctrl_c() => {
+                    if let Err(error) = result {
+                        tracing::warn!(%error, "failed to listen for Ctrl-C");
+                    }
+                }
+                _ = terminate.recv() => {}
+            }
+            shutdown.cancel();
+        });
+    }
+    #[cfg(not(unix))]
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            shutdown.cancel();
+        }
+    });
+    Ok(())
+}

@@ -1,4 +1,5 @@
 pub(crate) mod address;
+pub mod catalog;
 pub mod clickhouse;
 pub mod discard;
 pub mod postgres;

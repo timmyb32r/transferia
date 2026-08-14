@@ -1,2 +1,5 @@
 benchmark-results/
+.transferia-server/
+web/node_modules/
+web/dist/
 .transferia-state/

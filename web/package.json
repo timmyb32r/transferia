@@ -1,0 +1,20 @@
+{
+  "name": "transferia-control-plane-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@testing-library/preact": "3.2.4",
+    "esbuild": "0.28.2",
+    "jsdom": "30.0.1",
+    "prettier": "3.8.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

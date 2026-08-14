@@ -49,7 +49,7 @@ pub struct CommonParserConfig {
     pub table_naming: TableNaming,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "system_columns" }))]
     pub system_columns: SystemColumnsConfig,
 }
 

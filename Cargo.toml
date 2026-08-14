@@ -7,6 +7,8 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
 arrow = "57"
 base64 = "0.22"
 bytes = "1"
@@ -16,6 +18,7 @@ clap = { version = "4", features = ["derive", "env"] }
 clickhouse-arrow = { version = "0.2", default-features = false, features = ["inner_pool"] }
 flate2 = "1"
 futures-util = "0.3"
+getrandom = "0.3"
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
@@ -37,13 +40,14 @@ sha2 = "0.10"
 shellexpand = "3"
 simd-json = "0.17"
 time = { version = "0.3", features = ["formatting", "parsing"] }
-tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros", "net", "test-util"] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "sync", "macros", "net", "process", "io-util", "test-util"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tonic = { version = "0.14", default-features = false }
 tonic-prost = "0.14"
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ydb-grpc = "0.2.2"

@@ -9,11 +9,13 @@ use tokio::signal;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use transferia::compatibility::{validate_pipeline, SourceBehavior};
+#[cfg(test)]
+use transferia::application::delivery_plan::validate_discovered_pipeline;
+use transferia::application::delivery_plan::{build_delivery_plan, DeliveryPlan};
+use transferia::application::worker_control::WorkerControl;
 use transferia::config::yaml::Config;
-use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
-use transferia::metrics::{spawn_stats_reporter, MetricsRegistry, ParseCounters, SinkCounters};
-use transferia::middleware::build_middleware;
+use transferia::delivery::DeliveryDiscovery;
+use transferia::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
 use transferia::parsers::ParserFactory as DataParserFactory;
 use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::middleware::Middleware;
@@ -21,8 +23,12 @@ use transferia::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
 use transferia::pipeline::{
     run_partition_pipeline_with_progress, PipelineFailure, PipelineProgress,
 };
-use transferia::providers::traits::{
-    ProviderRegistry, SinkContext, SinkPrepare, SinkProvider, SourceProvider,
+use transferia::providers::traits::{SinkContext, SinkPrepare, SinkProvider, SourceProvider};
+#[cfg(test)]
+use transferia::{
+    delivery::{DeliveryDiscoveryRequest, SinkLimits},
+    metrics::MetricsRegistry,
+    providers::catalog::build_provider_catalog,
 };
 
 #[global_allocator]
@@ -43,6 +49,10 @@ struct Cli {
     total_workers: u32,
     #[arg(long, default_value_t = 0)]
     worker_index: u32,
+    #[arg(long, hide = true)]
+    parent_control: Option<std::net::SocketAddr>,
+    #[arg(long, env = "TRANSFERIA_PARENT_TOKEN", hide = true)]
+    parent_token: Option<String>,
 }
 
 fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
@@ -50,6 +60,10 @@ fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
     anyhow::ensure!(
         cli.worker_index < cli.total_workers,
         "worker_index must be less than total_workers"
+    );
+    anyhow::ensure!(
+        cli.parent_control.is_some() == cli.parent_token.is_some(),
+        "--parent-control and TRANSFERIA_PARENT_TOKEN must be provided together"
     );
     Ok(())
 }
@@ -236,107 +250,6 @@ async fn stop_partition_tasks(
     }
 }
 
-fn build_provider_registry(metrics_registry: &Arc<MetricsRegistry>) -> ProviderRegistry {
-    let mut registry = ProviderRegistry::new();
-    registry.register_source("pqv1", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::pqv1::src_stream::PqV1SourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_source("ydb_topic", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::ydb_topic::YdbTopicSourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_source("postgres", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::postgres::PostgresSourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_source("ytsaurus", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::ytsaurus::YTsaurusSourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_source("clickhouse", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::clickhouse::ClickHouseSourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_source("s3", {
-        let registry = Arc::clone(metrics_registry);
-        move |value| {
-            Ok(Box::new(
-                transferia::providers::s3::S3SourceProvider::from_config(
-                    value,
-                    Arc::clone(&registry),
-                )?,
-            ))
-        }
-    });
-    registry.register_sink("clickhouse", |value| {
-        Ok(Box::new(
-            transferia::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
-        ))
-    });
-    registry.register_sink("discard", |value| {
-        Ok(Box::new(
-            transferia::providers::discard::provider::DiscardSinkProvider::from_config(value)?,
-        ))
-    });
-    registry.register_sink("s3", |value| {
-        Ok(Box::new(
-            transferia::providers::s3::sink::S3SinkProvider::from_config(value)?,
-        ))
-    });
-    registry.register_sink("postgres", |value| {
-        Ok(Box::new(
-            transferia::providers::postgres::PostgresSinkProvider::from_config(value)?,
-        ))
-    });
-    registry.register_sink("ytsaurus", |value| {
-        Ok(Box::new(
-            transferia::providers::ytsaurus::YTsaurusSinkProvider::from_config(value)?,
-        ))
-    });
-    registry.register_sink("pqv1", |value| {
-        Ok(Box::new(
-            transferia::providers::pqv1::PqV1SinkProvider::from_config(value)?,
-        ))
-    });
-    registry
-}
-
 fn spawn_shutdown_listener(cancellation: CancellationToken) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
@@ -358,43 +271,6 @@ fn spawn_shutdown_listener(cancellation: CancellationToken) -> anyhow::Result<()
     Ok(())
 }
 
-fn validate_discovered_pipeline(
-    source: &transferia::compatibility::EndpointDescriptor,
-    sink: &transferia::compatibility::EndpointDescriptor,
-    limits: &dyn SinkLimits,
-    discovery: &DeliveryDiscovery,
-    keep_system_columns: bool,
-) -> anyhow::Result<transferia::compatibility::DeliverySemanticsReport> {
-    anyhow::ensure!(
-        discovery.keep_system_columns == keep_system_columns,
-        "delivery discovery system-column policy differs from pipeline configuration"
-    );
-    let semantics = validate_pipeline(source, sink, discovery, keep_system_columns);
-    semantics.ensure_valid()?;
-    limits
-        .validate_discovery(discovery)
-        .context("delivery violates sink limits")?;
-    Ok(semantics)
-}
-
-fn validate_middlewares(
-    middlewares: &[Box<dyn Middleware>],
-    discovery: &DeliveryDiscovery,
-) -> anyhow::Result<()> {
-    if middlewares.is_empty() {
-        return Ok(());
-    }
-    let main = discovery
-        .dataset(transferia::delivery::DatasetRole::Main)
-        .context("middlewares require a discovered main dataset")?;
-    for (index, middleware) in middlewares.iter().enumerate() {
-        middleware
-            .validate_schema(&main.incoming_schema)
-            .with_context(|| format!("middleware {index} is incompatible with delivery schema"))?;
-    }
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -413,61 +289,31 @@ async fn main() -> anyhow::Result<()> {
         .as_deref()
         .context("--config is required unless --server is selected")?;
     let config = Config::from_file(config_path)?;
-    let durable = config.durable_storage.build(&config.delivery_id)?;
-    anyhow::ensure!(
-        config.pipeline_memory_limit_bytes > 0,
-        "pipeline_memory_limit_bytes must be positive"
-    );
-
-    let metrics_registry = Arc::new(MetricsRegistry::new());
-    let registry = build_provider_registry(&metrics_registry);
-
-    let source_kind = config.source.kind()?;
-    let sink_kind = config.sink.kind()?;
-    let source_provider: Arc<dyn SourceProvider> =
-        Arc::from(registry.build_source(source_kind, config.source.raw()?.clone())?);
-    let sink_provider: Arc<dyn SinkProvider> =
-        Arc::from(registry.build_sink(sink_kind, config.sink.raw()?.clone())?);
-    sink_provider.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
-
     let cancellation = CancellationToken::new();
+    let parent_control = match (cli.parent_control, cli.parent_token.as_deref()) {
+        (Some(address), Some(token)) => {
+            Some(WorkerControl::connect(address, token, cancellation.clone()).await?)
+        }
+        (None, None) => None,
+        _ => {
+            anyhow::bail!("--parent-control and TRANSFERIA_PARENT_TOKEN must be provided together")
+        }
+    };
     spawn_shutdown_listener(cancellation.clone())?;
-    let source_descriptor = source_provider.compatibility();
-    anyhow::ensure!(
-        source_descriptor.supports_delivery_type(config.delivery_type),
-        "source '{source_kind}' does not support delivery_type '{}'",
-        config.delivery_type.label()
-    );
-    let finite_source =
-        source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
-    let discovery = source_provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
-                keep_system_columns: config.keep_system_columns_in_sink,
-            },
-            cancellation.clone(),
-        )
-        .await?;
-    anyhow::ensure!(
-        discovery.keep_system_columns == config.keep_system_columns_in_sink,
-        "source delivery discovery returned a system-column projection different from the requested policy"
-    );
-    let middlewares = config
-        .middlewares
-        .iter()
-        .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    validate_middlewares(&middlewares, &discovery)?;
-    let semantics = validate_discovered_pipeline(
-        &source_descriptor,
-        &sink_provider.compatibility(),
-        sink_provider.limits(),
-        &discovery,
-        config.keep_system_columns_in_sink,
-    )?;
+    let DeliveryPlan {
+        config,
+        durable,
+        metrics_registry,
+        source_provider,
+        sink_provider,
+        discovery,
+        middlewares,
+        semantics,
+        finite_source,
+        ..
+    } = build_delivery_plan(config, cancellation.clone()).await?;
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
     tracing::info!(limits = %serde_json::to_string(&sink_provider.limits().description())?, "sink limits validated against delivery discovery");
-    let discovery = Arc::new(discovery);
 
     let parser_plan = source_provider.parser_plan();
     let parses_rows = parser_plan.parses_rows();
@@ -520,6 +366,9 @@ async fn main() -> anyhow::Result<()> {
             parse_counters,
             sink_counters,
         ));
+    }
+    if let Some(parent_control) = &parent_control {
+        parent_control.ready().await?;
     }
     while !tasks.is_empty() {
         let result = tokio::select! {

@@ -29,20 +29,21 @@ For the demonstration control plane, run:
 transferia --server --bind 127.0.0.1:8080 --state-dir .transferia-server
 ```
 
-The printed URL opens a dependency-free JavaScript UI. It stores delivery
-definitions atomically in the local state directory, reruns real source
-discovery and sink-limit validation whenever YAML changes, previews the exact
-table schemas, and saves a valid definition as `created`. Activating a delivery
-writes an immutable config file and starts a child `transferia --config ...`
-process with stdout/stderr redirected to its own log file. This is intentionally
-a demo process launcher, not a scheduler or production process supervisor.
+The embedded Preact UI saves incomplete drafts, renders provider forms from the
+Rust-generated schema catalog, and keeps a copyable runnable YAML preview.
+Validation and activation share the same complete preflight sequence as a CLI
+worker. The local supervisor waits for child readiness, tracks exits, and stops
+every owned worker when the server exits or its parent-control connection is
+lost. Deliveries remain stopped after a server restart until manually activated.
+See [the control-plane architecture](docs/server.md) for the storage, launcher,
+API, and UI boundaries.
 
 ## Quality checks
 
 ```bash
 just fmt
 just clippy
-cargo test --all-targets
+cargo test --all-targets --all-features
 ```
 
 `just clippy` runs the strict lint policy from `Cargo.toml` with warnings as

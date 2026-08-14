@@ -1,8 +1,6 @@
 use alloc::sync::Arc;
-use std::collections::HashMap;
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::EndpointDescriptor;
@@ -96,75 +94,5 @@ impl SinkPrepare {
                 })
                 .collect(),
         }))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
-type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
-
-pub struct ProviderRegistry {
-    sources: HashMap<&'static str, SourceFactory>,
-    sinks: HashMap<&'static str, SinkFactory>,
-}
-
-impl Default for ProviderRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ProviderRegistry {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            sources: HashMap::new(),
-            sinks: HashMap::new(),
-        }
-    }
-
-    pub fn register_source<
-        F: Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync + 'static,
-    >(
-        &mut self,
-        name: &'static str,
-        factory: F,
-    ) {
-        self.sources.insert(name, Box::new(factory));
-    }
-
-    pub fn register_sink<
-        F: Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync + 'static,
-    >(
-        &mut self,
-        name: &'static str,
-        factory: F,
-    ) {
-        self.sinks.insert(name, Box::new(factory));
-    }
-
-    pub fn build_source(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SourceProvider>> {
-        match self.sources.get(kind) {
-            Some(f) => f(raw),
-            None => anyhow::bail!(
-                "Unknown source provider '{}'; registered: {:?}",
-                kind,
-                self.sources.keys().collect::<Vec<_>>(),
-            ),
-        }
-    }
-
-    pub fn build_sink(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SinkProvider>> {
-        match self.sinks.get(kind) {
-            Some(f) => f(raw),
-            None => anyhow::bail!(
-                "Unknown sink provider '{}'; registered: {:?}",
-                kind,
-                self.sinks.keys().collect::<Vec<_>>(),
-            ),
-        }
     }
 }

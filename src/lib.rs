@@ -30,6 +30,7 @@ pub mod Ydb {
     }
 }
 
+pub mod application;
 pub mod compatibility;
 pub mod config;
 pub mod delivery;

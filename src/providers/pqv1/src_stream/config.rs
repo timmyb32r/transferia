@@ -17,7 +17,10 @@ pub struct PqV1SourceConfig {
 
     pub auth: PqV1AuthConfig,
 
-    #[schemars(with = "crate::parsers::config::ParserSchema")]
+    #[schemars(
+        with = "crate::parsers::config::ParserSchema",
+        extend("x-ui" = { "widget": "parser" })
+    )]
     pub parser: ParserConfig,
 
     pub partition_group_ids: Vec<i64>,

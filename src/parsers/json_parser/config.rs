@@ -23,11 +23,11 @@ pub struct JsonParserConfig {
     pub unknown_fields: UnknownFieldPolicy,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub primary_key: Vec<String>,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(extend("x-ui" = { "section": "system_columns" }))]
     pub system_column_names: SystemColumnNames,
 }
 
@@ -196,6 +196,18 @@ pub struct ColumnMapping {
 
     pub json_data_type: JsonDataType,
 
+    #[schemars(extend("x-ui" = {
+        "widget": "select",
+        "options": [
+            "Utf8", "LargeUtf8", "Int64", "Int32", "Int16", "Int8",
+            "UInt64", "UInt32", "UInt16", "UInt8", "Float64", "Float32",
+            "Boolean", "Date32", "Date64", "Timestamp(Second)",
+            "Timestamp(Millisecond)", "Timestamp(Microsecond)",
+            "Timestamp(Nanosecond)", "Timestamp(Second, UTC)",
+            "Timestamp(Millisecond, UTC)", "Timestamp(Microsecond, UTC)",
+            "Timestamp(Nanosecond, UTC)"
+        ]
+    }))]
     pub arrow_type: String,
 
     #[serde(default)]

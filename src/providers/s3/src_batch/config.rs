@@ -30,7 +30,10 @@ pub struct S3SourceConfig {
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
 
-    #[schemars(with = "crate::parsers::config::JsonParserSchema")]
+    #[schemars(
+        with = "crate::parsers::config::ParserSchema",
+        extend("x-ui" = { "widget": "parser" })
+    )]
     pub parser: ParserConfig,
 
     #[serde(default = "default_timeout_ms")]

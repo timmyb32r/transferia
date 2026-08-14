@@ -76,6 +76,8 @@ fn rejects_invalid_worker_assignment_before_partitioning() {
         state_dir: ".transferia-server".into(),
         total_workers: 0,
         worker_index: 0,
+        parent_control: None,
+        parent_token: None,
     };
     assert!(validate_worker_assignment(&cli).is_err());
     cli.total_workers = 2;
@@ -122,7 +124,7 @@ fn finite_source_completion_is_not_restarted() {
 
 #[test]
 fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
-    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     let config: Config = serde_yaml::from_str(
         r"
 delivery_id: pqv1-clickhouse-test
@@ -172,7 +174,7 @@ sink:
 
 #[test]
 fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     for relative_path in [
         "benchmarks/config_bench_pqv1_json_parser_to_discard.yaml",
         "benchmarks/config_bench_pqv1_decompress_to_discard.yaml",
@@ -211,7 +213,7 @@ fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()
         .replace("${S3_ACCESS_KEY}", "test-access-key")
         .replace("${S3_SECRET_KEY}", "test-secret-key");
     let config: Config = serde_yaml::from_str(&raw)?;
-    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
     let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
     sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
@@ -228,7 +230,7 @@ fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()
 
 #[test]
 fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     for relative_path in [
         "examples/postgres-to-clickhouse.yaml",
         "examples/postgres-to-s3.yaml",
@@ -252,7 +254,7 @@ fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Resu
 
 #[test]
 fn ytsaurus_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_registry(&Arc::new(MetricsRegistry::new()));
+    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     for relative_path in [
         "config_ytsaurus_source_to_clickhouse.yaml",
         "config_ytsaurus_sink.yaml",

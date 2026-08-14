@@ -96,7 +96,10 @@ pub struct YdbTopicSourceConfig {
 
     pub trusted_plaintext: bool,
 
-    #[schemars(with = "crate::parsers::config::ParserSchema")]
+    #[schemars(
+        with = "crate::parsers::config::ParserSchema",
+        extend("x-ui" = { "widget": "parser" })
+    )]
     pub parser: ParserConfig,
 
     #[serde(default)]
