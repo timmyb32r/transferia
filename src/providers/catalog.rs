@@ -25,6 +25,8 @@ pub struct EndpointDefinition {
     pub initial: JsonValue,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub delivery_modes: Vec<DeliveryMode>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partitioned: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,6 +69,7 @@ impl ProviderRegistration {
     fn source<C, F>(
         mut self,
         delivery_modes: Vec<DeliveryMode>,
+        partitioned: bool,
         initial: JsonValue,
         factory: F,
     ) -> anyhow::Result<Self>
@@ -79,6 +82,7 @@ impl ProviderRegistration {
                 schema: serde_json::to_value(schema_for!(C))?,
                 initial,
                 delivery_modes,
+                partitioned,
             },
             factory: Box::new(factory),
         });
@@ -95,6 +99,7 @@ impl ProviderRegistration {
                 schema: serde_json::to_value(schema_for!(C))?,
                 initial,
                 delivery_modes: Vec::new(),
+                partitioned: false,
             },
             factory: Box::new(factory),
         });
@@ -189,32 +194,6 @@ pub fn build_provider_catalog(
 
     catalog.register(
         ProviderRegistration::new("pqv1", "PQv1")
-            .source::<crate::providers::pqv1::src_stream::PqV1SourceConfig, _>(
-                vec![DeliveryMode::Stream],
-                serde_json::json!({
-                    "host": "",
-                    "port": 2135,
-                    "topic_path": "",
-                    "consumer_name": "",
-                    "partition_group_ids": [0],
-                    "auth": { "type": "access_token", "token": "" },
-                    "parser": {},
-                    "network_timeout_ms": 30000,
-                    "decompression_concurrency": 4,
-                    "benchmark_discard_before_decompression": false
-                }),
-                {
-                    let metrics_registry = Arc::clone(metrics_registry);
-                    move |value| {
-                        Ok(Box::new(
-                            crate::providers::pqv1::src_stream::PqV1SourceProvider::from_config(
-                                value,
-                                Arc::clone(&metrics_registry),
-                            )?,
-                        ))
-                    }
-                },
-            )?
             .sink::<crate::providers::pqv1::config::PqV1SinkConfig, _>(
                 serde_json::json!({
                     "host": "",
@@ -238,12 +217,14 @@ pub fn build_provider_catalog(
         ProviderRegistration::new("ydb_topic", "YDB Topic")
             .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
             vec![DeliveryMode::Stream],
+            true,
             serde_json::json!({
                 "host": "",
                 "port": 2135,
                 "topics": [{ "path": "", "partitions": [] }],
                 "consumer_name": "",
                 "auth": { "type": "token", "token": "" },
+                "driver": "ydb",
                 "trusted_plaintext": true,
                 "allow_ttl_rewind": false,
                 "parser": {},
@@ -252,12 +233,10 @@ pub fn build_provider_catalog(
             {
                 let metrics_registry = Arc::clone(metrics_registry);
                 move |value| {
-                    Ok(Box::new(
-                        crate::providers::ydb_topic::YdbTopicSourceProvider::from_config(
-                            value,
-                            Arc::clone(&metrics_registry),
-                        )?,
-                    ))
+                    crate::providers::ydb_topic::build_source_provider(
+                        value,
+                        Arc::clone(&metrics_registry),
+                    )
                 }
             },
         )?,
@@ -267,6 +246,7 @@ pub fn build_provider_catalog(
         ProviderRegistration::new("postgres", "PostgreSQL")
             .source::<crate::providers::postgres::src_batch::PostgresSourceConfig, _>(
                 vec![DeliveryMode::Batch],
+                false,
                 serde_json::json!({
                     "host": "",
                     "port": 5432,
@@ -311,6 +291,7 @@ pub fn build_provider_catalog(
         ProviderRegistration::new("clickhouse", "ClickHouse")
             .source::<crate::providers::clickhouse::src_batch::ClickHouseSourceConfig, _>(
                 vec![DeliveryMode::Batch],
+                false,
                 serde_json::json!({
                     "hosts": [""],
                     "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT,
@@ -367,6 +348,7 @@ pub fn build_provider_catalog(
         ProviderRegistration::new("s3", "S3")
             .source::<crate::providers::s3::src_batch::S3SourceConfig, _>(
                 vec![DeliveryMode::Batch],
+                false,
                 serde_json::json!({
                     "bucket": "",
                     "prefix": "",
@@ -417,6 +399,7 @@ pub fn build_provider_catalog(
         ProviderRegistration::new("ytsaurus", "YTsaurus")
             .source::<crate::providers::ytsaurus::YTsaurusSourceConfig, _>(
                 vec![DeliveryMode::Batch],
+                false,
                 serde_json::json!({
                     "host": "",
                     "port": 8000,

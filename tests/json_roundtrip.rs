@@ -65,7 +65,7 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
         json_framing: JsonFramingMode::JsonLines,
         conversion_error: transferia::parsers::json_parser::ConversionErrorPolicy::Dlq,
         unknown_fields: transferia::parsers::json_parser::UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     };
     let parser = JsonParser::new(
         &parser_config,

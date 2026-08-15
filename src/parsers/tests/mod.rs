@@ -23,7 +23,7 @@ fn table_name_from_topic_has_an_explicit_config_value() -> anyhow::Result<()> {
 #[test]
 fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
     let config: ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: source_offset, message_index: source_message_index }\njson_parser:\n  json_framing: single_document\n  columns:\n    - { jsonpath: $.value, column_name: value, json_data_type: integer, arrow_type: Int64, nullable: false }\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n  primary_key: [value, source_offset]\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: source_offset, message_index: source_message_index }\njson_parser:\n  json_framing: single_document\n  columns:\n    - { jsonpath: $.value, column_name: value, json_data_type: integer, arrow_type: Int64, nullable: false }\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n  keys: [value, source_offset]\n",
     )?;
     let plan = ParserPlan::from_config(&config, "topic")?;
 
@@ -49,5 +49,23 @@ fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
     assert!(visible.columns[1].primary_key);
     assert_eq!(plan.dlq_schema(false).columns.len(), 3);
     assert_eq!(plan.dlq_schema(true).columns.len(), 5);
+    Ok(())
+}
+
+#[test]
+fn parser_plan_rejects_unknown_duplicate_and_nullable_keys() -> anyhow::Result<()> {
+    for (keys, expected) in [
+        ("[missing]", "is not produced"),
+        ("[value, value]", "repeats column"),
+        ("[optional]", "must be non-nullable"),
+    ] {
+        let config: ParserConfig = serde_yaml::from_str(&format!(
+            "common:\n  table_naming: {{ type: from_config, name: events }}\njson_parser:\n  columns:\n    - {{ jsonpath: $.value, column_name: value, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    - {{ jsonpath: $.optional, column_name: optional, json_data_type: string, arrow_type: Utf8, nullable: true }}\n  conversion_error: drop\n  unknown_fields: {{ action: drop }}\n  keys: {keys}\n"
+        ))?;
+        let error = ParserPlan::from_config(&config, "topic")
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("keys {keys} must be rejected"))?;
+        assert!(error.to_string().contains(expected), "{error:#}");
+    }
     Ok(())
 }

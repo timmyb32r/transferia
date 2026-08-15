@@ -34,9 +34,6 @@ const NANOS_PER_SEC_F: f64 = 1_000_000_000.0;
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MetricsConfig {
-    #[serde(default)]
-    pub enabled: bool,
-
     #[serde(default = "default_metrics_interval_ms")]
     pub interval_ms: u64,
 

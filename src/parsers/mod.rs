@@ -99,7 +99,7 @@ impl ParserPlan {
                         schema,
                         true,
                         discovered_system_columns,
-                        Arc::from(parser_config.primary_key),
+                        Arc::from(parser_config.keys),
                     )
                 }
                 "benchmark_discard" => {
@@ -226,18 +226,18 @@ fn validate_primary_key(
             system.name,
         );
     }
-    let mut unique = std::collections::HashSet::with_capacity(parser.primary_key.len());
-    for key in &parser.primary_key {
+    let mut unique = std::collections::HashSet::with_capacity(parser.keys.len());
+    for key in &parser.keys {
         anyhow::ensure!(
             unique.insert(key),
-            "json_parser.primary_key repeats column '{key}'"
+            "json_parser.keys repeats column '{key}'"
         );
         let nullable = available.get(key.as_str()).ok_or_else(|| {
-            anyhow::anyhow!("json_parser.primary_key column '{key}' is not produced by the parser")
+            anyhow::anyhow!("json_parser.keys column '{key}' is not produced by the parser")
         })?;
         anyhow::ensure!(
             !nullable,
-            "json_parser.primary_key column '{key}' must be non-nullable"
+            "json_parser.keys column '{key}' must be non-nullable"
         );
     }
     Ok(())

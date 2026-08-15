@@ -17,7 +17,7 @@ fn parser_config(columns: Vec<ColumnMapping>, json_framing: JsonFramingMode) -> 
         json_framing,
         conversion_error: ConversionErrorPolicy::Dlq,
         unknown_fields: UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     }
 }
 
@@ -74,9 +74,26 @@ fn conversion_policy_and_time_conversion_are_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn parse_errors_can_be_dropped_without_dlq_output() -> anyhow::Result<()> {
+    let mut config = parser_config(
+        vec![mapping("$.id", "id", "Int64", false)],
+        JsonFramingMode::JsonLines,
+    );
+    config.conversion_error = ConversionErrorPolicy::Drop;
+    let (main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"id\":1}\nnot-json\n{\"id\":\"wrong\"}\n{\"id\":2}",
+    )?;
+    assert_eq!(main.batch.num_rows(), 2);
+    assert!(dlq.is_none());
+    Ok(())
+}
+
+#[test]
 fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
-    let mapping = mapping("$.id", "id", "Int64", false);
-    let fail = parser_config(vec![mapping.clone()], JsonFramingMode::SingleDocument);
+    let id_mapping = mapping("$.id", "id", "Int64", false);
+    let fail = parser_config(vec![id_mapping.clone()], JsonFramingMode::SingleDocument);
     let (main, dlq) = parse_with_config(
         &fail,
         &crate::parsers::SystemColumnsConfig::default(),
@@ -88,7 +105,7 @@ fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
         1
     );
 
-    let mut rest = parser_config(vec![mapping], JsonFramingMode::SingleDocument);
+    let mut rest = parser_config(vec![id_mapping], JsonFramingMode::SingleDocument);
     rest.unknown_fields = UnknownFieldPolicy::Rest {
         column_name: "rest".into(),
     };
@@ -99,6 +116,19 @@ fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
     )?;
     assert!(dlq.is_none());
     assert_eq!(string_col(&main.batch, 1)?.value(0), "{\"extra\":true}");
+
+    let mut drop = parser_config(
+        vec![mapping("$.id", "id", "Int64", false)],
+        JsonFramingMode::SingleDocument,
+    );
+    drop.unknown_fields = UnknownFieldPolicy::Drop;
+    let (main, dlq) = parse_with_config(
+        &drop,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{\"id\":1,\"extra\":true}",
+    )?;
+    assert_eq!(main.batch.num_rows(), 1);
+    assert!(dlq.is_none());
     Ok(())
 }
 
@@ -249,7 +279,7 @@ fn dense_fixed_width_rows_have_a_type_aware_memory_bound() -> anyhow::Result<()>
             json_framing: JsonFramingMode::JsonLines,
             conversion_error: ConversionErrorPolicy::Dlq,
             unknown_fields: UnknownFieldPolicy::Fail,
-            primary_key: Vec::new(),
+            keys: Vec::new(),
         },
         &crate::parsers::SystemColumnsConfig::default(),
         "test".into(),
@@ -290,7 +320,7 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
             json_framing: JsonFramingMode::JsonLines,
             conversion_error: ConversionErrorPolicy::Dlq,
             unknown_fields: UnknownFieldPolicy::Fail,
-            primary_key: Vec::new(),
+            keys: Vec::new(),
         },
         &crate::parsers::SystemColumnsConfig {
             message_index: Some("_system_message_index".into()),
@@ -572,7 +602,7 @@ fn newline_json_framing() -> anyhow::Result<()> {
         json_framing: JsonFramingMode::JsonLines,
         conversion_error: ConversionErrorPolicy::Dlq,
         unknown_fields: UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     };
 
     let parser = JsonParser::new(
@@ -624,6 +654,47 @@ fn json_array_framing_emits_one_row_per_element() -> anyhow::Result<()> {
 }
 
 #[test]
+fn json_array_framing_honors_parse_error_policy() -> anyhow::Result<()> {
+    let mut config = parser_config(
+        vec![mapping("$.id", "id", "Int64", false)],
+        JsonFramingMode::JsonArray,
+    );
+
+    config.conversion_error = ConversionErrorPolicy::Dlq;
+    let (main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"not-an-array",
+    )?;
+    assert_eq!(main.batch.num_rows(), 0);
+    assert_eq!(
+        dlq.expect("invalid array must reach the DLQ")
+            .batch
+            .num_rows(),
+        1
+    );
+
+    config.conversion_error = ConversionErrorPolicy::Drop;
+    let (main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"not-an-array",
+    )?;
+    assert_eq!(main.batch.num_rows(), 0);
+    assert!(dlq.is_none());
+
+    config.conversion_error = ConversionErrorPolicy::Fail;
+    let error = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"not-an-array",
+    )
+    .expect_err("invalid array must fail the delivery");
+    assert!(error.to_string().contains("invalid JSON array"));
+    Ok(())
+}
+
+#[test]
 fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
     use crate::parsers::json_parser::{ColumnMapping, JsonFramingMode};
     use crate::parsers::SystemColumnsConfig;
@@ -644,7 +715,7 @@ fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
         json_framing: JsonFramingMode::JsonLines,
         conversion_error: ConversionErrorPolicy::Dlq,
         unknown_fields: UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     };
     let system = SystemColumnsConfig {
         topic: Some("_system_topic".into()),
@@ -699,7 +770,7 @@ fn null_in_non_nullable_partition_candidate_goes_to_dlq() -> anyhow::Result<()> 
         json_framing: JsonFramingMode::SingleDocument,
         conversion_error: ConversionErrorPolicy::Dlq,
         unknown_fields: UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     };
     let parser = JsonParser::new(
         &config,
@@ -756,7 +827,7 @@ fn invalid_types_and_ranges_go_to_dlq_in_root_and_mixed_modes() -> anyhow::Resul
                 json_framing: JsonFramingMode::SingleDocument,
                 conversion_error: ConversionErrorPolicy::Dlq,
                 unknown_fields: UnknownFieldPolicy::Fail,
-                primary_key: Vec::new(),
+                keys: Vec::new(),
             };
             let parser = JsonParser::new(
                 &config,
@@ -810,7 +881,7 @@ fn nullable_root_and_mixed_values_accept_null_but_not_wrong_type() -> anyhow::Re
             json_framing: JsonFramingMode::SingleDocument,
             conversion_error: ConversionErrorPolicy::Dlq,
             unknown_fields: UnknownFieldPolicy::Fail,
-            primary_key: Vec::new(),
+            keys: Vec::new(),
         };
         let parser = JsonParser::new(
             &config,
@@ -852,7 +923,7 @@ fn timestamp_timezone_is_preserved_in_record_batch() -> anyhow::Result<()> {
         json_framing: JsonFramingMode::SingleDocument,
         conversion_error: ConversionErrorPolicy::Dlq,
         unknown_fields: UnknownFieldPolicy::Fail,
-        primary_key: Vec::new(),
+        keys: Vec::new(),
     };
     let parser = JsonParser::new(
         &config,

@@ -29,20 +29,21 @@ fn durable_identity_and_storage_are_required_and_validated_explicitly() {
 }
 
 #[test]
-fn pqv1_to_s3_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
+fn ydb_topic_pqv1_driver_to_s3_matches_registered_provider_shapes() -> anyhow::Result<()> {
     let config: Config = serde_yaml::from_str(
         r"
 delivery_id: pqv1-s3-test
 delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/state }
 source:
-  pqv1:
+  ydb_topic:
     host: localhost
     port: 2135
-    topic_path: topic-a
+    topics: [{ path: topic-a, partitions: [0] }]
     consumer_name: consumer-a
-    partition_group_ids: [0]
-    auth: { type: access_token, token: test }
+    auth: { type: token, token: test }
+    driver: pqv1
+    trusted_plaintext: true
     parser:
       common:
         table_naming: { type: from_config, name: events }
@@ -62,10 +63,9 @@ sink:
   s3:
     bucket: transfer-bucket
     partitioning: { type: source }
-keep_system_columns_in_sink: false
 ",
     )?;
-    let source: crate::providers::pqv1::src_stream::PqV1SourceConfig =
+    let source: crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig =
         serde_yaml::from_value(config.source.raw()?.clone())?;
     drop(serde_yaml::from_value::<
         crate::parsers::json_parser::JsonParserConfig,

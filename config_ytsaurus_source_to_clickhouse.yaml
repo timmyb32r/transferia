@@ -17,4 +17,3 @@ sink:
     trusted_plaintext: true
     database: default
     username: default
-keep_system_columns_in_sink: false

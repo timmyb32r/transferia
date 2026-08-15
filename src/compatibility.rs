@@ -215,6 +215,9 @@ pub fn validate_pipeline(
         EndpointDescriptor::PqV1(SourceDescriptor {
             behavior: SourceBehavior::BenchmarkDiscard,
             ..
+        }) | EndpointDescriptor::YdbTopic(SourceDescriptor {
+            behavior: SourceBehavior::BenchmarkDiscard,
+            ..
         })
     ) {
         return DeliverySemanticsReport {
@@ -222,8 +225,8 @@ pub fn validate_pipeline(
             diagnostics: vec![error(
                 DiagnosticCode::BenchmarkSourceDiscard,
                 &[
-                    "source.pqv1.benchmark_discard_before_decompression",
-                    "source.pqv1.parser.benchmark_discard",
+                    "source.ydb_topic.pqv1_discard_before_decompression",
+                    "source.ydb_topic.parser.benchmark_discard",
                     "sink",
                 ],
                 "the PQv1 source is configured to discard payloads, so a durable sink would acknowledge and commit data it never stored",
@@ -291,7 +294,7 @@ pub fn validate_pipeline(
     if mains.is_empty() {
         diagnostics.push(error(
             DiagnosticCode::InvalidDeliveryDiscovery,
-            &["source.pqv1.parser"],
+            &["source.ydb_topic.parser"],
             "delivery discovery contains no main dataset",
             Some("configure a row-producing parser with one main and one DLQ dataset"),
         ));
@@ -313,10 +316,7 @@ pub fn validate_pipeline(
     {
         diagnostics.push(error(
             DiagnosticCode::SystemColumnsNotProduced,
-            &[
-                "keep_system_columns_in_sink",
-                "source.pqv1.parser.common.system_columns",
-            ],
+            &["source.ydb_topic.parser.common.system_columns"],
             "system columns cannot be retained because the parser produces none",
             Some("enable at least one parser system column"),
         ));
@@ -336,7 +336,7 @@ pub fn validate_pipeline(
                         DiagnosticCode::UnknownPartitionField,
                         &[
                             "sink.s3.partitioning.columns",
-                            "source.pqv1.parser.json_parser.columns",
+                            "source.ydb_topic.parser.json_parser.columns",
                         ],
                         &format!("partition field '{field}' is absent from the parser schema"),
                         Some("add a non-null scalar parser column with this name"),
@@ -345,7 +345,7 @@ pub fn validate_pipeline(
                         DiagnosticCode::NullablePartitionField,
                         &[
                             "sink.s3.partitioning.columns",
-                            "source.pqv1.parser.json_parser.columns",
+                            "source.ydb_topic.parser.json_parser.columns",
                         ],
                         &format!("partition field '{field}' is nullable"),
                         Some("make the parser column non-nullable; invalid records will go to DLQ"),
@@ -355,7 +355,7 @@ pub fn validate_pipeline(
                             DiagnosticCode::UnsupportedPartitionFieldType,
                             &[
                                 "sink.s3.partitioning.columns",
-                                "source.pqv1.parser.json_parser.columns",
+                                "source.ydb_topic.parser.json_parser.columns",
                             ],
                             &format!(
                                 "partition field '{field}' has unsupported type {:?}",
@@ -419,7 +419,6 @@ pub fn validate_pipeline(
                 stream_source_path(source, "topics"),
                 stream_source_path(source, "consumer_name"),
                 "middlewares".into(),
-                "keep_system_columns_in_sink".into(),
                 "sink.s3.bucket".into(),
                 "sink.s3.host".into(),
                 "sink.s3.port".into(),
@@ -464,7 +463,7 @@ fn require_system_column(
     }) {
         diagnostics.push(error(
             DiagnosticCode::MissingSystemColumn,
-            &["source.pqv1.parser.common.system_columns", "sink.s3"],
+            &["source.ydb_topic.parser.common.system_columns", "sink.s3"],
             &format!(
                 "S3 sink requires parser system column '{}'",
                 kind.default_name()

@@ -261,6 +261,59 @@ function App() {
       setBusy(undefined);
     }
   };
+  const actionButtons = (
+    <div class="actions">
+      {editor.runtime.state === "running" ? (
+        <button
+          class="danger-button"
+          type="button"
+          disabled={busy !== undefined}
+          onClick={() =>
+            void runAction("Stopping worker…", () =>
+              api.stop(editor.id!, editor.persistedRevision!),
+            )
+          }
+        >
+          Stop
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            disabled={busy !== undefined || !isDirty(editor)}
+            onClick={() => void save()}
+          >
+            Save draft
+          </button>
+          <button
+            type="button"
+            disabled={busy !== undefined || editor.name.trim() === ""}
+            onClick={() => void validate()}
+          >
+            Validate
+          </button>
+          <button
+            class="primary"
+            type="button"
+            disabled={
+              busy !== undefined ||
+              editor.id === undefined ||
+              isDirty(editor) ||
+              editor.validation.state !== "ready" ||
+              editor.validation.revision !== editor.persistedRevision
+            }
+            onClick={() =>
+              void runAction("Starting worker…", () =>
+                api.activate(editor.id!, editor.persistedRevision!),
+              )
+            }
+          >
+            Activate
+          </button>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div class="shell">
@@ -327,9 +380,12 @@ function App() {
             </small>
             <h1>{editor.name || "Untitled delivery"}</h1>
           </div>
-          {editor.id !== undefined && (
-            <StatusPill runtime={editor.runtime.state} />
-          )}
+          <div class="header-controls">
+            {editor.id !== undefined && (
+              <StatusPill runtime={editor.runtime.state} />
+            )}
+            {actionButtons}
+          </div>
         </header>
         <div class="editor-tabs" role="tablist" aria-label="Configuration view">
           <button
@@ -458,6 +514,7 @@ function App() {
                 schema={catalog.common_schema}
                 config={editor.config}
                 disabled={readOnly}
+                partitionedSource={selection?.source?.partitioned === true}
                 onChange={updateConfig}
               />
             </section>
@@ -493,58 +550,6 @@ function App() {
             </p>
           </section>
         )}
-
-        <footer class="actions">
-          {editor.runtime.state === "running" ? (
-            <button
-              class="danger-button"
-              type="button"
-              disabled={busy !== undefined}
-              onClick={() =>
-                void runAction("Stopping worker…", () =>
-                  api.stop(editor.id!, editor.persistedRevision!),
-                )
-              }
-            >
-              Stop
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled={busy !== undefined || !isDirty(editor)}
-                onClick={() => void save()}
-              >
-                Save draft
-              </button>
-              <button
-                type="button"
-                disabled={busy !== undefined || editor.name.trim() === ""}
-                onClick={() => void validate()}
-              >
-                Validate
-              </button>
-              <button
-                class="primary"
-                type="button"
-                disabled={
-                  busy !== undefined ||
-                  editor.id === undefined ||
-                  isDirty(editor) ||
-                  editor.validation.state !== "ready" ||
-                  editor.validation.revision !== editor.persistedRevision
-                }
-                onClick={() =>
-                  void runAction("Starting worker…", () =>
-                    api.activate(editor.id!, editor.persistedRevision!),
-                  )
-                }
-              >
-                Activate
-              </button>
-            </>
-          )}
-        </footer>
       </main>
     </div>
   );
@@ -602,23 +607,30 @@ function CommonSettings({
   schema,
   config,
   disabled,
+  partitionedSource,
   onChange,
 }: {
   schema: UiCatalog["common_schema"];
   config: JsonObject;
   disabled: boolean;
+  partitionedSource: boolean;
   onChange: (config: JsonObject) => void;
 }) {
   const compiled = compileSchema(schema);
   if (compiled.kind !== "object") return null;
   const excluded = new Set(["delivery_type"]);
+  let properties = Object.fromEntries(
+    Object.entries(compiled.properties).filter(([name]) => !excluded.has(name)),
+  );
+  if (!partitionedSource && properties.metrics !== undefined) {
+    properties = {
+      ...properties,
+      metrics: withoutObjectProperty(properties.metrics, "per_partition"),
+    };
+  }
   const node: CompiledNode = {
     ...compiled,
-    properties: Object.fromEntries(
-      Object.entries(compiled.properties).filter(
-        ([name]) => !excluded.has(name),
-      ),
-    ),
+    properties,
     required: new Set(
       [...compiled.required].filter((name) => !excluded.has(name)),
     ),
@@ -633,6 +645,22 @@ function CommonSettings({
       }}
     />
   );
+}
+
+function withoutObjectProperty(
+  node: CompiledNode,
+  property: string,
+): CompiledNode {
+  if (node.kind === "nullable")
+    return { ...node, inner: withoutObjectProperty(node.inner, property) };
+  if (node.kind !== "object") return node;
+  const properties = { ...node.properties };
+  delete properties[property];
+  return {
+    ...node,
+    properties,
+    required: new Set([...node.required].filter((name) => name !== property)),
+  };
 }
 
 function ContractView({ result }: { result: DiscoveryResult }) {

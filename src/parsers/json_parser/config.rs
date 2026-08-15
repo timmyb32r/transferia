@@ -10,12 +10,6 @@ use crate::types::schema::{DatasetSchema, SchemaColumn};
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
-    #[schemars(
-        title = "Data schema",
-        extend("x-ui" = { "widget": "column_mappings", "initial_items": 1 })
-    )]
-    pub columns: Vec<ColumnMapping>,
-
     /// How incoming message bytes frame JSON records.
     #[serde(default)]
     #[schemars(title = "JSON framing", extend("x-ui" = {
@@ -27,16 +21,27 @@ pub struct JsonParserConfig {
     }))]
     pub json_framing: JsonFramingMode,
 
+    #[schemars(
+        title = "Data schema",
+        extend("x-ui" = { "widget": "column_mappings", "initial_items": 1 })
+    )]
+    pub columns: Vec<ColumnMapping>,
+
     #[schemars(title = "On Parse Error", extend("x-ui" = {
-        "labels": { "dlq": "Send to DLQ", "fail": "Fail delivery" }
+        "labels": {
+            "dlq": "Send to DLQ",
+            "drop": "Drop",
+            "fail": "Fail delivery"
+        }
     }))]
     pub conversion_error: ConversionErrorPolicy,
 
+    #[schemars(title = "On Unknown Field")]
     pub unknown_fields: UnknownFieldPolicy,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
-    pub primary_key: Vec<String>,
+    #[schemars(title = "Keys", extend("x-ui" = { "widget": "column_keys" }))]
+    pub keys: Vec<String>,
 }
 
 impl JsonParserConfig {
@@ -56,12 +61,12 @@ impl JsonParserConfig {
                     "json_parser.columns repeats column_name '{}'",
                     column.column_name
                 );
-                column.to_schema_column(self.primary_key.contains(&column.column_name))
+                column.to_schema_column(self.keys.contains(&column.column_name))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         let mut columns = columns;
         match &self.unknown_fields {
-            UnknownFieldPolicy::Fail => {}
+            UnknownFieldPolicy::Drop | UnknownFieldPolicy::Fail => {}
             UnknownFieldPolicy::Rest { column_name } => {
                 anyhow::ensure!(
                     !column_name.is_empty() && !names.contains(column_name.as_str()),
@@ -109,23 +114,42 @@ impl JsonFramingMode {
 #[serde(rename_all = "snake_case")]
 pub enum ConversionErrorPolicy {
     Dlq,
+    Drop,
     Fail,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UnknownFieldPolicy {
+    #[schemars(title = "Drop")]
+    Drop,
+
+    #[schemars(title = "Fail delivery")]
     Fail,
-    Rest { column_name: String },
+
+    #[schemars(title = "Send to rest")]
+    Rest {
+        #[schemars(title = "Rest column name")]
+        column_name: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum JsonDataType {
+    #[schemars(title = "String")]
     String,
+
+    #[schemars(title = "Integer")]
     Integer,
+
+    #[schemars(title = "Unsigned integer")]
     UnsignedInteger,
+
+    #[schemars(title = "Number")]
     Number,
+
+    #[schemars(title = "Boolean")]
     Boolean,
 }
 
@@ -153,6 +177,15 @@ pub struct ColumnMapping {
 
     pub column_name: String,
 
+    #[schemars(extend("x-ui" = {
+        "labels": {
+            "string": "String",
+            "integer": "Integer",
+            "unsigned_integer": "Unsigned integer",
+            "number": "Number",
+            "boolean": "Boolean"
+        }
+    }))]
     pub json_data_type: JsonDataType,
 
     #[schemars(extend("x-ui" = {

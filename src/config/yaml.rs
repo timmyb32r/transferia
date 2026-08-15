@@ -28,9 +28,6 @@ pub struct Config {
     pub pipeline_memory_limit_bytes: usize,
 
     #[serde(default)]
-    pub keep_system_columns_in_sink: bool,
-
-    #[serde(default)]
     pub metrics: Option<MetricsConfig>,
 }
 

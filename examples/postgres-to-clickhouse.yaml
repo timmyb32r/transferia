@@ -15,7 +15,6 @@ source:
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456
-keep_system_columns_in_sink: false
 
 sink:
   clickhouse:
@@ -26,6 +25,5 @@ sink:
     username: default
 
 metrics:
-  enabled: true
   interval_ms: 1000
   per_partition: true

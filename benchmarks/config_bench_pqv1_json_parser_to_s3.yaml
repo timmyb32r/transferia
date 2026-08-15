@@ -6,15 +6,18 @@ delivery_id: benchmark-pqv1-s3
 delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
-  pqv1:
+  ydb_topic:
     host: "${PQ_HOST:-localhost}"
     port: ${PQ_PORT:-2136}
-    topic_path: "${PQ_TOPIC:-/benchmark/events}"
+    topics:
+      - path: "${PQ_TOPIC:-/benchmark/events}"
+        partitions: [0]
     consumer_name: "${PQ_CONSUMER_S3:-transferia-benchmark-s3}-${BENCHMARK_REPETITION:-manual}"
-    partition_group_ids: [0]
     auth:
-      type: access_token
+      type: token
       token: "${PQ_TOKEN:-benchmark-token}"
+    driver: pqv1
+    trusted_plaintext: true
     parser:
       common:
         table_naming:
@@ -73,6 +76,5 @@ sink:
       max_attempts: 20
 
 metrics:
-  enabled: true
   interval_ms: 1000
   per_partition: true

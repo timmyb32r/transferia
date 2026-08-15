@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     provider
         .delivery_discovery(
             DeliveryDiscoveryRequest {
-                keep_system_columns: config.keep_system_columns_in_sink,
+                keep_system_columns: true,
             },
             cancellation.clone(),
         )

@@ -123,7 +123,7 @@ fn finite_source_completion_is_not_restarted() {
 }
 
 #[test]
-fn default_registry_builds_pqv1_to_clickhouse_pipeline() -> anyhow::Result<()> {
+fn default_registry_builds_ydb_topic_pqv1_driver_to_clickhouse_pipeline() -> anyhow::Result<()> {
     let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     let config: Config = serde_yaml::from_str(
         r"
@@ -131,13 +131,14 @@ delivery_id: pqv1-clickhouse-test
 delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/transferia-test-state }
 source:
-  pqv1:
+  ydb_topic:
     host: localhost
     port: 2135
-    topic_path: topic
+    topics: [{ path: topic, partitions: [0] }]
     consumer_name: consumer
-    partition_group_ids: [0]
-    auth: { type: access_token, token: test }
+    auth: { type: token, token: test }
+    driver: pqv1
+    trusted_plaintext: true
     parser:
       common:
         table_naming: { type: from_config, name: events }
@@ -161,13 +162,13 @@ sink:
         sink.compatibility(),
         transferia::compatibility::EndpointDescriptor::ClickHouse
     ));
-    let discovery = configured_discovery(source.as_ref(), false)?;
+    let discovery = configured_discovery(source.as_ref(), true)?;
     validate_discovered_pipeline(
         &source.compatibility(),
         &sink.compatibility(),
         sink.limits(),
         &discovery,
-        false,
+        true,
     )?;
     Ok(())
 }
@@ -193,13 +194,13 @@ fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result
             .with_context(|| format!("invalid sink in {relative_path}"))?;
         sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)
             .with_context(|| format!("invalid memory limits in {relative_path}"))?;
-        let discovery = configured_discovery(source.as_ref(), config.keep_system_columns_in_sink)?;
+        let discovery = configured_discovery(source.as_ref(), true)?;
         validate_discovered_pipeline(
             &source.compatibility(),
             &sink.compatibility(),
             sink.limits(),
             &discovery,
-            config.keep_system_columns_in_sink,
+            true,
         )
         .with_context(|| format!("incompatible providers in {relative_path}"))?;
     }
@@ -217,13 +218,13 @@ fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()
     let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
     let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
     sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
-    let discovery = configured_discovery(source.as_ref(), config.keep_system_columns_in_sink)?;
+    let discovery = configured_discovery(source.as_ref(), true)?;
     validate_discovered_pipeline(
         &source.compatibility(),
         &sink.compatibility(),
         sink.limits(),
         &discovery,
-        config.keep_system_columns_in_sink,
+        true,
     )?;
     Ok(())
 }

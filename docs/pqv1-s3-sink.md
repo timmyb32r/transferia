@@ -49,7 +49,7 @@ four-second bound. Configure an S3
 `AbortIncompleteMultipartUpload` lifecycle rule as a hard-crash safety net.
 Successful deterministic overwrite is exactly-once only while
 parser, middleware and projection settings (including
-`keep_system_columns_in_sink`), destination identity (bucket/endpoint/region),
+configured parser system columns), destination identity (bucket/endpoint/region),
 S3 prefix, `object_layout_version`, partitioning/rotation, `max_epoch_buffers`, and `max_epoch_bytes`
 remain unchanged across replay. Wall-clock rotation is reported as
 at-least-once because restart timing changes object boundaries.

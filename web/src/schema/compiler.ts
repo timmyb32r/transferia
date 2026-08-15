@@ -353,5 +353,7 @@ export function humanize(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
     .replace(/Pqv1/gi, "PQv1")
     .replace(/Ydb/gi, "YDB")
+    .replace(/Json/gi, "JSON")
+    .replace(/Ttl/gi, "TTL")
     .replace(/S3/gi, "S3");
 }

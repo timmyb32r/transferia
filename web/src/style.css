@@ -122,6 +122,11 @@ select {
 .page-header {
   margin-bottom: 18px;
 }
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
 .page-header small,
 .card-heading small {
   font-size: 10px;
@@ -163,7 +168,7 @@ h3 {
   background: #292930;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
 }
 .editor-tabs button + button {
   margin-left: -1px;
@@ -206,8 +211,8 @@ h3 {
 }
 .identity-card {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(300px, 0.7fr);
-  gap: 32px;
+  grid-template-columns: minmax(0, 760px);
+  gap: 10px;
   margin-bottom: 12px;
 }
 .top-field {
@@ -269,6 +274,13 @@ h3 {
   align-items: start;
   grid-template-columns: minmax(0, 1fr);
 }
+.form-row-nullable {
+  align-items: start;
+}
+.form-row-nullable > .field-label,
+.nullable-control > .toggle {
+  min-height: 28px;
+}
 .field-label {
   display: flex;
   align-items: center;
@@ -294,7 +306,7 @@ h3 {
   border-radius: 4px;
   padding: 6px 9px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
 }
 .foldout summary::marker {
   color: var(--muted);
@@ -315,6 +327,16 @@ input[type="search"] {
     border-color 120ms ease,
     background-color 120ms ease,
     box-shadow 120ms ease;
+}
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
 }
 input:hover:not(:disabled) {
   background: var(--control-hover);
@@ -429,6 +451,7 @@ input[type="checkbox"]:disabled {
   text-align: left;
   font-weight: 400;
   transition:
+    transform 70ms ease,
     border-color 120ms ease,
     background-color 120ms ease,
     box-shadow 120ms ease;
@@ -482,6 +505,7 @@ input[type="checkbox"]:disabled {
   padding: 7px 8px;
   border-radius: 4px;
   text-align: left;
+  font-weight: 400;
 }
 .select-option:hover,
 .select-option[aria-selected="true"] {
@@ -560,6 +584,8 @@ input[type="checkbox"]:disabled {
   padding-top: 9px;
 }
 .icon-button {
+  display: inline-grid;
+  place-items: center;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -571,6 +597,8 @@ input[type="checkbox"]:disabled {
 .icon-button.add {
   margin-top: 8px;
   font-size: 18px;
+  line-height: 1;
+  padding-bottom: 1px;
 }
 .icon-button.danger:hover {
   color: var(--red);
@@ -592,10 +620,12 @@ button {
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  font-weight: 500;
+  font-weight: 400;
   font-size: 12px;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transform-origin: center;
   transition:
     transform 70ms ease,
     background-color 120ms ease,
@@ -605,7 +635,13 @@ button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
 }
 button:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: translateZ(0) scale(0.94);
+}
+button *,
+button::before,
+button::after {
+  user-select: none;
+  -webkit-user-select: none;
 }
 .primary {
   background: var(--blue);
@@ -768,7 +804,7 @@ button:active:not(:disabled) {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  padding: 18px 0;
+  padding: 0;
 }
 .status {
   font-size: 10px;
@@ -833,14 +869,14 @@ button:active:not(:disabled) {
   display: grid;
   grid-template-columns:
     minmax(0, 1fr) minmax(0, 1.12fr) minmax(0, 0.94fr)
-    minmax(0, 0.94fr) 34px 48px 28px;
+    minmax(0, 0.94fr) 48px 28px;
   gap: 7px;
   align-items: end;
 }
 .column-main.with-low-cardinality {
   grid-template-columns:
     minmax(0, 1fr) minmax(0, 1.12fr) minmax(0, 0.94fr)
-    minmax(0, 0.94fr) 34px 48px 54px 28px;
+    minmax(0, 0.94fr) 48px 54px 28px;
 }
 .column-main label {
   display: grid;
@@ -894,6 +930,11 @@ button:active:not(:disabled) {
 .system-column-row > span {
   color: rgba(255, 255, 255, 0.78);
 }
+.system-column-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .system-column-row input[type="text"]:disabled {
   opacity: 0.42;
 }
@@ -939,6 +980,38 @@ button:active:not(:disabled) {
   margin: 12px 0 2px;
   color: var(--muted);
   font-size: 12px;
+}
+.column-keys {
+  display: grid;
+  grid-template-columns: minmax(135px, 34%) minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.multi-check {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: white;
+  font-size: 10px;
+}
+.multi-check.checked {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+.byte-size-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px;
+  gap: 6px;
 }
 @media (max-width: 1100px) {
   .shell {

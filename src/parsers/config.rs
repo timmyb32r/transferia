@@ -76,9 +76,13 @@ pub struct SystemColumnsConfig {
     pub offset: Option<String>,
 
     #[serde(default)]
+    #[schemars(
+        description = "Zero-based index of a record inside one source message when framing yields multiple records"
+    )]
     pub message_index: Option<String>,
 
     #[serde(default)]
+    #[schemars(description = "Source-reported message write time as Unix epoch milliseconds")]
     pub write_timestamp_ms: Option<String>,
 }
 

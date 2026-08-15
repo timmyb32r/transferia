@@ -16,7 +16,7 @@ fn provider(extra: &str) -> anyhow::Result<YdbTopicSourceProvider> {
 
 fn provider_with_topics(topics: &str, extra: &str) -> anyhow::Result<YdbTopicSourceProvider> {
     let value = serde_yaml::from_str(&format!(
-        "host: localhost\nport: 2135\ntopics:\n{topics}consumer_name: consumer\nauth: {{ type: token, token: test }}\ntrusted_plaintext: true\nallow_ttl_rewind: false\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
+        "host: localhost\nport: 2135\ntopics:\n{topics}consumer_name: consumer\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nallow_ttl_rewind: false\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
     ))?;
     YdbTopicSourceProvider::from_config(value, Arc::new(MetricsRegistry::new()))
 }
@@ -118,6 +118,27 @@ fn auth_is_exactly_one_explicit_variant() -> anyhow::Result<()> {
         serde_yaml::from_str::<YdbTopicAuthConfig>("type: token\ntoken_file: ~/.logbroker/token\n")
             .expect_err("mismatched auth field must fail");
     assert!(error.to_string().contains("token"), "{error:#}");
+    Ok(())
+}
+
+#[test]
+fn pqv1_driver_is_selected_through_ydb_topic_and_validated() -> anyhow::Result<()> {
+    let value = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [0] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\n    conversion_error: drop\n    unknown_fields: { action: drop }\n",
+    )?;
+    let provider = build_source_provider(value, Arc::new(MetricsRegistry::new()))?;
+    assert!(matches!(
+        provider.compatibility(),
+        EndpointDescriptor::YdbTopic(_)
+    ));
+
+    let dynamic = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  benchmark_discard: {}\n",
+    )?;
+    let error = build_source_provider(dynamic, Arc::new(MetricsRegistry::new()))
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("PQv1 without explicit partitions must fail"))?;
+    assert!(error.to_string().contains("explicit topic partitions"));
     Ok(())
 }
 

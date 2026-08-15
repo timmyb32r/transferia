@@ -5,6 +5,16 @@ use serde::Deserialize;
 
 use crate::parsers::ParserConfig;
 
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum YdbTopicDriver {
+    #[schemars(title = "YDB")]
+    Ydb,
+
+    #[schemars(title = "PQv1")]
+    Pqv1,
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YdbTopicAuthConfig {
@@ -72,10 +82,12 @@ impl fmt::Debug for YdbTopicAuthConfig {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YdbTopicReadConfig {
+    #[schemars(title = "Topic path")]
     pub path: String,
 
     #[serde(default)]
     #[schemars(
+        title = "Partition IDs",
         description = "Partitions to read; leave empty to let YDB Topic assign every partition dynamically",
         extend("x-ui" = { "widget": "partition_ranges" })
     )]
@@ -95,11 +107,15 @@ pub struct YdbTopicSourceConfig {
 
     pub auth: YdbTopicAuthConfig,
 
+    #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
+    pub driver: YdbTopicDriver,
+
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub trusted_plaintext: bool,
 
     #[serde(default)]
     #[schemars(
+        title = "Allow TTL rewind",
         description = "Continue from the oldest retained message when committed offsets have expired",
         extend("x-ui" = { "section": "advanced" })
     )]
@@ -114,8 +130,20 @@ pub struct YdbTopicSourceConfig {
     #[serde(default = "default_read_buffer_bytes")]
     #[schemars(extend("x-ui" = { "section": "advanced", "widget": "byte_size" }))]
     pub read_buffer_bytes: usize,
+
+    #[serde(default = "default_pqv1_decompression_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub pqv1_decompression_concurrency: usize,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub pqv1_discard_before_decompression: bool,
 }
 
-const fn default_read_buffer_bytes() -> usize {
+pub(super) const fn default_read_buffer_bytes() -> usize {
     1_048_576
+}
+
+pub(super) const fn default_pqv1_decompression_concurrency() -> usize {
+    4
 }

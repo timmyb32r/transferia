@@ -1455,7 +1455,7 @@ impl JsonParser {
         for kind in &system_kinds {
             let name = system_config.name(*kind);
             let field = Field::new(name, kind.data_type(), false);
-            schema_fields.push(if config.primary_key.iter().any(|key| key == name) {
+            schema_fields.push(if config.keys.iter().any(|key| key == name) {
                 field.with_metadata(
                     SchemaColumn::new(name.to_owned(), kind.data_type(), false)
                         .with_constraints(true, false, None)
@@ -1826,6 +1826,20 @@ impl JsonParser {
         }
     }
 
+    fn handle_parse_error(
+        &self,
+        dlq_records: &mut Vec<DlqRecord>,
+        record: DlqRecord,
+        message: &str,
+    ) -> anyhow::Result<()> {
+        match self.conversion_error {
+            ConversionErrorPolicy::Dlq => dlq_records.push(record),
+            ConversionErrorPolicy::Drop => {}
+            ConversionErrorPolicy::Fail => anyhow::bail!(message.to_owned()),
+        }
+        Ok(())
+    }
+
     fn parse_mixed_newline(
         &self,
         messages: &[Message],
@@ -1842,26 +1856,31 @@ impl JsonParser {
             {
                 let message_index = message_index as u64;
                 if self.has_duplicate_mapped_root_field(line) {
-                    dlq_records.push(dlq_record(
-                        source_message,
-                        subslice_range(&msg.value, line),
-                        DlqReason::ExtractionFailed,
-                        message_index,
-                    ));
+                    self.handle_parse_error(
+                        dlq_records,
+                        dlq_record(
+                            source_message,
+                            subslice_range(&msg.value, line),
+                            DlqReason::ExtractionFailed,
+                            message_index,
+                        ),
+                        "JSON object repeats a mapped field",
+                    )?;
                     continue;
                 }
                 match serde_json::from_slice::<Value>(line) {
                     Ok(json) => {
                         if let Err(error) = self.fill_row(&json, row) {
-                            if self.conversion_error == ConversionErrorPolicy::Fail {
-                                return Err(anyhow::Error::msg(error.to_string()));
-                            }
-                            dlq_records.push(dlq_record(
-                                source_message,
-                                subslice_range(&msg.value, line),
-                                DlqReason::ExtractionFailed,
-                                message_index,
-                            ));
+                            self.handle_parse_error(
+                                dlq_records,
+                                dlq_record(
+                                    source_message,
+                                    subslice_range(&msg.value, line),
+                                    DlqReason::ExtractionFailed,
+                                    message_index,
+                                ),
+                                &error.to_string(),
+                            )?;
                         } else {
                             Self::append_mixed_row(builders, row);
                             append_system_columns(
@@ -1873,13 +1892,17 @@ impl JsonParser {
                             );
                         }
                     }
-                    Err(_e) => {
-                        dlq_records.push(dlq_record(
-                            source_message,
-                            subslice_range(&msg.value, line),
-                            DlqReason::JsonParse,
-                            message_index,
-                        ));
+                    Err(error) => {
+                        self.handle_parse_error(
+                            dlq_records,
+                            dlq_record(
+                                source_message,
+                                subslice_range(&msg.value, line),
+                                DlqReason::JsonParse,
+                                message_index,
+                            ),
+                            &format!("invalid JSON: {error}"),
+                        )?;
                     }
                 }
             }
@@ -1896,26 +1919,31 @@ impl JsonParser {
     ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
             if self.has_duplicate_mapped_root_field(&msg.value) {
-                dlq_records.push(dlq_record(
-                    source_message,
-                    0..msg.value.len(),
-                    DlqReason::ExtractionFailed,
-                    0,
-                ));
+                self.handle_parse_error(
+                    dlq_records,
+                    dlq_record(
+                        source_message,
+                        0..msg.value.len(),
+                        DlqReason::ExtractionFailed,
+                        0,
+                    ),
+                    "JSON object repeats a mapped field",
+                )?;
                 continue;
             }
             match serde_json::from_slice::<Value>(&msg.value) {
                 Ok(json) => {
                     if let Err(error) = self.fill_row(&json, row) {
-                        if self.conversion_error == ConversionErrorPolicy::Fail {
-                            return Err(anyhow::Error::msg(error.to_string()));
-                        }
-                        dlq_records.push(dlq_record(
-                            source_message,
-                            0..msg.value.len(),
-                            DlqReason::ExtractionFailed,
-                            0,
-                        ));
+                        self.handle_parse_error(
+                            dlq_records,
+                            dlq_record(
+                                source_message,
+                                0..msg.value.len(),
+                                DlqReason::ExtractionFailed,
+                                0,
+                            ),
+                            &error.to_string(),
+                        )?;
                     } else {
                         Self::append_mixed_row(builders, row);
                         append_system_columns(
@@ -1927,12 +1955,11 @@ impl JsonParser {
                         );
                     }
                 }
-                Err(_error) => dlq_records.push(dlq_record(
-                    source_message,
-                    0..msg.value.len(),
-                    DlqReason::JsonParse,
-                    0,
-                )),
+                Err(error) => self.handle_parse_error(
+                    dlq_records,
+                    dlq_record(source_message, 0..msg.value.len(), DlqReason::JsonParse, 0),
+                    &format!("invalid JSON: {error}"),
+                )?,
             }
         }
         Ok(())
@@ -2022,24 +2049,35 @@ impl JsonParser {
         if self.json_framing != JsonFramingMode::JsonArray {
             return Ok(messages);
         }
-        messages
-            .into_iter()
-            .map(|message| {
-                let values: Vec<Value> = serde_json::from_slice(&message.value)
-                    .map_err(|error| anyhow::anyhow!("invalid JSON array: {error}"))?;
-                let mut framed = Vec::with_capacity(message.value.len());
-                for (index, value) in values.iter().enumerate() {
-                    if index > 0 {
-                        framed.push(b'\n');
+
+        let mut framed_messages = Vec::with_capacity(messages.len());
+        for message in messages {
+            let values: Vec<Value> = match serde_json::from_slice(&message.value) {
+                Ok(values) => values,
+                Err(error) => match self.conversion_error {
+                    ConversionErrorPolicy::Dlq => {
+                        framed_messages.push(message);
+                        continue;
                     }
-                    serde_json::to_writer(&mut framed, value)?;
+                    ConversionErrorPolicy::Drop => continue,
+                    ConversionErrorPolicy::Fail => {
+                        return Err(anyhow::anyhow!("invalid JSON array: {error}"));
+                    }
+                },
+            };
+            let mut framed = Vec::with_capacity(message.value.len());
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    framed.push(b'\n');
                 }
-                Ok(Message {
-                    value: Bytes::from(framed),
-                    meta: message.meta,
-                })
-            })
-            .collect()
+                serde_json::to_writer(&mut framed, value)?;
+            }
+            framed_messages.push(Message {
+                value: Bytes::from(framed),
+                meta: message.meta,
+            });
+        }
+        Ok(framed_messages)
     }
 
     pub fn parse_into(

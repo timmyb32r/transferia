@@ -58,13 +58,13 @@ pub async fn build_delivery_plan(
     let discovery = source_provider
         .delivery_discovery(
             DeliveryDiscoveryRequest {
-                keep_system_columns: config.keep_system_columns_in_sink,
+                keep_system_columns: true,
             },
             cancellation,
         )
         .await?;
     anyhow::ensure!(
-        discovery.keep_system_columns == config.keep_system_columns_in_sink,
+        discovery.keep_system_columns,
         "source delivery discovery returned a system-column projection different from the requested policy"
     );
 
@@ -79,7 +79,7 @@ pub async fn build_delivery_plan(
         &sink_provider.compatibility(),
         sink_provider.limits(),
         &discovery,
-        config.keep_system_columns_in_sink,
+        true,
     )?;
 
     Ok(DeliveryPlan {

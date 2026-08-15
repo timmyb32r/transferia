@@ -25,6 +25,11 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(catalog
         .definitions()
         .iter()
+        .find(|definition| definition.key == "pqv1")
+        .is_some_and(|definition| definition.source.is_none()));
+    assert!(catalog
+        .definitions()
+        .iter()
         .find(|definition| definition.key == "ydb_topic")
         .is_some_and(|definition| definition.sink.is_none()));
     assert!(catalog
@@ -42,6 +47,8 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     let schema = serde_json::to_string(&ydb_topic.schema)?;
     assert!(!schema.contains("topology_discovery"));
     assert!(schema.contains("partitions"));
+    assert!(schema.contains("pqv1"));
+    assert!(ydb_topic.partitioned);
     Ok(())
 }
 

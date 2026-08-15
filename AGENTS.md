@@ -123,6 +123,9 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
 - Every bug fix needs a regression test that fails for the old behavior. Every
   destination-contract change needs startup-validation and runtime-validation
   coverage.
+- Every constraint validated in the frontend must also be validated by the
+  backend. Frontend validation is immediate UX feedback, never a trust or
+  correctness boundary.
 
 ## Mandatory completion gate
 

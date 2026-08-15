@@ -19,9 +19,6 @@ struct CommonConfigSchema {
     #[schemars(title = "Pipeline memory limit", extend("x-ui" = { "widget": "byte_size" }))]
     pipeline_memory_limit_bytes: usize,
 
-    #[schemars(title = "Keep system columns in sink")]
-    keep_system_columns_in_sink: bool,
-
     metrics: Option<MetricsConfig>,
 }
 
@@ -51,7 +48,6 @@ pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {
             "sink": {},
             "middlewares": [],
             "pipeline_memory_limit_bytes": 268_435_456,
-            "keep_system_columns_in_sink": false,
             "metrics": null
         }),
         providers: catalog.definitions().to_vec(),

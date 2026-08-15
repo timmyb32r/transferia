@@ -21,4 +21,3 @@ sink:
     tables:
       - dataset: events
         path: //tmp/events_copy
-keep_system_columns_in_sink: false

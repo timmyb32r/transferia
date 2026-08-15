@@ -15,7 +15,6 @@ source:
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456
-keep_system_columns_in_sink: false
 
 sink:
   s3:
@@ -36,6 +35,5 @@ sink:
       max_bytes: 128MiB
 
 metrics:
-  enabled: true
   interval_ms: 1000
   per_partition: true

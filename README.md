@@ -5,15 +5,16 @@ creates one logical pipeline and sink actor per stream partition or batch split,
 share expensive connection pools and upload clients:
 
 ```text
-PQv1 / YDB Topic / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
-                                                                -> ClickHouse | PostgreSQL | S3 | YTsaurus
+YDB Topics (YDB or PQv1 driver) / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
+                                                                               -> ClickHouse | PostgreSQL | S3 | YTsaurus
 ```
 
 Source and sink providers are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers `pqv1`, `ydb_topic`, plus
-finite-snapshot `postgres` and static-table `ytsaurus` sources; `clickhouse`,
-`postgres`, `s3`, and `ytsaurus` sinks; and the non-durable `discard` sink used by
-explicit benchmark configurations.
+kinds are validated explicitly. The executable registers `ydb_topic` (with YDB
+and PQv1 source drivers), finite-snapshot `postgres`, `clickhouse`, `s3`, and
+`ytsaurus` sources; `pqv1`, `clickhouse`, `postgres`, `s3`, and `ytsaurus`
+sinks; and the non-durable `discard` sink used by explicit benchmark
+configurations.
 
 Source implementations are grouped by delivery mode inside each provider:
 `src_batch` contains finite snapshot readers and `src_stream` contains live
@@ -65,6 +66,7 @@ source:
       - path: cdc/project/topic
         partitions: [0] # omit or leave empty to read every partition
     consumer_name: /cdc/project/consumer
+    driver: ydb
     trusted_plaintext: true
     allow_ttl_rewind: false
     auth:
@@ -81,6 +83,11 @@ source:
           - { jsonpath: "$.id", column_name: id, json_data_type: string, arrow_type: Utf8, nullable: false }
 ```
 
+Set `driver: pqv1` in the same `ydb_topic` source to use the legacy wire
+protocol. PQv1 currently accepts exactly one topic with an explicit, non-empty
+`partitions` list; the backend rejects dynamic or multi-topic PQv1
+configurations instead of silently changing their meaning.
+
 `examples/ydb_topic_read_one.rs` is a credential-safe connectivity probe. It
 opens one dynamic Topic API reader, reports only topic/partition/offset and byte
 counts for the first non-empty batch, and deliberately exits without committing
@@ -94,18 +101,17 @@ durable_storage:
   path: .transferia-state
 
 source:
-  pqv1:
-    # Plaintext HTTP/2 only; use a trusted local endpoint or tunnel.
+  ydb_topic:
     host: localhost
     port: 2135
-    topic_path: "/cdc/prod/events"
+    topics:
+      - path: "/cdc/prod/events"
+        partitions: [0]
     consumer_name: "transferia-consumer"
-    # Required: consumer-session assignments are not authoritative topic metadata.
-    partition_group_ids: [0]
-    network_timeout_ms: 30000
-    decompression_concurrency: 4 # shared across this provider's partitions
+    driver: pqv1
+    trusted_plaintext: true
     auth:
-      type: access_token
+      type: token_file
       token_file: "${HOME}/.logbroker/token"
     parser:
       common:
@@ -121,7 +127,7 @@ source:
       json_parser:
         conversion_error: dlq
         unknown_fields: { action: fail }
-        primary_key: [id, source_partition, source_offset]
+        keys: [id, source_partition, source_offset]
         json_framing: single_document
         columns:
           - jsonpath: "$.id"
@@ -140,7 +146,6 @@ source:
 middlewares: []
 
 pipeline_memory_limit_bytes: 268435456
-keep_system_columns_in_sink: false
 
 sink:
   s3:
@@ -193,7 +198,6 @@ sink:
       max_attempts: 20
 
 metrics:
-  enabled: true
   interval_ms: 1000
   per_partition: true
 ```
@@ -203,10 +207,10 @@ of `string`, `integer`, `unsigned_integer`, `number`, or `boolean`; compatible
 Arrow targets are strings, matching signed/unsigned integers, floating point,
 booleans, and temporal types. Temporal targets additionally require
 `time_conversion: { type: epoch, unit: ... }` or
-`time_conversion: { type: string, format: ... }`. Conversion failures either
-enter DLQ (`conversion_error: dlq`) or stop the delivery (`fail`). Unknown
-top-level fields either fail validation of the row or are captured as compact
-JSON in the explicitly named rest column. `primary_key` uses physical output
+`time_conversion: { type: string, format: ... }`. Parse and conversion failures
+can be sent to DLQ, dropped, or fail the delivery. Unknown top-level fields can
+be dropped, fail the row, or be captured as compact JSON in the explicitly
+named rest column. `keys` uses physical output
 names, including renamed enabled system columns; ClickHouse derives `ORDER BY`
 from it directly. `low_cardinality` and
 `max_length` are Arrow field metadata and are revalidated at the sink boundary;
@@ -272,7 +276,7 @@ state machine. `delivery_id` is the explicit ASCII identity of that state, and
 can change object boundaries; the report includes a remediation.
 
 The S3 exactly-once statement assumes that parser, middleware and projection
-settings (including `keep_system_columns_in_sink`), destination identity
+settings (including configured parser system columns), destination identity
 (bucket/endpoint/region), S3 prefix, `object_layout_version`, partitioning, rotation thresholds,
 `buffering.max_epoch_buffers`, and `buffering.max_epoch_bytes` remain unchanged
 while uncommitted source data can replay. Treat those fields as semantic state
@@ -302,7 +306,7 @@ supported partitioning input.
 
 JSON objects are compact NDJSON compatible with the Confluent S3 JSON shape:
 one object per line, explicit nulls, and a final newline. System columns are
-projected out unless `keep_system_columns_in_sink: true`.
+included in the sink schema whenever they are enabled in the parser.
 
 PQv1 → ClickHouse is at-least-once: an ambiguous INSERT followed by replay can
 produce duplicate rows. See `docs/pqv1-clickhouse-delivery.md` for the precise

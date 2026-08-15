@@ -31,6 +31,7 @@ export interface EndpointDefinition {
   schema: JsonSchema;
   initial: JsonObject;
   delivery_modes?: Array<"batch" | "stream">;
+  partitioned?: boolean;
 }
 
 export interface ProviderDefinition {

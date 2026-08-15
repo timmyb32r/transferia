@@ -22,7 +22,7 @@ use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 
-pub use config::{YdbTopicAuthConfig, YdbTopicReadConfig, YdbTopicSourceConfig};
+pub use config::{YdbTopicAuthConfig, YdbTopicDriver, YdbTopicReadConfig, YdbTopicSourceConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
@@ -38,6 +38,11 @@ pub struct YdbTopicSourceProvider {
     token: OnceCell<Arc<str>>,
 }
 
+struct PqV1DriverSourceProvider {
+    inner: crate::providers::pqv1::src_stream::PqV1SourceProvider,
+    behavior: SourceBehavior,
+}
+
 impl YdbTopicSourceProvider {
     pub fn from_config(
         value: Value,
@@ -46,6 +51,10 @@ impl YdbTopicSourceProvider {
         let cfg: YdbTopicSourceConfig = serde_yaml::from_value(value)
             .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
         validate_config(&cfg)?;
+        anyhow::ensure!(
+            cfg.driver == YdbTopicDriver::Ydb,
+            "YdbTopicSourceProvider requires driver=ydb"
+        );
         let parser_kind = cfg.parser.parser.kind()?;
         anyhow::ensure!(
             parser_kind != "benchmark_discard",
@@ -100,6 +109,151 @@ impl YdbTopicSourceProvider {
             .get_or_try_init(|| async { self.cfg.auth.load_token().map(Arc::<str>::from) })
             .await
             .map(Arc::clone)
+    }
+}
+
+pub fn build_source_provider(
+    value: Value,
+    metrics_registry: Arc<MetricsRegistry>,
+) -> anyhow::Result<Box<dyn SourceProvider>> {
+    let cfg: YdbTopicSourceConfig = serde_yaml::from_value(value.clone())
+        .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
+    validate_config(&cfg)?;
+    match cfg.driver {
+        YdbTopicDriver::Ydb => {
+            anyhow::ensure!(
+                cfg.pqv1_decompression_concurrency
+                    == config::default_pqv1_decompression_concurrency()
+                    && !cfg.pqv1_discard_before_decompression,
+                "PQv1-only settings require ydb_topic.driver=pqv1"
+            );
+            Ok(Box::new(YdbTopicSourceProvider::from_config(
+                value,
+                metrics_registry,
+            )?))
+        }
+        YdbTopicDriver::Pqv1 => {
+            anyhow::ensure!(
+                cfg.topics.len() == 1,
+                "ydb_topic.driver=pqv1 currently requires exactly one topic"
+            );
+            anyhow::ensure!(
+                !cfg.topics[0].partitions.is_empty(),
+                "ydb_topic.driver=pqv1 requires explicit topic partitions"
+            );
+            anyhow::ensure!(
+                !cfg.allow_ttl_rewind,
+                "ydb_topic.allow_ttl_rewind is not supported by the PQv1 driver"
+            );
+            anyhow::ensure!(
+                cfg.read_buffer_bytes == config::default_read_buffer_bytes(),
+                "ydb_topic.read_buffer_bytes is supported only by driver=ydb"
+            );
+            anyhow::ensure!(
+                cfg.pqv1_decompression_concurrency > 0,
+                "ydb_topic PQv1 decompression concurrency must be positive"
+            );
+
+            let mut mapping = value.as_mapping().cloned().ok_or_else(|| {
+                anyhow::anyhow!("YDB Topic source configuration must be an object")
+            })?;
+            for key in [
+                "driver",
+                "topics",
+                "trusted_plaintext",
+                "allow_ttl_rewind",
+                "read_buffer_bytes",
+                "pqv1_decompression_concurrency",
+                "pqv1_discard_before_decompression",
+            ] {
+                mapping.remove(Value::String(key.to_owned()));
+            }
+            mapping.insert(
+                Value::String("topic_path".into()),
+                Value::String(cfg.topics[0].path.clone()),
+            );
+            mapping.insert(
+                Value::String("partition_group_ids".into()),
+                Value::Sequence(
+                    cfg.topics[0]
+                        .partitions
+                        .iter()
+                        .copied()
+                        .map(Value::from)
+                        .collect(),
+                ),
+            );
+            let auth = mapping
+                .get_mut(Value::String("auth".into()))
+                .and_then(Value::as_mapping_mut)
+                .ok_or_else(|| anyhow::anyhow!("ydb_topic.auth must be an object"))?;
+            auth.insert(
+                Value::String("type".into()),
+                Value::String("access_token".into()),
+            );
+            mapping.insert(
+                Value::String("network_timeout_ms".into()),
+                Value::from(30_000_u64),
+            );
+            mapping.insert(
+                Value::String("decompression_concurrency".into()),
+                Value::from(cfg.pqv1_decompression_concurrency as u64),
+            );
+            mapping.insert(
+                Value::String("benchmark_discard_before_decompression".into()),
+                Value::Bool(cfg.pqv1_discard_before_decompression),
+            );
+            let inner = crate::providers::pqv1::src_stream::PqV1SourceProvider::from_config(
+                Value::Mapping(mapping),
+                metrics_registry,
+            )?;
+            let behavior = inner
+                .compatibility()
+                .source_behavior()
+                .ok_or_else(|| anyhow::anyhow!("PQv1 driver did not expose source behavior"))?;
+            Ok(Box::new(PqV1DriverSourceProvider { inner, behavior }))
+        }
+    }
+}
+
+impl SourceProvider for PqV1DriverSourceProvider {
+    fn compatibility(&self) -> EndpointDescriptor {
+        EndpointDescriptor::YdbTopic(SourceDescriptor {
+            behavior: self.behavior,
+            delivery_modes: SourceDeliveryModes::STREAM,
+        })
+    }
+
+    fn delivery_discovery(
+        &self,
+        request: DeliveryDiscoveryRequest,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        self.inner.delivery_discovery(request, cancellation)
+    }
+
+    fn build_source(
+        &self,
+        partition_id: i64,
+        cancellation: CancellationToken,
+        memory: PipelineMemory,
+        durable: crate::durable::DurableContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        self.inner
+            .build_source(partition_id, cancellation, memory, durable)
+    }
+
+    fn partitions_for_worker(
+        &self,
+        total_workers: u32,
+        worker_index: u32,
+    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
+        self.inner
+            .partitions_for_worker(total_workers, worker_index)
+    }
+
+    fn parser_plan(&self) -> &ParserPlan {
+        self.inner.parser_plan()
     }
 }
 

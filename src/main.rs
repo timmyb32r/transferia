@@ -332,13 +332,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(metrics) = &config.metrics {
-        if metrics.enabled {
-            spawn_stats_reporter(
-                Arc::clone(&metrics_registry),
-                metrics.interval_ms,
-                metrics.per_partition,
-            );
-        }
+        spawn_stats_reporter(
+            Arc::clone(&metrics_registry),
+            metrics.interval_ms,
+            metrics.per_partition,
+        );
     }
 
     let deps = PipelineDeps {
@@ -349,7 +347,7 @@ async fn main() -> anyhow::Result<()> {
         discovery,
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
-        keep_system_columns: config.keep_system_columns_in_sink,
+        keep_system_columns: true,
         finite_source,
         durable,
     };
