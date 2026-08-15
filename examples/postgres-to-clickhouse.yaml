@@ -3,12 +3,14 @@ delivery_type: batch
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   postgres:
-    host: localhost
-    port: 5432
+    installation:
+      type: on_premise
+      host: localhost
+      port: 5432
+      trusted_plaintext: true
     database: postgres
     username: postgres
     password: postgres
-    trusted_plaintext: true
     tables:
       - schema: public
         name: events
@@ -18,9 +20,11 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   clickhouse:
-    hosts: [localhost]
-    port: 9440
-    trusted_plaintext: true
+    installation:
+      type: on_premise
+      hosts: [localhost]
+      port: 9440
+      trusted_plaintext: true
     database: default
     username: default
 

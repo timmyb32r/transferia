@@ -24,13 +24,16 @@ fn database_and_username_have_no_defaults() -> anyhow::Result<()> {
 }
 
 #[test]
-fn plaintext_transport_requires_an_explicit_trust_acknowledgement() -> anyhow::Result<()> {
-    for yaml in [
-        "hosts: [localhost]\nport: 9000\ndatabase: analytics\nusername: transferia\n",
-        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: false\ndatabase: analytics\nusername: transferia\n",
-    ] {
-        assert!(ClickHouseSinkConfig::from_value(serde_yaml::from_str(yaml)?).is_err());
-    }
+fn transport_choice_is_explicit_and_verified_tls_is_supported() -> anyhow::Result<()> {
+    assert!(ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+        "hosts: [localhost]\nport: 9000\ndatabase: analytics\nusername: transferia\n"
+    )?)
+    .is_err());
+    let tls = ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+        "hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: /tmp/ca.pem\ndatabase: analytics\nusername: transferia\n",
+    )?)?;
+    assert!(!tls.trusted_plaintext);
+    assert_eq!(tls.tls_ca_file.as_deref(), Some("/tmp/ca.pem"));
     Ok(())
 }
 

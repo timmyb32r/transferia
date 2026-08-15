@@ -20,6 +20,10 @@ pub struct PostgresConnectionConfig {
     pub password: String,
 
     pub trusted_plaintext: bool,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub tls_ca_file: Option<String>,
 }
 
 impl PostgresConnectionConfig {
@@ -34,7 +38,12 @@ impl PostgresConnectionConfig {
             !self.username.is_empty(),
             "postgres.username must not be empty"
         );
-        anyhow::ensure!(self.trusted_plaintext, "postgres.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
+        if let Some(path) = &self.tls_ca_file {
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "postgres.tls_ca_file must not be empty"
+            );
+        }
         Ok(())
     }
 }
@@ -47,12 +56,41 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
         .dbname(&config.database)
         .user(&config.username)
         .password(&config.password);
-    let (client, connection) = connection_config.connect(tokio_postgres::NoTls).await?;
-    tokio::spawn(async move {
-        if let Err(error) = connection.await {
-            tracing::error!("PostgreSQL connection failed: {error}");
+    let client = if config.trusted_plaintext {
+        let (client, connection) = connection_config.connect(tokio_postgres::NoTls).await?;
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                tracing::error!("PostgreSQL connection failed: {error}");
+            }
+        });
+        client
+    } else {
+        drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
+        let mut roots = rustls::RootCertStore::empty();
+        let native = rustls_native_certs::load_native_certs();
+        for certificate in native.certs {
+            roots.add(certificate)?;
         }
-    });
+        if let Some(path) = &config.tls_ca_file {
+            let bytes = std::fs::read(path)?;
+            let mut reader = std::io::BufReader::new(bytes.as_slice());
+            for certificate in rustls_pemfile::certs(&mut reader) {
+                roots.add(certificate?)?;
+            }
+        }
+        let tls = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let (client, connection) = connection_config
+            .connect(tokio_postgres_rustls::MakeRustlsConnect::new(tls))
+            .await?;
+        tokio::spawn(async move {
+            if let Err(error) = connection.await {
+                tracing::error!("PostgreSQL TLS connection failed: {error}");
+            }
+        });
+        client
+    };
     Ok(client)
 }
 

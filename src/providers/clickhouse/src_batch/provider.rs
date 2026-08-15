@@ -54,12 +54,17 @@ impl ClickHouseSourceProvider {
             .hosts
             .iter()
             .map(|host| {
-                ClientBuilder::new()
+                let builder = ClientBuilder::new()
                     .with_destination(crate::providers::address::host_port(host, config.port))
                     .with_database("default")
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
-                    .with_tls(false)
+                    .with_tls(!config.trusted_plaintext);
+                if let Some(path) = &config.tls_ca_file {
+                    builder.with_cafile(path)
+                } else {
+                    builder
+                }
             })
             .collect();
         let client = Arc::new(ReconnectingClient::from_connections(

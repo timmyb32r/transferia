@@ -6,19 +6,21 @@ source:
   ydb_topic:
     # PQv1 currently supports plaintext HTTP/2 only. Point this at a trusted
     # local endpoint/tunnel; grpcs:// is rejected instead of silently skipping TLS.
-    host: localhost
-    port: 2135
+    installation:
+      type: on_premise
+      host: localhost
+      port: 2135
+      trusted_plaintext: true
+      auth:
+        type: token_file
+        token_file: "${HOME}/path/to/token"
     topics:
       - path: "/cdc/prod/events"
         partitions: [0]
     consumer_name: "transferia-consumer"
     # PQv1 consumer assignments are not authoritative topic metadata, so list
     # every source partition explicitly. Workers split this list by modulo.
-    auth:
-      type: token_file
-      token_file: "${HOME}/.logbroker/token"
     driver: pqv1
-    trusted_plaintext: true
     parser:
       common:
         table_naming:
@@ -49,8 +51,8 @@ sink:
     bucket: transfer-bucket
     object_layout_version: 5
     prefix: streams
-    region: ru-central1
-    host: storage.yandexcloud.net
+    region: us-east-1
+    host: s3.example.net
     port: 443
     credentials:
       access_key: "${S3_ACCESS_KEY}"

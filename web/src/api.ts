@@ -2,6 +2,7 @@ import type {
   DeliveryRecord,
   DeliverySummary,
   DiscoveryResult,
+  DynamicOptions,
   JsonObject,
   UiCatalog,
 } from "./types";
@@ -36,6 +37,10 @@ const json = (value: unknown): string => JSON.stringify(value);
 
 export const api = {
   catalog: (): Promise<UiCatalog> => request("/api/v1/catalog"),
+  options: (key: string, refresh = false): Promise<DynamicOptions> =>
+    request(
+      `/api/v1/options/${encodeURIComponent(key)}?refresh=${String(refresh)}`,
+    ),
   deliveries: (): Promise<DeliverySummary[]> => request("/api/v1/deliveries"),
   delivery: (id: string): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}`),

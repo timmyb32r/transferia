@@ -29,11 +29,13 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   clickhouse:
-    hosts: [clickhouse.internal]
-    port: 9440
+    installation:
+      type: on_premise
+      hosts: [clickhouse.internal]
+      port: 9440
+      trusted_plaintext: true
     database: default
     username: default
-    trusted_plaintext: true
 
 metrics:
   interval_ms: 1000

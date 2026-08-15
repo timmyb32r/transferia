@@ -13,7 +13,6 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert_eq!(
         keys,
         [
-            "pqv1",
             "ydb_topic",
             "postgres",
             "clickhouse",
@@ -25,13 +24,8 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(catalog
         .definitions()
         .iter()
-        .find(|definition| definition.key == "pqv1")
-        .is_some_and(|definition| definition.source.is_none()));
-    assert!(catalog
-        .definitions()
-        .iter()
         .find(|definition| definition.key == "ydb_topic")
-        .is_some_and(|definition| definition.sink.is_none()));
+        .is_some_and(|definition| definition.source.is_some() && definition.sink.is_some()));
     assert!(catalog
         .definitions()
         .iter()

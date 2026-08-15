@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use transferia::extension::Transferia;
 
 mod assets;
 mod http;
@@ -14,6 +15,14 @@ mod supervisor;
 mod ui_catalog;
 
 pub async fn run(bind: SocketAddr, state_dir: PathBuf) -> anyhow::Result<()> {
+    run_with(bind, state_dir, Transferia::public()?).await
+}
+
+pub async fn run_with(
+    bind: SocketAddr,
+    state_dir: PathBuf,
+    transferia: Transferia,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         bind.ip().is_loopback(),
         "the local control plane may only bind to a loopback address"
@@ -23,9 +32,13 @@ pub async fn run(bind: SocketAddr, state_dir: PathBuf) -> anyhow::Result<()> {
         std::env::current_exe()?,
         state_dir.clone(),
     ));
-    let control_plane = Arc::new(service::ControlPlane::new(store, supervisor));
+    let control_plane = Arc::new(service::ControlPlane::new(
+        store,
+        supervisor,
+        transferia.clone(),
+    ));
     control_plane.spawn_supervisor_monitor();
-    let catalog = ui_catalog::build_ui_catalog()?;
+    let catalog = ui_catalog::build_ui_catalog_with(&transferia)?;
     let listener = TcpListener::bind(bind).await?;
     let address = listener.local_addr()?;
     tracing::info!(%address, "local control plane is ready");

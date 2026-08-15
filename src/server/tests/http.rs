@@ -10,14 +10,53 @@ use crate::server::ui_catalog::build_ui_catalog;
 static TEST_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 async fn test_router() -> anyhow::Result<(Router, std::path::PathBuf)> {
+    test_router_with(transferia::extension::Transferia::public()?).await
+}
+
+async fn test_router_with(
+    transferia: transferia::extension::Transferia,
+) -> anyhow::Result<(Router, std::path::PathBuf)> {
     let root = std::env::temp_dir().join(format!(
         "transferia-http-test-{}-{}",
         std::process::id(),
         TEST_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let store = Arc::new(JsonDeliveryStore::open(root.clone()).await?);
-    let control_plane = Arc::new(ControlPlane::new(store, Arc::new(TestSupervisor::new())));
+    let control_plane = Arc::new(ControlPlane::new(
+        store,
+        Arc::new(TestSupervisor::new()),
+        transferia,
+    ));
     Ok((router(control_plane, build_ui_catalog()?), root))
+}
+
+struct TestOptions;
+
+#[async_trait::async_trait]
+impl transferia::extension::DynamicOptionsProvider for TestOptions {
+    async fn list(
+        &self,
+        request: transferia::extension::OptionsRequest,
+    ) -> anyhow::Result<transferia::extension::DynamicOptions> {
+        Ok(transferia::extension::DynamicOptions {
+            options: vec![transferia::extension::DynamicOption {
+                value: request.query.unwrap_or_default(),
+                label: if request.refresh { "fresh" } else { "cached" }.to_owned(),
+            }],
+            warning: None,
+        })
+    }
+}
+
+struct TestExtension;
+
+impl transferia::extension::TransferiaExtension for TestExtension {
+    fn register(
+        &self,
+        registry: &mut transferia::extension::ExtensionRegistry,
+    ) -> anyhow::Result<()> {
+        registry.register_options("test.options", Arc::new(TestOptions))
+    }
 }
 
 #[tokio::test]
@@ -32,6 +71,28 @@ async fn health_has_a_stable_json_contract() -> anyhow::Result<()> {
         to_bytes(response.into_body(), 1024).await?,
         r#"{"status":"ok"}"#
     );
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
+    let transferia = transferia::extension::TransferiaBuilder::new()
+        .with_extension(Arc::new(TestExtension))
+        .build()?;
+    let (app, root) = test_router_with(transferia).await?;
+    let response = app
+        .oneshot(
+            Request::get("/api/v1/options/test.options?q=cluster&refresh=true")
+                .body(Body::empty())?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["options"][0]["value"], "cluster");
+    assert_eq!(body["options"][0]["label"], "fresh");
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

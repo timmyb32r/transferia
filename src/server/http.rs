@@ -2,7 +2,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use transferia::extension::OptionsRequest;
 
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
@@ -56,6 +57,14 @@ struct UpdateDraftRequest {
 #[derive(Deserialize)]
 struct RevisionRequest {
     expected_revision: u64,
+}
+
+#[derive(Default, Deserialize)]
+struct OptionsQuery {
+    q: Option<String>,
+
+    #[serde(default)]
+    refresh: bool,
 }
 
 #[derive(Serialize)]
@@ -160,6 +169,7 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/style.css", get(style_css))
         .route("/api/v1/health", get(health))
         .route("/api/v1/catalog", get(get_catalog))
+        .route("/api/v1/options/{key}", get(dynamic_options))
         .route("/api/v1/config/yaml", post(render_yaml))
         .route("/api/v1/config/from-yaml", post(parse_yaml))
         .route("/api/v1/discover", post(discover))
@@ -208,6 +218,24 @@ async fn health() -> Json<HealthResponse> {
 
 async fn get_catalog(State(state): State<AppState>) -> Json<UiCatalog> {
     Json(state.catalog)
+}
+
+async fn dynamic_options(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    Query(query): Query<OptionsQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .control_plane
+        .dynamic_options(
+            &key,
+            OptionsRequest {
+                query: query.q,
+                refresh: query.refresh,
+            },
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
 async fn render_yaml(Json(request): Json<ConfigRequest>) -> Result<Json<YamlResponse>, ApiError> {

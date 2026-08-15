@@ -7,17 +7,19 @@ delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   ydb_topic:
-    host: "${PQ_HOST:-localhost}"
-    port: ${PQ_PORT:-2136}
+    installation:
+      type: on_premise
+      host: "${PQ_HOST:-localhost}"
+      port: ${PQ_PORT:-2136}
+      trusted_plaintext: true
+      auth:
+        type: token
+        token: "${PQ_TOKEN:-benchmark-token}"
     topics:
       - path: "${PQ_TOPIC:-/benchmark/events}"
         partitions: [0]
     consumer_name: "${PQ_CONSUMER_CLICKHOUSE:-transferia-benchmark-clickhouse}-${BENCHMARK_REPETITION:-manual}"
-    auth:
-      type: token
-      token: "${PQ_TOKEN:-benchmark-token}"
     driver: pqv1
-    trusted_plaintext: true
     parser:
       common:
         table_naming:
@@ -39,9 +41,11 @@ pipeline_memory_limit_bytes: 268435456
 
 sink:
   clickhouse:
-    hosts: ["${CLICKHOUSE_HOST:-localhost}"]
-    port: ${CLICKHOUSE_PORT:-9440}
-    trusted_plaintext: true
+    installation:
+      type: on_premise
+      hosts: ["${CLICKHOUSE_HOST:-localhost}"]
+      port: ${CLICKHOUSE_PORT:-9440}
+      trusted_plaintext: true
     database: "${CLICKHOUSE_DATABASE:-default}"
     username: "${CLICKHOUSE_USERNAME:-default}"
     password: "${CLICKHOUSE_PASSWORD:-}"

@@ -7,10 +7,11 @@ use crate::compatibility::{validate_pipeline, DeliverySemanticsReport, SourceBeh
 use crate::config::yaml::Config;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::durable::DurableContext;
+use crate::extension::{EndpointRole, Transferia};
 use crate::metrics::MetricsRegistry;
 use crate::middleware::build_middleware;
 use crate::pipeline::middleware::Middleware;
-use crate::providers::catalog::build_provider_catalog;
+use crate::providers::catalog::build_provider_catalog_with;
 use crate::providers::traits::{SinkProvider, SourceProvider};
 
 pub struct DeliveryPlan {
@@ -31,6 +32,14 @@ pub async fn build_delivery_plan(
     config: Config,
     cancellation: CancellationToken,
 ) -> anyhow::Result<DeliveryPlan> {
+    build_delivery_plan_with(config, cancellation, &Transferia::public()?).await
+}
+
+pub async fn build_delivery_plan_with(
+    config: Config,
+    cancellation: CancellationToken,
+    transferia: &Transferia,
+) -> anyhow::Result<DeliveryPlan> {
     let durable = config.durable_storage.build(&config.delivery_id)?;
     anyhow::ensure!(
         config.pipeline_memory_limit_bytes > 0,
@@ -38,13 +47,25 @@ pub async fn build_delivery_plan(
     );
 
     let metrics_registry = Arc::new(MetricsRegistry::new());
-    let catalog = build_provider_catalog(&metrics_registry)?;
+    let catalog = build_provider_catalog_with(transferia, &metrics_registry)?;
     let source_kind = config.source.kind()?.to_owned();
     let sink_kind = config.sink.kind()?.to_owned();
+    let source_config = transferia
+        .registry()
+        .resolve(
+            &source_kind,
+            EndpointRole::Source,
+            config.source.raw()?.clone(),
+        )
+        .await?;
+    let sink_config = transferia
+        .registry()
+        .resolve(&sink_kind, EndpointRole::Sink, config.sink.raw()?.clone())
+        .await?;
     let source_provider: Arc<dyn SourceProvider> =
-        Arc::from(catalog.build_source(&source_kind, config.source.raw()?.clone())?);
+        Arc::from(catalog.build_source(&source_kind, source_config)?);
     let sink_provider: Arc<dyn SinkProvider> =
-        Arc::from(catalog.build_sink(&sink_kind, config.sink.raw()?.clone())?);
+        Arc::from(catalog.build_sink(&sink_kind, sink_config)?);
     sink_provider.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
 
     let source_descriptor = source_provider.compatibility();

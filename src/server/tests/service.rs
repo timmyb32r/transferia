@@ -48,7 +48,11 @@ impl WorkerSupervisor for TestSupervisor {
 async fn shutdown_always_delegates_worker_termination() -> anyhow::Result<()> {
     let supervisor = Arc::new(TestSupervisor::new());
     let shutdown = Arc::clone(&supervisor.shutdown);
-    let service = ControlPlane::new(Arc::new(MemoryStore::default()), supervisor);
+    let service = ControlPlane::new(
+        Arc::new(MemoryStore::default()),
+        supervisor,
+        transferia::extension::Transferia::public()?,
+    );
     service.shutdown().await?;
     assert!(shutdown.load(Ordering::SeqCst));
     Ok(())
@@ -58,6 +62,7 @@ fn service() -> ControlPlane {
     ControlPlane::new(
         Arc::new(MemoryStore::default()),
         Arc::new(TestSupervisor::new()),
+        transferia::extension::Transferia::public().unwrap(),
     )
 }
 

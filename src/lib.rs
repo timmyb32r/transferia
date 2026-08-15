@@ -1,4 +1,5 @@
 extern crate alloc;
+extern crate self as transferia;
 
 // Named `Ydb` (not `ydb`) to mirror the proto package `Ydb` and its generated paths.
 #[expect(non_snake_case)]
@@ -35,10 +36,13 @@ pub mod compatibility;
 pub mod config;
 pub mod delivery;
 pub mod durable;
+pub mod extension;
 pub mod metrics;
 pub mod middleware;
 pub mod parsers;
 pub mod pipeline;
 pub mod providers;
+pub mod runtime;
 pub mod serializer;
+pub mod server;
 pub mod types;

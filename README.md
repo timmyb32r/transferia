@@ -60,18 +60,20 @@ reads; an empty `partitions` list subscribes to every partition dynamically:
 ```yaml
 source:
   ydb_topic:
-    host: sas.logbroker.yandex.net
-    port: 2135
+    installation:
+      type: on_premise
+      host: topic.example.net
+      port: 2135
+      trusted_plaintext: true
+      auth:
+        type: token_file
+        token_file: "${HOME}/path/to/token"
     topics:
       - path: cdc/project/topic
         partitions: [0] # omit or leave empty to read every partition
     consumer_name: /cdc/project/consumer
     driver: ydb
-    trusted_plaintext: true
     allow_ttl_rewind: false
-    auth:
-      type: token_file
-      token_file: "${HOME}/.logbroker/token"
     parser: # same parser contract as pqv1
       common:
         table_naming: { type: from_config, name: events }
@@ -102,17 +104,19 @@ durable_storage:
 
 source:
   ydb_topic:
-    host: localhost
-    port: 2135
+    installation:
+      type: on_premise
+      host: localhost
+      port: 2135
+      trusted_plaintext: true
+      auth:
+        type: token_file
+        token_file: "${HOME}/path/to/token"
     topics:
       - path: "/cdc/prod/events"
         partitions: [0]
     consumer_name: "transferia-consumer"
     driver: pqv1
-    trusted_plaintext: true
-    auth:
-      type: token_file
-      token_file: "${HOME}/.logbroker/token"
     parser:
       common:
         table_naming:
@@ -152,8 +156,8 @@ sink:
     bucket: transfer-bucket
     object_layout_version: 5
     prefix: streams
-    region: ru-central1
-    host: storage.yandexcloud.net
+    region: us-east-1
+    host: s3.example.net
     port: 443
     credentials:
       access_key: "${S3_ACCESS_KEY}"

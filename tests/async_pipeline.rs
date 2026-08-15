@@ -232,6 +232,7 @@ fn sink_config() -> ClickHouseSinkConfig {
         hosts: vec!["fake".into()],
         port: 9000,
         trusted_plaintext: true,
+        tls_ca_file: None,
         database: "default".into(),
         username: "default".into(),
         password: String::new(),

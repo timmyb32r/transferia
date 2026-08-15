@@ -3,12 +3,14 @@ delivery_type: batch
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   postgres:
-    host: localhost
-    port: 5432
+    installation:
+      type: on_premise
+      host: localhost
+      port: 5432
+      trusted_plaintext: true
     database: postgres
     username: postgres
     password: postgres
-    trusted_plaintext: true
     tables:
       - schema: public
         name: events

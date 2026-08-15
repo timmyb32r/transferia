@@ -5,8 +5,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use transferia::config::yaml::DeliveryType;
+use transferia::extension::Transferia;
 use transferia::metrics::{MetricsConfig, MetricsRegistry};
-use transferia::providers::catalog::{build_provider_catalog, ProviderDefinition};
+use transferia::providers::catalog::{build_provider_catalog_with, ProviderDefinition};
 
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
@@ -36,8 +37,13 @@ pub struct UiCatalog {
     pub providers: Vec<ProviderDefinition>,
 }
 
+#[cfg(test)]
 pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {
-    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    build_ui_catalog_with(&Transferia::public()?)
+}
+
+pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalog> {
+    let catalog = build_provider_catalog_with(transferia, &Arc::new(MetricsRegistry::new()))?;
     Ok(UiCatalog {
         common_schema: serde_json::to_value(schema_for!(CommonConfigSchema))?,
         initial: serde_json::json!({

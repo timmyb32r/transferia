@@ -364,7 +364,7 @@ fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
         .hosts
         .iter()
         .map(|host| {
-            ClientBuilder::new()
+            let builder = ClientBuilder::new()
                 .with_destination(crate::providers::address::host_port(host, config.port))
                 .with_database(config.database.as_str())
                 .with_username(config.username.as_str())
@@ -378,7 +378,12 @@ fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
                 // sink: two distinct source offsets may legitimately contain identical
                 // rows. Preserve both and let ambiguous retries remain visible duplicates.
                 .with_setting("insert_deduplicate", 0_i64)
-                .with_tls(false)
+                .with_tls(!config.trusted_plaintext);
+            if let Some(path) = &config.tls_ca_file {
+                builder.with_cafile(path)
+            } else {
+                builder
+            }
         })
         .collect()
 }

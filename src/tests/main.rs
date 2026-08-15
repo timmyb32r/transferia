@@ -16,6 +16,38 @@ fn configured_discovery(
     )
 }
 
+async fn build_resolved_endpoints(
+    config: &Config,
+) -> anyhow::Result<(Box<dyn SourceProvider>, Box<dyn SinkProvider>)> {
+    let transferia = Transferia::public()?;
+    let catalog = transferia::providers::catalog::build_provider_catalog_with(
+        &transferia,
+        &Arc::new(MetricsRegistry::new()),
+    )?;
+    let source_kind = config.source.kind()?;
+    let sink_kind = config.sink.kind()?;
+    let source_config = transferia
+        .registry()
+        .resolve(
+            source_kind,
+            transferia::extension::EndpointRole::Source,
+            config.source.raw()?.clone(),
+        )
+        .await?;
+    let sink_config = transferia
+        .registry()
+        .resolve(
+            sink_kind,
+            transferia::extension::EndpointRole::Sink,
+            config.sink.raw()?.clone(),
+        )
+        .await?;
+    Ok((
+        catalog.build_source(source_kind, source_config)?,
+        catalog.build_sink(sink_kind, sink_config)?,
+    ))
+}
+
 struct RecordingLimits {
     called: AtomicBool,
 }
@@ -173,9 +205,8 @@ sink:
     Ok(())
 }
 
-#[test]
-fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+#[tokio::test]
+async fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
     for relative_path in [
         "benchmarks/config_bench_pqv1_json_parser_to_discard.yaml",
         "benchmarks/config_bench_pqv1_decompress_to_discard.yaml",
@@ -186,12 +217,9 @@ fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result
         let path = format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR"));
         let config =
             Config::from_file(&path).with_context(|| format!("failed to load {relative_path}"))?;
-        let source = registry
-            .build_source(config.source.kind()?, config.source.raw()?.clone())
-            .with_context(|| format!("invalid source in {relative_path}"))?;
-        let sink = registry
-            .build_sink(config.sink.kind()?, config.sink.raw()?.clone())
-            .with_context(|| format!("invalid sink in {relative_path}"))?;
+        let (source, sink) = build_resolved_endpoints(&config)
+            .await
+            .with_context(|| format!("invalid endpoints in {relative_path}"))?;
         sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)
             .with_context(|| format!("invalid memory limits in {relative_path}"))?;
         let discovery = configured_discovery(source.as_ref(), true)?;
@@ -207,16 +235,14 @@ fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::Result
     Ok(())
 }
 
-#[test]
-fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
+#[tokio::test]
+async fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()> {
     let raw = std::fs::read_to_string(format!("{}/config.yaml", env!("CARGO_MANIFEST_DIR")))?
         .replace("${HOME}", "/tmp")
         .replace("${S3_ACCESS_KEY}", "test-access-key")
         .replace("${S3_SECRET_KEY}", "test-secret-key");
     let config: Config = serde_yaml::from_str(&raw)?;
-    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
-    let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
-    let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+    let (source, sink) = build_resolved_endpoints(&config).await?;
     sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
     let discovery = configured_discovery(source.as_ref(), true)?;
     validate_discovered_pipeline(
@@ -229,17 +255,15 @@ fn root_example_config_matches_registered_provider_shapes() -> anyhow::Result<()
     Ok(())
 }
 
-#[test]
-fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+#[tokio::test]
+async fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
     for relative_path in [
         "examples/postgres-to-clickhouse.yaml",
         "examples/postgres-to-s3.yaml",
     ] {
         let path = format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR"));
         let config = Config::from_file(&path)?;
-        let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
-        let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+        let (source, sink) = build_resolved_endpoints(&config).await?;
         assert!(matches!(
             source.compatibility(),
             transferia::compatibility::EndpointDescriptor::Postgres(_)
@@ -253,16 +277,14 @@ fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow::Resu
     Ok(())
 }
 
-#[test]
-fn ytsaurus_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
-    let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+#[tokio::test]
+async fn ytsaurus_examples_match_registered_provider_shapes() -> anyhow::Result<()> {
     for relative_path in [
         "config_ytsaurus_source_to_clickhouse.yaml",
         "config_ytsaurus_sink.yaml",
     ] {
         let config = Config::from_file(&format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR")))?;
-        let source = registry.build_source(config.source.kind()?, config.source.raw()?.clone())?;
-        let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
+        let (source, sink) = build_resolved_endpoints(&config).await?;
         if relative_path.contains("source") {
             assert!(matches!(
                 source.compatibility(),

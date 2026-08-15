@@ -16,6 +16,10 @@ pub struct ClickHouseSinkConfig {
     /// protected by a trusted local network boundary or verified TLS tunnel.
     pub trusted_plaintext: bool,
 
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub tls_ca_file: Option<String>,
+
     pub database: String,
 
     pub username: String,
@@ -73,10 +77,12 @@ impl ClickHouseSinkConfig {
             anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
         }
         validate_native_port(self.port)?;
-        anyhow::ensure!(
-            self.trusted_plaintext,
-            "clickhouse.trusted_plaintext must be true; use a verified TLS tunnel when the destination is not on a trusted local network"
-        );
+        if let Some(path) = &self.tls_ca_file {
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "clickhouse.tls_ca_file must not be empty"
+            );
+        }
         anyhow::ensure!(
             !self.database.is_empty(),
             "clickhouse.database must not be empty"
@@ -141,6 +147,7 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("hosts", &self.hosts)
             .field("port", &self.port)
             .field("trusted_plaintext", &self.trusted_plaintext)
+            .field("tls_ca_file", &self.tls_ca_file)
             .field("database", &self.database)
             .field("username", &self.username)
             .field("password", &"<redacted>")

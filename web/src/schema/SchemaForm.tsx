@@ -1,6 +1,7 @@
 import { createContext, Fragment, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { api } from "../api";
 import type { JsonObject, JsonValue } from "../types";
 import {
   branchMatches,
@@ -426,6 +427,16 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
         />
       );
     case "string":
+      if (typeof node.xUi.dynamic_options === "string") {
+        return (
+          <DynamicSelectControl
+            source={node.xUi.dynamic_options}
+            value={typeof value === "string" ? value : ""}
+            disabled={isDisabled}
+            onChange={onChange}
+          />
+        );
+      }
       if (node.enumValues !== undefined) {
         return (
           <SelectControl
@@ -750,6 +761,7 @@ interface SelectControlProps {
   options: Array<{ value: string; label: string }>;
   disabled?: boolean;
   searchable?: boolean;
+  onOpen?: () => void;
   onChange: (value: string) => void;
 }
 
@@ -759,6 +771,7 @@ export function SelectControl({
   options,
   disabled = false,
   searchable = false,
+  onOpen,
   onChange,
 }: SelectControlProps) {
   const [open, setOpen] = useState(false);
@@ -805,12 +818,18 @@ export function SelectControl({
           dismissActiveTextSelection();
           trigger.current?.focus({ preventScroll: true });
           setQuery("");
-          setOpen((current) => !current);
+          setOpen((current) => {
+            if (!current) onOpen?.();
+            return !current;
+          });
         }}
         onClick={(event) => {
           if (event.detail !== 0) return;
           setQuery("");
-          setOpen((current) => !current);
+          setOpen((current) => {
+            if (!current) onOpen?.();
+            return !current;
+          });
         }}
       >
         <span class={selected === undefined ? "placeholder" : ""}>
@@ -858,6 +877,57 @@ export function SelectControl({
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function DynamicSelectControl({
+  source,
+  value,
+  disabled,
+  onChange,
+}: {
+  source: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [options, setOptions] = useState<Array<{ value: string; label: string }>>(
+    [],
+  );
+  const [loaded, setLoaded] = useState(false);
+  const [status, setStatus] = useState<string>();
+  const load = () => {
+    if (loaded || status === "Loading…") return;
+    setStatus("Loading…");
+    void api
+      .options(source)
+      .then((result) => {
+        setOptions(result.options);
+        setLoaded(true);
+        setStatus(result.warning);
+      })
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : String(error)),
+      );
+  };
+  useEffect(() => {
+    if (value !== "") load();
+  }, [source, value]);
+  return (
+    <div class="dynamic-select">
+      <SelectControl
+        value={value}
+        disabled={disabled}
+        placeholder={status ?? "Not selected"}
+        options={options}
+        searchable
+        onOpen={load}
+        onChange={onChange}
+      />
+      {status !== undefined && status !== "Loading…" && (
+        <div class="field-hint error">{status}</div>
       )}
     </div>
   );

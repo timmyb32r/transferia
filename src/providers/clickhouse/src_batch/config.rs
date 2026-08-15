@@ -16,6 +16,10 @@ pub struct ClickHouseSourceConfig {
 
     pub trusted_plaintext: bool,
 
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub tls_ca_file: Option<String>,
+
     pub username: String,
 
     #[serde(default)]
@@ -55,7 +59,12 @@ impl ClickHouseSourceConfig {
             anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
         }
         crate::providers::clickhouse::sink::config::validate_native_port(self.port)?;
-        anyhow::ensure!(self.trusted_plaintext, "clickhouse.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network");
+        if let Some(path) = &self.tls_ca_file {
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "clickhouse.tls_ca_file must not be empty"
+            );
+        }
         anyhow::ensure!(
             !self.username.is_empty(),
             "clickhouse.username must not be empty"

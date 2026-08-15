@@ -200,6 +200,7 @@ fn pins_lossless_insert_settings() {
         hosts: vec!["localhost".into()],
         port: 9000,
         trusted_plaintext: true,
+        tls_ca_file: None,
         database: "default".into(),
         username: "default".into(),
         password: String::new(),

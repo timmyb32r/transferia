@@ -95,3 +95,13 @@ export interface DiscoveryResult {
   datasets: DatasetView[];
   sink_limits: unknown;
 }
+
+export interface DynamicOption {
+  value: string;
+  label: string;
+}
+
+export interface DynamicOptions {
+  options: DynamicOption[];
+  warning?: string;
+}

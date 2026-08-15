@@ -3,17 +3,21 @@ delivery_type: batch
 durable_storage: { type: local_file, path: .transferia-state }
 source:
   ytsaurus:
-    host: localhost
-    port: 8000
-    trusted_plaintext: true
+    installation:
+      type: on_premise
+      host: localhost
+      port: 8000
+      trusted_plaintext: true
     batch_rows: 65536
     tables:
       - path: //tmp/events
         output_name: events
 sink:
   clickhouse:
-    hosts: [localhost]
-    port: 9440
-    trusted_plaintext: true
+    installation:
+      type: on_premise
+      hosts: [localhost]
+      port: 9440
+      trusted_plaintext: true
     database: default
     username: default

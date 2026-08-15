@@ -9,9 +9,10 @@ use tokio_util::sync::CancellationToken;
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::store::{DeliveryStore, StoreError};
 use super::supervisor::{SupervisorError, WorkerEvent, WorkerOutcome, WorkerSupervisor};
-use transferia::application::delivery_plan::build_delivery_plan;
+use transferia::application::delivery_plan::build_delivery_plan_with;
 use transferia::config::yaml::Config;
 use transferia::delivery::{DeliveryDiscovery, SinkLimitsDescription};
+use transferia::extension::{DynamicOptions, OptionsRequest, Transferia};
 use transferia::providers::traits::SinkProvider;
 
 #[derive(Debug, thiserror::Error)]
@@ -90,17 +91,35 @@ pub struct ColumnView {
 pub struct ControlPlane {
     store: Arc<dyn DeliveryStore>,
     supervisor: Arc<dyn WorkerSupervisor>,
+    transferia: Transferia,
     mutation: Mutex<()>,
 }
 
 impl ControlPlane {
     #[must_use]
-    pub fn new(store: Arc<dyn DeliveryStore>, supervisor: Arc<dyn WorkerSupervisor>) -> Self {
+    pub fn new(
+        store: Arc<dyn DeliveryStore>,
+        supervisor: Arc<dyn WorkerSupervisor>,
+        transferia: Transferia,
+    ) -> Self {
         Self {
             store,
             supervisor,
+            transferia,
             mutation: Mutex::new(()),
         }
+    }
+
+    pub async fn dynamic_options(
+        &self,
+        key: &str,
+        request: OptionsRequest,
+    ) -> Result<DynamicOptions, ServiceError> {
+        self.transferia
+            .registry()
+            .options(key, request)
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))
     }
 
     pub async fn list(&self) -> Result<Vec<DeliveryRecord>, ServiceError> {
@@ -180,7 +199,7 @@ impl ControlPlane {
         let yaml = config_yaml_from_json(config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let plan = build_delivery_plan(parsed, cancellation)
+        let plan = build_delivery_plan_with(parsed, cancellation, &self.transferia)
             .await
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
         Ok(discovery_result(

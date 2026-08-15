@@ -16,9 +16,7 @@ fn rejects_missing_order_and_ambiguous_names() {
 }
 
 #[test]
-fn requires_explicit_plaintext_trust() {
-    let value = serde_yaml::from_str("hosts: [localhost]\nport: 9000\ntrusted_plaintext: false\nusername: default\ntables: [{database: default, name: events, output_name: events, order_by: [id]}]\n").unwrap();
-    assert!(
-        ClickHouseSourceProvider::from_config(value, Arc::new(MetricsRegistry::new())).is_err()
-    );
+fn supports_verified_tls() {
+    let value = serde_yaml::from_str("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: /tmp/ca.pem\nusername: default\ntables: [{database: default, name: events, output_name: events, order_by: [id]}]\n").unwrap();
+    assert!(ClickHouseSourceProvider::from_config(value, Arc::new(MetricsRegistry::new())).is_ok());
 }

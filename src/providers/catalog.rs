@@ -6,6 +6,9 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 
+use crate::extension::{
+    EndpointRole, ExtensionRegistry, InstallationRegistration, OnPremiseResolver, Transferia,
+};
 use crate::metrics::MetricsRegistry;
 use crate::providers::traits::{SinkProvider, SourceProvider};
 
@@ -182,6 +185,28 @@ impl ProviderCatalog {
             |factory| factory(raw),
         )
     }
+
+    fn apply_installations(&mut self, registry: &ExtensionRegistry) -> anyhow::Result<()> {
+        for definition in &mut self.definitions {
+            if let Some(endpoint) = &mut definition.source {
+                apply_endpoint_installations(
+                    definition.key,
+                    EndpointRole::Source,
+                    endpoint,
+                    registry,
+                )?;
+            }
+            if let Some(endpoint) = &mut definition.sink {
+                apply_endpoint_installations(
+                    definition.key,
+                    EndpointRole::Sink,
+                    endpoint,
+                    registry,
+                )?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(JsonSchema)]
@@ -190,10 +215,42 @@ struct EmptyConfig {}
 pub fn build_provider_catalog(
     metrics_registry: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<ProviderCatalog> {
+    build_provider_catalog_with(&Transferia::public()?, metrics_registry)
+}
+
+pub fn build_provider_catalog_with(
+    transferia: &Transferia,
+    metrics_registry: &Arc<MetricsRegistry>,
+) -> anyhow::Result<ProviderCatalog> {
     let mut catalog = ProviderCatalog::new();
 
     catalog.register(
-        ProviderRegistration::new("pqv1", "PQv1")
+        ProviderRegistration::new("ydb_topic", "Logbroker")
+            .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
+                vec![DeliveryMode::Stream],
+                true,
+                serde_json::json!({
+                    "host": "",
+                    "port": 2135,
+                    "topics": [{ "path": "", "partitions": [] }],
+                    "consumer_name": "",
+                    "auth": { "type": "token", "token": "" },
+                    "driver": "ydb",
+                    "trusted_plaintext": true,
+                    "allow_ttl_rewind": false,
+                    "parser": {},
+                    "read_buffer_bytes": 1_048_576
+                }),
+                {
+                    let metrics_registry = Arc::clone(metrics_registry);
+                    move |value| {
+                        crate::providers::ydb_topic::build_source_provider(
+                            value,
+                            Arc::clone(&metrics_registry),
+                        )
+                    }
+                },
+            )?
             .sink::<crate::providers::pqv1::config::PqV1SinkConfig, _>(
                 serde_json::json!({
                     "host": "",
@@ -211,35 +268,6 @@ pub fn build_provider_catalog(
                     ))
                 },
             )?,
-    )?;
-
-    catalog.register(
-        ProviderRegistration::new("ydb_topic", "Logbroker")
-            .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
-            vec![DeliveryMode::Stream],
-            true,
-            serde_json::json!({
-                "host": "",
-                "port": 2135,
-                "topics": [{ "path": "", "partitions": [] }],
-                "consumer_name": "",
-                "auth": { "type": "token", "token": "" },
-                "driver": "ydb",
-                "trusted_plaintext": true,
-                "allow_ttl_rewind": false,
-                "parser": {},
-                "read_buffer_bytes": 1_048_576
-            }),
-            {
-                let metrics_registry = Arc::clone(metrics_registry);
-                move |value| {
-                    crate::providers::ydb_topic::build_source_provider(
-                        value,
-                        Arc::clone(&metrics_registry),
-                    )
-                }
-            },
-        )?,
     )?;
 
     catalog.register(
@@ -449,7 +477,264 @@ pub fn build_provider_catalog(
         )?,
     )?;
 
+    catalog.apply_installations(transferia.registry())?;
     Ok(catalog)
+}
+
+pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+    register_on_premise(
+        registry,
+        "postgres",
+        EndpointRole::Source,
+        &["host", "port", "trusted_plaintext", "tls_ca_file"],
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 5432, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
+    register_on_premise(
+        registry,
+        "postgres",
+        EndpointRole::Sink,
+        &["host", "port", "trusted_plaintext", "tls_ca_file"],
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 5432, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
+    register_on_premise(
+        registry,
+        "clickhouse",
+        EndpointRole::Source,
+        &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
+        serde_json::json!({
+            "hosts": { "type": "array", "title": "Hosts", "items": { "type": "string" }, "x-ui": { "initial_items": 1 } },
+            "port": { "type": "integer", "title": "Port", "description": "Native port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["hosts", "port", "trusted_plaintext"],
+        serde_json::json!({ "hosts": [""], "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
+    register_on_premise(
+        registry,
+        "clickhouse",
+        EndpointRole::Sink,
+        &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
+        serde_json::json!({
+            "hosts": { "type": "array", "title": "Hosts", "items": { "type": "string" }, "x-ui": { "initial_items": 1 } },
+            "port": { "type": "integer", "title": "Port", "description": "Native port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["hosts", "port", "trusted_plaintext"],
+        serde_json::json!({ "hosts": [""], "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
+    register_on_premise(
+        registry,
+        "ydb_topic",
+        EndpointRole::Source,
+        &["host", "port", "auth", "trusted_plaintext"],
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "auth": {
+                "title": "Authentication",
+                "oneOf": [
+                    { "type": "object", "title": "Token", "properties": { "type": { "const": "token" }, "token": { "type": "string", "x-ui": { "widget": "password" } } }, "required": ["type", "token"] },
+                    { "type": "object", "title": "Token file", "properties": { "type": { "const": "token_file" }, "token_file": { "type": "string" } }, "required": ["type", "token_file"] }
+                ]
+            },
+            "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
+        }),
+        &["host", "port", "auth", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 2135, "auth": { "type": "token", "token": "" }, "trusted_plaintext": true }),
+    )?;
+    register_on_premise(
+        registry,
+        "ydb_topic",
+        EndpointRole::Sink,
+        &["host", "port", "auth", "trusted_plaintext"],
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "auth": {
+                "type": "object",
+                "title": "Authentication",
+                "properties": {
+                    "type": { "const": "access_token" },
+                    "token": { "anyOf": [{ "type": "string", "x-ui": { "widget": "password" } }, { "type": "null" }] },
+                    "token_file": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                },
+                "required": ["type"]
+            },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+        }),
+        &["host", "port", "auth", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 2135, "auth": { "type": "access_token", "token": "", "token_file": null }, "trusted_plaintext": true }),
+    )?;
+    register_on_premise(
+        registry,
+        "ytsaurus",
+        EndpointRole::Source,
+        &["host", "port", "token", "trusted_plaintext"],
+        ytsaurus_on_premise_schema(),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 8000, "token": null, "trusted_plaintext": true }),
+    )?;
+    register_on_premise(
+        registry,
+        "ytsaurus",
+        EndpointRole::Sink,
+        &["host", "port", "token", "trusted_plaintext"],
+        ytsaurus_on_premise_schema(),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 8000, "token": null, "trusted_plaintext": true }),
+    )?;
+    Ok(())
+}
+
+fn ytsaurus_on_premise_schema() -> JsonValue {
+    serde_json::json!({
+        "host": { "type": "string", "title": "Host" },
+        "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+        "token": { "anyOf": [{ "type": "string", "x-ui": { "widget": "password" } }, { "type": "null" }], "title": "Token" },
+        "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+    })
+}
+
+fn register_on_premise(
+    registry: &mut ExtensionRegistry,
+    provider: &'static str,
+    role: EndpointRole,
+    replaces: &'static [&'static str],
+    properties: JsonValue,
+    required: &'static [&'static str],
+    initial_fields: JsonValue,
+) -> anyhow::Result<()> {
+    let mut initial = initial_fields;
+    initial
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("on-premise initial fields must be an object"))?
+        .insert(
+            "type".to_owned(),
+            JsonValue::String("on_premise".to_owned()),
+        );
+    let JsonValue::Object(mut variant_properties) = properties else {
+        anyhow::bail!("on-premise properties must be an object");
+    };
+    variant_properties.insert(
+        "type".to_owned(),
+        serde_json::json!({ "const": "on_premise" }),
+    );
+    let mut variant_required = required
+        .iter()
+        .map(|field| JsonValue::String((*field).to_owned()))
+        .collect::<Vec<_>>();
+    variant_required.push(JsonValue::String("type".to_owned()));
+    registry.register_installation(InstallationRegistration {
+        provider,
+        role,
+        kind: "on_premise",
+        title: "On-premise",
+        schema: serde_json::json!({
+            "type": "object",
+            "title": "On-premise",
+            "properties": variant_properties,
+            "required": variant_required
+        }),
+        initial,
+        replaces,
+        preferred: false,
+        resolver: Arc::new(OnPremiseResolver),
+    })?;
+    Ok(())
+}
+
+fn apply_endpoint_installations(
+    provider: &'static str,
+    role: EndpointRole,
+    endpoint: &mut EndpointDefinition,
+    registry: &ExtensionRegistry,
+) -> anyhow::Result<()> {
+    let registrations = registry.installations_for(provider, role);
+    if registrations.is_empty() {
+        return Ok(());
+    }
+    let replaced = registrations
+        .iter()
+        .flat_map(|registration| registration.replaces.iter().copied())
+        .collect::<std::collections::BTreeSet<_>>();
+    let schema = endpoint
+        .schema
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("{provider} endpoint schema must be an object"))?;
+    let properties = schema
+        .get_mut("properties")
+        .and_then(JsonValue::as_object_mut)
+        .ok_or_else(|| anyhow::anyhow!("{provider} endpoint schema has no object properties"))?;
+    for field in &replaced {
+        properties.remove(*field);
+    }
+    properties.insert(
+        "installation".to_owned(),
+        serde_json::json!({
+            "title": "Installation type",
+            "oneOf": registrations.iter().map(|registration| {
+                let mut schema = registration.schema.clone();
+                if let Some(object) = schema.as_object_mut() {
+                    object.insert("title".to_owned(), JsonValue::String(registration.title.to_owned()));
+                    let variant_properties = object
+                        .entry("properties")
+                        .or_insert_with(|| serde_json::json!({}));
+                    if let Some(variant_properties) = variant_properties.as_object_mut() {
+                        variant_properties.insert("type".to_owned(), serde_json::json!({ "const": registration.kind }));
+                    }
+                    let required = object
+                        .entry("required")
+                        .or_insert_with(|| serde_json::json!([]));
+                    if let Some(required) = required.as_array_mut() {
+                        if !required.iter().any(|field| field == "type") {
+                            required.push(JsonValue::String("type".to_owned()));
+                        }
+                    }
+                }
+                schema
+            }).collect::<Vec<_>>()
+        }),
+    );
+    let required = schema
+        .entry("required")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .ok_or_else(|| anyhow::anyhow!("{provider} schema required must be an array"))?;
+    required.retain(|field| field.as_str().is_none_or(|field| !replaced.contains(field)));
+    if !required.iter().any(|field| field == "installation") {
+        required.push(JsonValue::String("installation".to_owned()));
+    }
+    let initial = endpoint
+        .initial
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("{provider} endpoint initial value must be an object"))?;
+    for field in &replaced {
+        initial.remove(*field);
+    }
+    let selected = registrations
+        .iter()
+        .rev()
+        .find(|registration| registration.preferred)
+        .copied()
+        .unwrap_or(registrations[0]);
+    initial.insert("installation".to_owned(), selected.initial.clone());
+    Ok(())
 }
 
 #[cfg(test)]
