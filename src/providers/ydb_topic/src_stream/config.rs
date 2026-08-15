@@ -110,17 +110,9 @@ pub struct YdbTopicSourceConfig {
     )]
     pub parser: ParserConfig,
 
-    #[serde(default = "default_network_timeout_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
-    pub network_timeout_ms: u64,
-
     #[serde(default = "default_read_buffer_bytes")]
     #[schemars(extend("x-ui" = { "section": "advanced", "widget": "byte_size" }))]
     pub read_buffer_bytes: usize,
-}
-
-const fn default_network_timeout_ms() -> u64 {
-    10_000
 }
 
 const fn default_read_buffer_bytes() -> usize {

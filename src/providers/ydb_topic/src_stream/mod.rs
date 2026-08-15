@@ -33,7 +33,7 @@ use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 pub use config::{TopologyDiscovery, YdbTopicAuthConfig, YdbTopicSourceConfig};
 use source::YdbTopicSource;
 
-const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
+const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";
 
@@ -121,10 +121,6 @@ fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
         "ydb_topic.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
     );
     anyhow::ensure!(
-        cfg.network_timeout_ms >= MIN_NETWORK_TIMEOUT_MS,
-        "ydb_topic.network_timeout_ms must be at least {MIN_NETWORK_TIMEOUT_MS}ms"
-    );
-    anyhow::ensure!(
         (1..=MAX_READ_BUFFER_BYTES).contains(&cfg.read_buffer_bytes),
         "ydb_topic.read_buffer_bytes must be in 1..={MAX_READ_BUFFER_BYTES}"
     );
@@ -193,7 +189,7 @@ async fn describe_topic(
     token: &str,
     cancellation: &CancellationToken,
 ) -> anyhow::Result<DescribeTopicResult> {
-    let timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
+    let timeout = NETWORK_TIMEOUT;
     let (mut client, _) = connect_client(&cfg.host, cfg.port, timeout, cancellation).await?;
     let mut request = Request::new(DescribeTopicRequest {
         operation_params: Some(OperationParams {
@@ -210,7 +206,7 @@ async fn describe_topic(
         .map_err(|_| {
             anyhow::anyhow!(
                 "DescribeTopic timed out after {} ms",
-                cfg.network_timeout_ms
+                NETWORK_TIMEOUT.as_millis()
             )
         })??
         .into_inner();

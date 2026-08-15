@@ -38,6 +38,16 @@ fn rejects_old_hosts_and_database_fields() {
         error.to_string().contains("unknown field `database`"),
         "{error:#}"
     );
+
+    let Err(error) = provider("network_timeout_ms: 1000\n") else {
+        panic!("network_timeout_ms must be rejected");
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("unknown field `network_timeout_ms`"),
+        "{error:#}"
+    );
 }
 
 #[test]

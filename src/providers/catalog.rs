@@ -248,7 +248,6 @@ pub fn build_provider_catalog(
                 "trusted_plaintext": true,
                 "parser": {},
                 "partition_ids": [],
-                "network_timeout_ms": 30000,
                 "read_buffer_bytes": 1_048_576
             }),
             {

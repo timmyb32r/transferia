@@ -69,7 +69,7 @@ impl YdbTopicSource {
         cancellation: CancellationToken,
         memory: PipelineMemory,
     ) -> anyhow::Result<Self> {
-        let timeout = core::time::Duration::from_millis(config.network_timeout_ms);
+        let timeout = super::NETWORK_TIMEOUT;
         let (mut client, _) =
             connect_client(&config.host, config.port, timeout, &cancellation).await?;
         client = client.max_decoding_message_size(MAX_DECOMPRESSED_BATCH_BYTES);
@@ -85,7 +85,7 @@ impl YdbTopicSource {
             .map_err(|_| {
                 anyhow!(
                     "YDB Topic StreamRead timed out after {} ms",
-                    config.network_timeout_ms
+                    super::NETWORK_TIMEOUT.as_millis()
                 )
             })??
             .into_inner();
