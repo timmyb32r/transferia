@@ -113,10 +113,9 @@ function App() {
       compileSchema(selection.sink.schema),
       endpointValue(editor.config, "sink", selection.sinkKey),
     );
-  const parserExpanded =
+  const hasJsonParser =
     selection?.sourceKey !== undefined &&
-    hasWideParser(editor.config, selection.sourceKey);
-
+    sourceHasJsonParser(editor.config, selection.sourceKey);
   useEffect(() => {
     discoveryJob.cancel();
     setDiscovery(undefined);
@@ -398,7 +397,9 @@ function App() {
               </FieldLabel>
             </section>
 
-            <section class={`route-grid ${parserExpanded ? "expanded" : ""}`}>
+            <section
+              class={`route-grid ${hasJsonParser ? "parser-layout" : ""}`}
+            >
               <EndpointCard
                 title="Source"
                 role="source"
@@ -734,7 +735,7 @@ function endpointValue(
   const container = config[role];
   return isObject(container) ? (container[key] ?? {}) : {};
 }
-function hasWideParser(config: JsonObject, sourceKey: string): boolean {
+function sourceHasJsonParser(config: JsonObject, sourceKey: string): boolean {
   const source = endpointValue(config, "source", sourceKey);
   if (!isObject(source) || !isObject(source.parser)) return false;
   return "json_parser" in source.parser;

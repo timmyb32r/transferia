@@ -375,7 +375,14 @@ export function SelectControl({
         <span class={selected === undefined ? "placeholder" : ""}>
           {selected?.label ?? placeholder}
         </span>
-        <span class="chevron">⌄</span>
+        <svg
+          class="chevron"
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="m3.5 6 4.5 4 4.5-4" />
+        </svg>
       </button>
       {open && (
         <div class="select-menu">
@@ -493,13 +500,15 @@ function ColumnMappingsEditor({
         return (
           <div class="column-card" key={index}>
             <div class="column-number">{index + 1}</div>
-            <div class="column-main">
+            <div
+              class={`column-main ${node.properties.low_cardinality ? "with-low-cardinality" : ""}`}
+            >
               {mainFields.map((field) =>
                 node.properties[field] === undefined ? null : (
                   <label>
                     <span>
                       {field === "column_name"
-                        ? "Name"
+                        ? "Column name"
                         : field === "jsonpath"
                           ? "Path"
                           : humanize(field)}
@@ -517,9 +526,8 @@ function ColumnMappingsEditor({
                   </label>
                 ),
               )}
-            </div>
-            <div class="column-flags">
-              <label class="toggle">
+              <label class="column-flag">
+                <span>Key</span>
                 <input
                   type="checkbox"
                   disabled={disabled || name === ""}
@@ -533,9 +541,9 @@ function ColumnMappingsEditor({
                     )
                   }
                 />
-                <span>Key</span>
               </label>
-              <label class="toggle">
+              <label class="column-flag">
+                <span>Not null</span>
                 <input
                   type="checkbox"
                   disabled={disabled}
@@ -547,10 +555,10 @@ function ColumnMappingsEditor({
                     })
                   }
                 />
-                <span>Not null</span>
               </label>
               {node.properties.low_cardinality && (
-                <label class="toggle">
+                <label class="column-flag">
+                  <span>Low cardinality</span>
                   <input
                     type="checkbox"
                     disabled={disabled}
@@ -562,11 +570,10 @@ function ColumnMappingsEditor({
                       })
                     }
                   />
-                  <span>Low cardinality</span>
                 </label>
               )}
               <button
-                class="icon-button danger"
+                class="icon-button danger column-remove"
                 type="button"
                 title="Remove column"
                 disabled={disabled}
