@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   ParserDetailsForm,
   SchemaForm,
+  SelectControl,
 } from "../src/schema/SchemaForm";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
@@ -18,6 +19,39 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("dismisses stale text selection before dropdown interactions", () => {
+    const { getByRole } = render(
+      <>
+        <input aria-label="Column name" defaultValue="id" />
+        <SelectControl
+          value=""
+          placeholder="Not selected"
+          options={[{ value: "string", label: "String" }]}
+          onChange={() => undefined}
+        />
+      </>,
+    );
+    const input = getByRole("textbox", {
+      name: "Column name",
+    }) as HTMLInputElement;
+    const trigger = getByRole("button", { name: "Not selected" });
+
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.pointerDown(trigger);
+    expect(document.activeElement).not.toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+
+    fireEvent.click(trigger);
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+    fireEvent.pointerDown(getByRole("option", { name: "String" }));
+    expect(document.activeElement).not.toBe(input);
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+  });
+
   it("renders a scalar enum union as one select", () => {
     const node: CompiledNode = {
       kind: "union",
@@ -214,6 +248,14 @@ describe("schema form", () => {
       return <SchemaForm node={node} value={value} onChange={setValue} />;
     }
     const { container, getByRole } = render(<Harness />);
+    const systemColumns = getByRole("button", { name: "Add system columns" });
+    expect(systemColumns.closest(".column-editor-heading")).not.toBeNull();
+    expect(container.querySelector(".schema-system-columns-panel")).toBeNull();
+    fireEvent.click(systemColumns);
+    expect(
+      container.querySelector(".schema-system-columns-panel"),
+    ).not.toBeNull();
+
     const keys = container.querySelector<HTMLButtonElement>(
       ".column-keys .select-trigger",
     );
@@ -297,7 +339,9 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    expect(details.container.textContent).toContain("JSON parser configuration");
+    expect(details.container.textContent).toContain(
+      "JSON parser configuration",
+    );
     expect(details.container.textContent).toContain("Output columns");
   });
 
@@ -386,7 +430,9 @@ describe("schema form", () => {
     expect(container.querySelector(".custom-settings-dot")).not.toBeNull();
 
     fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
-    expect(table.getByRole("menuitem", { name: "Column settings" })).toBeTruthy();
+    expect(
+      table.getByRole("menuitem", { name: "Column settings" }),
+    ).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Duplicate" })).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
     fireEvent.click(table.getByRole("menuitem", { name: "Column settings" }));
@@ -458,9 +504,9 @@ describe("schema form", () => {
     );
     expect(selectAll.indeterminate).toBe(true);
     expect(form.getByText("1 selected")).toBeTruthy();
-    expect(container.querySelectorAll(".config-table-row.selected")).toHaveLength(
-      1,
-    );
+    expect(
+      container.querySelectorAll(".config-table-row.selected"),
+    ).toHaveLength(1);
 
     fireEvent.click(selectAll);
     expect(selectAll.checked).toBe(true);

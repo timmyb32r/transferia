@@ -1,11 +1,5 @@
 import { createContext, Fragment, type ComponentChildren } from "preact";
-import {
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import {
@@ -77,7 +71,7 @@ export function ParserDetailsForm({
   )
     return null;
   return (
-    <section class="card parser-details-card">
+    <section class="parser-details-card">
       <div class="section-heading">
         <div>
           <small>PARSER</small>
@@ -495,21 +489,21 @@ function JsonParserEditor({
           />
         ))}
       </section>
-      {commonNode.properties.system_columns && (
-        <PropertyEditor
-          name="system_columns"
-          node={commonNode.properties.system_columns}
-          required={commonNode.required.has("system_columns")}
-          value={common.system_columns}
-          disabled={disabled}
-          onChange={(next) => updateCommon("system_columns", next)}
-        />
-      )}
       <ColumnMappingsEditor
         node={columnsNode.item}
         value={Array.isArray(parser.columns) ? parser.columns : []}
         keys={stringArray(parser.keys)}
         additionalKeyOptions={systemColumns}
+        {...(commonNode.properties.system_columns === undefined
+          ? {}
+          : {
+              systemColumns: {
+                node: commonNode.properties.system_columns,
+                value: common.system_columns,
+                onChange: (next: JsonValue) =>
+                  updateCommon("system_columns", next),
+              },
+            })}
         disabled={disabled}
         onChange={(columns, keys) =>
           onChange({
@@ -518,17 +512,24 @@ function JsonParserEditor({
           })
         }
       />
-      {parserFields.map(([name, child]) => (
-        <PropertyEditor
-          key={name}
-          name={name}
-          node={child}
-          required={parserNode.required.has(name)}
-          value={parser[name]}
-          disabled={disabled}
-          onChange={(next) => updateParser(name, next)}
-        />
-      ))}
+      {parserFields.length > 0 && (
+        <section class="parser-secondary-section">
+          <h3>Parsing behavior</h3>
+          <div class="schema-object">
+            {parserFields.map(([name, child]) => (
+              <PropertyEditor
+                key={name}
+                name={name}
+                node={child}
+                required={parserNode.required.has(name)}
+                value={parser[name]}
+                disabled={disabled}
+                onChange={(next) => updateParser(name, next)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -552,6 +553,7 @@ function PropertyEditor({
 }: PropertyEditorProps) {
   const effective = value ?? createValue(node);
   const identifier = `field-${name.replaceAll("_", "-")}`;
+  const controlWidth = controlWidthClass(name, node);
   if (node.xUi.widget === "parser_common")
     return (
       <section class="parser-common-section">
@@ -578,10 +580,7 @@ function PropertyEditor({
         </div>
       </details>
     );
-  if (
-    node.kind === "array" &&
-    (name === "topics" || name === "hosts")
-  )
+  if (node.kind === "array" && (name === "topics" || name === "hosts"))
     return (
       <div class="form-row form-row-wide compact-array-field">
         <label class="field-label">
@@ -601,7 +600,7 @@ function PropertyEditor({
     );
   return (
     <div
-      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""}`}
+      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${controlWidth}`}
     >
       <label class="field-label" for={identifier}>
         <span>
@@ -626,6 +625,19 @@ function PropertyEditor({
       </div>
     </div>
   );
+}
+
+function controlWidthClass(name: string, node: CompiledNode): string {
+  if (node.xUi.widget === "parser") return "control-width-parser";
+  if (name === "auth") return "control-width-auth";
+  if (name === "json_framing") return "control-width-medium";
+  if (name === "table_naming") return "control-width-table-name";
+  if (
+    node.kind === "union" ||
+    (node.kind === "string" && node.enumValues !== undefined)
+  )
+    return "control-width-enum";
+  return "";
 }
 
 interface SelectControlProps {
@@ -675,6 +687,7 @@ export function SelectControl({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        onPointerDown={dismissActiveTextSelection}
         onClick={() => setOpen((current) => !current)}
       >
         <span class={selected === undefined ? "placeholder" : ""}>
@@ -707,6 +720,7 @@ export function SelectControl({
                 role="option"
                 aria-selected={option.value === value}
                 class="select-option"
+                onPointerDown={dismissActiveTextSelection}
                 onClick={() => {
                   onChange(option.value);
                   setOpen(false);
@@ -760,6 +774,7 @@ function MultiSelectControl({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        onPointerDown={dismissActiveTextSelection}
         onClick={() => setOpen((current) => !current)}
       >
         <span class={labels.length === 0 ? "placeholder" : ""}>
@@ -779,6 +794,7 @@ function MultiSelectControl({
                 role="option"
                 aria-selected={selected}
                 class="select-option multi-select-option"
+                onPointerDown={dismissActiveTextSelection}
                 onClick={() =>
                   onChange(
                     selected
@@ -803,11 +819,25 @@ function MultiSelectControl({
   );
 }
 
+function dismissActiveTextSelection(): void {
+  const active = document.activeElement;
+  if (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement
+  ) {
+    const caret = active.selectionEnd;
+    if (caret !== null) active.setSelectionRange(caret, caret);
+    active.blur();
+  }
+  window.getSelection()?.removeAllRanges();
+}
+
 function ColumnMappingsEditor({
   node,
   value,
   keys,
   additionalKeyOptions,
+  systemColumns,
   disabled,
   onChange,
 }: {
@@ -815,6 +845,11 @@ function ColumnMappingsEditor({
   value: JsonValue[];
   keys: string[];
   additionalKeyOptions: string[];
+  systemColumns?: {
+    node: CompiledNode;
+    value: JsonValue | undefined;
+    onChange: (value: JsonValue) => void;
+  };
   disabled: boolean;
   onChange: (columns: JsonValue[], keys: string[]) => void;
 }) {
@@ -824,9 +859,12 @@ function ColumnMappingsEditor({
   const [selectedRows, setSelectedRows] = useState<Set<number>>(
     () => new Set(),
   );
+  const [systemColumnsOpen, setSystemColumnsOpen] = useState(false);
   useEffect(() => {
     setSelectedRows((current) => {
-      const next = new Set([...current].filter((index) => index < value.length));
+      const next = new Set(
+        [...current].filter((index) => index < value.length),
+      );
       return next.size === current.size ? current : next;
     });
   }, [value.length]);
@@ -947,6 +985,23 @@ function ColumnMappingsEditor({
               </button>
             </div>
           )}
+          {systemColumns && (
+            <button
+              type="button"
+              class="inline-disclosure"
+              aria-expanded={systemColumnsOpen}
+              disabled={disabled}
+              onClick={(event) => {
+                setSystemColumnsOpen((current) => !current);
+                if (event.detail > 0) {
+                  const button = event.currentTarget;
+                  queueMicrotask(() => button.blur());
+                }
+              }}
+            >
+              Add system columns
+            </button>
+          )}
           <button
             class="add-row-button"
             type="button"
@@ -957,6 +1012,26 @@ function ColumnMappingsEditor({
           </button>
         </div>
       </div>
+      {systemColumns && systemColumnsOpen && (
+        <section class="schema-system-columns-panel">
+          <div class="subsection-heading">
+            <h4>System columns</h4>
+            <button
+              type="button"
+              aria-label="Close system columns"
+              onClick={() => setSystemColumnsOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          <NodeEditor
+            node={systemColumns.node}
+            value={systemColumns.value ?? createValue(systemColumns.node)}
+            disabled={disabled}
+            onChange={systemColumns.onChange}
+          />
+        </section>
+      )}
       <div class="table-shell">
         <table class="config-table column-table">
           <thead>
@@ -996,11 +1071,9 @@ function ColumnMappingsEditor({
               ];
               const extraFields = Object.entries(node.properties).filter(
                 ([field]) =>
-                  ![
-                    ...mainFields,
-                    "nullable",
-                    "low_cardinality",
-                  ].includes(field),
+                  ![...mainFields, "nullable", "low_cardinality"].includes(
+                    field,
+                  ),
               );
               const hasCustomSettings = extraFields.some(
                 ([field, child]) =>
@@ -1011,9 +1084,7 @@ function ColumnMappingsEditor({
               const selected = selectedRows.has(index);
               return (
                 <Fragment key={index}>
-                  <tr
-                    class={`config-table-row ${selected ? "selected" : ""}`}
-                  >
+                  <tr class={`config-table-row ${selected ? "selected" : ""}`}>
                     <td class="selection-column">
                       <input
                         type="checkbox"
@@ -1381,9 +1452,7 @@ function CompactArrayEditor({
                       disabled={disabled}
                       onClick={() =>
                         onChange(
-                          value.filter(
-                            (_, itemIndex) => itemIndex !== index,
-                          ),
+                          value.filter((_, itemIndex) => itemIndex !== index),
                         )
                       }
                     >

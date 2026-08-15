@@ -469,7 +469,7 @@ function App() {
               </FieldLabel>
             </section>
 
-            <section class="route-grid">
+            <section class="route-composition">
               <EndpointCard
                 title="Source"
                 role="source"
@@ -499,30 +499,29 @@ function App() {
                 onChoose={chooseEndpoint}
                 onConfig={updateConfig}
               />
+              {selection?.error === undefined && selection?.source && (
+                <ParserDetailsForm
+                  node={compileSchema(selection.source.schema)}
+                  value={endpointValue(
+                    editor.config,
+                    "source",
+                    selection.sourceKey,
+                  )}
+                  disabled={readOnly}
+                  onChange={(next) =>
+                    updateConfig({
+                      ...editor.config,
+                      source: { [selection.sourceKey]: next },
+                    })
+                  }
+                />
+              )}
             </section>
             {selection?.error && (
               <div class="compatibility-error">
                 <strong>Incompatible route</strong>
                 <span>{selection.error}</span>
               </div>
-            )}
-
-            {selection?.error === undefined && selection?.source && (
-              <ParserDetailsForm
-                node={compileSchema(selection.source.schema)}
-                value={endpointValue(
-                  editor.config,
-                  "source",
-                  selection.sourceKey,
-                )}
-                disabled={readOnly}
-                onChange={(next) =>
-                  updateConfig({
-                    ...editor.config,
-                    source: { [selection.sourceKey]: next },
-                  })
-                }
-              />
             )}
 
             <section class="card pipeline-card">
@@ -588,7 +587,7 @@ function EndpointCard(props: {
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
   return (
-    <article class="card endpoint-card">
+    <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <h2>{props.title}</h2>
       <SelectControl
         searchable
