@@ -1782,6 +1782,7 @@ function ColumnActions({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: MouseEvent) => {
@@ -1790,11 +1791,16 @@ function ColumnActions({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+    const closeOnViewportChange = () => setOpen(false);
     document.addEventListener("mousedown", closeOutside);
     document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
     return () => {
       document.removeEventListener("mousedown", closeOutside);
       document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
     };
   }, [open]);
   const run = (action: () => void) => {
@@ -1804,6 +1810,7 @@ function ColumnActions({
   return (
     <div class={`row-actions ${open ? "open" : ""}`} ref={root}>
       <button
+        ref={trigger}
         class="row-action"
         type="button"
         aria-label={`Column ${row} actions`}
@@ -1818,7 +1825,11 @@ function ColumnActions({
         )}
       </button>
       {open && (
-        <div class="row-actions-menu" role="menu">
+        <div
+          class="row-actions-menu row-actions-menu-floating"
+          role="menu"
+          style={floatingActionsMenuStyle(trigger.current)}
+        >
           {hasSettings && (
             <button
               type="button"
@@ -1863,6 +1874,29 @@ function ColumnActions({
       )}
     </div>
   );
+}
+
+function floatingActionsMenuStyle(trigger: HTMLButtonElement | null) {
+  if (trigger === null) return undefined;
+  const bounds = trigger.getBoundingClientRect();
+  const gap = 3;
+  const viewportPadding = 12;
+  const menuWidth = 174;
+  const estimatedMenuHeight = 165;
+  const roomBelow = window.innerHeight - bounds.bottom - viewportPadding - gap;
+  const roomAbove = bounds.top - viewportPadding - gap;
+  const openUpward = roomBelow < estimatedMenuHeight && roomAbove > roomBelow;
+  return {
+    top: openUpward ? "auto" : `${bounds.bottom + gap}px`,
+    bottom: openUpward ? `${window.innerHeight - bounds.top + gap}px` : "auto",
+    left: `${Math.max(
+      viewportPadding,
+      Math.min(
+        bounds.right - menuWidth,
+        window.innerWidth - menuWidth - viewportPadding,
+      ),
+    )}px`,
+  };
 }
 
 function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {

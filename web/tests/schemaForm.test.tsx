@@ -693,6 +693,11 @@ describe("schema form", () => {
     expect(container.querySelector(".custom-settings-dot")).not.toBeNull();
 
     fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
+    const actionsMenu = table.getByRole("menu");
+    expect(actionsMenu.classList.contains("row-actions-menu-floating")).toBe(
+      true,
+    );
+    expect(actionsMenu.style.left).not.toBe("");
     expect(
       table.getByRole("menuitem", { name: "Column settings" }),
     ).toBeTruthy();

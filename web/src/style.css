@@ -1384,6 +1384,12 @@ svg.trash-icon {
   background: var(--popup);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.46);
 }
+.row-actions-menu-floating {
+  position: fixed;
+  z-index: 220;
+  top: auto;
+  right: auto;
+}
 .row-actions-menu button {
   width: 100%;
   height: 30px;
