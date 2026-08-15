@@ -764,6 +764,7 @@ export function SelectControl({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(
     () =>
@@ -784,15 +785,33 @@ export function SelectControl({
     return () => document.removeEventListener("mousedown", closeOutside);
   }, [open]);
   return (
-    <div ref={root} class={`select ${open ? "open" : ""}`}>
+    <div
+      ref={root}
+      class={`select ${open ? "open" : ""}`}
+      onKeyDown={(event) =>
+        handleSelectKeyDown(event, open, setOpen, setQuery, root, trigger)
+      }
+    >
       <button
+        ref={trigger}
         type="button"
         class="select-trigger"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onPointerDown={dismissActiveTextSelection}
-        onClick={() => setOpen((current) => !current)}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          dismissActiveTextSelection();
+          trigger.current?.focus({ preventScroll: true });
+          setQuery("");
+          setOpen((current) => !current);
+        }}
+        onClick={(event) => {
+          if (event.detail !== 0) return;
+          setQuery("");
+          setOpen((current) => !current);
+        }}
       >
         <span class={selected === undefined ? "placeholder" : ""}>
           {selected?.label ?? placeholder}
@@ -860,6 +879,7 @@ function MultiSelectControl({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: MouseEvent) => {
@@ -878,20 +898,33 @@ function MultiSelectControl({
     option.label.toLowerCase().includes(query.toLowerCase()),
   );
   return (
-    <div ref={root} class={`select multi-select ${open ? "open" : ""}`}>
+    <div
+      ref={root}
+      class={`select multi-select ${open ? "open" : ""}`}
+      onKeyDown={(event) =>
+        handleSelectKeyDown(event, open, setOpen, setQuery, root, trigger)
+      }
+    >
       <button
+        ref={trigger}
         type="button"
         class="select-trigger"
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
-        onPointerDown={dismissActiveTextSelection}
-        onClick={() =>
-          setOpen((current) => {
-            if (current) setQuery("");
-            return !current;
-          })
-        }
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          dismissActiveTextSelection();
+          trigger.current?.focus({ preventScroll: true });
+          setQuery("");
+          setOpen((current) => !current);
+        }}
+        onClick={(event) => {
+          if (event.detail !== 0) return;
+          setQuery("");
+          setOpen((current) => !current);
+        }}
       >
         <span class={labels.length === 0 ? "placeholder" : ""}>
           {labels.length === 0 ? placeholder : labels.join(", ")}
@@ -944,6 +977,57 @@ function MultiSelectControl({
   );
 }
 
+function handleSelectKeyDown(
+  event: KeyboardEvent,
+  open: boolean,
+  setOpen: (open: boolean) => void,
+  setQuery: (query: string) => void,
+  root: { current: HTMLDivElement | null },
+  trigger: { current: HTMLButtonElement | null },
+): void {
+  if (event.key === "Escape" && open) {
+    event.preventDefault();
+    setOpen(false);
+    setQuery("");
+    trigger.current?.focus();
+    return;
+  }
+  if (
+    (event.key !== "ArrowDown" && event.key !== "ArrowUp") ||
+    !(event.target instanceof HTMLButtonElement)
+  )
+    return;
+  event.preventDefault();
+  if (!open) {
+    const direction = event.key;
+    setOpen(true);
+    queueMicrotask(() => {
+      const options = [
+        ...(root.current?.querySelectorAll<HTMLButtonElement>(
+          '[role="option"]',
+        ) ?? []),
+      ];
+      const target =
+        direction === "ArrowDown" ? options[0] : options[options.length - 1];
+      target?.focus();
+    });
+    return;
+  }
+  const options = [
+    ...(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
+      []),
+  ];
+  if (options.length === 0) return;
+  const current = options.indexOf(event.target);
+  const next =
+    event.key === "ArrowDown"
+      ? Math.min(current + 1, options.length - 1)
+      : current < 0
+        ? options.length - 1
+        : Math.max(current - 1, 0);
+  options[next]?.focus();
+}
+
 function dismissActiveTextSelection(): void {
   const active = document.activeElement;
   if (
@@ -955,6 +1039,39 @@ function dismissActiveTextSelection(): void {
     active.blur();
   }
   window.getSelection()?.removeAllRanges();
+}
+
+function createColumnDragPreview(
+  row: HTMLTableRowElement,
+  dataTransfer: DataTransfer,
+  clientX: number,
+  clientY: number,
+): HTMLTableElement {
+  const bounds = row.getBoundingClientRect();
+  const table = document.createElement("table");
+  const body = document.createElement("tbody");
+  const clone = row.cloneNode(true) as HTMLTableRowElement;
+  const sourceInputs = row.querySelectorAll<HTMLInputElement>("input");
+  const clonedInputs = clone.querySelectorAll<HTMLInputElement>("input");
+
+  sourceInputs.forEach((input, index) => {
+    const cloned = clonedInputs[index];
+    if (cloned === undefined) return;
+    cloned.value = input.value;
+    cloned.checked = input.checked;
+  });
+  clone.classList.remove("dragged", "drag-before", "drag-after");
+  table.className = "config-table column-table column-drag-preview";
+  table.style.width = `${bounds.width}px`;
+  body.append(clone);
+  table.append(body);
+  document.body.append(table);
+  dataTransfer.setDragImage(
+    table,
+    Math.max(0, clientX - bounds.left),
+    Math.max(0, clientY - bounds.top),
+  );
+  return table;
 }
 
 function ColumnMappingsEditor({
@@ -986,7 +1103,13 @@ function ColumnMappingsEditor({
   );
   const [systemColumnsOpen, setSystemColumnsOpen] = useState(false);
   const [draggedRow, setDraggedRow] = useState<number>();
-  const [dragTargetRow, setDragTargetRow] = useState<number>();
+  const [dragTargetSlot, setDragTargetSlot] = useState<number>();
+  const dragPreview = useRef<HTMLTableElement | null>(null);
+  const removeDragPreview = () => {
+    dragPreview.current?.remove();
+    dragPreview.current = null;
+  };
+  useEffect(() => removeDragPreview, []);
   useEffect(() => {
     setSelectedRows((current) => {
       const next = new Set(
@@ -1087,7 +1210,7 @@ function ColumnMappingsEditor({
   };
   const moveColumn = (from: number, to: number) => {
     setDraggedRow(undefined);
-    setDragTargetRow(undefined);
+    setDragTargetSlot(undefined);
     if (from === to || value[from] === undefined || value[to] === undefined)
       return;
     const columns = [...value];
@@ -1096,6 +1219,26 @@ function ColumnMappingsEditor({
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
     onChange(columns, keys);
+  };
+  const moveColumnToSlot = (from: number, slot: number) => {
+    setDraggedRow(undefined);
+    setDragTargetSlot(undefined);
+    if (value[from] === undefined || slot < 0 || slot > value.length) return;
+    const target = slot > from ? slot - 1 : slot;
+    if (target === from) return;
+    const columns = [...value];
+    const [column] = columns.splice(from, 1);
+    columns.splice(target, 0, column!);
+    setExpandedSettings(new Set());
+    setSelectedRows(new Set());
+    onChange(columns, keys);
+  };
+  const insertionSlot = (event: DragEvent, index: number) => {
+    const bounds = (
+      event.currentTarget as HTMLTableRowElement
+    ).getBoundingClientRect();
+    if (bounds.height === 0) return index + 1;
+    return event.clientY > bounds.top + bounds.height / 2 ? index + 1 : index;
   };
   const showLowCardinality = node.properties.low_cardinality !== undefined;
   const allRowsSelected =
@@ -1225,18 +1368,22 @@ function ColumnMappingsEditor({
               return (
                 <Fragment key={index}>
                   <tr
-                    class={`config-table-row ${selected ? "selected" : ""} ${dragTargetRow === index && draggedRow !== index ? "drag-target" : ""}`}
+                    class={`config-table-row ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();
                       if (event.dataTransfer)
                         event.dataTransfer.dropEffect = "move";
-                      setDragTargetRow(index);
+                      setDragTargetSlot(insertionSlot(event, index));
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
+                      removeDragPreview();
                       if (draggedRow !== undefined)
-                        moveColumn(draggedRow, index);
+                        moveColumnToSlot(
+                          draggedRow,
+                          insertionSlot(event, index),
+                        );
                     }}
                   >
                     <td class="drag-column">
@@ -1249,18 +1396,28 @@ function ColumnMappingsEditor({
                         title="Drag to reorder; use arrow keys for keyboard control"
                         onDragStart={(event) => {
                           if (event.dataTransfer) {
+                            removeDragPreview();
                             event.dataTransfer.effectAllowed = "move";
                             event.dataTransfer.setData(
                               "text/plain",
                               String(index),
                             );
+                            const row = event.currentTarget.closest("tr");
+                            if (row instanceof HTMLTableRowElement)
+                              dragPreview.current = createColumnDragPreview(
+                                row,
+                                event.dataTransfer,
+                                event.clientX,
+                                event.clientY,
+                              );
                           }
                           setDraggedRow(index);
-                          setDragTargetRow(index);
+                          setDragTargetSlot(index);
                         }}
                         onDragEnd={() => {
+                          removeDragPreview();
                           setDraggedRow(undefined);
-                          setDragTargetRow(undefined);
+                          setDragTargetSlot(undefined);
                         }}
                         onKeyDown={(event) => {
                           if (event.key === "ArrowUp" && index > 0) {
@@ -1351,6 +1508,16 @@ function ColumnMappingsEditor({
                         hasCustomSettings={hasCustomSettings}
                         settingsExpanded={settingsExpanded}
                         onSettings={() => toggleSettings(index)}
+                        onMoveUp={
+                          index === 0
+                            ? undefined
+                            : () => moveColumn(index, index - 1)
+                        }
+                        onMoveDown={
+                          index === value.length - 1
+                            ? undefined
+                            : () => moveColumn(index, index + 1)
+                        }
                         onDuplicate={() => duplicateColumn(index)}
                         onDelete={() => deleteColumn(index, name)}
                       />
@@ -1466,6 +1633,8 @@ function ColumnActions({
   hasCustomSettings,
   settingsExpanded,
   onSettings,
+  onMoveUp,
+  onMoveDown,
   onDuplicate,
   onDelete,
 }: {
@@ -1475,6 +1644,8 @@ function ColumnActions({
   hasCustomSettings: boolean;
   settingsExpanded: boolean;
   onSettings: () => void;
+  onMoveUp: (() => void) | undefined;
+  onMoveDown: (() => void) | undefined;
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
@@ -1526,6 +1697,22 @@ function ColumnActions({
               Column settings{settingsExpanded ? " ✓" : ""}
             </button>
           )}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={onMoveUp === undefined}
+            onClick={() => onMoveUp && run(onMoveUp)}
+          >
+            Move up
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={onMoveDown === undefined}
+            onClick={() => onMoveDown && run(onMoveDown)}
+          >
+            Move down
+          </button>
           <button
             type="button"
             role="menuitem"

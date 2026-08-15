@@ -524,7 +524,7 @@ function App() {
               </div>
             )}
 
-            <section class="card pipeline-card">
+            <section class="pipeline-section">
               <h2>Pipeline settings</h2>
               <CommonSettings
                 schema={catalog.common_schema}

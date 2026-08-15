@@ -43,13 +43,74 @@ describe("schema form", () => {
     expect(input.selectionStart).toBe(input.value.length);
     expect(input.selectionEnd).toBe(input.value.length);
 
-    fireEvent.click(trigger);
+    expect(getByRole("option", { name: "String" })).toBeTruthy();
     input.focus();
     input.setSelectionRange(0, input.value.length);
-    fireEvent.pointerDown(getByRole("option", { name: "String" }));
+    const option = getByRole("option", { name: "String" });
+    fireEvent.pointerDown(option);
     expect(document.activeElement).not.toBe(input);
     expect(input.selectionStart).toBe(input.value.length);
     expect(input.selectionEnd).toBe(input.value.length);
+    fireEvent.click(option);
+  });
+
+  it("opens reliably on pointer down and clears a stale search", () => {
+    const { container } = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        searchable
+        options={[
+          { value: "string", label: "String" },
+          { value: "integer", label: "Integer" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(container as HTMLElement);
+    const trigger = form.getByRole("button", { name: "Not selected" });
+
+    fireEvent.pointerDown(trigger, { button: 0, clientX: 1 });
+    fireEvent.input(form.getByRole("searchbox"), {
+      target: { value: "no such option" },
+    });
+    expect(
+      form.getByRole("searchbox").closest(".select-menu")?.textContent,
+    ).toContain("No matches");
+
+    fireEvent.pointerDown(trigger, { button: 0, clientX: 219 });
+    fireEvent.pointerDown(trigger, { button: 0, clientX: 1 });
+    expect(form.getByRole("option", { name: "String" })).toBeTruthy();
+    expect(form.getByRole("option", { name: "Integer" })).toBeTruthy();
+  });
+
+  it("supports arrow navigation and Escape in dropdowns", async () => {
+    const { container } = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[
+          { value: "string", label: "String" },
+          { value: "integer", label: "Integer" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(container as HTMLElement);
+    const trigger = form.getByRole("button", { name: "Not selected" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    await Promise.resolve();
+    expect(document.activeElement).toBe(
+      form.getByRole("option", { name: "String" }),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(
+      form.getByRole("option", { name: "Integer" }),
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(document.activeElement).toBe(trigger);
+    expect(form.queryByRole("option")).toBeNull();
   });
 
   it("renders a scalar enum union as one select", () => {
@@ -507,13 +568,20 @@ describe("schema form", () => {
       dropEffect: "none",
       effectAllowed: "none",
       setData: () => undefined,
+      setDragImage: (image: Element) => {
+        expect(image.classList.contains("column-drag-preview")).toBe(true);
+        expect(
+          image.querySelector<HTMLInputElement>('input[type="text"]')?.value,
+        ).toBe("id");
+      },
     };
     fireEvent.dragStart(
       form.getByRole("button", { name: "Move output column 1" }),
       { dataTransfer },
     );
-    fireEvent.dragOver(rows[1]!, { dataTransfer });
-    fireEvent.drop(rows[1]!, { dataTransfer });
+    fireEvent.dragOver(rows[1]!, { dataTransfer, clientY: 9 });
+    const dragTarget = container.querySelectorAll(".config-table-row")[1]!;
+    fireEvent.drop(dragTarget, { dataTransfer, clientY: 9 });
 
     const values = [
       ...container.querySelectorAll<HTMLInputElement>(
@@ -521,6 +589,15 @@ describe("schema form", () => {
       ),
     ].map((input) => input.value);
     expect(values).toEqual(["value", "$.value", "id", "$.id"]);
+
+    fireEvent.click(form.getByRole("button", { name: "Column 1 actions" }));
+    fireEvent.click(form.getByRole("menuitem", { name: "Move down" }));
+    const movedWithMenu = [
+      ...container.querySelectorAll<HTMLInputElement>(
+        '.column-table tbody .config-table-row input[type="text"]',
+      ),
+    ].map((input) => input.value);
+    expect(movedWithMenu).toEqual(["id", "$.id", "value", "$.value"]);
   });
 
   it("keeps column settings behind the row actions menu", () => {

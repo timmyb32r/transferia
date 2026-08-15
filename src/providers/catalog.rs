@@ -214,7 +214,7 @@ pub fn build_provider_catalog(
     )?;
 
     catalog.register(
-        ProviderRegistration::new("ydb_topic", "YDB Topic")
+        ProviderRegistration::new("ydb_topic", "Logbroker")
             .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
             vec![DeliveryMode::Stream],
             true,

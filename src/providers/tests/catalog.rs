@@ -35,6 +35,11 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(catalog
         .definitions()
         .iter()
+        .find(|definition| definition.key == "ydb_topic")
+        .is_some_and(|definition| definition.title == "Logbroker"));
+    assert!(catalog
+        .definitions()
+        .iter()
         .find(|definition| definition.key == "discard")
         .is_some_and(|definition| definition.source.is_none()));
 

@@ -18,7 +18,9 @@
   --control-hover: #383840;
   --popup: #3b3b43;
   --line: rgba(255, 255, 255, 0.14);
+  --line-inner: rgba(255, 255, 255, 0.075);
   --line-strong: rgba(255, 255, 255, 0.22);
+  --route-line: rgba(255, 255, 255, 0.18);
   --muted: rgba(255, 255, 255, 0.5);
   --icon-muted: rgba(255, 255, 255, 0.5);
   --blue: #2a9fff;
@@ -212,15 +214,21 @@ h3 {
 }
 .identity-card {
   display: grid;
-  grid-template-columns: minmax(0, 760px);
-  gap: 12px;
-  margin-bottom: 18px;
+  grid-template-columns: minmax(0, 680px);
+  width: min(100%, 720px);
+  gap: 8px;
+  margin-bottom: 24px;
+  padding: 14px 18px;
 }
 .top-field {
   display: grid;
-  grid-template-columns: 145px minmax(0, 1fr);
+  grid-template-columns: 140px minmax(0, 1fr);
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  min-height: 30px;
+}
+.identity-card .top-field:last-child > .select {
+  width: min(100%, 220px);
 }
 .top-field > span,
 .field-label {
@@ -237,8 +245,18 @@ h3 {
 .route-composition {
   display: grid;
   grid-template-columns: minmax(450px, 1fr) 34px minmax(450px, 1fr);
+  grid-template-areas:
+    "source arrow sink"
+    "bridge . ."
+    "parser parser parser";
   align-items: start;
-  margin-bottom: 18px;
+  margin-bottom: 0;
+}
+.endpoint-card-source {
+  grid-area: source;
+}
+.endpoint-card-sink {
+  grid-area: sink;
 }
 .route-composition > .endpoint-card {
   align-self: stretch;
@@ -252,16 +270,22 @@ h3 {
   border-bottom-color: transparent;
   border-radius: 4px 4px 0 0;
 }
+.route-composition:has(> .parser-details-card) > .endpoint-card-source,
+.route-composition:has(> .parser-details-card) > .source-parser-bridge,
+.route-composition:has(> .parser-details-card) > .parser-details-card {
+  border-color: var(--route-line);
+}
 .source-parser-bridge {
   position: relative;
   z-index: 2;
-  grid-column: 1;
-  height: 17px;
+  grid-area: bridge;
+  height: 24px;
   margin-bottom: -1px;
   border-right: 1px solid var(--line);
   border-left: 1px solid var(--line);
 }
 .route-arrow {
+  grid-area: arrow;
   display: grid;
   place-items: center;
   color: var(--muted);
@@ -272,10 +296,13 @@ h3 {
   min-width: 0;
   transition: width 0.25s ease;
 }
+.endpoint-card > .select {
+  width: min(100%, 420px);
+}
 .endpoint-fields {
-  border-top: 1px solid var(--line);
-  margin-top: 18px;
-  padding-top: 18px;
+  border-top: 1px solid var(--line-inner);
+  margin-top: 16px;
+  padding-top: 16px;
 }
 .schema-object {
   display: grid;
@@ -287,6 +314,9 @@ h3 {
   align-items: center;
   gap: 14px;
   min-height: 28px;
+}
+.endpoint-fields .form-row:not(.form-row-wide) {
+  grid-template-columns: 150px minmax(0, 1fr);
 }
 .form-row-wide {
   align-items: start;
@@ -375,9 +405,7 @@ h3 {
   transform: translateY(-2px) rotate(45deg);
 }
 .partition-mode-control {
-  margin-bottom: 8px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
 }
 input[type="text"],
 input[type="password"],
@@ -388,7 +416,7 @@ input[type="search"] {
   padding: 0 9px;
   color: rgba(255, 255, 255, 0.85);
   background: var(--control);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 5px;
   outline: none;
   transition:
@@ -522,7 +550,7 @@ input[type="checkbox"]:disabled {
 .select-trigger {
   width: 100%;
   height: 30px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 5px;
   padding: 0 8px 0 10px;
   background: var(--control);
@@ -541,6 +569,9 @@ input[type="checkbox"]:disabled {
 .select-trigger:hover:not(:disabled) {
   background: var(--control-hover);
   border-color: var(--line-strong);
+}
+.select-trigger:active:not(:disabled) {
+  transform: none;
 }
 .select-trigger .placeholder {
   color: rgba(255, 255, 255, 0.38);
@@ -644,10 +675,10 @@ input[type="checkbox"]:disabled {
 }
 .parser-common-section {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 2px 0 20px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 0 20px;
+  border-bottom: 1px solid var(--line-inner);
 }
 .parser-common-section > .form-row,
 .parser-common-section .nested-section .form-row,
@@ -658,7 +689,7 @@ input[type="checkbox"]:disabled {
 .parser-common-section > .form-row,
 .parser-common-section > .nested-section,
 .parser-secondary-section > .schema-object {
-  width: min(100%, 680px);
+  width: min(100%, 600px);
 }
 .parser-common-section h3 {
   margin: 0;
@@ -666,17 +697,17 @@ input[type="checkbox"]:disabled {
   font-weight: 600;
 }
 .control-width-parser > .field-control {
-  width: min(100%, 460px);
+  width: min(100%, 420px);
 }
 .control-width-auth > .field-control,
 .control-width-medium > .field-control {
-  width: min(100%, 380px);
+  width: min(100%, 340px);
 }
 .control-width-enum > .field-control {
-  width: min(100%, 300px);
+  width: min(100%, 240px);
 }
 .control-width-table-name > .field-control {
-  width: min(100%, 640px);
+  width: min(100%, 560px);
 }
 .array-row {
   display: grid;
@@ -742,6 +773,12 @@ button {
 button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
 }
+button:focus-visible,
+summary:focus-visible,
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid rgba(42, 159, 255, 0.82);
+  outline-offset: 2px;
+}
 button:active:not(:disabled) {
   transform: translateZ(0) scale(0.94);
 }
@@ -764,9 +801,29 @@ button::after {
   color: #ffb9bd;
   border-color: #8a4d54;
 }
-.pipeline-card,
 .contract {
   margin-top: 12px;
+}
+.pipeline-section {
+  margin-top: 32px;
+  padding: 24px 0 4px;
+  border-top: 1px solid var(--line);
+}
+.pipeline-section > h2 {
+  margin-bottom: 16px;
+}
+.pipeline-section > .schema-object {
+  gap: 16px;
+  max-width: 760px;
+}
+.pipeline-section .form-row:not(.form-row-wide) {
+  grid-template-columns: 190px minmax(0, 360px);
+}
+.pipeline-section .form-row-wide {
+  max-width: 680px;
+}
+.pipeline-section .byte-size-input {
+  max-width: 300px;
 }
 .compatibility-error,
 .notice {
@@ -945,7 +1002,7 @@ button::after {
 }
 .column-editor {
   min-width: 0;
-  padding-top: 20px;
+  padding-top: 24px;
 }
 .column-editor-heading {
   display: flex;
@@ -1043,10 +1100,11 @@ button::after {
 }
 .parser-details-card {
   position: relative;
+  grid-area: parser;
   grid-column: 1 / -1;
   min-width: 0;
-  padding: 20px;
-  border: 1px solid var(--line);
+  padding: 20px 22px 22px;
+  border: 1px solid var(--route-line);
   border-radius: 0 4px 4px;
 }
 .parser-details-card > * {
@@ -1060,9 +1118,15 @@ button::after {
   display: grid;
   gap: 12px;
   width: 100%;
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-inner);
+}
+.parser-secondary-section > .schema-object {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 360px));
+  gap: 16px;
+  max-width: none;
 }
 .parser-secondary-section h3,
 .schema-system-columns-panel h4 {
@@ -1094,8 +1158,9 @@ button::after {
 .table-shell {
   width: 100%;
   min-width: 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  border-top: 1px solid var(--line-inner);
+  border-bottom: 1px solid var(--line-inner);
 }
 .config-table {
   width: 100%;
@@ -1119,7 +1184,7 @@ button::after {
 .config-table td {
   min-width: 0;
   padding: 7px 5px;
-  border-top: 1px solid rgba(255, 255, 255, 0.075);
+  border-top: 1px solid var(--line-inner);
   vertical-align: middle;
   transition: background-color 100ms ease;
 }
@@ -1152,8 +1217,11 @@ button::after {
   height: 28px;
   padding: 0;
   border-color: transparent;
-  color: var(--icon-muted);
+  color: rgba(255, 255, 255, 0.34);
   cursor: grab;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
 }
 .drag-handle:active:not(:disabled) {
   cursor: grabbing;
@@ -1164,8 +1232,39 @@ button::after {
   height: 16px;
   fill: currentColor;
 }
-.config-table-row.drag-target td {
+.config-table-row:hover .drag-handle,
+.drag-handle:focus-visible,
+.config-table-row.dragged .drag-handle {
+  color: rgba(255, 255, 255, 0.78);
+}
+.config-table-row.dragged td {
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.2);
+  opacity: 0.72;
+}
+.column-drag-preview {
+  position: fixed;
+  z-index: 1000;
+  top: -10000px;
+  left: -10000px;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid rgba(42, 159, 255, 0.7);
+  border-radius: 6px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  opacity: 0.96;
+}
+.column-drag-preview td {
+  background: var(--panel);
+}
+.config-table-row.drag-before td {
   box-shadow: inset 0 2px 0 var(--blue);
+}
+.config-table-row.drag-after td {
+  box-shadow: inset 0 -2px 0 var(--blue);
 }
 .column-table .selection-column input {
   margin-inline: auto;
@@ -1205,12 +1304,20 @@ button::after {
   color: var(--icon-muted);
   font-size: 18px;
   line-height: 1;
-  opacity: 1;
+  opacity: 0.72;
 }
 .config-table-row:hover .row-action,
 .row-action:focus-visible,
 .row-actions.open .row-action {
   color: rgba(255, 255, 255, 0.82);
+  opacity: 1;
+}
+.config-table-row .row-action.danger {
+  opacity: 0.38;
+}
+.config-table-row:hover .row-action.danger,
+.config-table-row .row-action.danger:focus-visible {
+  opacity: 1;
 }
 .row-action svg {
   width: 16px;
@@ -1261,6 +1368,9 @@ svg.trash-icon {
 }
 .row-actions-menu button.danger {
   color: #ffb9bd;
+}
+.row-actions-menu button:disabled {
+  opacity: 0.32;
 }
 .add-row-button {
   height: 30px;
@@ -1408,14 +1518,20 @@ svg.trash-icon {
   }
   .route-composition {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "source"
+      "parser"
+      "arrow"
+      "sink";
   }
   .route-composition:has(> .parser-details-card) > .endpoint-card-source {
-    border-bottom-color: var(--line);
-    border-radius: 4px;
+    border-bottom-color: transparent;
+    border-radius: 4px 4px 0 0;
   }
   .parser-details-card {
     grid-column: 1;
-    border-radius: 4px;
+    border-radius: 0 0 4px 4px;
+    border-top-color: var(--line-inner);
   }
   .source-parser-bridge {
     display: none;
@@ -1426,5 +1542,11 @@ svg.trash-icon {
   }
   .identity-card {
     grid-template-columns: 1fr;
+  }
+  .column-table {
+    min-width: 930px;
+  }
+  .parser-secondary-section > .schema-object {
+    grid-template-columns: minmax(220px, 360px);
   }
 }
