@@ -1,3 +1,4 @@
+import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
@@ -33,6 +34,21 @@ export function SchemaForm({
       disabled={disabled}
       onChange={onChange}
     />
+  );
+}
+
+function DisclosureSummary({ children }: { children: ComponentChildren }) {
+  return (
+    <summary
+      onClick={(event) => {
+        if (event.detail > 0) {
+          const summary = event.currentTarget;
+          queueMicrotask(() => summary.blur());
+        }
+      }}
+    >
+      {children}
+    </summary>
   );
 }
 
@@ -124,7 +140,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
           )}
           {advanced.length > 0 && (
             <details class="foldout">
-              <summary>Advanced settings</summary>
+              <DisclosureSummary>Advanced settings</DisclosureSummary>
               <div class="foldout-content">
                 {advanced.map(([name, child]) => (
                   <PropertyEditor
@@ -142,7 +158,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
           )}
           {systemColumns.length > 0 && (
             <details class="foldout system-columns">
-              <summary>Add system columns</summary>
+              <DisclosureSummary>Add system columns</DisclosureSummary>
               <div class="foldout-content">
                 {systemColumns.map(([name, child]) => (
                   <PropertyEditor
@@ -226,6 +242,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
             }}
           />
           {selected >= 0 &&
+            node.branches[selected]!.constant === undefined &&
             nodeHasEditableContent(node.branches[selected]!.node) && (
               <div class="nested-section">
                 <NodeEditor
@@ -491,7 +508,7 @@ function PropertyEditor({
   if (node.xUi.widget === "system_columns")
     return (
       <details class="foldout system-columns unified-system-columns">
-        <summary>Add system columns</summary>
+        <DisclosureSummary>Add system columns</DisclosureSummary>
         <div class="foldout-content">
           <NodeEditor
             node={node}

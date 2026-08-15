@@ -15,6 +15,69 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("renders a scalar enum union as one select", () => {
+    const node: CompiledNode = {
+      kind: "union",
+      xUi: {},
+      branches: [
+        {
+          label: "String",
+          constant: "string",
+          node: {
+            kind: "string",
+            enumValues: ["string"],
+            xUi: {},
+          },
+        },
+        {
+          label: "Integer",
+          constant: "integer",
+          node: {
+            kind: "string",
+            enumValues: ["integer"],
+            xUi: {},
+          },
+        },
+      ],
+    };
+    const { container } = render(
+      <SchemaForm node={node} value="string" onChange={() => undefined} />,
+    );
+    expect(container.querySelectorAll(".select-trigger")).toHaveLength(1);
+    expect(container.querySelector(".nested-section")).toBeNull();
+  });
+
+  it("drops pointer focus from disclosure summaries", async () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(),
+      properties: {
+        timeout: {
+          ...stringNode("Timeout"),
+          xUi: { section: "advanced" },
+        },
+      },
+    };
+    const { getByText } = render(
+      <SchemaForm
+        node={node}
+        value={{ timeout: "10s" }}
+        onChange={() => undefined}
+      />,
+    );
+    const summary = getByText("Advanced settings");
+    summary.focus();
+    expect(document.activeElement).toBe(summary);
+    fireEvent.click(summary, { detail: 1 });
+    await Promise.resolve();
+    expect(document.activeElement).not.toBe(summary);
+
+    summary.focus();
+    fireEvent.click(summary, { detail: 0 });
+    expect(document.activeElement).toBe(summary);
+  });
+
   it("does not render an empty nested panel for a discriminator-only branch", () => {
     const node: CompiledNode = {
       kind: "union",

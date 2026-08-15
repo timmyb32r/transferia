@@ -302,14 +302,56 @@ h3 {
 .foldout summary {
   cursor: pointer;
   display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
   background: rgba(255, 255, 255, 0.11);
   border-radius: 4px;
   padding: 6px 9px;
   font-size: 12px;
   font-weight: 400;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transform-origin: center;
+  transition:
+    transform 70ms ease,
+    background-color 120ms ease;
 }
-.foldout summary::marker {
-  color: var(--muted);
+.foldout summary::-webkit-details-marker {
+  display: none;
+}
+.foldout summary::after {
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.foldout summary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.foldout summary:active {
+  transform: translateZ(0) scale(0.94);
+}
+.foldout summary:focus {
+  outline: none;
+}
+.foldout summary:focus-visible::after {
+  border-color: var(--blue);
+}
+.foldout[open] > summary {
+  background: transparent;
+  padding-right: 3px;
+  padding-left: 3px;
+}
+.foldout[open] > summary:hover {
+  background: transparent;
+}
+.foldout[open] > summary::after {
+  transform: translateY(-2px) rotate(45deg);
 }
 input[type="text"],
 input[type="password"],
