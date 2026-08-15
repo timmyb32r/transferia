@@ -168,7 +168,10 @@ export function createValue(node: CompiledNode): JsonValue {
       return value;
     }
     case "array":
-      return [];
+      return Array.from(
+        { length: numberUiValue(node.xUi.initial_items) ?? 0 },
+        () => createValue(node.item),
+      );
     case "boolean":
       return false;
     case "number":
@@ -176,6 +179,12 @@ export function createValue(node: CompiledNode): JsonValue {
     case "string":
       return node.enumValues?.[0] ?? "";
   }
+}
+
+function numberUiValue(value: JsonValue | undefined): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 export function isComplete(

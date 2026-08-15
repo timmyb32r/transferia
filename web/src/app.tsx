@@ -671,7 +671,7 @@ function FieldLabel({
     <label class="top-field">
       <span>
         {label}
-        {required && <b class="required">*</b>}
+        {!required && <small class="optional">(optional)</small>}
       </span>
       {children}
     </label>

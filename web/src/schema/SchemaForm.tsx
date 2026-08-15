@@ -1,4 +1,4 @@
-import { useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import {
@@ -7,6 +7,11 @@ import {
   humanize,
   type CompiledNode,
 } from "./compiler";
+import {
+  closestArrowType,
+  isStringArrowType,
+  parsePartitionIds,
+} from "./formLogic";
 
 interface SchemaFormProps {
   node: CompiledNode;
@@ -33,6 +38,14 @@ export function SchemaForm({
 
 function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
+  if (node.kind === "array" && node.xUi.widget === "partition_ranges")
+    return (
+      <PartitionRangesInput
+        value={value}
+        disabled={isDisabled}
+        onChange={onChange}
+      />
+    );
   switch (node.kind) {
     case "object": {
       const object = isObject(value) ? value : {};
@@ -272,15 +285,21 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
             placeholder="Not selected"
             options={node.enumValues.map((option) => ({
               value: String(option),
-              label: humanize(String(option)),
+              label: uiLabel(node, String(option)),
             }))}
             onChange={onChange}
           />
         );
       }
-      return (
+      return node.xUi.widget === "password" ? (
+        <PasswordInput
+          value={typeof value === "string" ? value : ""}
+          disabled={isDisabled}
+          onChange={onChange}
+        />
+      ) : (
         <input
-          type={node.xUi.widget === "password" ? "password" : "text"}
+          type="text"
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
           onInput={(event) => onChange(event.currentTarget.value)}
@@ -308,6 +327,18 @@ function PropertyEditor({
 }: PropertyEditorProps) {
   const effective = value ?? createValue(node);
   const identifier = `field-${name.replaceAll("_", "-")}`;
+  if (node.xUi.widget === "parser_common")
+    return (
+      <section class="parser-common-section">
+        <h3>{node.title ?? "Parser settings"}</h3>
+        <NodeEditor
+          node={node}
+          value={effective}
+          disabled={disabled}
+          onChange={onChange}
+        />
+      </section>
+    );
   return (
     <div
       class={`form-row ${node.kind === "object" || node.kind === "array" || node.xUi.widget === "parser" ? "form-row-wide" : ""}`}
@@ -315,7 +346,7 @@ function PropertyEditor({
       <label class="field-label" for={identifier}>
         <span>
           {node.title ?? humanize(name)}
-          {required && <b class="required">*</b>}
+          {!required && <small class="optional">(optional)</small>}
         </span>
         {node.description && (
           <span class="help" tabindex={0} data-tooltip={node.description}>
@@ -451,6 +482,18 @@ function ColumnMappingsEditor({
       typeof previous.column_name === "string" ? previous.column_name : "";
     const newName =
       typeof next.column_name === "string" ? next.column_name : "";
+    const oldJsonType = previous.json_data_type;
+    if (
+      typeof next.json_data_type === "string" &&
+      next.json_data_type !== oldJsonType
+    ) {
+      next = {
+        ...next,
+        arrow_type: closestArrowType(next.json_data_type),
+      };
+    }
+    if (!isStringArrowType(next.arrow_type))
+      next = { ...next, low_cardinality: false };
     if (
       newName !== oldName &&
       (previous.jsonpath === "" || previous.jsonpath === `$.${oldName}`)
@@ -557,11 +600,14 @@ function ColumnMappingsEditor({
                 />
               </label>
               {node.properties.low_cardinality && (
-                <label class="column-flag">
+                <label
+                  class={`column-flag tooltip-host ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
+                  data-tooltip="Low cardinality is meaningful only for string values"
+                >
                   <span>Low cardinality</span>
                   <input
                     type="checkbox"
-                    disabled={disabled}
+                    disabled={disabled || !isStringArrowType(column.arrow_type)}
                     checked={column.low_cardinality === true}
                     onChange={(event) =>
                       updateColumn(index, {
@@ -616,6 +662,89 @@ function ColumnMappingsEditor({
       )}
     </div>
   );
+}
+
+function PasswordInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: JsonValue) => void;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div class="password-control">
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        disabled={disabled}
+        onInput={(event) => onChange(event.currentTarget.value)}
+      />
+      <button
+        type="button"
+        class="password-reveal"
+        aria-label={visible ? "Hide secret" : "Show secret"}
+        aria-pressed={visible}
+        disabled={disabled}
+        onClick={() => setVisible((current) => !current)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z" />
+          <circle cx="8" cy="8" r="1.8" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function PartitionRangesInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: JsonValue;
+  disabled: boolean;
+  onChange: (value: JsonValue) => void;
+}) {
+  const canonical = formatPartitionIds(value);
+  const [raw, setRaw] = useState(canonical);
+  const [error, setError] = useState<string>();
+  useEffect(() => setRaw(canonical), [canonical]);
+  return (
+    <div class="validated-input">
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="e.g. 1-5,7"
+        value={raw}
+        disabled={disabled}
+        aria-invalid={error !== undefined}
+        onInput={(event) => {
+          const next = event.currentTarget.value;
+          setRaw(next);
+          const parsed = parsePartitionIds(next);
+          setError(parsed.error);
+          if (parsed.value !== undefined) onChange(parsed.value);
+        }}
+      />
+      {error && <small class="validation-error">{error}</small>}
+    </div>
+  );
+}
+
+function formatPartitionIds(value: JsonValue): string {
+  return Array.isArray(value) && value.every((item) => typeof item === "number")
+    ? value.join(",")
+    : "";
+}
+
+function uiLabel(node: CompiledNode, value: string): string {
+  const labels = node.xUi.labels;
+  return isObject(labels) && typeof labels[value] === "string"
+    ? labels[value]
+    : humanize(value);
 }
 
 function isObject(value: JsonValue | undefined): value is JsonObject {

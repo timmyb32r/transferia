@@ -19,13 +19,22 @@ pub enum ParserSchema {
 
 #[derive(JsonSchema)]
 pub struct JsonParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
     pub common: CommonParserConfig,
 
+    #[schemars(title = "JSON parser")]
     pub json_parser: JsonParserConfig,
 }
 
 #[derive(JsonSchema)]
 pub struct BenchmarkDiscardParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
     pub common: CommonParserConfig,
 
     pub benchmark_discard: EmptyParserConfig,
@@ -46,6 +55,7 @@ pub struct ParserConfig {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
+    #[schemars(title = "Table name")]
     pub table_naming: TableNaming,
 
     #[serde(default)]
@@ -93,8 +103,11 @@ impl SystemColumnsConfig {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TableNaming {
+    #[schemars(title = "From config")]
     FromConfig { name: String },
-    FromTopic,
+
+    #[schemars(title = "From topic name")]
+    FromTopicName,
 }
 
 impl ParserConfig {
@@ -105,7 +118,7 @@ impl ParserConfig {
                     anyhow::anyhow!("table_naming.name is required for type 'from_config'")
                 })
             }
-            TableNaming::FromTopic => Ok(topic_path.to_string()),
+            TableNaming::FromTopicName => Ok(topic_path.to_string()),
         }
     }
 }

@@ -11,13 +11,19 @@ use crate::types::system_columns::SystemColumnKind;
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JsonParserConfig {
-    #[schemars(title = "Data schema", extend("x-ui" = { "widget": "column_mappings" }))]
+    #[schemars(
+        title = "Data schema",
+        extend("x-ui" = { "widget": "column_mappings", "initial_items": 1 })
+    )]
     pub columns: Vec<ColumnMapping>,
 
     /// How incoming message bytes are split into individual JSON objects.
     #[serde(default)]
     pub chunk_splitter: ChunkSplitter,
 
+    #[schemars(extend("x-ui" = {
+        "labels": { "dlq": "Send to DLQ", "fail": "Fail delivery" }
+    }))]
     pub conversion_error: ConversionErrorPolicy,
 
     pub unknown_fields: UnknownFieldPolicy,

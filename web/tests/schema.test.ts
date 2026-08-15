@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   compileSchema,
+  createValue,
   isComplete,
   SchemaContractError,
 } from "../src/schema/compiler";
@@ -82,5 +83,14 @@ describe("schema compiler", () => {
     expect(() => compileSchema({ type: "string", pattern: "^x$" })).toThrow(
       /unsupported JSON Schema keywords/,
     );
+  });
+
+  it("materializes schema-defined initial array rows", () => {
+    const node = compileSchema({
+      type: "array",
+      items: { type: "string", default: "first" },
+      "x-ui": { initial_items: 1 },
+    });
+    expect(createValue(node)).toEqual(["first"]);
   });
 });

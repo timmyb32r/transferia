@@ -94,19 +94,21 @@ pub struct YdbTopicSourceConfig {
 
     pub auth: YdbTopicAuthConfig,
 
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub trusted_plaintext: bool,
+
+    #[serde(default)]
+    #[schemars(
+        description = "Partitions to read; use comma-separated IDs and inclusive ranges, for example 1-5,7. An empty value means every active partition discovered at startup",
+        extend("x-ui" = { "widget": "partition_ranges" })
+    )]
+    pub partition_ids: Vec<i64>,
 
     #[schemars(
         with = "crate::parsers::config::ParserSchema",
         extend("x-ui" = { "widget": "parser" })
     )]
     pub parser: ParserConfig,
-
-    #[serde(default)]
-    #[schemars(
-        description = "Partitions to read; an empty list means every active partition discovered at startup"
-    )]
-    pub partition_ids: Vec<i64>,
 
     #[serde(default = "default_network_timeout_ms")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]

@@ -10,6 +10,17 @@ fn benchmark_discard_rejects_unknown_configuration() {
 }
 
 #[test]
+fn table_name_from_topic_has_an_explicit_config_value() -> anyhow::Result<()> {
+    let common: CommonParserConfig =
+        serde_yaml::from_str("table_naming: { type: from_topic_name }")?;
+    assert!(matches!(common.table_naming, TableNaming::FromTopicName));
+    assert!(
+        serde_yaml::from_str::<CommonParserConfig>("table_naming: { type: from_topic }").is_err()
+    );
+    Ok(())
+}
+
+#[test]
 fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
     let config: ParserConfig = serde_yaml::from_str(
         "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: true, message_index: true }\njson_parser:\n  chunk_splitter: one-message-one-row\n  columns:\n    - { jsonpath: $.value, column_name: value, json_data_type: integer, arrow_type: Int64, nullable: false }\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n  primary_key: [value, source_offset]\n  system_column_names: { offset: source_offset, message_index: source_message_index }\n",

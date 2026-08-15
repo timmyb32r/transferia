@@ -222,9 +222,11 @@ h3 {
   font-weight: 500;
   color: rgba(255, 255, 255, 0.82);
 }
-.required {
-  color: var(--red);
-  margin-left: 2px;
+.optional {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 .route-grid {
   display: grid;
@@ -335,7 +337,47 @@ button:disabled {
   font-size: 13px;
 }
 .toggle input {
-  accent-color: var(--blue);
+  flex: 0 0 auto;
+}
+input[type="checkbox"] {
+  display: inline-grid;
+  place-content: center;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="checkbox"]::before {
+  width: 8px;
+  height: 5px;
+  border-bottom: 2px solid #fff;
+  border-left: 2px solid #fff;
+  content: "";
+  opacity: 0;
+  transform: translateY(-1px) rotate(-45deg) scale(0.7);
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+input[type="checkbox"]:checked {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+input[type="checkbox"]:checked::before {
+  opacity: 1;
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--blue), transparent 35%);
+  outline-offset: 2px;
+}
+input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .help {
   position: relative;
@@ -356,14 +398,18 @@ button:disabled {
   z-index: 20;
   left: 20px;
   top: -8px;
-  width: 260px;
-  padding: 9px 11px;
+  width: 300px;
+  padding: 11px 13px;
   background: #46464e;
   color: white;
   border-radius: 5px;
   box-shadow: 0 8px 28px #0007;
+  font-size: 13px;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.45;
+  text-align: left;
+  letter-spacing: normal;
+  text-transform: none;
 }
 .select {
   position: relative;
@@ -444,6 +490,58 @@ button:disabled {
 .select-empty {
   padding: 10px;
   color: var(--muted);
+}
+.password-control {
+  position: relative;
+}
+.password-control input {
+  padding-right: 34px;
+}
+.password-reveal {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.password-reveal:hover:not(:disabled) {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+}
+.password-reveal svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+}
+.validated-input {
+  display: grid;
+  gap: 4px;
+}
+.validated-input input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+.validation-error {
+  color: #ff9aa1;
+  font-size: 11px;
+}
+.parser-common-section {
+  display: grid;
+  gap: 10px;
+  padding: 2px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.parser-common-section h3 {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 600;
 }
 .array-row {
   display: grid;
@@ -749,7 +847,30 @@ button:hover:not(:disabled) {
 .column-flag input {
   align-self: center;
   margin: 0 0 6px;
-  accent-color: var(--blue);
+}
+.column-flag.disabled {
+  color: var(--muted);
+}
+.tooltip-host {
+  position: relative;
+}
+.tooltip-host.disabled:hover::after {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 7px);
+  right: 0;
+  width: 230px;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: #46464e;
+  box-shadow: 0 8px 28px #0007;
+  color: #fff;
+  content: attr(data-tooltip);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  text-transform: none;
 }
 .column-remove {
   align-self: end;
