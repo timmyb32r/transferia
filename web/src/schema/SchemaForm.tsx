@@ -71,20 +71,23 @@ export function ParserDetailsForm({
   )
     return null;
   return (
-    <section class="parser-details-card">
-      <div class="section-heading">
-        <div>
-          <small>PARSER</small>
-          <h2>{selected.label} configuration</h2>
+    <>
+      <div class="source-parser-bridge" aria-hidden="true" />
+      <section class="parser-details-card">
+        <div class="section-heading">
+          <div>
+            <small>PARSER</small>
+            <h2>{selected.label} configuration</h2>
+          </div>
         </div>
-      </div>
-      <NodeEditor
-        node={selected.node}
-        value={parserValue ?? createValue(selected.node)}
-        disabled={disabled}
-        onChange={(next) => onChange({ ...object, [name]: next })}
-      />
-    </section>
+        <NodeEditor
+          node={selected.node}
+          value={parserValue ?? createValue(selected.node)}
+          disabled={disabled}
+          onChange={(next) => onChange({ ...object, [name]: next })}
+        />
+      </section>
+    </>
   );
 }
 
@@ -106,6 +109,29 @@ function DisclosureSummary({ children }: { children: ComponentChildren }) {
 function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
+  const partitionRanges = partitionRangesProperty(node);
+  const configuredPartitionRanges = hasConfiguredPartitionRanges(
+    value,
+    partitionRanges,
+  );
+  const [partitionRangesVisible, setPartitionRangesVisible] = useState(
+    () => configuredPartitionRanges,
+  );
+  const previouslyConfiguredPartitionRanges = useRef(configuredPartitionRanges);
+  useEffect(() => {
+    if (partitionRanges === undefined) {
+      setPartitionRangesVisible(false);
+    } else if (configuredPartitionRanges) {
+      setPartitionRangesVisible(true);
+    } else if (previouslyConfiguredPartitionRanges.current) {
+      setPartitionRangesVisible(false);
+    }
+    previouslyConfiguredPartitionRanges.current = configuredPartitionRanges;
+  }, [
+    configuredPartitionRanges,
+    partitionRanges?.arrayName,
+    partitionRanges?.fieldName,
+  ]);
   if (node.kind === "object" && isJsonParserContainer(node))
     return (
       <JsonParserEditor
@@ -186,14 +212,40 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                 required={node.required.has(name)}
                 value={object[name]}
                 disabled={isDisabled}
+                showPartitionRanges={partitionRangesVisible}
                 onChange={(next) => onChange({ ...object, [name]: next })}
               />
             ),
           )}
-          {advanced.length > 0 && (
+          {(advanced.length > 0 || partitionRanges !== undefined) && (
             <details class="foldout">
               <DisclosureSummary>Advanced settings</DisclosureSummary>
               <div class="foldout-content">
+                {partitionRanges !== undefined && (
+                  <div class="form-row partition-mode-control">
+                    <span class="field-label">Specify partitions</span>
+                    <label class="toggle">
+                      <input
+                        type="checkbox"
+                        aria-label="Specify partitions"
+                        checked={partitionRangesVisible}
+                        disabled={isDisabled}
+                        onChange={(event) => {
+                          const visible = event.currentTarget.checked;
+                          setPartitionRangesVisible(visible);
+                          if (!visible) {
+                            onChange(
+                              clearConfiguredPartitionRanges(
+                                object,
+                                partitionRanges,
+                              ),
+                            );
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
                 {advanced.map(([name, child]) => (
                   <PropertyEditor
                     key={name}
@@ -418,6 +470,55 @@ function isJsonParserContainer(
   );
 }
 
+interface PartitionRangesProperty {
+  arrayName: string;
+  fieldName: string;
+}
+
+function partitionRangesProperty(
+  node: CompiledNode,
+): PartitionRangesProperty | undefined {
+  if (node.kind !== "object") return undefined;
+  for (const [arrayName, property] of Object.entries(node.properties)) {
+    if (property.kind !== "array" || property.item.kind !== "object") continue;
+    const field = Object.entries(property.item.properties).find(
+      ([, child]) => child.xUi.widget === "partition_ranges",
+    );
+    if (field !== undefined) return { arrayName, fieldName: field[0] };
+  }
+  return undefined;
+}
+
+function hasConfiguredPartitionRanges(
+  value: JsonValue,
+  property: PartitionRangesProperty | undefined,
+): boolean {
+  if (property === undefined || !isObject(value)) return false;
+  const items = value[property.arrayName];
+  return (
+    Array.isArray(items) &&
+    items.some((item) => {
+      if (!isObject(item)) return false;
+      const ranges = item[property.fieldName];
+      return Array.isArray(ranges) && ranges.length > 0;
+    })
+  );
+}
+
+function clearConfiguredPartitionRanges(
+  object: JsonObject,
+  property: PartitionRangesProperty,
+): JsonObject {
+  const items = object[property.arrayName];
+  if (!Array.isArray(items)) return object;
+  return {
+    ...object,
+    [property.arrayName]: items.map((item) =>
+      isObject(item) ? { ...item, [property.fieldName]: [] } : item,
+    ),
+  };
+}
+
 function JsonParserEditor({
   node,
   value,
@@ -540,6 +641,7 @@ interface PropertyEditorProps {
   required: boolean;
   value: JsonValue | undefined;
   disabled: boolean;
+  showPartitionRanges?: boolean;
   onChange: (value: JsonValue) => void;
 }
 
@@ -549,6 +651,7 @@ function PropertyEditor({
   required,
   value,
   disabled,
+  showPartitionRanges = true,
   onChange,
 }: PropertyEditorProps) {
   const effective = value ?? createValue(node);
@@ -594,6 +697,7 @@ function PropertyEditor({
           node={node}
           value={Array.isArray(value) ? value : []}
           disabled={disabled}
+          showPartitionRanges={showPartitionRanges}
           onChange={onChange}
         />
       </div>
@@ -754,17 +858,24 @@ function MultiSelectControl({
   onChange: (values: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
     };
     document.addEventListener("mousedown", closeOutside);
     return () => document.removeEventListener("mousedown", closeOutside);
   }, [open]);
   const labels = values.map(
     (value) => options.find((option) => option.value === value)?.label ?? value,
+  );
+  const filtered = options.filter((option) =>
+    option.label.toLowerCase().includes(query.toLowerCase()),
   );
   return (
     <div ref={root} class={`select multi-select ${open ? "open" : ""}`}>
@@ -775,7 +886,12 @@ function MultiSelectControl({
         aria-haspopup="listbox"
         aria-expanded={open}
         onPointerDown={dismissActiveTextSelection}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => {
+            if (current) setQuery("");
+            return !current;
+          })
+        }
       >
         <span class={labels.length === 0 ? "placeholder" : ""}>
           {labels.length === 0 ? placeholder : labels.join(", ")}
@@ -786,7 +902,14 @@ function MultiSelectControl({
       </button>
       {open && (
         <div class="select-menu" role="listbox" aria-multiselectable="true">
-          {options.map((option) => {
+          <input
+            class="select-search"
+            type="search"
+            placeholder="Search"
+            value={query}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+          />
+          {filtered.map((option) => {
             const selected = values.includes(option.value);
             return (
               <button
@@ -810,8 +933,10 @@ function MultiSelectControl({
               </button>
             );
           })}
-          {options.length === 0 && (
-            <div class="select-empty">Add output columns first</div>
+          {filtered.length === 0 && (
+            <div class="select-empty">
+              {options.length === 0 ? "Add output columns first" : "No matches"}
+            </div>
           )}
         </div>
       )}
@@ -860,6 +985,8 @@ function ColumnMappingsEditor({
     () => new Set(),
   );
   const [systemColumnsOpen, setSystemColumnsOpen] = useState(false);
+  const [draggedRow, setDraggedRow] = useState<number>();
+  const [dragTargetRow, setDragTargetRow] = useState<number>();
   useEffect(() => {
     setSelectedRows((current) => {
       const next = new Set(
@@ -958,6 +1085,18 @@ function ColumnMappingsEditor({
       keys.filter((key) => !deletedNames.has(key)),
     );
   };
+  const moveColumn = (from: number, to: number) => {
+    setDraggedRow(undefined);
+    setDragTargetRow(undefined);
+    if (from === to || value[from] === undefined || value[to] === undefined)
+      return;
+    const columns = [...value];
+    const [column] = columns.splice(from, 1);
+    columns.splice(to, 0, column!);
+    setExpandedSettings(new Set());
+    setSelectedRows(new Set());
+    onChange(columns, keys);
+  };
   const showLowCardinality = node.properties.low_cardinality !== undefined;
   const allRowsSelected =
     value.length > 0 && selectedRows.size === value.length;
@@ -1036,6 +1175,7 @@ function ColumnMappingsEditor({
         <table class="config-table column-table">
           <thead>
             <tr>
+              <th class="drag-column" aria-label="Reorder" />
               <th class="selection-column">
                 <IndeterminateCheckbox
                   ariaLabel="Select all output columns"
@@ -1084,7 +1224,61 @@ function ColumnMappingsEditor({
               const selected = selectedRows.has(index);
               return (
                 <Fragment key={index}>
-                  <tr class={`config-table-row ${selected ? "selected" : ""}`}>
+                  <tr
+                    class={`config-table-row ${selected ? "selected" : ""} ${dragTargetRow === index && draggedRow !== index ? "drag-target" : ""}`}
+                    onDragOver={(event) => {
+                      if (draggedRow === undefined) return;
+                      event.preventDefault();
+                      if (event.dataTransfer)
+                        event.dataTransfer.dropEffect = "move";
+                      setDragTargetRow(index);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (draggedRow !== undefined)
+                        moveColumn(draggedRow, index);
+                    }}
+                  >
+                    <td class="drag-column">
+                      <button
+                        type="button"
+                        class="drag-handle"
+                        draggable={!disabled}
+                        disabled={disabled}
+                        aria-label={`Move output column ${index + 1}`}
+                        title="Drag to reorder; use arrow keys for keyboard control"
+                        onDragStart={(event) => {
+                          if (event.dataTransfer) {
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData(
+                              "text/plain",
+                              String(index),
+                            );
+                          }
+                          setDraggedRow(index);
+                          setDragTargetRow(index);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedRow(undefined);
+                          setDragTargetRow(undefined);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "ArrowUp" && index > 0) {
+                            event.preventDefault();
+                            moveColumn(index, index - 1);
+                          }
+                          if (
+                            event.key === "ArrowDown" &&
+                            index < value.length - 1
+                          ) {
+                            event.preventDefault();
+                            moveColumn(index, index + 1);
+                          }
+                        }}
+                      >
+                        <DragHandleIcon />
+                      </button>
+                    </td>
                     <td class="selection-column">
                       <input
                         type="checkbox"
@@ -1164,6 +1358,7 @@ function ColumnMappingsEditor({
                   </tr>
                   {extraFields.length > 0 && settingsExpanded && (
                     <tr class="table-details-row">
+                      <td />
                       <td />
                       <td colSpan={showLowCardinality ? 7 : 6}>
                         <section class="column-details">
@@ -1377,18 +1572,22 @@ function CompactArrayEditor({
   node,
   value,
   disabled,
+  showPartitionRanges,
   onChange,
 }: {
   name: "topics" | "hosts";
   node: Extract<CompiledNode, { kind: "array" }>;
   value: JsonValue[];
   disabled: boolean;
+  showPartitionRanges: boolean;
   onChange: (value: JsonValue) => void;
 }) {
   const fields =
     node.item.kind === "object"
       ? Object.entries(node.item.properties).filter(
-          ([, child]) => child.xUi.widget !== "hidden",
+          ([, child]) =>
+            child.xUi.widget !== "hidden" &&
+            (showPartitionRanges || child.xUi.widget !== "partition_ranges"),
         )
       : [];
   const singular = name === "topics" ? "topic" : "host";
@@ -1406,7 +1605,12 @@ function CompactArrayEditor({
               <th class="row-number" aria-label="Row" />
               {fields.length > 0 ? (
                 fields.map(([field, child]) => (
-                  <th key={field}>{child.title ?? humanize(field)}</th>
+                  <th key={field}>
+                    {child.title ?? humanize(field)}
+                    {child.xUi.widget === "partition_ranges" && (
+                      <small class="optional">(optional)</small>
+                    )}
+                  </th>
                 ))
               ) : (
                 <th>{humanize(singular)}</th>
@@ -1651,6 +1855,19 @@ function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+function DragHandleIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="5" cy="4" r="1" />
+      <circle cx="11" cy="4" r="1" />
+      <circle cx="5" cy="8" r="1" />
+      <circle cx="11" cy="8" r="1" />
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="11" cy="12" r="1" />
+    </svg>
+  );
+}
+
 function TrashIcon() {
   return (
     <svg
@@ -1690,9 +1907,8 @@ function EyeOffIcon() {
         fill="currentColor"
         fill-rule="evenodd"
         clip-rule="evenodd"
-        d="M1.87 8.515 1.641 8l.229-.515a6.708 6.708 0 0 1 12.26 0l.228.515-.229.515a6.708 6.708 0 0 1-12.259 0M.5 6.876l-.26.585a1.33 1.33 0 0 0 0 1.079l.26.584a8.208 8.208 0 0 0 15 0l.26-.584a1.33 1.33 0 0 0 0-1.08l-.26-.584a8.208 8.208 0 0 0-15 0M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0M11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0"
+        d="M3.03 1.97a.75.75 0 0 0-1.06 1.06l.83.83A8.2 8.2 0 0 0 .5 6.876l-.26.585a1.33 1.33 0 0 0 0 1.079l.26.585a8.21 8.21 0 0 0 11.434 3.87l1.036 1.035a.75.75 0 1 0 1.06-1.06zm7.788 9.908-1.294-1.293a3 3 0 0 1-4.109-4.109L3.866 4.927A6.7 6.7 0 0 0 1.87 7.486L1.641 8l.23.515a6.71 6.71 0 0 0 8.947 3.363M6.55 7.611A1.502 1.502 0 0 0 8.389 9.45zm1.658-2.604 2.784 2.784a3 3 0 0 0-2.784-2.784m5.92 3.508a6.7 6.7 0 0 1-.915 1.496l1.065 1.066A8.2 8.2 0 0 0 15.5 9.125l.26-.585a1.33 1.33 0 0 0 0-1.08l-.26-.584A8.21 8.21 0 0 0 5.572 2.37L6.81 3.61a6.71 6.71 0 0 1 7.32 3.877l.228.514z"
       />
-      <path class="eye-off-slash" d="M2 2l12 12" />
     </svg>
   );
 }

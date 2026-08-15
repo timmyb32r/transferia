@@ -261,7 +261,15 @@ describe("schema form", () => {
     );
     expect(keys).not.toBeNull();
     fireEvent.click(keys!);
+    const search = container.querySelector<HTMLInputElement>(
+      ".column-keys .select-search",
+    );
+    expect(search).not.toBeNull();
     fireEvent.click(getByRole("option", { name: /id/ }));
+    fireEvent.input(search!, { target: { value: "source" } });
+    expect(container.querySelector('[role="option"]')?.textContent).toBe(
+      "source_offset",
+    );
     fireEvent.click(getByRole("option", { name: /source_offset/ }));
     expect(keys!.textContent).toContain("id, source_offset");
   });
@@ -343,6 +351,79 @@ describe("schema form", () => {
       "JSON parser configuration",
     );
     expect(details.container.textContent).toContain("Output columns");
+    expect(
+      details.container.querySelector(".source-parser-bridge"),
+    ).not.toBeNull();
+  });
+
+  it("shows partition IDs only when explicit partition selection is enabled", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["topics", "driver"]),
+      properties: {
+        topics: {
+          kind: "array",
+          xUi: {},
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["path", "partitions"]),
+            properties: {
+              path: stringNode("Topic path"),
+              partitions: {
+                kind: "array",
+                xUi: { widget: "partition_ranges" },
+                title: "Partition IDs",
+                item: {
+                  kind: "number",
+                  integer: true,
+                  xUi: {},
+                },
+              },
+            },
+          },
+        },
+        driver: {
+          kind: "string",
+          enumValues: ["ydb", "pqv1"],
+          xUi: { section: "advanced" },
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        topics: [{ path: "/events", partitions: [] }],
+        driver: "ydb",
+      });
+      return (
+        <>
+          <SchemaForm node={node} value={value} onChange={setValue} />
+          <output data-testid="partition-config">
+            {JSON.stringify(value)}
+          </output>
+        </>
+      );
+    }
+    const { container } = render(<Harness />);
+    const form = within(container as HTMLElement);
+
+    expect(form.queryByText(/Partition IDs/)).toBeNull();
+    fireEvent.click(form.getByText("Advanced settings"));
+    const toggle = form.getByRole("checkbox", { name: "Specify partitions" });
+    fireEvent.click(toggle);
+    expect(form.getByText("Partition IDs", { exact: false })).toBeTruthy();
+    const partitions = form.getByPlaceholderText("e.g. 1-5,7");
+    fireEvent.input(partitions, { target: { value: "1-3" } });
+    expect(form.getByTestId("partition-config").textContent).toContain(
+      '"partitions":[1,2,3]',
+    );
+
+    fireEvent.click(toggle);
+    expect(container.textContent).not.toContain("Partition IDs");
+    expect(form.getByTestId("partition-config").textContent).toContain(
+      '"partitions":[]',
+    );
   });
 
   it("renders data schema with one shared table header", () => {
@@ -379,7 +460,7 @@ describe("schema form", () => {
       />,
     );
     expect(container.querySelectorAll("thead")).toHaveLength(1);
-    expect(container.querySelectorAll("th")).toHaveLength(7);
+    expect(container.querySelectorAll("th")).toHaveLength(8);
     expect(container.querySelectorAll("tbody .config-table-row")).toHaveLength(
       2,
     );
@@ -387,6 +468,59 @@ describe("schema form", () => {
       "+ Add column",
     );
     expect(container.querySelectorAll(".table-details-row")).toHaveLength(0);
+  });
+
+  it("reorders output columns with the drag handle", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "jsonpath"]),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+            },
+          },
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        columns: [
+          { column_name: "id", jsonpath: "$.id" },
+          { column_name: "value", jsonpath: "$.value" },
+        ],
+      });
+      return <SchemaForm node={node} value={value} onChange={setValue} />;
+    }
+    const { container } = render(<Harness />);
+    const form = within(container as HTMLElement);
+    const rows = container.querySelectorAll(".config-table-row");
+    const dataTransfer = {
+      dropEffect: "none",
+      effectAllowed: "none",
+      setData: () => undefined,
+    };
+    fireEvent.dragStart(
+      form.getByRole("button", { name: "Move output column 1" }),
+      { dataTransfer },
+    );
+    fireEvent.dragOver(rows[1]!, { dataTransfer });
+    fireEvent.drop(rows[1]!, { dataTransfer });
+
+    const values = [
+      ...container.querySelectorAll<HTMLInputElement>(
+        '.column-table tbody .config-table-row input[type="text"]',
+      ),
+    ].map((input) => input.value);
+    expect(values).toEqual(["value", "$.value", "id", "$.id"]);
   });
 
   it("keeps column settings behind the row actions menu", () => {

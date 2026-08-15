@@ -20,6 +20,7 @@
   --line: rgba(255, 255, 255, 0.14);
   --line-strong: rgba(255, 255, 255, 0.22);
   --muted: rgba(255, 255, 255, 0.5);
+  --icon-muted: rgba(255, 255, 255, 0.5);
   --blue: #2a9fff;
   --blue-hover: #45aaff;
   --red: #ff747d;
@@ -243,15 +244,22 @@ h3 {
   align-self: stretch;
 }
 .route-composition > .endpoint-card-source,
+.route-composition > .source-parser-bridge,
 .route-composition > .parser-details-card {
   background: var(--panel);
-}
-.route-composition:has(> .parser-details-card) {
-  row-gap: 16px;
 }
 .route-composition:has(> .parser-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
   border-radius: 4px 4px 0 0;
+}
+.source-parser-bridge {
+  position: relative;
+  z-index: 2;
+  grid-column: 1;
+  height: 17px;
+  margin-bottom: -1px;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
 }
 .route-arrow {
   display: grid;
@@ -365,6 +373,11 @@ h3 {
 }
 .foldout[open] > summary::after {
   transform: translateY(-2px) rotate(45deg);
+}
+.partition-mode-control {
+  margin-bottom: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
 input[type="text"],
 input[type="password"],
@@ -603,7 +616,7 @@ input[type="checkbox"]:disabled {
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--muted);
+  color: var(--icon-muted);
 }
 .password-reveal:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.1);
@@ -617,15 +630,6 @@ input[type="checkbox"]:disabled {
   height: 16px;
   fill: currentColor;
   stroke: none;
-}
-.password-reveal .eye-off-slash {
-  fill: none;
-  stroke: var(--control);
-  stroke-linecap: round;
-  stroke-width: 2.6;
-}
-.password-reveal:hover .eye-off-slash {
-  stroke: var(--control-hover);
 }
 .validated-input {
   display: grid;
@@ -1045,18 +1049,6 @@ button::after {
   border: 1px solid var(--line);
   border-radius: 0 4px 4px;
 }
-.parser-details-card::before {
-  position: absolute;
-  z-index: 0;
-  top: -17px;
-  left: -1px;
-  width: calc((100% - 34px) / 2 + 1px);
-  height: 17px;
-  border-right: 1px solid var(--line);
-  border-left: 1px solid var(--line);
-  background: var(--panel);
-  content: "";
-}
 .parser-details-card > * {
   position: relative;
   z-index: 1;
@@ -1120,6 +1112,10 @@ button::after {
   text-align: left;
   text-transform: uppercase;
 }
+.config-table th .optional {
+  font-size: 9px;
+  text-transform: none;
+}
 .config-table td {
   min-width: 0;
   padding: 7px 5px;
@@ -1143,6 +1139,34 @@ button::after {
   padding-left: 3px;
   text-align: center;
 }
+.column-table .drag-column {
+  width: 28px;
+  padding-right: 2px;
+  padding-left: 2px;
+  text-align: center;
+}
+.drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 28px;
+  padding: 0;
+  border-color: transparent;
+  color: var(--icon-muted);
+  cursor: grab;
+}
+.drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+  transform: none;
+}
+.drag-handle svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.config-table-row.drag-target td {
+  box-shadow: inset 0 2px 0 var(--blue);
+}
 .column-table .selection-column input {
   margin-inline: auto;
 }
@@ -1163,12 +1187,12 @@ button::after {
 .config-table .flag-column input {
   margin-inline: auto;
 }
-.column-table th:nth-child(2),
-.column-table th:nth-child(3) {
+.column-table th:nth-child(3),
+.column-table th:nth-child(4) {
   width: 19%;
 }
-.column-table th:nth-child(4),
-.column-table th:nth-child(5) {
+.column-table th:nth-child(5),
+.column-table th:nth-child(6) {
   width: 17%;
 }
 .row-action {
@@ -1178,15 +1202,15 @@ button::after {
   height: 28px;
   padding: 0;
   border-color: transparent;
-  color: var(--muted);
+  color: var(--icon-muted);
   font-size: 18px;
   line-height: 1;
-  opacity: 0.36;
+  opacity: 1;
 }
 .config-table-row:hover .row-action,
 .row-action:focus-visible,
 .row-actions.open .row-action {
-  opacity: 1;
+  color: rgba(255, 255, 255, 0.82);
 }
 .row-action svg {
   width: 16px;
@@ -1393,7 +1417,7 @@ svg.trash-icon {
     grid-column: 1;
     border-radius: 4px;
   }
-  .parser-details-card::before {
+  .source-parser-bridge {
     display: none;
   }
   .route-arrow {
