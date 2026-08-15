@@ -821,6 +821,15 @@ function ColumnMappingsEditor({
   const [expandedSettings, setExpandedSettings] = useState<Set<number>>(
     () => new Set(),
   );
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(
+    () => new Set(),
+  );
+  useEffect(() => {
+    setSelectedRows((current) => {
+      const next = new Set([...current].filter((index) => index < value.length));
+      return next.size === current.size ? current : next;
+    });
+  }, [value.length]);
   if (node.kind !== "object")
     return (
       <NodeEditor
@@ -872,16 +881,49 @@ function ColumnMappingsEditor({
     const columns = [...value];
     columns.splice(index + 1, 0, structuredClone(value[index]!));
     setExpandedSettings(new Set());
+    setSelectedRows(new Set());
     onChange(columns, keys);
   };
   const deleteColumn = (index: number, name: string) => {
     setExpandedSettings(new Set());
+    setSelectedRows(new Set());
     onChange(
       value.filter((_, itemIndex) => itemIndex !== index),
       keys.filter((key) => key !== name),
     );
   };
+  const toggleRowSelection = (index: number) =>
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  const selectAllRows = (selected: boolean) =>
+    setSelectedRows(
+      selected ? new Set(value.map((_, index) => index)) : new Set(),
+    );
+  const deleteSelectedRows = () => {
+    const deletedNames = new Set(
+      [...selectedRows].flatMap((index) => {
+        const column = isObject(value[index]) ? value[index] : {};
+        return typeof column.column_name === "string" &&
+          column.column_name !== ""
+          ? [column.column_name]
+          : [];
+      }),
+    );
+    setExpandedSettings(new Set());
+    setSelectedRows(new Set());
+    onChange(
+      value.filter((_, index) => !selectedRows.has(index)),
+      keys.filter((key) => !deletedNames.has(key)),
+    );
+  };
   const showLowCardinality = node.properties.low_cardinality !== undefined;
+  const allRowsSelected =
+    value.length > 0 && selectedRows.size === value.length;
+  const someRowsSelected = selectedRows.size > 0;
   return (
     <div class="column-editor">
       <div class="column-editor-heading">
@@ -889,20 +931,45 @@ function ColumnMappingsEditor({
           <small>DATA SCHEMA</small>
           <h3>Output columns</h3>
         </div>
-        <button
-          class="add-row-button"
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange([...value, createValue(node)], keys)}
-        >
-          + Add column
-        </button>
+        <div class="column-editor-actions">
+          {someRowsSelected && (
+            <div class="bulk-selection-toolbar" role="status">
+              <span>{selectedRows.size} selected</span>
+              <button
+                type="button"
+                class="bulk-delete"
+                aria-label={`Delete ${selectedRows.size} selected ${selectedRows.size === 1 ? "column" : "columns"}`}
+                title="Delete selected columns"
+                disabled={disabled}
+                onClick={deleteSelectedRows}
+              >
+                <TrashIcon />
+              </button>
+            </div>
+          )}
+          <button
+            class="add-row-button"
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange([...value, createValue(node)], keys)}
+          >
+            + Add column
+          </button>
+        </div>
       </div>
       <div class="table-shell">
         <table class="config-table column-table">
           <thead>
             <tr>
-              <th class="row-number" aria-label="Row" />
+              <th class="selection-column">
+                <IndeterminateCheckbox
+                  ariaLabel="Select all output columns"
+                  checked={allRowsSelected}
+                  indeterminate={someRowsSelected && !allRowsSelected}
+                  disabled={disabled || value.length === 0}
+                  onChange={selectAllRows}
+                />
+              </th>
               <th>Column</th>
               <th>JSON path</th>
               <th>JSON type</th>
@@ -941,10 +1008,21 @@ function ColumnMappingsEditor({
                   !jsonValuesEqual(column[field]!, createValue(child)),
               );
               const settingsExpanded = expandedSettings.has(index);
+              const selected = selectedRows.has(index);
               return (
                 <Fragment key={index}>
-                  <tr class="config-table-row">
-                    <td class="row-number">{index + 1}</td>
+                  <tr
+                    class={`config-table-row ${selected ? "selected" : ""}`}
+                  >
+                    <td class="selection-column">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select output column ${index + 1}`}
+                        checked={selected}
+                        disabled={disabled}
+                        onChange={() => toggleRowSelection(index)}
+                      />
+                    </td>
                     {mainFields.map((field) => (
                       <td key={field}>
                         {node.properties[field] && (
@@ -1083,6 +1161,35 @@ function ColumnMappingsEditor({
         />
       </div>
     </div>
+  );
+}
+
+function IndeterminateCheckbox({
+  ariaLabel,
+  checked,
+  indeterminate,
+  disabled,
+  onChange,
+}: {
+  ariaLabel: string;
+  checked: boolean;
+  indeterminate: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (input.current) input.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={input}
+      type="checkbox"
+      aria-label={ariaLabel}
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+    />
   );
 }
 

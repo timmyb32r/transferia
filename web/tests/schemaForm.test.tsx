@@ -405,4 +405,73 @@ describe("schema form", () => {
     fireEvent.click(table.getByRole("menuitem", { name: "Delete" }));
     expect(container.querySelectorAll(".config-table-row")).toHaveLength(1);
   });
+
+  it("selects output columns and deletes them as one bulk action", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "jsonpath"]),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+            },
+          },
+        },
+        keys: {
+          kind: "array",
+          xUi: { widget: "column_keys" },
+          item: stringNode(),
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        columns: [
+          { column_name: "id", jsonpath: "$.id" },
+          { column_name: "value", jsonpath: "$.value" },
+        ],
+        keys: ["id", "value"],
+      });
+      return (
+        <>
+          <SchemaForm node={node} value={value} onChange={setValue} />
+          <output data-testid="config-value">{JSON.stringify(value)}</output>
+        </>
+      );
+    }
+    const { container } = render(<Harness />);
+    const form = within(container as HTMLElement);
+    const selectAll = form.getByRole("checkbox", {
+      name: "Select all output columns",
+    }) as HTMLInputElement;
+
+    fireEvent.click(
+      form.getByRole("checkbox", { name: "Select output column 1" }),
+    );
+    expect(selectAll.indeterminate).toBe(true);
+    expect(form.getByText("1 selected")).toBeTruthy();
+    expect(container.querySelectorAll(".config-table-row.selected")).toHaveLength(
+      1,
+    );
+
+    fireEvent.click(selectAll);
+    expect(selectAll.checked).toBe(true);
+    expect(form.getByText("2 selected")).toBeTruthy();
+    fireEvent.click(
+      form.getByRole("button", { name: "Delete 2 selected columns" }),
+    );
+
+    expect(container.querySelectorAll(".config-table-row")).toHaveLength(0);
+    expect(form.getByTestId("config-value").textContent).toBe(
+      JSON.stringify({ columns: [], keys: [] }),
+    );
+  });
 });

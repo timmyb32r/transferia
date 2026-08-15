@@ -431,6 +431,19 @@ input[type="checkbox"]:checked::before {
   opacity: 1;
   transform: translateY(-1px) rotate(-45deg) scale(1);
 }
+input[type="checkbox"]:indeterminate {
+  border-color: var(--blue);
+  background: var(--blue);
+}
+input[type="checkbox"]:indeterminate::before {
+  width: 7px;
+  height: 2px;
+  border: 0;
+  border-radius: 1px;
+  background: #fff;
+  opacity: 1;
+  transform: none;
+}
 input[type="checkbox"]:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--blue), transparent 35%);
   outline-offset: 2px;
@@ -886,6 +899,53 @@ button::after {
 .column-editor-heading h3 {
   margin: 2px 0 0;
 }
+.column-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bulk-selection-toolbar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid rgba(42, 159, 255, 0.42);
+  border-radius: 5px;
+  background: rgba(42, 159, 255, 0.1);
+  color: #b9ddff;
+  animation: bulk-toolbar-in 120ms ease-out;
+}
+.bulk-selection-toolbar > span {
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.bulk-selection-toolbar .bulk-delete {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid rgba(42, 159, 255, 0.28);
+  border-radius: 0;
+  color: #ffb9bd;
+}
+.bulk-selection-toolbar .bulk-delete svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
+@keyframes bulk-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateX(5px);
+  }
+}
 .section-heading {
   display: flex;
   align-items: center;
@@ -933,6 +993,7 @@ button::after {
   padding: 7px 5px;
   border-top: 1px solid rgba(255, 255, 255, 0.075);
   vertical-align: middle;
+  transition: background-color 100ms ease;
 }
 .config-table thead + tbody tr:first-child td {
   border-top-color: var(--line);
@@ -943,6 +1004,21 @@ button::after {
   color: var(--muted);
   font-size: 11px;
   text-align: center;
+}
+.column-table .selection-column {
+  width: 30px;
+  padding-right: 3px;
+  padding-left: 3px;
+  text-align: center;
+}
+.column-table .selection-column input {
+  margin-inline: auto;
+}
+.column-table .config-table-row.selected td {
+  background: rgba(42, 159, 255, 0.065);
+}
+.column-table .config-table-row.selected .row-action {
+  opacity: 0.7;
 }
 .config-table .flag-column {
   width: 76px;
