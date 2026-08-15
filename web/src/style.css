@@ -699,6 +699,28 @@ input[type="checkbox"]:disabled {
 .control-width-parser > .field-control {
   width: min(100%, 420px);
 }
+.form-row-installation > .field-control,
+.form-row-installation > .field-control > .union-editor {
+  display: contents;
+}
+.form-row-installation > .field-control > .union-editor > .select {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+}
+.form-row-installation > .field-control > .union-editor > .nested-section {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  width: 100%;
+}
+.form-row-installation .nested-section .form-row:not(.form-row-wide) {
+  grid-template-columns: minmax(120px, 30%) minmax(0, 1fr);
+}
+.form-row-installation .nested-section .select-menu {
+  width: max(100%, 340px);
+  max-width: min(520px, calc(100vw - 48px));
+}
 .control-width-auth > .field-control,
 .control-width-medium > .field-control {
   width: min(100%, 340px);

@@ -681,35 +681,36 @@ fn apply_endpoint_installations(
         .get_mut("properties")
         .and_then(JsonValue::as_object_mut)
         .ok_or_else(|| anyhow::anyhow!("{provider} endpoint schema has no object properties"))?;
-    for field in &replaced {
-        properties.remove(*field);
-    }
-    properties.insert(
-        "installation".to_owned(),
-        serde_json::json!({
-            "title": "Installation type",
-            "oneOf": registrations.iter().map(|registration| {
-                let mut schema = registration.schema.clone();
-                if let Some(object) = schema.as_object_mut() {
-                    object.insert("title".to_owned(), JsonValue::String(registration.title.to_owned()));
-                    let variant_properties = object
-                        .entry("properties")
-                        .or_insert_with(|| serde_json::json!({}));
-                    if let Some(variant_properties) = variant_properties.as_object_mut() {
-                        variant_properties.insert("type".to_owned(), serde_json::json!({ "const": registration.kind }));
-                    }
-                    let required = object
-                        .entry("required")
-                        .or_insert_with(|| serde_json::json!([]));
-                    if let Some(required) = required.as_array_mut() {
-                        if !required.iter().any(|field| field == "type") {
-                            required.push(JsonValue::String("type".to_owned()));
-                        }
+    let installation_schema = serde_json::json!({
+        "title": "Installation type",
+        "oneOf": registrations.iter().map(|registration| {
+            let mut schema = registration.schema.clone();
+            if let Some(object) = schema.as_object_mut() {
+                object.insert("title".to_owned(), JsonValue::String(registration.title.to_owned()));
+                let variant_properties = object
+                    .entry("properties")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(variant_properties) = variant_properties.as_object_mut() {
+                    variant_properties.insert("type".to_owned(), serde_json::json!({ "const": registration.kind }));
+                }
+                let required = object
+                    .entry("required")
+                    .or_insert_with(|| serde_json::json!([]));
+                if let Some(required) = required.as_array_mut() {
+                    if !required.iter().any(|field| field == "type") {
+                        required.push(JsonValue::String("type".to_owned()));
                     }
                 }
-                schema
-            }).collect::<Vec<_>>()
-        }),
+            }
+            schema
+        }).collect::<Vec<_>>()
+    });
+    let endpoint_properties = std::mem::take(properties);
+    properties.insert("installation".to_owned(), installation_schema);
+    properties.extend(
+        endpoint_properties
+            .into_iter()
+            .filter(|(field, _)| !replaced.contains(field.as_str())),
     );
     let required = schema
         .entry("required")

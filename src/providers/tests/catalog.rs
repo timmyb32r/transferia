@@ -68,3 +68,28 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
     }
     Ok(())
 }
+
+#[test]
+fn installation_is_the_first_field_of_every_connected_endpoint() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+
+    for definition in catalog.definitions() {
+        for endpoint in [definition.source.as_ref(), definition.sink.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            let Some(properties) = endpoint.schema["properties"].as_object() else {
+                continue;
+            };
+            if properties.contains_key("installation") {
+                assert_eq!(
+                    properties.keys().next().map(String::as_str),
+                    Some("installation"),
+                    "{}.installation must be rendered first",
+                    definition.key
+                );
+            }
+        }
+    }
+    Ok(())
+}

@@ -715,7 +715,7 @@ function PropertyEditor({
     );
   return (
     <div
-      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${controlWidth}`}
+      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${name === "installation" ? "form-row-installation" : ""} ${controlWidth}`}
     >
       <label class="field-label" for={identifier}>
         <span>
@@ -743,6 +743,7 @@ function PropertyEditor({
 }
 
 function controlWidthClass(name: string, node: CompiledNode): string {
+  if (name === "installation") return "control-width-installation";
   if (node.xUi.widget === "parser") return "control-width-parser";
   if (name === "auth") return "control-width-auth";
   if (name === "json_framing") return "control-width-medium";

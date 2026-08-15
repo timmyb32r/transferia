@@ -145,6 +145,55 @@ describe("schema form", () => {
     expect(container.querySelector(".nested-section")).toBeNull();
   });
 
+  it("gives installation variants a full-width nested layout", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["installation"]),
+      properties: {
+        installation: {
+          kind: "union",
+          xUi: {},
+          branches: [
+            {
+              label: "Instance",
+              discriminator: { key: "type", value: "instance" },
+              requiredKeys: ["type", "instance"],
+              node: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["type", "instance"]),
+                properties: {
+                  type: {
+                    kind: "string",
+                    enumValues: ["instance"],
+                    xUi: {},
+                  },
+                  instance: {
+                    kind: "string",
+                    enumValues: ["sas.logbroker-prestable.example.net"],
+                    xUi: {},
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const { container } = render(
+      <SchemaForm
+        node={node}
+        value={{ installation: { type: "instance", instance: "" } }}
+        onChange={() => undefined}
+      />,
+    );
+
+    const row = container.querySelector(".form-row-installation");
+    expect(row).toBeTruthy();
+    expect(row?.querySelector(".nested-section .select")).toBeTruthy();
+  });
+
   it("drops pointer focus from disclosure summaries", async () => {
     const node: CompiledNode = {
       kind: "object",
