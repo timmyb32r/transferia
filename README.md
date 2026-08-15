@@ -10,11 +10,10 @@ YDB Topics (YDB or PQv1 driver) / PostgreSQL / YTsaurus -> parser or native Arro
 ```
 
 Source and sink providers are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers `ydb_topic` (with YDB
-and PQv1 source drivers), finite-snapshot `postgres`, `clickhouse`, `s3`, and
-`ytsaurus` sources; `pqv1`, `clickhouse`, `postgres`, `s3`, and `ytsaurus`
-sinks; and the non-durable `discard` sink used by explicit benchmark
-configurations.
+kinds are validated explicitly. The executable registers `logbroker` (with YDB
+and PQv1 source and sink drivers), finite-snapshot `postgres`, `clickhouse`,
+`s3`, and `ytsaurus` sources; `clickhouse`, `postgres`, `s3`, and `ytsaurus`
+sinks; and the non-durable `discard` sink used by explicit benchmark configurations.
 
 Source implementations are grouped by delivery mode inside each provider:
 `src_batch` contains finite snapshot readers and `src_stream` contains live
@@ -52,14 +51,14 @@ errors. Every quality recipe runs `rustfmt` first.
 
 ## Configuration
 
-`ydb_topic` uses the official low-level Rust YDB gRPC crate and the Topic API
+`logbroker` uses the official low-level Rust YDB gRPC crate and the Topic API
 `StreamRead` protocol. Partition assignment, rebalancing, and auto-partitioning
 are owned by the protocol. Each topic may optionally restrict the partitions it
 reads; an empty `partitions` list subscribes to every partition dynamically:
 
 ```yaml
 source:
-  ydb_topic:
+  logbroker:
     installation:
       type: on_premise
       host: topic.example.net
@@ -85,12 +84,12 @@ source:
           - { jsonpath: "$.id", column_name: id, json_data_type: string, arrow_type: Utf8, nullable: false }
 ```
 
-Set `driver: pqv1` in the same `ydb_topic` source to use the legacy wire
+Set `driver: pqv1` in the same `logbroker` source to use the legacy wire
 protocol. PQv1 currently accepts exactly one topic with an explicit, non-empty
 `partitions` list; the backend rejects dynamic or multi-topic PQv1
 configurations instead of silently changing their meaning.
 
-`examples/ydb_topic_read_one.rs` is a credential-safe connectivity probe. It
+`examples/logbroker_read_one.rs` is a credential-safe connectivity probe. It
 opens one dynamic Topic API reader, reports only topic/partition/offset and byte
 counts for the first non-empty batch, and deliberately exits without committing
 consumer offsets.
@@ -103,7 +102,7 @@ durable_storage:
   path: .transferia-state
 
 source:
-  ydb_topic:
+  logbroker:
     installation:
       type: on_premise
       host: localhost

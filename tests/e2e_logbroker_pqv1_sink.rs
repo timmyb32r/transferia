@@ -24,31 +24,29 @@ use hyper::{Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+
 use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use transferia::metrics::SinkCounters;
 use transferia::pipeline::memory::PipelineMemory;
 use transferia::pipeline::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
 };
-use transferia::providers::traits::SinkContext;
-use transferia::providers::ydb_topic::build_sink_provider;
+use transferia::providers::logbroker::pqv1::PqV1SinkProvider;
+use transferia::providers::traits::{SinkContext, SinkProvider as _};
 use transferia::types::schema::{DatasetSchema, SchemaColumn};
 use transferia::types::system_columns::SystemColumns;
-use ydb_grpc::ydb_proto::topic::stream_write_message::from_client::ClientMessage;
-use ydb_grpc::ydb_proto::topic::stream_write_message::from_server::ServerMessage;
-use ydb_grpc::ydb_proto::topic::stream_write_message::write_response::write_ack;
-use ydb_grpc::ydb_proto::topic::stream_write_message::{
-    write_response, FromClient, FromServer, InitResponse, WriteResponse,
+use transferia::Ydb::pers_queue::v1::{
+    streaming_write_client_message, streaming_write_server_message, Codec,
+    StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
-use ydb_grpc::ydb_proto::topic::{Codec, SupportedCodecs};
 
-const TOKEN: &str = "ydb-topic-sink-token";
+const TOKEN: &str = "pq-sink-token";
 const TOPIC: &str = "/Root/output-topic";
 const SUCCESS: i32 = 400_000;
 type TestBody = http_body_util::combinators::UnsyncBoxBody<Bytes, Infallible>;
 
 #[tokio::test]
-async fn ydb_topic_sink_commits_only_after_real_grpc_ack() -> anyhow::Result<()> {
+async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> anyhow::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let address = listener.local_addr()?;
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -67,11 +65,7 @@ async fn ydb_topic_sink_commits_only_after_real_grpc_ack() -> anyhow::Result<()>
         );
     });
 
-    let provider = build_sink_provider(serde_yaml::from_str(&format!(
-        "host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nproducer_id: transferia-e2e\nauth: {{ type: token, token: {TOKEN} }}\ndriver: ydb\ntrusted_plaintext: true\n",
-        address.ip(),
-        address.port()
-    ))?)?;
+    let provider = PqV1SinkProvider::from_config(serde_yaml::from_str(&format!("host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nmessage_group_id: e2e-writer\npartition_group_id: 0\ntrusted_plaintext: true\nnetwork_timeout_ms: 5000\nauth:\n  type: access_token\n  token: {TOKEN}\n", address.ip(), address.port()))?)?;
     let schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("name".into(), DataType::Utf8, true),
@@ -156,7 +150,7 @@ fn handle_write(
 ) -> Response<TestBody> {
     assert_eq!(
         request.uri().path(),
-        "/Ydb.Topic.V1.TopicService/StreamWrite"
+        "/Ydb.PersQueue.V1.PersQueueService/StreamingWrite"
     );
     assert_eq!(request.headers().get("x-ydb-auth-ticket").unwrap(), TOKEN);
     let (response_tx, response_rx) = mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
@@ -186,66 +180,62 @@ async fn process_requests(
             continue;
         };
         buffered.extend_from_slice(&data);
-        while let Some(message) = decode_grpc::<FromClient>(&mut buffered) {
+        while let Some(message) = decode_grpc::<StreamingWriteClientMessage>(&mut buffered) {
             match message.client_message {
-                Some(ClientMessage::InitRequest(init)) => {
-                    assert_eq!(init.path, TOPIC);
-                    assert_eq!(init.producer_id, "transferia-e2e");
+                Some(streaming_write_client_message::ClientMessage::InitRequest(init)) => {
+                    assert_eq!(init.topic, TOPIC);
                     send(
                         &response_tx,
-                        &FromServer {
+                        &StreamingWriteServerMessage {
                             status: SUCCESS,
                             issues: Vec::new(),
-                            server_message: Some(ServerMessage::InitResponse(InitResponse {
-                                last_seq_no: 0,
-                                session_id: "test-session".into(),
-                                partition_id: 0,
-                                supported_codecs: Some(SupportedCodecs {
-                                    codecs: vec![Codec::Raw as i32],
-                                }),
-                            })),
-                        },
-                    );
-                }
-                Some(ClientMessage::WriteRequest(write)) => {
-                    let acks = write
-                        .messages
-                        .into_iter()
-                        .map(|message| {
-                            observed.lock().unwrap().push(message.data);
-                            write_response::WriteAck {
-                                seq_no: message.seq_no,
-                                message_write_status: Some(write_ack::MessageWriteStatus::Written(
-                                    write_ack::Written {
-                                        offset: message.seq_no,
+                            server_message: Some(
+                                streaming_write_server_message::ServerMessage::InitResponse(
+                                    streaming_write_server_message::InitResponse {
+                                        last_sequence_number: 0,
+                                        topic: TOPIC.into(),
+                                        block_format_version: 0,
+                                        supported_codecs: vec![Codec::Raw as i32],
+                                        ..Default::default()
                                     },
-                                )),
-                            }
-                        })
-                        .collect();
-                    send(
-                        &response_tx,
-                        &FromServer {
-                            status: SUCCESS,
-                            issues: Vec::new(),
-                            server_message: Some(ServerMessage::WriteResponse(WriteResponse {
-                                acks,
-                                partition_id: 0,
-                                write_statistics: None,
-                            })),
+                                ),
+                            ),
                         },
                     );
                 }
-                _ => panic!("unexpected YDB Topic write message"),
+                Some(streaming_write_client_message::ClientMessage::WriteRequest(write)) => {
+                    observed.lock().unwrap().extend(write.blocks_data);
+                    send(
+                        &response_tx,
+                        &StreamingWriteServerMessage {
+                            status: SUCCESS,
+                            issues: Vec::new(),
+                            server_message: Some(
+                                streaming_write_server_message::ServerMessage::BatchWriteResponse(
+                                    streaming_write_server_message::BatchWriteResponse {
+                                        sequence_numbers: write.sequence_numbers,
+                                        offsets: vec![1],
+                                        already_written: vec![false],
+                                        partition_id: 0,
+                                        write_statistics: None,
+                                    },
+                                ),
+                            ),
+                        },
+                    );
+                }
+                _ => panic!("unexpected PQ write message"),
             }
         }
     }
 }
 
-fn send(tx: &mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>, message: &FromServer) {
+fn send(
+    tx: &mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
+    message: &StreamingWriteServerMessage,
+) {
     tx.send(Ok(Frame::data(grpc_frame(message)))).unwrap();
 }
-
 fn grpc_frame(message: &impl prost::Message) -> Bytes {
     let payload = message.encode_to_vec();
     let mut frame = Vec::with_capacity(payload.len() + 5);
@@ -254,7 +244,6 @@ fn grpc_frame(message: &impl prost::Message) -> Bytes {
     frame.extend_from_slice(&payload);
     Bytes::from(frame)
 }
-
 fn decode_grpc<T: prost::Message + Default>(buffer: &mut BytesMut) -> Option<T> {
     if buffer.len() < 5 {
         return None;

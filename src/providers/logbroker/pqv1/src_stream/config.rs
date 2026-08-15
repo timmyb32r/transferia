@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::parsers::ParserConfig;
-use crate::providers::pqv1::config::{default_network_timeout_ms, PqV1AuthConfig};
+use crate::providers::logbroker::pqv1::config::{default_network_timeout_ms, PqV1AuthConfig};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

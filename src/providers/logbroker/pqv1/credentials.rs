@@ -1,4 +1,4 @@
-use crate::providers::pqv1::config::PqV1AuthConfig;
+use crate::providers::logbroker::pqv1::config::PqV1AuthConfig;
 
 /// Load the raw access token required by the legacy `PQv1` protocol.
 #[expect(

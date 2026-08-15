@@ -81,7 +81,7 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
         keep_system_columns: false,
         datasets: Vec::new(),
     };
-    let source = transferia::compatibility::EndpointDescriptor::PqV1(
+    let source = transferia::compatibility::EndpointDescriptor::Logbroker(
         transferia::compatibility::SourceDescriptor {
             behavior: transferia::compatibility::SourceBehavior::BenchmarkDiscard,
             delivery_modes: transferia::compatibility::SourceDeliveryModes::STREAM,
@@ -155,7 +155,7 @@ fn finite_source_completion_is_not_restarted() {
 }
 
 #[test]
-fn default_registry_builds_ydb_topic_pqv1_driver_to_clickhouse_pipeline() -> anyhow::Result<()> {
+fn default_registry_builds_logbroker_pqv1_driver_to_clickhouse_pipeline() -> anyhow::Result<()> {
     let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     let config: Config = serde_yaml::from_str(
         r"
@@ -163,7 +163,7 @@ delivery_id: pqv1-clickhouse-test
 delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/transferia-test-state }
 source:
-  ydb_topic:
+  logbroker:
     host: localhost
     port: 2135
     topics: [{ path: topic, partitions: [0] }]

@@ -225,8 +225,8 @@ pub fn build_provider_catalog_with(
     let mut catalog = ProviderCatalog::new();
 
     catalog.register(
-        ProviderRegistration::new("ydb_topic", "Logbroker")
-            .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
+        ProviderRegistration::new("logbroker", "Logbroker")
+            .source::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _>(
                 vec![DeliveryMode::Stream],
                 true,
                 serde_json::json!({
@@ -244,14 +244,14 @@ pub fn build_provider_catalog_with(
                 {
                     let metrics_registry = Arc::clone(metrics_registry);
                     move |value| {
-                        crate::providers::ydb_topic::build_source_provider(
+                        crate::providers::logbroker::build_source_provider(
                             value,
                             Arc::clone(&metrics_registry),
                         )
                     }
                 },
             )?
-            .sink::<crate::providers::ydb_topic::sink::YdbTopicSinkConfig, _>(
+            .sink::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _>(
                 serde_json::json!({
                     "host": "",
                     "port": 2135,
@@ -262,7 +262,7 @@ pub fn build_provider_catalog_with(
                     "driver": "ydb",
                     "trusted_plaintext": true
                 }),
-                crate::providers::ydb_topic::build_sink_provider,
+                crate::providers::logbroker::build_sink_provider,
             )?,
     )?;
 
@@ -536,7 +536,7 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
     )?;
     register_on_premise(
         registry,
-        "ydb_topic",
+        "logbroker",
         EndpointRole::Source,
         &["host", "port", "auth", "trusted_plaintext"],
         serde_json::json!({
@@ -556,7 +556,7 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
     )?;
     register_on_premise(
         registry,
-        "ydb_topic",
+        "logbroker",
         EndpointRole::Sink,
         &["host", "port", "auth", "trusted_plaintext"],
         serde_json::json!({

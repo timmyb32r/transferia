@@ -16,8 +16,8 @@ use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::Source;
 use crate::pipeline::PipelineFailure;
-use crate::providers::pqv1::credentials::load_access_token;
-use crate::providers::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
+use crate::providers::logbroker::pqv1::credentials::load_access_token;
+use crate::providers::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;
 use crate::Ydb::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
 
@@ -281,7 +281,7 @@ fn validate_topic_metadata(
 
 async fn shared_access_token(
     token: &OnceCell<Arc<str>>,
-    auth: &crate::providers::pqv1::config::PqV1AuthConfig,
+    auth: &crate::providers::logbroker::pqv1::config::PqV1AuthConfig,
 ) -> anyhow::Result<Arc<str>> {
     token
         .get_or_try_init(|| async { load_access_token(auth).map(Into::<Arc<str>>::into) })
@@ -389,7 +389,7 @@ async fn resolve_proxies_cached(
 
 impl SourceProvider for PqV1SourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::PqV1(SourceDescriptor {
+        EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
         })

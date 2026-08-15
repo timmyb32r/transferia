@@ -20,7 +20,7 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::{
 };
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
-use super::{connect_client, set_ydb_headers, YdbTopicSourceConfig};
+use super::{connect_client, set_ydb_headers, LogbrokerSourceConfig};
 use crate::metrics::SourceCounters;
 use crate::pipeline::memory::PipelineMemory;
 use crate::pipeline::source::{CommitMarker, Source};
@@ -75,7 +75,7 @@ pub(super) struct YdbTopicSource {
 
 impl YdbTopicSource {
     pub(super) async fn connect(
-        config: &YdbTopicSourceConfig,
+        config: &LogbrokerSourceConfig,
         token: Arc<str>,
         reader_lane: i64,
         counters: Arc<SourceCounters>,
@@ -126,7 +126,7 @@ impl YdbTopicSource {
         source
             .send(ClientMessage::ReadRequest(ReadRequest {
                 bytes_size: i64::try_from(config.read_buffer_bytes)
-                    .map_err(|_| anyhow!("ydb_topic.read_buffer_bytes exceeds i64"))?,
+                    .map_err(|_| anyhow!("logbroker.read_buffer_bytes exceeds i64"))?,
             }))
             .await?;
         Ok(source)
@@ -678,7 +678,7 @@ pub(super) fn build_commit_request(
     Ok((commit_offsets, targets))
 }
 
-pub(super) fn init_message(config: &YdbTopicSourceConfig, reader_lane: i64) -> FromClient {
+pub(super) fn init_message(config: &LogbrokerSourceConfig, reader_lane: i64) -> FromClient {
     FromClient {
         client_message: Some(ClientMessage::InitRequest(InitRequest {
             topics_read_settings: config

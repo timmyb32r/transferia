@@ -176,7 +176,7 @@ async fn invalid_and_oversized_json_are_rejected_before_the_service() -> anyhow:
 async fn yaml_can_round_trip_to_an_editable_json_config() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let request = serde_json::json!({
-        "yaml": "delivery_type: stream\nsource:\n  ydb_topic: {}\nsink: {}\n"
+        "yaml": "delivery_type: stream\nsource:\n  logbroker: {}\nsink: {}\n"
     });
     let parsed = app
         .clone()
@@ -190,7 +190,7 @@ async fn yaml_can_round_trip_to_an_editable_json_config() -> anyhow::Result<()> 
     let body: serde_json::Value =
         serde_json::from_slice(&to_bytes(parsed.into_body(), 64 * 1024).await?)?;
     assert_eq!(body["config"]["delivery_type"], "stream");
-    assert!(body["config"]["source"]["ydb_topic"].is_object());
+    assert!(body["config"]["source"]["logbroker"].is_object());
 
     let invalid = app
         .oneshot(

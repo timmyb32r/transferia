@@ -1,11 +1,11 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::providers::ydb_topic::src_stream::{YdbTopicAuthConfig, YdbTopicDriver};
+use crate::providers::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct YdbTopicSinkConfig {
+pub struct LogbrokerSinkConfig {
     pub host: String,
 
     pub port: u16,
@@ -26,35 +26,35 @@ pub struct YdbTopicSinkConfig {
     )]
     pub partition_id: Option<i64>,
 
-    pub auth: YdbTopicAuthConfig,
+    pub auth: LogbrokerAuthConfig,
 
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
-    pub driver: YdbTopicDriver,
+    pub driver: LogbrokerDriver,
 
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub trusted_plaintext: bool,
 }
 
-impl YdbTopicSinkConfig {
+impl LogbrokerSinkConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
-        crate::providers::address::validate_host("ydb_topic.host", &self.host)?;
-        crate::providers::address::validate_port("ydb_topic.port", self.port)?;
+        crate::providers::address::validate_host("logbroker.host", &self.host)?;
+        crate::providers::address::validate_port("logbroker.port", self.port)?;
         anyhow::ensure!(
             !self.topic_path.trim().is_empty(),
-            "ydb_topic.topic_path must not be empty"
+            "logbroker.topic_path must not be empty"
         );
         anyhow::ensure!(
             !self.producer_id.is_empty() && self.producer_id.len() <= 2048,
-            "ydb_topic.producer_id must contain 1..=2048 UTF-8 bytes"
+            "logbroker.producer_id must contain 1..=2048 UTF-8 bytes"
         );
         anyhow::ensure!(
             self.partition_id
                 .is_none_or(|partition_id| partition_id >= 0),
-            "ydb_topic.partition_id must be nonnegative"
+            "logbroker.partition_id must be nonnegative"
         );
         anyhow::ensure!(
             self.trusted_plaintext,
-            "ydb_topic.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
+            "logbroker.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
         );
         self.auth.validate()
     }

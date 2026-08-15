@@ -29,14 +29,14 @@ fn durable_identity_and_storage_are_required_and_validated_explicitly() {
 }
 
 #[test]
-fn ydb_topic_pqv1_driver_to_s3_matches_registered_provider_shapes() -> anyhow::Result<()> {
+fn logbroker_pqv1_driver_to_s3_matches_registered_provider_shapes() -> anyhow::Result<()> {
     let config: Config = serde_yaml::from_str(
         r"
 delivery_id: pqv1-s3-test
 delivery_type: stream
 durable_storage: { type: local_file, path: /tmp/state }
 source:
-  ydb_topic:
+  logbroker:
     host: localhost
     port: 2135
     topics: [{ path: topic-a, partitions: [0] }]
@@ -65,7 +65,7 @@ sink:
     partitioning: { type: source }
 ",
     )?;
-    let source: crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig =
+    let source: crate::providers::logbroker::src_stream::LogbrokerSourceConfig =
         serde_yaml::from_value(config.source.raw()?.clone())?;
     drop(serde_yaml::from_value::<
         crate::parsers::json_parser::JsonParserConfig,

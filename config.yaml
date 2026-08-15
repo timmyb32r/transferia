@@ -3,7 +3,7 @@ delivery_id: pqv1-s3-demo
 delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
-  ydb_topic:
+  logbroker:
     # PQv1 currently supports plaintext HTTP/2 only. Point this at a trusted
     # local endpoint/tunnel; grpcs:// is rejected instead of silently skipping TLS.
     installation:

@@ -5,7 +5,7 @@ delivery_id: benchmark-pqv1-decompress
 delivery_type: stream
 durable_storage: { type: local_file, path: .transferia-state }
 source:
-  ydb_topic:
+  logbroker:
     installation:
       type: on_premise
       host: "${PQ_HOST:-localhost}"

@@ -3,7 +3,7 @@ use crate::delivery::{DiscoveredDataset, SchemaOrigin};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 fn source() -> EndpointDescriptor {
-    EndpointDescriptor::YdbTopic(SourceDescriptor {
+    EndpointDescriptor::Logbroker(SourceDescriptor {
         behavior: SourceBehavior::ProducesRows,
         delivery_modes: SourceDeliveryModes::STREAM,
     })
@@ -120,7 +120,7 @@ fn discard_sink_is_explicitly_supported_for_benchmarks() {
 #[test]
 fn durable_sinks_reject_a_discarding_source() {
     let mut source_endpoint = source();
-    let EndpointDescriptor::YdbTopic(source) = &mut source_endpoint else {
+    let EndpointDescriptor::Logbroker(source) = &mut source_endpoint else {
         panic!("test source must be YDB Topic")
     };
     source.behavior = SourceBehavior::BenchmarkDiscard;

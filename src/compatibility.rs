@@ -11,15 +11,14 @@ use crate::types::system_columns::SystemColumnKind;
 
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
-    PqV1(SourceDescriptor),
-    YdbTopic(SourceDescriptor),
+    Logbroker(SourceDescriptor),
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
     S3Source(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
-    PqV1Sink,
+    LogbrokerSink,
     ClickHouse,
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
@@ -30,15 +29,14 @@ impl EndpointDescriptor {
     #[must_use]
     pub const fn source_behavior(&self) -> Option<SourceBehavior> {
         match self {
-            Self::PqV1(source)
-            | Self::YdbTopic(source)
+            Self::Logbroker(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
-            | Self::PqV1Sink
+            | Self::LogbrokerSink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::Discard => None,
@@ -48,15 +46,14 @@ impl EndpointDescriptor {
     #[must_use]
     pub const fn supports_delivery_type(&self, delivery_type: DeliveryType) -> bool {
         match self {
-            Self::PqV1(source)
-            | Self::YdbTopic(source)
+            Self::Logbroker(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source) => source.delivery_modes.supports(delivery_type),
             Self::PostgresSink
             | Self::YTsaurusSink
-            | Self::PqV1Sink
+            | Self::LogbrokerSink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::Discard => false,
@@ -212,10 +209,7 @@ pub fn validate_pipeline(
     }
     if matches!(
         source,
-        EndpointDescriptor::PqV1(SourceDescriptor {
-            behavior: SourceBehavior::BenchmarkDiscard,
-            ..
-        }) | EndpointDescriptor::YdbTopic(SourceDescriptor {
+        EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: SourceBehavior::BenchmarkDiscard,
             ..
         })
@@ -225,8 +219,8 @@ pub fn validate_pipeline(
             diagnostics: vec![error(
                 DiagnosticCode::BenchmarkSourceDiscard,
                 &[
-                    "source.ydb_topic.pqv1_discard_before_decompression",
-                    "source.ydb_topic.parser.benchmark_discard",
+                    "source.logbroker.pqv1_discard_before_decompression",
+                    "source.logbroker.parser.benchmark_discard",
                     "sink",
                 ],
                 "the PQv1 source is configured to discard payloads, so a durable sink would acknowledge and commit data it never stored",
@@ -270,8 +264,8 @@ pub fn validate_pipeline(
             }],
         };
     }
-    if matches!(sink, EndpointDescriptor::PqV1Sink) {
-        return DeliverySemanticsReport { guarantee: DeliveryGuarantee::AtLeastOnce, diagnostics: vec![SemanticsDiagnostic { code: DiagnosticCode::PqV1AtLeastOnce, severity: DiagnosticSeverity::Info, config_paths: vec!["sink.pqv1".into()], explanation: "PQv1 write ACK precedes source progress commit, so an ambiguous retry may produce a duplicate unless the destination deduplicates the configured message group sequence".into(), remediation: None }] };
+    if matches!(sink, EndpointDescriptor::LogbrokerSink) {
+        return DeliverySemanticsReport { guarantee: DeliveryGuarantee::AtLeastOnce, diagnostics: vec![SemanticsDiagnostic { code: DiagnosticCode::PqV1AtLeastOnce, severity: DiagnosticSeverity::Info, config_paths: vec!["sink.logbroker".into()], explanation: "Logbroker write acknowledgement precedes source progress commit, so an ambiguous retry may produce a duplicate unless the destination deduplicates the configured producer sequence".into(), remediation: None }] };
     }
     let EndpointDescriptor::S3(sink) = sink else {
         return DeliverySemanticsReport {
@@ -294,7 +288,7 @@ pub fn validate_pipeline(
     if mains.is_empty() {
         diagnostics.push(error(
             DiagnosticCode::InvalidDeliveryDiscovery,
-            &["source.ydb_topic.parser"],
+            &["source.logbroker.parser"],
             "delivery discovery contains no main dataset",
             Some("configure a row-producing parser with one main and one DLQ dataset"),
         ));
@@ -316,7 +310,7 @@ pub fn validate_pipeline(
     {
         diagnostics.push(error(
             DiagnosticCode::SystemColumnsNotProduced,
-            &["source.ydb_topic.parser.common.system_columns"],
+            &["source.logbroker.parser.common.system_columns"],
             "system columns cannot be retained because the parser produces none",
             Some("enable at least one parser system column"),
         ));
@@ -336,7 +330,7 @@ pub fn validate_pipeline(
                         DiagnosticCode::UnknownPartitionField,
                         &[
                             "sink.s3.partitioning.columns",
-                            "source.ydb_topic.parser.json_parser.columns",
+                            "source.logbroker.parser.json_parser.columns",
                         ],
                         &format!("partition field '{field}' is absent from the parser schema"),
                         Some("add a non-null scalar parser column with this name"),
@@ -345,7 +339,7 @@ pub fn validate_pipeline(
                         DiagnosticCode::NullablePartitionField,
                         &[
                             "sink.s3.partitioning.columns",
-                            "source.ydb_topic.parser.json_parser.columns",
+                            "source.logbroker.parser.json_parser.columns",
                         ],
                         &format!("partition field '{field}' is nullable"),
                         Some("make the parser column non-nullable; invalid records will go to DLQ"),
@@ -355,7 +349,7 @@ pub fn validate_pipeline(
                             DiagnosticCode::UnsupportedPartitionFieldType,
                             &[
                                 "sink.s3.partitioning.columns",
-                                "source.ydb_topic.parser.json_parser.columns",
+                                "source.logbroker.parser.json_parser.columns",
                             ],
                             &format!(
                                 "partition field '{field}' has unsupported type {:?}",
@@ -389,10 +383,7 @@ pub fn validate_pipeline(
         }
     }
 
-    let guarantee = if !matches!(
-        source,
-        EndpointDescriptor::PqV1(_) | EndpointDescriptor::YdbTopic(_)
-    ) {
+    let guarantee = if !matches!(source, EndpointDescriptor::Logbroker(_)) {
         diagnostics.push(SemanticsDiagnostic {
             code: DiagnosticCode::DeterministicS3Commit,
             severity: DiagnosticSeverity::Info,
@@ -442,12 +433,8 @@ pub fn validate_pipeline(
 }
 
 fn stream_source_path(source: &EndpointDescriptor, field: &str) -> String {
-    let provider = if matches!(source, EndpointDescriptor::YdbTopic(_)) {
-        "ydb_topic"
-    } else {
-        "pqv1"
-    };
-    format!("source.{provider}.{field}")
+    debug_assert!(matches!(source, EndpointDescriptor::Logbroker(_)));
+    format!("source.logbroker.{field}")
 }
 
 fn require_system_column(
@@ -463,7 +450,7 @@ fn require_system_column(
     }) {
         diagnostics.push(error(
             DiagnosticCode::MissingSystemColumn,
-            &["source.ydb_topic.parser.common.system_columns", "sink.s3"],
+            &["source.logbroker.parser.common.system_columns", "sink.s3"],
             &format!(
                 "S3 sink requires parser system column '{}'",
                 kind.default_name()

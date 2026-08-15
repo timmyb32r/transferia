@@ -8,8 +8,8 @@ use transferia::config::yaml::Config;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
 use transferia::pipeline::memory::PipelineMemory;
+use transferia::providers::logbroker::YdbDriverSourceProvider;
 use transferia::providers::traits::SourceProvider as _;
-use transferia::providers::ydb_topic::YdbTopicSourceProvider;
 use transferia::types::message::SourceBatch;
 
 #[derive(Parser)]
@@ -29,12 +29,12 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config = Config::from_file(&args.config)?;
     anyhow::ensure!(
-        config.source.kind()? == "ydb_topic",
-        "the smoke config source must be ydb_topic"
+        config.source.kind()? == "logbroker",
+        "the smoke config source must be logbroker"
     );
     let durable = config.durable_storage.build(&config.delivery_id)?;
     let metrics = Arc::new(MetricsRegistry::new());
-    let provider = Arc::new(YdbTopicSourceProvider::from_config(
+    let provider = Arc::new(YdbDriverSourceProvider::from_config(
         config.source.raw()?.clone(),
         metrics,
     )?);

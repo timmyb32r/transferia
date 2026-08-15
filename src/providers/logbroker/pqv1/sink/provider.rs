@@ -10,7 +10,7 @@ use crate::delivery::{
     SinkLimitsDescription, TextLimit,
 };
 use crate::pipeline::sink::Sink;
-use crate::providers::pqv1::config::PqV1SinkConfig;
+use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;
 
@@ -24,7 +24,8 @@ impl PqV1SinkProvider {
         let config: PqV1SinkConfig = serde_yaml::from_value(value)
             .map_err(|error| anyhow::anyhow!("Failed to parse PQv1 sink config: {error}"))?;
         config.validate()?;
-        let token = crate::providers::pqv1::credentials::load_access_token(&config.auth)?;
+        let token =
+            crate::providers::logbroker::pqv1::credentials::load_access_token(&config.auth)?;
         Ok(Self {
             config: Arc::new(config),
             token: Arc::from(token),
@@ -103,7 +104,7 @@ impl SinkLimits for PqV1SinkConfig {
 
 impl SinkProvider for PqV1SinkProvider {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::PqV1Sink
+        EndpointDescriptor::LogbrokerSink
     }
     fn limits(&self) -> &dyn SinkLimits {
         self.config.as_ref()

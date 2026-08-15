@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
 use transferia::pipeline::memory::PipelineMemory;
-use transferia::providers::pqv1::src_stream::PqV1SourceProvider;
+use transferia::providers::logbroker::pqv1::src_stream::PqV1SourceProvider;
 use transferia::providers::traits::SourceProvider;
 use transferia::Ydb::discovery::{EndpointInfo, ListEndpointsResult};
 use transferia::Ydb::operations::{GetOperationResponse, Operation};

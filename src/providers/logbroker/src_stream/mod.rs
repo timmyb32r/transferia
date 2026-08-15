@@ -22,15 +22,18 @@ use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 
-pub use config::{YdbTopicAuthConfig, YdbTopicDriver, YdbTopicReadConfig, YdbTopicSourceConfig};
+#[cfg(test)]
+use crate::providers::logbroker::LogbrokerAuthConfig;
+use crate::providers::logbroker::LogbrokerDriver;
+pub use config::{LogbrokerSourceConfig, LogbrokerTopicConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";
 
-pub struct YdbTopicSourceProvider {
-    cfg: YdbTopicSourceConfig,
+pub struct YdbDriverSourceProvider {
+    cfg: LogbrokerSourceConfig,
     parser_plan: ParserPlan,
     metrics_registry: Arc<MetricsRegistry>,
     behavior: SourceBehavior,
@@ -39,26 +42,26 @@ pub struct YdbTopicSourceProvider {
 }
 
 struct PqV1DriverSourceProvider {
-    inner: crate::providers::pqv1::src_stream::PqV1SourceProvider,
+    inner: crate::providers::logbroker::pqv1::src_stream::PqV1SourceProvider,
     behavior: SourceBehavior,
 }
 
-impl YdbTopicSourceProvider {
+impl YdbDriverSourceProvider {
     pub fn from_config(
         value: Value,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        let cfg: YdbTopicSourceConfig = serde_yaml::from_value(value)
+        let cfg: LogbrokerSourceConfig = serde_yaml::from_value(value)
             .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
         validate_config(&cfg)?;
         anyhow::ensure!(
-            cfg.driver == YdbTopicDriver::Ydb,
-            "YdbTopicSourceProvider requires driver=ydb"
+            cfg.driver == LogbrokerDriver::Ydb,
+            "YdbDriverSourceProvider requires driver=ydb"
         );
         let parser_kind = cfg.parser.parser.kind()?;
         anyhow::ensure!(
             parser_kind != "benchmark_discard",
-            "ydb_topic does not support the benchmark_discard parser"
+            "logbroker does not support the benchmark_discard parser"
         );
         let primary_topic = &cfg.topics[0].path;
         if cfg.topics.len() > 1
@@ -67,7 +70,7 @@ impl YdbTopicSourceProvider {
                 crate::parsers::TableNaming::FromTopicName
             )
         {
-            anyhow::bail!("ydb_topic with multiple topics requires table_naming.type=from_config");
+            anyhow::bail!("logbroker with multiple topics requires table_naming.type=from_config");
         }
         let parser_plan = ParserPlan::from_config(&cfg.parser, primary_topic)?;
         Ok(Self {
@@ -116,42 +119,42 @@ pub fn build_source_provider(
     value: Value,
     metrics_registry: Arc<MetricsRegistry>,
 ) -> anyhow::Result<Box<dyn SourceProvider>> {
-    let cfg: YdbTopicSourceConfig = serde_yaml::from_value(value.clone())
+    let cfg: LogbrokerSourceConfig = serde_yaml::from_value(value.clone())
         .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
     validate_config(&cfg)?;
     match cfg.driver {
-        YdbTopicDriver::Ydb => {
+        LogbrokerDriver::Ydb => {
             anyhow::ensure!(
                 cfg.pqv1_decompression_concurrency
                     == config::default_pqv1_decompression_concurrency()
                     && !cfg.pqv1_discard_before_decompression,
-                "PQv1-only settings require ydb_topic.driver=pqv1"
+                "PQv1-only settings require logbroker.driver=pqv1"
             );
-            Ok(Box::new(YdbTopicSourceProvider::from_config(
+            Ok(Box::new(YdbDriverSourceProvider::from_config(
                 value,
                 metrics_registry,
             )?))
         }
-        YdbTopicDriver::Pqv1 => {
+        LogbrokerDriver::Pqv1 => {
             anyhow::ensure!(
                 cfg.topics.len() == 1,
-                "ydb_topic.driver=pqv1 currently requires exactly one topic"
+                "logbroker.driver=pqv1 currently requires exactly one topic"
             );
             anyhow::ensure!(
                 !cfg.topics[0].partitions.is_empty(),
-                "ydb_topic.driver=pqv1 requires explicit topic partitions"
+                "logbroker.driver=pqv1 requires explicit topic partitions"
             );
             anyhow::ensure!(
                 !cfg.allow_ttl_rewind,
-                "ydb_topic.allow_ttl_rewind is not supported by the PQv1 driver"
+                "logbroker.allow_ttl_rewind is not supported by the PQv1 driver"
             );
             anyhow::ensure!(
                 cfg.read_buffer_bytes == config::default_read_buffer_bytes(),
-                "ydb_topic.read_buffer_bytes is supported only by driver=ydb"
+                "logbroker.read_buffer_bytes is supported only by driver=ydb"
             );
             anyhow::ensure!(
                 cfg.pqv1_decompression_concurrency > 0,
-                "ydb_topic PQv1 decompression concurrency must be positive"
+                "logbroker PQv1 decompression concurrency must be positive"
             );
 
             let mut mapping = value.as_mapping().cloned().ok_or_else(|| {
@@ -186,7 +189,7 @@ pub fn build_source_provider(
             let auth = mapping
                 .get_mut(Value::String("auth".into()))
                 .and_then(Value::as_mapping_mut)
-                .ok_or_else(|| anyhow::anyhow!("ydb_topic.auth must be an object"))?;
+                .ok_or_else(|| anyhow::anyhow!("logbroker.auth must be an object"))?;
             auth.insert(
                 Value::String("type".into()),
                 Value::String("access_token".into()),
@@ -203,10 +206,11 @@ pub fn build_source_provider(
                 Value::String("benchmark_discard_before_decompression".into()),
                 Value::Bool(cfg.pqv1_discard_before_decompression),
             );
-            let inner = crate::providers::pqv1::src_stream::PqV1SourceProvider::from_config(
-                Value::Mapping(mapping),
-                metrics_registry,
-            )?;
+            let inner =
+                crate::providers::logbroker::pqv1::src_stream::PqV1SourceProvider::from_config(
+                    Value::Mapping(mapping),
+                    metrics_registry,
+                )?;
             let behavior = inner
                 .compatibility()
                 .source_behavior()
@@ -218,7 +222,7 @@ pub fn build_source_provider(
 
 impl SourceProvider for PqV1DriverSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::YdbTopic(SourceDescriptor {
+        EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
         })
@@ -257,46 +261,46 @@ impl SourceProvider for PqV1DriverSourceProvider {
     }
 }
 
-fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
-    crate::providers::address::validate_host("ydb_topic.host", &cfg.host)?;
-    crate::providers::address::validate_port("ydb_topic.port", cfg.port)?;
-    anyhow::ensure!(!cfg.topics.is_empty(), "ydb_topic.topics must not be empty");
+fn validate_config(cfg: &LogbrokerSourceConfig) -> anyhow::Result<()> {
+    crate::providers::address::validate_host("logbroker.host", &cfg.host)?;
+    crate::providers::address::validate_port("logbroker.port", cfg.port)?;
+    anyhow::ensure!(!cfg.topics.is_empty(), "logbroker.topics must not be empty");
     let mut topic_paths = HashSet::with_capacity(cfg.topics.len());
     for topic in &cfg.topics {
         anyhow::ensure!(
             !topic.path.is_empty(),
-            "ydb_topic.topics[].path must not be empty"
+            "logbroker.topics[].path must not be empty"
         );
         anyhow::ensure!(
             topic_paths.insert(topic.path.as_str()),
-            "ydb_topic.topics contains duplicate path '{}'",
+            "logbroker.topics contains duplicate path '{}'",
             topic.path
         );
         let mut partitions = HashSet::with_capacity(topic.partitions.len());
         for partition_id in &topic.partitions {
             anyhow::ensure!(
                 *partition_id >= 0,
-                "ydb_topic topic '{}' contains negative partition {partition_id}",
+                "logbroker topic '{}' contains negative partition {partition_id}",
                 topic.path
             );
             anyhow::ensure!(
                 partitions.insert(*partition_id),
-                "ydb_topic topic '{}' contains duplicate partition {partition_id}",
+                "logbroker topic '{}' contains duplicate partition {partition_id}",
                 topic.path
             );
         }
     }
     anyhow::ensure!(
         !cfg.consumer_name.is_empty(),
-        "ydb_topic.consumer_name must not be empty"
+        "logbroker.consumer_name must not be empty"
     );
     anyhow::ensure!(
         cfg.trusted_plaintext,
-        "ydb_topic.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
+        "logbroker.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
     );
     anyhow::ensure!(
         (1..=MAX_READ_BUFFER_BYTES).contains(&cfg.read_buffer_bytes),
-        "ydb_topic.read_buffer_bytes must be in 1..={MAX_READ_BUFFER_BYTES}"
+        "logbroker.read_buffer_bytes must be in 1..={MAX_READ_BUFFER_BYTES}"
     );
     cfg.auth.validate()
 }
@@ -327,9 +331,9 @@ async fn connect_client(
     Ok((TopicServiceClient::with_origin(service, uri.clone()), uri))
 }
 
-impl SourceProvider for YdbTopicSourceProvider {
+impl SourceProvider for YdbDriverSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::YdbTopic(SourceDescriptor {
+        EndpointDescriptor::Logbroker(SourceDescriptor {
             behavior: self.behavior,
             delivery_modes: SourceDeliveryModes::STREAM,
         })

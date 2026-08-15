@@ -21,13 +21,13 @@ use ydb_grpc::ydb_proto::topic::stream_write_message::{
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::topic::Codec;
 
-use super::config::YdbTopicSinkConfig;
+use super::config::LogbrokerSinkConfig;
 use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
 use crate::pipeline::sink::{Sink, SinkEvent, SinkIo};
 use crate::pipeline::PipelineFailure;
-use crate::providers::pqv1::pq_v1::set_ydb_headers;
-use crate::providers::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
+use crate::providers::logbroker::pqv1::pq_v1::set_ydb_headers;
+use crate::providers::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
 use crate::providers::traits::SinkContext;
 use crate::providers::ydb_transport::connect_http2_prior_knowledge;
 
@@ -35,7 +35,7 @@ const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10
 const WRITE_PAYLOAD_BUDGET: usize = MAX_GRPC_MESSAGE_SIZE / 2;
 
 pub(super) struct YdbTopicSink {
-    config: Arc<YdbTopicSinkConfig>,
+    config: Arc<LogbrokerSinkConfig>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
     discovery: Arc<crate::delivery::DeliveryDiscovery>,
@@ -54,7 +54,7 @@ impl Stream for RequestStream {
 
 impl YdbTopicSink {
     pub(super) fn new(
-        config: Arc<YdbTopicSinkConfig>,
+        config: Arc<LogbrokerSinkConfig>,
         token: Arc<str>,
         context: SinkContext,
     ) -> Self {
@@ -196,7 +196,7 @@ impl Sink for YdbTopicSink {
     }
 }
 
-fn init_message(config: &YdbTopicSinkConfig) -> FromClient {
+fn init_message(config: &LogbrokerSinkConfig) -> FromClient {
     FromClient {
         client_message: Some(ClientMessage::InitRequest(InitRequest {
             path: config.topic_path.clone(),

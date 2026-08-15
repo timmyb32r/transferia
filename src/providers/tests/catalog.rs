@@ -13,7 +13,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert_eq!(
         keys,
         [
-            "ydb_topic",
+            "logbroker",
             "postgres",
             "clickhouse",
             "s3",
@@ -24,12 +24,12 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(catalog
         .definitions()
         .iter()
-        .find(|definition| definition.key == "ydb_topic")
+        .find(|definition| definition.key == "logbroker")
         .is_some_and(|definition| definition.source.is_some() && definition.sink.is_some()));
     assert!(catalog
         .definitions()
         .iter()
-        .find(|definition| definition.key == "ydb_topic")
+        .find(|definition| definition.key == "logbroker")
         .is_some_and(|definition| definition.title == "Logbroker"));
     assert!(catalog
         .definitions()
@@ -37,22 +37,22 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .find(|definition| definition.key == "discard")
         .is_some_and(|definition| definition.source.is_none()));
 
-    let ydb_topic = catalog
+    let logbroker = catalog
         .definitions()
         .iter()
-        .find(|definition| definition.key == "ydb_topic")
+        .find(|definition| definition.key == "logbroker")
         .and_then(|definition| definition.source.as_ref())
         .ok_or_else(|| anyhow::anyhow!("missing YDB Topic source definition"))?;
-    let schema = serde_json::to_string(&ydb_topic.schema)?;
+    let schema = serde_json::to_string(&logbroker.schema)?;
     assert!(!schema.contains("topology_discovery"));
     assert!(schema.contains("partitions"));
     assert!(schema.contains("pqv1"));
-    assert!(ydb_topic.partitioned);
+    assert!(logbroker.partitioned);
 
     let sink = catalog
         .definitions()
         .iter()
-        .find(|definition| definition.key == "ydb_topic")
+        .find(|definition| definition.key == "logbroker")
         .and_then(|definition| definition.sink.as_ref())
         .ok_or_else(|| anyhow::anyhow!("missing Logbroker sink definition"))?;
     let sink_schema = serde_json::to_string(&sink.schema)?;

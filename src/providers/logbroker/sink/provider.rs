@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use serde_yaml::Value;
 
-use super::config::YdbTopicSinkConfig;
+use super::config::LogbrokerSinkConfig;
 use super::writer::YdbTopicSink;
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{
@@ -11,21 +11,21 @@ use crate::delivery::{
     SinkLimitsDescription, TextLimit,
 };
 use crate::pipeline::sink::Sink;
+use crate::providers::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
-use crate::providers::ydb_topic::src_stream::{YdbTopicAuthConfig, YdbTopicDriver};
 use crate::serializer::JsonBatchEncoder;
 
-pub struct YdbTopicSinkProvider {
-    config: Arc<YdbTopicSinkConfig>,
+pub struct YdbDriverSinkProvider {
+    config: Arc<LogbrokerSinkConfig>,
     token: Arc<str>,
 }
 
-impl YdbTopicSinkProvider {
-    fn from_config(config: YdbTopicSinkConfig) -> anyhow::Result<Self> {
+impl YdbDriverSinkProvider {
+    fn from_config(config: LogbrokerSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         anyhow::ensure!(
-            config.driver == YdbTopicDriver::Ydb,
-            "YdbTopicSinkProvider requires driver=ydb"
+            config.driver == LogbrokerDriver::Ydb,
+            "YdbDriverSinkProvider requires driver=ydb"
         );
         let token = config.auth.load_token()?;
         Ok(Self {
@@ -36,22 +36,22 @@ impl YdbTopicSinkProvider {
 }
 
 pub fn build_sink_provider(value: Value) -> anyhow::Result<Box<dyn SinkProvider>> {
-    let config: YdbTopicSinkConfig = serde_yaml::from_value(value)
+    let config: LogbrokerSinkConfig = serde_yaml::from_value(value)
         .map_err(|error| anyhow::anyhow!("Failed to parse Logbroker sink config: {error}"))?;
     config.validate()?;
     match config.driver {
-        YdbTopicDriver::Ydb => Ok(Box::new(YdbTopicSinkProvider::from_config(config)?)),
-        YdbTopicDriver::Pqv1 => {
+        LogbrokerDriver::Ydb => Ok(Box::new(YdbDriverSinkProvider::from_config(config)?)),
+        LogbrokerDriver::Pqv1 => {
             let partition_id = config.partition_id.ok_or_else(|| {
-                anyhow::anyhow!("ydb_topic.driver=pqv1 requires an explicit partition_id")
+                anyhow::anyhow!("logbroker.driver=pqv1 requires an explicit partition_id")
             })?;
             let auth = match config.auth {
-                YdbTopicAuthConfig::Token { token } => serde_yaml::to_value(serde_json::json!({
+                LogbrokerAuthConfig::Token { token } => serde_yaml::to_value(serde_json::json!({
                     "type": "access_token",
                     "token": token,
                     "token_file": null
                 }))?,
-                YdbTopicAuthConfig::TokenFile { token_file } => {
+                LogbrokerAuthConfig::TokenFile { token_file } => {
                     serde_yaml::to_value(serde_json::json!({
                         "type": "access_token",
                         "token": null,
@@ -70,16 +70,16 @@ pub fn build_sink_provider(value: Value) -> anyhow::Result<Box<dyn SinkProvider>
                 "network_timeout_ms": 30_000
             }))?;
             Ok(Box::new(
-                crate::providers::pqv1::PqV1SinkProvider::from_config(pqv1)?,
+                crate::providers::logbroker::pqv1::PqV1SinkProvider::from_config(pqv1)?,
             ))
         }
     }
 }
 
-impl SinkLimits for YdbTopicSinkConfig {
+impl SinkLimits for LogbrokerSinkConfig {
     fn description(&self) -> SinkLimitsDescription {
         SinkLimitsDescription {
-            sink: "ydb_topic",
+            sink: "logbroker",
             dataset_name: Some(TextLimit {
                 syntax: NameSyntax::AnyNonEmptyUtf8,
                 max_utf8_bytes: None,
@@ -145,9 +145,9 @@ impl SinkLimits for YdbTopicSinkConfig {
     }
 }
 
-impl SinkProvider for YdbTopicSinkProvider {
+impl SinkProvider for YdbDriverSinkProvider {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::PqV1Sink
+        EndpointDescriptor::LogbrokerSink
     }
 
     fn limits(&self) -> &dyn SinkLimits {

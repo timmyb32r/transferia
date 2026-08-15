@@ -196,7 +196,7 @@ fn reports_benchmark_discard_behavior() {
     ] {
         let source = provider(&cfg).unwrap();
         let endpoint = source.compatibility();
-        let EndpointDescriptor::PqV1(descriptor) = &endpoint else {
+        let EndpointDescriptor::Logbroker(descriptor) = &endpoint else {
             panic!("expected PQv1 descriptor")
         };
         assert_eq!(descriptor.behavior, SourceBehavior::BenchmarkDiscard);
@@ -216,7 +216,7 @@ fn reports_benchmark_discard_behavior() {
     }
 
     let source = provider(&json_config("")).unwrap();
-    let EndpointDescriptor::PqV1(descriptor) = source.compatibility() else {
+    let EndpointDescriptor::Logbroker(descriptor) = source.compatibility() else {
         panic!("expected PQv1 descriptor")
     };
     assert_eq!(descriptor.behavior, SourceBehavior::ProducesRows);
