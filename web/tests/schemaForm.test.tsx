@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render } from "@testing-library/preact";
+import { fireEvent, render, within } from "@testing-library/preact";
 import { useState } from "preact/hooks";
 import { describe, expect, it } from "vitest";
 
-import { SchemaForm } from "../src/schema/SchemaForm";
+import {
+  ParserDetailsForm,
+  SchemaForm,
+} from "../src/schema/SchemaForm";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
 
@@ -219,5 +222,187 @@ describe("schema form", () => {
     fireEvent.click(getByRole("option", { name: /id/ }));
     fireEvent.click(getByRole("option", { name: /source_offset/ }));
     expect(keys!.textContent).toContain("id, source_offset");
+  });
+
+  it("renders parser selection in the endpoint and details separately", () => {
+    const parserContainer: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["common", "json_parser"]),
+      properties: {
+        common: {
+          kind: "object",
+          xUi: {},
+          required: new Set(["table_naming"]),
+          properties: { table_naming: stringNode("Table name") },
+        },
+        json_parser: {
+          kind: "object",
+          xUi: {},
+          required: new Set(["columns"]),
+          properties: {
+            columns: {
+              kind: "array",
+              xUi: { widget: "column_mappings" },
+              item: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["column_name"]),
+                properties: { column_name: stringNode("Column name") },
+              },
+            },
+          },
+        },
+      },
+    };
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["parser"]),
+      properties: {
+        parser: {
+          kind: "union",
+          xUi: { widget: "parser" },
+          branches: [
+            {
+              label: "JSON parser",
+              requiredKeys: ["common", "json_parser"],
+              node: parserContainer,
+            },
+          ],
+        },
+      },
+    };
+    const value = {
+      parser: {
+        common: { table_naming: "events" },
+        json_parser: { columns: [{ column_name: "id" }] },
+      },
+    };
+    const endpoint = render(
+      <SchemaForm
+        node={node}
+        value={value}
+        parserSelectionOnly
+        onChange={() => undefined}
+      />,
+    );
+    expect(endpoint.container.textContent).toContain("JSON parser");
+    expect(endpoint.container.textContent).not.toContain("Output columns");
+
+    const details = render(
+      <ParserDetailsForm
+        node={node}
+        value={value}
+        onChange={() => undefined}
+      />,
+    );
+    expect(details.container.textContent).toContain("JSON parser configuration");
+    expect(details.container.textContent).toContain("Output columns");
+  });
+
+  it("renders data schema with one shared table header", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "jsonpath"]),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+            },
+          },
+        },
+      },
+    };
+    const { container } = render(
+      <SchemaForm
+        node={node}
+        value={{
+          columns: [
+            { column_name: "id", jsonpath: "$.id" },
+            { column_name: "value", jsonpath: "$.value" },
+          ],
+        }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(container.querySelectorAll("thead")).toHaveLength(1);
+    expect(container.querySelectorAll("th")).toHaveLength(7);
+    expect(container.querySelectorAll("tbody .config-table-row")).toHaveLength(
+      2,
+    );
+    expect(container.querySelector(".add-row-button")?.textContent).toBe(
+      "+ Add column",
+    );
+    expect(container.querySelectorAll(".table-details-row")).toHaveLength(0);
+  });
+
+  it("keeps column settings behind the row actions menu", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "jsonpath"]),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+              expression: stringNode("Expression"),
+            },
+          },
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        columns: [
+          {
+            column_name: "id",
+            jsonpath: "$.id",
+            expression: "custom expression",
+          },
+        ],
+      });
+      return <SchemaForm node={node} value={value} onChange={setValue} />;
+    }
+    const { container } = render(<Harness />);
+    const table = within(container as HTMLElement);
+    expect(table.queryByText("Column settings")).toBeNull();
+    expect(table.queryByText("Advanced column settings")).toBeNull();
+    expect(container.querySelector(".custom-settings-dot")).not.toBeNull();
+
+    fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
+    expect(table.getByRole("menuitem", { name: "Column settings" })).toBeTruthy();
+    expect(table.getByRole("menuitem", { name: "Duplicate" })).toBeTruthy();
+    expect(table.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    fireEvent.click(table.getByRole("menuitem", { name: "Column settings" }));
+
+    expect(container.querySelectorAll(".table-details-row")).toHaveLength(1);
+    expect(table.queryByText("Advanced column settings")).toBeTruthy();
+
+    fireEvent.click(
+      table.getByRole("button", { name: "Close column 1 settings" }),
+    );
+    fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
+    fireEvent.click(table.getByRole("menuitem", { name: "Duplicate" }));
+    expect(container.querySelectorAll(".config-table-row")).toHaveLength(2);
+
+    fireEvent.click(table.getByRole("button", { name: "Column 2 actions" }));
+    fireEvent.click(table.getByRole("menuitem", { name: "Delete" }));
+    expect(container.querySelectorAll(".config-table-row")).toHaveLength(1);
   });
 });

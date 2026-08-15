@@ -1,5 +1,11 @@
-import type { ComponentChildren } from "preact";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { createContext, Fragment, type ComponentChildren } from "preact";
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import {
@@ -18,22 +24,73 @@ interface SchemaFormProps {
   node: CompiledNode;
   value: JsonValue;
   disabled?: boolean;
+  parserSelectionOnly?: boolean;
   onChange: (value: JsonValue) => void;
 }
+
+const ParserSelectionContext = createContext(false);
 
 export function SchemaForm({
   node,
   value,
   disabled = false,
+  parserSelectionOnly = false,
   onChange,
 }: SchemaFormProps) {
   return (
-    <NodeEditor
-      node={node}
-      value={value}
-      disabled={disabled}
-      onChange={onChange}
-    />
+    <ParserSelectionContext.Provider value={parserSelectionOnly}>
+      <NodeEditor
+        node={node}
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+      />
+    </ParserSelectionContext.Provider>
+  );
+}
+
+export function ParserDetailsForm({
+  node,
+  value,
+  disabled = false,
+  onChange,
+}: SchemaFormProps) {
+  if (node.kind !== "object") return null;
+  const parserEntry = Object.entries(node.properties).find(
+    ([, child]) => child.xUi.widget === "parser",
+  );
+  if (parserEntry === undefined) return null;
+  const [name, parserNode] = parserEntry;
+  if (parserNode.kind !== "union") return null;
+  const object = isObject(value) ? value : {};
+  const parserValue = object[name];
+  const selected =
+    parserValue === undefined
+      ? undefined
+      : parserNode.branches.find((branch) =>
+          branchMatches(branch, parserValue),
+        );
+  if (
+    selected === undefined ||
+    selected.constant !== undefined ||
+    !nodeHasEditableContent(selected.node)
+  )
+    return null;
+  return (
+    <section class="card parser-details-card">
+      <div class="section-heading">
+        <div>
+          <small>PARSER</small>
+          <h2>{selected.label} configuration</h2>
+        </div>
+      </div>
+      <NodeEditor
+        node={selected.node}
+        value={parserValue ?? createValue(selected.node)}
+        disabled={disabled}
+        onChange={(next) => onChange({ ...object, [name]: next })}
+      />
+    </section>
   );
 }
 
@@ -54,6 +111,7 @@ function DisclosureSummary({ children }: { children: ComponentChildren }) {
 
 function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
+  const parserSelectionOnly = useContext(ParserSelectionContext);
   if (node.kind === "object" && isJsonParserContainer(node))
     return (
       <JsonParserEditor
@@ -241,7 +299,8 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
               onChange(branch.constant ?? createValue(branch.node));
             }}
           />
-          {selected >= 0 &&
+          {(!parserSelectionOnly || node.xUi.widget !== "parser") &&
+            selected >= 0 &&
             node.branches[selected]!.constant === undefined &&
             nodeHasEditableContent(node.branches[selected]!.node) && (
               <div class="nested-section">
@@ -519,6 +578,27 @@ function PropertyEditor({
         </div>
       </details>
     );
+  if (
+    node.kind === "array" &&
+    (name === "topics" || name === "hosts")
+  )
+    return (
+      <div class="form-row form-row-wide compact-array-field">
+        <label class="field-label">
+          <span>
+            {node.title ?? humanize(name)}
+            {!required && <small class="optional">(optional)</small>}
+          </span>
+        </label>
+        <CompactArrayEditor
+          name={name}
+          node={node}
+          value={Array.isArray(value) ? value : []}
+          disabled={disabled}
+          onChange={onChange}
+        />
+      </div>
+    );
   return (
     <div
       class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""}`}
@@ -738,6 +818,9 @@ function ColumnMappingsEditor({
   disabled: boolean;
   onChange: (columns: JsonValue[], keys: string[]) => void;
 }) {
+  const [expandedSettings, setExpandedSettings] = useState<Set<number>>(
+    () => new Set(),
+  );
   if (node.kind !== "object")
     return (
       <NodeEditor
@@ -778,6 +861,27 @@ function ColumnMappingsEditor({
         : keys.map((key) => (key === oldName ? newName : key)).filter(Boolean);
     onChange(columns, nextKeys);
   };
+  const toggleSettings = (index: number) =>
+    setExpandedSettings((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  const duplicateColumn = (index: number) => {
+    const columns = [...value];
+    columns.splice(index + 1, 0, structuredClone(value[index]!));
+    setExpandedSettings(new Set());
+    onChange(columns, keys);
+  };
+  const deleteColumn = (index: number, name: string) => {
+    setExpandedSettings(new Set());
+    onChange(
+      value.filter((_, itemIndex) => itemIndex !== index),
+      keys.filter((key) => key !== name),
+    );
+  };
+  const showLowCardinality = node.properties.low_cardinality !== undefined;
   return (
     <div class="column-editor">
       <div class="column-editor-heading">
@@ -786,128 +890,171 @@ function ColumnMappingsEditor({
           <h3>Output columns</h3>
         </div>
         <button
-          class="icon-button add"
+          class="add-row-button"
           type="button"
-          title="Add column"
           disabled={disabled}
           onClick={() => onChange([...value, createValue(node)], keys)}
         >
-          +
+          + Add column
         </button>
       </div>
-      {value.map((raw, index) => {
-        const column = isObject(raw) ? raw : {};
-        const name =
-          typeof column.column_name === "string" ? column.column_name : "";
-        const mainFields = [
-          "column_name",
-          "jsonpath",
-          "json_data_type",
-          "arrow_type",
-        ];
-        const extraFields = Object.entries(node.properties).filter(
-          ([field]) =>
-            ![...mainFields, "nullable", "low_cardinality"].includes(field),
-        );
-        return (
-          <div class="column-card" key={index}>
-            <div class="column-number">{index + 1}</div>
-            <div
-              class={`column-main ${node.properties.low_cardinality ? "with-low-cardinality" : ""}`}
-            >
-              {mainFields.map((field) =>
-                node.properties[field] === undefined ? null : (
-                  <label>
-                    <span>
-                      {field === "column_name"
-                        ? "Column name"
-                        : field === "jsonpath"
-                          ? "Path"
-                          : humanize(field)}
-                    </span>
-                    <NodeEditor
-                      node={node.properties[field]!}
-                      value={
-                        column[field] ?? createValue(node.properties[field]!)
-                      }
-                      disabled={disabled}
-                      onChange={(next) =>
-                        updateColumn(index, { ...column, [field]: next })
-                      }
-                    />
-                  </label>
-                ),
+      <div class="table-shell">
+        <table class="config-table column-table">
+          <thead>
+            <tr>
+              <th class="row-number" aria-label="Row" />
+              <th>Column</th>
+              <th>JSON path</th>
+              <th>JSON type</th>
+              <th>Arrow type</th>
+              <th class="flag-column">Not null</th>
+              {showLowCardinality && (
+                <th class="flag-column">Low cardinality</th>
               )}
-              <label class="column-flag">
-                <span>Not null</span>
-                <input
-                  type="checkbox"
-                  disabled={disabled}
-                  checked={column.nullable !== true}
-                  onChange={(event) =>
-                    updateColumn(index, {
-                      ...column,
-                      nullable: !event.currentTarget.checked,
-                    })
-                  }
-                />
-              </label>
-              {node.properties.low_cardinality && (
-                <label
-                  class={`column-flag tooltip-host ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
-                  data-tooltip="Low cardinality is meaningful only for string values"
-                >
-                  <span>Low cardinality</span>
-                  <input
-                    type="checkbox"
-                    disabled={disabled || !isStringArrowType(column.arrow_type)}
-                    checked={column.low_cardinality === true}
-                    onChange={(event) =>
-                      updateColumn(index, {
-                        ...column,
-                        low_cardinality: event.currentTarget.checked,
-                      })
-                    }
-                  />
-                </label>
-              )}
-              <button
-                class="icon-button danger column-remove"
-                type="button"
-                title="Remove column"
-                disabled={disabled}
-                onClick={() =>
-                  onChange(
-                    value.filter((_, itemIndex) => itemIndex !== index),
-                    keys.filter((key) => key !== name),
-                  )
-                }
-              >
-                <TrashIcon />
-              </button>
-            </div>
-            {extraFields.length > 0 && (
-              <details class="column-details">
-                <summary>Column settings</summary>
-                <div class="schema-object">
-                  {extraFields.map(([field, child]) => (
-                    <PropertyEditor
-                      name={field}
-                      node={child}
-                      required={node.required.has(field)}
-                      value={column[field]}
-                      disabled={disabled}
-                      onChange={(next) =>
-                        updateColumn(index, { ...column, [field]: next })
-                      }
-                    />
-                  ))}
-                </div>
-              </details>
-            )}
-          </div>
-        );
-      })}
+              <th class="actions-column">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {value.map((raw, index) => {
+              const column = isObject(raw) ? raw : {};
+              const name =
+                typeof column.column_name === "string"
+                  ? column.column_name
+                  : "";
+              const mainFields = [
+                "column_name",
+                "jsonpath",
+                "json_data_type",
+                "arrow_type",
+              ];
+              const extraFields = Object.entries(node.properties).filter(
+                ([field]) =>
+                  ![
+                    ...mainFields,
+                    "nullable",
+                    "low_cardinality",
+                  ].includes(field),
+              );
+              const hasCustomSettings = extraFields.some(
+                ([field, child]) =>
+                  column[field] !== undefined &&
+                  !jsonValuesEqual(column[field]!, createValue(child)),
+              );
+              const settingsExpanded = expandedSettings.has(index);
+              return (
+                <Fragment key={index}>
+                  <tr class="config-table-row">
+                    <td class="row-number">{index + 1}</td>
+                    {mainFields.map((field) => (
+                      <td key={field}>
+                        {node.properties[field] && (
+                          <NodeEditor
+                            node={node.properties[field]!}
+                            value={
+                              column[field] ??
+                              createValue(node.properties[field]!)
+                            }
+                            disabled={disabled}
+                            onChange={(next) =>
+                              updateColumn(index, {
+                                ...column,
+                                [field]: next,
+                              })
+                            }
+                          />
+                        )}
+                      </td>
+                    ))}
+                    <td class="flag-column">
+                      <input
+                        type="checkbox"
+                        aria-label={`Column ${index + 1} not null`}
+                        disabled={disabled}
+                        checked={column.nullable !== true}
+                        onChange={(event) =>
+                          updateColumn(index, {
+                            ...column,
+                            nullable: !event.currentTarget.checked,
+                          })
+                        }
+                      />
+                    </td>
+                    {showLowCardinality && (
+                      <td
+                        class={`flag-column tooltip-host ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
+                        data-tooltip="Low cardinality is meaningful only for string values"
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Column ${index + 1} low cardinality`}
+                          disabled={
+                            disabled || !isStringArrowType(column.arrow_type)
+                          }
+                          checked={column.low_cardinality === true}
+                          onChange={(event) =>
+                            updateColumn(index, {
+                              ...column,
+                              low_cardinality: event.currentTarget.checked,
+                            })
+                          }
+                        />
+                      </td>
+                    )}
+                    <td class="actions-column">
+                      <ColumnActions
+                        row={index + 1}
+                        disabled={disabled}
+                        hasSettings={extraFields.length > 0}
+                        hasCustomSettings={hasCustomSettings}
+                        settingsExpanded={settingsExpanded}
+                        onSettings={() => toggleSettings(index)}
+                        onDuplicate={() => duplicateColumn(index)}
+                        onDelete={() => deleteColumn(index, name)}
+                      />
+                    </td>
+                  </tr>
+                  {extraFields.length > 0 && settingsExpanded && (
+                    <tr class="table-details-row">
+                      <td />
+                      <td colSpan={showLowCardinality ? 7 : 6}>
+                        <section class="column-details">
+                          <div class="column-details-heading">
+                            <strong>Advanced column settings</strong>
+                            <button
+                              type="button"
+                              aria-label={`Close column ${index + 1} settings`}
+                              onClick={() => toggleSettings(index)}
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div class="schema-object">
+                            {extraFields.map(([field, child]) => (
+                              <PropertyEditor
+                                name={field}
+                                node={child}
+                                required={node.required.has(field)}
+                                value={column[field]}
+                                disabled={disabled}
+                                onChange={(next) =>
+                                  updateColumn(index, {
+                                    ...column,
+                                    [field]: next,
+                                  })
+                                }
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {value.length === 0 && (
         <p class="empty-columns">
           Add the first output column to define the parsed data schema.
@@ -935,6 +1082,221 @@ function ColumnMappingsEditor({
           onChange={(next) => onChange(value, next)}
         />
       </div>
+    </div>
+  );
+}
+
+function ColumnActions({
+  row,
+  disabled,
+  hasSettings,
+  hasCustomSettings,
+  settingsExpanded,
+  onSettings,
+  onDuplicate,
+  onDelete,
+}: {
+  row: number;
+  disabled: boolean;
+  hasSettings: boolean;
+  hasCustomSettings: boolean;
+  settingsExpanded: boolean;
+  onSettings: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+  const run = (action: () => void) => {
+    setOpen(false);
+    action();
+  };
+  return (
+    <div class={`row-actions ${open ? "open" : ""}`} ref={root}>
+      <button
+        class="row-action"
+        type="button"
+        aria-label={`Column ${row} actions`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span aria-hidden="true">⋯</span>
+        {hasCustomSettings && (
+          <span class="custom-settings-dot" title="Custom column settings" />
+        )}
+      </button>
+      {open && (
+        <div class="row-actions-menu" role="menu">
+          {hasSettings && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => run(onSettings)}
+            >
+              Column settings{settingsExpanded ? " ✓" : ""}
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => run(onDuplicate)}
+          >
+            Duplicate
+          </button>
+          <button
+            class="danger"
+            type="button"
+            role="menuitem"
+            onClick={() => run(onDelete)}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) && Array.isArray(right))
+    return (
+      left.length === right.length &&
+      left.every((value, index) => jsonValuesEqual(value, right[index]!))
+    );
+  if (isObject(left) && isObject(right)) {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every(
+        (key) => key in right && jsonValuesEqual(left[key]!, right[key]!),
+      )
+    );
+  }
+  return false;
+}
+
+function CompactArrayEditor({
+  name,
+  node,
+  value,
+  disabled,
+  onChange,
+}: {
+  name: "topics" | "hosts";
+  node: Extract<CompiledNode, { kind: "array" }>;
+  value: JsonValue[];
+  disabled: boolean;
+  onChange: (value: JsonValue) => void;
+}) {
+  const fields =
+    node.item.kind === "object"
+      ? Object.entries(node.item.properties).filter(
+          ([, child]) => child.xUi.widget !== "hidden",
+        )
+      : [];
+  const singular = name === "topics" ? "topic" : "host";
+  const updateItem = (index: number, next: JsonValue) => {
+    const items = [...value];
+    items[index] = next;
+    onChange(items);
+  };
+  return (
+    <div class="compact-array-editor">
+      <div class="table-shell">
+        <table class="config-table compact-array-table">
+          <thead>
+            <tr>
+              <th class="row-number" aria-label="Row" />
+              {fields.length > 0 ? (
+                fields.map(([field, child]) => (
+                  <th key={field}>{child.title ?? humanize(field)}</th>
+                ))
+              ) : (
+                <th>{humanize(singular)}</th>
+              )}
+              <th class="actions-column">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {value.map((item, index) => {
+              const object = isObject(item) ? item : {};
+              return (
+                <tr class="config-table-row" key={index}>
+                  <td class="row-number">{index + 1}</td>
+                  {fields.length > 0 ? (
+                    fields.map(([field, child]) => (
+                      <td key={field}>
+                        <NodeEditor
+                          node={child}
+                          value={object[field] ?? createValue(child)}
+                          disabled={disabled}
+                          onChange={(next) =>
+                            updateItem(index, { ...object, [field]: next })
+                          }
+                        />
+                      </td>
+                    ))
+                  ) : (
+                    <td>
+                      <NodeEditor
+                        node={node.item}
+                        value={item}
+                        disabled={disabled}
+                        onChange={(next) => updateItem(index, next)}
+                      />
+                    </td>
+                  )}
+                  <td class="actions-column">
+                    <button
+                      class="row-action danger"
+                      type="button"
+                      title={`Remove ${singular}`}
+                      aria-label={`Remove ${singular} ${index + 1}`}
+                      disabled={disabled}
+                      onClick={() =>
+                        onChange(
+                          value.filter(
+                            (_, itemIndex) => itemIndex !== index,
+                          ),
+                        )
+                      }
+                    >
+                      <TrashIcon />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <button
+        class="add-row-button"
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange([...value, createValue(node.item)])}
+      >
+        + Add {singular}
+      </button>
     </div>
   );
 }

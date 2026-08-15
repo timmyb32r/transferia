@@ -3,7 +3,11 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 
 import { api } from "./api";
 import { LatestJob } from "./effects";
-import { SchemaForm, SelectControl } from "./schema/SchemaForm";
+import {
+  ParserDetailsForm,
+  SchemaForm,
+  SelectControl,
+} from "./schema/SchemaForm";
 import {
   compileSchema,
   isComplete,
@@ -114,9 +118,6 @@ function App() {
       compileSchema(selection.sink.schema),
       endpointValue(editor.config, "sink", selection.sinkKey),
     );
-  const hasJsonParser =
-    selection?.sourceKey !== undefined &&
-    sourceHasJsonParser(editor.config, selection.sourceKey);
   useEffect(() => {
     discoveryJob.cancel();
     setDiscovery(undefined);
@@ -468,9 +469,7 @@ function App() {
               </FieldLabel>
             </section>
 
-            <section
-              class={`route-grid ${hasJsonParser ? "parser-layout" : ""}`}
-            >
+            <section class="route-grid">
               <EndpointCard
                 title="Source"
                 role="source"
@@ -506,6 +505,24 @@ function App() {
                 <strong>Incompatible route</strong>
                 <span>{selection.error}</span>
               </div>
+            )}
+
+            {selection?.error === undefined && selection?.source && (
+              <ParserDetailsForm
+                node={compileSchema(selection.source.schema)}
+                value={endpointValue(
+                  editor.config,
+                  "source",
+                  selection.sourceKey,
+                )}
+                disabled={readOnly}
+                onChange={(next) =>
+                  updateConfig({
+                    ...editor.config,
+                    source: { [selection.sourceKey]: next },
+                  })
+                }
+              />
             )}
 
             <section class="card pipeline-card">
@@ -590,6 +607,7 @@ function EndpointCard(props: {
             node={compileSchema(props.endpoint.schema)}
             value={value}
             disabled={props.readOnly}
+            parserSelectionOnly={props.role === "source"}
             onChange={(next) =>
               props.onConfig({
                 ...props.config,
@@ -777,11 +795,6 @@ function endpointValue(
 ): JsonValue {
   const container = config[role];
   return isObject(container) ? (container[key] ?? {}) : {};
-}
-function sourceHasJsonParser(config: JsonObject, sourceKey: string): boolean {
-  const source = endpointValue(config, "source", sourceKey);
-  if (!isObject(source) || !isObject(source.parser)) return false;
-  return "json_parser" in source.parser;
 }
 function singleKey(value: JsonValue | undefined): string {
   return isObject(value) ? (Object.keys(value)[0] ?? "") : "";
