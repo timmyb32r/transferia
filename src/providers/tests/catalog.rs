@@ -32,6 +32,16 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .iter()
         .find(|definition| definition.key == "discard")
         .is_some_and(|definition| definition.source.is_none()));
+
+    let ydb_topic = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "ydb_topic")
+        .and_then(|definition| definition.source.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("missing YDB Topic source definition"))?;
+    let schema = serde_json::to_string(&ydb_topic.schema)?;
+    assert!(!schema.contains("topology_discovery"));
+    assert!(schema.contains("partitions"));
     Ok(())
 }
 

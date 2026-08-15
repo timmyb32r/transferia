@@ -416,7 +416,7 @@ pub fn validate_pipeline(
             severity: DiagnosticSeverity::Info,
             config_paths: vec![
                 stream_source_path(source, "parser"),
-                stream_source_path(source, "topic_path"),
+                stream_source_path(source, "topics"),
                 stream_source_path(source, "consumer_name"),
                 "middlewares".into(),
                 "keep_system_columns_in_sink".into(),

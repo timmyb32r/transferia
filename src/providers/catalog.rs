@@ -241,13 +241,12 @@ pub fn build_provider_catalog(
             serde_json::json!({
                 "host": "",
                 "port": 2135,
-                "topic_path": "",
+                "topics": [{ "path": "", "partitions": [] }],
                 "consumer_name": "",
-                "topology_discovery": "topic_api",
                 "auth": { "type": "token", "token": "" },
                 "trusted_plaintext": true,
+                "allow_ttl_rewind": false,
                 "parser": {},
-                "partition_ids": [],
                 "read_buffer_bytes": 1_048_576
             }),
             {

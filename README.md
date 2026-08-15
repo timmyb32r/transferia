@@ -52,21 +52,21 @@ errors. Every quality recipe runs `rustfmt` first.
 ## Configuration
 
 `ydb_topic` uses the official low-level Rust YDB gRPC crate and the Topic API
-`StreamRead` protocol. YDB-native topics can discover their active partitions
-through `topology_discovery: topic_api`. Legacy Logbroker names may be readable
-through `StreamRead` while absent from the YDB scheme API; configure their
-partition IDs explicitly instead of guessing or rewriting the topic path:
+`StreamRead` protocol. Partition assignment, rebalancing, and auto-partitioning
+are owned by the protocol. Each topic may optionally restrict the partitions it
+reads; an empty `partitions` list subscribes to every partition dynamically:
 
 ```yaml
 source:
   ydb_topic:
     host: sas.logbroker.yandex.net
     port: 2135
-    topic_path: cdc/project/topic
+    topics:
+      - path: cdc/project/topic
+        partitions: [0] # omit or leave empty to read every partition
     consumer_name: /cdc/project/consumer
-    topology_discovery: configured
-    partition_ids: [0]
     trusted_plaintext: true
+    allow_ttl_rewind: false
     auth:
       type: token_file
       token_file: "${HOME}/.logbroker/token"
@@ -82,9 +82,9 @@ source:
 ```
 
 `examples/ydb_topic_read_one.rs` is a credential-safe connectivity probe. It
-opens every configured partition concurrently, reports only partition/offset
-and byte counts for the first non-empty batch, and deliberately exits without
-committing consumer offsets.
+opens one dynamic Topic API reader, reports only topic/partition/offset and byte
+counts for the first non-empty batch, and deliberately exits without committing
+consumer offsets.
 
 ```yaml
 delivery_id: pqv1-s3-production

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use clap::Parser;
-use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use tokio_util::sync::CancellationToken;
 
 use transferia::config::yaml::Config;
@@ -48,33 +47,28 @@ async fn main() -> anyhow::Result<()> {
             cancellation.clone(),
         )
         .await?;
-    let partitions = provider.partitions_for_worker(1, 0).await?;
-    let mut reads = FuturesUnordered::new();
-    for partition_id in partitions {
-        let source = provider
-            .build_source(
-                partition_id,
-                cancellation.child_token(),
-                PipelineMemory::new(config.pipeline_memory_limit_bytes),
-                durable.clone(),
-            )
-            .await
-            .with_context(|| format!("failed to open YDB Topic partition {partition_id}"))?;
-        reads.push(async move {
-            let mut source = source;
-            (partition_id, source.read_batch().await)
-        });
-    }
-    let result = tokio::time::timeout(
+    let reader_lane = provider
+        .partitions_for_worker(1, 0)
+        .await?
+        .into_iter()
+        .next()
+        .context("YDB Topic provider returned no reader lane")?;
+    let mut source = provider
+        .build_source(
+            reader_lane,
+            cancellation.child_token(),
+            PipelineMemory::new(config.pipeline_memory_limit_bytes),
+            durable,
+        )
+        .await
+        .context("failed to open YDB Topic reader")?;
+    let batch = tokio::time::timeout(
         core::time::Duration::from_secs(args.timeout_seconds),
-        reads.next(),
+        source.read_batch(),
     )
     .await
-    .context("timed out waiting for a YDB Topic message")?
-    .context("YDB Topic discovery returned no partitions")?;
+    .context("timed out waiting for a YDB Topic message")??;
     cancellation.cancel();
-    let (partition_id, batch) = result;
-    let batch = batch.with_context(|| format!("read failed for partition {partition_id}"))?;
     let messages = match batch {
         SourceBatch::Raw { messages, .. } => messages,
         SourceBatch::Typed { .. } => anyhow::bail!("YDB Topic returned a typed batch"),
@@ -83,7 +77,8 @@ async fn main() -> anyhow::Result<()> {
     anyhow::ensure!(!messages.is_empty(), "YDB Topic returned an empty batch");
     let first = &messages[0];
     tracing::info!(
-        partition_id,
+        topic = first.meta.topic.as_deref(),
+        partition_id = first.meta.partition,
         message_count = messages.len(),
         offset = first.meta.offset,
         payload_bytes = first.value.len(),

@@ -3,21 +3,13 @@ mod source;
 
 use alloc::sync::Arc;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Mutex, RwLock};
+use std::sync::Mutex;
 
 use futures_util::future::BoxFuture;
-use prost::Message as _;
 use serde_yaml::Value;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
-use tonic::Request;
-use ydb_grpc::ydb_proto::operations::operation_params::OperationMode;
-use ydb_grpc::ydb_proto::operations::OperationParams;
-use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
-use ydb_grpc::ydb_proto::topic::{
-    AutoPartitioningStrategy, DescribeTopicRequest, DescribeTopicResult,
-};
 
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
@@ -30,7 +22,7 @@ use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 
-pub use config::{TopologyDiscovery, YdbTopicAuthConfig, YdbTopicSourceConfig};
+pub use config::{YdbTopicAuthConfig, YdbTopicReadConfig, YdbTopicSourceConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
@@ -44,7 +36,6 @@ pub struct YdbTopicSourceProvider {
     behavior: SourceBehavior,
     source_counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
     token: OnceCell<Arc<str>>,
-    discovered_partitions: RwLock<Vec<i64>>,
 }
 
 impl YdbTopicSourceProvider {
@@ -60,7 +51,16 @@ impl YdbTopicSourceProvider {
             parser_kind != "benchmark_discard",
             "ydb_topic does not support the benchmark_discard parser"
         );
-        let parser_plan = ParserPlan::from_config(&cfg.parser, &cfg.topic_path)?;
+        let primary_topic = &cfg.topics[0].path;
+        if cfg.topics.len() > 1
+            && matches!(
+                cfg.parser.common.table_naming,
+                crate::parsers::TableNaming::FromTopicName
+            )
+        {
+            anyhow::bail!("ydb_topic with multiple topics requires table_naming.type=from_config");
+        }
+        let parser_plan = ParserPlan::from_config(&cfg.parser, primary_topic)?;
         Ok(Self {
             cfg,
             parser_plan,
@@ -68,18 +68,16 @@ impl YdbTopicSourceProvider {
             behavior: SourceBehavior::ProducesRows,
             source_counters: Mutex::new(HashMap::new()),
             token: OnceCell::new(),
-            discovered_partitions: RwLock::new(Vec::new()),
         })
     }
 
     fn configured_delivery_discovery(
         &self,
         request: DeliveryDiscoveryRequest,
-        partitions: Vec<i64>,
     ) -> anyhow::Result<DeliveryDiscovery> {
         DeliveryDiscovery::parser_projection(
-            Arc::from(self.cfg.topic_path.as_str()),
-            partitions,
+            Arc::from(self.cfg.topics[0].path.as_str()),
+            vec![0],
             &self.parser_plan,
             request,
         )
@@ -108,10 +106,32 @@ impl YdbTopicSourceProvider {
 fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
     crate::providers::address::validate_host("ydb_topic.host", &cfg.host)?;
     crate::providers::address::validate_port("ydb_topic.port", cfg.port)?;
-    anyhow::ensure!(
-        !cfg.topic_path.is_empty(),
-        "ydb_topic.topic_path must not be empty"
-    );
+    anyhow::ensure!(!cfg.topics.is_empty(), "ydb_topic.topics must not be empty");
+    let mut topic_paths = HashSet::with_capacity(cfg.topics.len());
+    for topic in &cfg.topics {
+        anyhow::ensure!(
+            !topic.path.is_empty(),
+            "ydb_topic.topics[].path must not be empty"
+        );
+        anyhow::ensure!(
+            topic_paths.insert(topic.path.as_str()),
+            "ydb_topic.topics contains duplicate path '{}'",
+            topic.path
+        );
+        let mut partitions = HashSet::with_capacity(topic.partitions.len());
+        for partition_id in &topic.partitions {
+            anyhow::ensure!(
+                *partition_id >= 0,
+                "ydb_topic topic '{}' contains negative partition {partition_id}",
+                topic.path
+            );
+            anyhow::ensure!(
+                partitions.insert(*partition_id),
+                "ydb_topic topic '{}' contains duplicate partition {partition_id}",
+                topic.path
+            );
+        }
+    }
     anyhow::ensure!(
         !cfg.consumer_name.is_empty(),
         "ydb_topic.consumer_name must not be empty"
@@ -124,23 +144,6 @@ fn validate_config(cfg: &YdbTopicSourceConfig) -> anyhow::Result<()> {
         (1..=MAX_READ_BUFFER_BYTES).contains(&cfg.read_buffer_bytes),
         "ydb_topic.read_buffer_bytes must be in 1..={MAX_READ_BUFFER_BYTES}"
     );
-    let mut partitions = HashSet::with_capacity(cfg.partition_ids.len());
-    for partition_id in &cfg.partition_ids {
-        anyhow::ensure!(
-            *partition_id >= 0,
-            "ydb_topic.partition_ids must be nonnegative, got {partition_id}"
-        );
-        anyhow::ensure!(
-            partitions.insert(*partition_id),
-            "ydb_topic.partition_ids contains duplicate partition {partition_id}"
-        );
-    }
-    if matches!(cfg.topology_discovery, TopologyDiscovery::Configured) {
-        anyhow::ensure!(
-            !cfg.partition_ids.is_empty(),
-            "ydb_topic.partition_ids must not be empty when topology_discovery is configured"
-        );
-    }
     cfg.auth.validate()
 }
 
@@ -170,99 +173,6 @@ async fn connect_client(
     Ok((TopicServiceClient::with_origin(service, uri.clone()), uri))
 }
 
-fn operation_failure(operation: &ydb_grpc::ydb_proto::operations::Operation) -> anyhow::Error {
-    let status = StatusCode::try_from(operation.status).map_or_else(
-        |_| format!("UNKNOWN({})", operation.status),
-        |status| status.as_str_name().to_owned(),
-    );
-    let issues = operation
-        .issues
-        .iter()
-        .map(|issue| issue.message.as_str())
-        .collect::<Vec<_>>()
-        .join("; ");
-    anyhow::anyhow!("YDB Topic request failed: status={status}, issues={issues}")
-}
-
-async fn describe_topic(
-    cfg: &YdbTopicSourceConfig,
-    token: &str,
-    cancellation: &CancellationToken,
-) -> anyhow::Result<DescribeTopicResult> {
-    let timeout = NETWORK_TIMEOUT;
-    let (mut client, _) = connect_client(&cfg.host, cfg.port, timeout, cancellation).await?;
-    let mut request = Request::new(DescribeTopicRequest {
-        operation_params: Some(OperationParams {
-            operation_mode: OperationMode::Sync as i32,
-            ..OperationParams::default()
-        }),
-        path: cfg.topic_path.clone(),
-        include_stats: false,
-        include_location: false,
-    });
-    set_ydb_headers(request.metadata_mut(), token)?;
-    let response = tokio::time::timeout(timeout, client.describe_topic(request)).await;
-    let response = response
-        .map_err(|_| {
-            anyhow::anyhow!(
-                "DescribeTopic timed out after {} ms",
-                NETWORK_TIMEOUT.as_millis()
-            )
-        })??
-        .into_inner();
-    let operation = response
-        .operation
-        .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no operation"))?;
-    anyhow::ensure!(operation.ready, "DescribeTopic operation is not ready");
-    if operation.status != StatusCode::Success as i32 {
-        return Err(operation_failure(&operation));
-    }
-    let result = operation
-        .result
-        .ok_or_else(|| anyhow::anyhow!("DescribeTopic returned no result"))?;
-    DescribeTopicResult::decode(result.value.as_slice())
-        .map_err(|error| anyhow::anyhow!("Failed to decode DescribeTopic result: {error}"))
-}
-
-fn select_partitions(
-    cfg: &YdbTopicSourceConfig,
-    topic: &DescribeTopicResult,
-) -> anyhow::Result<Vec<i64>> {
-    if let Some(strategy) = topic
-        .partitioning_settings
-        .and_then(|settings| settings.auto_partitioning_settings)
-        .map(|settings| settings.strategy)
-    {
-        anyhow::ensure!(
-            strategy == AutoPartitioningStrategy::Disabled as i32
-                || strategy == AutoPartitioningStrategy::Unspecified as i32,
-            "ydb_topic requires fixed topic partitions, but auto-partitioning strategy is {}",
-            AutoPartitioningStrategy::try_from(strategy)
-                .map_or("UNKNOWN", |strategy| strategy.as_str_name())
-        );
-    }
-    let active = topic
-        .partitions
-        .iter()
-        .filter(|partition| partition.active)
-        .map(|partition| partition.partition_id)
-        .collect::<HashSet<_>>();
-    anyhow::ensure!(!active.is_empty(), "YDB Topic has no active partitions");
-    let mut selected = if cfg.partition_ids.is_empty() {
-        active.iter().copied().collect::<Vec<_>>()
-    } else {
-        for partition_id in &cfg.partition_ids {
-            anyhow::ensure!(
-                active.contains(partition_id),
-                "ydb_topic.partition_ids contains {partition_id}, which is not an active topic partition"
-            );
-        }
-        cfg.partition_ids.clone()
-    };
-    selected.sort_unstable();
-    Ok(selected)
-}
-
 impl SourceProvider for YdbTopicSourceProvider {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YdbTopic(SourceDescriptor {
@@ -277,31 +187,11 @@ impl SourceProvider for YdbTopicSourceProvider {
         cancellation: CancellationToken,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
-            let token = self.token().await?;
-            let partitions = match self.cfg.topology_discovery {
-                TopologyDiscovery::TopicApi => {
-                    let topic = describe_topic(&self.cfg, token.as_ref(), &cancellation)
-                        .await
-                        .map_err(|error| error.context("YDB Topic delivery discovery failed"))?;
-                    anyhow::ensure!(
-                        topic
-                            .consumers
-                            .iter()
-                            .any(|consumer| consumer.name == self.cfg.consumer_name),
-                        "ydb_topic.consumer_name '{}' is not configured on topic '{}'",
-                        self.cfg.consumer_name,
-                        self.cfg.topic_path
-                    );
-                    select_partitions(&self.cfg, &topic)?
-                }
-                TopologyDiscovery::Configured => self.cfg.partition_ids.clone(),
-            };
-            let discovery = self.configured_delivery_discovery(request, partitions.clone())?;
-            *self
-                .discovered_partitions
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = partitions;
-            Ok(discovery)
+            anyhow::ensure!(
+                !cancellation.is_cancelled(),
+                "YDB Topic delivery discovery cancelled"
+            );
+            self.configured_delivery_discovery(request)
         })
     }
 
@@ -313,14 +203,9 @@ impl SourceProvider for YdbTopicSourceProvider {
         _durable: crate::durable::DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
-            let discovered = self
-                .discovered_partitions
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone();
             anyhow::ensure!(
-                discovered.contains(&partition_id),
-                "partition {partition_id} was not selected during YDB Topic discovery"
+                partition_id >= 0,
+                "YDB Topic reader lane must be nonnegative"
             );
             let counters = self.counters_for_partition(partition_id);
             self.metrics_registry
@@ -347,22 +232,7 @@ impl SourceProvider for YdbTopicSourceProvider {
         Box::pin(async move {
             anyhow::ensure!(total_workers > 0, "total_workers must be positive");
             anyhow::ensure!(worker_index < total_workers, "worker_index out of range");
-            let partitions = self
-                .discovered_partitions
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            anyhow::ensure!(
-                !partitions.is_empty(),
-                "YDB Topic partitions are unavailable before delivery discovery"
-            );
-            Ok(partitions
-                .iter()
-                .copied()
-                .enumerate()
-                .filter_map(|(index, partition)| {
-                    (index % total_workers as usize == worker_index as usize).then_some(partition)
-                })
-                .collect())
+            Ok(vec![i64::from(worker_index)])
         })
     }
 

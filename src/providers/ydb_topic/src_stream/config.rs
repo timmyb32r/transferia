@@ -5,13 +5,6 @@ use serde::Deserialize;
 
 use crate::parsers::ParserConfig;
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TopologyDiscovery {
-    TopicApi,
-    Configured,
-}
-
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YdbTopicAuthConfig {
@@ -78,19 +71,27 @@ impl fmt::Debug for YdbTopicAuthConfig {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct YdbTopicReadConfig {
+    pub path: String,
+
+    #[serde(default)]
+    #[schemars(
+        description = "Partitions to read; leave empty to let YDB Topic assign every partition dynamically",
+        extend("x-ui" = { "widget": "partition_ranges" })
+    )]
+    pub partitions: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct YdbTopicSourceConfig {
     pub host: String,
 
     pub port: u16,
 
-    pub topic_path: String,
+    pub topics: Vec<YdbTopicReadConfig>,
 
     pub consumer_name: String,
-
-    #[schemars(
-        description = "API used only to discover fixed partitions before opening YDB Topic read sessions"
-    )]
-    pub topology_discovery: TopologyDiscovery,
 
     pub auth: YdbTopicAuthConfig,
 
@@ -99,10 +100,10 @@ pub struct YdbTopicSourceConfig {
 
     #[serde(default)]
     #[schemars(
-        description = "Partitions to read; use comma-separated IDs and inclusive ranges, for example 1-5,7. An empty value means every active partition discovered at startup",
-        extend("x-ui" = { "widget": "partition_ranges" })
+        description = "Continue from the oldest retained message when committed offsets have expired",
+        extend("x-ui" = { "section": "advanced" })
     )]
-    pub partition_ids: Vec<i64>,
+    pub allow_ttl_rewind: bool,
 
     #[schemars(
         with = "crate::parsers::config::ParserSchema",
