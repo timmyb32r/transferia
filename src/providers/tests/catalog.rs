@@ -48,6 +48,18 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(schema.contains("partitions"));
     assert!(schema.contains("pqv1"));
     assert!(ydb_topic.partitioned);
+
+    let sink = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "ydb_topic")
+        .and_then(|definition| definition.sink.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("missing Logbroker sink definition"))?;
+    let sink_schema = serde_json::to_string(&sink.schema)?;
+    assert!(sink_schema.contains("YDB"));
+    assert!(sink_schema.contains("PQv1"));
+    assert!(!sink_schema.contains("network_timeout_ms"));
+    assert_eq!(sink.initial["driver"], "ydb");
     Ok(())
 }
 

@@ -29,7 +29,7 @@ pub enum YdbTopicAuthConfig {
 }
 
 impl YdbTopicAuthConfig {
-    pub(super) fn validate(&self) -> anyhow::Result<()> {
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Token { token } => anyhow::ensure!(
                 !token.trim().is_empty(),
@@ -43,7 +43,7 @@ impl YdbTopicAuthConfig {
         Ok(())
     }
 
-    pub(super) fn load_token(&self) -> anyhow::Result<String> {
+    pub(crate) fn load_token(&self) -> anyhow::Result<String> {
         self.validate()?;
         let token = match self {
             Self::Token { token } => token.clone(),

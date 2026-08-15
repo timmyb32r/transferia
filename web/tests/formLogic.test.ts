@@ -18,8 +18,6 @@ describe("schema form logic", () => {
 
   it("selects a lossless default Arrow type for each JSON type", () => {
     expect(closestArrowType("string")).toBe("Utf8");
-    expect(closestArrowType("integer")).toBe("Int64");
-    expect(closestArrowType("unsigned_integer")).toBe("UInt64");
     expect(closestArrowType("number")).toBe("Float64");
     expect(closestArrowType("boolean")).toBe("Boolean");
     expect(isStringArrowType("Utf8")).toBe(true);

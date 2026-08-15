@@ -365,7 +365,7 @@ fn config_with_rotation(max_rows: usize, rotation_extra: &str, extra: &str) -> S
 
 fn pipeline_parser() -> Arc<dyn crate::parsers::ParserFactory> {
     let config: crate::parsers::ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic: _system_topic, partition: _system_partition, offset: _system_offset, message_index: _system_message_index, write_timestamp_ms: _system_write_timestamp_ms }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, json_data_type: string, arrow_type: Utf8, nullable: true }\n  json_framing: json_lines\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { topic: _system_topic, partition: _system_partition, offset: _system_offset, message_index: _system_message_index, write_timestamp_ms: _system_write_timestamp_ms }\njson_parser:\n  columns:\n    - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    - { jsonpath: $.nullable, column_name: nullable, json_data_type: string, arrow_type: Utf8, nullable: true }\n  json_framing: json_lines\n  conversion_error: dlq\n  unknown_fields: { action: fail }\n",
     )
     .unwrap();
     crate::parsers::ParserPlan::from_config(&config, "topic")

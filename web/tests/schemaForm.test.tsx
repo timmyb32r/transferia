@@ -375,7 +375,10 @@ describe("schema form", () => {
       ".column-keys .select-search",
     );
     expect(search).not.toBeNull();
-    fireEvent.click(getByRole("option", { name: /id/ }));
+    const id = getByRole("option", { name: /id/ });
+    expect(id.closest(".select-menu-floating")).not.toBeNull();
+    fireEvent.pointerDown(id, { button: 0, clientX: 1 });
+    expect(keys!.textContent).toContain("id");
     fireEvent.input(search!, { target: { value: "source" } });
     expect(container.querySelector('[role="option"]')?.textContent).toBe(
       "source_offset",

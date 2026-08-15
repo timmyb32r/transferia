@@ -777,6 +777,7 @@ export function SelectControl({
 }: SelectControlProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [, refreshMenuPosition] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === value);
@@ -796,8 +797,20 @@ export function SelectControl({
       }
     };
     document.addEventListener("mousedown", closeOutside);
-    return () => document.removeEventListener("mousedown", closeOutside);
+    const reposition = () => refreshMenuPosition((revision) => revision + 1);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
   }, [open]);
+  const choose = (next: string) => {
+    onChange(next);
+    setOpen(false);
+    setQuery("");
+  };
   return (
     <div
       ref={root}
@@ -846,7 +859,10 @@ export function SelectControl({
         </svg>
       </button>
       {open && (
-        <div class="select-menu">
+        <div
+          class="select-menu select-menu-floating"
+          style={floatingMenuStyle(trigger.current)}
+        >
           {searchable && (
             <input
               class="select-search"
@@ -863,11 +879,14 @@ export function SelectControl({
                 role="option"
                 aria-selected={option.value === value}
                 class="select-option"
-                onPointerDown={dismissActiveTextSelection}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                  setQuery("");
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  dismissActiveTextSelection();
+                  choose(option.value);
+                }}
+                onClick={(event) => {
+                  if (event.detail === 0) choose(option.value);
                 }}
               >
                 {option.label}
@@ -894,9 +913,9 @@ function DynamicSelectControl({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
-  const [options, setOptions] = useState<Array<{ value: string; label: string }>>(
-    [],
-  );
+  const [options, setOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<string>();
   const load = () => {
@@ -949,6 +968,7 @@ function MultiSelectControl({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [, refreshMenuPosition] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -960,7 +980,14 @@ function MultiSelectControl({
       }
     };
     document.addEventListener("mousedown", closeOutside);
-    return () => document.removeEventListener("mousedown", closeOutside);
+    const reposition = () => refreshMenuPosition((revision) => revision + 1);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
   }, [open]);
   const labels = values.map(
     (value) => options.find((option) => option.value === value)?.label ?? value,
@@ -1005,7 +1032,12 @@ function MultiSelectControl({
         </svg>
       </button>
       {open && (
-        <div class="select-menu" role="listbox" aria-multiselectable="true">
+        <div
+          class="select-menu select-menu-floating"
+          style={floatingMenuStyle(trigger.current)}
+          role="listbox"
+          aria-multiselectable="true"
+        >
           <input
             class="select-search"
             type="search"
@@ -1015,20 +1047,27 @@ function MultiSelectControl({
           />
           {filtered.map((option) => {
             const selected = values.includes(option.value);
+            const choose = () =>
+              onChange(
+                selected
+                  ? values.filter((value) => value !== option.value)
+                  : [...values, option.value],
+              );
             return (
               <button
                 type="button"
                 role="option"
                 aria-selected={selected}
                 class="select-option multi-select-option"
-                onPointerDown={dismissActiveTextSelection}
-                onClick={() =>
-                  onChange(
-                    selected
-                      ? values.filter((value) => value !== option.value)
-                      : [...values, option.value],
-                  )
-                }
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return;
+                  event.preventDefault();
+                  dismissActiveTextSelection();
+                  choose();
+                }}
+                onClick={(event) => {
+                  if (event.detail === 0) choose();
+                }}
               >
                 <span class={`multi-check ${selected ? "checked" : ""}`}>
                   {selected ? "✓" : ""}
@@ -1046,6 +1085,27 @@ function MultiSelectControl({
       )}
     </div>
   );
+}
+
+function floatingMenuStyle(trigger: HTMLButtonElement | null) {
+  if (trigger === null) return undefined;
+  const bounds = trigger.getBoundingClientRect();
+  const gap = 3;
+  const viewportPadding = 12;
+  const roomBelow = window.innerHeight - bounds.bottom - viewportPadding - gap;
+  const roomAbove = bounds.top - viewportPadding - gap;
+  const openUpward = roomBelow < 120 && roomAbove > roomBelow;
+  const maxHeight = Math.min(
+    320,
+    Math.max(80, openUpward ? roomAbove : roomBelow),
+  );
+  return {
+    top: openUpward ? "auto" : `${bounds.bottom + gap}px`,
+    bottom: openUpward ? `${window.innerHeight - bounds.top + gap}px` : "auto",
+    left: `${Math.max(viewportPadding, bounds.left)}px`,
+    width: `${Math.min(bounds.width, window.innerWidth - viewportPadding * 2)}px`,
+    maxHeight: `${maxHeight}px`,
+  };
 }
 
 function handleSelectKeyDown(

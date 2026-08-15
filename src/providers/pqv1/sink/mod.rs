@@ -1,5 +1,5 @@
 mod provider;
-mod writer;
+pub(crate) mod writer;
 
 pub use provider::PqV1SinkProvider;
 

@@ -46,7 +46,7 @@ fn rejects_malformed_timestamp_types() {
 #[test]
 fn produces_sink_neutral_schema() -> anyhow::Result<()> {
     let config: JsonParserConfig = serde_yaml::from_str(
-        "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: unsigned_integer\n    arrow_type: UInt64\n    nullable: false\nconversion_error: dlq\nunknown_fields: { action: fail }\n",
+        "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: number\n    arrow_type: UInt64\n    nullable: false\nconversion_error: dlq\nunknown_fields: { action: fail }\n",
     )?;
     let schema = config.to_dataset_schema()?;
     anyhow::ensure!(schema.columns.len() == 1);
@@ -61,6 +61,18 @@ fn rejects_sink_specific_fields_in_parser_config() {
     let result =
         serde_yaml::from_str::<JsonParserConfig>("columns: []\nsink_specific_field: true\n");
     assert!(result.is_err());
+}
+
+#[test]
+fn json_data_type_has_only_json_level_categories() {
+    for removed in ["integer", "unsigned_integer"] {
+        let yaml = format!(
+            "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: {removed}\n    arrow_type: Int64\n    nullable: false\nconversion_error: fail\nunknown_fields: {{ action: fail }}\n"
+        );
+        let error = serde_yaml::from_str::<JsonParserConfig>(&yaml)
+            .expect_err("removed JSON type must be rejected");
+        assert!(error.to_string().contains(removed), "{error:#}");
+    }
 }
 
 #[test]

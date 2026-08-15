@@ -358,8 +358,6 @@ fn json_value_matches(kind: JsonDataType, value: &Value) -> bool {
     value.is_null()
         || match kind {
             JsonDataType::String => value.is_string(),
-            JsonDataType::Integer => value.as_i64().is_some(),
-            JsonDataType::UnsignedInteger => value.as_u64().is_some(),
             JsonDataType::Number => value.as_f64().is_some_and(f64::is_finite),
             JsonDataType::Boolean => value.is_boolean(),
         }

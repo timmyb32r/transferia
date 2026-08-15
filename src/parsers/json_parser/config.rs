@@ -140,12 +140,6 @@ pub enum JsonDataType {
     #[schemars(title = "String")]
     String,
 
-    #[schemars(title = "Integer")]
-    Integer,
-
-    #[schemars(title = "Unsigned integer")]
-    UnsignedInteger,
-
     #[schemars(title = "Number")]
     Number,
 
@@ -180,8 +174,6 @@ pub struct ColumnMapping {
     #[schemars(extend("x-ui" = {
         "labels": {
             "string": "String",
-            "integer": "Integer",
-            "unsigned_integer": "Unsigned integer",
             "number": "Number",
             "boolean": "Boolean"
         }
@@ -250,10 +242,8 @@ impl ColumnMapping {
 const fn json_type_for_arrow_literal(arrow_type: &str) -> JsonDataType {
     match arrow_type.as_bytes() {
         b"Utf8" | b"LargeUtf8" => JsonDataType::String,
-        b"UInt8" | b"UInt16" | b"UInt32" | b"UInt64" => JsonDataType::UnsignedInteger,
-        b"Float32" | b"Float64" => JsonDataType::Number,
         b"Boolean" => JsonDataType::Boolean,
-        _ => JsonDataType::Integer,
+        _ => JsonDataType::Number,
     }
 }
 
@@ -274,9 +264,7 @@ fn validate_conversion(column: &ColumnMapping, arrow_type: &DataType) -> anyhow:
     );
     let allowed = match column.json_data_type {
         JsonDataType::String => is_string || is_temporal,
-        JsonDataType::Integer => is_signed || is_float || is_temporal,
-        JsonDataType::UnsignedInteger => is_unsigned || is_float || is_temporal,
-        JsonDataType::Number => is_float,
+        JsonDataType::Number => is_signed || is_unsigned || is_float || is_temporal,
         JsonDataType::Boolean => *arrow_type == DataType::Boolean,
     };
     anyhow::ensure!(
@@ -306,11 +294,8 @@ fn validate_conversion(column: &ColumnMapping, arrow_type: &DataType) -> anyhow:
     }
     if matches!(column.time_conversion, Some(TimeConversion::Epoch { .. })) {
         anyhow::ensure!(
-            matches!(
-                column.json_data_type,
-                JsonDataType::Integer | JsonDataType::UnsignedInteger
-            ),
-            "column '{}': epoch conversion requires integer JSON data",
+            column.json_data_type == JsonDataType::Number,
+            "column '{}': epoch conversion requires numeric JSON data",
             column.column_name
         );
     }

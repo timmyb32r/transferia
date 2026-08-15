@@ -251,22 +251,18 @@ pub fn build_provider_catalog_with(
                     }
                 },
             )?
-            .sink::<crate::providers::pqv1::config::PqV1SinkConfig, _>(
+            .sink::<crate::providers::ydb_topic::sink::YdbTopicSinkConfig, _>(
                 serde_json::json!({
                     "host": "",
                     "port": 2135,
                     "topic_path": "",
-                    "message_group_id": "",
-                    "partition_group_id": 0,
-                    "auth": { "type": "access_token", "token": "" },
-                    "trusted_plaintext": true,
-                    "network_timeout_ms": 30000
+                    "producer_id": "",
+                    "partition_id": null,
+                    "auth": { "type": "token", "token": "" },
+                    "driver": "ydb",
+                    "trusted_plaintext": true
                 }),
-                |value| {
-                    Ok(Box::new(
-                        crate::providers::pqv1::PqV1SinkProvider::from_config(value)?,
-                    ))
-                },
+                crate::providers::ydb_topic::build_sink_provider,
             )?,
     )?;
 

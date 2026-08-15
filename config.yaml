@@ -39,7 +39,7 @@ source:
         columns:
           - jsonpath: "$.id"
             column_name: id
-            json_data_type: integer
+            json_data_type: number
             arrow_type: Int64
             nullable: false
 

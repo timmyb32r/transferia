@@ -26,7 +26,7 @@ use crate::Ydb::pers_queue::v1::{
 
 const SUCCESS: i32 = 400_000;
 const UNSPECIFIED: i32 = 0;
-const MAX_GRPC_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
+pub const MAX_GRPC_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
 pub(super) struct PqV1Sink {
     config: Arc<PqV1SinkConfig>,
@@ -233,7 +233,7 @@ fn write_message(
     })
 }
 
-fn serialize_delivery(
+pub fn serialize_delivery(
     delivery: &Delivery,
     discovery: &crate::delivery::DeliveryDiscovery,
     limits: &dyn SinkLimits,
@@ -253,14 +253,14 @@ fn serialize_delivery(
             encoder.write_row(row, &mut output);
             anyhow::ensure!(
                 output.len() <= MAX_GRPC_MESSAGE_SIZE / 2,
-                "PQv1 serialized JSON message exceeds {} bytes",
+                "Logbroker serialized JSON message exceeds {} bytes",
                 MAX_GRPC_MESSAGE_SIZE / 2
             );
             payloads.push(output);
         }
         rows = rows
             .checked_add(batch.rows() as u64)
-            .ok_or_else(|| anyhow::anyhow!("PQv1 sink row counter overflow"))?;
+            .ok_or_else(|| anyhow::anyhow!("Logbroker sink row counter overflow"))?;
     }
     Ok((payloads, rows))
 }

@@ -58,7 +58,7 @@ source:
         unknown_fields: { action: fail }
         json_framing: single_document
         columns:
-          - { jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }
+          - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }
 sink:
   s3:
     bucket: transfer-bucket

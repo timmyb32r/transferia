@@ -136,7 +136,7 @@ source:
         columns:
           - jsonpath: "$.id"
             column_name: id
-            json_data_type: integer
+            json_data_type: number
             arrow_type: Int64
             nullable: false
           - jsonpath: "$.tenant"
@@ -207,9 +207,8 @@ metrics:
 ```
 
 The JSON conversion contract is deliberately explicit. `json_data_type` is one
-of `string`, `integer`, `unsigned_integer`, `number`, or `boolean`; compatible
-Arrow targets are strings, matching signed/unsigned integers, floating point,
-booleans, and temporal types. Temporal targets additionally require
+of `string`, `number`, or `boolean`; compatible Arrow targets are strings,
+numeric and temporal types, and booleans. Temporal targets additionally require
 `time_conversion: { type: epoch, unit: ... }` or
 `time_conversion: { type: string, format: ... }`. Parse and conversion failures
 can be sent to DLQ, dropped, or fail the delivery. Unknown top-level fields can

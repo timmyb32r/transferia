@@ -31,8 +31,6 @@ export function closestArrowType(jsonType: string): string {
   return (
     {
       string: "Utf8",
-      integer: "Int64",
-      unsigned_integer: "UInt64",
       number: "Float64",
       boolean: "Boolean",
     }[jsonType] ?? "Utf8"

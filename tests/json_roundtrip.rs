@@ -46,7 +46,7 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
                 column_name: "id".into(),
                 arrow_type: "Int64".into(),
                 nullable: false,
-                json_data_type: JsonDataType::Integer,
+                json_data_type: JsonDataType::Number,
                 time_conversion: None,
                 low_cardinality: false,
                 max_length: None,
