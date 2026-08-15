@@ -1584,25 +1584,46 @@ function uniqueStrings(values: string[]): string[] {
 
 function TrashIcon() {
   return (
-    <svg class="trash-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M3.5 5.25h9M6 3.5h4M5 5.25l.5 7.25h5l.5-7.25M6.75 7.25v3.5M9.25 7.25v3.5" />
+    <svg
+      class="trash-icon"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      stroke="none"
+      aria-hidden="true"
+    >
+      <path
+        fill="currentColor"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="M9 2H7a.5.5 0 0 0-.5.5V3h3v-.5A.5.5 0 0 0 9 2m2 1v-.5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2V3H2.251a.75.75 0 0 0 0 1.5h.312l.317 7.625A3 3 0 0 0 5.878 15h4.245a3 3 0 0 0 2.997-2.875l.318-7.625h.312a.75.75 0 0 0 0-1.5zm.936 1.5H4.064l.315 7.562A1.5 1.5 0 0 0 5.878 13.5h4.245a1.5 1.5 0 0 0 1.498-1.438zm-6.186 2v5a.75.75 0 0 0 1.5 0v-5a.75.75 0 0 0-1.5 0m3.75-.75a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75"
+      />
     </svg>
   );
 }
 
 function EyeIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M1.75 8s2.15-3.25 6.25-3.25S14.25 8 14.25 8 12.1 11.25 8 11.25 1.75 8 1.75 8Z" />
-      <circle cx="8" cy="8" r="1.75" />
+    <svg class="eye-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="M1.87 8.515 1.641 8l.229-.515a6.708 6.708 0 0 1 12.26 0l.228.515-.229.515a6.708 6.708 0 0 1-12.259 0M.5 6.876l-.26.585a1.33 1.33 0 0 0 0 1.079l.26.584a8.208 8.208 0 0 0 15 0l.26-.584a1.33 1.33 0 0 0 0-1.08l-.26-.584a8.208 8.208 0 0 0-15 0M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0M11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0"
+      />
     </svg>
   );
 }
 
 function EyeOffIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2 2l12 12M5.15 5.1A6.7 6.7 0 0 1 8 4.5c4.1 0 6.25 3.5 6.25 3.5a9 9 0 0 1-2.05 2.25M9.45 11.35A7 7 0 0 1 8 11.5C3.9 11.5 1.75 8 1.75 8a9 9 0 0 1 1.5-1.85" />
+    <svg class="eye-icon eye-off-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="M1.87 8.515 1.641 8l.229-.515a6.708 6.708 0 0 1 12.26 0l.228.515-.229.515a6.708 6.708 0 0 1-12.259 0M.5 6.876l-.26.585a1.33 1.33 0 0 0 0 1.079l.26.584a8.208 8.208 0 0 0 15 0l.26-.584a1.33 1.33 0 0 0 0-1.08l-.26-.584a8.208 8.208 0 0 0-15 0M9.5 8a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0M11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0"
+      />
+      <path class="eye-off-slash" d="M2 2l12 12" />
     </svg>
   );
 }

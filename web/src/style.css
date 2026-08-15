@@ -574,14 +574,15 @@ input[type="checkbox"]:disabled {
 }
 .password-reveal {
   position: absolute;
-  top: 1px;
-  right: 2px;
+  top: 3px;
+  right: 3px;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--muted);
 }
@@ -595,9 +596,17 @@ input[type="checkbox"]:disabled {
 .password-reveal svg {
   width: 16px;
   height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+.password-reveal .eye-off-slash {
   fill: none;
-  stroke: currentColor;
-  stroke-width: 1.35;
+  stroke: var(--control);
+  stroke-linecap: round;
+  stroke-width: 2.6;
+}
+.password-reveal:hover .eye-off-slash {
+  stroke: var(--control-hover);
 }
 .validated-input {
   display: grid;
@@ -932,13 +941,10 @@ button::after {
   color: #ffb9bd;
 }
 .bulk-selection-toolbar .bulk-delete svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.25;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
 }
 @keyframes bulk-toolbar-in {
   from {
@@ -1057,13 +1063,16 @@ button::after {
   opacity: 1;
 }
 .row-action svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.25;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+svg.trash-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
 }
 .row-actions {
   position: relative;
