@@ -511,8 +511,11 @@ input[type="checkbox"]:disabled {
   color: var(--muted);
 }
 .password-reveal:hover:not(:disabled) {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.82);
+}
+.password-reveal:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
 }
 .password-reveal svg {
   width: 16px;
@@ -572,6 +575,15 @@ input[type="checkbox"]:disabled {
 .icon-button.danger:hover {
   color: var(--red);
 }
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.25;
+}
 button {
   height: 28px;
   padding: 0 12px;
@@ -580,11 +592,20 @@ button {
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    transform 70ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
 }
 .primary {
   background: var(--blue);
@@ -846,7 +867,35 @@ button:hover:not(:disabled) {
 }
 .column-flag input {
   align-self: center;
-  margin: 0 0 6px;
+  margin: 0 0 7px;
+}
+.column-main > label,
+.column-main > button {
+  min-height: 49px;
+}
+.column-remove {
+  align-self: end;
+  margin-bottom: 1px;
+}
+.unified-system-columns {
+  margin: 4px 0 8px;
+}
+.system-column-list {
+  display: grid;
+  gap: 8px;
+  max-width: 540px;
+}
+.system-column-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 18px minmax(210px, 1.4fr);
+  align-items: center;
+  gap: 10px;
+}
+.system-column-row > span {
+  color: rgba(255, 255, 255, 0.78);
+}
+.system-column-row input[type="text"]:disabled {
+  opacity: 0.42;
 }
 .column-flag.disabled {
   color: var(--muted);

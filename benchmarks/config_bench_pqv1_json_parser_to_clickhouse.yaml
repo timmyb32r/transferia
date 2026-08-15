@@ -24,7 +24,7 @@ source:
         conversion_error: dlq
         unknown_fields: { action: fail }
         primary_key: [id, ts]
-        chunk_splitter: "new-line"
+        json_framing: "json_lines"
         columns:
           - { jsonpath: "$.id", column_name: "id", json_data_type: string, arrow_type: "Utf8", nullable: false }
           - { jsonpath: "$.ts", column_name: "ts", json_data_type: string, arrow_type: "Utf8", nullable: false }

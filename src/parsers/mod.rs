@@ -65,6 +65,7 @@ impl ParserPlan {
     }
 
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {
+        config.common.system_columns.validate()?;
         let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
         let kind = config.parser.kind()?;
         let (parser, dataset_schema, parses_rows, discovered_system_columns, primary_key) =
@@ -79,7 +80,7 @@ impl ParserPlan {
                         .enabled()
                         .map(|kind| DiscoveredSystemColumn {
                             kind,
-                            name: Arc::from(parser_config.system_column_names.name(kind)),
+                            name: Arc::from(config.common.system_columns.name(kind)),
                         })
                         .collect::<Vec<_>>();
                     validate_primary_key(

@@ -5,7 +5,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::system_columns::SystemColumnKind;
 
 /// JSON parser configuration deserialized from the `json_parser:` block.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -17,11 +16,18 @@ pub struct JsonParserConfig {
     )]
     pub columns: Vec<ColumnMapping>,
 
-    /// How incoming message bytes are split into individual JSON objects.
+    /// How incoming message bytes frame JSON records.
     #[serde(default)]
-    pub chunk_splitter: ChunkSplitter,
+    #[schemars(title = "JSON framing", extend("x-ui" = {
+        "labels": {
+            "single_document": "Single JSON document",
+            "json_lines": "JSON Lines (JSONL)",
+            "json_array": "JSON array"
+        }
+    }))]
+    pub json_framing: JsonFramingMode,
 
-    #[schemars(extend("x-ui" = {
+    #[schemars(title = "On Parse Error", extend("x-ui" = {
         "labels": { "dlq": "Send to DLQ", "fail": "Fail delivery" }
     }))]
     pub conversion_error: ConversionErrorPolicy,
@@ -31,10 +37,6 @@ pub struct JsonParserConfig {
     #[serde(default)]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub primary_key: Vec<String>,
-
-    #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "system_columns" }))]
-    pub system_column_names: SystemColumnNames,
 }
 
 impl JsonParserConfig {
@@ -73,78 +75,29 @@ impl JsonParserConfig {
                 ));
             }
         }
-        self.system_column_names.validate()?;
         Ok(DatasetSchema::new(columns))
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SystemColumnNames {
-    pub topic: Option<String>,
-
-    pub partition: Option<String>,
-
-    pub offset: Option<String>,
-
-    pub message_index: Option<String>,
-
-    pub write_timestamp_ms: Option<String>,
-}
-
-impl SystemColumnNames {
-    fn validate(&self) -> anyhow::Result<()> {
-        let mut names = HashSet::new();
-        for name in [
-            self.topic.as_deref(),
-            self.partition.as_deref(),
-            self.offset.as_deref(),
-            self.message_index.as_deref(),
-            self.write_timestamp_ms.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            anyhow::ensure!(!name.is_empty(), "system column names must not be empty");
-            anyhow::ensure!(
-                names.insert(name),
-                "system_column_names repeats column name '{name}'"
-            );
-        }
-        Ok(())
-    }
-
-    #[must_use]
-    pub fn name(&self, kind: SystemColumnKind) -> &str {
-        match kind {
-            SystemColumnKind::Topic => self.topic.as_deref(),
-            SystemColumnKind::Partition => self.partition.as_deref(),
-            SystemColumnKind::Offset => self.offset.as_deref(),
-            SystemColumnKind::MessageIndex => self.message_index.as_deref(),
-            SystemColumnKind::WriteTimestampMs => self.write_timestamp_ms.as_deref(),
-        }
-        .unwrap_or_else(|| kind.default_name())
     }
 }
 
 /// Record framing policy owned by the JSON parser.
 #[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum ChunkSplitter {
+#[serde(rename_all = "snake_case")]
+pub enum JsonFramingMode {
     #[default]
-    OneMessageOneRow,
-    NewLine,
+    SingleDocument,
+    JsonLines,
+    JsonArray,
 }
 
-impl ChunkSplitter {
+impl JsonFramingMode {
     /// Count records without allocating a `Vec`.
     #[must_use]
     pub fn count_records(self, buf: &[u8]) -> usize {
         match self {
-            Self::OneMessageOneRow => 1,
-            Self::NewLine if buf.is_empty() => 0,
-            Self::NewLine if !buf.contains(&b'\n') => 1,
-            Self::NewLine => buf
+            Self::SingleDocument => 1,
+            Self::JsonLines | Self::JsonArray if buf.is_empty() => 0,
+            Self::JsonLines | Self::JsonArray if !buf.contains(&b'\n') => 1,
+            Self::JsonLines | Self::JsonArray => buf
                 .split(|&byte| byte == b'\n')
                 .filter(|line| !line.is_empty())
                 .count(),

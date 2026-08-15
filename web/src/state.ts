@@ -11,6 +11,7 @@ export interface EditorState {
   editRevision: number;
   savedEditRevision?: number;
   name: string;
+  description: string;
   config: JsonObject;
   validation: ValidationState;
   runtime: RuntimeState;
@@ -20,6 +21,7 @@ export type EditorAction =
   | { type: "new"; config: JsonObject }
   | { type: "open"; delivery: DeliveryRecord }
   | { type: "name"; name: string }
+  | { type: "description"; description: string }
   | { type: "config"; config: JsonObject }
   | { type: "persisted"; delivery: DeliveryRecord }
   | { type: "runtime"; delivery: DeliveryRecord };
@@ -33,6 +35,7 @@ export function editorReducer(
       return {
         editRevision: 0,
         name: "",
+        description: "",
         config: action.config,
         validation: { state: "draft" },
         runtime: { state: "stopped" },
@@ -44,12 +47,15 @@ export function editorReducer(
         editRevision: 0,
         savedEditRevision: 0,
         name: action.delivery.name,
+        description: action.delivery.description,
         config: action.delivery.config,
         validation: action.delivery.validation,
         runtime: action.delivery.runtime,
       };
     case "name":
       return changed(state, { name: action.name });
+    case "description":
+      return changed(state, { description: action.description });
     case "config":
       return changed(state, { config: action.config });
     case "persisted":

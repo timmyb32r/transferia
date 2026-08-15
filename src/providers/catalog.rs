@@ -192,10 +192,10 @@ pub fn build_provider_catalog(
             .source::<crate::providers::pqv1::src_stream::PqV1SourceConfig, _>(
                 vec![DeliveryMode::Stream],
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 2135,
-                    "topic_path": "/demo/events",
-                    "consumer_name": "transferia-demo",
+                    "topic_path": "",
+                    "consumer_name": "",
                     "partition_group_ids": [0],
                     "auth": { "type": "access_token", "token": "" },
                     "parser": {},
@@ -217,10 +217,10 @@ pub fn build_provider_catalog(
             )?
             .sink::<crate::providers::pqv1::config::PqV1SinkConfig, _>(
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 2135,
-                    "topic_path": "/demo/output",
-                    "message_group_id": "transferia-demo",
+                    "topic_path": "",
+                    "message_group_id": "",
                     "partition_group_id": 0,
                     "auth": { "type": "access_token", "token": "" },
                     "trusted_plaintext": true,
@@ -239,10 +239,10 @@ pub fn build_provider_catalog(
             .source::<crate::providers::ydb_topic::src_stream::YdbTopicSourceConfig, _>(
             vec![DeliveryMode::Stream],
             serde_json::json!({
-                "host": "localhost",
+                "host": "",
                 "port": 2135,
-                "topic_path": "/demo/events",
-                "consumer_name": "transferia-demo",
+                "topic_path": "",
+                "consumer_name": "",
                 "topology_discovery": "topic_api",
                 "auth": { "type": "token", "token": "" },
                 "trusted_plaintext": true,
@@ -269,13 +269,13 @@ pub fn build_provider_catalog(
             .source::<crate::providers::postgres::src_batch::PostgresSourceConfig, _>(
                 vec![DeliveryMode::Batch],
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 5432,
-                    "database": "postgres",
-                    "username": "postgres",
+                    "database": "",
+                    "username": "",
                     "password": "",
                     "trusted_plaintext": true,
-                    "tables": [{ "schema": "public", "name": "events" }],
+                    "tables": [{ "schema": "", "name": "" }],
                     "batch_rows": 65536
                 }),
                 {
@@ -292,10 +292,10 @@ pub fn build_provider_catalog(
             )?
             .sink::<crate::providers::postgres::sink::PostgresSinkConfig, _>(
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 5432,
-                    "database": "postgres",
-                    "username": "postgres",
+                    "database": "",
+                    "username": "",
                     "password": "",
                     "trusted_plaintext": true,
                     "create_tables": true
@@ -313,16 +313,16 @@ pub fn build_provider_catalog(
             .source::<crate::providers::clickhouse::src_batch::ClickHouseSourceConfig, _>(
                 vec![DeliveryMode::Batch],
                 serde_json::json!({
-                    "hosts": ["localhost"],
+                    "hosts": [""],
                     "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT,
                     "trusted_plaintext": true,
                     "username": "",
                     "password": "",
                     "tables": [{
                         "database": "",
-                        "name": "events",
-                        "output_name": "events",
-                        "order_by": ["id"]
+                        "name": "",
+                        "output_name": "",
+                        "order_by": [""]
                     }],
                     "batch_rows": 65536,
                     "connect_timeout_ms": 30000,
@@ -342,7 +342,7 @@ pub fn build_provider_catalog(
             )?
             .sink::<crate::providers::clickhouse::ClickHouseSinkConfig, _>(
                 serde_json::json!({
-                    "hosts": ["localhost"],
+                    "hosts": [""],
                     "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT,
                     "trusted_plaintext": true,
                     "database": "",
@@ -369,10 +369,10 @@ pub fn build_provider_catalog(
             .source::<crate::providers::s3::src_batch::S3SourceConfig, _>(
                 vec![DeliveryMode::Batch],
                 serde_json::json!({
-                    "bucket": "demo",
-                    "prefix": "input",
-                    "region": "us-east-1",
-                    "host": "localhost",
+                    "bucket": "",
+                    "prefix": "",
+                    "region": "",
+                    "host": "",
                     "port": 4566,
                     "allow_http": true,
                     "credentials": { "access_key": "", "secret_key": "" },
@@ -393,18 +393,18 @@ pub fn build_provider_catalog(
             )?
             .sink::<crate::providers::s3::sink::S3SinkConfig, _>(
                 serde_json::json!({
-                    "bucket": "demo",
+                    "bucket": "",
                     "object_layout_version": 5,
-                    "region": "us-east-1",
-                    "host": "localhost",
+                    "region": "",
+                    "host": "",
                     "port": 4566,
                     "allow_http": true,
                     "credentials": { "access_key": "", "secret_key": "" },
                     "partitioning": { "type": "source" },
-                    "rotation": { "max_rows": 10000, "max_bytes": "32MiB", "on_partition_path_change": "keep_epoch" },
-                    "buffering": { "max_epoch_buffers": 32, "max_pending_upload_objects": 64, "max_buffered_bytes": "128MiB", "max_epoch_bytes": "64MiB" },
-                    "upload": { "multipart_threshold": "25MiB", "part_size": "5MiB", "parallel_parts": 2, "max_in_flight_objects": 2, "operation_timeout": "30s" },
-                    "retry": { "initial_backoff": "100ms", "max_backoff": "5s", "max_attempts": 10 }
+                    "rotation": { "max_rows": 10000, "max_bytes": "", "on_partition_path_change": "keep_epoch" },
+                    "buffering": { "max_epoch_buffers": 32, "max_pending_upload_objects": 64, "max_buffered_bytes": "", "max_epoch_bytes": "" },
+                    "upload": { "multipart_threshold": "", "part_size": "", "parallel_parts": 2, "max_in_flight_objects": 2, "operation_timeout": "" },
+                    "retry": { "initial_backoff": "", "max_backoff": "", "max_attempts": 10 }
                 }),
                 |value| {
                     Ok(Box::new(
@@ -419,11 +419,11 @@ pub fn build_provider_catalog(
             .source::<crate::providers::ytsaurus::YTsaurusSourceConfig, _>(
                 vec![DeliveryMode::Batch],
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 8000,
                     "trusted_plaintext": true,
                     "timeout_ms": 30000,
-                    "tables": [{ "path": "//home/demo/events", "output_name": "events" }],
+                    "tables": [{ "path": "", "output_name": "" }],
                     "batch_rows": 65536
                 }),
                 {
@@ -440,11 +440,11 @@ pub fn build_provider_catalog(
             )?
             .sink::<crate::providers::ytsaurus::YTsaurusSinkConfig, _>(
                 serde_json::json!({
-                    "host": "localhost",
+                    "host": "",
                     "port": 8000,
                     "trusted_plaintext": true,
                     "timeout_ms": 30000,
-                    "tables": [{ "dataset": "events", "path": "//home/demo/events_out" }],
+                    "tables": [{ "dataset": "", "path": "" }],
                     "replace_tables": true,
                     "format": "arrow"
                 }),

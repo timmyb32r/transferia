@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import {
@@ -38,6 +38,15 @@ export function SchemaForm({
 
 function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
+  if (node.kind === "object" && node.xUi.widget === "system_columns")
+    return (
+      <SystemColumnsEditor
+        node={node}
+        value={value}
+        disabled={isDisabled}
+        onChange={onChange}
+      />
+    );
   if (node.kind === "array" && node.xUi.widget === "partition_ranges")
     return (
       <PartitionRangesInput
@@ -170,7 +179,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                   onChange(items.filter((_, itemIndex) => itemIndex !== index))
                 }
               >
-                ×
+                <TrashIcon />
               </button>
             </div>
           ))}
@@ -258,7 +267,6 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
             disabled={isDisabled}
             onChange={(event) => onChange(event.currentTarget.checked)}
           />
-          <span>{value === true ? "On" : "Off"}</span>
         </label>
       );
     case "number":
@@ -339,16 +347,30 @@ function PropertyEditor({
         />
       </section>
     );
+  if (node.xUi.widget === "system_columns")
+    return (
+      <details class="foldout system-columns unified-system-columns">
+        <summary>System columns</summary>
+        <div class="foldout-content">
+          <NodeEditor
+            node={node}
+            value={effective}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        </div>
+      </details>
+    );
   return (
     <div
-      class={`form-row ${node.kind === "object" || node.kind === "array" || node.xUi.widget === "parser" ? "form-row-wide" : ""}`}
+      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""}`}
     >
       <label class="field-label" for={identifier}>
         <span>
           {node.title ?? humanize(name)}
           {!required && <small class="optional">(optional)</small>}
         </span>
-        {node.description && (
+        {node.description && name !== "json_parser" && node.xUi.widget !== "parser" && (
           <span class="help" tabindex={0} data-tooltip={node.description}>
             ?
           </span>
@@ -385,6 +407,7 @@ export function SelectControl({
 }: SelectControlProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const root = useRef<HTMLDivElement>(null);
   const selected = options.find((option) => option.value === value);
   const filtered = useMemo(
     () =>
@@ -393,8 +416,19 @@ export function SelectControl({
       ),
     [options, query],
   );
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", closeOutside);
+    return () => document.removeEventListener("mousedown", closeOutside);
+  }, [open]);
   return (
-    <div class={`select ${open ? "open" : ""}`}>
+    <div ref={root} class={`select ${open ? "open" : ""}`}>
       <button
         type="button"
         class="select-trigger"
@@ -630,7 +664,7 @@ function ColumnMappingsEditor({
                   )
                 }
               >
-                ×
+                <TrashIcon />
               </button>
             </div>
             {extraFields.length > 0 && (
@@ -690,12 +724,92 @@ function PasswordInput({
         disabled={disabled}
         onClick={() => setVisible((current) => !current)}
       >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M1.5 8s2.3-4 6.5-4 6.5 4 6.5 4-2.3 4-6.5 4S1.5 8 1.5 8Z" />
-          <circle cx="8" cy="8" r="1.8" />
-        </svg>
+        {visible ? <EyeOffIcon /> : <EyeIcon />}
       </button>
     </div>
+  );
+}
+
+const SYSTEM_COLUMN_DEFAULTS: Record<string, string> = {
+  topic: "_system_topic",
+  partition: "_system_partition",
+  offset: "_system_offset",
+  message_index: "_system_message_index",
+  write_timestamp_ms: "_system_write_timestamp_ms",
+};
+
+function SystemColumnsEditor({
+  node,
+  value,
+  disabled,
+  onChange,
+}: {
+  node: Extract<CompiledNode, { kind: "object" }>;
+  value: JsonValue;
+  disabled: boolean;
+  onChange: (value: JsonValue) => void;
+}) {
+  const object = isObject(value) ? value : {};
+  return (
+    <div class="system-column-list">
+      {Object.keys(node.properties).map((name) => {
+        const configured = typeof object[name] === "string";
+        const columnName = configured
+          ? String(object[name])
+          : SYSTEM_COLUMN_DEFAULTS[name] ?? `_system_${name}`;
+        return (
+          <div class="system-column-row" key={name}>
+            <span>{humanize(name)}</span>
+            <input
+              type="checkbox"
+              checked={configured}
+              disabled={disabled}
+              aria-label={`Include ${humanize(name)}`}
+              onChange={(event) =>
+                onChange({
+                  ...object,
+                  [name]: event.currentTarget.checked ? columnName : null,
+                })
+              }
+            />
+            <input
+              type="text"
+              value={columnName}
+              disabled={disabled || !configured}
+              aria-label={`${humanize(name)} column name`}
+              onInput={(event) =>
+                onChange({ ...object, [name]: event.currentTarget.value })
+              }
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg class="trash-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3.5 5.25h9M6 3.5h4M5 5.25l.5 7.25h5l.5-7.25M6.75 7.25v3.5M9.25 7.25v3.5" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M1.75 8s2.15-3.25 6.25-3.25S14.25 8 14.25 8 12.1 11.25 8 11.25 1.75 8 1.75 8Z" />
+      <circle cx="8" cy="8" r="1.75" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2 2l12 12M5.15 5.1A6.7 6.7 0 0 1 8 4.5c4.1 0 6.25 3.5 6.25 3.5a9 9 0 0 1-2.05 2.25M9.45 11.35A7 7 0 0 1 8 11.5C3.9 11.5 1.75 8 1.75 8a9 9 0 0 1 1.5-1.85" />
+    </svg>
   );
 }
 

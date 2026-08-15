@@ -12,7 +12,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
 use transferia::parsers::json_parser::{
-    ChunkSplitter, ColumnMapping, JsonDataType, JsonParser, JsonParserConfig, ParserWorkspace,
+    ColumnMapping, JsonDataType, JsonFramingMode, JsonParser, JsonParserConfig, ParserWorkspace,
 };
 use transferia::parsers::SystemColumnsConfig;
 use transferia::serializer::JsonBatchEncoder;
@@ -62,11 +62,10 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
                 max_length: None,
             },
         ],
-        chunk_splitter: ChunkSplitter::NewLine,
+        json_framing: JsonFramingMode::JsonLines,
         conversion_error: transferia::parsers::json_parser::ConversionErrorPolicy::Dlq,
         unknown_fields: transferia::parsers::json_parser::UnknownFieldPolicy::Fail,
         primary_key: Vec::new(),
-        system_column_names: transferia::parsers::json_parser::SystemColumnNames::default(),
     };
     let parser = JsonParser::new(
         &parser_config,

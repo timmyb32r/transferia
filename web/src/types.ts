@@ -61,6 +61,7 @@ export type RuntimeState =
 export interface DeliverySummary {
   id: string;
   name: string;
+  description: string;
   revision: number;
   validation: ValidationState;
   runtime: RuntimeState;

@@ -24,6 +24,7 @@ import type {
 const EMPTY_STATE: EditorState = {
   editRevision: 0,
   name: "",
+  description: "",
   config: {},
   validation: { state: "draft" },
   runtime: { state: "stopped" },
@@ -197,11 +198,12 @@ function App() {
     try {
       const saved =
         editor.id === undefined
-          ? await api.create(editor.name, editor.config)
+          ? await api.create(editor.name, editor.description, editor.config)
           : await api.update(
               editor.id,
               editor.persistedRevision!,
               editor.name,
+              editor.description,
               editor.config,
             );
       dispatch({ type: "persisted", delivery: saved });
@@ -377,6 +379,19 @@ function App() {
                   placeholder="e.g. Events to ClickHouse"
                   onInput={(event) =>
                     dispatch({ type: "name", name: event.currentTarget.value })
+                  }
+                />
+              </FieldLabel>
+              <FieldLabel label="Description">
+                <input
+                  type="text"
+                  value={editor.description}
+                  disabled={readOnly}
+                  onInput={(event) =>
+                    dispatch({
+                      type: "description",
+                      description: event.currentTarget.value,
+                    })
                   }
                 />
               </FieldLabel>

@@ -39,20 +39,21 @@ export const api = {
   deliveries: (): Promise<DeliverySummary[]> => request("/api/v1/deliveries"),
   delivery: (id: string): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}`),
-  create: (name: string, config: JsonObject): Promise<DeliveryRecord> =>
+  create: (name: string, description: string, config: JsonObject): Promise<DeliveryRecord> =>
     request("/api/v1/deliveries", {
       method: "POST",
-      body: json({ name, config }),
+      body: json({ name, description, config }),
     }),
   update: (
     id: string,
     expectedRevision: number,
     name: string,
+    description: string,
     config: JsonObject,
   ): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: json({ expected_revision: expectedRevision, name, config }),
+      body: json({ expected_revision: expectedRevision, name, description, config }),
     }),
   yaml: (config: JsonObject, signal?: AbortSignal): Promise<{ yaml: string }> =>
     request("/api/v1/config/yaml", {

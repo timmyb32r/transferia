@@ -8,6 +8,7 @@ describe("editor state", () => {
       {
         editRevision: 0,
         name: "",
+        description: "",
         config: {},
         validation: { state: "draft" },
         runtime: { state: "stopped" },
@@ -22,6 +23,7 @@ describe("editor state", () => {
       delivery: {
         id: "delivery-1",
         name: "orders",
+        description: "",
         config: edited.config,
         revision: 1,
         validation: { state: "draft" },

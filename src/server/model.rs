@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const STATE_VERSION: u32 = 1;
+pub const STATE_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -35,6 +35,7 @@ impl RuntimeState {
 pub struct DeliveryRecord {
     pub id: String,
     pub name: String,
+    pub description: String,
     pub config: Value,
     pub revision: u64,
     pub validation: ValidationState,

@@ -7,6 +7,7 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use bytes::Bytes;
 use core::fmt;
 use serde::{de, Deserializer};
 use serde_json::Value;
@@ -14,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 
 use crate::parsers::json_parser::config::{
-    parse_arrow_type, ChunkSplitter, ConversionErrorPolicy, EpochUnit, JsonDataType,
+    parse_arrow_type, ConversionErrorPolicy, EpochUnit, JsonDataType, JsonFramingMode,
     JsonParserConfig, TimeConversion, UnknownFieldPolicy,
 };
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
@@ -1181,7 +1182,7 @@ pub struct JsonParser {
     /// Cached per-column `DataType` (avoids double `parse_arrow_type`).
     data_types: Vec<DataType>,
     /// How to split incoming message bytes into individual JSON objects.
-    chunk_splitter: ChunkSplitter,
+    json_framing: JsonFramingMode,
     system_kinds: Vec<SystemColumnKind>,
     system_columns: SystemColumns,
     dlq_system_columns: SystemColumns,
@@ -1206,7 +1207,7 @@ impl JsonParser {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
         let row_counts = messages
             .iter()
-            .map(|message| self.chunk_splitter.count_records(&message.value))
+            .map(|message| self.json_framing.count_records(&message.value))
             .collect::<Vec<_>>();
         let rows = row_counts
             .iter()
@@ -1293,9 +1294,9 @@ impl JsonParser {
         if self.output_memory_bound(messages) > MAX_DELIVERY_BYTES {
             return true;
         }
-        messages.iter().any(|message| match self.chunk_splitter {
-            ChunkSplitter::OneMessageOneRow => message.value.len() > MAX_RECORD_BYTES,
-            ChunkSplitter::NewLine => message
+        messages.iter().any(|message| match self.json_framing {
+            JsonFramingMode::SingleDocument => message.value.len() > MAX_RECORD_BYTES,
+            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => message
                 .value
                 .split(|byte| *byte == b'\n')
                 .any(|record| record.len() > MAX_RECORD_BYTES),
@@ -1446,13 +1447,13 @@ impl JsonParser {
             SystemColumnKind::MessageIndex,
             SystemColumnKind::WriteTimestampMs,
         ] {
-            let name = config.system_column_names.name(kind);
+            let name = system_config.name(kind);
             if column_names.contains(name) {
                 anyhow::bail!("user column '{name}' conflicts with reserved system column");
             }
         }
         for kind in &system_kinds {
-            let name = config.system_column_names.name(*kind);
+            let name = system_config.name(*kind);
             let field = Field::new(name, kind.data_type(), false);
             schema_fields.push(if config.primary_key.iter().any(|key| key == name) {
                 field.with_metadata(
@@ -1472,7 +1473,7 @@ impl JsonParser {
                 .enumerate()
                 .map(|(offset, kind)| SystemColumn {
                     kind: *kind,
-                    name: Arc::from(config.system_column_names.name(*kind)),
+                    name: Arc::from(system_config.name(*kind)),
                     index: n + offset,
                 })
                 .collect::<Vec<_>>(),
@@ -1483,7 +1484,7 @@ impl JsonParser {
                 .enumerate()
                 .map(|(offset, kind)| SystemColumn {
                     kind: *kind,
-                    name: Arc::from(config.system_column_names.name(*kind)),
+                    name: Arc::from(system_config.name(*kind)),
                     index: 3 + offset,
                 })
                 .collect::<Vec<_>>(),
@@ -1497,7 +1498,7 @@ impl JsonParser {
             table,
             dlq_table,
             data_types,
-            chunk_splitter: config.chunk_splitter,
+            json_framing: config.json_framing,
             system_kinds,
             system_columns,
             dlq_system_columns,
@@ -1659,7 +1660,7 @@ impl JsonParser {
         );
     }
 
-    /// Parses `NewLine` records directly from their source buffers. Keeping
+    /// Parses `JsonLines` records directly from their source buffers. Keeping
     /// only compact DLQ descriptors avoids a second per-record allocation for
     /// dense invalid input.
     fn parse_all_root_newline(
@@ -1940,8 +1941,8 @@ impl JsonParser {
     fn parse_mixed(&self, messages: &[Message], ws: &mut ParserWorkspace) -> anyhow::Result<()> {
         let n_cols = self.mappings.len();
         let mut row: Vec<Value> = Vec::with_capacity(n_cols);
-        match self.chunk_splitter {
-            ChunkSplitter::NewLine => {
+        match self.json_framing {
+            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => {
                 self.parse_mixed_newline(
                     messages,
                     &mut ws.builders,
@@ -1949,7 +1950,7 @@ impl JsonParser {
                     &mut row,
                 )?;
             }
-            ChunkSplitter::OneMessageOneRow => {
+            JsonFramingMode::SingleDocument => {
                 self.parse_mixed_nosplit(
                     messages,
                     &mut ws.builders,
@@ -2017,15 +2018,36 @@ impl ParserWorkspace {
 // ---------------------------------------------------------------------------
 
 impl JsonParser {
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "the parser session consumes source ownership at this API boundary"
-    )]
+    fn frame_json_arrays(&self, messages: Vec<Message>) -> anyhow::Result<Vec<Message>> {
+        if self.json_framing != JsonFramingMode::JsonArray {
+            return Ok(messages);
+        }
+        messages
+            .into_iter()
+            .map(|message| {
+                let values: Vec<Value> = serde_json::from_slice(&message.value)
+                    .map_err(|error| anyhow::anyhow!("invalid JSON array: {error}"))?;
+                let mut framed = Vec::with_capacity(message.value.len());
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        framed.push(b'\n');
+                    }
+                    serde_json::to_writer(&mut framed, value)?;
+                }
+                Ok(Message {
+                    value: Bytes::from(framed),
+                    meta: message.meta,
+                })
+            })
+            .collect()
+    }
+
     pub fn parse_into(
         &self,
         messages: Vec<Message>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let messages = self.frame_json_arrays(messages)?;
         self.check_system_column_preconditions(&messages)?;
         if self.exceeds_safety_limits(&messages) {
             anyhow::bail!(
@@ -2035,17 +2057,20 @@ impl JsonParser {
 
         // Count rows without retaining a second per-record index. Parsing
         // performs the same allocation-free split over the source buffers.
-        let n_rows: usize = match self.chunk_splitter {
-            ChunkSplitter::NewLine => messages
+        let n_rows: usize = match self.json_framing {
+            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => messages
                 .iter()
-                .map(|msg| self.chunk_splitter.count_records(&msg.value))
+                .map(|msg| self.json_framing.count_records(&msg.value))
                 .sum(),
-            ChunkSplitter::OneMessageOneRow => messages.len(),
+            JsonFramingMode::SingleDocument => messages.len(),
         };
         let input_bytes = messages.iter().fold(0_usize, |total, message| {
             total.saturating_add(message.value.len())
         });
-        let estimated_dlq_rows = if matches!(self.chunk_splitter, ChunkSplitter::NewLine) {
+        let estimated_dlq_rows = if matches!(
+            self.json_framing,
+            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray
+        ) {
             n_rows
         } else {
             messages.len()
@@ -2087,17 +2112,18 @@ impl JsonParser {
                 typed_scratch.resize_with(n_cols, || TypedScratch::Empty);
                 typed_seen.clear();
                 typed_seen.resize(n_cols, false);
-                match self.chunk_splitter {
-                    ChunkSplitter::NewLine => self.parse_all_root_newline(
-                        &messages,
-                        info,
-                        builders,
-                        typed_scratch,
-                        typed_seen,
-                        json_buf,
-                        dlq_records,
-                    ),
-                    ChunkSplitter::OneMessageOneRow => self.parse_all_root_nosplit(
+                match self.json_framing {
+                    JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => self
+                        .parse_all_root_newline(
+                            &messages,
+                            info,
+                            builders,
+                            typed_scratch,
+                            typed_seen,
+                            json_buf,
+                            dlq_records,
+                        ),
+                    JsonFramingMode::SingleDocument => self.parse_all_root_nosplit(
                         &messages,
                         info,
                         builders,

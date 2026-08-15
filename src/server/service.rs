@@ -114,6 +114,7 @@ impl ControlPlane {
     pub async fn create_draft(
         &self,
         name: String,
+        description: String,
         config: Value,
     ) -> Result<DeliveryRecord, ServiceError> {
         let name = validate_name(&name)?;
@@ -123,6 +124,7 @@ impl ControlPlane {
         let record = DeliveryRecord {
             id: new_id()?,
             name,
+            description,
             config,
             revision: 1,
             validation: ValidationState::Draft,
@@ -139,6 +141,7 @@ impl ControlPlane {
         id: &str,
         expected_revision: u64,
         name: String,
+        description: String,
         config: Value,
     ) -> Result<DeliveryRecord, ServiceError> {
         let name = validate_name(&name)?;
@@ -157,6 +160,7 @@ impl ControlPlane {
             )));
         }
         record.name = name;
+        record.description = description;
         record.config = config;
         record.revision = record.revision.saturating_add(1);
         record.validation = ValidationState::Draft;

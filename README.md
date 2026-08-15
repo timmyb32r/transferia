@@ -76,7 +76,7 @@ source:
       json_parser:
         conversion_error: dlq
         unknown_fields: { action: fail }
-        chunk_splitter: one-message-one-row
+        json_framing: single_document
         columns:
           - { jsonpath: "$.id", column_name: id, json_data_type: string, arrow_type: Utf8, nullable: false }
 ```
@@ -113,19 +113,16 @@ source:
           type: from_config
           name: events
         system_columns:
-          topic: true
-          partition: true
-          offset: true
-          message_index: true
-          write_timestamp_ms: true
+          topic: _system_topic
+          partition: source_partition
+          offset: source_offset
+          message_index: _system_message_index
+          write_timestamp_ms: _system_write_timestamp_ms
       json_parser:
         conversion_error: dlq
         unknown_fields: { action: fail }
         primary_key: [id, source_partition, source_offset]
-        system_column_names:
-          partition: source_partition
-          offset: source_offset
-        chunk_splitter: one-message-one-row
+        json_framing: single_document
         columns:
           - jsonpath: "$.id"
             column_name: id

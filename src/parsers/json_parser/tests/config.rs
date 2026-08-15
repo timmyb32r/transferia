@@ -62,3 +62,12 @@ fn rejects_sink_specific_fields_in_parser_config() {
         serde_yaml::from_str::<JsonParserConfig>("columns: []\nsink_specific_field: true\n");
     assert!(result.is_err());
 }
+
+#[test]
+fn rejects_the_removed_chunk_splitter_name() {
+    let error = serde_yaml::from_str::<JsonParserConfig>(
+        "columns: []\nchunk_splitter: one-message-one-row\nconversion_error: fail\nunknown_fields: { action: fail }\n",
+    )
+    .expect_err("the obsolete field must not be accepted");
+    assert!(error.to_string().contains("chunk_splitter"), "{error:#}");
+}

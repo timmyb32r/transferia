@@ -5,6 +5,7 @@ fn record(id: &str) -> DeliveryRecord {
     DeliveryRecord {
         id: id.to_owned(),
         name: "test".to_owned(),
+        description: String::new(),
         config: serde_json::json!({}),
         revision: 1,
         validation: ValidationState::Draft,

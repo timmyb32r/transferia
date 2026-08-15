@@ -20,7 +20,7 @@ source:
       json_parser:
         conversion_error: dlq
         unknown_fields: { action: fail }
-        chunk_splitter: one-message-one-row
+        json_framing: single_document
         columns:
           - { jsonpath: "$.id", column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }
 

@@ -117,18 +117,20 @@ impl DeliveryStore for MemoryStore {
 async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Result<()> {
     let service = service();
     let created = service
-        .create_draft("test".to_owned(), serde_json::json!({}))
+        .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
         .await?;
     let updated = service
         .update_draft(
             &created.id,
             created.revision,
             "changed".to_owned(),
+            "description".to_owned(),
             serde_json::json!({"source": {}}),
         )
         .await?;
 
     assert_eq!(updated.revision, 2);
+    assert_eq!(updated.description, "description");
     assert_eq!(updated.validation, ValidationState::Draft);
     assert_eq!(updated.runtime, RuntimeState::Stopped);
     Ok(())
@@ -138,13 +140,14 @@ async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Res
 async fn stale_update_is_rejected_without_overwriting_newer_draft() -> anyhow::Result<()> {
     let service = service();
     let created = service
-        .create_draft("test".to_owned(), serde_json::json!({}))
+        .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
         .await?;
     service
         .update_draft(
             &created.id,
             created.revision,
             "newer".to_owned(),
+            String::new(),
             serde_json::json!({"revision": 2}),
         )
         .await?;
@@ -155,6 +158,7 @@ async fn stale_update_is_rejected_without_overwriting_newer_draft() -> anyhow::R
                 &created.id,
                 created.revision,
                 "stale".to_owned(),
+                String::new(),
                 serde_json::json!({"revision": 1}),
             )
             .await,

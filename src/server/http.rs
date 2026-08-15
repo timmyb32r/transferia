@@ -39,6 +39,8 @@ struct YamlRequest {
 #[derive(Deserialize)]
 struct CreateDraftRequest {
     name: String,
+    #[serde(default)]
+    description: String,
     config: Value,
 }
 
@@ -46,6 +48,8 @@ struct CreateDraftRequest {
 struct UpdateDraftRequest {
     expected_revision: u64,
     name: String,
+    #[serde(default)]
+    description: String,
     config: Value,
 }
 
@@ -73,6 +77,7 @@ struct HealthResponse {
 struct DeliverySummary {
     id: String,
     name: String,
+    description: String,
     revision: u64,
     validation: ValidationState,
     runtime: RuntimeState,
@@ -84,6 +89,7 @@ impl From<DeliveryRecord> for DeliverySummary {
         Self {
             id: record.id,
             name: record.name,
+            description: record.description,
             revision: record.revision,
             validation: record.validation,
             runtime: record.runtime,
@@ -255,7 +261,7 @@ async fn create_draft(
 ) -> Result<impl IntoResponse, ApiError> {
     let delivery = state
         .control_plane
-        .create_draft(request.name, request.config)
+        .create_draft(request.name, request.description, request.config)
         .await?;
     Ok((StatusCode::CREATED, Json(delivery)))
 }
@@ -268,7 +274,13 @@ async fn update_draft(
     Ok(Json(
         state
             .control_plane
-            .update_draft(&id, request.expected_revision, request.name, request.config)
+            .update_draft(
+                &id,
+                request.expected_revision,
+                request.name,
+                request.description,
+                request.config,
+            )
             .await?,
     ))
 }

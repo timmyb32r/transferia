@@ -59,44 +59,76 @@ pub struct CommonParserConfig {
     pub table_naming: TableNaming,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "system_columns" }))]
+    #[schemars(extend("x-ui" = { "widget": "system_columns" }))]
     pub system_columns: SystemColumnsConfig,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "these independent user-facing switches deliberately compose"
-)]
 pub struct SystemColumnsConfig {
     #[serde(default)]
-    pub topic: bool,
+    pub topic: Option<String>,
 
     #[serde(default)]
-    pub partition: bool,
+    pub partition: Option<String>,
 
     #[serde(default)]
-    pub offset: bool,
+    pub offset: Option<String>,
 
     #[serde(default)]
-    pub message_index: bool,
+    pub message_index: Option<String>,
 
     #[serde(default)]
-    pub write_timestamp_ms: bool,
+    pub write_timestamp_ms: Option<String>,
 }
 
 impl SystemColumnsConfig {
     pub fn enabled(&self) -> impl Iterator<Item = SystemColumnKind> {
         [
-            (self.topic, SystemColumnKind::Topic),
-            (self.partition, SystemColumnKind::Partition),
-            (self.offset, SystemColumnKind::Offset),
-            (self.message_index, SystemColumnKind::MessageIndex),
-            (self.write_timestamp_ms, SystemColumnKind::WriteTimestampMs),
+            (self.topic.is_some(), SystemColumnKind::Topic),
+            (self.partition.is_some(), SystemColumnKind::Partition),
+            (self.offset.is_some(), SystemColumnKind::Offset),
+            (self.message_index.is_some(), SystemColumnKind::MessageIndex),
+            (
+                self.write_timestamp_ms.is_some(),
+                SystemColumnKind::WriteTimestampMs,
+            ),
         ]
         .into_iter()
         .filter_map(|(enabled, kind)| enabled.then_some(kind))
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let mut names = std::collections::HashSet::new();
+        for name in [
+            self.topic.as_deref(),
+            self.partition.as_deref(),
+            self.offset.as_deref(),
+            self.message_index.as_deref(),
+            self.write_timestamp_ms.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            anyhow::ensure!(!name.is_empty(), "system column names must not be empty");
+            anyhow::ensure!(
+                names.insert(name),
+                "system columns repeat column name '{name}'"
+            );
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn name(&self, kind: SystemColumnKind) -> &str {
+        match kind {
+            SystemColumnKind::Topic => self.topic.as_deref(),
+            SystemColumnKind::Partition => self.partition.as_deref(),
+            SystemColumnKind::Offset => self.offset.as_deref(),
+            SystemColumnKind::MessageIndex => self.message_index.as_deref(),
+            SystemColumnKind::WriteTimestampMs => self.write_timestamp_ms.as_deref(),
+        }
+        .unwrap_or_else(|| kind.default_name())
     }
 }
 

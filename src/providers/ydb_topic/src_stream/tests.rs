@@ -8,7 +8,7 @@ use super::*;
 
 fn provider(extra: &str) -> anyhow::Result<YdbTopicSourceProvider> {
     let value = serde_yaml::from_str(&format!(
-        "host: localhost\nport: 2135\ntopic_path: topic\nconsumer_name: consumer\ntopology_discovery: topic_api\nauth: {{ type: token, token: test }}\ntrusted_plaintext: true\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    chunk_splitter: one-message-one-row\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
+        "host: localhost\nport: 2135\ntopic_path: topic\nconsumer_name: consumer\ntopology_discovery: topic_api\nauth: {{ type: token, token: test }}\ntrusted_plaintext: true\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: integer, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
     ))?;
     YdbTopicSourceProvider::from_config(value, Arc::new(MetricsRegistry::new()))
 }
