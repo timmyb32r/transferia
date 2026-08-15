@@ -34,6 +34,8 @@ function App() {
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const [yaml, setYaml] = useState("");
+  const [yamlDraft, setYamlDraft] = useState("");
+  const [activeView, setActiveView] = useState<"ui" | "yaml">("ui");
   const [discovery, setDiscovery] = useState<DiscoveryResult>();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
@@ -41,6 +43,7 @@ function App() {
   const discoveryJob = useRef(
     new LatestJob<JsonObject, DiscoveryResult>(),
   ).current;
+  const yamlEditing = useRef(false);
 
   useEffect(() => {
     void Promise.all([api.catalog(), api.deliveries()])
@@ -78,6 +81,12 @@ function App() {
         .then((result) => {
           if (result !== undefined && result.revision === editor.editRevision)
             setYaml(result.value.yaml);
+          if (
+            result !== undefined &&
+            result.revision === editor.editRevision &&
+            !yamlEditing.current
+          )
+            setYamlDraft(result.value.yaml);
         })
         .catch(ignoreAbort(setError));
     }, 120);
@@ -229,6 +238,28 @@ function App() {
       setBusy(undefined);
     }
   };
+  const showYaml = () => {
+    if (activeView === "yaml") return;
+    yamlEditing.current = true;
+    setYamlDraft(yaml);
+    setActiveView("yaml");
+    setError(undefined);
+  };
+  const applyYamlAndShowUi = async () => {
+    if (activeView === "ui") return;
+    setBusy("Applying YAML…");
+    setError(undefined);
+    try {
+      const parsed = await api.parseYaml(yamlDraft);
+      dispatch({ type: "config", config: parsed.config });
+      yamlEditing.current = false;
+      setActiveView("ui");
+    } catch (reason) {
+      setError(errorMessage(reason));
+    } finally {
+      setBusy(undefined);
+    }
+  };
 
   return (
     <div class="shell">
@@ -245,6 +276,8 @@ function App() {
           type="button"
           onClick={() => {
             dispatch({ type: "new", config: freshConfig(catalog) });
+            yamlEditing.current = false;
+            setActiveView("ui");
             setError(undefined);
             setDiscovery(undefined);
           }}
@@ -264,9 +297,11 @@ function App() {
                 setBusy("Opening delivery…");
                 void api
                   .delivery(delivery.id)
-                  .then((record) =>
-                    dispatch({ type: "open", delivery: record }),
-                  )
+                  .then((record) => {
+                    yamlEditing.current = false;
+                    setActiveView("ui");
+                    dispatch({ type: "open", delivery: record });
+                  })
                   .catch(reportError(setError))
                   .finally(() => setBusy(undefined));
               }}
@@ -291,8 +326,32 @@ function App() {
             </small>
             <h1>{editor.name || "Untitled delivery"}</h1>
           </div>
-          <StatusPill runtime={editor.runtime.state} />
+          {editor.id !== undefined && (
+            <StatusPill runtime={editor.runtime.state} />
+          )}
         </header>
+        <div class="editor-tabs" role="tablist" aria-label="Configuration view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "ui"}
+            class={activeView === "ui" ? "active" : ""}
+            disabled={busy !== undefined}
+            onClick={() => void applyYamlAndShowUi()}
+          >
+            UI
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeView === "yaml"}
+            class={activeView === "yaml" ? "active" : ""}
+            disabled={busy !== undefined}
+            onClick={showYaml}
+          >
+            YAML
+          </button>
+        </div>
         {error && (
           <div class="notice error">
             <span>{error}</span>
@@ -308,99 +367,116 @@ function App() {
           </div>
         )}
 
-        <section class="card identity-card">
-          <FieldLabel label="Delivery name" required>
-            <input
-              type="text"
-              value={editor.name}
-              disabled={readOnly}
-              placeholder="e.g. Events to ClickHouse"
-              onInput={(event) =>
-                dispatch({ type: "name", name: event.currentTarget.value })
-              }
-            />
-          </FieldLabel>
-          <FieldLabel label="Delivery type" required>
-            <SelectControl
-              value={stringValue(editor.config.delivery_type)}
-              disabled={readOnly}
-              placeholder="Not selected"
-              options={[
-                { value: "batch", label: "Batch" },
-                { value: "stream", label: "Stream" },
-                { value: "batch_and_stream", label: "Batch + stream" },
-              ]}
-              onChange={(value) =>
-                updateConfig({ ...editor.config, delivery_type: value })
-              }
-            />
-          </FieldLabel>
-        </section>
+        {activeView === "ui" ? (
+          <div class="editor-view" role="tabpanel">
+            <section class="card identity-card">
+              <FieldLabel label="Delivery name" required>
+                <input
+                  type="text"
+                  value={editor.name}
+                  disabled={readOnly}
+                  placeholder="e.g. Events to ClickHouse"
+                  onInput={(event) =>
+                    dispatch({ type: "name", name: event.currentTarget.value })
+                  }
+                />
+              </FieldLabel>
+              <FieldLabel label="Delivery type" required>
+                <SelectControl
+                  value={stringValue(editor.config.delivery_type)}
+                  disabled={readOnly}
+                  placeholder="Not selected"
+                  options={[
+                    { value: "batch", label: "Batch" },
+                    { value: "stream", label: "Stream" },
+                    { value: "batch_and_stream", label: "Batch + stream" },
+                  ]}
+                  onChange={(value) =>
+                    updateConfig({ ...editor.config, delivery_type: value })
+                  }
+                />
+              </FieldLabel>
+            </section>
 
-        <section class={`route-grid ${parserExpanded ? "expanded" : ""}`}>
-          <EndpointCard
-            title="Source"
-            role="source"
-            selectedKey={selection?.sourceKey ?? ""}
-            providers={sourceProviders}
-            {...(selection?.source === undefined ||
-            selection.error !== undefined
-              ? {}
-              : { endpoint: selection.source })}
-            config={editor.config}
-            readOnly={readOnly}
-            onChoose={chooseEndpoint}
-            onConfig={updateConfig}
-          />
-          <div class="route-arrow">→</div>
-          <EndpointCard
-            title="Destination"
-            role="sink"
-            selectedKey={selection?.sinkKey ?? ""}
-            providers={sinkProviders}
-            {...(selection?.sink === undefined || selection.error !== undefined
-              ? {}
-              : { endpoint: selection.sink })}
-            config={editor.config}
-            readOnly={readOnly}
-            onChoose={chooseEndpoint}
-            onConfig={updateConfig}
-          />
-        </section>
-        {selection?.error && (
-          <div class="compatibility-error">
-            <strong>Incompatible route</strong>
-            <span>{selection.error}</span>
+            <section class={`route-grid ${parserExpanded ? "expanded" : ""}`}>
+              <EndpointCard
+                title="Source"
+                role="source"
+                selectedKey={selection?.sourceKey ?? ""}
+                providers={sourceProviders}
+                {...(selection?.source === undefined ||
+                selection.error !== undefined
+                  ? {}
+                  : { endpoint: selection.source })}
+                config={editor.config}
+                readOnly={readOnly}
+                onChoose={chooseEndpoint}
+                onConfig={updateConfig}
+              />
+              <div class="route-arrow">→</div>
+              <EndpointCard
+                title="Destination"
+                role="sink"
+                selectedKey={selection?.sinkKey ?? ""}
+                providers={sinkProviders}
+                {...(selection?.sink === undefined ||
+                selection.error !== undefined
+                  ? {}
+                  : { endpoint: selection.sink })}
+                config={editor.config}
+                readOnly={readOnly}
+                onChoose={chooseEndpoint}
+                onConfig={updateConfig}
+              />
+            </section>
+            {selection?.error && (
+              <div class="compatibility-error">
+                <strong>Incompatible route</strong>
+                <span>{selection.error}</span>
+              </div>
+            )}
+
+            <section class="card pipeline-card">
+              <h2>Pipeline settings</h2>
+              <CommonSettings
+                schema={catalog.common_schema}
+                config={editor.config}
+                disabled={readOnly}
+                onChange={updateConfig}
+              />
+            </section>
+
+            {discovery && <ContractView result={discovery} />}
           </div>
-        )}
-
-        <section class="card pipeline-card">
-          <h2>Pipeline settings</h2>
-          <CommonSettings
-            schema={catalog.common_schema}
-            config={editor.config}
-            disabled={readOnly}
-            onChange={updateConfig}
-          />
-        </section>
-
-        {discovery && <ContractView result={discovery} />}
-
-        <section class="card yaml-card">
-          <div class="card-heading">
-            <div>
-              <small>RUNNABLE CONFIGURATION</small>
-              <h2>YAML</h2>
+        ) : (
+          <section class="yaml-editor card" role="tabpanel">
+            <div class="card-heading">
+              <div>
+                <small>RUNNABLE CONFIGURATION</small>
+                <h2>YAML</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard.writeText(yamlDraft)}
+              >
+                Copy
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(yaml)}
-            >
-              Copy
-            </button>
-          </div>
-          <pre>{yaml || "# Configuration preview"}</pre>
-        </section>
+            <textarea
+              aria-label="YAML configuration"
+              spellcheck={false}
+              value={yamlDraft}
+              disabled={readOnly}
+              onInput={(event) => {
+                yamlEditing.current = true;
+                setYamlDraft(event.currentTarget.value);
+              }}
+            />
+            <p>
+              Switch to UI to parse this YAML and continue editing it as a form.
+            </p>
+          </section>
+        )}
 
         <footer class="actions">
           {editor.runtime.state === "running" ? (

@@ -60,6 +60,11 @@ export const api = {
       body: json({ config }),
       ...(signal === undefined ? {} : { signal }),
     }),
+  parseYaml: (yaml: string): Promise<{ config: JsonObject }> =>
+    request("/api/v1/config/from-yaml", {
+      method: "POST",
+      body: json({ yaml }),
+    }),
   discover: (
     config: JsonObject,
     signal?: AbortSignal,

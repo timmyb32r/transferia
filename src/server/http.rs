@@ -32,6 +32,11 @@ struct ConfigRequest {
 }
 
 #[derive(Deserialize)]
+struct YamlRequest {
+    yaml: String,
+}
+
+#[derive(Deserialize)]
 struct CreateDraftRequest {
     name: String,
     config: Value,
@@ -52,6 +57,11 @@ struct RevisionRequest {
 #[derive(Serialize)]
 struct YamlResponse {
     yaml: String,
+}
+
+#[derive(Serialize)]
+struct ConfigResponse {
+    config: Value,
 }
 
 #[derive(Serialize)]
@@ -145,6 +155,7 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/api/v1/health", get(health))
         .route("/api/v1/catalog", get(get_catalog))
         .route("/api/v1/config/yaml", post(render_yaml))
+        .route("/api/v1/config/from-yaml", post(parse_yaml))
         .route("/api/v1/discover", post(discover))
         .route(
             "/api/v1/deliveries",
@@ -196,6 +207,12 @@ async fn get_catalog(State(state): State<AppState>) -> Json<UiCatalog> {
 async fn render_yaml(Json(request): Json<ConfigRequest>) -> Result<Json<YamlResponse>, ApiError> {
     Ok(Json(YamlResponse {
         yaml: ControlPlane::render_yaml(&request.config)?,
+    }))
+}
+
+async fn parse_yaml(Json(request): Json<YamlRequest>) -> Result<Json<ConfigResponse>, ApiError> {
+    Ok(Json(ConfigResponse {
+        config: ControlPlane::parse_yaml(&request.yaml)?,
     }))
 }
 

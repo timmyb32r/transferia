@@ -390,6 +390,17 @@ impl ControlPlane {
             .map_err(ServiceError::Internal)
     }
 
+    pub fn parse_yaml(yaml: &str) -> Result<Value, ServiceError> {
+        let config: Value = serde_yaml::from_str(yaml)
+            .map_err(|error| ServiceError::InvalidInput(format!("invalid YAML: {error}")))?;
+        if !config.is_object() {
+            return Err(ServiceError::InvalidInput(
+                "the YAML configuration root must be a mapping".to_owned(),
+            ));
+        }
+        Ok(config)
+    }
+
     async fn ensure_unique_runtime_delivery_id(
         &self,
         candidate: &DeliveryRecord,

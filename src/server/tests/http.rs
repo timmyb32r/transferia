@@ -110,3 +110,36 @@ async fn invalid_and_oversized_json_are_rejected_before_the_service() -> anyhow:
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn yaml_can_round_trip_to_an_editable_json_config() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let request = serde_json::json!({
+        "yaml": "delivery_type: stream\nsource:\n  ydb_topic: {}\nsink: {}\n"
+    });
+    let parsed = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/config/from-yaml")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&request)?))?,
+        )
+        .await?;
+    assert_eq!(parsed.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(parsed.into_body(), 64 * 1024).await?)?;
+    assert_eq!(body["config"]["delivery_type"], "stream");
+    assert!(body["config"]["source"]["ydb_topic"].is_object());
+
+    let invalid = app
+        .oneshot(
+            Request::post("/api/v1/config/from-yaml")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"yaml":"- not\\n- a mapping\\n"}"#))?,
+        )
+        .await?;
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
