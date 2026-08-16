@@ -20,6 +20,32 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
    the reason and trade-off in the handoff. The prohibition on silent user-visible
    transformations below is not covered by this exception.
 
+## Data preservation is the highest priority
+
+- **Above all else, do not lose user data.** When safety, convenience,
+  performance, availability, or implementation simplicity conflict with data
+  preservation, preserve the data and make the failure explicit.
+- Every configuration default must be lossless. Defaults must retain source
+  records and fields, preserve ordering and commit guarantees where promised,
+  and preserve the full supported value, type, precision, scale, timezone, and
+  encoding. A destructive behavior such as dropping records, ignoring unknown
+  fields, skipping malformed input, or acknowledging unpersisted data must
+  require an explicit, deliberate user choice and must never be the default.
+- Never silently or quietly truncate, round, saturate, narrow, coerce, replace,
+  reinterpret, or otherwise reduce the precision or fidelity of user data. This
+  prohibition applies to values, identifiers, schemas, timestamps, numeric
+  types, strings, binary payloads, offsets, and metadata at every stage of the
+  delivery.
+- Never conceal or continue through detected corruption. Fail closed before the
+  next irreversible side effect, preserve replayability, and report which value,
+  record, partition, or persisted state violated the contract without exposing
+  secrets.
+- Validate losslessness during configuration parsing or discovery whenever it
+  can be known statically, and validate it again at runtime before buffering,
+  writing, uploading, committing, or acknowledging data. Cover both validation
+  boundaries with regression tests for every new conversion or destination
+  constraint.
+
 ## User-visible semantics: never guess or silently transform
 
 - **Never make a product or UX decision on the user's behalf by silently changing
