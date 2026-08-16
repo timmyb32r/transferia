@@ -283,6 +283,13 @@ impl YdbTopicSource {
                             invalidated: false,
                         },
                     );
+                    tracing::info!(
+                        topic = session.path,
+                        partition = session.partition_id,
+                        partition_session = session.partition_session_id,
+                        committed_offset = request.committed_offset,
+                        "YDB Topic partition assigned"
+                    );
                 }
                 self.send(ClientMessage::StartPartitionSessionResponse(
                     StartPartitionSessionResponse {
@@ -394,6 +401,11 @@ impl YdbTopicSource {
         anyhow::ensure!(
             response.bytes_size > 0,
             "YDB Topic ReadResponse.bytes_size must be positive"
+        );
+        tracing::info!(
+            bytes = response.bytes_size,
+            partitions = response.partition_data.len(),
+            "YDB Topic read response received"
         );
         self.pending_credit = self
             .pending_credit
@@ -548,6 +560,7 @@ impl YdbTopicSource {
             return Ok(());
         }
         let credit = core::mem::take(&mut self.pending_credit);
+        tracing::info!(bytes = credit, "returning YDB Topic read credit");
         self.send(ClientMessage::ReadRequest(ReadRequest {
             bytes_size: credit,
         }))
