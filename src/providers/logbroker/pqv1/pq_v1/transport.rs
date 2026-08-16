@@ -14,8 +14,8 @@ use super::{
 };
 use crate::delivery::execution::retry::stable_retry_seed;
 use crate::delivery::execution::PipelineFailure;
-pub use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
-use crate::Ydb::status_ids::StatusCode;
+use crate::providers::logbroker::proto::status_ids::StatusCode;
+pub use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 
 /// YDB cluster database used for discovery/routing metadata (`x-ydb-database`).
 /// Always `/Root` in our deployment — hardcoded rather than configured.
@@ -110,9 +110,11 @@ async fn discover_proxies(
     token: &str,
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
-) -> anyhow::Result<Vec<crate::Ydb::discovery::EndpointInfo>> {
-    use crate::Ydb::discovery::{ListEndpointsRequest, ListEndpointsResult};
-    use crate::Ydb::operations::GetOperationResponse;
+) -> anyhow::Result<Vec<crate::providers::logbroker::proto::discovery::EndpointInfo>> {
+    use crate::providers::logbroker::proto::discovery::{
+        ListEndpointsRequest, ListEndpointsResult,
+    };
+    use crate::providers::logbroker::proto::operations::GetOperationResponse;
     use prost::Message as _;
 
     let h2 = connect_http2_prior_knowledge(main_uri, timeout, cancellation).await?;
@@ -171,9 +173,9 @@ fn describe_topic_protocol_error(message: impl core::fmt::Display) -> anyhow::Er
 }
 
 pub(super) fn decode_describe_topic_response(
-    response: crate::Ydb::pers_queue::v1::DescribeTopicResponse,
-) -> anyhow::Result<crate::Ydb::pers_queue::v1::TopicSettings> {
-    use crate::Ydb::pers_queue::v1::DescribeTopicResult;
+    response: crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicResponse,
+) -> anyhow::Result<crate::providers::logbroker::proto::pers_queue::v1::TopicSettings> {
+    use crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicResult;
     use prost::Message as _;
 
     let operation = response
@@ -208,10 +210,12 @@ pub(super) fn decode_describe_topic_response(
 
 pub(super) fn describe_topic_request(
     topic_path: &str,
-) -> crate::Ydb::pers_queue::v1::DescribeTopicRequest {
-    use crate::Ydb::operations::{operation_params::OperationMode, OperationParams};
+) -> crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicRequest {
+    use crate::providers::logbroker::proto::operations::{
+        operation_params::OperationMode, OperationParams,
+    };
 
-    crate::Ydb::pers_queue::v1::DescribeTopicRequest {
+    crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicRequest {
         operation_params: Some(OperationParams {
             operation_mode: OperationMode::Sync as i32,
             ..Default::default()
@@ -226,8 +230,10 @@ async fn describe_topic_metadata(
     token: &str,
     timeout: core::time::Duration,
     cancellation: &CancellationToken,
-) -> anyhow::Result<crate::Ydb::pers_queue::v1::TopicSettings> {
-    use crate::Ydb::pers_queue::v1::{DescribeTopicRequest, DescribeTopicResponse};
+) -> anyhow::Result<crate::providers::logbroker::proto::pers_queue::v1::TopicSettings> {
+    use crate::providers::logbroker::proto::pers_queue::v1::{
+        DescribeTopicRequest, DescribeTopicResponse,
+    };
 
     let h2 = connect_http2_prior_knowledge(main_uri, timeout, cancellation).await?;
     let mut grpc = tonic::client::Grpc::<H2Service>::with_origin(h2, main_uri.clone())
@@ -263,7 +269,7 @@ async fn describe_topic_metadata(
 }
 
 pub(super) fn ordered_plaintext_proxies(
-    endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
+    endpoints: Vec<crate::providers::logbroker::proto::discovery::EndpointInfo>,
     partition_id: i64,
 ) -> anyhow::Result<Vec<String>> {
     let mut proxies: Vec<_> = endpoints
@@ -319,7 +325,10 @@ impl PqV1Client {
         token: &str,
         network_timeout: core::time::Duration,
         cancellation: &CancellationToken,
-    ) -> anyhow::Result<(String, Vec<crate::Ydb::discovery::EndpointInfo>)> {
+    ) -> anyhow::Result<(
+        String,
+        Vec<crate::providers::logbroker::proto::discovery::EndpointInfo>,
+    )> {
         auth_metadata_value(token)?;
         let main_host = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&main_host)?;
@@ -333,7 +342,7 @@ impl PqV1Client {
         token: &str,
         network_timeout: core::time::Duration,
         cancellation: &CancellationToken,
-    ) -> anyhow::Result<crate::Ydb::pers_queue::v1::TopicSettings> {
+    ) -> anyhow::Result<crate::providers::logbroker::proto::pers_queue::v1::TopicSettings> {
         auth_metadata_value(token)?;
         let main_host = parse_endpoint(endpoint)?;
         let main_uri = http_uri(&main_host)?;
@@ -342,7 +351,7 @@ impl PqV1Client {
 
     pub fn order_proxies(
         main_host: String,
-        endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
+        endpoints: Vec<crate::providers::logbroker::proto::discovery::EndpointInfo>,
         partition_id: i64,
     ) -> Vec<String> {
         match ordered_plaintext_proxies(endpoints, partition_id) {

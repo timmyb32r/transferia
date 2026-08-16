@@ -2,7 +2,7 @@ use arrow::datatypes::{DataType, TimeUnit};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::types::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
 
 pub const MAX_COLUMN_NAME_CHARS: usize = 256;
 pub const MAX_COLUMNS: usize = 32_768;

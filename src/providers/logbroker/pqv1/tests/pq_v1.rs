@@ -51,8 +51,8 @@ fn cookie(partition_cookie: u64) -> CommitCookie {
     }
 }
 
-fn protocol_path(path: &str) -> crate::Ydb::pers_queue::v1::Path {
-    crate::Ydb::pers_queue::v1::Path {
+fn protocol_path(path: &str) -> crate::providers::logbroker::proto::pers_queue::v1::Path {
+    crate::providers::logbroker::proto::pers_queue::v1::Path {
         path: path.to_string(),
     }
 }
@@ -62,8 +62,8 @@ fn discovery_endpoint(
     port: u32,
     load_factor: f32,
     ssl: bool,
-) -> crate::Ydb::discovery::EndpointInfo {
-    crate::Ydb::discovery::EndpointInfo {
+) -> crate::providers::logbroker::proto::discovery::EndpointInfo {
+    crate::providers::logbroker::proto::discovery::EndpointInfo {
         address: address.to_string(),
         port,
         load_factor,
@@ -73,17 +73,17 @@ fn discovery_endpoint(
 }
 
 fn describe_topic_response(
-    settings: Option<crate::Ydb::pers_queue::v1::TopicSettings>,
+    settings: Option<crate::providers::logbroker::proto::pers_queue::v1::TopicSettings>,
     status: i32,
-) -> crate::Ydb::pers_queue::v1::DescribeTopicResponse {
+) -> crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicResponse {
     use prost::Message as _;
 
-    let result = crate::Ydb::pers_queue::v1::DescribeTopicResult {
+    let result = crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicResult {
         self_: None,
         settings,
     };
-    crate::Ydb::pers_queue::v1::DescribeTopicResponse {
-        operation: Some(crate::Ydb::operations::Operation {
+    crate::providers::logbroker::proto::pers_queue::v1::DescribeTopicResponse {
+        operation: Some(crate::providers::logbroker::proto::operations::Operation {
             ready: true,
             status,
             result: Some(prost_types::Any {
@@ -831,7 +831,7 @@ fn discovery_filters_tls_and_builds_a_stable_failover_order() {
 
 #[test]
 fn describe_topic_decodes_successful_metadata() {
-    let settings = crate::Ydb::pers_queue::v1::TopicSettings {
+    let settings = crate::providers::logbroker::proto::pers_queue::v1::TopicSettings {
         partitions_count: 3,
         ..Default::default()
     };
@@ -847,7 +847,8 @@ fn describe_topic_requests_synchronous_metadata() {
     assert_eq!(request.path, "/Root/topic");
     assert_eq!(
         request.operation_params.unwrap().operation_mode,
-        crate::Ydb::operations::operation_params::OperationMode::Sync as i32
+        crate::providers::logbroker::proto::operations::operation_params::OperationMode::Sync
+            as i32
     );
 }
 
@@ -869,7 +870,7 @@ fn describe_topic_requires_settings_in_a_successful_result() {
 #[test]
 fn describe_topic_requires_a_ready_sync_operation() {
     let mut response = describe_topic_response(
-        Some(crate::Ydb::pers_queue::v1::TopicSettings::default()),
+        Some(crate::providers::logbroker::proto::pers_queue::v1::TopicSettings::default()),
         YDB_STATUS_SUCCESS,
     );
     response.operation.as_mut().unwrap().ready = false;
@@ -883,7 +884,7 @@ fn describe_topic_requires_a_ready_sync_operation() {
 #[test]
 fn describe_topic_rejects_a_non_success_operation() {
     let error = decode_describe_topic_response(describe_topic_response(
-        Some(crate::Ydb::pers_queue::v1::TopicSettings::default()),
+        Some(crate::providers::logbroker::proto::pers_queue::v1::TopicSettings::default()),
         StatusCode::SchemeError as i32,
     ))
     .unwrap_err();
@@ -1222,7 +1223,7 @@ fn decoded_accounting_includes_fixed_metadata_and_caps_the_batch() {
 fn successful_status_with_issues_is_terminal() {
     let message = MigrationStreamingReadServerMessage {
         status: YDB_STATUS_SUCCESS,
-        issues: vec![crate::Ydb::issue::IssueMessage {
+        issues: vec![crate::providers::logbroker::proto::issue::IssueMessage {
             message: "protocol warning".to_string(),
             ..Default::default()
         }],

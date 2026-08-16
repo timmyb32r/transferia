@@ -27,15 +27,15 @@ use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::logbroker::pqv1::src_stream::PqV1SourceProvider;
-use transferia::providers::traits::SourceProvider;
-use transferia::Ydb::discovery::{EndpointInfo, ListEndpointsResult};
-use transferia::Ydb::operations::{GetOperationResponse, Operation};
-use transferia::Ydb::pers_queue::v1::{
+use transferia::providers::logbroker::proto::discovery::{EndpointInfo, ListEndpointsResult};
+use transferia::providers::logbroker::proto::operations::{GetOperationResponse, Operation};
+use transferia::providers::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message, migration_streaming_read_server_message,
     AutoPartitioningSettings, AutoPartitioningStrategy, Codec, CommitCookie, DescribeTopicResponse,
     DescribeTopicResult, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
     Path, TopicSettings,
 };
+use transferia::providers::traits::SourceProvider;
 
 const TOPIC: &str = "/Root/e2e-topic";
 const CONSUMER: &str = "e2e-consumer";
@@ -410,7 +410,7 @@ parser:
         .await?;
     let batch =
         tokio::time::timeout(core::time::Duration::from_secs(3), source.read_batch()).await??;
-    let transferia::types::message::SourceBatch::Raw {
+    let transferia::delivery::data::message::SourceBatch::Raw {
         messages,
         commit_marker,
         ..
@@ -429,5 +429,5 @@ parser:
 }
 
 mod topic_settings {
-    pub use transferia::Ydb::pers_queue::v1::topic_settings::ReadRule;
+    pub use transferia::providers::logbroker::proto::pers_queue::v1::topic_settings::ReadRule;
 }

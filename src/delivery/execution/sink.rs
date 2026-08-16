@@ -5,8 +5,8 @@ use futures_util::future::BoxFuture;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::data::system_columns::SystemColumns;
 use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
-use crate::types::system_columns::SystemColumns;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DeliveryId(u64);

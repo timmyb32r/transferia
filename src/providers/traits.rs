@@ -3,15 +3,15 @@ use alloc::sync::Arc;
 use futures_util::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
-use crate::compatibility::EndpointDescriptor;
+use crate::delivery::data::schema::DatasetSchema;
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::sink::Sink;
 use crate::delivery::execution::source::Source;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
 use crate::durable::DurableContext;
 use crate::metrics::SinkCounters;
 use crate::parsers::ParserPlan;
-use crate::types::schema::DatasetSchema;
 
 // ---------------------------------------------------------------------------
 // SourceProvider

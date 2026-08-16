@@ -17,12 +17,12 @@ use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::logbroker::pqv1::pq_v1::{
     connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers,
 };
-use crate::providers::traits::SinkContext;
-use crate::serializer::JsonBatchEncoder;
-use crate::Ydb::pers_queue::v1::{
+use crate::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
+use crate::providers::traits::SinkContext;
+use crate::serializer::JsonBatchEncoder;
 
 const SUCCESS: i32 = 400_000;
 const UNSPECIFIED: i32 = 0;

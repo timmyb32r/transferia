@@ -18,13 +18,13 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::data::message::SourceBatch;
 use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::execution::source::Source as _;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::s3::S3SourceProvider;
 use transferia::providers::traits::SourceProvider as _;
-use transferia::types::message::SourceBatch;
 
 const IMAGE: &str = "localstack/localstack";
 const TAG: &str = "4.14.0";

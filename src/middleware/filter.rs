@@ -7,9 +7,9 @@ use arrow::datatypes::DataType;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::delivery::data::schema::DatasetSchema;
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::execution::middleware::Middleware;
-use crate::types::schema::DatasetSchema;
-use crate::types::table_data::TableData;
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

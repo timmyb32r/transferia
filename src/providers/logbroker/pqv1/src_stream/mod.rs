@@ -6,19 +6,19 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::compatibility::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::source::Source;
 use crate::delivery::execution::PipelineFailure;
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::logbroker::pqv1::credentials::load_access_token;
 use crate::providers::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
+use crate::providers::logbroker::proto::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
 use crate::providers::traits::SourceProvider;
-use crate::Ydb::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
@@ -33,7 +33,7 @@ struct CachedEndpoints {
     fetched_at: Instant,
     refresh_retry_at: Option<Instant>,
     main_host: String,
-    endpoints: Vec<crate::Ydb::discovery::EndpointInfo>,
+    endpoints: Vec<crate::providers::logbroker::proto::discovery::EndpointInfo>,
 }
 
 impl CachedEndpoints {

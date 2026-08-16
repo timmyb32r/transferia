@@ -1,6 +1,6 @@
 use super::*;
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
 use crate::delivery::{DiscoveredDataset, SchemaOrigin};
-use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 fn source() -> EndpointDescriptor {
     EndpointDescriptor::Logbroker(SourceDescriptor {
@@ -11,9 +11,10 @@ fn source() -> EndpointDescriptor {
 
 #[test]
 fn source_delivery_modes_are_explicit() {
-    assert!(source().supports_delivery_type(crate::config::yaml::DeliveryType::Stream));
-    assert!(!source().supports_delivery_type(crate::config::yaml::DeliveryType::Batch));
-    assert!(!source().supports_delivery_type(crate::config::yaml::DeliveryType::BatchAndStream));
+    assert!(source().supports_delivery_type(crate::delivery::config::yaml::DeliveryType::Stream));
+    assert!(!source().supports_delivery_type(crate::delivery::config::yaml::DeliveryType::Batch));
+    assert!(!source()
+        .supports_delivery_type(crate::delivery::config::yaml::DeliveryType::BatchAndStream));
 }
 
 fn discovery() -> DeliveryDiscovery {

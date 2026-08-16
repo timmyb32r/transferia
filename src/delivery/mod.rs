@@ -4,16 +4,19 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::delivery::execution::sink::SinkBatch;
-use crate::parsers::ParserPlan;
-use crate::types::schema::{
+use crate::delivery::data::schema::{
     DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
 };
-use crate::types::system_columns::SystemColumnKind;
-use crate::types::table_data::dlq_name;
+use crate::delivery::data::system_columns::SystemColumnKind;
+use crate::delivery::data::table_data::dlq_name;
+use crate::delivery::execution::sink::SinkBatch;
+use crate::parsers::ParserPlan;
 
+pub mod config;
+pub mod data;
 pub mod execution;
 pub mod preparation;
+pub mod semantics;
 
 /// Inputs that affect the schema physically stored by a sink.
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 
-use crate::types::system_columns::SystemColumns;
+use crate::delivery::data::system_columns::SystemColumns;
 
 /// Pipeline unit: one Arrow batch destined for one pre-resolved table.
 ///

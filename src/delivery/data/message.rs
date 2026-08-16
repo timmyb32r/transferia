@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use std::sync::Arc;
 
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::execution::source::CommitMarker;
-use crate::types::table_data::TableData;
 
 /// A single message from the source.
 #[derive(Debug, Clone)]

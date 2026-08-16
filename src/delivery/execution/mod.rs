@@ -17,6 +17,8 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::data::message::{Message, SourceBatch};
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
 use crate::delivery::execution::middleware::Middleware;
 use crate::delivery::execution::sink::{
@@ -25,8 +27,6 @@ use crate::delivery::execution::sink::{
 use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::ParseCounters;
 use crate::parsers::{ParserFactory, ParserSession};
-use crate::types::message::{Message, SourceBatch};
-use crate::types::table_data::TableData;
 
 const CHANNEL_CAPACITY: usize = 8;
 const INITIAL_BACKOFF_MS: u64 = 10;

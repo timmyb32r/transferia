@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
-use crate::types::schema::DatasetSchema;
-use crate::types::table_data::TableData;
+use crate::delivery::data::schema::DatasetSchema;
+use crate::delivery::data::table_data::TableData;
 
 /// The Middleware trait transforms a `TableData` into another `TableData`.
 ///

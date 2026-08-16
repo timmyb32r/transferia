@@ -10,16 +10,16 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 
-use crate::compatibility::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::source::Source;
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
+use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 use crate::providers::traits::SourceProvider;
-use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 
 #[cfg(test)]
 use crate::providers::logbroker::LogbrokerAuthConfig;

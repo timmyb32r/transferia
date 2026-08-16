@@ -14,15 +14,15 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 
+use crate::delivery::data::message::{Message, MessageMeta};
+use crate::delivery::data::schema::SchemaColumn;
+use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::delivery::data::table_data::{dlq_name, TableData};
 use crate::parsers::json_parser::config::{
     parse_arrow_type, ConversionErrorPolicy, EpochUnit, JsonDataType, JsonFramingMode,
     JsonParserConfig, TimeConversion, UnknownFieldPolicy,
 };
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
-use crate::types::message::{Message, MessageMeta};
-use crate::types::schema::SchemaColumn;
-use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::types::table_data::{dlq_name, TableData};
 
 /// Hard bound for one parser delivery's materialized Arrow data and the
 /// conservative working-set estimate used before builders allocate.

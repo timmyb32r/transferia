@@ -2,7 +2,7 @@ use schemars::{schema_for, JsonSchema};
 use serde::Serialize;
 use serde_json::Value;
 
-use transferia::config::yaml::DeliveryType;
+use transferia::delivery::config::yaml::DeliveryType;
 use transferia::extension::Transferia;
 use transferia::metrics::MetricsConfig;
 use transferia::providers::catalog::ProviderDefinition;

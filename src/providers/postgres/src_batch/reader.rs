@@ -11,13 +11,13 @@ use futures_util::future::BoxFuture;
 use tokio_postgres::{Client, Row, Statement};
 
 use super::config::TableConfig;
+use crate::delivery::data::message::SourceBatch;
+use crate::delivery::data::schema::DatasetSchema;
+use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
 use crate::providers::postgres::common::quote_identifier;
-use crate::types::message::SourceBatch;
-use crate::types::schema::DatasetSchema;
-use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::types::table_data::TableData;
 
 pub struct PostgresSource {
     client: Client,

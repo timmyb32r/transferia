@@ -4,7 +4,7 @@ use arrow::datatypes::{DataType, TimeUnit};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::types::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
 
 /// JSON parser configuration deserialized from the `json_parser:` block.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

@@ -25,6 +25,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::delivery::data::system_columns::SystemColumns;
 use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
@@ -32,13 +34,11 @@ use transferia::delivery::execution::sink::{
 use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::pqv1::PqV1SinkProvider;
-use transferia::providers::traits::{SinkContext, SinkProvider as _};
-use transferia::types::schema::{DatasetSchema, SchemaColumn};
-use transferia::types::system_columns::SystemColumns;
-use transferia::Ydb::pers_queue::v1::{
+use transferia::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
+use transferia::providers::traits::{SinkContext, SinkProvider as _};
 
 const TOKEN: &str = "pq-sink-token";
 const TOPIC: &str = "/Root/output-topic";

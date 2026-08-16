@@ -1,9 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::delivery::data::system_columns::SystemColumnKind;
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::ParserEntry;
-use crate::types::system_columns::SystemColumnKind;
 
 /// Complete parser schema used by the control plane. Runtime dispatch remains
 /// registry-based, while this tagged union gives JSON Schema an explicit set

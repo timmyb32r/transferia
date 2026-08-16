@@ -1,6 +1,6 @@
 use super::*;
+use crate::delivery::data::schema::SchemaColumn;
 use crate::delivery::{DiscoveredDataset, SchemaOrigin};
-use crate::types::schema::SchemaColumn;
 
 fn discovered_dataset(
     role: DatasetRole,

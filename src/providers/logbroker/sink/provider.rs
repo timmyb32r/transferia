@@ -4,8 +4,8 @@ use futures_util::future::BoxFuture;
 
 use super::config::LogbrokerSinkConfig;
 use super::writer::YdbTopicSink;
-use crate::compatibility::EndpointDescriptor;
 use crate::delivery::execution::sink::Sink;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,

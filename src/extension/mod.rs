@@ -539,5 +539,5 @@ impl InstallationResolver for OnPremiseResolver {
 }
 
 #[cfg(test)]
-#[path = "tests/extension.rs"]
+#[path = "tests/mod.rs"]
 mod tests;

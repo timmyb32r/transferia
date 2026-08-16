@@ -3,7 +3,7 @@ use clap::Parser;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::yaml::Config;
+use crate::delivery::config::yaml::Config;
 use crate::delivery::execution::runner::start_delivery;
 use crate::delivery::preparation::{build_delivery_plan_with, build_resolved_delivery_plan_with};
 use crate::extension::Transferia;

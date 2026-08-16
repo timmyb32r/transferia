@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::store::{DeliveryStore, StoreError};
-use transferia::config::yaml::Config;
+use transferia::delivery::config::yaml::Config;
 use transferia::delivery::preparation::build_delivery_plan_with;
 use transferia::delivery::{DatasetRole, DeliveryDiscovery, SinkLimitsDescription};
 use transferia::extension::{DynamicOptions, OptionsRequest, Transferia};

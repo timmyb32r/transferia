@@ -24,6 +24,8 @@ use hyper::{Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::delivery::data::system_columns::SystemColumns;
 use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
@@ -32,8 +34,6 @@ use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, Sc
 use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::build_sink_provider;
 use transferia::providers::traits::SinkContext;
-use transferia::types::schema::{DatasetSchema, SchemaColumn};
-use transferia::types::system_columns::SystemColumns;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_server::ServerMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::write_response::write_ack;

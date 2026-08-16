@@ -11,12 +11,12 @@ use arrow::array::{Int64Array, StringArray, StringBuilder};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
+use transferia::delivery::data::message::Message;
 use transferia::parsers::json_parser::{
     ColumnMapping, JsonDataType, JsonFramingMode, JsonParser, JsonParserConfig, ParserWorkspace,
 };
 use transferia::parsers::SystemColumnsConfig;
 use transferia::serializer::JsonBatchEncoder;
-use transferia::types::message::Message;
 
 #[test]
 fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {

@@ -4,12 +4,12 @@ use futures_util::future::BoxFuture;
 use futures_util::SinkExt as _;
 
 use super::copy_binary;
+use crate::delivery::data::system_columns::SystemColumns;
 use crate::delivery::execution::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use crate::delivery::execution::PipelineFailure;
 use crate::delivery::{DeliveryDiscovery, SinkLimits};
 use crate::metrics::SinkCounters;
 use crate::providers::postgres::common::quote_identifier;
-use crate::types::system_columns::SystemColumns;
 
 pub struct PostgresSink {
     client: tokio_postgres::Client,

@@ -72,13 +72,18 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 ## Repository architecture
 
 - `src/delivery/` owns the delivery domain. `delivery/mod.rs` contains discovered
-  dataset contracts and declarative sink limits; `delivery/preparation/` owns
-  configuration resolution, discovery, validation, and construction of a
-  resolved `DeliveryPlan`; `delivery/execution/` owns partition execution,
-  pipeline flow, memory accounting, retries, middleware, and commit ordering.
+  dataset contracts and declarative sink limits; `delivery/config/` owns the
+  runnable delivery configuration; `delivery/data/` owns provider-neutral data
+  plane values and schemas; `delivery/semantics.rs` owns cross-provider delivery
+  compatibility; `delivery/preparation/` owns configuration resolution,
+  discovery, validation, and construction of a resolved `DeliveryPlan`;
+  `delivery/execution/` owns partition execution, pipeline flow, memory
+  accounting, retries, middleware, and commit ordering.
 - `src/providers/traits.rs` defines source and sink provider boundaries.
-- `src/providers/logbroker/` owns Logbroker discovery, YDB Topic and PQv1
-  transports, protocol decoding, and source/sink behavior.
+- `src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
+  types, YDB Topic and PQv1 transports, protocol decoding, and source/sink
+  behavior. Do not expose Logbroker/YDB transport details at crate root or in
+  generic provider modules.
 - Provider source implementations live in mode-specific `src_batch/`,
   `src_stream/`, or `src_dblog/` modules. Keep provider-wide configuration and
   transport in the provider root; each mode extends those common pieces with

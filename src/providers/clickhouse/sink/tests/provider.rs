@@ -1,8 +1,8 @@
 use arrow::datatypes::DataType;
 
 use super::*;
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
 use crate::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
-use crate::types::schema::{DatasetSchema, SchemaColumn};
 
 fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
     let schema = DatasetSchema::new(vec![

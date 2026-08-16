@@ -7,7 +7,7 @@ use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteForma
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
 use super::src_batch::validate_read_schema;
-use crate::types::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
 fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::Result<()> {

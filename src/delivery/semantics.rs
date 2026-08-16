@@ -5,9 +5,9 @@
 use arrow::datatypes::DataType;
 use serde::Serialize;
 
-use crate::config::yaml::DeliveryType;
+use crate::delivery::config::yaml::DeliveryType;
+use crate::delivery::data::system_columns::SystemColumnKind;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset};
-use crate::types::system_columns::SystemColumnKind;
 
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
@@ -509,5 +509,5 @@ fn error(
 }
 
 #[cfg(test)]
-#[path = "tests/compatibility.rs"]
+#[path = "tests/semantics.rs"]
 mod tests;

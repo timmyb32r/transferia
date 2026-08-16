@@ -9,10 +9,10 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_yaml::Value;
 
+use crate::delivery::data::message::Message;
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::DiscoveredSystemColumn;
-use crate::types::message::Message;
-use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::table_data::TableData;
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
 

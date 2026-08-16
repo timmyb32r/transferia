@@ -85,16 +85,16 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
         keep_system_columns: false,
         datasets: Vec::new(),
     };
-    let source = transferia::compatibility::EndpointDescriptor::Logbroker(
-        transferia::compatibility::SourceDescriptor {
-            behavior: transferia::compatibility::SourceBehavior::BenchmarkDiscard,
-            delivery_modes: transferia::compatibility::SourceDeliveryModes::STREAM,
+    let source = transferia::delivery::semantics::EndpointDescriptor::Logbroker(
+        transferia::delivery::semantics::SourceDescriptor {
+            behavior: transferia::delivery::semantics::SourceBehavior::BenchmarkDiscard,
+            delivery_modes: transferia::delivery::semantics::SourceDeliveryModes::STREAM,
         },
     );
 
     assert!(validate_discovered_pipeline(
         &source,
-        &transferia::compatibility::EndpointDescriptor::ClickHouse,
+        &transferia::delivery::semantics::EndpointDescriptor::ClickHouse,
         &limits,
         &discovery,
         false,
@@ -141,7 +141,7 @@ sink:
     let sink = registry.build_sink(config.sink.kind()?, config.sink.raw()?.clone())?;
     assert!(matches!(
         sink.compatibility(),
-        transferia::compatibility::EndpointDescriptor::ClickHouse
+        transferia::delivery::semantics::EndpointDescriptor::ClickHouse
     ));
     let discovery = configured_discovery(source.as_ref(), true)?;
     validate_discovered_pipeline(
@@ -239,12 +239,12 @@ async fn postgres_pipeline_examples_match_registered_provider_shapes() -> anyhow
         let (source, sink) = build_resolved_endpoints(&config).await?;
         assert!(matches!(
             source.compatibility(),
-            transferia::compatibility::EndpointDescriptor::Postgres(_)
+            transferia::delivery::semantics::EndpointDescriptor::Postgres(_)
         ));
         assert!(matches!(
             sink.compatibility(),
-            transferia::compatibility::EndpointDescriptor::ClickHouse
-                | transferia::compatibility::EndpointDescriptor::S3(_)
+            transferia::delivery::semantics::EndpointDescriptor::ClickHouse
+                | transferia::delivery::semantics::EndpointDescriptor::S3(_)
         ));
     }
     Ok(())
@@ -261,12 +261,12 @@ async fn ytsaurus_examples_match_registered_provider_shapes() -> anyhow::Result<
         if relative_path.contains("source") {
             assert!(matches!(
                 source.compatibility(),
-                transferia::compatibility::EndpointDescriptor::YTsaurus(_)
+                transferia::delivery::semantics::EndpointDescriptor::YTsaurus(_)
             ));
         } else {
             assert!(matches!(
                 sink.compatibility(),
-                transferia::compatibility::EndpointDescriptor::YTsaurusSink
+                transferia::delivery::semantics::EndpointDescriptor::YTsaurusSink
             ));
         }
     }

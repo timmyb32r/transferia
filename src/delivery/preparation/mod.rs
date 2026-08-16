@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use tokio_util::sync::CancellationToken;
 
-use crate::compatibility::{validate_pipeline, DeliverySemanticsReport, SourceBehavior};
-use crate::config::yaml::Config;
+use crate::delivery::config::yaml::Config;
 use crate::delivery::execution::middleware::Middleware;
+use crate::delivery::semantics::{validate_pipeline, DeliverySemanticsReport, SourceBehavior};
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::durable::DurableContext;
 use crate::extension::{EndpointRole, Transferia};
@@ -188,8 +188,8 @@ async fn build_delivery_plan_internal(
 }
 
 pub fn validate_discovered_pipeline(
-    source: &crate::compatibility::EndpointDescriptor,
-    sink: &crate::compatibility::EndpointDescriptor,
+    source: &crate::delivery::semantics::EndpointDescriptor,
+    sink: &crate::delivery::semantics::EndpointDescriptor,
     limits: &dyn crate::delivery::SinkLimits,
     discovery: &DeliveryDiscovery,
     keep_system_columns: bool,

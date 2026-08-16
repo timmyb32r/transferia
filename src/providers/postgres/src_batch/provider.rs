@@ -6,11 +6,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use super::reader::PostgresSource;
-use crate::compatibility::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::system_columns::SystemColumnKind;
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::source::Source;
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
@@ -21,8 +23,6 @@ use crate::providers::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
 use crate::providers::traits::SourceProvider;
-use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::system_columns::SystemColumnKind;
 
 #[derive(Clone)]
 struct DiscoveredTable {

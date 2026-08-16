@@ -20,6 +20,9 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::data::message::SourceBatch;
+use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::delivery::data::system_columns::SystemColumns;
 use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
@@ -32,9 +35,6 @@ use transferia::providers::traits::{
     SinkContext, SinkPrepare, SinkProvider as _, SourceProvider as _,
 };
 use transferia::providers::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
-use transferia::types::message::SourceBatch;
-use transferia::types::schema::{DatasetSchema, SchemaColumn};
-use transferia::types::system_columns::SystemColumns;
 
 const IMAGE: &str = "ghcr.io/ytsaurus/local";
 const TAG: &str = "stable@sha256:6f0991f7c85b4824bebead742fa4d752c3508532c013ffcb778a1b14c0b50b22";

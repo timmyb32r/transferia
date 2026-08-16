@@ -23,6 +23,8 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::delivery::data::system_columns::SystemColumns;
 use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::execution::run_partition_pipeline;
 use transferia::delivery::execution::sink::{
@@ -38,8 +40,6 @@ use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
 use transferia::providers::traits::{
     SinkContext, SinkPrepare, SinkProvider as _, SourceProvider as _,
 };
-use transferia::types::schema::{DatasetSchema, SchemaColumn};
-use transferia::types::system_columns::SystemColumns;
 
 const POSTGRES_IMAGE: &str = "postgres";
 const POSTGRES_TAG: &str = "17.6-bookworm";

@@ -24,7 +24,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-use crate::compatibility::DeliveryGuarantee;
+use crate::delivery::semantics::DeliveryGuarantee;
 
 const RELAXED: Ordering = Ordering::Relaxed;
 /// Nanoseconds per second (f64) — a typed const avoids the `*_literal_suffix`

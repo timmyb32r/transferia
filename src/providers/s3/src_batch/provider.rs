@@ -8,11 +8,11 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
 use super::reader::S3Source;
-use crate::compatibility::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::source::Source;
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;

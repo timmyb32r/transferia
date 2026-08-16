@@ -14,11 +14,15 @@ use tokio_util::sync::CancellationToken;
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{SourceTableConfig, YTsaurusSourceConfig};
 use super::schema::{parse_schema, schemas_equal};
-use crate::compatibility::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
+use crate::delivery::data::message::SourceBatch;
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::delivery::data::table_data::TableData;
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
@@ -26,10 +30,6 @@ use crate::delivery::{
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::traits::SourceProvider;
-use crate::types::message::SourceBatch;
-use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::types::table_data::TableData;
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>;
 

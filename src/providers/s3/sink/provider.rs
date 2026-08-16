@@ -5,20 +5,20 @@ use chrono::TimeZone as _;
 use futures_util::future::BoxFuture;
 use object_store::path::PathPart;
 
+use crate::delivery::data::schema::DatasetSchema;
+use crate::delivery::data::system_columns::SystemColumnKind;
 use crate::delivery::execution::sink::Sink;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DatasetRole, DeliveryDiscovery, NameSyntax,
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
-use crate::types::schema::DatasetSchema;
-use crate::types::system_columns::SystemColumnKind;
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3SinkConfig};
 use super::object_key::{validate_path_component, ObjectKey, MAX_OBJECT_KEY_BYTES};
 use super::upload::{ObjectUploader, S3Uploader};
-use crate::compatibility::{EndpointDescriptor, S3Descriptor, S3Partitioning};
+use crate::delivery::semantics::{EndpointDescriptor, S3Descriptor, S3Partitioning};
 
 const REQUIRED_ROUTING_COLUMNS: [SystemColumnKind; 4] = [
     SystemColumnKind::Topic,

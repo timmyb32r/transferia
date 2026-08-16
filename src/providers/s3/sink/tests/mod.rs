@@ -10,6 +10,9 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::data::message::{Message, MessageMeta, SourceBatch};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
@@ -17,9 +20,6 @@ use crate::delivery::execution::sink::{
 use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use crate::metrics::SinkCounters;
-use crate::types::message::{Message, MessageMeta, SourceBatch};
-use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 use super::actor::S3Sink;
 use super::config::S3SinkConfig;
@@ -1823,7 +1823,7 @@ async fn schema_metadata_drift_is_fatal_before_upload() {
     fields[0] = fields[0]
         .clone()
         .with_metadata(std::collections::HashMap::from([(
-            crate::types::schema::META_LOW_CARDINALITY.to_owned(),
+            crate::delivery::data::schema::META_LOW_CARDINALITY.to_owned(),
             "true".to_owned(),
         )]));
     invalid.outputs[0].batch = RecordBatch::try_new(

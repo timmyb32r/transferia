@@ -18,7 +18,9 @@ use super::{
 };
 use crate::delivery::execution::memory::MemoryReservation;
 use crate::metrics::SourceCounters;
-use crate::Ydb::pers_queue::v1::{migration_streaming_read_server_message, Codec, CommitCookie};
+use crate::providers::logbroker::proto::pers_queue::v1::{
+    migration_streaming_read_server_message, Codec, CommitCookie,
+};
 
 /// One decompressed message within a partition part.
 pub struct DecodedMessage {
@@ -203,10 +205,9 @@ pub(super) fn raw_read_credit_bytes(max_partitions: usize) -> anyhow::Result<usi
     )?;
     bytes = checked_raw_add(
         bytes,
-        checked_raw_capacity::<crate::Ydb::pers_queue::v1::KeyValue>(repeated_capacity(
-            MAX_READ_EXTRA_FIELD_COUNT,
-            MAX_READ_BATCH_COUNT,
-        )?)?,
+        checked_raw_capacity::<crate::providers::logbroker::proto::pers_queue::v1::KeyValue>(
+            repeated_capacity(MAX_READ_EXTRA_FIELD_COUNT, MAX_READ_BATCH_COUNT)?,
+        )?,
     )?;
     checked_raw_add(bytes, max_dynamic)
 }
@@ -260,7 +261,7 @@ pub(super) fn validate_raw_data_batch(
                 .ok_or_else(|| anyhow!("PQv1 DataBatch extra-field count overflow"))?;
             bytes = checked_raw_add(
                 bytes,
-                checked_raw_capacity::<crate::Ydb::pers_queue::v1::KeyValue>(
+                checked_raw_capacity::<crate::providers::logbroker::proto::pers_queue::v1::KeyValue>(
                     message_batch.extra_fields.capacity(),
                 )?,
             )?;

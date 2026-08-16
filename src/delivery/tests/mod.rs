@@ -1,5 +1,5 @@
 use super::*;
-use crate::types::schema::SchemaColumn;
+use crate::delivery::data::schema::SchemaColumn;
 use arrow::datatypes::DataType;
 
 fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {

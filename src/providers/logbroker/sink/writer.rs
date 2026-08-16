@@ -28,8 +28,8 @@ use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
 use crate::providers::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::providers::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
+use crate::providers::logbroker::transport::connect_http2_prior_knowledge;
 use crate::providers::traits::SinkContext;
-use crate::providers::ydb_transport::connect_http2_prior_knowledge;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
 const WRITE_PAYLOAD_BUDGET: usize = MAX_GRPC_MESSAGE_SIZE / 2;

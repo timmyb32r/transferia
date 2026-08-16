@@ -26,17 +26,17 @@ use anyhow::anyhow;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
+use crate::delivery::data::message::{Message, MessageMeta, SourceBatch};
 use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
 use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
-use crate::types::message::{Message, MessageMeta, SourceBatch};
-use crate::Ydb::pers_queue::v1::{
+use crate::providers::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
     migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
     MigrationStreamingReadServerMessage, ReadParams,
 };
-use crate::Ydb::status_ids::StatusCode;
+use crate::providers::logbroker::proto::status_ids::StatusCode;
 use tokio::sync::{mpsc, watch, Notify};
 use tokio_util::sync::CancellationToken;
 use tonic::Request;
@@ -146,7 +146,7 @@ struct ActiveAssignment {
 fn required_topic_path<'a>(
     event: &str,
     partition: i64,
-    topic: Option<&'a crate::Ydb::pers_queue::v1::Path>,
+    topic: Option<&'a crate::providers::logbroker::proto::pers_queue::v1::Path>,
 ) -> anyhow::Result<&'a str> {
     topic
         .map(|topic| topic.path.as_str())
@@ -156,7 +156,7 @@ fn required_topic_path<'a>(
 fn validate_event_identity(
     event: &str,
     partition: i64,
-    topic: Option<&crate::Ydb::pers_queue::v1::Path>,
+    topic: Option<&crate::providers::logbroker::proto::pers_queue::v1::Path>,
     cluster: &str,
     active: &ActiveAssignment,
 ) -> anyhow::Result<()> {

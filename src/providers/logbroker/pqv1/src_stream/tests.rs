@@ -5,12 +5,12 @@ fn topic_settings(partitions_count: i32, consumers: &[&str]) -> TopicSettings {
         partitions_count,
         read_rules: consumers
             .iter()
-            .map(
-                |consumer_name| crate::Ydb::pers_queue::v1::topic_settings::ReadRule {
+            .map(|consumer_name| {
+                crate::providers::logbroker::proto::pers_queue::v1::topic_settings::ReadRule {
                     consumer_name: (*consumer_name).to_owned(),
                     ..Default::default()
-                },
-            )
+                }
+            })
             .collect(),
         ..Default::default()
     }
@@ -103,11 +103,12 @@ fn discovered_topic_requires_a_stable_partition_topology() {
         AutoPartitioningStrategy::ScaleUpAndDown,
     ] {
         let mut settings = topic_settings(3, &["consumer"]);
-        settings.auto_partitioning_settings =
-            Some(crate::Ydb::pers_queue::v1::AutoPartitioningSettings {
+        settings.auto_partitioning_settings = Some(
+            crate::providers::logbroker::proto::pers_queue::v1::AutoPartitioningSettings {
                 strategy: strategy as i32,
                 ..Default::default()
-            });
+            },
+        );
         let error = validate_topic_metadata(&settings, "consumer", &[0]).unwrap_err();
         assert!(
             error.to_string().contains(strategy.as_str_name()),
@@ -120,11 +121,12 @@ fn discovered_topic_requires_a_stable_partition_topology() {
         AutoPartitioningStrategy::Paused,
     ] {
         let mut settings = topic_settings(3, &["consumer"]);
-        settings.auto_partitioning_settings =
-            Some(crate::Ydb::pers_queue::v1::AutoPartitioningSettings {
+        settings.auto_partitioning_settings = Some(
+            crate::providers::logbroker::proto::pers_queue::v1::AutoPartitioningSettings {
                 strategy: strategy as i32,
                 ..Default::default()
-            });
+            },
+        );
         validate_topic_metadata(&settings, "consumer", &[0]).unwrap();
     }
 }
@@ -205,7 +207,7 @@ fn reports_benchmark_discard_behavior() {
                 keep_system_columns: false,
             })
             .unwrap();
-        assert!(crate::compatibility::validate_pipeline(
+        assert!(crate::delivery::semantics::validate_pipeline(
             &endpoint,
             &EndpointDescriptor::ClickHouse,
             &discovery,
@@ -329,13 +331,13 @@ fn retries_advance_the_endpoint_failover_cursor_per_partition() {
 fn cached_endpoint_order_remains_partition_specific() {
     let main = "main.test:2135".to_string();
     let endpoints = vec![
-        crate::Ydb::discovery::EndpointInfo {
+        crate::providers::logbroker::proto::discovery::EndpointInfo {
             address: "a.test".into(),
             port: 2135,
             load_factor: 0.0,
             ..Default::default()
         },
-        crate::Ydb::discovery::EndpointInfo {
+        crate::providers::logbroker::proto::discovery::EndpointInfo {
             address: "b.test".into(),
             port: 2135,
             load_factor: 0.0,

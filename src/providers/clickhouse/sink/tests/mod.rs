@@ -13,14 +13,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::actor::without_system_columns;
 use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
+use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::delivery::execution::memory::PipelineMemory;
 use crate::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use crate::metrics::SinkCounters;
-use crate::types::schema::{DatasetSchema, SchemaColumn};
-use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 
 #[derive(Clone, Copy)]
 enum Plan {
@@ -147,7 +147,7 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),
-            system_columns: crate::types::system_columns::SystemColumns::default(),
+            system_columns: crate::delivery::data::system_columns::SystemColumns::default(),
         });
     }
     Delivery {
