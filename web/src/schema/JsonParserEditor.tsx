@@ -50,7 +50,6 @@ export function JsonParserEditor({
   return (
     <div class="schema-object json-parser-editor">
       <section class="parser-common-section">
-        <h3>Parser settings</h3>
         {commonNode.properties.table_naming && (
           <PropertyEditor
             name="table_naming"

@@ -237,10 +237,36 @@ describe("schema form", () => {
     fireEvent.pointerDown(trigger, { button: 0 });
     expect(form.getByRole("option", { name: "String" })).toBeTruthy();
 
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
 
     expect(form.queryByRole("option", { name: "String" })).toBeNull();
     view.unmount();
+  });
+
+  it("keeps only one dropdown open at a time", () => {
+    const view = render(
+      <>
+        <SelectControl
+          value=""
+          placeholder="First"
+          options={[{ value: "first", label: "First option" }]}
+          onChange={() => undefined}
+        />
+        <SelectControl
+          value=""
+          placeholder="Second"
+          options={[{ value: "second", label: "Second option" }]}
+          onChange={() => undefined}
+        />
+      </>,
+    );
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "First" }));
+    expect(view.getByRole("option", { name: "First option" })).toBeTruthy();
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "Second" }));
+    expect(view.queryByRole("option", { name: "First option" })).toBeNull();
+    expect(view.getByRole("option", { name: "Second option" })).toBeTruthy();
   });
 
   it("loads dynamic options when opened from the keyboard", async () => {
@@ -647,9 +673,8 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    expect(details.container.textContent).toContain(
-      "JSON parser configuration",
-    );
+    expect(details.container.textContent).toContain("JSON parser settings");
+    expect(details.container.textContent).not.toContain("Parser settings");
     expect(details.container.textContent).toContain("Output columns");
     expect(
       details.container.querySelector(".source-parser-bridge"),
@@ -889,7 +914,7 @@ describe("schema form", () => {
     ).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Duplicate" })).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
-    fireEvent.mouseDown(document.body);
+    fireEvent.pointerDown(document.body);
     expect(table.queryByRole("menu")).toBeNull();
     fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
     fireEvent.click(table.getByRole("menuitem", { name: "Column settings" }));

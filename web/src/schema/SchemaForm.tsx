@@ -86,10 +86,7 @@ export function ParserDetailsForm({
       <div class="source-parser-bridge" aria-hidden="true" />
       <section class="parser-details-card">
         <div class="section-heading">
-          <div>
-            <small>PARSER</small>
-            <h2>{selected.label} configuration</h2>
-          </div>
+          <h2>{selected.label} settings</h2>
         </div>
         <NodeEditor
           node={selected.node}

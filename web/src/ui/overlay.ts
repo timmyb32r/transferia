@@ -17,7 +17,7 @@ export function useAnchoredOverlay({
   const [, refreshPosition] = useState(0);
   useEffect(() => {
     if (!open) return;
-    const closeOutside = (event: MouseEvent) => {
+    const closeOutside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) onClose();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -29,12 +29,12 @@ export function useAnchoredOverlay({
       if (closeOnViewportChange) onClose();
       else refreshPosition((revision) => revision + 1);
     };
-    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("pointerdown", closeOutside);
     document.addEventListener("keydown", closeOnEscape);
     window.addEventListener("resize", viewportChanged);
     window.addEventListener("scroll", viewportChanged, true);
     return () => {
-      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("pointerdown", closeOutside);
       document.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("resize", viewportChanged);
       window.removeEventListener("scroll", viewportChanged, true);

@@ -477,7 +477,7 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
                     { "type": "object", "title": "Token file", "properties": { "type": { "const": "token_file" }, "token_file": { "type": "string" } }, "required": ["type", "token_file"] }
                 ]
             },
-            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+            "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
         }),
         &["host", "port", "auth", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "auth": { "type": "token", "token": "" }, "trusted_plaintext": true }),
