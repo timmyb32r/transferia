@@ -9,6 +9,20 @@ fn parent_tokens_are_random_and_not_empty() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn readiness_protocol_distinguishes_success_failure_and_eof() -> anyhow::Result<()> {
+    assert!(matches!(parse_readiness(6, "READY\n")?, Readiness::Ready));
+    let Readiness::Failed(message) = parse_readiness(22, "ERROR \"connect failed\"\n")? else {
+        anyhow::bail!("startup error was parsed as readiness")
+    };
+    assert_eq!(message, "connect failed");
+    assert!(parse_readiness(0, "")
+        .expect_err("EOF unexpectedly passed readiness")
+        .to_string()
+        .contains("closed the control connection"));
+    Ok(())
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn resolved_worker_config_is_private_and_removed_by_its_guard() -> anyhow::Result<()> {

@@ -505,14 +505,39 @@ async fn await_ready(mut stream: TcpStream, child: &mut Child) -> anyhow::Result
                 anyhow::bail!("worker exited before readiness: {status}");
             }
             read = reader.read_line(&mut line) => {
-                read?;
-                anyhow::ensure!(line.trim_end() == "READY", "worker sent an invalid readiness message");
+                match parse_readiness(read?, &line)? {
+                    Readiness::Ready => {}
+                    Readiness::Failed(message) => anyhow::bail!("worker startup failed: {message}"),
+                }
             }
         }
         Ok(stream)
     })
     .await
     .context("worker readiness timed out")?
+}
+
+#[derive(Debug)]
+enum Readiness {
+    Ready,
+    Failed(String),
+}
+
+fn parse_readiness(bytes_read: usize, line: &str) -> anyhow::Result<Readiness> {
+    anyhow::ensure!(
+        bytes_read != 0,
+        "worker closed the control connection before readiness"
+    );
+    let line = line.trim_end();
+    if line == "READY" {
+        return Ok(Readiness::Ready);
+    }
+    if let Some(message) = line.strip_prefix("ERROR ") {
+        return Ok(Readiness::Failed(
+            serde_json::from_str(message).context("worker sent a malformed startup error")?,
+        ));
+    }
+    anyhow::bail!("worker sent an invalid readiness message: {line}")
 }
 
 fn random_token() -> anyhow::Result<String> {

@@ -53,6 +53,16 @@ impl WorkerControl {
         self.writer.lock().await.write_all(b"READY\n").await?;
         Ok(())
     }
+
+    pub async fn startup_failed(&self, error: &anyhow::Error) -> anyhow::Result<()> {
+        let message = serde_json::to_string(&format!("{error:#}"))?;
+        let mut writer = self.writer.lock().await;
+        writer.write_all(b"ERROR ").await?;
+        writer.write_all(message.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+        drop(writer);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -102,7 +102,6 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         .config
         .as_deref()
         .context("--config is required unless --server is selected")?;
-    let config = Config::from_file(config_path)?;
     let cancellation = CancellationToken::new();
     let parent_control = match (cli.parent_control, cli.parent_token.as_deref()) {
         (Some(address), Some(token)) => {
@@ -114,20 +113,31 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         }
     };
     spawn_shutdown_listener(cancellation.clone())?;
-    if let Some(expected) = &cli.composition_fingerprint {
-        anyhow::ensure!(
-            expected == transferia.composition_fingerprint(),
-            "worker composition does not match the composition that resolved its configuration"
-        );
+    let startup = async {
+        let config = Config::from_file(config_path)?;
+        if let Some(expected) = &cli.composition_fingerprint {
+            anyhow::ensure!(
+                expected == transferia.composition_fingerprint(),
+                "worker composition does not match the composition that resolved its configuration"
+            );
+        }
+        let plan = if cli.resolved_config {
+            build_resolved_delivery_plan_with(config, cancellation.clone(), &transferia).await?
+        } else {
+            build_delivery_plan_with(config, cancellation.clone(), &transferia).await?
+        };
+        start_delivery(plan, cli.total_workers, cli.worker_index, cancellation).await
     }
-    let plan = if cli.resolved_config {
-        build_resolved_delivery_plan_with(config, cancellation.clone(), &transferia).await?
-    } else {
-        build_delivery_plan_with(config, cancellation.clone(), &transferia).await?
-    };
-    let Some(mut execution) =
-        start_delivery(plan, cli.total_workers, cli.worker_index, cancellation).await?
-    else {
+    .await;
+    let Some(mut execution) = (match startup {
+        Ok(execution) => execution,
+        Err(error) => {
+            if let Some(parent_control) = &parent_control {
+                let _ignored = parent_control.startup_failed(&error).await;
+            }
+            return Err(error);
+        }
+    }) else {
         return Ok(());
     };
     if let Some(parent_control) = &parent_control {
