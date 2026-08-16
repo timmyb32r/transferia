@@ -1,4 +1,4 @@
-import contract from "../../../contracts/server-api.schema.json";
+import contract from "../../../src/server/contracts/server-api.schema.json";
 
 import type { ApiContract, ApiContractName } from "../generated/apiContract";
 

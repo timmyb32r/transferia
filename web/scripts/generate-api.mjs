@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import prettier from "prettier";
 
-const schemaPath = new URL("../../contracts/server-api.schema.json", import.meta.url);
+const schemaPath = new URL("../../src/server/contracts/server-api.schema.json", import.meta.url);
 const outputPath = new URL("../src/generated/apiContract.ts", import.meta.url);
 const contract = JSON.parse(await readFile(schemaPath, "utf8"));
 

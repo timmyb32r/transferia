@@ -23,7 +23,7 @@ fn build_server_ui() -> Result<(), Box<dyn core::error::Error>> {
     println!("cargo:rerun-if-changed=web/src");
     println!("cargo:rerun-if-changed=web/scripts/build.mjs");
     println!("cargo:rerun-if-changed=web/scripts/generate-api.mjs");
-    println!("cargo:rerun-if-changed=contracts/server-api.schema.json");
+    println!("cargo:rerun-if-changed=src/server/contracts/server-api.schema.json");
     println!("cargo:rerun-if-changed=web/package.json");
     println!("cargo:rerun-if-changed=web/package-lock.json");
     println!("cargo:rerun-if-env-changed=TRANSFERIA_SKIP_SERVER_UI");

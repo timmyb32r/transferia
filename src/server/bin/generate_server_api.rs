@@ -1,7 +1,7 @@
 use std::path::Path;
 
-const SCHEMA_OUTPUT: &str = "contracts/server-api.schema.json";
-const FIXTURE_OUTPUT: &str = "contracts/server-api.fixture.json";
+const SCHEMA_OUTPUT: &str = "src/server/contracts/server-api.schema.json";
+const FIXTURE_OUTPUT: &str = "src/server/contracts/server-api.fixture.json";
 
 fn main() -> anyhow::Result<()> {
     let artifacts = [

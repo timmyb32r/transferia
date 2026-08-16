@@ -94,7 +94,7 @@ validation.
 `server/api_contract.rs` is the only source of truth for control-plane request
 and response shapes. Its Rust DTOs derive `JsonSchema`; the
 `generate-server-api` binary materializes that schema as
-`contracts/server-api.schema.json`. The web generator projects the committed
+`src/server/contracts/server-api.schema.json`. The web generator projects the committed
 schema into `web/src/generated/apiContract.ts`, and the API client validates
 every successful response and every structured error at runtime before it can
 enter application state. Frontend code must import these generated types through
