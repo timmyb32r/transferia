@@ -71,6 +71,7 @@ pub(super) struct YdbTopicSource {
     memory: PipelineMemory,
     counters: Arc<SourceCounters>,
     pending_credit: i64,
+    uncommitted_batches: usize,
 }
 
 impl YdbTopicSource {
@@ -121,6 +122,7 @@ impl YdbTopicSource {
             memory,
             counters,
             pending_credit: 0,
+            uncommitted_batches: 0,
         };
         source.await_init(timeout).await?;
         source
@@ -541,6 +543,12 @@ impl YdbTopicSource {
         }
         let commit_marker = (!partitions.is_empty())
             .then(|| CommitMarker::new(YdbTopicCommitMarker { partitions }));
+        if commit_marker.is_some() {
+            self.uncommitted_batches = self
+                .uncommitted_batches
+                .checked_add(1)
+                .ok_or_else(|| fatal(anyhow!("YDB Topic uncommitted batch count overflow")))?;
+        }
         Ok(SessionEvent::Batch(SourceBatch::Raw {
             messages,
             commit_marker,
@@ -558,16 +566,23 @@ impl YdbTopicSource {
     }
 
     async fn replenish_credit(&mut self) -> anyhow::Result<()> {
-        if self.pending_credit <= 0 {
+        let credit = take_releasable_credit(&mut self.pending_credit, self.uncommitted_batches);
+        if credit <= 0 {
             return Ok(());
         }
-        let credit = core::mem::take(&mut self.pending_credit);
         tracing::info!(bytes = credit, "returning YDB Topic read credit");
         self.send(ClientMessage::ReadRequest(ReadRequest {
             bytes_size: credit,
         }))
         .await
     }
+}
+
+pub(super) fn take_releasable_credit(pending_credit: &mut i64, uncommitted_batches: usize) -> i64 {
+    if *pending_credit <= 0 || uncommitted_batches > 0 {
+        return 0;
+    }
+    core::mem::take(pending_credit)
 }
 
 impl Source for YdbTopicSource {
@@ -612,7 +627,12 @@ impl Source for YdbTopicSource {
                     commit_offsets,
                 }))
                 .await?;
+                self.uncommitted_batches = self
+                    .uncommitted_batches
+                    .checked_sub(markers.len())
+                    .ok_or_else(|| fatal(anyhow!("YDB Topic commit count exceeds read batches")))?;
                 tracing::info!("YDB Topic source offset commit request sent");
+                self.replenish_credit().await?;
                 Ok(())
             }
             .await;

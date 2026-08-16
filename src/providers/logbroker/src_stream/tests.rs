@@ -5,13 +5,23 @@ use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::source::{
     build_commit_request, coalesce_ranges, decode_message, init_message, releasable_session_ids,
-    PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
+    take_releasable_credit, PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
 };
 use super::*;
 use crate::core::source::CommitMarker;
 
 fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
     provider_with_topics("  - path: topic\n    partitions: []\n", extra)
+}
+
+#[test]
+fn read_credit_is_withheld_until_every_read_batch_is_committed() {
+    let mut credit = 8_243_154;
+    assert_eq!(take_releasable_credit(&mut credit, 1), 0);
+    assert_eq!(credit, 8_243_154);
+
+    assert_eq!(take_releasable_credit(&mut credit, 0), 8_243_154);
+    assert_eq!(credit, 0);
 }
 
 fn provider_with_topics(topics: &str, extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
