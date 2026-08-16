@@ -71,22 +71,26 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Repository architecture
 
-- `src/delivery.rs` owns discovered dataset contracts and declarative sink
-  limits.
+- `src/delivery/` owns the delivery domain. `delivery/mod.rs` contains discovered
+  dataset contracts and declarative sink limits; `delivery/preparation/` owns
+  configuration resolution, discovery, validation, and construction of a
+  resolved `DeliveryPlan`; `delivery/execution/` owns partition execution,
+  pipeline flow, memory accounting, retries, middleware, and commit ordering.
 - `src/providers/traits.rs` defines source and sink provider boundaries.
-- `src/pipeline/` owns delivery flow, memory accounting, retries, middleware,
-  and commit ordering.
-- `src/providers/pqv1/` owns PQv1 discovery, transport, protocol, decoding, and
-  source behavior.
+- `src/providers/logbroker/` owns Logbroker discovery, YDB Topic and PQv1
+  transports, protocol decoding, and source/sink behavior.
 - Provider source implementations live in mode-specific `src_batch/`,
   `src_stream/`, or `src_dblog/` modules. Keep provider-wide configuration and
   transport in the provider root; each mode extends those common pieces with
   its own settings. Do not create empty mode modules before an implementation
   exists.
-- Reserve `runtime` for an actual execution environment or executor (for
-  example, Tokio, Kubernetes, or EC2). Name provider components after their
-  responsibility, such as `reader`, `writer`, `client`, or `actor`; never use a
-  generic `runtime` module for provider logic.
+- `src/runtime/` defines the worker-runtime boundary. Environment-specific
+  process ownership, readiness, shutdown, and parent-worker control belong in
+  `src/runtime/local/`; future Kubernetes or EC2 implementations must be sibling
+  runtime adapters. Delivery execution itself remains in `delivery/execution/`.
+  Name provider components after their responsibility, such as `reader`,
+  `writer`, `client`, or `actor`; never use a generic `runtime` module for
+  provider logic.
 - `src/providers/clickhouse/` and `src/providers/s3/` own all destination-specific
   validation and runtime behavior.
 - `tests/` contains cross-component integration and end-to-end tests.

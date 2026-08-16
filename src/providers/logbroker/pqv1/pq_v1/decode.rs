@@ -16,8 +16,8 @@ use super::{
     MAX_READ_MESSAGES_COUNT, MAX_READ_SIZE, MAX_ZSTD_WINDOW_LOG, MIN_VEC_ALLOCATION_CAPACITY,
     OUTPUT_MESSAGE_METADATA_BYTES,
 };
+use crate::delivery::execution::memory::MemoryReservation;
 use crate::metrics::SourceCounters;
-use crate::pipeline::memory::MemoryReservation;
 use crate::Ydb::pers_queue::v1::{migration_streaming_read_server_message, Codec, CommitCookie};
 
 /// One decompressed message within a partition part.

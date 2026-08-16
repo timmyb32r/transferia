@@ -6,11 +6,13 @@ The local control plane owns delivery drafts, validation, worker processes, and 
 
 | Module | Responsibility |
 | --- | --- |
-| `application/delivery_plan.rs` | The one startup/preflight sequence shared by CLI workers and the control plane |
+| `delivery/preparation/` | The one resolution, discovery, and validation sequence shared by workers and the control plane |
+| `delivery/execution/` | Partition assignment, startup barrier, retries, pipeline flow, memory, and commit ordering |
 | `providers/catalog.rs` | The only provider registration catalog: runtime factories, schemas, initial form values, and supported delivery modes |
 | `server/service.rs` | Delivery use cases and state transitions; depends only on the storage and supervisor ports |
 | `server/store.rs` | `DeliveryStore` port and the transactional local JSON implementation |
-| `server/supervisor.rs` | `WorkerSupervisor` port and the local child-process implementation |
+| `runtime/mod.rs` | Environment-neutral worker runtime interface and lifecycle events |
+| `runtime/local/` | Local CLI, child-process supervisor, readiness protocol, signals, and shutdown |
 | `server/api_contract.rs` | The Rust-owned HTTP request/response DTOs and generated JSON Schema root |
 | `server/http.rs` | Routing, error classification, body limits, headers, and embedded assets |
 | `server/ui_catalog.rs` | The root form schema composed with the provider catalog |
@@ -20,7 +22,7 @@ The local control plane owns delivery drafts, validation, worker processes, and 
 | `web/src/ui/` | Reusable overlay and select primitives |
 | `web/src/app.tsx` | Application orchestration only: sessions, effects, navigation, and commands |
 
-Do not let HTTP DTOs, JSON persistence, or `tokio::process::Child` enter `ControlPlane`. A replacement database implements `DeliveryStore`; a container or remote launcher implements `WorkerSupervisor`. Neither change should alter application use cases.
+Do not let HTTP DTOs, JSON persistence, or `tokio::process::Child` enter `ControlPlane`. A replacement database implements `DeliveryStore`; a container or remote launcher implements `WorkerSupervisor`. Neither change should alter control-plane use cases or delivery preparation and execution.
 
 ## Delivery lifecycle
 

@@ -14,14 +14,14 @@ use super::reader::ClickHouseSource;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::Source;
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::Source;
 use crate::providers::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::providers::clickhouse::sink::identifier::validate_identifier;
 use crate::providers::clickhouse::sink::table::quote_string_literal;

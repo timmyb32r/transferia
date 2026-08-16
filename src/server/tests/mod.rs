@@ -3,8 +3,7 @@ use std::sync::Mutex;
 
 use tokio::sync::mpsc;
 
-use super::model::RunId;
-use super::supervisor::{SupervisorError, WorkerEvent, WorkerInfo, WorkerSupervisor};
+use crate::runtime::{RunId, SupervisorError, WorkerEvent, WorkerInfo, WorkerSupervisor};
 
 mod ui_catalog_contract;
 
@@ -27,7 +26,7 @@ impl WorkerSupervisor for TestSupervisor {
         &self,
         _delivery_id: &str,
         _run_id: &RunId,
-        _config: &transferia::application::delivery_plan::ResolvedDeliveryConfig,
+        _config: &transferia::delivery::preparation::ResolvedDeliveryConfig,
     ) -> Result<WorkerInfo, SupervisorError> {
         Err(SupervisorError::Startup("not configured".to_owned()))
     }

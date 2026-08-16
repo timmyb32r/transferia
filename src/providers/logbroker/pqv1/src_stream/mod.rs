@@ -9,12 +9,12 @@ use tokio_util::sync::CancellationToken;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::Source;
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::Source;
-use crate::pipeline::PipelineFailure;
 use crate::providers::logbroker::pqv1::credentials::load_access_token;
 use crate::providers::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::traits::SourceProvider;

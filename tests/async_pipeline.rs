@@ -14,14 +14,14 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::execution::memory::PipelineMemory;
+use transferia::delivery::execution::middleware::Middleware;
+use transferia::delivery::execution::run_partition_pipeline;
+use transferia::delivery::execution::source::{CommitMarker, Source};
+use transferia::delivery::execution::PipelineFailure;
 use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia::metrics::{ParseCounters, SinkCounters};
 use transferia::middleware::filter::FilterMiddleware;
-use transferia::pipeline::memory::PipelineMemory;
-use transferia::pipeline::middleware::Middleware;
-use transferia::pipeline::run_partition_pipeline;
-use transferia::pipeline::source::{CommitMarker, Source};
-use transferia::pipeline::PipelineFailure;
 use transferia::providers::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };

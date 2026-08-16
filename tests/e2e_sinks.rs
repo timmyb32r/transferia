@@ -22,12 +22,12 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
-use transferia::metrics::SinkCounters;
-use transferia::pipeline::memory::PipelineMemory;
-use transferia::pipeline::sink::{
+use transferia::delivery::execution::memory::PipelineMemory;
+use transferia::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
 };
+use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::metrics::SinkCounters;
 use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::discard::provider::DiscardSinkProvider;
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
@@ -83,7 +83,7 @@ fn discovery(
 }
 
 async fn run_one_delivery(
-    sink: Box<dyn transferia::pipeline::sink::Sink>,
+    sink: Box<dyn transferia::delivery::execution::sink::Sink>,
     memory: PipelineMemory,
     delivery: Delivery,
 ) -> anyhow::Result<()> {

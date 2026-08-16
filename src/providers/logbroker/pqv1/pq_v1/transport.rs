@@ -12,8 +12,8 @@ use super::{
     status_failure_kind, surface_session_failure, tonic_failure, PqV1Client, SessionFailure,
     MAX_GRPC_MESSAGE_SIZE, YDB_STATUS_SUCCESS, YDB_STATUS_UNSPECIFIED,
 };
-use crate::pipeline::retry::stable_retry_seed;
-use crate::pipeline::PipelineFailure;
+use crate::delivery::execution::retry::stable_retry_seed;
+use crate::delivery::execution::PipelineFailure;
 pub use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 use crate::Ydb::status_ids::StatusCode;
 

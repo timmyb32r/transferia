@@ -5,12 +5,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::compatibility::{validate_pipeline, DeliverySemanticsReport, SourceBehavior};
 use crate::config::yaml::Config;
+use crate::delivery::execution::middleware::Middleware;
 use crate::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
 use crate::durable::DurableContext;
 use crate::extension::{EndpointRole, Transferia};
 use crate::metrics::MetricsRegistry;
 use crate::middleware::build_middleware;
-use crate::pipeline::middleware::Middleware;
 use crate::providers::catalog::build_provider_catalog_with;
 use crate::providers::traits::{SinkProvider, SourceProvider};
 
@@ -229,5 +229,5 @@ fn validate_middlewares(
 }
 
 #[cfg(test)]
-#[path = "tests/delivery_plan.rs"]
+#[path = "tests/mod.rs"]
 mod tests;

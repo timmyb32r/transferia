@@ -12,7 +12,6 @@ mod http;
 mod model;
 mod service;
 mod store;
-mod supervisor;
 mod ui_catalog;
 
 pub async fn run(bind: SocketAddr, state_dir: PathBuf) -> anyhow::Result<()> {
@@ -29,7 +28,7 @@ pub async fn run_with(
         "the local control plane may only bind to a loopback address"
     );
     let store = Arc::new(store::JsonDeliveryStore::open(state_dir.clone()).await?);
-    let supervisor = Arc::new(supervisor::LocalWorkerSupervisor::new(
+    let supervisor = Arc::new(crate::runtime::local::LocalWorkerSupervisor::new(
         std::env::current_exe()?,
         state_dir.clone(),
     ));

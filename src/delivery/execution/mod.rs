@@ -2,6 +2,7 @@ pub(crate) mod delivery_tracker;
 pub mod memory;
 pub mod middleware;
 pub mod retry;
+pub mod runner;
 pub mod sink;
 pub mod source;
 
@@ -16,14 +17,14 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
-use crate::metrics::ParseCounters;
-use crate::parsers::{ParserFactory, ParserSession};
-use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
-use crate::pipeline::middleware::Middleware;
-use crate::pipeline::sink::{
+use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
+use crate::delivery::execution::middleware::Middleware;
+use crate::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
-use crate::pipeline::source::{CommitMarker, Source};
+use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::metrics::ParseCounters;
+use crate::parsers::{ParserFactory, ParserSession};
 use crate::types::message::{Message, SourceBatch};
 use crate::types::table_data::TableData;
 

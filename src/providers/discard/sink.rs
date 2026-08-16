@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
+use crate::delivery::execution::sink::{Sink, SinkEvent, SinkIo};
 use crate::metrics::SinkCounters;
-use crate::pipeline::sink::{Sink, SinkEvent, SinkIo};
 
 /// Benchmark-only sink which acknowledges every delivery after counting and
 /// dropping it. It deliberately provides no durability.

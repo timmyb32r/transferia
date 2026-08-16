@@ -24,12 +24,12 @@ use hyper::{Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
-use transferia::metrics::SinkCounters;
-use transferia::pipeline::memory::PipelineMemory;
-use transferia::pipeline::sink::{
+use transferia::delivery::execution::memory::PipelineMemory;
+use transferia::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
 };
+use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::build_sink_provider;
 use transferia::providers::traits::SinkContext;
 use transferia::types::schema::{DatasetSchema, SchemaColumn};

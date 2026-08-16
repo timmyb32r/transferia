@@ -1,8 +1,8 @@
 use futures_util::future::BoxFuture;
 
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::execution::sink::Sink;
 use crate::delivery::{SinkLimits, NO_LIMITS};
-use crate::pipeline::sink::Sink;
 use crate::providers::discard::sink::DiscardSink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 

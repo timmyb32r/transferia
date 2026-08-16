@@ -4,13 +4,16 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::Serialize;
 
+use crate::delivery::execution::sink::SinkBatch;
 use crate::parsers::ParserPlan;
-use crate::pipeline::sink::SinkBatch;
 use crate::types::schema::{
     DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
 };
 use crate::types::system_columns::SystemColumnKind;
 use crate::types::table_data::dlq_name;
+
+pub mod execution;
+pub mod preparation;
 
 /// Inputs that affect the schema physically stored by a sink.
 #[derive(Debug, Clone, Copy)]
@@ -482,5 +485,5 @@ pub fn validate_stored_projection(
 }
 
 #[cfg(test)]
-#[path = "tests/delivery.rs"]
+#[path = "tests/mod.rs"]
 mod tests;

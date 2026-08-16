@@ -2,13 +2,14 @@ use schemars::{schema_for, JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::model::{DeliveryRecord, RunId, RuntimeState, ValidationState};
+use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::service::{
     ColumnView, DatasetRoleView, DatasetView, DiscoveryResult, ValidationCommandResult,
 };
 use super::ui_catalog::UiCatalog;
 use transferia::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
 use transferia::extension::DynamicOptions;
+use transferia::runtime::RunId;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

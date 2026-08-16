@@ -7,11 +7,11 @@ use super::table::{prepare_tables, validate_table_schema};
 use super::transport::NativeTransport;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::execution::sink::Sink;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
-use crate::pipeline::sink::Sink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {

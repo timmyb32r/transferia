@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use async_trait::async_trait;
 
 use super::*;
+use crate::runtime::WorkerInfo;
 
 struct TestSupervisor {
     events: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>>>,
@@ -28,8 +29,8 @@ impl WorkerSupervisor for TestSupervisor {
         &self,
         _delivery_id: &str,
         _run_id: &RunId,
-        _config: &transferia::application::delivery_plan::ResolvedDeliveryConfig,
-    ) -> Result<super::super::supervisor::WorkerInfo, SupervisorError> {
+        _config: &transferia::delivery::preparation::ResolvedDeliveryConfig,
+    ) -> Result<WorkerInfo, SupervisorError> {
         Err(SupervisorError::Startup("not configured".to_owned()))
     }
 

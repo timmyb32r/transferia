@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::pipeline::sink::SinkBatch;
+use crate::delivery::execution::sink::SinkBatch;
 use crate::types::system_columns::{SystemColumnKind, SystemColumns};
 use arrow::array::{
     Array, BooleanArray, Date32Array, Date64Array, Int16Array, Int32Array, Int64Array, Int8Array,

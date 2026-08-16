@@ -8,8 +8,8 @@ use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 
 use super::provider::DiscoveredTable;
+use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
-use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::SourceBatch;
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::types::table_data::TableData;

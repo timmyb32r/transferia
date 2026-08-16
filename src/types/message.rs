@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use std::sync::Arc;
 
-use crate::pipeline::source::CommitMarker;
+use crate::delivery::execution::source::CommitMarker;
 use crate::types::table_data::TableData;
 
 /// A single message from the source.
@@ -37,13 +37,13 @@ pub enum SourceBatch {
     Raw {
         messages: Vec<Message>,
         commit_marker: Option<CommitMarker>,
-        memory: Vec<crate::pipeline::memory::MemoryReservation>,
+        memory: Vec<crate::delivery::execution::memory::MemoryReservation>,
     },
     Typed {
         tables: Vec<TableData>,
         source_rows: u64,
         commit_marker: Option<CommitMarker>,
-        memory: Vec<crate::pipeline::memory::MemoryReservation>,
+        memory: Vec<crate::delivery::execution::memory::MemoryReservation>,
     },
     Finished,
 }

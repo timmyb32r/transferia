@@ -20,14 +20,14 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::execution::memory::PipelineMemory;
+use transferia::delivery::execution::sink::{
+    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
+};
 use transferia::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
 use transferia::metrics::{MetricsRegistry, SinkCounters};
-use transferia::pipeline::memory::PipelineMemory;
-use transferia::pipeline::sink::{
-    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
-};
 use transferia::providers::traits::{
     SinkContext, SinkPrepare, SinkProvider as _, SourceProvider as _,
 };
@@ -118,7 +118,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
 }
 
 async fn write_delivery(
-    sink: Box<dyn transferia::pipeline::sink::Sink>,
+    sink: Box<dyn transferia::delivery::execution::sink::Sink>,
     memory: PipelineMemory,
     batches: Vec<RecordBatch>,
 ) -> anyhow::Result<()> {

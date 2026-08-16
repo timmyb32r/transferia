@@ -11,8 +11,8 @@ use futures_util::future::BoxFuture;
 use tokio_postgres::{Client, Row, Statement};
 
 use super::config::TableConfig;
+use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
-use crate::pipeline::source::{CommitMarker, Source};
 use crate::providers::postgres::common::quote_identifier;
 use crate::types::message::SourceBatch;
 use crate::types::schema::DatasetSchema;

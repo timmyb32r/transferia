@@ -1,5 +1,6 @@
 use super::*;
-use crate::server::model::{RunId, RuntimeState, ValidationState};
+use crate::runtime::RunId;
+use crate::server::model::{RuntimeState, ValidationState};
 
 fn record(id: &str) -> DeliveryRecord {
     DeliveryRecord {

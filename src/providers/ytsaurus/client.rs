@@ -135,7 +135,7 @@ pub fn classify_http_failure(error: anyhow::Error) -> anyhow::Error {
                 && http.status != reqwest::StatusCode::LOCKED
         });
     if permanent {
-        crate::pipeline::PipelineFailure::fatal(error).into()
+        crate::delivery::execution::PipelineFailure::fatal(error).into()
     } else {
         error
     }

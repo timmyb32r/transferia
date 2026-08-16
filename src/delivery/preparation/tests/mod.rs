@@ -1,5 +1,7 @@
 use super::*;
 
+mod integration;
+
 #[tokio::test]
 async fn plan_rejects_zero_pipeline_memory_before_discovery() -> anyhow::Result<()> {
     let yaml = r"

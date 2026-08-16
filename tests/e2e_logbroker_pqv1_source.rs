@@ -23,9 +23,9 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
-use transferia::pipeline::memory::PipelineMemory;
 use transferia::providers::logbroker::pqv1::src_stream::PqV1SourceProvider;
 use transferia::providers::traits::SourceProvider;
 use transferia::Ydb::discovery::{EndpointInfo, ListEndpointsResult};

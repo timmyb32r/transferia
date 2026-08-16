@@ -7,7 +7,7 @@ use arrow::datatypes::DataType;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::pipeline::middleware::Middleware;
+use crate::delivery::execution::middleware::Middleware;
 use crate::types::schema::DatasetSchema;
 use crate::types::table_data::TableData;
 

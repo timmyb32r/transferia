@@ -18,13 +18,13 @@ use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, validate_column_name, MAX_COLUMNS,
 };
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::execution::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use crate::metrics::SinkCounters;
-use crate::pipeline::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use crate::pipeline::PipelineFailure;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
@@ -117,7 +117,7 @@ impl SinkLimits for YTsaurusSinkConfig {
     fn validate_batch(
         &self,
         discovery: &DeliveryDiscovery,
-        batch: &crate::pipeline::sink::SinkBatch,
+        batch: &crate::delivery::execution::sink::SinkBatch,
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.path_for_dataset(&batch.table)?;

@@ -4,11 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const STATE_VERSION: u32 = 4;
+use crate::runtime::RunId;
 
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
-#[serde(transparent)]
-pub struct RunId(pub String);
+pub const STATE_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]

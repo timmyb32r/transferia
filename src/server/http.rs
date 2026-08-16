@@ -22,9 +22,10 @@ use super::api_contract::{
     YamlResponse,
 };
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
-use super::model::{DeliveryRecord, RunId};
+use super::model::DeliveryRecord;
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
+use transferia::runtime::RunId;
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 

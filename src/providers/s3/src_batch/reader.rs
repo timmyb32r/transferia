@@ -5,9 +5,9 @@ use futures_util::future::BoxFuture;
 use object_store::path::Path;
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::{CommitMarker, Source};
 use crate::types::message::{Message, MessageMeta, SourceBatch};
 
 pub(super) struct S3Source {

@@ -26,10 +26,10 @@ use anyhow::anyhow;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
+use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
+use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
-use crate::pipeline::memory::{MemoryReservation, PipelineMemory};
-use crate::pipeline::source::{CommitMarker, Source};
-use crate::pipeline::PipelineFailure;
 use crate::types::message::{Message, MessageMeta, SourceBatch};
 use crate::Ydb::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},

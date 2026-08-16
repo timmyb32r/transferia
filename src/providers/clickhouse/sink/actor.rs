@@ -8,12 +8,12 @@ use tokio_util::task::AbortOnDropHandle;
 
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
+use crate::delivery::execution::delivery_tracker::DeliveryTracker;
+use crate::delivery::execution::retry::{jittered_retry_delay, stable_retry_seed};
+use crate::delivery::execution::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::{DeliveryDiscovery, SinkLimits};
 use crate::metrics::SinkCounters;
-use crate::pipeline::delivery_tracker::DeliveryTracker;
-use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
-use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
-use crate::pipeline::PipelineFailure;
 use crate::types::system_columns::SystemColumns;
 
 struct BufferedBatch {

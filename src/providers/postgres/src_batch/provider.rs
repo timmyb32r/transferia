@@ -9,14 +9,14 @@ use super::reader::PostgresSource;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::Source;
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::Source;
 use crate::providers::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };

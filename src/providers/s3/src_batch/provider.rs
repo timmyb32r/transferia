@@ -11,11 +11,11 @@ use super::reader::S3Source;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::Source;
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 
 pub struct S3SourceProvider {

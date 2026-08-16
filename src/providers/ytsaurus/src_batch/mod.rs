@@ -17,14 +17,14 @@ use super::schema::{parse_schema, schemas_equal};
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::{CommitMarker, Source};
 use crate::providers::traits::SourceProvider;
 use crate::types::message::SourceBatch;
 use crate::types::schema::{DatasetSchema, SchemaColumn};

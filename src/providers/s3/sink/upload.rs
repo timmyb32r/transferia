@@ -10,9 +10,9 @@ use object_store::{Error as ObjectStoreError, MultipartUpload, ObjectStore};
 use tokio_util::sync::CancellationToken;
 
 use super::config::{RetryConfig, UploadConfig};
+use crate::delivery::execution::retry::{jittered_retry_delay, stable_retry_seed};
+use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SinkCounters;
-use crate::pipeline::retry::{jittered_retry_delay, stable_retry_seed};
-use crate::pipeline::PipelineFailure;
 
 // Keep abort cleanup below the actor's five-second upload-drain grace period.
 const MULTIPART_ABORT_TIMEOUT: Duration = Duration::from_secs(4);

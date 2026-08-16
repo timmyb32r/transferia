@@ -4,11 +4,11 @@ use futures_util::future::BoxFuture;
 
 use super::writer::PqV1Sink;
 use crate::compatibility::EndpointDescriptor;
+use crate::delivery::execution::sink::Sink;
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
-use crate::pipeline::sink::Sink;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;

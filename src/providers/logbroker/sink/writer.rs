@@ -22,10 +22,10 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::topic::Codec;
 
 use super::config::LogbrokerSinkConfig;
+use crate::delivery::execution::sink::{Sink, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
-use crate::pipeline::sink::{Sink, SinkEvent, SinkIo};
-use crate::pipeline::PipelineFailure;
 use crate::providers::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::providers::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
 use crate::providers::traits::SinkContext;

@@ -5,9 +5,9 @@ use clap::Parser;
 use tokio_util::sync::CancellationToken;
 
 use transferia::config::yaml::Config;
+use transferia::delivery::execution::memory::PipelineMemory;
 use transferia::delivery::DeliveryDiscoveryRequest;
 use transferia::metrics::MetricsRegistry;
-use transferia::pipeline::memory::PipelineMemory;
 use transferia::providers::logbroker::YdbDriverSourceProvider;
 use transferia::providers::traits::SourceProvider as _;
 use transferia::types::message::SourceBatch;

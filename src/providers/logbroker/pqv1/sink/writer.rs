@@ -9,10 +9,10 @@ use futures_util::{Stream, TryStreamExt as _};
 use tokio::sync::mpsc;
 use tonic::Request;
 
+use crate::delivery::execution::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
-use crate::pipeline::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use crate::pipeline::PipelineFailure;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::logbroker::pqv1::pq_v1::{
     connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers,

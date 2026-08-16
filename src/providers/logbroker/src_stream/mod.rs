@@ -13,11 +13,11 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::Source;
 use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::Source;
 use crate::providers::traits::SourceProvider;
 use crate::providers::ydb_transport::{connect_http2_prior_knowledge, H2Service};
 

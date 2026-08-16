@@ -31,7 +31,6 @@ pub mod Ydb {
     }
 }
 
-pub mod application;
 pub mod compatibility;
 pub mod config;
 pub mod delivery;
@@ -40,7 +39,6 @@ pub mod extension;
 pub mod metrics;
 pub mod middleware;
 pub mod parsers;
-pub mod pipeline;
 pub mod providers;
 pub mod runtime;
 pub mod serializer;

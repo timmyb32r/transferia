@@ -21,10 +21,10 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::{
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::{connect_client, set_ydb_headers, LogbrokerSourceConfig};
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::source::{CommitMarker, Source};
-use crate::pipeline::PipelineFailure;
 use crate::types::message::{Message, MessageMeta, SourceBatch};
 
 const OUTGOING_CHANNEL_CAPACITY: usize = 8;

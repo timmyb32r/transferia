@@ -10,13 +10,13 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
-use crate::metrics::SinkCounters;
-use crate::pipeline::memory::PipelineMemory;
-use crate::pipeline::sink::{
+use crate::delivery::execution::memory::PipelineMemory;
+use crate::delivery::execution::sink::{
     Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
 };
-use crate::pipeline::source::{CommitMarker, Source};
+use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use crate::metrics::SinkCounters;
 use crate::types::message::{Message, MessageMeta, SourceBatch};
 use crate::types::schema::{DatasetSchema, SchemaColumn};
 use crate::types::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -1070,7 +1070,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
         durable_storage(),
     )
     .unwrap();
-    let mut task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+    let mut task = tokio::spawn(crate::delivery::execution::run_partition_pipeline(
         Box::new(source),
         pipeline_parser(),
         Arc::new(Vec::new()),
@@ -1144,7 +1144,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
             durable_storage(),
         )
         .unwrap();
-        let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+        let task = tokio::spawn(crate::delivery::execution::run_partition_pipeline(
             Box::new(source),
             pipeline_parser(),
             Arc::new(Vec::new()),
@@ -1170,8 +1170,8 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
         .expect("partial-epoch pipeline task panicked")
         .expect_err("the injected second-object failure must restart the pipeline");
     assert!(first_error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .is_some_and(crate::pipeline::PipelineFailure::is_retryable));
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
+        .is_some_and(crate::delivery::execution::PipelineFailure::is_retryable));
     assert!(matches!(
         commit_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Empty)
@@ -1283,7 +1283,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
         durable_storage(),
     )
     .unwrap();
-    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+    let task = tokio::spawn(crate::delivery::execution::run_partition_pipeline(
         Box::new(source),
         pipeline_parser(),
         Arc::new(Vec::new()),
@@ -1338,7 +1338,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
         durable_storage(),
     )
     .unwrap();
-    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+    let task = tokio::spawn(crate::delivery::execution::run_partition_pipeline(
         Box::new(source),
         pipeline_parser(),
         Arc::new(Vec::new()),
@@ -1609,7 +1609,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
         durable_storage(),
     )
     .unwrap();
-    let task = tokio::spawn(crate::pipeline::run_partition_pipeline(
+    let task = tokio::spawn(crate::delivery::execution::run_partition_pipeline(
         Box::new(source),
         pipeline_parser(),
         Arc::new(Vec::new()),
@@ -1748,8 +1748,8 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
     let error = task.await.unwrap().unwrap_err();
     assert!(error.to_string().contains("exhausted 2 attempts"));
     assert!(error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
-        .is_some_and(crate::pipeline::PipelineFailure::is_retryable));
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
+        .is_some_and(crate::delivery::execution::PipelineFailure::is_retryable));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
     assert_eq!(counters.retries_total(), 1);
 }
@@ -1765,7 +1765,7 @@ async fn permanent_upload_failure_is_non_retryable() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("permanent S3 error must preserve its restart contract");
     assert!(!failure.is_retryable());
 }
@@ -1781,7 +1781,7 @@ async fn deterministic_routing_failure_is_non_retryable() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("deterministic S3 routing errors must preserve their restart contract");
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("S3 delivery validation failed"));
@@ -1799,7 +1799,7 @@ async fn dataset_mismatch_is_fatal_before_routing_or_upload() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("contract violations must preserve their fatal disposition");
     assert!(!failure.is_retryable());
     assert!(error
@@ -1835,7 +1835,7 @@ async fn schema_metadata_drift_is_fatal_before_upload() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("metadata drift must be fatal");
     assert!(!failure.is_retryable());
     assert!(error
@@ -1857,7 +1857,7 @@ async fn overlong_static_prefix_fails_before_upload_and_is_non_retryable() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("final S3 key validation must preserve its fatal disposition");
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("1024-byte limit"));
@@ -1883,7 +1883,7 @@ async fn source_partition_mismatch_is_non_retryable_and_never_uploads() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("partition mismatch must preserve its restart contract");
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("source partition mismatch"));
@@ -1901,7 +1901,7 @@ async fn delivery_progress_violation_is_non_retryable() {
 
     let error = task.await.unwrap().unwrap_err();
     let failure = error
-        .downcast_ref::<crate::pipeline::PipelineFailure>()
+        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
         .expect("S3 progress violations must preserve their restart contract");
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("delivery order violation"));

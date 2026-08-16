@@ -3,8 +3,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+use crate::delivery::execution::PipelineFailure;
 use crate::durable::{CompareExchangeResult, DurableStorage};
-use crate::pipeline::PipelineFailure;
 
 use super::actor::ClosedObject;
 

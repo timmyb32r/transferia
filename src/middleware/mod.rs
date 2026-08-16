@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
-use crate::pipeline::middleware::Middleware;
+use crate::delivery::execution::middleware::Middleware;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MiddlewareEntry {

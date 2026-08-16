@@ -7,13 +7,13 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::delivery::execution::delivery_tracker::DeliveryTracker;
+use crate::delivery::execution::memory::MemoryReservation;
+use crate::delivery::execution::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
 use crate::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
 use crate::durable::DurableStorage;
 use crate::metrics::SinkCounters;
-use crate::pipeline::delivery_tracker::DeliveryTracker;
-use crate::pipeline::memory::MemoryReservation;
-use crate::pipeline::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
-use crate::pipeline::PipelineFailure;
 use crate::serializer::JsonBatchEncoder;
 
 use super::config::{PartitionPathChange, S3SinkConfig};
@@ -216,7 +216,7 @@ impl S3Sink {
     fn prepare_delivery(
         &mut self,
         delivery: Delivery,
-        memory: &crate::pipeline::memory::PipelineMemory,
+        memory: &crate::delivery::execution::memory::PipelineMemory,
     ) -> anyhow::Result<PendingDelivery> {
         for output in &delivery.outputs {
             validate_batch_against_discovery(&self.discovery, output).map_err(|error| {
@@ -292,7 +292,7 @@ impl S3Sink {
     async fn accept_next_message_group(
         &mut self,
         pending: &mut PendingDelivery,
-        memory: &crate::pipeline::memory::PipelineMemory,
+        memory: &crate::delivery::execution::memory::PipelineMemory,
     ) -> Result<bool, PipelineFailure> {
         let start = pending.next_row;
         if start < pending.rows.len() {
@@ -333,7 +333,7 @@ impl S3Sink {
         rows: &[RoutedRow],
         encoders: &[JsonBatchEncoder],
         delivery_id: DeliveryId,
-        memory: &crate::pipeline::memory::PipelineMemory,
+        memory: &crate::delivery::execution::memory::PipelineMemory,
     ) -> Result<(), PipelineFailure> {
         let first_main = rows.iter().find(|row| !row.is_dlq);
         let last_main = rows.iter().rfind(|row| !row.is_dlq);
