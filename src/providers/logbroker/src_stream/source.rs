@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read as _;
 use std::time::Instant;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context as _};
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use tokio::sync::mpsc;
@@ -531,12 +531,18 @@ impl YdbTopicSource {
                             "YDB Topic partition session {session_id} disappeared while decoding"
                         ))
                     })?;
+                let commit_range = continuous_commit_range(state.read_through, read_through)
+                    .with_context(|| {
+                        format!(
+                            "YDB Topic read offsets did not advance for partition session {session_id}"
+                        )
+                    })?;
                 state.read_through = state.read_through.max(read_through);
                 partitions.push(PartitionCommitMarker {
                     topic_path,
                     partition_id,
                     partition_session_id: session_id,
-                    ranges: decoded.ranges,
+                    ranges: vec![commit_range],
                 });
             }
             messages.extend(decoded.messages);
@@ -585,6 +591,20 @@ pub(super) fn take_releasable_credit(pending_credit: &mut i64, uncommitted_batch
     core::mem::take(pending_credit)
 }
 
+pub(super) fn continuous_commit_range(
+    previous_read_through: i64,
+    received_read_through: i64,
+) -> anyhow::Result<OffsetsRange> {
+    anyhow::ensure!(
+        received_read_through > previous_read_through,
+        "previous={previous_read_through}, received={received_read_through}"
+    );
+    Ok(OffsetsRange {
+        start: previous_read_through,
+        end: received_read_through,
+    })
+}
+
 impl Source for YdbTopicSource {
     fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
@@ -618,8 +638,13 @@ impl Source for YdbTopicSource {
                 }
                 let (commit_offsets, targets) =
                     build_commit_request(markers, &self.partition_sessions)?;
+                let commit_ranges = commit_offsets
+                    .iter()
+                    .map(|partition| partition.offsets.len())
+                    .sum::<usize>();
                 tracing::info!(
                     partition_sessions = targets.len(),
+                    commit_ranges,
                     target_offsets = ?targets,
                     "committing YDB Topic source offsets"
                 );

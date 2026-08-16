@@ -4,8 +4,9 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::source::{
-    build_commit_request, coalesce_ranges, decode_message, init_message, releasable_session_ids,
-    take_releasable_credit, PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
+    build_commit_request, coalesce_ranges, continuous_commit_range, decode_message, init_message,
+    releasable_session_ids, take_releasable_credit, PartitionCommitMarker, PartitionSessionState,
+    YdbTopicCommitMarker,
 };
 use super::*;
 use crate::core::source::CommitMarker;
@@ -22,6 +23,19 @@ fn read_credit_is_withheld_until_every_read_batch_is_committed() {
 
     assert_eq!(take_releasable_credit(&mut credit, 0), 8_243_154);
     assert_eq!(credit, 0);
+}
+
+#[test]
+fn ydb_commit_range_covers_sparse_offsets_like_the_official_sdk() -> anyhow::Result<()> {
+    assert_eq!(
+        continuous_commit_range(96_445_502_768, 96_994_239_580)?,
+        OffsetsRange {
+            start: 96_445_502_768,
+            end: 96_994_239_580,
+        }
+    );
+    assert!(continuous_commit_range(10, 10).is_err());
+    Ok(())
 }
 
 fn provider_with_topics(topics: &str, extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
