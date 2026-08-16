@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value};
@@ -48,6 +49,13 @@ pub struct OptionsRequest {
 }
 
 #[derive(Clone, Debug)]
+pub struct OptionsContext {
+    pub cancellation: CancellationToken,
+
+    pub deadline: Instant,
+}
+
+#[derive(Clone, Debug)]
 pub struct ResolveContext {
     pub provider: String,
 
@@ -60,11 +68,34 @@ pub struct ResolveContext {
 
 #[async_trait]
 pub trait DynamicOptionsProvider: Send + Sync {
-    async fn list(&self, request: OptionsRequest) -> anyhow::Result<DynamicOptions>;
+    async fn list(
+        &self,
+        request: OptionsRequest,
+        context: OptionsContext,
+    ) -> anyhow::Result<DynamicOptions>;
 }
 
 #[async_trait]
-pub trait InstallationResolver: Send + Sync {
+pub trait TypedInstallationResolver<I, O>: Send + Sync {
+    async fn resolve(&self, installation: I, context: ResolveContext) -> anyhow::Result<O>;
+}
+
+pub struct InstallationSpec<I> {
+    pub provider: &'static str,
+
+    pub role: EndpointRole,
+
+    pub kind: &'static str,
+
+    pub title: &'static str,
+
+    pub initial: I,
+
+    pub preferred: bool,
+}
+
+#[async_trait]
+pub(crate) trait InstallationResolver: Send + Sync {
     async fn resolve(
         &self,
         installation: Value,
@@ -72,7 +103,7 @@ pub trait InstallationResolver: Send + Sync {
     ) -> anyhow::Result<Mapping>;
 }
 
-pub struct InstallationRegistration {
+pub(crate) struct InstallationRegistration {
     pub provider: &'static str,
 
     pub role: EndpointRole,
@@ -161,7 +192,58 @@ pub struct ExtensionRegistry {
 }
 
 impl ExtensionRegistry {
-    pub fn register_installation(
+    pub fn register_installation<I, O, R>(
+        &mut self,
+        spec: InstallationSpec<I>,
+        resolver: R,
+    ) -> anyhow::Result<()>
+    where
+        I: DeserializeOwned + JsonSchema + Serialize + Send + Sync + 'static,
+        O: Serialize + Send + Sync + 'static,
+        R: TypedInstallationResolver<I, O> + 'static,
+    {
+        let InstallationSpec {
+            provider,
+            role,
+            kind,
+            title,
+            initial,
+            preferred,
+        } = spec;
+        let generator = schemars::generate::SchemaSettings::draft2020_12()
+            .with(|settings| settings.inline_subschemas = true)
+            .into_generator();
+        let mut schema = serde_json::to_value(generator.into_root_schema_for::<I>())?;
+        let properties = schema
+            .get_mut("properties")
+            .and_then(JsonValue::as_object_mut)
+            .ok_or_else(|| anyhow::anyhow!("installation input schema must describe an object"))?;
+        anyhow::ensure!(
+            properties.contains_key("type"),
+            "installation input type must contain a 'type' discriminator"
+        );
+        properties.insert("type".to_owned(), serde_json::json!({ "const": kind }));
+        schema
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("installation input schema must be an object"))?
+            .insert("additionalProperties".to_owned(), JsonValue::Bool(false));
+        let initial = serde_json::to_value(initial)?;
+        self.register_erased_installation(InstallationRegistration {
+            provider,
+            role,
+            kind,
+            title,
+            schema,
+            initial,
+            preferred,
+            resolver: Arc::new(TypedResolverAdapter::<I, O, R> {
+                resolver,
+                marker: std::marker::PhantomData,
+            }),
+        })
+    }
+
+    pub(crate) fn register_erased_installation(
         &mut self,
         registration: InstallationRegistration,
     ) -> anyhow::Result<()> {
@@ -225,12 +307,26 @@ impl ExtensionRegistry {
         &self,
         key: &str,
         request: OptionsRequest,
+        cancellation: CancellationToken,
     ) -> anyhow::Result<DynamicOptions> {
         let provider = self
             .option_sources
             .get(key)
             .ok_or_else(|| anyhow::anyhow!("unknown dynamic option source '{key}'"))?;
-        provider.list(request).await
+        let deadline = Instant::now() + RESOLVE_TIMEOUT;
+        let context = OptionsContext {
+            cancellation: cancellation.clone(),
+            deadline,
+        };
+        tokio::select! {
+            () = cancellation.cancelled() => anyhow::bail!("dynamic option request was cancelled"),
+            result = tokio::time::timeout_at(deadline, provider.list(request, context)) => {
+                result.map_err(|_| anyhow::anyhow!(
+                    "dynamic option request exceeded {} seconds",
+                    RESOLVE_TIMEOUT.as_secs()
+                ))?
+            }
+        }
     }
 
     pub async fn resolve(
@@ -320,6 +416,32 @@ impl ExtensionRegistry {
             config.insert(key, value);
         }
         Ok(Value::Mapping(config))
+    }
+}
+
+struct TypedResolverAdapter<I, O, R> {
+    resolver: R,
+    marker: std::marker::PhantomData<fn(I) -> O>,
+}
+
+#[async_trait]
+impl<I, O, R> InstallationResolver for TypedResolverAdapter<I, O, R>
+where
+    I: DeserializeOwned + Send + Sync + 'static,
+    O: Serialize + Send + Sync + 'static,
+    R: TypedInstallationResolver<I, O> + 'static,
+{
+    async fn resolve(
+        &self,
+        installation: Value,
+        context: ResolveContext,
+    ) -> anyhow::Result<Mapping> {
+        let input = serde_yaml::from_value(installation)?;
+        let output = self.resolver.resolve(input, context).await?;
+        serde_yaml::to_value(output)?
+            .as_mapping()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("installation resolver output must be an object"))
     }
 }
 

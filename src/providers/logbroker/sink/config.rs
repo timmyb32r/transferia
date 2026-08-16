@@ -26,6 +26,7 @@ pub struct LogbrokerSinkConfig {
     )]
     pub partition_id: Option<i64>,
 
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: LogbrokerAuthConfig,
 
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]

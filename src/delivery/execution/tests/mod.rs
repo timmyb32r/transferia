@@ -102,23 +102,32 @@ impl ParserSession for OverestimatedSession {
 impl Source for RecordingSource {
     fn read_batch(
         &mut self,
-    ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::core::data::message::SourceBatch>>
-    {
-        Box::pin(async { anyhow::bail!("recording source is commit-only") })
+    ) -> futures_util::future::BoxFuture<
+        '_,
+        crate::core::failure::DataPlaneResult<crate::core::data::message::SourceBatch>,
+    > {
+        Box::pin(async {
+            Err(crate::core::failure::DataPlaneFailure::fatal(
+                anyhow::anyhow!("recording source is commit-only"),
+            ))
+        })
     }
 
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
-    ) -> futures_util::future::BoxFuture<'ctx, anyhow::Result<()>> {
+    ) -> futures_util::future::BoxFuture<'ctx, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             if self.fail_commit {
-                anyhow::bail!("injected grouped commit failure");
+                return Err(crate::core::failure::DataPlaneFailure::retryable(
+                    anyhow::anyhow!("injected grouped commit failure"),
+                ));
             }
             let group = markers
                 .iter()
                 .map(|marker| marker.value::<i64>().copied().map_err(anyhow::Error::new))
-                .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<anyhow::Result<Vec<_>>>()
+                .map_err(crate::core::failure::DataPlaneFailure::fatal)?;
             self.groups
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -133,10 +142,7 @@ fn parser_shutdown_timeout_cannot_restart_over_live_blocking_work() {
     let error = ComponentOutcome::fatal_timeout("parser timeout")
         .result
         .expect_err("timeout must fail the pipeline");
-    let failure = error
-        .downcast_ref::<PipelineFailure>()
-        .expect("parser timeout must preserve its restart contract");
-    assert!(!failure.is_retryable());
+    assert!(!error.is_retryable());
 }
 
 #[tokio::test]
@@ -304,7 +310,7 @@ async fn commit_through_rejects_an_unknown_sink_delivery_as_fatal() {
     .expect_err("sink cannot commit a delivery the source never issued");
 
     let failure = error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .expect("delivery protocol violations must keep their fatal disposition");
     assert!(!failure.is_retryable());
     assert_eq!(ledger.len(), 1);

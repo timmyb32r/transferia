@@ -21,8 +21,8 @@ use crate::core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
 };
+use crate::core::failure::DataPlaneFailure;
 use crate::core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use crate::delivery::execution::PipelineFailure;
 use crate::delivery::semantics::EndpointDescriptor;
 use crate::metrics::SinkCounters;
 use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
@@ -193,7 +193,7 @@ impl YTsaurusSink {
         for batch in &delivery.outputs {
             self.limits
                 .validate_batch(&self.discovery, batch)
-                .map_err(PipelineFailure::fatal)?;
+                .map_err(DataPlaneFailure::fatal)?;
         }
         for batch in &delivery.outputs {
             if batch.rows() == 0 {
@@ -223,23 +223,30 @@ impl YTsaurusSink {
 }
 
 impl Sink for YTsaurusSink {
-    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
+    fn run(
+        self: Box<Self>,
+        mut io: SinkIo,
+    ) -> BoxFuture<'static, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            while let Some(delivery) = tokio::select! {
-                biased;
-                () = io.cancellation.cancelled() => None,
-                delivery = io.deliveries.recv() => delivery,
-            } {
-                let id = delivery.id;
-                let source_messages = delivery.meta.source_messages;
-                self.write_delivery(&delivery).await?;
-                self.counters.add_source_messages(source_messages);
-                io.events
-                    .send(SinkEvent::CommittedThrough(id))
-                    .await
-                    .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+            let result: anyhow::Result<()> = async {
+                while let Some(delivery) = tokio::select! {
+                    biased;
+                    () = io.cancellation.cancelled() => None,
+                    delivery = io.deliveries.recv() => delivery,
+                } {
+                    let id = delivery.id;
+                    let source_messages = delivery.meta.source_messages;
+                    self.write_delivery(&delivery).await?;
+                    self.counters.add_source_messages(source_messages);
+                    io.events
+                        .send(SinkEvent::CommittedThrough(id))
+                        .await
+                        .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+                }
+                Ok(())
             }
-            Ok(())
+            .await;
+            result.map_err(DataPlaneFailure::retryable_or_passthrough)
         })
     }
 }

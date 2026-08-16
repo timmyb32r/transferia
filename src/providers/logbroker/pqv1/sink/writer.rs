@@ -10,8 +10,8 @@ use tokio::sync::mpsc;
 use tonic::Request;
 
 use crate::core::delivery::SinkLimits;
+use crate::core::failure::DataPlaneFailure;
 use crate::core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SinkCounters;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::logbroker::pqv1::pq_v1::{
@@ -130,7 +130,7 @@ impl PqV1Sink {
             let started = std::time::Instant::now();
             let (payloads, rows) =
                 serialize_delivery(&delivery, &self.discovery, self.limits.as_ref())
-                    .map_err(|error| anyhow::Error::from(PipelineFailure::fatal(error)))?;
+                    .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
             if payloads.is_empty() {
                 io.events
                     .send(SinkEvent::CommittedThrough(delivery.id))
@@ -190,8 +190,15 @@ impl PqV1Sink {
 }
 
 impl Sink for PqV1Sink {
-    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
-        Box::pin(async move { self.run_session(io).await })
+    fn run(
+        self: Box<Self>,
+        io: SinkIo,
+    ) -> BoxFuture<'static, crate::core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            self.run_session(io)
+                .await
+                .map_err(DataPlaneFailure::retryable_or_passthrough)
+        })
     }
 }
 

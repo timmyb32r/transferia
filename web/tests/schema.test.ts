@@ -175,6 +175,9 @@ describe("schema compiler", () => {
     expect(() =>
       compileSchema({ type: "string", "x-ui": { surprise: true } }),
     ).toThrow(/unsupported x-ui hints/);
+    expect(() =>
+      compileSchema({ type: "string", "x-ui": { widget: "compact_array" } }),
+    ).toThrow(/does not support string/);
   });
 
   it("validates draft seeds without requiring deliberately unselected fields", () => {

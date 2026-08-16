@@ -152,8 +152,8 @@ from the repository root on the final, stable tree:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
 ```
 
 The test command must include and pass all sink E2E/testcontainers tests. Also run

@@ -2,6 +2,7 @@ extern crate alloc;
 
 pub mod data;
 pub mod delivery;
+pub mod failure;
 pub mod memory;
 pub mod sink;
 pub mod source;
@@ -14,6 +15,7 @@ pub use delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset,
     DiscoveredSystemColumn, SchemaOrigin, SinkLimits, SinkLimitsDescription, SourceTopology,
 };
+pub use failure::{DataPlaneFailure, DataPlaneResult, FailureDisposition};
 pub use memory::{MemoryReservation, PipelineMemory};
 pub use sink::{Sink, SinkBatch, SinkIo};
 pub use source::{CommitMarker, CommitMarkerTypeMismatch, Source};

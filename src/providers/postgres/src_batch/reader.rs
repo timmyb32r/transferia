@@ -15,6 +15,7 @@ use crate::core::data::message::SourceBatch;
 use crate::core::data::schema::DatasetSchema;
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::core::data::table_data::TableData;
+use crate::core::failure::DataPlaneFailure;
 use crate::core::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
 use crate::providers::postgres::common::quote_identifier;
@@ -64,23 +65,36 @@ impl PostgresSource {
 }
 
 impl Source for PostgresSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             if self.finished {
                 return Ok(SourceBatch::Finished);
             }
-            let rows = self.client.query(&self.statement, &[]).await?;
+            let rows = self
+                .client
+                .query(&self.statement, &[])
+                .await
+                .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
             if rows.is_empty() {
-                self.client.batch_execute("COMMIT").await?;
+                self.client
+                    .batch_execute("COMMIT")
+                    .await
+                    .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
                 self.finished = true;
                 return Ok(SourceBatch::Finished);
             }
             let source_rows = rows.len() as u64;
-            let batch = rows_to_batch(&self.schema, &self.statement, &rows, self.offset)?;
+            let batch = rows_to_batch(&self.schema, &self.statement, &rows, self.offset)
+                .map_err(DataPlaneFailure::fatal)?;
             self.offset = self
                 .offset
-                .checked_add(i64::try_from(rows.len())?)
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL source offset overflow"))?;
+                .checked_add(
+                    i64::try_from(rows.len())
+                        .map_err(|error| DataPlaneFailure::fatal(error.into()))?,
+                )
+                .ok_or_else(|| {
+                    DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL source offset overflow"))
+                })?;
             self.counters.add_messages(source_rows);
             self.counters
                 .add_decompressed_bytes(batch.get_array_memory_size() as u64);
@@ -101,7 +115,7 @@ impl Source for PostgresSource {
     fn commit_offsets<'a>(
         &'a mut self,
         _markers: &'a [CommitMarker],
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
+    ) -> BoxFuture<'a, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
 }

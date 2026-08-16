@@ -193,7 +193,7 @@ fn spawn_sink(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    JoinHandle<anyhow::Result<()>>,
+    JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     spawn_sink_with_config(config(), transport, memory, counters)
 }
@@ -207,7 +207,7 @@ fn spawn_sink_with_config(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    JoinHandle<anyhow::Result<()>>,
+    JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     let sink = ClickHouseSink::with_transport(config, counters, transport, discovery());
     let (delivery_tx, delivery_rx) = mpsc::channel(8);
@@ -504,9 +504,7 @@ async fn transient_error_stops_at_retry_limit() {
     wait_calls(&state, 1).await;
     tokio::time::advance(Duration::from_millis(12)).await;
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("retry exhaustion must preserve its restart contract");
+    let failure = &error;
     assert!(failure.is_retryable());
     assert_eq!(state.calls.load(Ordering::Acquire), 2);
     assert!(events.try_recv().is_err());
@@ -531,9 +529,7 @@ async fn hanging_insert_stops_at_attempt_deadline() {
     tokio::time::advance(Duration::from_millis(10)).await;
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("attempt timeout must preserve its restart contract");
+    let failure = &error;
     assert!(failure.is_retryable());
     assert!(format!("{error:#}").contains("result is ambiguous"));
     assert_eq!(state.active.load(Ordering::Acquire), 0);
@@ -548,9 +544,7 @@ async fn permanent_error_is_fatal_and_never_commits() {
         spawn_sink(transport, memory.clone(), Arc::new(SinkCounters::new()));
     tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("permanent insert error must preserve its restart contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(events.try_recv().is_err());
 }
@@ -566,9 +560,7 @@ async fn delivery_mismatch_is_fatal_before_insert() {
         .await
         .unwrap();
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("discovery mismatch must preserve its fatal contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(format!("{error:#}").contains("has no Main dataset named 'unexpected_table'"));
     assert_eq!(state.calls.load(Ordering::Acquire), 0);
@@ -595,9 +587,7 @@ async fn schema_mismatch_is_fatal_before_insert() {
 
     tx.send(invalid).await.unwrap();
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("schema mismatch must preserve its fatal contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(format!("{error:#}").contains("column 0"));
     assert_eq!(state.calls.load(Ordering::Acquire), 0);

@@ -538,7 +538,7 @@ fn register_on_premise(
         .map(|field| JsonValue::String((*field).to_owned()))
         .collect::<Vec<_>>();
     variant_required.push(JsonValue::String("type".to_owned()));
-    registry.register_installation(InstallationRegistration {
+    registry.register_erased_installation(InstallationRegistration {
         provider,
         role,
         kind: "on_premise",
@@ -589,6 +589,7 @@ fn apply_endpoint_installations(
     }
     let installation_schema = serde_json::json!({
         "title": "Installation type",
+        "x-ui": { "control_width": "installation" },
         "oneOf": registrations.iter().map(|registration| {
             let mut schema = registration.schema.clone();
             if let Some(object) = schema.as_object_mut() {

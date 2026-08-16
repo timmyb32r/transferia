@@ -5,11 +5,13 @@ import { LatestJob } from "../effects";
 import { SelectControl } from "../ui/SelectControl";
 
 export function DynamicSelectControl({
+  id,
   source,
   value,
   disabled,
   onChange,
 }: {
+  id?: string | undefined;
   source: string;
   value: string;
   disabled: boolean;
@@ -27,7 +29,7 @@ export function DynamicSelectControl({
     if (!force && (loaded || status === "Loading…")) return;
     setStatus("Loading…");
     void optionsJob
-      .run(source, source, (key) => api.options(key))
+      .run(source, source, (key, signal) => api.options(key, false, signal))
       .then((result) => {
         if (result === undefined) return;
         setOptions(result.value.options);
@@ -56,6 +58,7 @@ export function DynamicSelectControl({
   return (
     <div class="dynamic-select">
       <SelectControl
+        id={id}
         value={value}
         disabled={disabled}
         placeholder={status ?? "Not selected"}

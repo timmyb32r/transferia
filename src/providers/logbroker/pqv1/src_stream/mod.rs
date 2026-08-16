@@ -7,8 +7,8 @@ use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
+use crate::core::failure::DataPlaneFailure;
 use crate::core::source::Source;
-use crate::delivery::execution::PipelineFailure;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
@@ -349,7 +349,7 @@ async fn resolve_proxies_cached(
                     }),
                     Err(error) => {
                         if error
-                            .downcast_ref::<PipelineFailure>()
+                            .downcast_ref::<DataPlaneFailure>()
                             .is_some_and(|failure| !failure.is_retryable())
                         {
                             return Err(error);
@@ -515,7 +515,7 @@ impl SourceProvider for PqV1SourceProvider {
                             "PQv1 proxy connection failed: {error}"
                         );
                         if error
-                            .downcast_ref::<PipelineFailure>()
+                            .downcast_ref::<DataPlaneFailure>()
                             .is_some_and(|failure| !failure.is_retryable())
                         {
                             fatal_error.get_or_insert(error);

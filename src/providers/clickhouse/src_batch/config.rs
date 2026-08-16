@@ -9,6 +9,7 @@ use crate::providers::clickhouse::sink::identifier::validate_identifier;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSourceConfig {
+    #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "host" }))]
     pub hosts: Vec<String>,
 
     #[schemars(description = "native port")]

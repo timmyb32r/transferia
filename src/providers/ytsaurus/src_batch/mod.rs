@@ -20,6 +20,7 @@ use crate::core::data::table_data::TableData;
 use crate::core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
+use crate::core::failure::DataPlaneFailure;
 use crate::core::source::{CommitMarker, Source};
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
@@ -340,20 +341,26 @@ impl YTsaurusSource {
 }
 
 impl Source for YTsaurusSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             loop {
                 if let Some(batch) = self.queued.pop_front() {
-                    return self.output_batch(&batch);
+                    return self.output_batch(&batch).map_err(DataPlaneFailure::fatal);
                 }
                 if self.finished {
                     return Ok(SourceBatch::Finished);
                 }
                 match self.stream.next().await {
-                    Some(Ok(bytes)) => self.decode_bytes(bytes)?,
-                    Some(Err(error)) => return Err(classify_http_failure(error.into())),
+                    Some(Ok(bytes)) => self.decode_bytes(bytes).map_err(DataPlaneFailure::fatal)?,
+                    Some(Err(error)) => {
+                        return Err(DataPlaneFailure::retryable_or_passthrough(
+                            classify_http_failure(error.into()),
+                        ));
+                    }
                     None => {
-                        self.decoder.finish()?;
+                        self.decoder
+                            .finish()
+                            .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
                         self.finished = true;
                     }
                 }
@@ -364,7 +371,7 @@ impl Source for YTsaurusSource {
     fn commit_offsets<'a>(
         &'a mut self,
         _markers: &'a [CommitMarker],
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
+    ) -> BoxFuture<'a, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
 }

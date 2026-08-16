@@ -23,6 +23,8 @@ interface NodeEditorProps {
   value: JsonValue;
   disabled?: boolean;
   onChange: (value: JsonValue) => void;
+  path?: string;
+  controlId?: string;
 }
 
 interface PropertyEditorProps {
@@ -33,6 +35,7 @@ interface PropertyEditorProps {
   disabled: boolean;
   showPartitionRanges?: boolean;
   onChange: (value: JsonValue) => void;
+  path?: string;
 }
 
 function createColumnDragPreview(
@@ -603,5 +606,4 @@ export function ColumnMappingsEditor({
     </div>
   );
 }
-
 

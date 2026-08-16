@@ -19,7 +19,10 @@ impl DiscardSink {
 }
 
 impl Sink for DiscardSink {
-    fn run(self: Box<Self>, mut io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
+    fn run(
+        self: Box<Self>,
+        mut io: SinkIo,
+    ) -> BoxFuture<'static, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             loop {
                 let delivery = tokio::select! {
@@ -49,7 +52,11 @@ impl Sink for DiscardSink {
                 tokio::select! {
                     () = io.cancellation.cancelled() => return Ok(()),
                     result = io.events.send(SinkEvent::CommittedThrough(id)) => {
-                        result.map_err(|_| anyhow::anyhow!("discard sink event channel closed"))?;
+                    result.map_err(|_| {
+                        crate::core::failure::DataPlaneFailure::retryable(anyhow::anyhow!(
+                            "discard sink event channel closed"
+                        ))
+                    })?;
                     }
                 }
             }

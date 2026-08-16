@@ -12,8 +12,8 @@ use super::{
     status_failure_kind, surface_session_failure, tonic_failure, PqV1Client, SessionFailure,
     MAX_GRPC_MESSAGE_SIZE, YDB_STATUS_SUCCESS, YDB_STATUS_UNSPECIFIED,
 };
+use crate::core::failure::DataPlaneFailure;
 use crate::delivery::execution::retry::stable_retry_seed;
-use crate::delivery::execution::PipelineFailure;
 use crate::providers::logbroker::proto::status_ids::StatusCode;
 pub use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 
@@ -169,7 +169,7 @@ async fn discover_proxies(
 }
 
 fn describe_topic_protocol_error(message: impl core::fmt::Display) -> anyhow::Error {
-    PipelineFailure::fatal(anyhow!("PQv1 DescribeTopic protocol violation: {message}")).into()
+    DataPlaneFailure::fatal(anyhow!("PQv1 DescribeTopic protocol violation: {message}")).into()
 }
 
 pub(super) fn decode_describe_topic_response(

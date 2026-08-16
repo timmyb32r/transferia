@@ -42,10 +42,11 @@ function json(value: object): string {
 
 export const api = {
   catalog: () => request("/api/v1/catalog", "catalog_response"),
-  options: (key: string, refresh = false) =>
+  options: (key: string, refresh = false, signal?: AbortSignal) =>
     request(
       `/api/v1/options/${encodeURIComponent(key)}?refresh=${String(refresh)}`,
       "dynamic_options_response",
+      signal === undefined ? undefined : { signal },
     ),
   deliveries: () => request("/api/v1/deliveries", "delivery_list_response"),
   delivery: (id: string) =>

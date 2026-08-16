@@ -55,7 +55,7 @@ pub struct ParserConfig {
 #[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
-    #[schemars(title = "Table name")]
+    #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
     pub table_naming: TableNaming,
 
     #[serde(default)]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use crate::delivery::execution::PipelineFailure;
+use crate::core::failure::DataPlaneFailure;
 use crate::durable::{CompareExchangeResult, DurableStorage};
 
 use super::actor::ClosedObject;
@@ -50,7 +50,7 @@ impl EpochJournal {
         storage: Arc<dyn DurableStorage>,
         partition_id: i64,
         objects: &[ClosedObject],
-    ) -> Result<Self, PipelineFailure> {
+    ) -> Result<Self, DataPlaneFailure> {
         let object_records = objects
             .iter()
             .map(|object| ManifestObject {
@@ -66,13 +66,13 @@ impl EpochJournal {
         };
         let open_bytes = serde_json::to_vec(&open)
             .map_err(anyhow::Error::from)
-            .map_err(PipelineFailure::fatal)?;
+            .map_err(DataPlaneFailure::fatal)?;
         let closed_bytes = serde_json::to_vec(&EpochRecord {
             state: EpochState::Closed,
             ..open.clone()
         })
         .map_err(anyhow::Error::from)
-        .map_err(PipelineFailure::fatal)?;
+        .map_err(DataPlaneFailure::fatal)?;
         let identity = open
             .objects
             .iter()
@@ -88,19 +88,19 @@ impl EpochJournal {
         })
     }
 
-    pub(super) async fn ensure_open(&self) -> Result<OpenDisposition, PipelineFailure> {
+    pub(super) async fn ensure_open(&self) -> Result<OpenDisposition, DataPlaneFailure> {
         for _ in 0..3 {
             let current = self
                 .storage
                 .read(&self.key)
                 .await
-                .map_err(PipelineFailure::fatal)?;
+                .map_err(DataPlaneFailure::fatal)?;
             match current {
                 None => match self
                     .storage
                     .compare_exchange(&self.key, None, &self.open_bytes)
                     .await
-                    .map_err(PipelineFailure::fatal)?
+                    .map_err(DataPlaneFailure::fatal)?
                 {
                     CompareExchangeResult::Applied(_) => return Ok(OpenDisposition::Upload),
                     CompareExchangeResult::Conflict(_) => {}
@@ -114,21 +114,21 @@ impl EpochJournal {
                 }
             }
         }
-        Err(PipelineFailure::fatal(anyhow::anyhow!(
+        Err(DataPlaneFailure::fatal(anyhow::anyhow!(
             "S3 durable epoch state changed repeatedly while opening '{}'",
             self.key
         )))
     }
 
-    pub(super) async fn mark_closed(&self) -> Result<(), PipelineFailure> {
+    pub(super) async fn mark_closed(&self) -> Result<(), DataPlaneFailure> {
         for _ in 0..3 {
             let current = self
                 .storage
                 .read(&self.key)
                 .await
-                .map_err(PipelineFailure::fatal)?
+                .map_err(DataPlaneFailure::fatal)?
                 .ok_or_else(|| {
-                    PipelineFailure::fatal(anyhow::anyhow!(
+                    DataPlaneFailure::fatal(anyhow::anyhow!(
                         "S3 durable epoch '{}' disappeared before close",
                         self.key
                     ))
@@ -141,27 +141,27 @@ impl EpochJournal {
                 .storage
                 .compare_exchange(&self.key, Some(current.revision), &self.closed_bytes)
                 .await
-                .map_err(PipelineFailure::fatal)?
+                .map_err(DataPlaneFailure::fatal)?
             {
                 CompareExchangeResult::Applied(_) => return Ok(()),
                 CompareExchangeResult::Conflict(_) => {}
             }
         }
-        Err(PipelineFailure::fatal(anyhow::anyhow!(
+        Err(DataPlaneFailure::fatal(anyhow::anyhow!(
             "S3 durable epoch state changed repeatedly while closing '{}'",
             self.key
         )))
     }
 
-    fn decode_and_validate(&self, payload: &[u8]) -> Result<EpochRecord, PipelineFailure> {
+    fn decode_and_validate(&self, payload: &[u8]) -> Result<EpochRecord, DataPlaneFailure> {
         let record: EpochRecord = serde_json::from_slice(payload).map_err(|error| {
-            PipelineFailure::fatal(anyhow::anyhow!(
+            DataPlaneFailure::fatal(anyhow::anyhow!(
                 "invalid S3 durable epoch record '{}': {error}",
                 self.key
             ))
         })?;
         if record.version != JOURNAL_VERSION || record.objects != self.open.objects {
-            return Err(PipelineFailure::fatal(anyhow::anyhow!(
+            return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                 "S3 durable epoch record '{}' does not match replayed object keys and payloads",
                 self.key
             )));

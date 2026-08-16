@@ -27,9 +27,9 @@ use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
 use crate::core::data::message::{Message, MessageMeta, SourceBatch};
+use crate::core::failure::DataPlaneFailure;
 use crate::core::memory::{MemoryReservation, PipelineMemory};
 use crate::core::source::{CommitMarker, Source};
-use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
 use crate::providers::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
@@ -348,7 +348,7 @@ fn tonic_failure(stage: &str, status: &tonic::Status) -> SessionFailure {
 fn surface_session_failure(failure: SessionFailure) -> anyhow::Error {
     match failure.kind {
         TerminalFailureKind::Retryable => failure.error,
-        TerminalFailureKind::Fatal => PipelineFailure::fatal(failure.error).into(),
+        TerminalFailureKind::Fatal => DataPlaneFailure::fatal(failure.error).into(),
     }
 }
 
@@ -1060,7 +1060,7 @@ fn surface_terminal_failure(failure: &TerminalFailure) -> anyhow::Result<SourceB
     let error = anyhow!(failure.message.to_string());
     match failure.kind {
         TerminalFailureKind::Retryable => Err(error),
-        TerminalFailureKind::Fatal => Err(PipelineFailure::fatal(error).into()),
+        TerminalFailureKind::Fatal => Err(DataPlaneFailure::fatal(error).into()),
     }
 }
 
@@ -1073,7 +1073,7 @@ fn commit_session_stopped_error(inner: &PqV1ClientInner, partition_id: i64) -> a
             "PQv1 fatal session failure while acknowledging commit for partition {partition_id}: {}",
             failure.message
         );
-        return PipelineFailure::fatal(error).into();
+        return DataPlaneFailure::fatal(error).into();
     }
     anyhow!("PQv1 session stopped before acknowledging commit for partition {partition_id}")
 }
@@ -1500,77 +1500,87 @@ impl PqV1Source {
 }
 
 impl Source for PqV1Source {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
-            let current_failure = self.terminal_failure.borrow().clone();
-            if let Some(error) = current_failure {
-                return surface_terminal_failure(error.as_ref());
-            }
-            let first_part = loop {
-                let part = tokio::select! {
-                    biased;
-                    changed = self.terminal_failure.changed() => {
-                        if changed.is_err() {
-                            anyhow::bail!("PQv1 terminal failure channel closed unexpectedly");
+            let result: anyhow::Result<SourceBatch> = async {
+                let current_failure = self.terminal_failure.borrow().clone();
+                if let Some(error) = current_failure {
+                    return surface_terminal_failure(error.as_ref());
+                }
+                let first_part = loop {
+                    let part = tokio::select! {
+                        biased;
+                        changed = self.terminal_failure.changed() => {
+                            if changed.is_err() {
+                                anyhow::bail!("PQv1 terminal failure channel closed unexpectedly");
+                            }
+                            let current_failure = self.terminal_failure.borrow().clone();
+                            if let Some(error) = current_failure {
+                                return surface_terminal_failure(error.as_ref());
+                            }
+                            continue;
                         }
-                        let current_failure = self.terminal_failure.borrow().clone();
-                        if let Some(error) = current_failure {
-                            return surface_terminal_failure(error.as_ref());
-                        }
-                        continue;
-                    }
-                    part = self.rx.recv() => part,
+                        part = self.rx.recv() => part,
+                    };
+                    break part;
                 };
-                break part;
-            };
-            let Some(first) = first_part else {
-                anyhow::bail!("PQv1 decoded-part stream closed unexpectedly");
-            };
-            let mut messages = Vec::with_capacity(first.msgs.len());
-            let mut memory = Vec::new();
-            let mut cookies = Vec::new();
-            if let Err(error) = self.append_part(first, &mut messages, &mut memory, &mut cookies) {
-                return Err(PipelineFailure::fatal(error).into());
-            }
-            let current_failure = self.terminal_failure.borrow().clone();
-            if let Some(error) = current_failure {
-                return surface_terminal_failure(error.as_ref());
-            }
-            let commit_marker = (!cookies.is_empty()).then(|| {
-                CommitMarker::new(PqV1CommitMarker {
-                    partition_id: self.partition_id,
-                    cookies,
+                let Some(first) = first_part else {
+                    anyhow::bail!("PQv1 decoded-part stream closed unexpectedly");
+                };
+                let mut messages = Vec::with_capacity(first.msgs.len());
+                let mut memory = Vec::new();
+                let mut cookies = Vec::new();
+                if let Err(error) =
+                    self.append_part(first, &mut messages, &mut memory, &mut cookies)
+                {
+                    return Err(DataPlaneFailure::fatal(error).into());
+                }
+                let current_failure = self.terminal_failure.borrow().clone();
+                if let Some(error) = current_failure {
+                    return surface_terminal_failure(error.as_ref());
+                }
+                let commit_marker = (!cookies.is_empty()).then(|| {
+                    CommitMarker::new(PqV1CommitMarker {
+                        partition_id: self.partition_id,
+                        cookies,
+                    })
+                });
+                Ok(SourceBatch::Raw {
+                    messages,
+                    commit_marker,
+                    memory,
                 })
-            });
-            Ok(SourceBatch::Raw {
-                messages,
-                commit_marker,
-                memory,
-            })
+            }
+            .await;
+            result.map_err(DataPlaneFailure::retryable_or_passthrough)
         })
     }
 
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
-    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    ) -> BoxFuture<'ctx, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            let mut cookies = Vec::new();
-            for marker in markers {
-                let marker = marker
-                    .value::<PqV1CommitMarker>()
-                    .map_err(|error| anyhow::Error::from(PipelineFailure::fatal(anyhow!(error))))?;
-                if marker.partition_id != self.partition_id {
-                    return Err(PipelineFailure::fatal(anyhow!(
-                        "PQv1 commit marker partition mismatch: source={}, marker={}",
-                        self.partition_id,
-                        marker.partition_id
-                    ))
-                    .into());
+            let result: anyhow::Result<()> = async {
+                let mut cookies = Vec::new();
+                for marker in markers {
+                    let marker = marker.value::<PqV1CommitMarker>().map_err(|error| {
+                        anyhow::Error::from(DataPlaneFailure::fatal(anyhow!(error)))
+                    })?;
+                    if marker.partition_id != self.partition_id {
+                        return Err(DataPlaneFailure::fatal(anyhow!(
+                            "PQv1 commit marker partition mismatch: source={}, marker={}",
+                            self.partition_id,
+                            marker.partition_id
+                        ))
+                        .into());
+                    }
+                    cookies.extend(marker.cookies.iter().copied());
                 }
-                cookies.extend(marker.cookies.iter().copied());
+                self.client.commit(self.partition_id, cookies).await
             }
-            self.client.commit(self.partition_id, cookies).await
+            .await;
+            result.map_err(DataPlaneFailure::retryable_or_passthrough)
         })
     }
 }

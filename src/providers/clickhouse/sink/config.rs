@@ -6,6 +6,7 @@ use serde::Deserialize;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSinkConfig {
+    #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "host" }))]
     pub hosts: Vec<String>,
 
     #[schemars(description = "native port")]

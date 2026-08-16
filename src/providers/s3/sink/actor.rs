@@ -8,10 +8,10 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::core::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
+use crate::core::failure::DataPlaneFailure;
 use crate::core::memory::MemoryReservation;
 use crate::core::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
 use crate::delivery::execution::delivery_tracker::DeliveryTracker;
-use crate::delivery::execution::PipelineFailure;
 use crate::durable::DurableStorage;
 use crate::metrics::SinkCounters;
 use crate::serializer::JsonBatchEncoder;
@@ -110,7 +110,7 @@ fn routed_row_retained_bytes(row: &RoutedRow, serialized_bytes: usize) -> usize 
 
 struct ActiveUpload {
     object: ClosedObject,
-    result: Result<(), PipelineFailure>,
+    result: Result<(), DataPlaneFailure>,
 }
 
 pub struct S3Sink {
@@ -293,7 +293,7 @@ impl S3Sink {
         &mut self,
         pending: &mut PendingDelivery,
         memory: &crate::core::memory::PipelineMemory,
-    ) -> Result<bool, PipelineFailure> {
+    ) -> Result<bool, DataPlaneFailure> {
         let start = pending.next_row;
         if start < pending.rows.len() {
             let identity = (
@@ -334,7 +334,7 @@ impl S3Sink {
         encoders: &[JsonBatchEncoder],
         delivery_id: DeliveryId,
         memory: &crate::core::memory::PipelineMemory,
-    ) -> Result<(), PipelineFailure> {
+    ) -> Result<(), DataPlaneFailure> {
         let first_main = rows.iter().find(|row| !row.is_dlq);
         let last_main = rows.iter().rfind(|row| !row.is_dlq);
         let record_time_ms = rows.iter().find_map(|row| row.route.record_time_ms);
@@ -452,7 +452,7 @@ impl S3Sink {
         Ok(())
     }
 
-    async fn close_epoch(&mut self) -> Result<(), PipelineFailure> {
+    async fn close_epoch(&mut self) -> Result<(), DataPlaneFailure> {
         if self.epoch.buffers.is_empty() {
             return Ok(());
         }
@@ -470,7 +470,7 @@ impl S3Sink {
                 buffer.source_partition,
                 buffer.start_offset,
             )
-            .map_err(PipelineFailure::fatal)?;
+            .map_err(DataPlaneFailure::fatal)?;
             objects.push(ClosedObject {
                 epoch_id,
                 key,
@@ -505,7 +505,7 @@ impl S3Sink {
                         .buffered_bytes
                         .checked_sub(object.payload.len())
                         .ok_or_else(|| {
-                            PipelineFailure::fatal(anyhow::anyhow!(
+                            DataPlaneFailure::fatal(anyhow::anyhow!(
                                 "S3 replayed buffered byte counter underflow"
                             ))
                         })?;
@@ -545,9 +545,9 @@ impl S3Sink {
         true
     }
 
-    fn complete_upload(&mut self, active: ActiveUpload) -> Result<(), PipelineFailure> {
+    fn complete_upload(&mut self, active: ActiveUpload) -> Result<(), DataPlaneFailure> {
         self.in_flight_objects = self.in_flight_objects.checked_sub(1).ok_or_else(|| {
-            PipelineFailure::fatal(anyhow::anyhow!("S3 in-flight upload counter underflow"))
+            DataPlaneFailure::fatal(anyhow::anyhow!("S3 in-flight upload counter underflow"))
         })?;
         active.result?;
         self.counters.add_rows(active.object.rows as u64);
@@ -557,26 +557,26 @@ impl S3Sink {
             .buffered_bytes
             .checked_sub(active.object.payload.len())
             .ok_or_else(|| {
-                PipelineFailure::fatal(anyhow::anyhow!("S3 buffered byte counter underflow"))
+                DataPlaneFailure::fatal(anyhow::anyhow!("S3 buffered byte counter underflow"))
             })?;
 
         self.complete_durable_object(&active.object)?;
         Ok(())
     }
 
-    fn complete_durable_object(&mut self, object: &ClosedObject) -> Result<(), PipelineFailure> {
+    fn complete_durable_object(&mut self, object: &ClosedObject) -> Result<(), DataPlaneFailure> {
         let epoch_complete = {
             let epoch = self
                 .closed_epochs
                 .get_mut(&object.epoch_id)
                 .ok_or_else(|| {
-                    PipelineFailure::fatal(anyhow::anyhow!(
+                    DataPlaneFailure::fatal(anyhow::anyhow!(
                         "missing S3 epoch progress {}",
                         object.epoch_id
                     ))
                 })?;
             epoch.remaining_objects = epoch.remaining_objects.checked_sub(1).ok_or_else(|| {
-                PipelineFailure::fatal(anyhow::anyhow!("S3 epoch progress underflow"))
+                DataPlaneFailure::fatal(anyhow::anyhow!("S3 epoch progress underflow"))
             })?;
             epoch.remaining_objects == 0
         };
@@ -597,20 +597,20 @@ impl S3Sink {
         Ok(())
     }
 
-    fn finalize_epoch(&mut self, epoch_id: u64) -> Result<(), PipelineFailure> {
+    fn finalize_epoch(&mut self, epoch_id: u64) -> Result<(), DataPlaneFailure> {
         let epoch = self.closed_epochs.remove(&epoch_id).ok_or_else(|| {
-            PipelineFailure::fatal(anyhow::anyhow!("completed S3 epoch {epoch_id} disappeared"))
+            DataPlaneFailure::fatal(anyhow::anyhow!("completed S3 epoch {epoch_id} disappeared"))
         })?;
         for (delivery_id, rows) in epoch.delivery_rows {
             self.progress
                 .complete(delivery_id, rows)
-                .map_err(PipelineFailure::fatal)?;
+                .map_err(DataPlaneFailure::fatal)?;
         }
         drop(epoch.reservations);
         Ok(())
     }
 
-    async fn close_completed_epoch_journal(&mut self) -> Result<bool, PipelineFailure> {
+    async fn close_completed_epoch_journal(&mut self) -> Result<bool, DataPlaneFailure> {
         let Some((&epoch_id, epoch)) = self
             .closed_epochs
             .iter()
@@ -623,7 +623,7 @@ impl S3Sink {
         self.closed_epochs
             .get_mut(&epoch_id)
             .ok_or_else(|| {
-                PipelineFailure::fatal(anyhow::anyhow!(
+                DataPlaneFailure::fatal(anyhow::anyhow!(
                     "S3 epoch {epoch_id} disappeared while closing its journal"
                 ))
             })?
@@ -707,7 +707,7 @@ impl S3Sink {
                 {
                     self.emit_committed(&io.events).await?;
                     if !self.progress.is_empty() || !self.closed_epochs.is_empty() {
-                        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+                        return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                             "S3 sink stopped with incomplete delivery progress"
                         ))
                         .into());
@@ -730,7 +730,7 @@ impl S3Sink {
                     below_live_limits && memory_admissible && pending_delivery.is_some();
                 if can_resume_pending {
                     let Some(pending) = pending_delivery.as_mut() else {
-                        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+                        return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                             "S3 resumable delivery state disappeared"
                         ))
                         .into());
@@ -783,7 +783,7 @@ impl S3Sink {
                             Some(delivery) => {
                                 let prepared = self
                                     .prepare_delivery(delivery, &io.memory)
-                                    .map_err(PipelineFailure::fatal)?;
+                                    .map_err(DataPlaneFailure::fatal)?;
                                 if prepared.rows.is_empty() {
                                     drop(prepared);
                                 } else {
@@ -826,7 +826,14 @@ async fn cancel_and_drain_uploads(
 }
 
 impl Sink for S3Sink {
-    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
-        Box::pin(async move { self.run_actor(io).await })
+    fn run(
+        self: Box<Self>,
+        io: SinkIo,
+    ) -> BoxFuture<'static, crate::core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            self.run_actor(io)
+                .await
+                .map_err(DataPlaneFailure::retryable_or_passthrough)
+        })
     }
 }

@@ -56,10 +56,12 @@ export function useStableRowIds(length: number) {
 }
 
 export function PasswordInput({
+  id,
   value,
   disabled,
   onChange,
 }: {
+  id?: string | undefined;
   value: string;
   disabled: boolean;
   onChange: (value: JsonValue) => void;
@@ -68,6 +70,7 @@ export function PasswordInput({
   return (
     <div class="password-control">
       <input
+        id={id}
         type={visible ? "text" : "password"}
         value={value}
         disabled={disabled}
@@ -164,10 +167,12 @@ const BYTE_UNITS = [
 ] as const;
 
 export function ByteSizeInput({
+  id,
   value,
   disabled,
   onChange,
 }: {
+  id?: string | undefined;
   value: number | null;
   disabled: boolean;
   onChange: (value: JsonValue) => void;
@@ -177,6 +182,7 @@ export function ByteSizeInput({
   return (
     <div class="byte-size-input">
       <input
+        id={id}
         type="number"
         min={0}
         step="any"
@@ -276,10 +282,12 @@ function EyeOffIcon() {
 }
 
 export function PartitionRangesInput({
+  id,
   value,
   disabled,
   onChange,
 }: {
+  id?: string | undefined;
   value: JsonValue;
   disabled: boolean;
   onChange: (value: JsonValue) => void;
@@ -291,6 +299,7 @@ export function PartitionRangesInput({
   return (
     <div class="validated-input">
       <input
+        id={id}
         type="text"
         inputMode="numeric"
         placeholder="e.g. 1-5,7"

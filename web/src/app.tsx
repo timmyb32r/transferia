@@ -1,5 +1,12 @@
 import { render } from "preact";
-import { useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "preact/hooks";
 
 import { api } from "./api";
 import {
@@ -25,7 +32,15 @@ import {
   selectedEndpoints,
   stringValue,
 } from "./delivery/editorConfig";
-import { LatestJob } from "./effects";
+import {
+  useDeliveryJobs,
+  type EditorRequestContext,
+} from "./delivery/useDeliveryJobs";
+import { useDeliveryMutations } from "./delivery/useDeliveryMutations";
+import { useDeliveryPolling } from "./delivery/useDeliveryPolling";
+import { useDiscovery } from "./delivery/useDiscovery";
+import { useOperations } from "./delivery/useOperations";
+import { useYamlEditor } from "./delivery/useYamlEditor";
 import {
   ParserDetailsForm,
   SchemaForm,
@@ -34,7 +49,6 @@ import {
 import { isComplete } from "./schema/compiler";
 import {
   editorReducer,
-  isDirty,
   isReadOnly,
   type EditorSessionId,
   type EditorState,
@@ -42,7 +56,6 @@ import {
 import type {
   DeliveryRecord,
   DeliverySummary,
-  DiscoveryResult,
   JsonObject,
   UiCatalog,
 } from "./types";
@@ -57,60 +70,31 @@ const EMPTY_STATE: EditorState = {
   runtime: { state: "stopped" },
 };
 
-interface EditorRequestContext {
-  sessionId: EditorSessionId;
-  localRevision: number;
-}
-
 export function App() {
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
-  const [yaml, setYaml] = useState("");
-  const [yamlDraft, setYamlDraft] = useState("");
-  const [activeView, setActiveView] = useState<"ui" | "yaml">("ui");
-  const [discovery, setDiscovery] = useState<DiscoveryResult>();
-  const [operations, setOperations] = useState<
-    Partial<Record<OperationKey, OperationState>>
-  >({});
-  const operationSequence = useRef(0);
+  const {
+    operations,
+    beginOperation,
+    finishOperation,
+    clearErrors,
+    clearOperation,
+    resetOperations,
+  } = useOperations();
   const sessionSequence = useRef(0);
-  const yamlJob = useRef(
-    new LatestJob<EditorRequestContext, JsonObject, { yaml: string }>(),
-  ).current;
-  const discoveryJob = useRef(
-    new LatestJob<EditorRequestContext, JsonObject, DiscoveryResult>(),
-  ).current;
-  const listJob = useRef(
-    new LatestJob<void, undefined, DeliverySummary[]>(),
-  ).current;
-  const pollJob = useRef(
-    new LatestJob<EditorSessionId, string, DeliveryRecord>(),
-  ).current;
-  const openJob = useRef(
-    new LatestJob<EditorSessionId, string, DeliveryRecord>(),
-  ).current;
-  const saveJob = useRef(
-    new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
-  ).current;
-  const validateJob = useRef(
-    new LatestJob<
-      EditorRequestContext,
-      undefined,
-      {
-        discovery?: DiscoveryResult;
-        delivery: DeliveryRecord;
-      }
-    >(),
-  ).current;
-  const actionJob = useRef(
-    new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
-  ).current;
-  const parseYamlJob = useRef(
-    new LatestJob<EditorRequestContext, string, { config: JsonObject }>(),
-  ).current;
-  const yamlEditing = useRef(false);
-  const yamlContext = useRef<EditorRequestContext>();
+  const jobs = useDeliveryJobs();
+  const {
+    yaml: yamlJob,
+    discovery: discoveryJob,
+    list: listJob,
+    poll: pollJob,
+    open: openJob,
+    save: saveJob,
+    validate: validateJob,
+    action: actionJob,
+    parseYaml: parseYamlJob,
+  } = jobs;
   const currentEditorContext = useRef<EditorRequestContext>({
     sessionId: editor.sessionId,
     localRevision: editor.localRevision,
@@ -125,50 +109,6 @@ export function App() {
   const isCurrentContext = (context: EditorRequestContext): boolean =>
     context.sessionId === currentEditorContext.current.sessionId &&
     context.localRevision === currentEditorContext.current.localRevision;
-  const beginOperation = (key: OperationKey, label?: string): number => {
-    const requestId = ++operationSequence.current;
-    setOperations((current) => ({
-      ...current,
-      [key]: { requestId, ...(label === undefined ? {} : { label }) },
-    }));
-    return requestId;
-  };
-  const finishOperation = (
-    key: OperationKey,
-    requestId: number,
-    error?: string,
-  ) =>
-    setOperations((current) => {
-      if (current[key]?.requestId !== requestId) return current;
-      if (error !== undefined)
-        return { ...current, [key]: { requestId, error } };
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  const clearErrors = () =>
-    setOperations((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(([, operation]) => !operation?.error),
-      ),
-    );
-  const clearOperation = (key: OperationKey) =>
-    setOperations((current) => {
-      if (current[key] === undefined) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  const cancelEditorJobs = () => {
-    yamlJob.cancel();
-    discoveryJob.cancel();
-    pollJob.cancel();
-    openJob.cancel();
-    saveJob.cancel();
-    validateJob.cancel();
-    actionJob.cancel();
-    parseYamlJob.cancel();
-  };
   const dispatchLocalChange = (
     action:
       | { type: "name"; name: string }
@@ -208,67 +148,27 @@ export function App() {
       );
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void listJob
-        .run(undefined, undefined, () => api.deliveries())
-        .then((result) => {
-          if (result !== undefined) setDeliveries(result.value);
-        })
-        .catch(() => undefined);
-      if (editor.id !== undefined && !isDirty(editor)) {
-        const sessionId = editor.sessionId;
-        void pollJob
-          .run(sessionId, editor.id, (id) => api.delivery(id))
-          .then((result) => {
-            if (result !== undefined)
-              dispatch({
-                type: "runtime",
-                sessionId: result.context,
-                expectedLocalRevision: editor.localRevision,
-                delivery: result.value,
-              });
-          })
-          .catch(() => undefined);
-      }
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [
-    editor.id,
-    editor.sessionId,
-    editor.localRevision,
-    editor.savedLocalRevision,
-  ]);
-
-  useEffect(() => {
-    yamlJob.cancel();
-    clearOperation("yaml");
-    if (catalog === undefined) return;
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    const timer = window.setTimeout(() => {
-      void yamlJob
-        .run(context, editor.config, (config, signal) =>
-          api.yaml(config, signal),
-        )
-        .then((result) => {
-          if (result === undefined || !isCurrentContext(result.context)) return;
-          setYaml(result.value.yaml);
-          yamlContext.current = result.context;
-          if (!yamlEditing.current) setYamlDraft(result.value.yaml);
-        })
-        .catch((reason: unknown) => {
-          const requestId = beginOperation("yaml");
-          finishOperation("yaml", requestId, errorMessage(reason));
-        });
-    }, 120);
-    return () => {
-      window.clearTimeout(timer);
-      yamlJob.cancel();
-    };
-  }, [catalog, editor.config, editor.sessionId, editor.localRevision]);
+  const applyPolledRuntime = useCallback(
+    (
+      sessionId: EditorSessionId,
+      expectedLocalRevision: number,
+      delivery: DeliveryRecord,
+    ) =>
+      dispatch({
+        type: "runtime",
+        sessionId,
+        expectedLocalRevision,
+        delivery,
+      }),
+    [],
+  );
+  useDeliveryPolling({
+    editor,
+    listJob,
+    pollJob,
+    onDeliveries: setDeliveries,
+    onRuntime: applyPolledRuntime,
+  });
 
   const selection = useMemo(
     () =>
@@ -292,44 +192,69 @@ export function App() {
       compiledSchema(selection.sink.schema),
       endpointValue(editor.config, "sink", selection.sinkKey),
     );
-  useEffect(() => {
-    discoveryJob.cancel();
-    clearOperation("discovery");
-    setDiscovery(undefined);
-    if (!structurallyComplete) return;
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    const timer = window.setTimeout(() => {
-      const requestId = beginOperation(
-        "discovery",
-        "Discovering topology and schema…",
-      );
-      void discoveryJob
-        .run(context, editor.config, (config, signal) =>
-          api.discover(config, signal),
-        )
-        .then((result) => {
-          if (result !== undefined && isCurrentContext(result.context)) {
-            setDiscovery(result.value);
-          }
-          finishOperation("discovery", requestId);
-        })
-        .catch((reason: unknown) =>
-          finishOperation("discovery", requestId, errorMessage(reason)),
-        );
-    }, 450);
-    return () => {
-      window.clearTimeout(timer);
-      discoveryJob.cancel();
-    };
-  }, [
-    editor.config,
-    editor.sessionId,
-    editor.localRevision,
+  const { discovery, setDiscovery } = useDiscovery({
+    editor,
     structurallyComplete,
-  ]);
+    job: discoveryJob,
+    operations: { beginOperation, finishOperation, clearOperation },
+    isCurrentContext,
+  });
+  const yamlEditor = useYamlEditor({
+    enabled: catalog !== undefined,
+    editor,
+    jobs: { yaml: yamlJob, parseYaml: parseYamlJob },
+    operations: {
+      beginOperation,
+      finishOperation,
+      clearOperation,
+      clearErrors,
+    },
+    isCurrentContext,
+    applyConfig: (config) =>
+      dispatchLocalChange({ type: "config", config }),
+  });
+  const applyPersisted = useCallback(
+    (context: EditorRequestContext, delivery: DeliveryRecord) =>
+      dispatch({
+        type: "persisted",
+        sessionId: context.sessionId,
+        savedLocalRevision: context.localRevision,
+        delivery,
+      }),
+    [],
+  );
+  const applyMutationRuntime = useCallback(
+    (context: EditorRequestContext, delivery: DeliveryRecord) =>
+      dispatch({
+        type: "runtime",
+        sessionId: context.sessionId,
+        expectedLocalRevision: context.localRevision,
+        delivery,
+      }),
+    [],
+  );
+  const mutations = useDeliveryMutations({
+    editor,
+    jobs: {
+      list: listJob,
+      save: saveJob,
+      validate: validateJob,
+      action: actionJob,
+    },
+    operations: { beginOperation, finishOperation },
+    onDeliveries: setDeliveries,
+    onPersisted: applyPersisted,
+    onRuntime: applyMutationRuntime,
+    onDiscovery: setDiscovery,
+    isCurrentContext,
+  });
+  const {
+    activeView,
+    yamlDraft,
+    editYaml,
+    showYaml,
+    applyYamlAndShowUi,
+  } = yamlEditor;
 
   if (catalog === undefined)
     return (
@@ -367,205 +292,6 @@ export function App() {
           : { [key]: structuredClone(endpoint.initial) },
     });
   };
-  const refreshList = async () => {
-    const requestId = beginOperation("list");
-    try {
-      const result = await listJob.run(undefined, undefined, () =>
-        api.deliveries(),
-      );
-      if (result !== undefined) setDeliveries(result.value);
-      finishOperation("list", requestId);
-    } catch (reason) {
-      finishOperation(
-        "list",
-        requestId,
-        `Delivery list refresh failed: ${errorMessage(reason)}`,
-      );
-    }
-  };
-  const runAction = async (
-    label: string,
-    action: () => Promise<DeliveryRecord>,
-  ) => {
-    const requestId = beginOperation("action", label);
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    try {
-      const result = await actionJob.run(context, undefined, action);
-      if (result === undefined) {
-        finishOperation("action", requestId);
-        return undefined;
-      }
-      dispatch({
-        type: "runtime",
-        sessionId: result.context.sessionId,
-        expectedLocalRevision: result.context.localRevision,
-        delivery: result.value,
-      });
-      await refreshList();
-      finishOperation("action", requestId);
-      return result.value;
-    } catch (reason) {
-      finishOperation("action", requestId, errorMessage(reason));
-      return undefined;
-    }
-  };
-  const save = async (): Promise<DeliveryRecord | undefined> => {
-    const requestId = beginOperation("save", "Saving draft…");
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    const snapshot = {
-      id: editor.id,
-      persistedRevision: editor.persistedRevision,
-      recordVersion: editor.recordVersion,
-      name: editor.name,
-      description: editor.description,
-      config: editor.config,
-    };
-    try {
-      const result = await saveJob.run(context, undefined, () =>
-        snapshot.id === undefined
-          ? api.create(snapshot.name, snapshot.description, snapshot.config)
-          : api.update(
-              snapshot.id,
-              snapshot.persistedRevision!,
-              snapshot.recordVersion!,
-              snapshot.name,
-              snapshot.description,
-              snapshot.config,
-            ),
-      );
-      if (result === undefined) {
-        finishOperation("save", requestId);
-        return undefined;
-      }
-      dispatch({
-        type: "persisted",
-        sessionId: result.context.sessionId,
-        savedLocalRevision: result.context.localRevision,
-        delivery: result.value,
-      });
-      await refreshList();
-      finishOperation("save", requestId);
-      return result.value;
-    } catch (reason) {
-      finishOperation("save", requestId, errorMessage(reason));
-      return undefined;
-    }
-  };
-  const validate = async () => {
-    const mustSave = isDirty(editor) || editor.id === undefined;
-    const saved = mustSave ? await save() : undefined;
-    if (mustSave && saved === undefined) return;
-    const id = saved?.id ?? editor.id;
-    const revision = saved?.revision ?? editor.persistedRevision;
-    const recordVersion = saved?.record_version ?? editor.recordVersion;
-    if (
-      id === undefined ||
-      revision === undefined ||
-      recordVersion === undefined
-    )
-      return;
-    const requestId = beginOperation(
-      "validate",
-      "Validating current revision…",
-    );
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    try {
-      const result = await validateJob.run(context, undefined, async () => {
-        return api.validate(id, revision, recordVersion);
-      });
-      if (result === undefined) {
-        finishOperation("validate", requestId);
-        return;
-      }
-      if (
-        result.value.discovery !== undefined &&
-        isCurrentContext(result.context)
-      )
-        setDiscovery(result.value.discovery);
-      dispatch({
-        type: "runtime",
-        sessionId: result.context.sessionId,
-        expectedLocalRevision: result.context.localRevision,
-        delivery: result.value.delivery,
-      });
-      await refreshList();
-      finishOperation("validate", requestId);
-    } catch (reason) {
-      finishOperation("validate", requestId, errorMessage(reason));
-    }
-  };
-  const showYaml = async () => {
-    if (activeView === "yaml") return;
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    let currentYaml = yaml;
-    if (
-      yamlContext.current?.sessionId !== context.sessionId ||
-      yamlContext.current.localRevision !== context.localRevision
-    ) {
-      const requestId = beginOperation("yaml", "Rendering current YAML…");
-      try {
-        const result = await yamlJob.run(
-          context,
-          editor.config,
-          (config, signal) => api.yaml(config, signal),
-        );
-        if (result === undefined || !isCurrentContext(result.context)) {
-          finishOperation("yaml", requestId);
-          return;
-        }
-        currentYaml = result.value.yaml;
-        setYaml(currentYaml);
-        yamlContext.current = result.context;
-        finishOperation("yaml", requestId);
-      } catch (reason) {
-        finishOperation("yaml", requestId, errorMessage(reason));
-        return;
-      }
-    }
-    yamlEditing.current = true;
-    setYamlDraft(currentYaml);
-    setActiveView("yaml");
-    clearErrors();
-  };
-  const applyYamlAndShowUi = async () => {
-    if (activeView === "ui") return;
-    const requestId = beginOperation("parseYaml", "Applying YAML…");
-    const context = {
-      sessionId: editor.sessionId,
-      localRevision: editor.localRevision,
-    };
-    try {
-      const result = await parseYamlJob.run(context, yamlDraft, (text) =>
-        api.parseYaml(text),
-      );
-      if (result === undefined) {
-        finishOperation("parseYaml", requestId);
-        return;
-      }
-      if (!isCurrentContext(result.context)) {
-        finishOperation("parseYaml", requestId);
-        return;
-      }
-      dispatchLocalChange({ type: "config", config: result.value.config });
-      yamlEditing.current = false;
-      setActiveView("ui");
-      finishOperation("parseYaml", requestId);
-    } catch (reason) {
-      finishOperation("parseYaml", requestId, errorMessage(reason));
-    }
-  };
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
   ).some((key) => operations[key]?.label !== undefined);
@@ -573,10 +299,10 @@ export function App() {
     <EditorActions
       editor={editor}
       blocked={blockingOperation}
-      onSave={() => void save()}
-      onValidate={() => void validate()}
+      onSave={() => void mutations.save()}
+      onValidate={() => void mutations.validate()}
       onActivate={() =>
-        void runAction("Starting worker…", () =>
+        void mutations.runAction("Starting worker…", () =>
           api.activate(
             editor.id!,
             editor.persistedRevision!,
@@ -585,7 +311,7 @@ export function App() {
         )
       }
       onStop={(runId) =>
-        void runAction("Stopping worker…", () =>
+        void mutations.runAction("Stopping worker…", () =>
           api.stop(
             editor.id!,
             editor.persistedRevision!,
@@ -603,19 +329,18 @@ export function App() {
         deliveries={deliveries}
         selectedId={editor.id}
         onNew={() => {
-          cancelEditorJobs();
-          setOperations({});
+          jobs.cancelEditorJobs();
+          resetOperations({});
           dispatch({
             type: "new",
             sessionId: nextSession(),
             config: freshConfig(catalog),
           });
-          yamlEditing.current = false;
-          setActiveView("ui");
+          yamlEditor.reset();
           setDiscovery(undefined);
         }}
         onOpen={(id) => {
-          cancelEditorJobs();
+          jobs.cancelEditorJobs();
           const sessionId = nextSession();
           const requestId = beginOperation("open", "Opening delivery…");
           void openJob
@@ -625,8 +350,7 @@ export function App() {
                 finishOperation("open", requestId);
                 return;
               }
-              yamlEditing.current = false;
-              setActiveView("ui");
+              yamlEditor.reset();
               setDiscovery(undefined);
               dispatch({
                 type: "open",
@@ -807,10 +531,7 @@ export function App() {
               spellcheck={false}
               value={yamlDraft}
               disabled={readOnly}
-              onInput={(event) => {
-                yamlEditing.current = true;
-                setYamlDraft(event.currentTarget.value);
-              }}
+              onInput={(event) => editYaml(event.currentTarget.value)}
             />
             <p>
               Switch to UI to parse this YAML and continue editing it as a form.

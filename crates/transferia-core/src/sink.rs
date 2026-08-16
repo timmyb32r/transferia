@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::data::system_columns::SystemColumns;
+use crate::failure::DataPlaneResult;
 use crate::memory::{MemoryReservation, PipelineMemory};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,5 +78,5 @@ pub struct SinkIo {
 /// A sink is a long-lived actor. Receiving a [`Delivery`] transfers ownership;
 /// durability is reported independently through [`SinkEvent`].
 pub trait Sink: Send {
-    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>>;
+    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, DataPlaneResult<()>>;
 }

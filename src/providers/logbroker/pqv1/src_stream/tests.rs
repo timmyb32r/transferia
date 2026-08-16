@@ -42,10 +42,10 @@ fn endpoint_refresh_failure_is_backed_off_without_refreshing_stale_data() {
 
 #[test]
 fn proxy_failure_aggregation_preserves_a_fatal_disposition() {
-    let fatal = PipelineFailure::fatal(anyhow::anyhow!("invalid credentials"));
+    let fatal = DataPlaneFailure::fatal(anyhow::anyhow!("invalid credentials"));
     let error = connection_failure(7, &["proxy: timed out".into()], Some(fatal.into()));
     let failure = error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .expect("fatal disposition must survive endpoint aggregation");
     assert!(!failure.is_retryable());
 }

@@ -13,6 +13,7 @@ pub struct JsonParserConfig {
     /// How incoming message bytes frame JSON records.
     #[serde(default)]
     #[schemars(title = "JSON framing", extend("x-ui" = {
+        "control_width": "medium",
         "labels": {
             "single_document": "Single JSON document",
             "json_lines": "JSON Lines (JSONL)",

@@ -22,9 +22,9 @@ use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::{connect_client, set_ydb_headers, LogbrokerSourceConfig};
 use crate::core::data::message::{Message, MessageMeta, SourceBatch};
+use crate::core::failure::DataPlaneFailure;
 use crate::core::memory::PipelineMemory;
 use crate::core::source::{CommitMarker, Source};
-use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
 
 const OUTGOING_CHANNEL_CAPACITY: usize = 8;
@@ -172,10 +172,10 @@ impl YdbTopicSource {
         tokio::select! {
             biased;
             () = self.cancellation.cancelled() => {
-                Err(PipelineFailure::retryable(anyhow!("YDB Topic session cancelled")).into())
+                Err(DataPlaneFailure::retryable(anyhow!("YDB Topic session cancelled")).into())
             }
             result = self.outgoing.send(message) => {
-                result.map_err(|_| PipelineFailure::retryable(anyhow!("YDB Topic request stream closed")).into())
+                result.map_err(|_| DataPlaneFailure::retryable(anyhow!("YDB Topic request stream closed")).into())
             }
         }
     }
@@ -185,14 +185,14 @@ impl YdbTopicSource {
         let result = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => {
-                return Err(PipelineFailure::retryable(anyhow!("YDB Topic session cancelled")).into());
+                return Err(DataPlaneFailure::retryable(anyhow!("YDB Topic session cancelled")).into());
             }
             response = self.incoming.message() => response,
         };
         self.counters.add_response_wait(started.elapsed());
         match result {
             Ok(Some(response)) => Ok(response),
-            Ok(None) => Err(PipelineFailure::retryable(anyhow!(
+            Ok(None) => Err(DataPlaneFailure::retryable(anyhow!(
                 "YDB Topic StreamRead closed unexpectedly"
             ))
             .into()),
@@ -558,57 +558,65 @@ impl YdbTopicSource {
 }
 
 impl Source for YdbTopicSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
-            if let Some(batch) = self.buffered_batches.pop_front() {
-                return Ok(batch);
-            }
-            self.replenish_credit().await?;
-            loop {
-                match self.receive_event().await? {
-                    SessionEvent::Batch(batch) => return Ok(batch),
-                    SessionEvent::CommitAck(_) | SessionEvent::Continue => {
-                        self.replenish_credit().await?;
+            let result: anyhow::Result<SourceBatch> = async {
+                if let Some(batch) = self.buffered_batches.pop_front() {
+                    return Ok(batch);
+                }
+                self.replenish_credit().await?;
+                loop {
+                    match self.receive_event().await? {
+                        SessionEvent::Batch(batch) => return Ok(batch),
+                        SessionEvent::CommitAck(_) | SessionEvent::Continue => {
+                            self.replenish_credit().await?;
+                        }
                     }
                 }
             }
+            .await;
+            result.map_err(DataPlaneFailure::retryable_or_passthrough)
         })
     }
 
     fn commit_offsets<'context>(
         &'context mut self,
         markers: &'context [CommitMarker],
-    ) -> BoxFuture<'context, anyhow::Result<()>> {
+    ) -> BoxFuture<'context, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            if markers.is_empty() {
-                return Ok(());
-            }
-            let (commit_offsets, mut targets) =
-                build_commit_request(markers, &self.partition_sessions)?;
-            self.send(ClientMessage::CommitOffsetRequest(CommitOffsetRequest {
-                commit_offsets,
-            }))
-            .await?;
-            loop {
-                match self.receive_event().await? {
-                    SessionEvent::CommitAck(committed) => {
-                        for (session_id, committed_offset) in committed {
-                            if targets
-                                .get(&session_id)
-                                .is_some_and(|target| committed_offset >= *target)
-                            {
-                                targets.remove(&session_id);
+            let result: anyhow::Result<()> = async {
+                if markers.is_empty() {
+                    return Ok(());
+                }
+                let (commit_offsets, mut targets) =
+                    build_commit_request(markers, &self.partition_sessions)?;
+                self.send(ClientMessage::CommitOffsetRequest(CommitOffsetRequest {
+                    commit_offsets,
+                }))
+                .await?;
+                loop {
+                    match self.receive_event().await? {
+                        SessionEvent::CommitAck(committed) => {
+                            for (session_id, committed_offset) in committed {
+                                if targets
+                                    .get(&session_id)
+                                    .is_some_and(|target| committed_offset >= *target)
+                                {
+                                    targets.remove(&session_id);
+                                }
+                            }
+                            if targets.is_empty() {
+                                self.release_gracefully_stopped_sessions().await?;
+                                return Ok(());
                             }
                         }
-                        if targets.is_empty() {
-                            self.release_gracefully_stopped_sessions().await?;
-                            return Ok(());
-                        }
+                        SessionEvent::Batch(batch) => self.buffered_batches.push_back(batch),
+                        SessionEvent::Continue => {}
                     }
-                    SessionEvent::Batch(batch) => self.buffered_batches.push_back(batch),
-                    SessionEvent::Continue => {}
                 }
             }
+            .await;
+            result.map_err(DataPlaneFailure::retryable_or_passthrough)
         })
     }
 }
@@ -636,13 +644,13 @@ pub(super) fn build_commit_request(
             let state = sessions
                 .get(&partition.partition_session_id)
                 .ok_or_else(|| {
-                    PipelineFailure::retryable(anyhow!(
+                    DataPlaneFailure::retryable(anyhow!(
                         "YDB Topic partition session {} ended before commit",
                         partition.partition_session_id
                     ))
                 })?;
             if state.invalidated {
-                return Err(PipelineFailure::retryable(anyhow!(
+                return Err(DataPlaneFailure::retryable(anyhow!(
                     "YDB Topic partition session {} was revoked before commit",
                     partition.partition_session_id
                 ))
@@ -854,7 +862,7 @@ fn validate_status(response: &FromServer) -> anyhow::Result<()> {
     }) {
         Err(fatal(error))
     } else {
-        Err(PipelineFailure::retryable(error).into())
+        Err(DataPlaneFailure::retryable(error).into())
     }
 }
 
@@ -872,10 +880,10 @@ fn tonic_failure(stage: &str, status: &tonic::Status) -> anyhow::Error {
     if fatal_code {
         fatal(error)
     } else {
-        PipelineFailure::retryable(error).into()
+        DataPlaneFailure::retryable(error).into()
     }
 }
 
 fn fatal(error: anyhow::Error) -> anyhow::Error {
-    PipelineFailure::fatal(error).into()
+    DataPlaneFailure::fatal(error).into()
 }

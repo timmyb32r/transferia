@@ -167,12 +167,18 @@ impl ControlPlane {
         &self,
         key: &str,
         request: OptionsRequest,
+        cancellation: CancellationToken,
     ) -> Result<DynamicOptions, ServiceError> {
         self.transferia
             .registry()
-            .options(key, request)
+            .options(key, request, cancellation)
             .await
             .map_err(|error| ServiceError::Validation(error.to_string()))
+    }
+
+    #[must_use]
+    pub fn request_cancellation(&self) -> CancellationToken {
+        self.shutdown.child_token()
     }
 
     pub async fn list(&self) -> Result<Vec<DeliveryRecord>, ServiceError> {

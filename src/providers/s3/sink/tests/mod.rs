@@ -310,7 +310,7 @@ struct FakeSource {
 }
 
 impl Source for FakeSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             let Some(messages) = self.batches.pop_front() else {
                 return Ok(SourceBatch::Raw {
@@ -322,7 +322,11 @@ impl Source for FakeSource {
             let marker = messages
                 .last()
                 .and_then(|message| message.meta.offset)
-                .ok_or_else(|| anyhow::anyhow!("fake source message is missing an offset"))?;
+                .ok_or_else(|| {
+                    crate::core::failure::DataPlaneFailure::fatal(anyhow::anyhow!(
+                        "fake source message is missing an offset"
+                    ))
+                })?;
             Ok(SourceBatch::Raw {
                 messages,
                 commit_marker: Some(CommitMarker::new(marker)),
@@ -334,13 +338,18 @@ impl Source for FakeSource {
     fn commit_offsets<'context>(
         &'context mut self,
         markers: &'context [CommitMarker],
-    ) -> BoxFuture<'context, anyhow::Result<()>> {
+    ) -> BoxFuture<'context, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             for marker in markers {
-                let offset = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
-                self.commits
-                    .send(offset)
-                    .map_err(|_| anyhow::anyhow!("commit receiver closed"))?;
+                let offset = marker
+                    .value::<i64>()
+                    .copied()
+                    .map_err(|error| crate::core::failure::DataPlaneFailure::fatal(error.into()))?;
+                self.commits.send(offset).map_err(|_| {
+                    crate::core::failure::DataPlaneFailure::retryable(anyhow::anyhow!(
+                        "commit receiver closed"
+                    ))
+                })?;
             }
             Ok(())
         })
@@ -603,7 +612,7 @@ fn spawn(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    tokio::task::JoinHandle<anyhow::Result<()>>,
+    tokio::task::JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     spawn_with_system_columns(config, uploader, memory, false)
 }
@@ -617,7 +626,7 @@ fn spawn_with_system_columns(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    tokio::task::JoinHandle<anyhow::Result<()>>,
+    tokio::task::JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     spawn_with_capacity(config, uploader, memory, keep_system_columns, 8)
 }
@@ -632,7 +641,7 @@ fn spawn_with_capacity(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    tokio::task::JoinHandle<anyhow::Result<()>>,
+    tokio::task::JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     spawn_with_storage(
         config,
@@ -655,7 +664,7 @@ fn spawn_with_storage(
     mpsc::Sender<Delivery>,
     mpsc::Receiver<SinkEvent>,
     CancellationToken,
-    tokio::task::JoinHandle<anyhow::Result<()>>,
+    tokio::task::JoinHandle<crate::core::failure::DataPlaneResult<()>>,
 ) {
     let (delivery_tx, delivery_rx) = mpsc::channel(channel_capacity);
     let (event_tx, event_rx) = mpsc::channel(8);
@@ -1164,9 +1173,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
         .expect("partial-epoch pipeline attempt did not stop")
         .expect("partial-epoch pipeline task panicked")
         .expect_err("the injected second-object failure must restart the pipeline");
-    assert!(first_error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .is_some_and(crate::delivery::execution::PipelineFailure::is_retryable));
+    assert!(first_error.is_retryable());
     assert!(matches!(
         commit_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Empty)
@@ -1742,9 +1749,7 @@ async fn retry_budget_turns_persistent_transient_failure_into_sink_error() {
 
     let error = task.await.unwrap().unwrap_err();
     assert!(error.to_string().contains("exhausted 2 attempts"));
-    assert!(error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .is_some_and(crate::delivery::execution::PipelineFailure::is_retryable));
+    assert!(error.is_retryable());
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 2);
     assert_eq!(counters.retries_total(), 1);
 }
@@ -1759,9 +1764,7 @@ async fn permanent_upload_failure_is_non_retryable() {
         .unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("permanent S3 error must preserve its restart contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
 }
 
@@ -1775,9 +1778,7 @@ async fn deterministic_routing_failure_is_non_retryable() {
     tx.send(invalid).await.unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("deterministic S3 routing errors must preserve their restart contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("S3 delivery validation failed"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
@@ -1793,9 +1794,7 @@ async fn dataset_mismatch_is_fatal_before_routing_or_upload() {
     tx.send(invalid).await.unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("contract violations must preserve their fatal disposition");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error
         .to_string()
@@ -1829,9 +1828,7 @@ async fn schema_metadata_drift_is_fatal_before_upload() {
     tx.send(invalid).await.unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("metadata drift must be fatal");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error
         .to_string()
@@ -1851,9 +1848,7 @@ async fn overlong_static_prefix_fails_before_upload_and_is_non_retryable() {
         .unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("final S3 key validation must preserve its fatal disposition");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("1024-byte limit"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
@@ -1877,9 +1872,7 @@ async fn source_partition_mismatch_is_non_retryable_and_never_uploads() {
     tx.send(invalid).await.unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("partition mismatch must preserve its restart contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("source partition mismatch"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);
@@ -1895,9 +1888,7 @@ async fn delivery_progress_violation_is_non_retryable() {
         .unwrap();
 
     let error = task.await.unwrap().unwrap_err();
-    let failure = error
-        .downcast_ref::<crate::delivery::execution::PipelineFailure>()
-        .expect("S3 progress violations must preserve their restart contract");
+    let failure = &error;
     assert!(!failure.is_retryable());
     assert!(error.to_string().contains("delivery order violation"));
     assert_eq!(uploader.attempts.load(Ordering::Acquire), 0);

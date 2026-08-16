@@ -168,7 +168,9 @@ export function compileSchema(root: JsonSchema): CompiledNode {
       `${path}: unsupported schema type ${JSON.stringify(schema.type)}`,
     );
   };
-  return compile(root, "#");
+  const compiled = compile(root, "#");
+  validateWidgetTree(compiled, "#");
+  return compiled;
 }
 
 const SUPPORTED_KEYWORDS = new Set([
@@ -266,21 +268,24 @@ const SUPPORTED_UI_HINTS = new Set([
   "dynamic_options",
   "labels",
   "options",
+  "control_width",
+  "item_label",
 ]);
 
-const SUPPORTED_WIDGETS = new Set([
-  "byte_size",
-  "column_keys",
-  "column_mappings",
-  "duration",
-  "hidden",
-  "parser",
-  "parser_common",
-  "partition_ranges",
-  "password",
-  "select",
-  "system_columns",
-]);
+const WIDGET_KINDS: Readonly<Record<string, ReadonlySet<CompiledNode["kind"]>>> = {
+  byte_size: new Set(["number", "string"]),
+  column_keys: new Set(["array"]),
+  column_mappings: new Set(["array"]),
+  compact_array: new Set(["array"]),
+  duration: new Set(["string"]),
+  hidden: new Set(["string", "number", "boolean", "object", "array", "union", "nullable"]),
+  parser: new Set(["object", "union"]),
+  parser_common: new Set(["object"]),
+  partition_ranges: new Set(["array"]),
+  password: new Set(["string"]),
+  select: new Set(["string"]),
+  system_columns: new Set(["object"]),
+};
 
 function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
   if (value === undefined) return;
@@ -291,7 +296,7 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
     );
   if (
     value.widget !== undefined &&
-    (typeof value.widget !== "string" || !SUPPORTED_WIDGETS.has(value.widget))
+    (typeof value.widget !== "string" || WIDGET_KINDS[value.widget] === undefined)
   )
     throw new SchemaContractError(`${path}: unsupported x-ui widget`);
   if (
@@ -319,6 +324,36 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
     throw new SchemaContractError(`${path}: x-ui labels must be an object`);
   if (value.options !== undefined && !Array.isArray(value.options))
     throw new SchemaContractError(`${path}: x-ui options must be an array`);
+  for (const key of ["control_width", "item_label"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string")
+      throw new SchemaContractError(`${path}: x-ui ${key} must be a string`);
+  }
+}
+
+function validateWidgetTree(node: CompiledNode, path: string): void {
+  const widget = node.xUi.widget;
+  const widgetKinds = typeof widget === "string" ? WIDGET_KINDS[widget] : undefined;
+  const supported =
+    widgetKinds === undefined ||
+    widgetKinds.has(node.kind) ||
+    (node.kind === "nullable" && widgetKinds.has(node.inner.kind));
+  if (!supported) {
+    throw new SchemaContractError(
+      `${path}: x-ui widget ${JSON.stringify(widget)} does not support ${node.kind}`,
+    );
+  }
+  if (node.kind === "object") {
+    for (const [name, child] of Object.entries(node.properties))
+      validateWidgetTree(child, `${path}/${name}`);
+  } else if (node.kind === "array") {
+    validateWidgetTree(node.item, `${path}/items`);
+  } else if (node.kind === "nullable") {
+    validateWidgetTree(node.inner, `${path}/nullable`);
+  } else if (node.kind === "union") {
+    node.branches.forEach((branch, index) =>
+      validateWidgetTree(branch.node, `${path}/branch-${index}`),
+    );
+  }
 }
 
 export function createValue(node: CompiledNode): JsonValue {

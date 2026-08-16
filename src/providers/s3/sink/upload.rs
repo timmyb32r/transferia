@@ -10,8 +10,8 @@ use object_store::{Error as ObjectStoreError, MultipartUpload, ObjectStore};
 use tokio_util::sync::CancellationToken;
 
 use super::config::{RetryConfig, UploadConfig};
+use crate::core::failure::DataPlaneFailure;
 use crate::delivery::execution::retry::{jittered_retry_delay, stable_retry_seed};
-use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SinkCounters;
 
 // Keep abort cleanup below the actor's five-second upload-drain grace period.
@@ -271,11 +271,11 @@ pub async fn upload_with_retry(
     payload: &Bytes,
     cancellation: &CancellationToken,
     counters: &SinkCounters,
-) -> Result<(), PipelineFailure> {
+) -> Result<(), DataPlaneFailure> {
     let mut attempt = 1_usize;
     loop {
         if cancellation.is_cancelled() {
-            return Err(PipelineFailure::retryable(anyhow::anyhow!(
+            return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                 "S3 upload cancelled"
             )));
         }
@@ -285,18 +285,18 @@ pub async fn upload_with_retry(
         match result {
             Ok(()) => return Ok(()),
             Err(UploadError::Cancelled) => {
-                return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                     "S3 upload cancelled"
                 )));
             }
             Err(UploadError::Permanent(error)) => {
-                return Err(PipelineFailure::fatal(
+                return Err(DataPlaneFailure::fatal(
                     error.context(format!("permanent S3 upload failure for '{key}'")),
                 ));
             }
             Err(UploadError::Retryable(error)) => {
                 if attempt >= retry.max_attempts {
-                    return Err(PipelineFailure::retryable(error.context(format!(
+                    return Err(DataPlaneFailure::retryable(error.context(format!(
                         "S3 upload for '{key}' exhausted {} attempts",
                         retry.max_attempts
                     ))));
@@ -313,7 +313,7 @@ pub async fn upload_with_retry(
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => {
-                        return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                        return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                             "S3 upload cancelled"
                         )));
                     }

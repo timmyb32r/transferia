@@ -863,7 +863,7 @@ fn describe_topic_requires_settings_in_a_successful_result() {
         "{error:#}"
     );
     assert!(error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .is_some_and(|failure| !failure.is_retryable()));
 }
 
@@ -877,7 +877,7 @@ fn describe_topic_requires_a_ready_sync_operation() {
     let error = decode_describe_topic_response(response).unwrap_err();
     assert!(error.to_string().contains("SYNC operation is not ready"));
     assert!(error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .is_some_and(|failure| !failure.is_retryable()));
 }
 
@@ -890,7 +890,7 @@ fn describe_topic_rejects_a_non_success_operation() {
     .unwrap_err();
     assert!(error.to_string().contains("SCHEME_ERROR"), "{error:#}");
     assert!(error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .is_some_and(|failure| !failure.is_retryable()));
 }
 
@@ -1385,14 +1385,14 @@ fn fatal_tonic_status_survives_pre_session_stages() {
         &tonic::Status::unauthenticated("bad token"),
     ));
     assert!(error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .is_some_and(|failure| !failure.is_retryable()));
 
     let retryable = surface_session_failure(tonic_failure(
         "stream open",
         &tonic::Status::unavailable("proxy down"),
     ));
-    assert!(retryable.downcast_ref::<PipelineFailure>().is_none());
+    assert!(retryable.downcast_ref::<DataPlaneFailure>().is_none());
 }
 
 #[tokio::test]
@@ -1472,7 +1472,7 @@ async fn source_treats_an_unexpected_partition_stream_close_as_retryable() {
 
     let error = source.read_batch().await.unwrap_err();
     assert!(error.to_string().contains("stream closed unexpectedly"));
-    assert!(error.downcast_ref::<PipelineFailure>().is_none());
+    assert!(error.is_retryable());
 }
 
 #[tokio::test]
@@ -1491,9 +1491,7 @@ async fn source_treats_partition_mismatch_as_fatal() {
 
     let error = source.read_batch().await.unwrap_err();
     assert!(error.to_string().contains("partition mismatch"));
-    assert!(error
-        .downcast_ref::<PipelineFailure>()
-        .is_some_and(|failure| !failure.is_retryable()));
+    assert!(!error.is_retryable());
 }
 
 #[tokio::test]
@@ -1525,9 +1523,7 @@ async fn terminal_failure_disposition_retries_transport_but_not_decompression() 
     assert!(error
         .to_string()
         .contains("decompression contract violated"));
-    assert!(error
-        .downcast_ref::<PipelineFailure>()
-        .is_some_and(|failure| !failure.is_retryable()));
+    assert!(!error.is_retryable());
 }
 
 #[test]
@@ -1838,13 +1834,13 @@ async fn fatal_terminal_failure_remains_fatal_while_waiting_for_commit_ack() {
         .expect("session cancellation must wake commit")
         .unwrap_err();
     let failure = error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .expect("fatal terminal error must keep its pipeline disposition");
     assert!(!failure.is_retryable());
 
     let error = client.commit(7, vec![cookie(2)]).await.unwrap_err();
     let failure = error
-        .downcast_ref::<PipelineFailure>()
+        .downcast_ref::<DataPlaneFailure>()
         .expect("an already-stopped fatal session must keep its disposition");
     assert!(!failure.is_retryable());
 }

@@ -88,7 +88,11 @@ struct EmptyOptions;
 
 #[async_trait]
 impl DynamicOptionsProvider for EmptyOptions {
-    async fn list(&self, _request: OptionsRequest) -> anyhow::Result<DynamicOptions> {
+    async fn list(
+        &self,
+        _request: OptionsRequest,
+        _context: OptionsContext,
+    ) -> anyhow::Result<DynamicOptions> {
         Ok(DynamicOptions::default())
     }
 }
@@ -104,7 +108,7 @@ impl TransferiaExtension for UnknownProviderExtension {
     }
 
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
-        registry.register_installation(InstallationRegistration {
+        registry.register_erased_installation(InstallationRegistration {
             provider: "typo",
             role: EndpointRole::Source,
             kind: "instance",
@@ -203,7 +207,7 @@ impl TransferiaExtension for FingerprintInstallations {
             ("fingerprint_alpha", self.alpha_preferred),
             ("fingerprint_beta", !self.alpha_preferred),
         ] {
-            registry.register_installation(InstallationRegistration {
+            registry.register_erased_installation(InstallationRegistration {
                 provider: "postgres",
                 role: EndpointRole::Source,
                 kind,
@@ -304,7 +308,7 @@ impl TransferiaExtension for IncompleteResolverExtension {
     }
 
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
-        registry.register_installation(InstallationRegistration {
+        registry.register_erased_installation(InstallationRegistration {
             provider: "postgres",
             role: EndpointRole::Source,
             kind: "incomplete",
@@ -367,7 +371,7 @@ impl TransferiaExtension for BlockingResolverExtension {
     }
 
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
-        registry.register_installation(InstallationRegistration {
+        registry.register_erased_installation(InstallationRegistration {
             provider: "postgres",
             role: EndpointRole::Source,
             kind: "blocking",
@@ -425,6 +429,139 @@ async fn installation_resolution_is_cancellable() -> anyhow::Result<()> {
     Ok(())
 }
 
+struct BlockingOptions;
+
+#[async_trait]
+impl DynamicOptionsProvider for BlockingOptions {
+    async fn list(
+        &self,
+        _request: OptionsRequest,
+        context: OptionsContext,
+    ) -> anyhow::Result<DynamicOptions> {
+        context.cancellation.cancelled().await;
+        anyhow::bail!("options provider observed cancellation")
+    }
+}
+
+#[tokio::test]
+async fn dynamic_options_are_cancellable() -> anyhow::Result<()> {
+    let mut registry = ExtensionRegistry::default();
+    registry.register_options("blocking", Arc::new(BlockingOptions))?;
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let error = registry
+        .options(
+            "blocking",
+            OptionsRequest {
+                query: None,
+                refresh: false,
+            },
+            cancellation,
+        )
+        .await
+        .expect_err("cancelled option request unexpectedly succeeded");
+    assert!(error.to_string().contains("cancel"));
+    Ok(())
+}
+
+#[derive(Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TypedTestInstallation {
+    #[serde(rename = "type")]
+    installation_type: String,
+
+    host: String,
+
+    port: u16,
+
+    trusted_plaintext: bool,
+}
+
+#[derive(Serialize)]
+struct TypedTestOutput {
+    host: String,
+
+    port: u16,
+
+    trusted_plaintext: bool,
+}
+
+struct TypedTestResolver;
+
+#[async_trait]
+impl TypedInstallationResolver<TypedTestInstallation, TypedTestOutput> for TypedTestResolver {
+    async fn resolve(
+        &self,
+        installation: TypedTestInstallation,
+        _context: ResolveContext,
+    ) -> anyhow::Result<TypedTestOutput> {
+        anyhow::ensure!(installation.installation_type == "typed", "invalid type");
+        Ok(TypedTestOutput {
+            host: installation.host,
+            port: installation.port,
+            trusted_plaintext: installation.trusted_plaintext,
+        })
+    }
+}
+
+struct TypedTestExtension;
+
+impl TransferiaExtension for TypedTestExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "typed-test",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_installation(
+            InstallationSpec {
+                provider: "postgres",
+                role: EndpointRole::Source,
+                kind: "typed",
+                title: "Typed",
+                initial: TypedTestInstallation {
+                    installation_type: "typed".to_owned(),
+                    host: String::new(),
+                    port: 5432,
+                    trusted_plaintext: false,
+                },
+                preferred: true,
+            },
+            TypedTestResolver,
+        )
+    }
+}
+
+#[tokio::test]
+async fn typed_installation_derives_schema_initial_and_runtime_codec() -> anyhow::Result<()> {
+    let transferia = TransferiaBuilder::new()
+        .with_extension(Arc::new(TypedTestExtension))
+        .build()?;
+    let registration = transferia
+        .registry()
+        .installations_for("postgres", EndpointRole::Source)
+        .into_iter()
+        .find(|registration| registration.kind == "typed")
+        .ok_or_else(|| anyhow::anyhow!("typed installation was not compiled"))?;
+    assert_eq!(registration.schema["properties"]["type"]["const"], "typed");
+    assert_eq!(registration.initial["port"], 5432);
+    let resolved = transferia
+        .registry()
+        .resolve(
+            "postgres",
+            EndpointRole::Source,
+            serde_yaml::from_str(
+                "installation: { type: typed, host: localhost, port: 5432, trusted_plaintext: true }\n",
+            )?,
+            CancellationToken::new(),
+        )
+        .await?;
+    assert_eq!(resolved["host"], "localhost");
+    Ok(())
+}
+
 struct DuplicateFreeExtension;
 
 impl TransferiaExtension for DuplicateFreeExtension {
@@ -451,7 +588,7 @@ impl TransferiaExtension for NoPreferredInstallationExtension {
     }
 
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
-        registry.register_installation(InstallationRegistration {
+        registry.register_erased_installation(InstallationRegistration {
             provider: "postgres",
             role: EndpointRole::Source,
             kind: "alternative",

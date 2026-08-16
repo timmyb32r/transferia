@@ -12,6 +12,7 @@ export interface SelectOption {
 }
 
 interface SelectControlProps {
+  id?: string | undefined;
   value: string;
   placeholder: string;
   options: SelectOption[];
@@ -22,6 +23,7 @@ interface SelectControlProps {
 }
 
 export function SelectControl({
+  id,
   value,
   placeholder,
   options,
@@ -77,6 +79,7 @@ export function SelectControl({
       }
     >
       <button
+        id={id}
         ref={trigger}
         type="button"
         class="select-trigger"

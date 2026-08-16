@@ -7,8 +7,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::middleware::Middleware;
 use super::retry::{jittered_retry_delay, stable_retry_seed};
-use super::{run_partition_pipeline_with_progress, PipelineFailure, PipelineProgress};
+use super::{run_partition_pipeline_with_progress, PipelineProgress};
 use crate::core::delivery::DeliveryDiscovery;
+use crate::core::failure::{DataPlaneFailure, DataPlaneResult};
 use crate::core::memory::PipelineMemory;
 use crate::delivery::preparation::DeliveryPlan;
 use crate::durable::DurableContext;
@@ -33,7 +34,7 @@ struct PipelineDependencies {
 }
 
 pub struct DeliveryExecution {
-    tasks: JoinSet<anyhow::Result<()>>,
+    tasks: JoinSet<DataPlaneResult<()>>,
     cancellation: CancellationToken,
     finite_source: bool,
 }
@@ -59,7 +60,7 @@ impl DeliveryExecution {
                 }
                 Ok(Err(error)) => {
                     self.shutdown().await;
-                    return Err(error).context("partition task failed");
+                    return Err(anyhow::Error::new(error)).context("partition task failed");
                 }
                 Err(error) => {
                     self.shutdown().await;
@@ -167,7 +168,7 @@ async fn run_partition_attempt(
     attempt_token: CancellationToken,
     progress: Arc<PipelineProgress>,
     startup: &mut Option<oneshot::Sender<()>>,
-) -> anyhow::Result<()> {
+) -> DataPlaneResult<()> {
     let memory = PipelineMemory::new(dependencies.memory_limit);
     let source = dependencies
         .source_provider
@@ -178,7 +179,7 @@ async fn run_partition_attempt(
             durable: dependencies.durable.clone(),
         })
         .await
-        .context("source creation failed")?;
+        .map_err(|error| DataPlaneFailure::retryable(error.context("source creation failed")))?;
     let sink = dependencies
         .sink_provider
         .build_sink(SinkBuildContext {
@@ -189,7 +190,7 @@ async fn run_partition_attempt(
             durable: dependencies.durable.clone(),
         })
         .await
-        .context("sink creation failed")?;
+        .map_err(|error| DataPlaneFailure::retryable(error.context("sink creation failed")))?;
     if let Some(startup) = startup.take() {
         let _ignored = startup.send(());
     }
@@ -245,7 +246,7 @@ async fn run_partition_task(
     parse_counters: Arc<ParseCounters>,
     sink_counters: Arc<SinkCounters>,
     startup: oneshot::Sender<()>,
-) -> anyhow::Result<()> {
+) -> DataPlaneResult<()> {
     let mut restart_policy = PartitionRestartPolicy::new();
     let retry_seed = stable_retry_seed(&partition_id.to_le_bytes());
     let progress = Arc::new(PipelineProgress::new());
@@ -276,11 +277,8 @@ async fn run_partition_task(
         ) else {
             return Ok(());
         };
-        let retryable = error
-            .downcast_ref::<PipelineFailure>()
-            .is_none_or(PipelineFailure::is_retryable);
-        if !retryable {
-            return Err(error).context("non-retryable partition failure");
+        if !error.is_retryable() {
+            return Err(error.context("non-retryable partition failure"));
         }
         let (consecutive_failure, base_restart_delay) =
             restart_policy.record_failure(progress.advanced_since(progress_checkpoint));
@@ -319,21 +317,21 @@ async fn wait_for_partition_startup(
 }
 
 fn classify_partition_completion(
-    result: anyhow::Result<()>,
+    result: DataPlaneResult<()>,
     cancelled: bool,
     finite_source: bool,
-) -> Option<anyhow::Error> {
+) -> Option<DataPlaneFailure> {
     match result {
         Ok(()) if cancelled || finite_source => None,
-        Ok(()) => Some(anyhow::Error::msg(
-            "partition pipeline stopped unexpectedly",
-        )),
+        Ok(()) => Some(DataPlaneFailure::retryable(anyhow::anyhow!(
+            "partition pipeline stopped unexpectedly"
+        ))),
         Err(error) => Some(error),
     }
 }
 
 async fn stop_partition_tasks(
-    tasks: &mut JoinSet<anyhow::Result<()>>,
+    tasks: &mut JoinSet<DataPlaneResult<()>>,
     cancellation: &CancellationToken,
 ) {
     cancellation.cancel();

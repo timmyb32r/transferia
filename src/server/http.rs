@@ -50,6 +50,14 @@ struct ApiJson<T>(T);
 
 struct ApiJsonRejection(JsonRejection);
 
+struct CancelOnDrop(CancellationToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 impl<S, T> FromRequest<S> for ApiJson<T>
 where
     S: Send + Sync,
@@ -261,6 +269,8 @@ async fn dynamic_options(
 ) -> Result<impl IntoResponse, ApiError> {
     let Query(query) =
         query.map_err(|error| ApiError(ServiceError::InvalidInput(error.body_text())))?;
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let result = state
         .control_plane
         .dynamic_options(
@@ -269,6 +279,7 @@ async fn dynamic_options(
                 query: query.q,
                 refresh: query.refresh,
             },
+            cancellation,
         )
         .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))

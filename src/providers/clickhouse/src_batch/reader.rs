@@ -11,6 +11,7 @@ use super::provider::DiscoveredTable;
 use crate::core::data::message::SourceBatch;
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::core::data::table_data::TableData;
+use crate::core::failure::DataPlaneFailure;
 use crate::core::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
 
@@ -139,7 +140,7 @@ impl ClickHouseSource {
 }
 
 impl Source for ClickHouseSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, crate::core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             loop {
                 if let Some((batch, offset)) = self.pending.take() {
@@ -148,7 +149,7 @@ impl Source for ClickHouseSource {
                     if offset + rows < batch.num_rows() {
                         self.pending = Some((batch, offset + rows));
                     }
-                    return self.output(&slice);
+                    return self.output(&slice).map_err(DataPlaneFailure::fatal);
                 }
                 if self.finished {
                     return Ok(SourceBatch::Finished);
@@ -156,21 +157,22 @@ impl Source for ClickHouseSource {
                 let next = tokio::time::timeout(self.request_timeout, self.stream.next())
                     .await
                     .map_err(|_| {
-                        anyhow::anyhow!(
+                        DataPlaneFailure::retryable(anyhow::anyhow!(
                             "ClickHouse snapshot response timed out after {} ms",
                             self.request_timeout.as_millis()
-                        )
+                        ))
                     })?;
                 match next {
                     Some(Ok(batch)) if batch.num_rows() > 0 => {
-                        validate_snapshot_schema(&batch, &self.table)?;
+                        validate_snapshot_schema(&batch, &self.table)
+                            .map_err(DataPlaneFailure::fatal)?;
                         self.pending = Some((batch, 0));
                     }
                     Some(Ok(_)) => {}
                     Some(Err(error)) => {
-                        return Err(anyhow::anyhow!(
+                        return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                             "ClickHouse snapshot response failed: {error}"
-                        ))
+                        )))
                     }
                     None => self.finished = true,
                 }
@@ -181,7 +183,7 @@ impl Source for ClickHouseSource {
     fn commit_offsets<'a>(
         &'a mut self,
         _markers: &'a [CommitMarker],
-    ) -> BoxFuture<'a, anyhow::Result<()>> {
+    ) -> BoxFuture<'a, crate::core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
 }

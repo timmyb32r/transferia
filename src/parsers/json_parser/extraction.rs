@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use serde::{de, Deserializer as _};
 
-use super::parser::{ColumnKind, TypedScratch, TypedValueWriter};
+use super::parser::ColumnKind;
+use super::typed::{TypedScratch, TypedValueWriter};
 
 /// Adaptive column index: linear scan for narrow schemas and a hash table for
 /// wider schemas.
@@ -47,6 +48,7 @@ struct TypedFieldExtractor<'ctx> {
     reject_unknown: bool,
     seen: &'ctx mut [bool],
     buf_ptr: *const u8,
+    buf_len: usize,
     required_filled: usize,
     required_total: usize,
     duplicate_mapped_field: bool,
@@ -97,6 +99,7 @@ impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
                 let seed = TypedValueWriter {
                     target: &mut self.scratch[index],
                     buf_ptr: self.buf_ptr,
+                    buf_len: self.buf_len,
                     kind: self.kinds[index],
                 };
                 let present = map.next_value_seed(seed)?;
@@ -127,6 +130,7 @@ pub(super) fn parse_root_fields_typed(
     buffer.clear();
     buffer.extend_from_slice(bytes);
     let buffer_pointer = buffer.as_ptr();
+    let buffer_len = buffer.len();
     let mut deserializer =
         simd_json::Deserializer::from_slice(buffer).map_err(anyhow::Error::from)?;
     let mut extractor = TypedFieldExtractor {
@@ -137,6 +141,7 @@ pub(super) fn parse_root_fields_typed(
         reject_unknown: info.reject_unknown,
         seen,
         buf_ptr: buffer_pointer,
+        buf_len: buffer_len,
         required_filled: 0,
         required_total: info.required_total,
         duplicate_mapped_field: false,

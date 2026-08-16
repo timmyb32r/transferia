@@ -20,6 +20,50 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("associates schema labels with real controls using stable paths", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      required: new Set(["name", "mode", "secret", "hosts"]),
+      additionalProperties: false,
+      xUi: {},
+      properties: {
+        name: { kind: "string", title: "Name", xUi: {} },
+        mode: {
+          kind: "string",
+          title: "Mode",
+          enumValues: ["one", "two"],
+          xUi: {},
+        },
+        secret: {
+          kind: "string",
+          title: "Secret",
+          xUi: { widget: "password" },
+        },
+        hosts: {
+          kind: "array",
+          title: "Hosts",
+          item: { kind: "string", xUi: {} },
+          xUi: { widget: "compact_array", item_label: "host" },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ name: "", mode: "", secret: "", hosts: [""] }}
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(view.getByLabelText("Name").getAttribute("id")).toBe("field---name");
+    expect(view.getByLabelText("Mode").tagName).toBe("BUTTON");
+    expect(view.getByLabelText("Secret").getAttribute("type")).toBe("password");
+    expect(view.getByLabelText("Host row 1").getAttribute("id")).toMatch(
+      /^compact-row-\d+-value$/,
+    );
+    view.unmount();
+  });
+
   it("does not turn a cleared number input into zero", () => {
     const onChange = vi.fn();
     const view = render(
@@ -73,7 +117,13 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    await waitFor(() => expect(options).toHaveBeenCalledWith("old-options"));
+    await waitFor(() =>
+      expect(options).toHaveBeenCalledWith(
+        "old-options",
+        false,
+        expect.anything(),
+      ),
+    );
 
     view.rerender(
       <SchemaForm
@@ -82,7 +132,13 @@ describe("schema form", () => {
         onChange={() => undefined}
       />,
     );
-    await waitFor(() => expect(options).toHaveBeenCalledWith("new-options"));
+    await waitFor(() =>
+      expect(options).toHaveBeenCalledWith(
+        "new-options",
+        false,
+        expect.anything(),
+      ),
+    );
     newRequest.resolve({
       options: [{ value: "selected", label: "New option" }],
     });
@@ -206,7 +262,7 @@ describe("schema form", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
 
-    expect(options).toHaveBeenCalledWith("clusters");
+    expect(options).toHaveBeenCalledWith("clusters", false, expect.anything());
     expect(await form.findByRole("option", { name: "Cluster" })).toBeTruthy();
     view.unmount();
     options.mockRestore();
@@ -281,7 +337,7 @@ describe("schema form", () => {
       properties: {
         installation: {
           kind: "union",
-          xUi: {},
+          xUi: { control_width: "installation" },
           branches: [
             {
               label: "Instance",
@@ -299,7 +355,10 @@ describe("schema form", () => {
                   },
                   instance: {
                     kind: "string",
-                    enumValues: ["sas.logbroker-prestable.example.net"],
+                    enumValues: [
+                      "sas.logbroker-prestable.example.net",
+                      "vla.logbroker-prestable.example.net",
+                    ],
                     xUi: {},
                   },
                 },
@@ -444,7 +503,7 @@ describe("schema form", () => {
       properties: {
         common: {
           kind: "object",
-          xUi: {},
+          xUi: { widget: "parser_common" },
           required: new Set(["table_naming"]),
           properties: {
             table_naming: stringNode("Table name"),
@@ -605,7 +664,7 @@ describe("schema form", () => {
       properties: {
         topics: {
           kind: "array",
-          xUi: {},
+          xUi: { widget: "compact_array", item_label: "topic" },
           item: {
             kind: "object",
             xUi: {},
@@ -653,7 +712,6 @@ describe("schema form", () => {
     fireEvent.click(form.getByText("Advanced settings"));
     const toggle = form.getByRole("checkbox", { name: "Specify partitions" });
     fireEvent.click(toggle);
-    expect(form.getByText("Partition IDs", { exact: false })).toBeTruthy();
     const partitions = form.getByPlaceholderText("e.g. 1-5,7");
     fireEvent.input(partitions, { target: { value: "1-3" } });
     expect(form.getByTestId("partition-config").textContent).toContain(

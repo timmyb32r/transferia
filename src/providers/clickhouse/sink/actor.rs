@@ -10,10 +10,10 @@ use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
 use crate::core::data::system_columns::SystemColumns;
 use crate::core::delivery::{DeliveryDiscovery, SinkLimits};
+use crate::core::failure::DataPlaneFailure;
 use crate::core::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::delivery::execution::delivery_tracker::DeliveryTracker;
 use crate::delivery::execution::retry::{jittered_retry_delay, stable_retry_seed};
-use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SinkCounters;
 
 struct BufferedBatch {
@@ -102,7 +102,7 @@ impl ClickHouseSink {
         for batch in &delivery.outputs {
             self.config
                 .validate_batch(&self.discovery, batch)
-                .map_err(PipelineFailure::fatal)?;
+                .map_err(DataPlaneFailure::fatal)?;
         }
 
         let remaining_outputs = delivery
@@ -183,7 +183,7 @@ impl ClickHouseSink {
         &self,
         active: ActiveInsert,
         cancellation: tokio_util::sync::CancellationToken,
-    ) -> AbortOnDropHandle<Result<ActiveInsert, PipelineFailure>> {
+    ) -> AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>> {
         let transport = Arc::clone(&self.transport);
         let counters = Arc::clone(&self.counters);
         let config = self.config.clone();
@@ -203,7 +203,7 @@ impl ClickHouseSink {
                 let started = std::time::Instant::now();
                 let result = tokio::select! {
                     () = cancellation.cancelled() => {
-                        return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                        return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                             "ClickHouse insert cancelled"
                         )));
                     }
@@ -226,11 +226,11 @@ impl ClickHouseSink {
                         return Ok(active);
                     }
                     Err(InsertError::Permanent(error)) => {
-                        return Err(PipelineFailure::fatal(error));
+                        return Err(DataPlaneFailure::fatal(error));
                     }
                     Err(InsertError::Transient(error)) => {
                         if attempts >= max_attempts {
-                            return Err(PipelineFailure::retryable(
+                            return Err(DataPlaneFailure::retryable(
                                 error.context("ClickHouse retry limit exhausted"),
                             ));
                         }
@@ -244,7 +244,7 @@ impl ClickHouseSink {
                         counters.add_retries(1);
                         tokio::select! {
                             () = cancellation.cancelled() => {
-                                return Err(PipelineFailure::retryable(anyhow::anyhow!(
+                                return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
                                     "ClickHouse retry cancelled"
                                 )));
                             }
@@ -283,7 +283,7 @@ impl ClickHouseSink {
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut active: Option<AbortOnDropHandle<Result<ActiveInsert, PipelineFailure>>> = None;
+        let mut active: Option<AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>> = None;
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
@@ -404,7 +404,14 @@ pub(super) fn without_system_columns(
 }
 
 impl Sink for ClickHouseSink {
-    fn run(self: Box<Self>, io: SinkIo) -> BoxFuture<'static, anyhow::Result<()>> {
-        Box::pin(async move { self.run_actor(io).await })
+    fn run(
+        self: Box<Self>,
+        io: SinkIo,
+    ) -> BoxFuture<'static, crate::core::failure::DataPlaneResult<()>> {
+        Box::pin(async move {
+            self.run_actor(io)
+                .await
+                .map_err(DataPlaneFailure::retryable_or_passthrough)
+        })
     }
 }

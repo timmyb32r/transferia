@@ -7,8 +7,7 @@ use arrow::array::{
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
-use bytes::Bytes;
-use serde::{de, Deserializer};
+use serde::Deserializer as _;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -16,9 +15,13 @@ use super::dlq::{append_base64, dlq_record, subslice_range, DlqReason, DlqRecord
 use super::extraction::{
     parse_root_fields_typed, ColumnIndex, DuplicateMappedRootVisitor, RootFieldInfo,
 };
+use super::framing::frame_json_arrays;
+use super::memory::MAX_DELIVERY_BYTES;
 use super::system_columns::{
     append_system_columns, make_exact_system_builder, make_system_builder, SystemColumnValues,
 };
+use super::typed::{str_val, TypedScratch};
+use super::workspace::ParserWorkspace;
 use crate::core::data::message::{Message, MessageMeta};
 use crate::core::data::schema::SchemaColumn;
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -28,11 +31,6 @@ use crate::parsers::json_parser::config::{
     JsonParserConfig, TimeConversion, UnknownFieldPolicy,
 };
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
-
-/// Hard bound for one parser delivery's materialized Arrow data and the
-/// conservative working-set estimate used before builders allocate.
-const MAX_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
-const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Compiled JSONPath
@@ -173,7 +171,7 @@ impl ColumnKind {
         })
     }
 
-    const fn fixed_width_bytes(self) -> Option<usize> {
+    pub(super) const fn fixed_width_bytes(self) -> Option<usize> {
         match self {
             Self::Utf8 | Self::LargeUtf8 => None,
             Self::Int8 | Self::UInt8 => Some(1),
@@ -465,197 +463,6 @@ fn append_if_some<T>(value: Option<T>, append: impl FnOnce(T)) -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------
-// Zero-copy typed scratch — no String allocations for Utf8 columns
-// ---------------------------------------------------------------------------
-
-/// A byte range in `json_buf` that simd-json has proven to contain valid UTF-8.
-///
-/// **Type-level witness.** Only constructible via [`ValidatedStr::from_simd_json_str`],
-/// which takes a `&str` reference returned by simd-json's validated parse. Because
-/// `&str` is `#[repr(transparent)]` over valid UTF-8 bytes, constructing a
-/// `ValidatedStr` from one is safe without re-validation.
-///
-/// This type guarantees that [`str_val`] receives only simd-json-validated ranges —
-/// the compiler physically prevents any other code path from feeding arbitrary byte
-/// ranges into the unsafe block.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct ValidatedStr {
-    start: usize,
-    end: usize,
-}
-
-impl ValidatedStr {
-    /// Creates a `ValidatedStr` from a simd-json `&str` reference.
-    ///
-    /// `s` — the `&str` returned by simd-json (already UTF-8 validated).
-    /// `buf_ptr` — base address of the JSON buffer (`buf.as_ptr()`).
-    ///
-    /// The byte range `[start..end)` is computed via pointer arithmetic and
-    /// exactly matches the validated `&str` bytes in the buffer.
-    #[inline]
-    fn from_simd_json_str(s: &str, buf_ptr: *const u8) -> Self {
-        let start = s.as_ptr() as usize - buf_ptr as usize;
-        Self {
-            start,
-            end: start + s.len(),
-        }
-    }
-}
-
-/// Per-field scratch value. Strings are stored as [`ValidatedStr`] — byte
-/// ranges whose UTF-8 validity is witnessed at the type level.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum TypedScratch {
-    Empty,
-    Str(ValidatedStr),
-    I64(i64),
-    U64(u64),
-    F64(f64),
-    Bool(bool),
-}
-
-/// Writes a deserialized value directly into `TypedScratch` according to `ColumnKind`.
-/// Strings are stored as byte-range indices — no `String` allocation.
-pub(super) struct TypedValueWriter<'ctx> {
-    pub target: &'ctx mut TypedScratch,
-    /// Base pointer of the JSON buffer. Used to compute the byte offset of the
-    /// `&str` returned by simd-json via pointer arithmetic:
-    /// `offset = s.as_ptr() - buf_ptr`.
-    pub buf_ptr: *const u8,
-    pub kind: ColumnKind,
-}
-
-impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
-    /// `true` means that the JSON value was non-null and was written.
-    type Value = bool;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<bool, D::Error> {
-        use serde::Deserialize as _;
-        match self.kind {
-            ColumnKind::Utf8 | ColumnKind::LargeUtf8 => {
-                let Some(s) = Option::<&str>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                // ValidatedStr captures the byte range of s within the simd-json
-                // buffer. Because `s` is an `&str`, it is valid UTF-8 by definition
-                // — simd-json already validated it. The pointer arithmetic gives us
-                // the exact byte range without a manual position counter.
-                *self.target = TypedScratch::Str(ValidatedStr::from_simd_json_str(s, self.buf_ptr));
-            }
-            ColumnKind::Int32 | ColumnKind::Date32 => {
-                let Some(value) = Option::<i32>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::I64(i64::from(value));
-            }
-            ColumnKind::Int16 => {
-                let Some(value) = Option::<i16>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::I64(i64::from(value));
-            }
-            ColumnKind::Int8 => {
-                let Some(value) = Option::<i8>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::I64(i64::from(value));
-            }
-            ColumnKind::UInt64 => {
-                let Some(value) = Option::<u64>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::U64(value);
-            }
-            ColumnKind::UInt32 => {
-                let Some(value) = Option::<u32>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::U64(u64::from(value));
-            }
-            ColumnKind::UInt16 => {
-                let Some(value) = Option::<u16>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::U64(u64::from(value));
-            }
-            ColumnKind::UInt8 => {
-                let Some(value) = Option::<u8>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::U64(u64::from(value));
-            }
-            ColumnKind::Float64 => {
-                let Some(value) = Option::<f64>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                if !value.is_finite() {
-                    return Err(de::Error::custom("non-finite Float64 value"));
-                }
-                *self.target = TypedScratch::F64(value);
-            }
-            ColumnKind::Float32 => {
-                let Some(value) = Option::<f64>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                if !value.is_finite() || value < f64::from(f32::MIN) || value > f64::from(f32::MAX)
-                {
-                    return Err(de::Error::custom("Float32 value is out of range"));
-                }
-                *self.target = TypedScratch::F64(value);
-            }
-            ColumnKind::Boolean => {
-                let Some(value) = Option::<bool>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::Bool(value);
-            }
-            ColumnKind::Int64
-            | ColumnKind::Date64
-            | ColumnKind::TimestampMillisecond
-            | ColumnKind::TimestampMicrosecond
-            | ColumnKind::TimestampNanosecond
-            | ColumnKind::TimestampSecond => {
-                let Some(value) = Option::<i64>::deserialize(deserializer)? else {
-                    return Ok(false);
-                };
-                *self.target = TypedScratch::I64(value);
-            }
-        }
-        Ok(true)
-    }
-}
-
-/// Reconstructs a `&str` from a validated byte range — zero-copy.
-///
-/// The `range` is a [`ValidatedStr`] — a type-level witness that the bytes
-/// at `json_buf[range.start..range.end]` have been proven to be valid UTF-8
-/// by simd-json's parse pass. Skipping `from_utf8` saves an O(len) SIMD scan.
-///
-/// # SAFETY
-///
-/// The caller must ensure that `json_buf[range.start..range.end]` is valid UTF-8.
-/// This invariant is upheld by the [`ValidatedStr`] type, which can **only** be
-/// constructed via [`ValidatedStr::from_simd_json_str`]. That method receives a
-/// `&str` from simd-json — a reference that is valid UTF-8 by definition
-/// (`&str` is `#[repr(transparent)]` over `[u8]` with a UTF-8 validity
-/// invariant). The byte range is computed via pointer arithmetic from that `&str`,
-/// so `json_buf[start..end]` IS the exact same memory as the original `&str`.
-///
-/// There is no other public constructor for `ValidatedStr`, and the field is
-/// private to this module. The compiler physically prevents any other code path
-/// from calling this function with arbitrary byte ranges.
-#[inline]
-#[expect(
-    unsafe_code,
-    reason = "ValidatedStr proves this hot-path slice was already UTF-8 validated"
-)]
-fn str_val(json_buf: &[u8], range: ValidatedStr) -> &str {
-    // SAFETY: ValidatedStr can only be constructed from a validated `str`
-    // pointing into this exact buffer.
-    unsafe { core::str::from_utf8_unchecked(&json_buf[range.start..range.end]) }
-}
-
 /// Appends a typed scratch value into the corresponding Arrow builder.
 /// Strings are reconstructed from `json_buf` byte ranges — zero-copy.
 /// Appends a NULL to any builder variant.
@@ -685,10 +492,14 @@ fn append_null(b: &mut AnyBuilder) {
 }
 
 #[inline]
-fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8]) {
+fn append_typed(
+    builder: &mut AnyBuilder,
+    scratch: &TypedScratch,
+    json_buf: &[u8],
+) -> anyhow::Result<()> {
     match scratch {
         TypedScratch::Str(range) => {
-            let s = str_val(json_buf, *range);
+            let s = str_val(json_buf, *range)?;
             match builder {
                 AnyBuilder::Utf8(b) => b.append_value(s),
                 AnyBuilder::LargeUtf8(b) => b.append_value(s),
@@ -797,6 +608,7 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
         },
         TypedScratch::Empty => append_null(builder),
     }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -866,102 +678,23 @@ struct ColumnMappingExt {
 
 impl JsonParser {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
-        let row_counts = messages
-            .iter()
-            .map(|message| self.json_framing.count_records(&message.value))
-            .collect::<Vec<_>>();
-        let rows = row_counts
-            .iter()
-            .fold(0_usize, |total, rows| total.saturating_add(*rows));
-        let input_bytes = messages.iter().fold(0_usize, |total, message| {
-            total.saturating_add(message.value.len())
-        });
-        let validity_bytes = rows.div_ceil(8).saturating_add(64);
-        let mut main_bytes = 0_usize;
-        for kind in &self.kinds {
-            main_bytes = main_bytes.saturating_add(match kind {
-                ColumnKind::Utf8 => {
-                    input_bytes.saturating_add(rows.saturating_add(1).saturating_mul(4))
-                }
-                ColumnKind::LargeUtf8 => {
-                    input_bytes.saturating_add(rows.saturating_add(1).saturating_mul(8))
-                }
-                ColumnKind::Boolean => rows.div_ceil(8),
-                fixed => rows.saturating_mul(fixed.fixed_width_bytes().unwrap_or_default()),
-            });
-            main_bytes = main_bytes.saturating_add(validity_bytes);
-        }
-        for kind in &self.system_kinds {
-            main_bytes = main_bytes.saturating_add(match kind {
-                SystemColumnKind::Topic => rows.saturating_add(1).saturating_mul(4),
-                SystemColumnKind::Partition
-                | SystemColumnKind::Offset
-                | SystemColumnKind::MessageIndex
-                | SystemColumnKind::WriteTimestampMs => rows.saturating_mul(8),
-            });
-        }
-        let topic_rows =
-            messages
-                .iter()
-                .zip(&row_counts)
-                .fold(0_usize, |total, (message, rows)| {
-                    total.saturating_add(
-                        message
-                            .meta
-                            .topic
-                            .as_ref()
-                            .map_or(0, |topic| topic.len().saturating_mul(*rows)),
-                    )
-                });
-        let main_topic_bytes = if self.system_kinds.contains(&SystemColumnKind::Topic) {
-            topic_rows
-        } else {
-            0
-        };
-        let dlq_topic_bytes = if self.dlq_system_columns.contains(SystemColumnKind::Topic) {
-            topic_rows
-        } else {
-            0
-        };
-        main_bytes = main_bytes.saturating_add(main_topic_bytes);
-        // Every source byte may instead become a base64 DLQ payload. Account its
-        // encoded representation, offsets, error text and fixed timestamp columns.
-        let dlq_bytes = input_bytes
-            .div_ceil(3)
-            .saturating_mul(4)
-            .saturating_add(rows.saturating_mul(96))
-            .saturating_add(dlq_topic_bytes);
-        // `get_array_memory_size` includes array/schema structs in addition to
-        // buffers. Keep a small fixed allowance per main/DLQ column so the
-        // estimate remains conservative for tiny and empty records.
-        let structural_bytes = self
-            .kinds
-            .len()
-            .saturating_add(self.system_kinds.len().saturating_mul(2))
-            .saturating_add(3)
-            .saturating_mul(256);
-        let retained_output_bytes = main_bytes
-            .saturating_add(dlq_bytes)
-            .saturating_add(structural_bytes)
-            .max(1);
-        // Arrow builders use growable Vec-backed buffers. Before finish, a
-        // growth step can transiently retain both old and new allocations;
-        // finished arrays may also retain spare capacity. Reserve a 2x
-        // capacity envelope for admission and fail-fast decisions.
-        retained_output_bytes.saturating_mul(2)
+        super::memory::output_memory_bound(
+            &self.kinds,
+            &self.system_kinds,
+            &self.dlq_system_columns,
+            self.json_framing,
+            messages,
+        )
     }
 
     fn exceeds_safety_limits(&self, messages: &[Message]) -> bool {
-        if self.output_memory_bound(messages) > MAX_DELIVERY_BYTES {
-            return true;
-        }
-        messages.iter().any(|message| match self.json_framing {
-            JsonFramingMode::SingleDocument => message.value.len() > MAX_RECORD_BYTES,
-            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => message
-                .value
-                .split(|byte| *byte == b'\n')
-                .any(|record| record.len() > MAX_RECORD_BYTES),
-        })
+        super::memory::exceeds_safety_limits(
+            &self.kinds,
+            &self.system_kinds,
+            &self.dlq_system_columns,
+            self.json_framing,
+            messages,
+        )
     }
 
     pub fn new(
@@ -1335,9 +1068,9 @@ impl JsonParser {
         system_values: &SystemColumnValues<'_>,
         message_index: u64,
         system_kinds: &[SystemColumnKind],
-    ) {
+    ) -> anyhow::Result<()> {
         for (builder, s) in builders.iter_mut().zip(typed_scratch.iter()) {
-            append_typed(builder, s, json_buf);
+            append_typed(builder, s, json_buf)?;
         }
         append_system_columns(
             builders,
@@ -1346,6 +1079,7 @@ impl JsonParser {
             system_values,
             message_index,
         );
+        Ok(())
     }
 
     /// Parses `JsonLines` records directly from their source buffers. Keeping
@@ -1386,7 +1120,7 @@ impl JsonParser {
                             &system_values,
                             record_index as u64,
                             &self.system_kinds,
-                        );
+                        )?;
                     }
                     Ok(false) => dlq_records.push(dlq_record(
                         source_message,
@@ -1434,7 +1168,7 @@ impl JsonParser {
                     &system_values,
                     0,
                     &self.system_kinds,
-                ),
+                )?,
                 Ok(false) => dlq_records.push(dlq_record(
                     source_message,
                     0..msg.value.len(),
@@ -1685,101 +1419,16 @@ impl JsonParser {
 }
 
 // ---------------------------------------------------------------------------
-// ParserWorkspace — reusable buffers per partition
-// ---------------------------------------------------------------------------
-
-pub struct ParserWorkspace {
-    builders: Vec<AnyBuilder>,
-    typed_scratch: Vec<TypedScratch>,
-    typed_seen: Vec<bool>,
-    json_buf: Vec<u8>,
-    /// Compact references into the current source delivery for failed rows.
-    dlq_records: Vec<DlqRecord>,
-    /// Reusable arrays buffer (avoids Vec alloc per `finish()` call).
-    arrays: Vec<ArrayRef>,
-}
-
-impl Default for ParserWorkspace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ParserWorkspace {
-    const MAX_RETAINED_SCRATCH_BYTES: usize = 1024 * 1024;
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            builders: Vec::new(),
-            typed_scratch: Vec::new(),
-            typed_seen: Vec::new(),
-            json_buf: Vec::new(),
-            dlq_records: Vec::new(),
-            arrays: Vec::new(),
-        }
-    }
-
-    fn release_large_scratch(&mut self) {
-        if self.json_buf.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES {
-            self.json_buf = Vec::new();
-        } else {
-            self.json_buf.clear();
-        }
-        if self.dlq_records.capacity() > Self::MAX_RETAINED_SCRATCH_BYTES / 32 {
-            self.dlq_records = Vec::new();
-        } else {
-            self.dlq_records.clear();
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // parse_into — main hot path
 // ---------------------------------------------------------------------------
 
 impl JsonParser {
-    fn frame_json_arrays(&self, messages: Vec<Message>) -> anyhow::Result<Vec<Message>> {
-        if self.json_framing != JsonFramingMode::JsonArray {
-            return Ok(messages);
-        }
-
-        let mut framed_messages = Vec::with_capacity(messages.len());
-        for message in messages {
-            let values: Vec<Value> = match serde_json::from_slice(&message.value) {
-                Ok(values) => values,
-                Err(error) => match self.conversion_error {
-                    ConversionErrorPolicy::Dlq => {
-                        framed_messages.push(message);
-                        continue;
-                    }
-                    ConversionErrorPolicy::Drop => continue,
-                    ConversionErrorPolicy::Fail => {
-                        return Err(anyhow::anyhow!("invalid JSON array: {error}"));
-                    }
-                },
-            };
-            let mut framed = Vec::with_capacity(message.value.len());
-            for (index, value) in values.iter().enumerate() {
-                if index > 0 {
-                    framed.push(b'\n');
-                }
-                serde_json::to_writer(&mut framed, value)?;
-            }
-            framed_messages.push(Message {
-                value: Bytes::from(framed),
-                meta: message.meta,
-            });
-        }
-        Ok(framed_messages)
-    }
-
     pub fn parse_into(
         &self,
         messages: Vec<Message>,
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
-        let messages = self.frame_json_arrays(messages)?;
+        let messages = frame_json_arrays(self.json_framing, self.conversion_error, messages)?;
         if self.exceeds_safety_limits(&messages) {
             anyhow::bail!(
                 "JSON parser input exceeds the configured 256MiB delivery or 4MiB record safety limit"

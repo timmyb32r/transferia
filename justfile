@@ -19,8 +19,8 @@ api-contract:
 
 # Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
 check: fmt-check
-    cargo clippy --all-targets --all-features -- -D warnings
-    cargo test --all-targets --all-features
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo test --workspace --all-targets --all-features
 
 # Full verification: check + MIRI UB detection
 verify: check
@@ -32,11 +32,11 @@ miri: fmt
 
 # Run tests only
 test: fmt-check
-    cargo test --all-targets --all-features
+    cargo test --workspace --all-targets --all-features
 
 # Run clippy only (strict — warnings are errors)
 clippy: fmt-check
-    cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # CI pipeline. Miri remains an explicit additional gate for unsafe changes.
 ci: check

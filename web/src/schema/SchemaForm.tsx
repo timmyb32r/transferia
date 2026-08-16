@@ -29,6 +29,8 @@ interface SchemaFormProps {
   disabled?: boolean;
   parserSelectionOnly?: boolean;
   onChange: (value: JsonValue) => void;
+  path?: string;
+  controlId?: string;
 }
 
 const ParserSelectionContext = createContext(false);
@@ -47,6 +49,7 @@ export function SchemaForm({
         value={value}
         disabled={disabled}
         onChange={onChange}
+        path="#"
       />
     </ParserSelectionContext.Provider>
   );
@@ -115,7 +118,14 @@ function DisclosureSummary({ children }: { children: ComponentChildren }) {
   );
 }
 
-function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
+function NodeEditor({
+  node,
+  value,
+  disabled,
+  onChange,
+  path = "#",
+  controlId,
+}: SchemaFormProps) {
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
   const partitionRanges = partitionRangesProperty(node);
@@ -162,6 +172,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   if (node.kind === "array" && node.xUi.widget === "partition_ranges")
     return (
       <PartitionRangesInput
+        id={controlId}
         value={value}
         disabled={isDisabled}
         onChange={onChange}
@@ -170,15 +181,11 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
   switch (node.kind) {
     case "object": {
       const object = isObject(value) ? value : {};
-      const hasColumnMappings = Object.values(node.properties).some(
-        (child) => child.xUi.widget === "column_mappings",
-      );
       const visible = Object.entries(node.properties).filter(
-        ([name, child]) =>
-          !(hasColumnMappings && name === "keys") &&
+        ([, child]) =>
+          child.xUi.widget !== "column_keys" &&
           child.xUi.widget !== "hidden" &&
           !(
-            ["type", "action"].includes(name) &&
             child.kind === "string" &&
             child.enumValues?.length === 1
           ),
@@ -224,6 +231,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                 value={object[name]}
                 disabled={isDisabled}
                 showPartitionRanges={partitionRangesVisible}
+                path={`${path}/${name}`}
                 onChange={(next) => onChange({ ...object, [name]: next })}
               />
             ),
@@ -265,6 +273,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                     required={node.required.has(name)}
                     value={object[name]}
                     disabled={isDisabled}
+                    path={`${path}/${name}`}
                     onChange={(next) => onChange({ ...object, [name]: next })}
                   />
                 ))}
@@ -283,6 +292,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                     required={node.required.has(name)}
                     value={object[name]}
                     disabled={isDisabled}
+                    path={`${path}/${name}`}
                     onChange={(next) => onChange({ ...object, [name]: next })}
                   />
                 ))}
@@ -304,6 +314,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                   node={node.item}
                   value={item}
                   disabled={isDisabled}
+                  path={`${path}/${index}`}
                   onChange={(next) => {
                     const copy = [...items];
                     copy[index] = next;
@@ -343,6 +354,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       return (
         <div class="union-editor">
           <SelectControl
+            id={controlId}
             value={selected < 0 ? "" : String(selected)}
             disabled={isDisabled}
             placeholder="Not selected"
@@ -365,6 +377,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                   node={node.branches[selected]!.node}
                   value={value}
                   disabled={isDisabled}
+                  path={`${path}/branch-${selected}`}
                   onChange={onChange}
                 />
               </div>
@@ -395,6 +408,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
                 node={node.inner}
                 value={value}
                 disabled={isDisabled}
+                path={`${path}/nullable`}
                 onChange={onChange}
               />
             </div>
@@ -406,6 +420,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       return (
         <label class="toggle">
           <input
+            id={controlId}
             type="checkbox"
             checked={value === true}
             disabled={isDisabled}
@@ -417,6 +432,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       if (node.xUi.widget === "byte_size")
         return (
           <ByteSizeInput
+            id={controlId}
             value={typeof value === "number" ? value : null}
             disabled={isDisabled}
             onChange={onChange}
@@ -424,6 +440,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
         );
       return (
         <input
+          id={controlId}
           type="number"
           value={typeof value === "number" ? value : ""}
           min={node.minimum}
@@ -445,6 +462,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       if (typeof node.xUi.dynamic_options === "string") {
         return (
           <DynamicSelectControl
+            id={controlId}
             source={node.xUi.dynamic_options}
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
@@ -455,6 +473,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       if (node.enumValues !== undefined) {
         return (
           <SelectControl
+            id={controlId}
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
             placeholder="Not selected"
@@ -468,12 +487,14 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       }
       return node.xUi.widget === "password" ? (
         <PasswordInput
+          id={controlId}
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
           onChange={onChange}
         />
       ) : (
         <input
+          id={controlId}
           type="text"
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
@@ -486,13 +507,24 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
 function isJsonParserContainer(
   node: Extract<CompiledNode, { kind: "object" }>,
 ): boolean {
-  const common = node.properties.common;
-  const parser = node.properties.json_parser;
+  const common = Object.values(node.properties).find(
+    (child) => child.xUi.widget === "parser_common",
+  );
+  const parser = Object.values(node.properties).find(
+    (child) =>
+      child.kind === "object" &&
+      Object.values(child.properties).some(
+        (property) => property.xUi.widget === "column_mappings",
+      ),
+  );
   return (
     common?.kind === "object" &&
     parser?.kind === "object" &&
-    parser.properties.columns?.kind === "array" &&
-    parser.properties.columns.xUi.widget === "column_mappings"
+    Object.values(parser.properties).some(
+      (property) =>
+        property.kind === "array" &&
+        property.xUi.widget === "column_mappings",
+    )
   );
 }
 
@@ -682,6 +714,7 @@ interface PropertyEditorProps {
   disabled: boolean;
   showPartitionRanges?: boolean;
   onChange: (value: JsonValue) => void;
+  path?: string;
 }
 
 function PropertyEditor({
@@ -692,9 +725,10 @@ function PropertyEditor({
   disabled,
   showPartitionRanges = true,
   onChange,
+  path = `#/${name}`,
 }: PropertyEditorProps) {
   const effective = value ?? createValue(node);
-  const identifier = `field-${name.replaceAll("_", "-")}`;
+  const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
   if (node.xUi.widget === "parser_common")
     return (
@@ -722,7 +756,7 @@ function PropertyEditor({
         </div>
       </details>
     );
-  if (node.kind === "array" && (name === "topics" || name === "hosts"))
+  if (node.kind === "array" && node.xUi.widget === "compact_array")
     return (
       <div class="form-row form-row-wide compact-array-field">
         <label class="field-label">
@@ -732,7 +766,6 @@ function PropertyEditor({
           </span>
         </label>
         <CompactArrayEditor
-          name={name}
           node={node}
           value={Array.isArray(value) ? value : []}
           disabled={disabled}
@@ -743,39 +776,44 @@ function PropertyEditor({
     );
   return (
     <div
-      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${name === "installation" ? "form-row-installation" : ""} ${controlWidth}`}
+      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`}
     >
-      <label class="field-label" for={identifier}>
+      <label class="field-label" for={isDirectlyLabelled(node) ? identifier : undefined}>
         <span>
           {node.title ?? humanize(name)}
           {!required && <small class="optional">(optional)</small>}
         </span>
         {node.description &&
-          name !== "json_parser" &&
           node.xUi.widget !== "parser" && (
             <span class="help" tabindex={0} data-tooltip={node.description}>
               ?
             </span>
           )}
       </label>
-      <div class="field-control" id={identifier}>
+      <div class="field-control">
         <NodeEditor
           node={node}
           value={effective}
           disabled={disabled}
           onChange={onChange}
+          path={path}
+          controlId={identifier}
         />
       </div>
     </div>
   );
 }
 
-function controlWidthClass(name: string, node: CompiledNode): string {
-  if (name === "installation") return "control-width-installation";
+function isDirectlyLabelled(node: CompiledNode): boolean {
+  return ["string", "number", "boolean", "union"].includes(node.kind);
+}
+
+function controlWidthClass(_name: string, node: CompiledNode): string {
+  if (node.xUi.control_width === "installation") return "control-width-installation";
   if (node.xUi.widget === "parser") return "control-width-parser";
-  if (name === "auth") return "control-width-auth";
-  if (name === "json_framing") return "control-width-medium";
-  if (name === "table_naming") return "control-width-table-name";
+  if (node.xUi.control_width === "auth") return "control-width-auth";
+  if (node.xUi.control_width === "medium") return "control-width-medium";
+  if (node.xUi.control_width === "table_name") return "control-width-table-name";
   if (
     node.kind === "union" ||
     (node.kind === "string" && node.enumValues !== undefined)
@@ -785,14 +823,12 @@ function controlWidthClass(name: string, node: CompiledNode): string {
 }
 
 function CompactArrayEditor({
-  name,
   node,
   value,
   disabled,
   showPartitionRanges,
   onChange,
 }: {
-  name: "topics" | "hosts";
   node: Extract<CompiledNode, { kind: "array" }>;
   value: JsonValue[];
   disabled: boolean;
@@ -808,7 +844,8 @@ function CompactArrayEditor({
             (showPartitionRanges || child.xUi.widget !== "partition_ranges"),
         )
       : [];
-  const singular = name === "topics" ? "topic" : "host";
+  const singular =
+    typeof node.xUi.item_label === "string" ? node.xUi.item_label : "item";
   const updateItem = (index: number, next: JsonValue) => {
     const items = [...value];
     items[index] = next;
@@ -845,10 +882,18 @@ function CompactArrayEditor({
                   {fields.length > 0 ? (
                     fields.map(([field, child]) => (
                       <td key={field}>
+                        <label
+                          class="visually-hidden"
+                          for={`compact-${rowIds.values[index]}-${field}`}
+                        >
+                          {child.title ?? humanize(field)} row {index + 1}
+                        </label>
                         <NodeEditor
                           node={child}
                           value={object[field] ?? createValue(child)}
                           disabled={disabled}
+                          path={`#/compact/${rowIds.values[index]}/${field}`}
+                          controlId={`compact-${rowIds.values[index]}-${field}`}
                           onChange={(next) =>
                             updateItem(index, { ...object, [field]: next })
                           }
@@ -857,10 +902,18 @@ function CompactArrayEditor({
                     ))
                   ) : (
                     <td>
+                      <label
+                        class="visually-hidden"
+                        for={`compact-${rowIds.values[index]}-value`}
+                      >
+                        {humanize(singular)} row {index + 1}
+                      </label>
                       <NodeEditor
                         node={node.item}
                         value={item}
                         disabled={disabled}
+                        path={`#/compact/${rowIds.values[index]}/value`}
+                        controlId={`compact-${rowIds.values[index]}-value`}
                         onChange={(next) => updateItem(index, next)}
                       />
                     </td>
@@ -906,10 +959,9 @@ function CompactArrayEditor({
 function nodeHasEditableContent(node: CompiledNode): boolean {
   if (node.kind !== "object") return true;
   return Object.entries(node.properties).some(
-    ([name, child]) =>
+    ([, child]) =>
       child.xUi.widget !== "hidden" &&
       !(
-        ["type", "action"].includes(name) &&
         child.kind === "string" &&
         child.enumValues?.length === 1
       ),

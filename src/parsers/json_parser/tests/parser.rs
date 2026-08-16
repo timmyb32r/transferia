@@ -521,12 +521,11 @@ fn str_val_matches_simd_json_output() -> anyhow::Result<()> {
         let TypedScratch::Str(range) = scratch[i] else {
             anyhow::bail!("Column {i}: expected Str, got {:?}", scratch[i]);
         };
-        let reconstructed = str_val(&buf, range);
+        let reconstructed = str_val(&buf, range)?;
+        let (start, end) = range.byte_range();
         anyhow::ensure!(
             reconstructed == *exp,
-            "Column {i}: str_val({}..{}) = {reconstructed:?}, expected {exp:?}",
-            range.start,
-            range.end,
+            "Column {i}: str_val({start}..{end}) = {reconstructed:?}, expected {exp:?}",
         );
     }
     Ok(())
@@ -559,7 +558,7 @@ fn str_val_with_escapes() -> anyhow::Result<()> {
     let TypedScratch::Str(range) = scratch[0] else {
         anyhow::bail!("expected Str, got {:?}", scratch[0]);
     };
-    let s = str_val(&buf, range);
+    let s = str_val(&buf, range)?;
     // After unescaping: \n -> newline, \t -> tab
     anyhow::ensure!(
         s.contains('\n'),
@@ -567,6 +566,37 @@ fn str_val_with_escapes() -> anyhow::Result<()> {
     );
     anyhow::ensure!(s.contains('\t'), "should contain unescaped tab, got {s:?}");
     anyhow::ensure!(!s.contains('\\'), "should not contain backslash, got {s:?}");
+    Ok(())
+}
+
+#[test]
+fn validated_string_rejects_a_different_buffer_with_identical_bytes() -> anyhow::Result<()> {
+    let input = br#"{"value":"same bytes"}"#;
+    let info = RootFieldInfo {
+        index: ColumnIndex::Small(vec![("value".to_owned(), 0)]),
+        required: vec![true],
+        required_total: 1,
+        reject_unknown: false,
+    };
+    let mut owner = Vec::new();
+    let mut scratch = vec![TypedScratch::Empty];
+    let mut seen = vec![false];
+    anyhow::ensure!(parse_root_fields_typed(
+        input,
+        &mut owner,
+        &info,
+        &mut scratch,
+        &mut seen,
+        &[ColumnKind::Utf8],
+    )?);
+    let TypedScratch::Str(validated) = scratch[0] else {
+        anyhow::bail!("string was not extracted")
+    };
+    let impostor = owner.clone();
+    let error = str_val(&impostor, validated)
+        .expect_err("validated string unexpectedly accepted a different allocation");
+    assert!(error.to_string().contains("different source buffer"));
+    assert_eq!(str_val(&owner, validated)?, "same bytes");
     Ok(())
 }
 

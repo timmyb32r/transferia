@@ -26,10 +26,12 @@ pub struct LogbrokerSourceConfig {
 
     pub port: u16,
 
+    #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "topic" }))]
     pub topics: Vec<LogbrokerTopicConfig>,
 
     pub consumer_name: String,
 
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: LogbrokerAuthConfig,
 
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]

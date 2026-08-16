@@ -38,6 +38,7 @@ impl transferia::extension::DynamicOptionsProvider for TestOptions {
     async fn list(
         &self,
         request: transferia::extension::OptionsRequest,
+        _context: transferia::extension::OptionsContext,
     ) -> anyhow::Result<transferia::extension::DynamicOptions> {
         Ok(transferia::extension::DynamicOptions {
             options: vec![transferia::extension::DynamicOption {

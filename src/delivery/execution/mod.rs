@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::core::data::message::{Message, SourceBatch};
 use crate::core::data::table_data::TableData;
+use crate::core::failure::{DataPlaneFailure, DataPlaneResult};
 use crate::core::memory::{MemoryReservation, PipelineMemory};
 use crate::core::sink::{Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::core::source::{CommitMarker, Source};
@@ -54,52 +55,6 @@ impl PipelineProgress {
 
     fn record_source_commit(&self) {
         self.committed_groups.fetch_add(1, Ordering::AcqRel);
-    }
-}
-
-/// A pipeline failure with an explicit restart contract.
-///
-/// Sources use fatal failures for deterministic data/protocol violations (for
-/// example corrupt compressed data), while transport and actor failures remain
-/// retryable by default.
-#[derive(Debug)]
-pub struct PipelineFailure {
-    retryable: bool,
-    error: anyhow::Error,
-}
-
-impl PipelineFailure {
-    #[must_use]
-    pub const fn fatal(error: anyhow::Error) -> Self {
-        Self {
-            retryable: false,
-            error,
-        }
-    }
-
-    #[must_use]
-    pub const fn retryable(error: anyhow::Error) -> Self {
-        Self {
-            retryable: true,
-            error,
-        }
-    }
-
-    #[must_use]
-    pub const fn is_retryable(&self) -> bool {
-        self.retryable
-    }
-}
-
-impl fmt::Display for PipelineFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.error.fmt(f)
-    }
-}
-
-impl std::error::Error for PipelineFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.error.as_ref())
     }
 }
 
@@ -423,7 +378,7 @@ async fn commit_through(
         .zip(ledger.back())
         .is_some_and(|(first, last)| first.id <= committed && committed <= last.id);
     if !valid_range {
-        return Err(PipelineFailure::fatal(anyhow::anyhow!(
+        return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
             "sink committed unknown delivery {}; outstanding range is {:?}..={:?}",
             committed.get(),
             ledger.front().map(|entry| entry.id.get()),
@@ -630,7 +585,7 @@ async fn reader_loop(
 }
 
 struct ComponentOutcome {
-    result: anyhow::Result<()>,
+    result: DataPlaneResult<()>,
     infrastructure_failure: bool,
 }
 
@@ -644,33 +599,49 @@ enum FirstComponent {
 impl ComponentOutcome {
     fn timeout(message: &'static str) -> Self {
         Self {
-            result: Err(anyhow::anyhow!(message)),
+            result: Err(DataPlaneFailure::retryable(anyhow::anyhow!(message))),
             infrastructure_failure: true,
         }
     }
 
     fn fatal_timeout(message: &'static str) -> Self {
         Self {
-            result: Err(PipelineFailure::fatal(anyhow::anyhow!(message)).into()),
+            result: Err(DataPlaneFailure::fatal(anyhow::anyhow!(message))),
             infrastructure_failure: true,
         }
     }
 }
 
-fn async_component_outcome(
+fn data_plane_component_outcome(
     name: &'static str,
-    result: Result<anyhow::Result<()>, tokio::task::JoinError>,
+    result: Result<DataPlaneResult<()>, tokio::task::JoinError>,
 ) -> ComponentOutcome {
     match result {
         Ok(outcome) => ComponentOutcome {
-            result: outcome.with_context(|| format!("{name} failed")),
+            result: outcome.map_err(|error| error.context(format!("{name} failed"))),
             infrastructure_failure: false,
         },
         Err(error) => ComponentOutcome {
-            result: Err(anyhow::anyhow!("{name} task panicked: {error}")),
+            result: Err(DataPlaneFailure::retryable(anyhow::anyhow!(
+                "{name} task panicked: {error}"
+            ))),
             infrastructure_failure: true,
         },
     }
+}
+
+fn anyhow_component_outcome(
+    name: &'static str,
+    result: Result<anyhow::Result<()>, tokio::task::JoinError>,
+) -> ComponentOutcome {
+    data_plane_component_outcome(
+        name,
+        result.map(|outcome| {
+            outcome.map_err(|error| {
+                DataPlaneFailure::retryable_or_passthrough(error).context(format!("{name} failed"))
+            })
+        }),
+    )
 }
 
 fn parser_component_outcome(
@@ -687,43 +658,37 @@ fn parser_component_outcome(
                 .is_some() =>
         {
             ComponentOutcome {
-                result: Err(error),
+                result: Err(DataPlaneFailure::retryable(error)),
                 infrastructure_failure: true,
             }
         }
         Ok(Err(error)) => ComponentOutcome {
-            result: Err(PipelineFailure::fatal(error).into()),
+            result: Err(DataPlaneFailure::fatal(error)),
             infrastructure_failure: false,
         },
         Err(error) => ComponentOutcome {
-            result: Err(anyhow::anyhow!("parser task panicked: {error}")),
+            result: Err(DataPlaneFailure::retryable(anyhow::anyhow!(
+                "parser task panicked: {error}"
+            ))),
             infrastructure_failure: true,
         },
     }
 }
 
 fn prefer_component_failure(
-    outcomes: impl IntoIterator<Item = anyhow::Result<()>>,
-) -> anyhow::Result<()> {
-    let mut first_error = None;
-    let mut first_pipeline_failure = None;
+    outcomes: impl IntoIterator<Item = DataPlaneResult<()>>,
+) -> DataPlaneResult<()> {
+    let mut first_retryable = None;
     for outcome in outcomes {
         let Err(error) = outcome else {
             continue;
         };
-        if error
-            .downcast_ref::<PipelineFailure>()
-            .is_some_and(|failure| !failure.is_retryable())
-        {
+        if !error.is_retryable() {
             return Err(error);
         }
-        if error.downcast_ref::<PipelineFailure>().is_some() {
-            first_pipeline_failure.get_or_insert(error);
-        } else {
-            first_error.get_or_insert(error);
-        }
+        first_retryable.get_or_insert(error);
     }
-    first_pipeline_failure.or(first_error).map_or(Ok(()), Err)
+    first_retryable.map_or(Ok(()), Err)
 }
 
 pub async fn run_partition_pipeline(
@@ -735,7 +700,7 @@ pub async fn run_partition_pipeline(
     cancel_token: CancellationToken,
     partition_id: i64,
     parse_counters: Arc<ParseCounters>,
-) -> anyhow::Result<()> {
+) -> DataPlaneResult<()> {
     run_partition_pipeline_with_progress(
         source,
         parser,
@@ -760,7 +725,7 @@ pub async fn run_partition_pipeline_with_progress(
     _partition_id: i64,
     parse_counters: Arc<ParseCounters>,
     progress: Arc<PipelineProgress>,
-) -> anyhow::Result<()> {
+) -> DataPlaneResult<()> {
     let local = cancel_token.child_token();
     let (read_tx, read_rx) = mpsc::channel(CHANNEL_CAPACITY);
     let (delivery_tx, delivery_rx) = mpsc::channel(CHANNEL_CAPACITY);
@@ -810,12 +775,12 @@ pub async fn run_partition_pipeline_with_progress(
             biased;
             () = cancel_token.cancelled() => external_cancelled = true,
             result = &mut reader_task, if reader_outcome.is_none() => {
-                let outcome = async_component_outcome("reader", result);
+                let outcome = anyhow_component_outcome("reader", result);
                 first_component = Some(FirstComponent::Reader);
                 reader_outcome = Some(outcome);
             }
             result = &mut sink_task, if sink_outcome.is_none() => {
-                let outcome = async_component_outcome("sink", result);
+                let outcome = data_plane_component_outcome("sink", result);
                 if outcome.result.is_err() {
                     first_component = Some(FirstComponent::Sink);
                 }
@@ -835,7 +800,7 @@ pub async fn run_partition_pipeline_with_progress(
     if reader_outcome.is_none() {
         reader_outcome = Some(
             match tokio::time::timeout(Duration::from_secs(1), &mut reader_task).await {
-                Ok(result) => async_component_outcome("reader", result),
+                Ok(result) => anyhow_component_outcome("reader", result),
                 Err(_) => {
                     reader_task.abort();
                     drop(reader_task.await);
@@ -849,7 +814,7 @@ pub async fn run_partition_pipeline_with_progress(
     if sink_outcome.is_none() {
         sink_outcome = Some(
             match tokio::time::timeout(SINK_SHUTDOWN_GRACE, &mut sink_task).await {
-                Ok(result) => async_component_outcome("sink", result),
+                Ok(result) => data_plane_component_outcome("sink", result),
                 Err(_) => {
                     sink_task.abort();
                     drop(sink_task.await);
@@ -872,7 +837,9 @@ pub async fn run_partition_pipeline_with_progress(
     }
 
     let missing_outcome = || ComponentOutcome {
-        result: Err(anyhow::anyhow!("missing component outcome")),
+        result: Err(DataPlaneFailure::retryable(anyhow::anyhow!(
+            "missing component outcome"
+        ))),
         infrastructure_failure: true,
     };
     let mut reader_outcome = Some(reader_outcome.unwrap_or_else(missing_outcome));

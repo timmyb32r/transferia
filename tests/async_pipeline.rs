@@ -16,11 +16,11 @@ use tokio_util::sync::CancellationToken;
 
 use transferia::core::data::message::{Message, MessageMeta, SourceBatch};
 use transferia::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use transferia::core::failure::DataPlaneFailure;
 use transferia::core::memory::PipelineMemory;
 use transferia::core::source::{CommitMarker, Source};
 use transferia::delivery::execution::middleware::Middleware;
 use transferia::delivery::execution::run_partition_pipeline;
-use transferia::delivery::execution::PipelineFailure;
 use transferia::metrics::{ParseCounters, SinkCounters};
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::providers::clickhouse::{
@@ -43,22 +43,28 @@ struct MarkerOnlySource {
 }
 
 impl Source for FailedSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, transferia::core::DataPlaneResult<SourceBatch>> {
         Box::pin(async {
-            Err(PipelineFailure::fatal(anyhow::anyhow!("corrupt compressed source batch")).into())
+            Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                "corrupt compressed source batch"
+            )))
         })
     }
 
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         _markers: &'ctx [CommitMarker],
-    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
-        Box::pin(async { anyhow::bail!("failed source must never commit") })
+    ) -> BoxFuture<'ctx, transferia::core::DataPlaneResult<()>> {
+        Box::pin(async {
+            Err(DataPlaneFailure::fatal(anyhow::anyhow!(
+                "failed source must never commit"
+            )))
+        })
     }
 }
 
 impl Source for MarkerOnlySource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, transferia::core::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             if let Some(marker) = self.marker.take() {
                 return Ok(SourceBatch::Raw {
@@ -78,13 +84,16 @@ impl Source for MarkerOnlySource {
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
-    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    ) -> BoxFuture<'ctx, transferia::core::DataPlaneResult<()>> {
         Box::pin(async move {
             for marker in markers {
-                let marker = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
-                self.commits
-                    .send(marker)
-                    .map_err(|_| anyhow::anyhow!("marker commit receiver closed"))?;
+                let marker = marker
+                    .value::<i64>()
+                    .copied()
+                    .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                self.commits.send(marker).map_err(|_| {
+                    DataPlaneFailure::retryable(anyhow::anyhow!("marker commit receiver closed"))
+                })?;
             }
             Ok(())
         })
@@ -105,7 +114,7 @@ impl FakeSource {
 }
 
 impl Source for FakeSource {
-    fn read_batch(&mut self) -> BoxFuture<'_, anyhow::Result<SourceBatch>> {
+    fn read_batch(&mut self) -> BoxFuture<'_, transferia::core::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             self.reads.fetch_add(1, Ordering::AcqRel);
             let messages = if let Some(messages) = self.batches.pop_front() {
@@ -136,13 +145,16 @@ impl Source for FakeSource {
     fn commit_offsets<'ctx>(
         &'ctx mut self,
         markers: &'ctx [CommitMarker],
-    ) -> BoxFuture<'ctx, anyhow::Result<()>> {
+    ) -> BoxFuture<'ctx, transferia::core::DataPlaneResult<()>> {
         Box::pin(async move {
             for marker in markers {
-                let offset = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
-                self.commits
-                    .send(offset)
-                    .map_err(|_| anyhow::anyhow!("fake commit receiver closed"))?;
+                let offset = marker
+                    .value::<i64>()
+                    .copied()
+                    .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                self.commits.send(offset).map_err(|_| {
+                    DataPlaneFailure::retryable(anyhow::anyhow!("fake commit receiver closed"))
+                })?;
             }
             Ok(())
         })
@@ -382,12 +394,7 @@ async fn ambiguous_clickhouse_insert_replay_commits_without_loss_and_can_duplica
         .expect("ambiguous first pipeline attempt did not stop")
         .expect("ambiguous first pipeline task panicked")
         .expect_err("retry_max_attempts=1 must restart after the ambiguous INSERT");
-    assert!(
-        first_error
-            .downcast_ref::<PipelineFailure>()
-            .is_some_and(PipelineFailure::is_retryable),
-        "{first_error:#}"
-    );
+    assert!(first_error.is_retryable(), "{first_error:#}");
     assert!(matches!(
         commit_rx.try_recv(),
         Err(mpsc::error::TryRecvError::Empty)
@@ -513,10 +520,7 @@ async fn source_failed_result_is_a_non_retryable_pipeline_failure() {
         )
         .await
         .expect_err("terminal source corruption must fail the pipeline");
-        let failure = error
-            .downcast_ref::<PipelineFailure>()
-            .expect("failure must preserve explicit retryability");
-        assert!(!failure.is_retryable());
+        assert!(!error.is_retryable());
     }
 }
 
