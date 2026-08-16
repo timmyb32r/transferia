@@ -42,6 +42,33 @@ async fn failed_record_version_does_not_change_memory_or_disk() -> anyhow::Resul
     Ok(())
 }
 
+#[tokio::test]
+async fn delete_is_versioned_and_durable() -> anyhow::Result<()> {
+    let root = std::env::temp_dir().join(format!(
+        "transferia-store-delete-test-{}-{}",
+        std::process::id(),
+        TEMPORARY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let store = JsonDeliveryStore::open(root.clone()).await?;
+    store.insert(record("one")).await?;
+
+    assert!(matches!(
+        store.delete("one", 2).await,
+        Err(StoreError::RecordVersionConflict { .. })
+    ));
+    store.delete("one", 1).await?;
+    drop(store);
+
+    let reopened = JsonDeliveryStore::open(root.clone()).await?;
+    assert!(matches!(
+        reopened.get("one").await,
+        Err(StoreError::NotFound(_))
+    ));
+    drop(reopened);
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn state_directory_and_file_are_private() -> anyhow::Result<()> {

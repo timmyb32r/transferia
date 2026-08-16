@@ -301,6 +301,22 @@ export function App() {
         setShowRequiredErrors(false);
         dispatch({ type: "edit" });
       }}
+      onDelete={() => {
+        if (!window.confirm(`Delete delivery “${editor.name}”?`)) return;
+        void mutations.remove().then((deleted) => {
+          if (!deleted) return;
+          jobs.cancelEditorJobs();
+          resetOperations({});
+          setShowRequiredErrors(false);
+          dispatch({
+            type: "new",
+            sessionId: nextSession(),
+            config: freshConfig(catalog),
+          });
+          yamlEditor.reset();
+          setDiscovery(undefined);
+        });
+      }}
       onSave={() => void mutations.save()}
       onValidate={() => void mutations.validate()}
       onActivate={() =>

@@ -75,6 +75,36 @@ export function useDeliveryMutations({
     }
   };
 
+  const remove = async (): Promise<boolean> => {
+    if (
+      editor.id === undefined ||
+      editor.persistedRevision === undefined ||
+      editor.recordVersion === undefined
+    )
+      return false;
+    const requestId = beginOperation("action", "Deleting delivery…");
+    const context = editorContext(editor);
+    try {
+      const result = await jobs.action.run(context, undefined, () =>
+        api.delete(
+          editor.id!,
+          editor.persistedRevision!,
+          editor.recordVersion!,
+        ),
+      );
+      if (result === undefined) {
+        finishOperation("action", requestId);
+        return false;
+      }
+      await refreshList();
+      finishOperation("action", requestId);
+      return isCurrentContext(result.context);
+    } catch (reason) {
+      finishOperation("action", requestId, errorMessage(reason));
+      return false;
+    }
+  };
+
   const save = async (): Promise<DeliveryRecord | undefined> => {
     const requestId = beginOperation("save", "Saving…");
     const context = editorContext(editor);
@@ -152,7 +182,7 @@ export function useDeliveryMutations({
     }
   };
 
-  return { refreshList, runAction, save, validate };
+  return { refreshList, remove, runAction, save, validate };
 }
 
 function editorContext(editor: EditorState): EditorRequestContext {

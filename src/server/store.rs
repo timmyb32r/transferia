@@ -54,6 +54,12 @@ pub trait DeliveryStore: Send + Sync {
         delivery: DeliveryRecord,
         expected_record_version: u64,
     ) -> Result<(), StoreError>;
+
+    async fn delete(
+        &self,
+        id: &str,
+        expected_record_version: u64,
+    ) -> Result<DeliveryRecord, StoreError>;
 }
 
 pub struct JsonDeliveryStore {
@@ -180,6 +186,41 @@ impl DeliveryStore for JsonDeliveryStore {
             candidate.clone(),
             self.persist_candidate(candidate).await,
         )
+    }
+
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the state lock is the transaction lock and must serialize CAS persistence"
+    )]
+    async fn delete(
+        &self,
+        id: &str,
+        expected_record_version: u64,
+    ) -> Result<DeliveryRecord, StoreError> {
+        let mut state = self.state.lock().await;
+        let current = state
+            .deliveries
+            .get(id)
+            .ok_or_else(|| StoreError::NotFound(id.to_owned()))?;
+        if current.record_version != expected_record_version {
+            return Err(StoreError::RecordVersionConflict {
+                id: id.to_owned(),
+                expected: expected_record_version,
+                actual: current.record_version,
+            });
+        }
+        let mut candidate = state.clone();
+        let removed = candidate.deliveries.remove(id).ok_or_else(|| {
+            StoreError::Internal(anyhow::anyhow!(
+                "delivery '{id}' disappeared while cloning locked state"
+            ))
+        })?;
+        apply_persist_result(
+            &mut state,
+            candidate.clone(),
+            self.persist_candidate(candidate).await,
+        )?;
+        Ok(removed)
     }
 }
 

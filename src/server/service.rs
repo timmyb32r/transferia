@@ -257,6 +257,32 @@ impl ControlPlane {
         Ok(record)
     }
 
+    pub async fn delete(
+        &self,
+        id: &str,
+        expected_revision: u64,
+        expected_record_version: u64,
+    ) -> Result<DeliveryRecord, ServiceError> {
+        let _mutation = self.mutation.lock().await;
+        let record = self.store.get(id).await?;
+        if record.revision != expected_revision {
+            return Err(ServiceError::Conflict(format!(
+                "delivery '{id}' changed: expected revision {expected_revision}, current revision {}",
+                record.revision
+            )));
+        }
+        ensure_record_version(id, record.record_version, expected_record_version)?;
+        if record.runtime.is_running_or_transitioning() {
+            return Err(ServiceError::Conflict(
+                "stop the delivery before deleting it".to_owned(),
+            ));
+        }
+        self.store
+            .delete(id, expected_record_version)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn validate_preview(
         &self,
         config: &Value,

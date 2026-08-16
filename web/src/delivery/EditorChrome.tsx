@@ -29,6 +29,7 @@ export function EditorActions({
   requiredFieldsComplete,
   onMissingRequired,
   onEdit,
+  onDelete,
   onSave,
   onValidate,
   onActivate,
@@ -39,6 +40,7 @@ export function EditorActions({
   requiredFieldsComplete: boolean;
   onMissingRequired: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onSave: () => void;
   onValidate: () => void;
   onActivate: () => void;
@@ -73,6 +75,9 @@ export function EditorActions({
       editor.runtime.state === "failed";
     return (
       <div class="actions">
+        <Button variant="danger" disabled={blocked} onClick={onDelete}>
+          Delete
+        </Button>
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
         </Button>

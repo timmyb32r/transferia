@@ -134,6 +134,27 @@ impl DeliveryStore for MemoryStore {
         drop(deliveries);
         Ok(())
     }
+
+    async fn delete(
+        &self,
+        id: &str,
+        expected_record_version: u64,
+    ) -> Result<DeliveryRecord, StoreError> {
+        let mut deliveries = self.deliveries.lock().await;
+        let current = deliveries
+            .get(id)
+            .ok_or_else(|| StoreError::NotFound(id.to_owned()))?;
+        if current.record_version != expected_record_version {
+            return Err(StoreError::RecordVersionConflict {
+                id: id.to_owned(),
+                expected: expected_record_version,
+                actual: current.record_version,
+            });
+        }
+        deliveries
+            .remove(id)
+            .ok_or_else(|| StoreError::NotFound(id.to_owned()))
+    }
 }
 
 #[tokio::test]
@@ -158,6 +179,25 @@ async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Res
     assert_eq!(updated.validation, ValidationState::Draft);
     assert_eq!(created.runtime, RuntimeState::Created);
     assert_eq!(updated.runtime, RuntimeState::Created);
+    Ok(())
+}
+
+#[tokio::test]
+async fn deleting_a_draft_is_versioned_and_removes_it() -> anyhow::Result<()> {
+    let service = service();
+    let created = service
+        .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
+        .await?;
+
+    let deleted = service
+        .delete(&created.id, created.revision, created.record_version)
+        .await?;
+
+    assert_eq!(deleted, created);
+    assert!(matches!(
+        service.get(&created.id).await,
+        Err(ServiceError::NotFound(_))
+    ));
     Ok(())
 }
 

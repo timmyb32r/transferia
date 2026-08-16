@@ -96,6 +96,27 @@ describe("control-plane API", () => {
     );
   });
 
+  it("deletes with the current optimistic-concurrency token", async () => {
+    const record = delivery("delivery-1", "Saved");
+    const request = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(record), { status: 200 }));
+    vi.stubGlobal("fetch", request);
+
+    await api.delete("delivery-1", 7, "11");
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/deliveries/delivery-1",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({
+          expected_revision: 7,
+          expected_record_version: "11",
+        }),
+      }),
+    );
+  });
+
   it("rejects malformed successful responses at the network boundary", async () => {
     vi.stubGlobal(
       "fetch",

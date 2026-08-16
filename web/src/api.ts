@@ -86,6 +86,21 @@ export const api = {
       },
     );
   },
+  delete: (
+    id: string,
+    expectedRevision: number,
+    expectedRecordVersion: string,
+  ) => {
+    const body: RevisionRequest = {
+      expected_revision: expectedRevision,
+      expected_record_version: expectedRecordVersion,
+    };
+    return request(
+      `/api/v1/deliveries/${encodeURIComponent(id)}`,
+      "delivery_response",
+      { method: "DELETE", body: json(body) },
+    );
+  },
   yaml: (config: JsonObject, signal?: AbortSignal) => {
     const body: ConfigRequest = { config };
     return request("/api/v1/config/yaml", "yaml_response", {

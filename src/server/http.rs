@@ -160,7 +160,7 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         )
         .route(
             "/api/v1/deliveries/{id}",
-            get(get_delivery).put(update_draft),
+            get(get_delivery).put(update_draft).delete(delete_delivery),
         )
         .route("/api/v1/deliveries/{id}/validate", post(validate_saved))
         .route("/api/v1/deliveries/{id}/activate", post(activate))
@@ -360,6 +360,23 @@ async fn update_draft(
                 request.name,
                 request.description,
                 request.config,
+            )
+            .await?,
+    ))
+}
+
+async fn delete_delivery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<RevisionRequest>,
+) -> Result<Json<DeliveryRecord>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .delete(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
             )
             .await?,
     ))

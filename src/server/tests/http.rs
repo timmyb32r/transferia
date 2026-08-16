@@ -181,6 +181,53 @@ async fn create_rejects_surrounding_name_whitespace_without_persisting() -> anyh
 }
 
 #[tokio::test]
+async fn delete_removes_only_the_expected_delivery_version() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/deliveries")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":"draft","config":{}}"#))?,
+        )
+        .await?;
+    let created: serde_json::Value =
+        serde_json::from_slice(&to_bytes(created.into_body(), 4096).await?)?;
+    let id = created["id"].as_str().context("created id is a string")?;
+
+    let stale = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/v1/deliveries/{id}"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"expected_revision":1,"expected_record_version":"2"}"#,
+                ))?,
+        )
+        .await?;
+    assert_eq!(stale.status(), StatusCode::CONFLICT);
+
+    let deleted = app
+        .clone()
+        .oneshot(
+            Request::delete(format!("/api/v1/deliveries/{id}"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"expected_revision":1,"expected_record_version":"1"}"#,
+                ))?,
+        )
+        .await?;
+    assert_eq!(deleted.status(), StatusCode::OK);
+
+    let missing = app
+        .oneshot(Request::get(format!("/api/v1/deliveries/{id}")).body(Body::empty())?)
+        .await?;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn validate_returns_the_authoritative_committed_record() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let created = app

@@ -33,6 +33,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -53,6 +54,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -76,6 +78,7 @@ describe("editor chrome", () => {
 
   it("shows Edit instead of Save for an existing delivery in view mode", () => {
     const onEdit = vi.fn();
+    const onDelete = vi.fn();
     const view = render(
       <EditorActions
         editor={{ ...editor({ state: "stopped" }), editing: false }}
@@ -83,6 +86,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={onEdit}
+        onDelete={onDelete}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -93,6 +97,8 @@ describe("editor chrome", () => {
     expect(view.queryByRole("button", { name: "Save" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("button", { name: "Delete" }));
+    expect(onDelete).toHaveBeenCalledOnce();
   });
 
   it("allows a newly created delivery to enter edit mode", () => {
@@ -104,6 +110,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={onEdit}
+        onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -135,6 +142,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete={false}
         onMissingRequired={onMissingRequired}
         onEdit={() => undefined}
+        onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={onActivate}
