@@ -1,3 +1,5 @@
+extern crate alloc;
+
 pub mod data;
 pub mod delivery;
 pub mod memory;
@@ -14,4 +16,4 @@ pub use delivery::{
 };
 pub use memory::{MemoryReservation, PipelineMemory};
 pub use sink::{Sink, SinkBatch, SinkIo};
-pub use source::{CommitMarker, Source};
+pub use source::{CommitMarker, CommitMarkerTypeMismatch, Source};

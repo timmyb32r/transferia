@@ -630,8 +630,8 @@ pub(super) fn build_commit_request(
     let mut grouped = HashMap::<i64, Vec<OffsetsRange>>::new();
     for marker in markers {
         let marker = marker
-            .downcast_ref::<YdbTopicCommitMarker>()
-            .ok_or_else(|| fatal(anyhow!("Invalid YDB Topic commit marker")))?;
+            .value::<YdbTopicCommitMarker>()
+            .map_err(|error| fatal(anyhow!(error)))?;
         for partition in &marker.partitions {
             let state = sessions
                 .get(&partition.partition_session_id)

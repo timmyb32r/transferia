@@ -337,10 +337,7 @@ impl Source for FakeSource {
     ) -> BoxFuture<'context, anyhow::Result<()>> {
         Box::pin(async move {
             for marker in markers {
-                let offset = marker
-                    .downcast_ref::<i64>()
-                    .copied()
-                    .ok_or_else(|| anyhow::anyhow!("unexpected commit marker"))?;
+                let offset = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
                 self.commits
                     .send(offset)
                     .map_err(|_| anyhow::anyhow!("commit receiver closed"))?;

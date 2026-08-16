@@ -4,11 +4,9 @@ use std::sync::Arc;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::core::data::schema::{
-    DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY,
-};
-use crate::core::data::system_columns::SystemColumnKind;
-use crate::core::sink::SinkBatch;
+use crate::data::schema::{DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_PRIMARY_KEY};
+use crate::data::system_columns::SystemColumnKind;
+use crate::sink::SinkBatch;
 
 /// Inputs that affect the schema physically stored by a sink.
 #[derive(Debug, Clone, Copy)]

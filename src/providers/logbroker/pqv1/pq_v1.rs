@@ -1557,11 +1557,9 @@ impl Source for PqV1Source {
         Box::pin(async move {
             let mut cookies = Vec::new();
             for marker in markers {
-                let Some(marker) = marker.downcast_ref::<PqV1CommitMarker>() else {
-                    return Err(
-                        PipelineFailure::fatal(anyhow!("Invalid PQv1 commit marker")).into(),
-                    );
-                };
+                let marker = marker
+                    .value::<PqV1CommitMarker>()
+                    .map_err(|error| anyhow::Error::from(PipelineFailure::fatal(anyhow!(error))))?;
                 if marker.partition_id != self.partition_id {
                     return Err(PipelineFailure::fatal(anyhow!(
                         "PQv1 commit marker partition mismatch: source={}, marker={}",

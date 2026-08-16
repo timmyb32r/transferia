@@ -7,17 +7,14 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::{ClientBuilder, Type};
 use futures_util::future::BoxFuture;
-use tokio_util::sync::CancellationToken;
 
 use super::config::{ClickHouseSourceConfig, TableConfig};
 use super::reader::ClickHouseSource;
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::data::system_columns::SystemColumnKind;
 use crate::core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
-    SourceTopology,
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
-use crate::core::memory::PipelineMemory;
 use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
@@ -27,7 +24,7 @@ use crate::parsers::ParserPlan;
 use crate::providers::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::providers::clickhouse::sink::identifier::validate_identifier;
 use crate::providers::clickhouse::sink::table::quote_string_literal;
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 #[derive(Clone)]
 pub(super) struct DiscoveredTable {
@@ -120,10 +117,13 @@ impl SourceProvider for ClickHouseSourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            let SourceDiscoveryContext {
+                request,
+                cancellation,
+            } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse discovery cancelled"), tables = self.discovered_tables() => tables? };
             let system_columns = [
                 SystemColumnKind::Topic,
@@ -172,12 +172,14 @@ impl SourceProvider for ClickHouseSourceProvider {
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancellation: CancellationToken,
-        _memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            let SourceBuildContext {
+                partition_id,
+                cancellation,
+                ..
+            } = context;
             let tables = self.discovered_tables().await?;
             let table = tables
                 .get(usize::try_from(partition_id)?)

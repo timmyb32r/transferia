@@ -2,17 +2,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::BoxFuture;
-use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use super::reader::PostgresSource;
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::data::system_columns::SystemColumnKind;
 use crate::core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
-    SourceTopology,
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
-use crate::core::memory::PipelineMemory;
 use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
@@ -22,7 +19,7 @@ use crate::parsers::ParserPlan;
 use crate::providers::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 #[derive(Clone)]
 struct DiscoveredTable {
@@ -88,10 +85,13 @@ impl SourceProvider for PostgresSourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            let SourceDiscoveryContext {
+                request,
+                cancellation,
+            } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables() => tables? };
             let system_columns = [
                 SystemColumnKind::Topic,
@@ -141,12 +141,10 @@ impl SourceProvider for PostgresSourceProvider {
 
     fn build_source(
         &self,
-        partition_id: i64,
-        _cancel_token: CancellationToken,
-        _memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            let partition_id = context.partition_id;
             let tables = self.discovered_tables().await?;
             let index = usize::try_from(partition_id)?;
             let table = tables

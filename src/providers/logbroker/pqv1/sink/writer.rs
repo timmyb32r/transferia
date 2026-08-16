@@ -21,7 +21,7 @@ use crate::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
-use crate::providers::traits::SinkContext;
+use crate::providers::traits::SinkBuildContext;
 use crate::serializer::JsonBatchEncoder;
 
 const SUCCESS: i32 = 400_000;
@@ -47,7 +47,11 @@ impl Stream for RequestStream {
 }
 
 impl PqV1Sink {
-    pub(super) fn new(config: Arc<PqV1SinkConfig>, token: Arc<str>, context: SinkContext) -> Self {
+    pub(super) fn new(
+        config: Arc<PqV1SinkConfig>,
+        token: Arc<str>,
+        context: SinkBuildContext,
+    ) -> Self {
         let limits: Arc<dyn SinkLimits> = Arc::clone(&config) as Arc<dyn SinkLimits>;
         Self {
             config,

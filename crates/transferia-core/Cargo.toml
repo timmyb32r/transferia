@@ -1,0 +1,39 @@
+[package]
+name = "transferia-core"
+version = "0.1.0"
+edition = "2021"
+description = "Stable data-plane contracts for Transferia providers and runtimes"
+publish = false
+
+[dependencies]
+anyhow = "1"
+arrow = "57"
+bytes = "1"
+futures-util = "0.3"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }
+
+[lints.rust]
+unsafe_code = "deny"
+unused_lifetimes = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+allow_attributes_without_reason = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+significant_drop_tightening = "allow"

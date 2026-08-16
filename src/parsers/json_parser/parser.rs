@@ -8,12 +8,17 @@ use arrow::array::{
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
-use core::fmt;
 use serde::{de, Deserializer};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::io::Write as _;
+use std::collections::HashSet;
 
+use super::dlq::{append_base64, dlq_record, subslice_range, DlqReason, DlqRecord};
+use super::extraction::{
+    parse_root_fields_typed, ColumnIndex, DuplicateMappedRootVisitor, RootFieldInfo,
+};
+use super::system_columns::{
+    append_system_columns, make_exact_system_builder, make_system_builder, SystemColumnValues,
+};
 use crate::core::data::message::{Message, MessageMeta};
 use crate::core::data::schema::SchemaColumn;
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -64,43 +69,6 @@ fn mapped_top_level_field(raw: &str) -> Option<&str> {
 // Parse mode
 // ---------------------------------------------------------------------------
 
-/// Adaptive column index: linear scan for ≤12 columns (faster — no hash),
-/// `HashMap` for wider schemas.
-enum ColumnIndex {
-    Small(Vec<(String, usize)>),
-    Large(HashMap<String, usize>),
-}
-
-impl ColumnIndex {
-    fn len(&self) -> usize {
-        match *self {
-            Self::Small(ref v) => v.len(),
-            Self::Large(ref m) => m.len(),
-        }
-    }
-
-    #[inline]
-    fn get(&self, key: &str) -> Option<&usize> {
-        match *self {
-            Self::Small(ref v) => v
-                .iter()
-                .find(|item| item.0.as_str() == key)
-                .map(|item| &item.1),
-            Self::Large(ref m) => m.get(key),
-        }
-    }
-}
-
-struct RootFieldInfo {
-    index: ColumnIndex,
-    /// Per-column requiredness (`true` == non-nullable). Indexed by column position.
-    required: Vec<bool>,
-    /// Number of `true` entries in `required` — the count that must be filled
-    /// for a row to be valid (missing nullable fields become NULL, not DLQ).
-    required_total: usize,
-    reject_unknown: bool,
-}
-
 enum ParseMode {
     AllRootField(RootFieldInfo),
     Mixed,
@@ -110,7 +78,7 @@ enum ParseMode {
 // Arrow builder enum
 // ---------------------------------------------------------------------------
 
-enum AnyBuilder {
+pub(super) enum AnyBuilder {
     Utf8(StringBuilder),
     LargeUtf8(LargeStringBuilder),
     Int8(Int8Builder),
@@ -133,7 +101,7 @@ enum AnyBuilder {
 }
 
 #[derive(Clone, Copy)]
-enum ColumnKind {
+pub(super) enum ColumnKind {
     Utf8,
     LargeUtf8,
     Int8,
@@ -512,7 +480,7 @@ fn append_if_some<T>(value: Option<T>, append: impl FnOnce(T)) -> bool {
 /// the compiler physically prevents any other code path from feeding arbitrary byte
 /// ranges into the unsafe block.
 #[derive(Clone, Copy, Debug)]
-struct ValidatedStr {
+pub(super) struct ValidatedStr {
     start: usize,
     end: usize,
 }
@@ -538,7 +506,7 @@ impl ValidatedStr {
 /// Per-field scratch value. Strings are stored as [`ValidatedStr`] — byte
 /// ranges whose UTF-8 validity is witnessed at the type level.
 #[derive(Clone, Copy, Debug)]
-enum TypedScratch {
+pub(super) enum TypedScratch {
     Empty,
     Str(ValidatedStr),
     I64(i64),
@@ -549,13 +517,13 @@ enum TypedScratch {
 
 /// Writes a deserialized value directly into `TypedScratch` according to `ColumnKind`.
 /// Strings are stored as byte-range indices — no `String` allocation.
-struct TypedValueWriter<'ctx> {
-    target: &'ctx mut TypedScratch,
+pub(super) struct TypedValueWriter<'ctx> {
+    pub target: &'ctx mut TypedScratch,
     /// Base pointer of the JSON buffer. Used to compute the byte offset of the
     /// `&str` returned by simd-json via pointer arithmetic:
     /// `offset = s.as_ptr() - buf_ptr`.
-    buf_ptr: *const u8,
-    kind: ColumnKind,
+    pub buf_ptr: *const u8,
+    pub kind: ColumnKind,
 }
 
 impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
@@ -831,297 +799,6 @@ fn append_typed(builder: &mut AnyBuilder, scratch: &TypedScratch, json_buf: &[u8
     }
 }
 
-fn make_system_builder(kind: SystemColumnKind, capacity: usize) -> AnyBuilder {
-    const MAX_INITIAL_ROWS: usize = 65_536;
-    const MAX_INITIAL_TOPIC_BYTES: usize = 1024 * 1024;
-    let capacity = capacity.min(MAX_INITIAL_ROWS);
-    match kind {
-        SystemColumnKind::Topic => AnyBuilder::Utf8(StringBuilder::with_capacity(
-            capacity,
-            capacity.saturating_mul(64).min(MAX_INITIAL_TOPIC_BYTES),
-        )),
-        SystemColumnKind::Partition
-        | SystemColumnKind::Offset
-        | SystemColumnKind::WriteTimestampMs => {
-            AnyBuilder::Int64(Int64Builder::with_capacity(capacity))
-        }
-        SystemColumnKind::MessageIndex => {
-            AnyBuilder::UInt64(UInt64Builder::with_capacity(capacity))
-        }
-    }
-}
-
-fn make_exact_system_builder(
-    kind: SystemColumnKind,
-    capacity: usize,
-    topic_bytes: usize,
-) -> AnyBuilder {
-    match kind {
-        SystemColumnKind::Topic => {
-            AnyBuilder::Utf8(StringBuilder::with_capacity(capacity, topic_bytes))
-        }
-        SystemColumnKind::Partition
-        | SystemColumnKind::Offset
-        | SystemColumnKind::WriteTimestampMs => {
-            AnyBuilder::Int64(Int64Builder::with_capacity(capacity))
-        }
-        SystemColumnKind::MessageIndex => {
-            AnyBuilder::UInt64(UInt64Builder::with_capacity(capacity))
-        }
-    }
-}
-
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::unreachable,
-    reason = "metadata and builder preconditions are validated once before this per-row hot path"
-)]
-fn append_system_columns(
-    builders: &mut [AnyBuilder],
-    data_columns: usize,
-    kinds: &[SystemColumnKind],
-    meta: &MessageMeta,
-    message_index: u64,
-) {
-    for (builder, kind) in builders[data_columns..].iter_mut().zip(kinds) {
-        match (kind, builder) {
-            (SystemColumnKind::Topic, AnyBuilder::Utf8(builder)) => {
-                builder.append_value(
-                    meta.topic
-                        .as_deref()
-                        .expect("system column preconditions require source topic"),
-                );
-            }
-            (SystemColumnKind::Partition, AnyBuilder::Int64(builder)) => {
-                builder.append_value(
-                    meta.partition
-                        .expect("system column preconditions require source partition"),
-                );
-            }
-            (SystemColumnKind::Offset, AnyBuilder::Int64(builder)) => {
-                builder.append_value(
-                    meta.offset
-                        .expect("system column preconditions require source offset"),
-                );
-            }
-            (SystemColumnKind::MessageIndex, AnyBuilder::UInt64(builder)) => {
-                builder.append_value(message_index);
-            }
-            (SystemColumnKind::WriteTimestampMs, AnyBuilder::Int64(builder)) => {
-                builder.append_value(
-                    meta.write_timestamp_ms
-                        .expect("system column preconditions require source timestamp"),
-                );
-            }
-            _ => unreachable!("system column builder must match its semantic kind"),
-        }
-    }
-}
-
-struct DlqRecord {
-    source_message: u32,
-    byte_start: u32,
-    byte_end: u32,
-    reason: DlqReason,
-    record_index: u32,
-}
-
-struct ArrowStringConsumer<'a>(&'a mut StringBuilder);
-
-impl base64::write::StrConsumer for ArrowStringConsumer<'_> {
-    #[expect(
-        clippy::expect_used,
-        reason = "Arrow StringBuilder implements fmt::Write infallibly"
-    )]
-    fn consume(&mut self, encoded: &str) {
-        fmt::Write::write_str(self.0, encoded)
-            .expect("writing UTF-8 base64 into an Arrow string builder cannot fail");
-    }
-}
-
-fn append_base64(builder: &mut StringBuilder, raw: &[u8]) -> anyhow::Result<()> {
-    let mut encoder = base64::write::EncoderStringWriter::from_consumer(
-        ArrowStringConsumer(builder),
-        &base64::engine::general_purpose::STANDARD,
-    );
-    encoder.write_all(raw)?;
-    let ArrowStringConsumer(builder) = encoder.into_inner();
-    // Incremental writes append bytes to the current Arrow value; the next
-    // append finalizes its offset without copying the encoded payload.
-    builder.append_value("");
-    Ok(())
-}
-
-#[expect(
-    clippy::expect_used,
-    reason = "subslice is produced directly by splitting parent"
-)]
-fn subslice_range(parent: &[u8], subslice: &[u8]) -> core::ops::Range<usize> {
-    let parent_start = parent.as_ptr() as usize;
-    let child_start = subslice.as_ptr() as usize;
-    let start = child_start
-        .checked_sub(parent_start)
-        .expect("record slice must start inside its source message");
-    let end = start
-        .checked_add(subslice.len())
-        .expect("record slice end overflow");
-    assert!(
-        end <= parent.len(),
-        "record slice must end inside its source message"
-    );
-    start..end
-}
-
-#[inline]
-#[expect(
-    clippy::expect_used,
-    reason = "upstream PQv1 delivery and decoded-size caps are strictly below u32::MAX"
-)]
-fn dlq_record(
-    source_message: usize,
-    byte_range: core::ops::Range<usize>,
-    reason: DlqReason,
-    record_index: u64,
-) -> DlqRecord {
-    DlqRecord {
-        source_message: u32::try_from(source_message)
-            .expect("PQv1 delivery message count is bounded far below u32::MAX"),
-        byte_start: u32::try_from(byte_range.start)
-            .expect("PQv1 decoded message size is bounded below u32::MAX"),
-        byte_end: u32::try_from(byte_range.end)
-            .expect("PQv1 decoded message size is bounded below u32::MAX"),
-        reason,
-        record_index: u32::try_from(record_index)
-            .expect("PQv1 record count is bounded by decoded bytes below u32::MAX"),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Two-phase typed field extractor — writes to scratch, not builders
-// ---------------------------------------------------------------------------
-
-struct TypedFieldExtractor<'ctx> {
-    index: &'ctx ColumnIndex,
-    scratch: &'ctx mut [TypedScratch],
-    kinds: &'ctx [ColumnKind],
-    /// Per-column requiredness (non-nullable), indexed by column position.
-    required: &'ctx [bool],
-    reject_unknown: bool,
-    /// Tracks mapped keys independently from their value because an explicit
-    /// JSON null leaves the typed scratch empty.
-    seen: &'ctx mut [bool],
-    /// Base pointer of the JSON buffer passed to simd-json.
-    /// Used to compute byte offsets for string values via pointer arithmetic.
-    buf_ptr: *const u8,
-    /// How many *required* columns have been filled so far.
-    required_filled: usize,
-    /// Total number of required columns — a row is valid once all are filled.
-    required_total: usize,
-    duplicate_mapped_field: bool,
-    unknown_field: bool,
-}
-
-struct DuplicateMappedRootVisitor<'a> {
-    fields: &'a [String],
-}
-
-impl<'de> de::Visitor<'de> for DuplicateMappedRootVisitor<'_> {
-    type Value = bool;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a JSON object")
-    }
-
-    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
-        let mut seen = vec![false; self.fields.len()];
-        let mut duplicate = false;
-        while let Some(key) = map.next_key::<&str>()? {
-            if let Some(index) = self.fields.iter().position(|field| field == key) {
-                duplicate |= seen[index];
-                seen[index] = true;
-            }
-            map.next_value::<de::IgnoredAny>()?;
-        }
-        Ok(duplicate)
-    }
-}
-
-#[expect(clippy::missing_trait_methods, reason = "default impls are sufficient")]
-impl<'de, 'ctx> de::Visitor<'de> for &'ctx mut TypedFieldExtractor<'ctx> {
-    type Value = bool;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a JSON object")
-    }
-
-    fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<bool, A::Error> {
-        while let Some(key) = map.next_key::<&str>()? {
-            if let Some(&idx) = self.index.get(key) {
-                if self.seen[idx] {
-                    self.duplicate_mapped_field = true;
-                }
-                self.seen[idx] = true;
-                let was_empty = matches!(self.scratch[idx], TypedScratch::Empty);
-                let seed = TypedValueWriter {
-                    target: &mut self.scratch[idx],
-                    buf_ptr: self.buf_ptr,
-                    kind: self.kinds[idx],
-                };
-                let present = map.next_value_seed(seed)?;
-                if present && was_empty && self.required[idx] {
-                    self.required_filled += 1;
-                }
-            } else {
-                self.unknown_field = true;
-                map.next_value::<de::IgnoredAny>()?;
-            }
-        }
-        // Row is valid iff every *required* (non-nullable) column was found.
-        // Missing nullable columns stay `TypedScratch::Empty` → appended as NULL.
-        Ok(
-            !(self.duplicate_mapped_field || self.reject_unknown && self.unknown_field)
-                && self.required_filled == self.required_total,
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
-// simd-json accelerated parse + zero-copy typed extraction
-// ---------------------------------------------------------------------------
-
-fn parse_root_fields_typed(
-    bytes: &[u8],
-    buf: &mut Vec<u8>,
-    info: &RootFieldInfo,
-    scratch: &mut [TypedScratch],
-    seen: &mut [bool],
-    kinds: &[ColumnKind],
-) -> anyhow::Result<bool> {
-    seen.fill(false);
-    buf.clear();
-    buf.extend_from_slice(bytes);
-    // Snapshot the buffer pointer BEFORE simd-json borrows `buf` mutably.
-    // The pointer itself is stable across Vec resizes (and we don't resize after
-    // this point), so it remains valid through deserialization.
-    let buf_ptr = buf.as_ptr();
-    let mut de = simd_json::Deserializer::from_slice(buf).map_err(anyhow::Error::from)?;
-    let mut extractor = TypedFieldExtractor {
-        index: &info.index,
-        scratch,
-        kinds,
-        required: &info.required,
-        reject_unknown: info.reject_unknown,
-        seen,
-        buf_ptr,
-        required_filled: 0,
-        required_total: info.required_total,
-        duplicate_mapped_field: false,
-        unknown_field: false,
-    };
-    de.deserialize_map(&mut extractor).map_err(Into::into)
-}
-
 // ---------------------------------------------------------------------------
 // DLQ — source metadata uses the same typed system-column contract as main data
 // ---------------------------------------------------------------------------
@@ -1141,26 +818,12 @@ fn dlq_schema(system_columns: &SystemColumns) -> Schema {
     Schema::new(fields)
 }
 
-enum DlqReason {
-    JsonParse,
-    ExtractionFailed,
-}
-
 #[derive(Debug)]
 struct RowConversionError(String);
 
 impl core::fmt::Display for RowConversionError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(&self.0)
-    }
-}
-
-impl DlqReason {
-    const fn as_str(&self) -> &str {
-        match self {
-            Self::JsonParse => "JSON parse error",
-            Self::ExtractionFailed => "JSONPath extraction failed for one or more columns",
-        }
     }
 }
 
@@ -1584,6 +1247,7 @@ impl JsonParser {
 
         for record in dlq_records {
             let message = &messages[record.source_message as usize];
+            let system_values = self.system_column_values(&message.meta)?;
             append_base64(
                 &mut raw_builder,
                 &message.value[record.byte_start as usize..record.byte_end as usize],
@@ -1594,7 +1258,7 @@ impl JsonParser {
                 &mut system_builders,
                 0,
                 &self.system_kinds,
-                &message.meta,
+                &system_values,
                 u64::from(record.record_index),
             );
         }
@@ -1614,27 +1278,53 @@ impl JsonParser {
         })
     }
 
-    fn check_system_column_preconditions(&self, messages: &[Message]) -> anyhow::Result<()> {
-        for msg in messages {
-            for kind in &self.system_kinds {
-                let present = match kind {
-                    SystemColumnKind::Topic => msg.meta.topic.is_some(),
-                    SystemColumnKind::Partition => msg.meta.partition.is_some(),
-                    SystemColumnKind::Offset => msg.meta.offset.is_some(),
-                    SystemColumnKind::MessageIndex => true,
-                    SystemColumnKind::WriteTimestampMs => msg.meta.write_timestamp_ms.is_some(),
-                };
-                anyhow::ensure!(
-                    present,
-                    "source message is missing metadata required for system column '{}'",
-                    self.system_columns.get(*kind).map_or_else(
-                        || kind.default_name().to_owned(),
-                        |column| column.name.to_string()
-                    )
-                );
-            }
-        }
-        Ok(())
+    fn system_column_values<'a>(
+        &self,
+        meta: &'a MessageMeta,
+    ) -> anyhow::Result<SystemColumnValues<'a>> {
+        let missing = |kind: SystemColumnKind| {
+            anyhow::anyhow!(
+                "source message is missing metadata required for system column '{}'",
+                self.system_columns.get(kind).map_or_else(
+                    || kind.default_name().to_owned(),
+                    |column| column.name.to_string()
+                )
+            )
+        };
+        let topic = if self.system_kinds.contains(&SystemColumnKind::Topic) {
+            meta.topic
+                .as_deref()
+                .ok_or_else(|| missing(SystemColumnKind::Topic))?
+        } else {
+            ""
+        };
+        let partition = if self.system_kinds.contains(&SystemColumnKind::Partition) {
+            meta.partition
+                .ok_or_else(|| missing(SystemColumnKind::Partition))?
+        } else {
+            0
+        };
+        let offset = if self.system_kinds.contains(&SystemColumnKind::Offset) {
+            meta.offset
+                .ok_or_else(|| missing(SystemColumnKind::Offset))?
+        } else {
+            0
+        };
+        let write_timestamp_ms = if self
+            .system_kinds
+            .contains(&SystemColumnKind::WriteTimestampMs)
+        {
+            meta.write_timestamp_ms
+                .ok_or_else(|| missing(SystemColumnKind::WriteTimestampMs))?
+        } else {
+            0
+        };
+        Ok(SystemColumnValues {
+            topic,
+            partition,
+            offset,
+            write_timestamp_ms,
+        })
     }
 
     /// Appends one successfully parsed typed row and its configured system columns.
@@ -1642,7 +1332,7 @@ impl JsonParser {
         builders: &mut [AnyBuilder],
         typed_scratch: &[TypedScratch],
         json_buf: &[u8],
-        msg: &Message,
+        system_values: &SystemColumnValues<'_>,
         message_index: u64,
         system_kinds: &[SystemColumnKind],
     ) {
@@ -1653,7 +1343,7 @@ impl JsonParser {
             builders,
             typed_scratch.len(),
             system_kinds,
-            &msg.meta,
+            system_values,
             message_index,
         );
     }
@@ -1670,8 +1360,9 @@ impl JsonParser {
         typed_seen: &mut [bool],
         json_buf: &mut Vec<u8>,
         dlq_records: &mut Vec<DlqRecord>,
-    ) {
+    ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
+            let system_values = self.system_column_values(&msg.meta)?;
             for (record_index, line) in msg
                 .value
                 .split(|byte| *byte == b'\n')
@@ -1692,7 +1383,7 @@ impl JsonParser {
                             builders,
                             typed_scratch,
                             json_buf,
-                            msg,
+                            &system_values,
                             record_index as u64,
                             &self.system_kinds,
                         );
@@ -1712,6 +1403,7 @@ impl JsonParser {
                 }
             }
         }
+        Ok(())
     }
 
     fn parse_all_root_nosplit(
@@ -1723,8 +1415,9 @@ impl JsonParser {
         typed_seen: &mut [bool],
         json_buf: &mut Vec<u8>,
         dlq_records: &mut Vec<DlqRecord>,
-    ) {
+    ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
+            let system_values = self.system_column_values(&msg.meta)?;
             typed_scratch.fill(TypedScratch::Empty);
             match parse_root_fields_typed(
                 &msg.value,
@@ -1738,7 +1431,7 @@ impl JsonParser {
                     builders,
                     typed_scratch,
                     json_buf,
-                    msg,
+                    &system_values,
                     0,
                     &self.system_kinds,
                 ),
@@ -1756,6 +1449,7 @@ impl JsonParser {
                 )),
             }
         }
+        Ok(())
     }
 
     /// Fills and validates one parsed row before touching any Arrow builder.
@@ -1846,6 +1540,7 @@ impl JsonParser {
         row: &mut Vec<Value>,
     ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
+            let system_values = self.system_column_values(&msg.meta)?;
             for (message_index, line) in msg
                 .value
                 .split(|byte| *byte == b'\n')
@@ -1885,7 +1580,7 @@ impl JsonParser {
                                 builders,
                                 self.mappings.len(),
                                 &self.system_kinds,
-                                &msg.meta,
+                                &system_values,
                                 message_index,
                             );
                         }
@@ -1916,6 +1611,7 @@ impl JsonParser {
         row: &mut Vec<Value>,
     ) -> anyhow::Result<()> {
         for (source_message, msg) in messages.iter().enumerate() {
+            let system_values = self.system_column_values(&msg.meta)?;
             if self.has_duplicate_mapped_root_field(&msg.value) {
                 self.handle_parse_error(
                     dlq_records,
@@ -1948,7 +1644,7 @@ impl JsonParser {
                             builders,
                             self.mappings.len(),
                             &self.system_kinds,
-                            &msg.meta,
+                            &system_values,
                             0,
                         );
                     }
@@ -2084,7 +1780,6 @@ impl JsonParser {
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let messages = self.frame_json_arrays(messages)?;
-        self.check_system_column_preconditions(&messages)?;
         if self.exceeds_safety_limits(&messages) {
             anyhow::bail!(
                 "JSON parser input exceeds the configured 256MiB delivery or 4MiB record safety limit"
@@ -2158,7 +1853,7 @@ impl JsonParser {
                             typed_seen,
                             json_buf,
                             dlq_records,
-                        ),
+                        )?,
                     JsonFramingMode::SingleDocument => self.parse_all_root_nosplit(
                         &messages,
                         info,
@@ -2167,7 +1862,7 @@ impl JsonParser {
                         typed_seen,
                         json_buf,
                         dlq_records,
-                    ),
+                    )?,
                 }
             }
             ParseMode::Mixed => {

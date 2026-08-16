@@ -158,7 +158,7 @@ impl PipelineMemory {
         clippy::expect_used,
         reason = "a usize-sized process cannot reserve more than usize::MAX bytes"
     )]
-    pub(crate) async fn reserve_progress_source(&self, bytes: usize) -> MemoryReservation {
+    pub async fn reserve_progress_source(&self, bytes: usize) -> MemoryReservation {
         let bytes = bytes.max(1);
         loop {
             let changed = self.inner.changed.notified();
@@ -358,7 +358,7 @@ impl MemoryReservation {
     /// Grow the single progress-source lease to cover overlapping raw and decoded buffers.
     /// This is synchronous because acquiring the lease already proved it is the only bypass
     /// allocation in this per-partition budget.
-    pub(crate) fn grow_progress_source_to(&self, bytes: usize) -> anyhow::Result<()> {
+    pub fn grow_progress_source_to(&self, bytes: usize) -> anyhow::Result<()> {
         anyhow::ensure!(
             matches!(self.lease.kind, ReservationKind::ProgressSource),
             "only a progress-source reservation can grow"

@@ -35,7 +35,7 @@ use transferia::providers::logbroker::proto::pers_queue::v1::{
     DescribeTopicResult, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
     Path, TopicSettings,
 };
-use transferia::providers::traits::SourceProvider;
+use transferia::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 const TOPIC: &str = "/Root/e2e-topic";
 const CONSUMER: &str = "e2e-consumer";
@@ -388,12 +388,12 @@ parser:
     let cancellation = CancellationToken::new();
 
     let discovery = provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },
-            cancellation.child_token(),
-        )
+            cancellation: cancellation.child_token(),
+        })
         .await?;
     assert_eq!(
         discovery.source_topology,
@@ -401,12 +401,12 @@ parser:
     );
 
     let mut source = provider
-        .build_source(
-            0,
-            cancellation.child_token(),
-            PipelineMemory::new(16 * 1024 * 1024),
-            support::durable_context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: cancellation.child_token(),
+            memory: PipelineMemory::new(16 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
         .await?;
     let batch =
         tokio::time::timeout(core::time::Duration::from_secs(3), source.read_batch()).await??;

@@ -117,12 +117,7 @@ impl Source for RecordingSource {
             }
             let group = markers
                 .iter()
-                .map(|marker| {
-                    marker
-                        .downcast_ref::<i64>()
-                        .copied()
-                        .ok_or_else(|| anyhow::anyhow!("unexpected marker"))
-                })
+                .map(|marker| marker.value::<i64>().copied().map_err(anyhow::Error::new))
                 .collect::<anyhow::Result<Vec<_>>>()?;
             self.groups
                 .lock()

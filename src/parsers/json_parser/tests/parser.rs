@@ -753,6 +753,32 @@ fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
 }
 
 #[test]
+fn missing_enabled_system_column_metadata_is_a_regular_error() -> anyhow::Result<()> {
+    let config = parser_config(
+        vec![mapping("$.id", "id", "Utf8", false)],
+        JsonFramingMode::SingleDocument,
+    );
+    let system = crate::parsers::SystemColumnsConfig {
+        topic: Some("_system_topic".into()),
+        ..Default::default()
+    };
+    let parser = JsonParser::new(&config, &system, "test".into())?;
+
+    let error = parser
+        .parse_into(
+            vec![Message::new(Bytes::from_static(b"{\"id\":\"value\"}"))],
+            &mut ParserWorkspace::new(),
+        )
+        .expect_err("missing source metadata must not reach the append hot path");
+
+    assert_eq!(
+        error.to_string(),
+        "source message is missing metadata required for system column '_system_topic'"
+    );
+    Ok(())
+}
+
+#[test]
 fn null_in_non_nullable_partition_candidate_goes_to_dlq() -> anyhow::Result<()> {
     use crate::parsers::json_parser::{ColumnMapping, JsonFramingMode};
 

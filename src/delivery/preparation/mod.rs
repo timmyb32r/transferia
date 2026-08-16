@@ -12,7 +12,7 @@ use crate::extension::{EndpointRole, Transferia};
 use crate::metrics::MetricsRegistry;
 use crate::middleware::build_middleware;
 use crate::providers::catalog::build_provider_catalog_with;
-use crate::providers::traits::{SinkProvider, SourceProvider};
+use crate::providers::traits::{SinkProvider, SourceDiscoveryContext, SourceProvider};
 
 pub struct DeliveryPlan {
     pub config: Config,
@@ -145,12 +145,12 @@ async fn build_delivery_plan_internal(
     let finite_source =
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
     let discovery = source_provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: true,
             },
             cancellation,
-        )
+        })
         .await?;
     anyhow::ensure!(
         discovery.keep_system_columns,

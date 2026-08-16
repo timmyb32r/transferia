@@ -31,7 +31,7 @@ use transferia::metrics::SinkCounters;
 use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::discard::provider::DiscardSinkProvider;
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
-use transferia::providers::traits::{SinkContext, SinkPrepare, SinkProvider as _};
+use transferia::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider as _};
 
 const CLICKHOUSE_IMAGE: &str = "clickhouse/clickhouse-server";
 const CLICKHOUSE_TAG: &str = "25.8.28.1";
@@ -119,7 +119,7 @@ async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::
     });
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -207,7 +207,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -346,7 +346,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     .build("s3-e2e")?;
     let memory = PipelineMemory::new(256 * 1024 * 1024);
     let sink = provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: durable.clone(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -454,7 +454,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     tokio::time::sleep(core::time::Duration::from_millis(20)).await;
     let replay_provider = S3SinkProvider::from_config(serde_yaml::from_str(&yaml)?)?;
     let replay_sink = replay_provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: transferia::durable::DurableStorageConfig::LocalFile {
                 path: durable_root.clone(),
             }

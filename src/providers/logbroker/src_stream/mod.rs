@@ -11,7 +11,6 @@ use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 
 use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
-use crate::core::memory::PipelineMemory;
 use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
@@ -19,7 +18,7 @@ use crate::delivery::semantics::{
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 #[cfg(test)]
 use crate::providers::logbroker::LogbrokerAuthConfig;
@@ -203,21 +202,16 @@ impl SourceProvider for PqV1DriverSourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
-        self.inner.delivery_discovery(request, cancellation)
+        self.inner.delivery_discovery(context)
     }
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancellation: CancellationToken,
-        memory: PipelineMemory,
-        durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
-        self.inner
-            .build_source(partition_id, cancellation, memory, durable)
+        self.inner.build_source(context)
     }
 
     fn parser_plan(&self) -> &ParserPlan {
@@ -305,10 +299,13 @@ impl SourceProvider for YdbDriverSourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            let SourceDiscoveryContext {
+                request,
+                cancellation,
+            } = context;
             anyhow::ensure!(
                 !cancellation.is_cancelled(),
                 "YDB Topic delivery discovery cancelled"
@@ -319,12 +316,15 @@ impl SourceProvider for YdbDriverSourceProvider {
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancellation: CancellationToken,
-        memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            let SourceBuildContext {
+                partition_id,
+                cancellation,
+                memory,
+                ..
+            } = context;
             anyhow::ensure!(
                 partition_id >= 0,
                 "YDB Topic reader lane must be nonnegative"

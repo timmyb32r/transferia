@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/transferia-core"]
+resolver = "2"
+
 [package]
 name = "transferia"
 version = "0.1.0"
@@ -60,6 +64,7 @@ tonic-prost = "0.14"
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+transferia-core = { path = "crates/transferia-core" }
 ydb-grpc = "0.2.2"
 zstd = "0.13"
 

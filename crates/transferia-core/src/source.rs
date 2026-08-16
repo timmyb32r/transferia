@@ -2,23 +2,51 @@ use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::core::data::message::SourceBatch;
+use crate::data::message::SourceBatch;
 
 // ---------------------------------------------------------------------------
 // CommitMarker
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-pub struct CommitMarker(Arc<dyn core::any::Any + Send + Sync>);
+pub struct CommitMarker {
+    value: Arc<dyn core::any::Any + Send + Sync>,
+    type_name: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitMarkerTypeMismatch {
+    expected: &'static str,
+    actual: &'static str,
+}
+
+impl core::fmt::Display for CommitMarkerTypeMismatch {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "commit marker type mismatch: expected '{}', received '{}'",
+            self.expected, self.actual
+        )
+    }
+}
+
+impl std::error::Error for CommitMarkerTypeMismatch {}
 
 impl CommitMarker {
     pub fn new<T: core::any::Any + Send + Sync>(marker: T) -> Self {
-        Self(Arc::new(marker))
+        Self {
+            value: Arc::new(marker),
+            type_name: core::any::type_name::<T>(),
+        }
     }
 
-    #[must_use]
-    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
-        self.0.downcast_ref::<T>()
+    pub fn value<T: 'static>(&self) -> Result<&T, CommitMarkerTypeMismatch> {
+        self.value
+            .downcast_ref::<T>()
+            .ok_or_else(|| CommitMarkerTypeMismatch {
+                expected: core::any::type_name::<T>(),
+                actual: self.type_name,
+            })
     }
 }
 
@@ -54,3 +82,7 @@ impl Source for Box<dyn Source> {
         (**self).commit_offsets(markers)
     }
 }
+
+#[cfg(test)]
+#[path = "tests/source.rs"]
+mod tests;

@@ -7,7 +7,6 @@ use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
-use crate::core::memory::PipelineMemory;
 use crate::core::source::Source;
 use crate::delivery::execution::PipelineFailure;
 use crate::delivery::semantics::{
@@ -18,7 +17,7 @@ use crate::parsers::ParserPlan;
 use crate::providers::logbroker::pqv1::credentials::load_access_token;
 use crate::providers::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::logbroker::proto::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
@@ -393,9 +392,12 @@ impl SourceProvider for PqV1SourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+        let SourceDiscoveryContext {
+            request,
+            cancellation,
+        } = context;
         let cfg = self.cfg.clone();
         let token = Arc::clone(&self.token);
         let endpoint_cache = Arc::clone(&self.endpoint_cache);
@@ -440,11 +442,14 @@ impl SourceProvider for PqV1SourceProvider {
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancel_token: CancellationToken,
-        memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+        let SourceBuildContext {
+            partition_id,
+            cancellation: cancel_token,
+            memory,
+            ..
+        } = context;
         let cfg = self.cfg.clone();
         let metrics_registry = Arc::clone(&self.metrics_registry);
         let source_counters = self.counters_for_partition(partition_id);

@@ -1642,7 +1642,7 @@ async fn discarded_batch_emits_a_marker_without_messages() {
     assert!(messages.is_empty());
     let marker = commit_marker.expect("discarded batch commit marker");
     assert_eq!(
-        marker.downcast_ref::<PqV1CommitMarker>().unwrap().cookies[0].partition_cookie,
+        marker.value::<PqV1CommitMarker>().unwrap().cookies[0].partition_cookie,
         3
     );
 }

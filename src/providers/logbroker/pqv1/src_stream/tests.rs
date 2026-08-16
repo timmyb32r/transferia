@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::memory::PipelineMemory;
 
 fn topic_settings(partitions_count: i32, consumers: &[&str]) -> TopicSettings {
     TopicSettings {
@@ -158,12 +159,12 @@ fn rejects_unknown_host_field() {
 async fn rejects_builds_for_undeclared_partitions_before_network_io() {
     let source = provider(&config("partition_group_ids: [0]\n", "")).unwrap();
     let error = source
-        .build_source(
-            1,
-            CancellationToken::new(),
-            PipelineMemory::new(1 << 20),
-            crate::durable::test_support::context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 1,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(1 << 20),
+            durable: crate::durable::test_support::context(),
+        })
         .await
         .err()
         .expect("undeclared partition must fail locally");

@@ -12,7 +12,7 @@ use crate::core::delivery::{
 };
 use crate::core::sink::Sink;
 use crate::delivery::semantics::EndpointDescriptor;
-use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
+use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {
     config: ClickHouseSinkConfig,
@@ -98,7 +98,10 @@ impl SinkProvider for ClickHouseSinkProvider {
         })
     }
 
-    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+    fn build_sink(
+        &self,
+        context: SinkBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
             let client = self.shared_client().await?;
             tracing::info!(

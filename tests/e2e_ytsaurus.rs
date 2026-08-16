@@ -30,7 +30,8 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::{MetricsRegistry, SinkCounters};
 use transferia::providers::traits::{
-    SinkContext, SinkPrepare, SinkProvider as _, SourceProvider as _,
+    SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
+    SourceProvider as _,
 };
 use transferia::providers::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
 
@@ -242,7 +243,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let arrow_sink = arrow_provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -266,7 +267,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let yson_sink = yson_provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -320,24 +321,24 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         Arc::new(MetricsRegistry::new()),
     )?;
     let source_discovery = source
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },
-            CancellationToken::new(),
-        )
+            cancellation: CancellationToken::new(),
+        })
         .await?;
     assert_eq!(
         source_discovery.datasets[0].stored_schema.columns.len(),
         input_schema.columns.len()
     );
     let mut actor = source
-        .build_source(
-            0,
-            CancellationToken::new(),
-            PipelineMemory::new(16 * 1024 * 1024),
-            support::durable_context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(16 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
         .await?;
     let mut rows = 0;
     loop {

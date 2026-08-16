@@ -4020,8 +4020,24 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "transferia-core",
  "ydb-grpc",
  "zstd",
+]
+
+[[package]]
+name = "transferia-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bytes",
+ "futures-util",
+ "schemars 1.2.2",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

@@ -25,7 +25,7 @@ use crate::core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use crate::delivery::execution::PipelineFailure;
 use crate::delivery::semantics::EndpointDescriptor;
 use crate::metrics::SinkCounters;
-use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
+use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
 
@@ -163,7 +163,10 @@ impl SinkProvider for YTsaurusSinkProvider {
         })
     }
 
-    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+    fn build_sink(
+        &self,
+        context: SinkBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
             Ok(Box::new(YTsaurusSink {

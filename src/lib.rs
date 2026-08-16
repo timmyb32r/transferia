@@ -1,7 +1,7 @@
 extern crate alloc;
 extern crate self as transferia;
 
-pub mod core;
+pub use transferia_core as core;
 pub mod delivery;
 pub mod durable;
 pub mod extension;

@@ -71,12 +71,14 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Repository architecture
 
-- `src/core/` is the stable internal API. It owns provider-neutral messages,
+- `crates/transferia-core/` is the compiler-enforced stable data-plane API. It owns provider-neutral messages,
   Arrow datasets and schemas, discovery and sink-limit contracts, memory leases,
   and the runtime `Source`/`Sink` ports. `core` may depend on external primitive
   libraries, but never on providers, parsers, delivery preparation/execution,
-  runtime adapters, or server code. Export the most important contracts from
-  `core/mod.rs` so callers do not need to discover their storage layout.
+  runtime adapters, or server code. The application crate re-exports it as
+  `transferia::core`; do not recreate core types or compatibility wrappers under
+  `src/`. Export the most important contracts from the core crate root so callers
+  do not need to discover their storage layout.
 - `src/delivery/` owns delivery orchestration. `delivery/config/` owns the
   runnable configuration; `delivery/semantics.rs` owns cross-provider delivery
   compatibility; `delivery/preparation/` owns configuration resolution,

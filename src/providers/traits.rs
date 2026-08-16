@@ -21,19 +21,27 @@ pub trait SourceProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>>;
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancel_token: CancellationToken,
-        memory: PipelineMemory,
-        durable: DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
     fn parser_plan(&self) -> &ParserPlan;
+}
+
+pub struct SourceDiscoveryContext {
+    pub request: DeliveryDiscoveryRequest,
+    pub cancellation: CancellationToken,
+}
+
+pub struct SourceBuildContext {
+    pub partition_id: i64,
+    pub cancellation: CancellationToken,
+    pub memory: PipelineMemory,
+    pub durable: DurableContext,
 }
 
 // ---------------------------------------------------------------------------
@@ -51,10 +59,11 @@ pub trait SinkProvider: Send + Sync {
         Ok(())
     }
 
-    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
+    fn build_sink(&self, context: SinkBuildContext)
+        -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>>;
 }
 
-pub struct SinkContext {
+pub struct SinkBuildContext {
     pub partition_id: i64,
     pub counters: Arc<SinkCounters>,
     pub keep_system_columns: bool,

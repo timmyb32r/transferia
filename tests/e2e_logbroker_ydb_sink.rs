@@ -31,7 +31,7 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::build_sink_provider;
-use transferia::providers::traits::SinkContext;
+use transferia::providers::traits::SinkBuildContext;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_server::ServerMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::write_response::write_ack;
@@ -89,7 +89,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     });
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),

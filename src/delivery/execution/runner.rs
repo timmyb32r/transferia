@@ -14,7 +14,9 @@ use crate::delivery::preparation::DeliveryPlan;
 use crate::durable::DurableContext;
 use crate::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
 use crate::parsers::ParserFactory;
-use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider, SourceProvider};
+use crate::providers::traits::{
+    SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext, SourceProvider,
+};
 
 #[derive(Clone)]
 struct PipelineDependencies {
@@ -169,17 +171,17 @@ async fn run_partition_attempt(
     let memory = PipelineMemory::new(dependencies.memory_limit);
     let source = dependencies
         .source_provider
-        .build_source(
+        .build_source(SourceBuildContext {
             partition_id,
-            attempt_token.clone(),
-            memory.clone(),
-            dependencies.durable.clone(),
-        )
+            cancellation: attempt_token.clone(),
+            memory: memory.clone(),
+            durable: dependencies.durable.clone(),
+        })
         .await
         .context("source creation failed")?;
     let sink = dependencies
         .sink_provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             partition_id,
             counters: sink_counters,
             keep_system_columns: dependencies.keep_system_columns,

@@ -24,7 +24,9 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::s3::S3SourceProvider;
-use transferia::providers::traits::SourceProvider as _;
+use transferia::providers::traits::{
+    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
+};
 
 const IMAGE: &str = "localstack/localstack";
 const TAG: &str = "4.14.0";
@@ -98,21 +100,21 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
         Arc::new(MetricsRegistry::new()),
     )?;
     provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },
-            CancellationToken::new(),
-        )
+            cancellation: CancellationToken::new(),
+        })
         .await?;
 
     let mut source = provider
-        .build_source(
-            0,
-            CancellationToken::new(),
-            PipelineMemory::new(16 * 1024 * 1024),
-            support::durable_context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(16 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
         .await?;
     let mut parser = provider.parser_plan().parser().create_session();
     let mut ids = Vec::new();

@@ -21,7 +21,9 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::clickhouse::ClickHouseSourceProvider;
-use transferia::providers::traits::SourceProvider as _;
+use transferia::providers::traits::{
+    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
+};
 
 const IMAGE: &str = "clickhouse/clickhouse-server";
 const TAG: &str = "25.8.28.1";
@@ -69,23 +71,23 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
         Arc::new(MetricsRegistry::new()),
     )?;
     let discovery = provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },
-            CancellationToken::new(),
-        )
+            cancellation: CancellationToken::new(),
+        })
         .await?;
     assert_eq!(discovery.schema_origin, SchemaOrigin::SourceNative);
     assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 2);
 
     let mut source = provider
-        .build_source(
-            0,
-            CancellationToken::new(),
-            PipelineMemory::new(256 * 1024 * 1024),
-            support::durable_context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(256 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
         .await?;
     let first = source.read_batch().await?;
     let second = source.read_batch().await?;

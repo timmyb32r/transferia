@@ -9,7 +9,6 @@ use arrow::ipc::reader::StreamDecoder;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
-use tokio_util::sync::CancellationToken;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{SourceTableConfig, YTsaurusSourceConfig};
@@ -19,17 +18,15 @@ use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::core::data::table_data::TableData;
 use crate::core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
-    SourceTopology,
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
-use crate::core::memory::PipelineMemory;
 use crate::core::source::{CommitMarker, Source};
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>;
 
@@ -116,10 +113,13 @@ impl SourceProvider for YTsaurusSourceProvider {
 
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            let SourceDiscoveryContext {
+                request,
+                cancellation,
+            } = context;
             let tables = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YTsaurus discovery cancelled"),
@@ -172,12 +172,14 @@ impl SourceProvider for YTsaurusSourceProvider {
 
     fn build_source(
         &self,
-        partition_id: i64,
-        cancellation: CancellationToken,
-        _memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            let SourceBuildContext {
+                partition_id,
+                cancellation,
+                ..
+            } = context;
             let tables = self.discover_tables().await?;
             let table = tables
                 .get(usize::try_from(partition_id)?)

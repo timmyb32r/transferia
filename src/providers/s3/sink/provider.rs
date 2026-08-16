@@ -12,7 +12,7 @@ use crate::core::delivery::{
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use crate::core::sink::Sink;
-use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
+use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3SinkConfig};
@@ -355,7 +355,10 @@ impl SinkProvider for S3SinkProvider {
         Ok(())
     }
 
-    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+    fn build_sink(
+        &self,
+        context: SinkBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         let sink = S3Sink::new(
             self.cfg.clone(),
             Arc::clone(&self.uploader),

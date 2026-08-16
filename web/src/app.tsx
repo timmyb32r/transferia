@@ -3,6 +3,14 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "preact/hooks";
 
 import { api } from "./api";
 import {
+  DeliverySidebar,
+  EditorActions,
+  EditorTabs,
+  OperationNotices,
+  type OperationKey,
+  type OperationState,
+} from "./delivery/EditorChrome";
+import {
   CommonSettings,
   ContractView,
   EndpointCard,
@@ -48,23 +56,6 @@ const EMPTY_STATE: EditorState = {
   validation: { state: "draft" },
   runtime: { state: "stopped" },
 };
-
-type OperationKey =
-  | "bootstrap"
-  | "list"
-  | "open"
-  | "save"
-  | "validate"
-  | "action"
-  | "yaml"
-  | "parseYaml"
-  | "discovery";
-
-interface OperationState {
-  requestId: number;
-  label?: string;
-  error?: string;
-}
 
 interface EditorRequestContext {
   sessionId: EditorSessionId;
@@ -525,8 +516,10 @@ export function App() {
     ) {
       const requestId = beginOperation("yaml", "Rendering current YAML…");
       try {
-        const result = await yamlJob.run(context, editor.config, (config, signal) =>
-          api.yaml(config, signal),
+        const result = await yamlJob.run(
+          context,
+          editor.config,
+          (config, signal) => api.yaml(config, signal),
         );
         if (result === undefined || !isCurrentContext(result.context)) {
           finishOperation("yaml", requestId);
@@ -576,143 +569,77 @@ export function App() {
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
   ).some((key) => operations[key]?.label !== undefined);
-  const runningRunId =
-    editor.runtime.state === "running" ? editor.runtime.run_id : undefined;
   const actionButtons = (
-    <div class="actions">
-      {runningRunId !== undefined ? (
-        <button
-          class="danger-button"
-          type="button"
-          disabled={blockingOperation}
-          onClick={() =>
-            void runAction("Stopping worker…", () =>
-              api.stop(
-                editor.id!,
-                editor.persistedRevision!,
-                editor.recordVersion!,
-                runningRunId,
-              ),
-            )
-          }
-        >
-          Stop
-        </button>
-      ) : (
-        <>
-          <button
-            type="button"
-            disabled={blockingOperation || !isDirty(editor)}
-            onClick={() => void save()}
-          >
-            Save draft
-          </button>
-          <button
-            type="button"
-            disabled={blockingOperation || editor.name.trim() === ""}
-            onClick={() => void validate()}
-          >
-            Validate
-          </button>
-          <button
-            class="primary"
-            type="button"
-            disabled={
-              blockingOperation ||
-              editor.id === undefined ||
-              isDirty(editor) ||
-              editor.validation.state !== "ready" ||
-              editor.validation.revision !== editor.persistedRevision
-            }
-            onClick={() =>
-              void runAction("Starting worker…", () =>
-                api.activate(
-                  editor.id!,
-                  editor.persistedRevision!,
-                  editor.recordVersion!,
-                ),
-              )
-            }
-          >
-            Activate
-          </button>
-        </>
-      )}
-    </div>
+    <EditorActions
+      editor={editor}
+      blocked={blockingOperation}
+      onSave={() => void save()}
+      onValidate={() => void validate()}
+      onActivate={() =>
+        void runAction("Starting worker…", () =>
+          api.activate(
+            editor.id!,
+            editor.persistedRevision!,
+            editor.recordVersion!,
+          ),
+        )
+      }
+      onStop={(runId) =>
+        void runAction("Stopping worker…", () =>
+          api.stop(
+            editor.id!,
+            editor.persistedRevision!,
+            editor.recordVersion!,
+            runId,
+          ),
+        )
+      }
+    />
   );
 
   return (
     <div class="shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <span class="brand-mark">T</span>
-          <div>
-            <strong>Transferia</strong>
-            <small>Local control plane</small>
-          </div>
-        </div>
-        <button
-          class="primary new-button"
-          type="button"
-          onClick={() => {
-            cancelEditorJobs();
-            setOperations({});
-            dispatch({
-              type: "new",
-              sessionId: nextSession(),
-              config: freshConfig(catalog),
-            });
-            yamlEditing.current = false;
-            setActiveView("ui");
-            setDiscovery(undefined);
-          }}
-        >
-          + New delivery
-        </button>
-        <nav class="delivery-list">
-          {deliveries.map((delivery) => (
-            <button
-              type="button"
-              class={
-                delivery.id === editor.id
-                  ? "delivery-item active"
-                  : "delivery-item"
+      <DeliverySidebar
+        deliveries={deliveries}
+        selectedId={editor.id}
+        onNew={() => {
+          cancelEditorJobs();
+          setOperations({});
+          dispatch({
+            type: "new",
+            sessionId: nextSession(),
+            config: freshConfig(catalog),
+          });
+          yamlEditing.current = false;
+          setActiveView("ui");
+          setDiscovery(undefined);
+        }}
+        onOpen={(id) => {
+          cancelEditorJobs();
+          const sessionId = nextSession();
+          const requestId = beginOperation("open", "Opening delivery…");
+          void openJob
+            .run(sessionId, id, (deliveryId) => api.delivery(deliveryId))
+            .then((result) => {
+              if (result === undefined) {
+                finishOperation("open", requestId);
+                return;
               }
-              onClick={() => {
-                cancelEditorJobs();
-                const sessionId = nextSession();
-                const requestId = beginOperation("open", "Opening delivery…");
-                void openJob
-                  .run(sessionId, delivery.id, (id) => api.delivery(id))
-                  .then((result) => {
-                    if (result === undefined) {
-                      finishOperation("open", requestId);
-                      return;
-                    }
-                    yamlEditing.current = false;
-                    setActiveView("ui");
-                    setDiscovery(undefined);
-                    dispatch({
-                      type: "open",
-                      sessionId: result.context,
-                      delivery: result.value,
-                    });
-                    finishOperation("open", requestId);
-                  })
-                  .catch((reason: unknown) =>
-                    finishOperation("open", requestId, errorMessage(reason)),
-                  );
-              }}
-            >
-              <span>{delivery.name}</span>
-              <StatusPill runtime={delivery.runtime.state} />
-            </button>
-          ))}
-          {deliveries.length === 0 && (
-            <p class="empty-list">No saved deliveries yet.</p>
-          )}
-        </nav>
-      </aside>
+              yamlEditing.current = false;
+              setActiveView("ui");
+              setDiscovery(undefined);
+              dispatch({
+                type: "open",
+                sessionId: result.context,
+                delivery: result.value,
+              });
+              finishOperation("open", requestId);
+            })
+            .catch((reason: unknown) =>
+              finishOperation("open", requestId, errorMessage(reason)),
+            );
+        }}
+      />
 
       <main class="workspace">
         <header class="page-header">
@@ -731,53 +658,16 @@ export function App() {
             {actionButtons}
           </div>
         </header>
-        <div class="editor-tabs" role="tablist" aria-label="Configuration view">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "ui"}
-            class={activeView === "ui" ? "active" : ""}
-            disabled={blockingOperation}
-            onClick={() => void applyYamlAndShowUi()}
-          >
-            UI
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeView === "yaml"}
-            class={activeView === "yaml" ? "active" : ""}
-            disabled={blockingOperation}
-            onClick={() => void showYaml()}
-          >
-            YAML
-          </button>
-        </div>
-        {Object.entries(operations).map(
-          ([key, operation]) =>
-            operation?.error && (
-              <div class="notice error" key={key}>
-                <span>{operation.error}</span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    finishOperation(key as OperationKey, operation.requestId)
-                  }
-                >
-                  ×
-                </button>
-              </div>
-            ),
-        )}
-        {Object.values(operations).map(
-          (operation) =>
-            operation?.label && (
-              <div class="notice progress" key={operation.requestId}>
-                <span class="spinner" />
-                {operation.label}
-              </div>
-            ),
-        )}
+        <EditorTabs
+          active={activeView}
+          disabled={blockingOperation}
+          onUi={() => void applyYamlAndShowUi()}
+          onYaml={() => void showYaml()}
+        />
+        <OperationNotices
+          operations={operations}
+          onDismiss={(key, requestId) => finishOperation(key, requestId)}
+        />
 
         {activeView === "ui" ? (
           <div

@@ -8,15 +8,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
 use super::reader::S3Source;
-use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
-use crate::core::memory::PipelineMemory;
+use crate::core::delivery::{DeliveryDiscovery, SourceTopology};
 use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::providers::traits::SourceProvider;
+use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 pub struct S3SourceProvider {
     config: S3SourceConfig,
@@ -78,10 +77,13 @@ impl SourceProvider for S3SourceProvider {
     }
     fn delivery_discovery(
         &self,
-        request: DeliveryDiscoveryRequest,
-        cancellation: CancellationToken,
+        context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
+            let SourceDiscoveryContext {
+                request,
+                cancellation,
+            } = context;
             drop(self.snapshot(&cancellation).await?);
             self.parser_plan.delivery_discovery(
                 Arc::from(self.config.prefix.as_str()),
@@ -92,12 +94,15 @@ impl SourceProvider for S3SourceProvider {
     }
     fn build_source(
         &self,
-        partition_id: i64,
-        cancellation: CancellationToken,
-        memory: PipelineMemory,
-        _durable: crate::durable::DurableContext,
+        context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
+            let SourceBuildContext {
+                partition_id,
+                cancellation,
+                memory,
+                ..
+            } = context;
             anyhow::ensure!(partition_id == 0, "S3 source has only partition 0");
             let keys = self.snapshot(&cancellation).await?;
             let counters = self.counters(partition_id);

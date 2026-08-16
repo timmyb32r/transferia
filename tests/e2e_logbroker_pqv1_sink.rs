@@ -36,7 +36,7 @@ use transferia::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
-use transferia::providers::traits::{SinkContext, SinkProvider as _};
+use transferia::providers::traits::{SinkBuildContext, SinkProvider as _};
 
 const TOKEN: &str = "pq-sink-token";
 const TOPIC: &str = "/Root/output-topic";
@@ -83,7 +83,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
     });
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),

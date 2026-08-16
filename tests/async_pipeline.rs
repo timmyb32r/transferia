@@ -81,10 +81,7 @@ impl Source for MarkerOnlySource {
     ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move {
             for marker in markers {
-                let marker = marker
-                    .downcast_ref::<i64>()
-                    .copied()
-                    .ok_or_else(|| anyhow::anyhow!("invalid marker-only source marker"))?;
+                let marker = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
                 self.commits
                     .send(marker)
                     .map_err(|_| anyhow::anyhow!("marker commit receiver closed"))?;
@@ -142,10 +139,7 @@ impl Source for FakeSource {
     ) -> BoxFuture<'ctx, anyhow::Result<()>> {
         Box::pin(async move {
             for marker in markers {
-                let offset = marker
-                    .downcast_ref::<i64>()
-                    .copied()
-                    .ok_or_else(|| anyhow::anyhow!("invalid fake marker"))?;
+                let offset = marker.value::<i64>().copied().map_err(anyhow::Error::new)?;
                 self.commits
                     .send(offset)
                     .map_err(|_| anyhow::anyhow!("fake commit receiver closed"))?;

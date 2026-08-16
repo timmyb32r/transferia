@@ -14,7 +14,7 @@ use crate::delivery::semantics::EndpointDescriptor;
 use crate::providers::postgres::common::{
     arrow_to_postgres, connect, quote_identifier, validate_identifier, MAX_IDENTIFIER_BYTES,
 };
-use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
+use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct PostgresSinkProvider {
     config: Arc<PostgresSinkConfig>,
@@ -117,7 +117,10 @@ impl SinkProvider for PostgresSinkProvider {
             Ok(())
         })
     }
-    fn build_sink(&self, context: SinkContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+    fn build_sink(
+        &self,
+        context: SinkBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
             let client = connect(&self.config.connection).await?;
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;

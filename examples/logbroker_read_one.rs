@@ -10,7 +10,9 @@ use transferia::core::memory::PipelineMemory;
 use transferia::delivery::config::yaml::Config;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::logbroker::YdbDriverSourceProvider;
-use transferia::providers::traits::SourceProvider as _;
+use transferia::providers::traits::{
+    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
+};
 
 #[derive(Parser)]
 struct Args {
@@ -41,12 +43,12 @@ async fn main() -> anyhow::Result<()> {
     )?);
     let cancellation = CancellationToken::new();
     let discovery = provider
-        .delivery_discovery(
-            DeliveryDiscoveryRequest {
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
                 keep_system_columns: true,
             },
-            cancellation.clone(),
-        )
+            cancellation: cancellation.clone(),
+        })
         .await?;
     let reader_lane = discovery
         .source_topology
@@ -55,12 +57,12 @@ async fn main() -> anyhow::Result<()> {
         .next()
         .context("YDB Topic provider returned no reader lane")?;
     let mut source = provider
-        .build_source(
-            reader_lane,
-            cancellation.child_token(),
-            PipelineMemory::new(config.pipeline_memory_limit_bytes),
+        .build_source(SourceBuildContext {
+            partition_id: reader_lane,
+            cancellation: cancellation.child_token(),
+            memory: PipelineMemory::new(config.pipeline_memory_limit_bytes),
             durable,
-        )
+        })
         .await
         .context("failed to open YDB Topic reader")?;
     let batch = tokio::time::timeout(

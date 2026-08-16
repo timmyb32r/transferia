@@ -36,7 +36,8 @@ use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::postgres::{PostgresSinkProvider, PostgresSourceProvider};
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
 use transferia::providers::traits::{
-    SinkContext, SinkPrepare, SinkProvider as _, SourceProvider as _,
+    SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
+    SourceProvider as _,
 };
 
 const POSTGRES_IMAGE: &str = "postgres";
@@ -98,15 +99,15 @@ async fn run_pipeline(
     }
     let memory = PipelineMemory::new(256 * 1024 * 1024);
     let source_actor = source
-        .build_source(
-            0,
-            CancellationToken::new(),
-            memory.clone(),
-            support::durable_context(),
-        )
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: memory.clone(),
+            durable: support::durable_context(),
+        })
         .await?;
     let sink_actor = sink
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
@@ -185,12 +186,12 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     )?;
     let discovery = Arc::new(
         source
-            .delivery_discovery(
-                DeliveryDiscoveryRequest {
+            .delivery_discovery(SourceDiscoveryContext {
+                request: DeliveryDiscoveryRequest {
                     keep_system_columns: false,
                 },
-                CancellationToken::new(),
-            )
+                cancellation: CancellationToken::new(),
+            })
             .await?,
     );
 
@@ -339,7 +340,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         .prepare(SinkPrepare::from_discovery(&copy_discovery)?.expect("dataset"))
         .await?;
     let sink = postgres_sink
-        .build_sink(SinkContext {
+        .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
