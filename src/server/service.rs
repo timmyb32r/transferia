@@ -207,7 +207,7 @@ impl ControlPlane {
             revision: 1,
             record_version: 1,
             validation: ValidationState::Draft,
-            runtime: RuntimeState::Stopped,
+            runtime: RuntimeState::Created,
             created_at_ms: now,
             updated_at_ms: now,
         };
@@ -247,7 +247,9 @@ impl ControlPlane {
         let expected_record_version = record.record_version;
         record.record_version = next_version(record.record_version)?;
         record.validation = ValidationState::Draft;
-        record.runtime = RuntimeState::Stopped;
+        if record.runtime != RuntimeState::Created {
+            record.runtime = RuntimeState::Stopped;
+        }
         record.updated_at_ms = now_ms();
         self.store
             .replace(record.clone(), expected_record_version)

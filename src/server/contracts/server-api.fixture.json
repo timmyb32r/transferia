@@ -23,6 +23,9 @@
   },
   "runtime_states": [
     {
+      "state": "created"
+    },
+    {
       "state": "stopped"
     },
     {

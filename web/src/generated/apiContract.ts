@@ -51,6 +51,9 @@ export type ValidationState =
 
 export type RuntimeState =
   | {
+      state: "created";
+    }
+  | {
       state: "stopped";
     }
   | {

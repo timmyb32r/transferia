@@ -237,6 +237,7 @@ pub fn fixture() -> anyhow::Result<Value> {
         updated_at_ms: 2000,
     };
     let runtime_states = [
+        RuntimeState::Created,
         RuntimeState::Stopped,
         RuntimeState::Starting {
             run_id: RunId("run-1".to_owned()),

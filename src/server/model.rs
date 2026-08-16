@@ -19,6 +19,7 @@ pub enum ValidationState {
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RuntimeState {
+    Created,
     Stopped,
     Starting { run_id: RunId },
     Running { run_id: RunId, pid: u32 },
@@ -38,7 +39,7 @@ impl RuntimeState {
     #[must_use]
     pub const fn run_id(&self) -> Option<&RunId> {
         match self {
-            Self::Stopped => None,
+            Self::Created | Self::Stopped => None,
             Self::Starting { run_id }
             | Self::Running { run_id, .. }
             | Self::Stopping { run_id }

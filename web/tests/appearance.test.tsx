@@ -74,11 +74,11 @@ describe("appearance preferences", () => {
     fireEvent.click(view.getByRole("button", { name: /Settings/ }));
 
     expect(view.getByRole("radio", { name: /yandex-cloud/ })).toBeTruthy();
-    expect(view.getByRole("radio", { name: /airy v0/ })).toBeTruthy();
+    expect(view.getByRole("radio", { name: /airy \(adopted\)/ })).toBeTruthy();
     expect(view.getByRole("radio", { name: "Light" })).toBeTruthy();
     expect(view.getByRole("radio", { name: "Dark" })).toBeTruthy();
 
-    fireEvent.click(view.getByRole("radio", { name: /airy v0/ }));
+    fireEvent.click(view.getByRole("radio", { name: /airy \(adopted\)/ }));
     expect(onChange).toHaveBeenCalledWith({
       design: "airy-v0",
       theme: "dark",

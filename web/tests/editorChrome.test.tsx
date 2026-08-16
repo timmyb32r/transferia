@@ -30,6 +30,8 @@ describe("editor chrome", () => {
       <EditorActions
         editor={editor({ state: "running", run_id: "run-17", pid: 42 })}
         blocked={false}
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
         onEdit={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -48,6 +50,8 @@ describe("editor chrome", () => {
       <EditorActions
         editor={editor({ state: "stopped" })}
         blocked
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
         onEdit={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -76,6 +80,8 @@ describe("editor chrome", () => {
       <EditorActions
         editor={{ ...editor({ state: "stopped" }), editing: false }}
         blocked={false}
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
         onEdit={onEdit}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -87,6 +93,62 @@ describe("editor chrome", () => {
     expect(view.queryByRole("button", { name: "Save" })).toBeNull();
     fireEvent.click(view.getByRole("button", { name: "Edit" }));
     expect(onEdit).toHaveBeenCalledOnce();
+  });
+
+  it("allows a newly created delivery to enter edit mode", () => {
+    const onEdit = vi.fn();
+    const view = render(
+      <EditorActions
+        editor={{ ...editor({ state: "created" }), editing: false }}
+        blocked={false}
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
+        onEdit={onEdit}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Edit" }));
+
+    expect(onEdit).toHaveBeenCalledOnce();
+  });
+
+  it("lets an inactive Activate reveal missing required fields", () => {
+    const onMissingRequired = vi.fn();
+    const onActivate = vi.fn();
+    const view = render(
+      <EditorActions
+        editor={{
+          sessionId: "new-session",
+          editing: true,
+          localRevision: 0,
+          name: "",
+          description: "",
+          config: {},
+          validation: { state: "draft" },
+          runtime: { state: "stopped" },
+        }}
+        blocked={false}
+        requiredFieldsComplete={false}
+        onMissingRequired={onMissingRequired}
+        onEdit={() => undefined}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={onActivate}
+        onStop={() => undefined}
+      />,
+    );
+
+    const activate = view.getByRole("button", { name: "Activate" });
+    expect((activate as HTMLButtonElement).disabled).toBe(false);
+    expect(activate.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(activate);
+
+    expect(onMissingRequired).toHaveBeenCalledOnce();
+    expect(onActivate).not.toHaveBeenCalled();
   });
 
   it("reports sidebar navigation without owning request state", () => {

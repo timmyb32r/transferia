@@ -26,6 +26,8 @@ export interface OperationState {
 export function EditorActions({
   editor,
   blocked,
+  requiredFieldsComplete,
+  onMissingRequired,
   onEdit,
   onSave,
   onValidate,
@@ -34,6 +36,8 @@ export function EditorActions({
 }: {
   editor: EditorState;
   blocked: boolean;
+  requiredFieldsComplete: boolean;
+  onMissingRequired: () => void;
   onEdit: () => void;
   onSave: () => void;
   onValidate: () => void;
@@ -54,9 +58,19 @@ export function EditorActions({
       </div>
     );
   }
+  const activationReady =
+    editor.id !== undefined &&
+    !isDirty(editor) &&
+    editor.validation.state === "ready" &&
+    editor.validation.revision === editor.persistedRevision;
+  const activationIsDiagnostic = !activationReady && !requiredFieldsComplete;
+  const activate = () =>
+    activationIsDiagnostic ? onMissingRequired() : onActivate();
   if (!editor.editing && editor.id !== undefined) {
     const runtimeAllowsEditing =
-      editor.runtime.state === "stopped" || editor.runtime.state === "failed";
+      editor.runtime.state === "created" ||
+      editor.runtime.state === "stopped" ||
+      editor.runtime.state === "failed";
     return (
       <div class="actions">
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
@@ -70,12 +84,10 @@ export function EditorActions({
         </Button>
         <Button
           variant="primary"
-          disabled={
-            blocked ||
-            editor.validation.state !== "ready" ||
-            editor.validation.revision !== editor.persistedRevision
-          }
-          onClick={onActivate}
+          class={activationIsDiagnostic ? "diagnostic-disabled" : undefined}
+          aria-disabled={!activationReady}
+          disabled={blocked || (!activationReady && !activationIsDiagnostic)}
+          onClick={activate}
         >
           Activate
         </Button>
@@ -95,14 +107,10 @@ export function EditorActions({
       </Button>
       <Button
         variant="primary"
-        disabled={
-          blocked ||
-          editor.id === undefined ||
-          isDirty(editor) ||
-          editor.validation.state !== "ready" ||
-          editor.validation.revision !== editor.persistedRevision
-        }
-        onClick={onActivate}
+        class={activationIsDiagnostic ? "diagnostic-disabled" : undefined}
+        aria-disabled={!activationReady}
+        disabled={blocked || (!activationReady && !activationIsDiagnostic)}
+        onClick={activate}
       >
         Activate
       </Button>

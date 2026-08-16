@@ -73,6 +73,7 @@ export function App() {
   );
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
+  const [showRequiredErrors, setShowRequiredErrors] = useState(false);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
     operations,
@@ -197,6 +198,8 @@ export function App() {
       compiledSchema(selection.sink.schema),
       endpointValue(editor.config, "sink", selection.sinkKey),
     );
+  const requiredFieldsComplete =
+    structurallyComplete && editor.name.trim() !== "";
   const { discovery, setDiscovery } = useDiscovery({
     editor,
     structurallyComplete,
@@ -292,7 +295,12 @@ export function App() {
     <EditorActions
       editor={editor}
       blocked={blockingOperation}
-      onEdit={() => dispatch({ type: "edit" })}
+      requiredFieldsComplete={requiredFieldsComplete}
+      onMissingRequired={() => setShowRequiredErrors(true)}
+      onEdit={() => {
+        setShowRequiredErrors(false);
+        dispatch({ type: "edit" });
+      }}
       onSave={() => void mutations.save()}
       onValidate={() => void mutations.validate()}
       onActivate={() =>
@@ -327,6 +335,7 @@ export function App() {
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});
+          setShowRequiredErrors(false);
           dispatch({
             type: "new",
             sessionId: nextSession(),
@@ -348,6 +357,7 @@ export function App() {
               }
               yamlEditor.reset();
               setDiscovery(undefined);
+              setShowRequiredErrors(false);
               dispatch({
                 type: "open",
                 sessionId: result.context,
@@ -396,6 +406,7 @@ export function App() {
             selection={selection}
             discovery={discovery}
             readOnly={readOnly}
+            showRequiredErrors={showRequiredErrors}
             onName={(name) => dispatchLocalChange({ type: "name", name })}
             onDescription={(description) =>
               dispatchLocalChange({ type: "description", description })

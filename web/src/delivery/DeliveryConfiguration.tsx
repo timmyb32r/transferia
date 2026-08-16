@@ -18,6 +18,7 @@ export function DeliveryConfiguration({
   selection,
   discovery,
   readOnly,
+  showRequiredErrors,
   onName,
   onDescription,
   onConfig,
@@ -28,6 +29,7 @@ export function DeliveryConfiguration({
   selection: EndpointSelection | undefined;
   discovery: DiscoveryResult | undefined;
   readOnly: boolean;
+  showRequiredErrors: boolean;
   onName: (name: string) => void;
   onDescription: (description: string) => void;
   onConfig: (config: JsonObject) => void;
@@ -42,7 +44,11 @@ export function DeliveryConfiguration({
   return (
     <div class="editor-view" role="tabpanel" key={`editor-${editor.sessionId}`}>
       <section class="card identity-card">
-        <TopField label="Delivery name" required>
+        <TopField
+          label="Delivery name"
+          required
+          invalid={showRequiredErrors && editor.name.trim() === ""}
+        >
           <input
             type="text"
             value={editor.name}
@@ -59,7 +65,14 @@ export function DeliveryConfiguration({
             onInput={(event) => onDescription(event.currentTarget.value)}
           />
         </TopField>
-        <TopField label="Delivery type" required>
+        <TopField
+          label="Delivery type"
+          required
+          invalid={
+            showRequiredErrors &&
+            stringValue(editor.config.delivery_type) === ""
+          }
+        >
           <SelectControl
             value={stringValue(editor.config.delivery_type)}
             disabled={readOnly}
@@ -87,6 +100,7 @@ export function DeliveryConfiguration({
             : { endpoint: selection.source })}
           config={editor.config}
           readOnly={readOnly}
+          showRequiredErrors={showRequiredErrors}
           onChoose={onChooseEndpoint}
           onConfig={onConfig}
         />
@@ -101,6 +115,7 @@ export function DeliveryConfiguration({
             : { endpoint: selection.sink })}
           config={editor.config}
           readOnly={readOnly}
+          showRequiredErrors={showRequiredErrors}
           onChoose={onChooseEndpoint}
           onConfig={onConfig}
         />
@@ -109,6 +124,7 @@ export function DeliveryConfiguration({
             node={compiledSchema(selection.source.schema)}
             value={endpointValue(editor.config, "source", selection.sourceKey)}
             disabled={readOnly}
+            showRequiredErrors={showRequiredErrors}
             onChange={(next) =>
               onConfig({
                 ...editor.config,
@@ -131,6 +147,7 @@ export function DeliveryConfiguration({
           schema={catalog.common_schema}
           config={editor.config}
           disabled={readOnly}
+          showRequiredErrors={showRequiredErrors}
           partitionedSource={selection?.source?.partitioned === true}
           onChange={onConfig}
         />

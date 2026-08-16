@@ -40,6 +40,33 @@ describe("App request orchestration", () => {
     vi.useRealTimers();
   });
 
+  it("highlights missing required fields when inactive Activate is clicked", async () => {
+    installApiMocks([]);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    fireEvent.click(app.getByRole("button", { name: "Activate" }));
+
+    expect(
+      app
+        .getByLabelText("Delivery name")
+        .closest("label")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
+    expect(
+      app
+        .getByText("Delivery type")
+        .closest("label")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
+    for (const title of ["Source", "Destination"]) {
+      const card = app.getByRole("heading", { name: title }).closest("article");
+      expect(card?.querySelector(".required-missing")).not.toBeNull();
+    }
+    expect(api.activate).not.toHaveBeenCalled();
+  });
+
   it("does not let a save response overwrite a delivery opened meanwhile", async () => {
     const existing = delivery("existing", "Existing");
     installApiMocks([existing]);

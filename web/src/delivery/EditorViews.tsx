@@ -18,6 +18,7 @@ export function EndpointCard(props: {
   endpoint?: EndpointDefinition;
   config: JsonObject;
   readOnly: boolean;
+  showRequiredErrors: boolean;
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
 }) {
@@ -28,23 +29,32 @@ export function EndpointCard(props: {
   return (
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <h2>{props.title}</h2>
-      <SelectControl
-        searchable
-        value={props.selectedKey}
-        disabled={props.readOnly}
-        placeholder="Not selected"
-        options={props.providers.map((provider) => ({
-          value: provider.key,
-          label: provider.title,
-        }))}
-        onChange={(key) => props.onChoose(props.role, key)}
-      />
+      <div
+        class={
+          props.showRequiredErrors && props.selectedKey === ""
+            ? "required-missing"
+            : undefined
+        }
+      >
+        <SelectControl
+          searchable
+          value={props.selectedKey}
+          disabled={props.readOnly}
+          placeholder="Not selected"
+          options={props.providers.map((provider) => ({
+            value: provider.key,
+            label: provider.title,
+          }))}
+          onChange={(key) => props.onChoose(props.role, key)}
+        />
+      </div>
       {props.endpoint && (
         <div class="endpoint-fields">
           <SchemaForm
             node={compiledSchema(props.endpoint.schema)}
             value={value}
             disabled={props.readOnly}
+            showRequiredErrors={props.showRequiredErrors}
             parserSelectionOnly={props.role === "source"}
             onChange={(next) =>
               props.onConfig({
@@ -64,12 +74,14 @@ export function CommonSettings({
   config,
   disabled,
   partitionedSource,
+  showRequiredErrors,
   onChange,
 }: {
   schema: UiCatalog["common_schema"];
   config: JsonObject;
   disabled: boolean;
   partitionedSource: boolean;
+  showRequiredErrors: boolean;
   onChange: (config: JsonObject) => void;
 }) {
   const compiled = compiledSchema(schema);
@@ -96,6 +108,7 @@ export function CommonSettings({
       node={node}
       value={config}
       disabled={disabled}
+      showRequiredErrors={showRequiredErrors}
       onChange={(value) => {
         if (isObject(value)) onChange({ ...config, ...value });
       }}

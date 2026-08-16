@@ -280,6 +280,18 @@
           "properties": {
             "state": {
               "type": "string",
+              "const": "created"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
               "const": "stopped"
             }
           },

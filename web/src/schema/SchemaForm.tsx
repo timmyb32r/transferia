@@ -11,6 +11,7 @@ import {
   branchMatches,
   createValue,
   humanize,
+  isComplete,
   type CompiledNode,
 } from "./compiler";
 import { TrashIcon } from "../ui/icons";
@@ -30,27 +31,32 @@ import {
 
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
+  showRequiredErrors?: boolean;
 }
 
 const ParserSelectionContext = createContext(false);
+const RequiredErrorsContext = createContext(false);
 
 export function SchemaForm({
   node,
   value,
   disabled = false,
   parserSelectionOnly = false,
+  showRequiredErrors = false,
   onChange,
 }: SchemaFormProps) {
   return (
-    <ParserSelectionContext.Provider value={parserSelectionOnly}>
-      <NodeEditor
-        node={node}
-        value={value}
-        disabled={disabled}
-        onChange={onChange}
-        path="#"
-      />
-    </ParserSelectionContext.Provider>
+    <RequiredErrorsContext.Provider value={showRequiredErrors}>
+      <ParserSelectionContext.Provider value={parserSelectionOnly}>
+        <NodeEditor
+          node={node}
+          value={value}
+          disabled={disabled}
+          onChange={onChange}
+          path="#"
+        />
+      </ParserSelectionContext.Provider>
+    </RequiredErrorsContext.Provider>
   );
 }
 
@@ -58,6 +64,7 @@ export function ParserDetailsForm({
   node,
   value,
   disabled = false,
+  showRequiredErrors = false,
   onChange,
 }: SchemaFormProps) {
   if (node.kind !== "object") return null;
@@ -82,7 +89,7 @@ export function ParserDetailsForm({
   )
     return null;
   return (
-    <>
+    <RequiredErrorsContext.Provider value={showRequiredErrors}>
       <div class="source-parser-bridge" aria-hidden="true" />
       <section class="parser-details-card">
         <div class="section-heading">
@@ -95,7 +102,7 @@ export function ParserDetailsForm({
           onChange={(next) => onChange({ ...object, [name]: next })}
         />
       </section>
-    </>
+    </RequiredErrorsContext.Provider>
   );
 }
 
@@ -429,6 +436,9 @@ function PropertyEditor({
   onChange,
   path = `#/${name}`,
 }: PropertyEditorProps) {
+  const showRequiredErrors = useContext(RequiredErrorsContext);
+  const missingRequired =
+    showRequiredErrors && required && !isComplete(node, value);
   const effective = value ?? createValue(node);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
@@ -449,7 +459,12 @@ function PropertyEditor({
     },
     { NodeEditor, PropertyEditor },
   );
-  if (customWidget !== undefined) return <>{customWidget}</>;
+  if (customWidget !== undefined)
+    return (
+      <div class={missingRequired ? "required-missing" : undefined}>
+        {customWidget}
+      </div>
+    );
   const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField
@@ -457,7 +472,7 @@ function PropertyEditor({
       optional={!required}
       description={node.xUi.widget === "parser" ? undefined : node.description}
       controlId={isDirectlyLabelled(node) ? identifier : undefined}
-      class={classes}
+      class={`${classes}${missingRequired ? " required-missing" : ""}`}
     >
       <NodeEditor
         node={node}

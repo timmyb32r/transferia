@@ -156,7 +156,8 @@ async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Res
     assert_eq!(updated.revision, 2);
     assert_eq!(updated.description, "description");
     assert_eq!(updated.validation, ValidationState::Draft);
-    assert_eq!(updated.runtime, RuntimeState::Stopped);
+    assert_eq!(created.runtime, RuntimeState::Created);
+    assert_eq!(updated.runtime, RuntimeState::Created);
     Ok(())
 }
 

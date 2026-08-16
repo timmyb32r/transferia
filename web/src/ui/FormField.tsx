@@ -36,14 +36,16 @@ export function FormField({
 export function TopField({
   label,
   required = false,
+  invalid = false,
   children,
 }: {
   label: string;
   required?: boolean;
+  invalid?: boolean;
   children: ComponentChildren;
 }) {
   return (
-    <label class="top-field">
+    <label class={invalid ? "top-field required-missing" : "top-field"}>
       <span>
         {label}
         {!required && <small class="optional">(optional)</small>}
