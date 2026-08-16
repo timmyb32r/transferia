@@ -1,5 +1,6 @@
 import { useRef, useState } from "preact/hooks";
 
+import { Button } from "../ui/Button";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
 
 export function ColumnActions({
@@ -67,45 +68,30 @@ export function ColumnActions({
           })}
         >
           {hasSettings && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => run(onSettings)}
-            >
+            <Button role="menuitem" onClick={() => run(onSettings)}>
               Column settings{settingsExpanded ? " ✓" : ""}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button
             role="menuitem"
             disabled={onMoveUp === undefined}
             onClick={() => onMoveUp && run(onMoveUp)}
           >
             Move up
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             role="menuitem"
             disabled={onMoveDown === undefined}
             onClick={() => onMoveDown && run(onMoveDown)}
           >
             Move down
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => run(onDuplicate)}
-          >
+          </Button>
+          <Button role="menuitem" onClick={() => run(onDuplicate)}>
             Duplicate
-          </button>
-          <button
-            class="danger"
-            type="button"
-            role="menuitem"
-            onClick={() => run(onDelete)}
-          >
+          </Button>
+          <Button class="danger" role="menuitem" onClick={() => run(onDelete)}>
             Delete
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,7 +1,6 @@
-import type { ComponentChildren } from "preact";
-
 import { SchemaForm, SelectControl } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
+import { Disclosure } from "../ui/Disclosure";
 import type {
   DiscoveryResult,
   EndpointDefinition,
@@ -150,31 +149,10 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
           </div>
         </div>
       ))}
-      <details class="foldout sink-limits">
-        <summary>Destination limits</summary>
+      <Disclosure label="Destination limits" class="sink-limits">
         <pre>{JSON.stringify(result.sink_limits, null, 2)}</pre>
-      </details>
+      </Disclosure>
     </section>
-  );
-}
-
-export function FieldLabel({
-  label,
-  required = false,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: ComponentChildren;
-}) {
-  return (
-    <label class="top-field">
-      <span>
-        {label}
-        {!required && <small class="optional">(optional)</small>}
-      </span>
-      {children}
-    </label>
   );
 }
 

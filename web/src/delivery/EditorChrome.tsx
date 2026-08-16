@@ -1,6 +1,7 @@
 import type { EditorState } from "../state";
 import { isDirty } from "../state";
 import type { DeliverySummary } from "../types";
+import { Button } from "../ui/Button";
 import { StatusPill } from "./EditorViews";
 
 export type OperationKey =
@@ -39,36 +40,29 @@ export function EditorActions({
     const runId = editor.runtime.run_id;
     return (
       <div class="actions">
-        <button
-          class="danger-button"
-          type="button"
+        <Button
+          variant="danger"
           disabled={blocked}
           onClick={() => onStop(runId)}
         >
           Stop
-        </button>
+        </Button>
       </div>
     );
   }
   return (
     <div class="actions">
-      <button
-        type="button"
-        disabled={blocked || !isDirty(editor)}
-        onClick={onSave}
-      >
+      <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
         Save draft
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         disabled={blocked || editor.name.trim() === ""}
         onClick={onValidate}
       >
         Validate
-      </button>
-      <button
-        class="primary"
-        type="button"
+      </Button>
+      <Button
+        variant="primary"
         disabled={
           blocked ||
           editor.id === undefined ||
@@ -79,7 +73,7 @@ export function EditorActions({
         onClick={onActivate}
       >
         Activate
-      </button>
+      </Button>
     </div>
   );
 }
@@ -104,13 +98,12 @@ export function DeliverySidebar({
           <small>Local control plane</small>
         </div>
       </div>
-      <button class="primary new-button" type="button" onClick={onNew}>
+      <Button variant="primary" class="new-button" onClick={onNew}>
         + New delivery
-      </button>
+      </Button>
       <nav class="delivery-list">
         {deliveries.map((delivery) => (
-          <button
-            type="button"
+          <Button
             class={
               delivery.id === selectedId
                 ? "delivery-item active"
@@ -120,7 +113,7 @@ export function DeliverySidebar({
           >
             <span>{delivery.name}</span>
             <StatusPill runtime={delivery.runtime.state} />
-          </button>
+          </Button>
         ))}
         {deliveries.length === 0 && (
           <p class="empty-list">No saved deliveries yet.</p>
@@ -143,8 +136,7 @@ export function EditorTabs({
 }) {
   return (
     <div class="editor-tabs" role="tablist" aria-label="Configuration view">
-      <button
-        type="button"
+      <Button
         role="tab"
         aria-selected={active === "ui"}
         class={active === "ui" ? "active" : ""}
@@ -152,9 +144,8 @@ export function EditorTabs({
         onClick={onUi}
       >
         UI
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button
         role="tab"
         aria-selected={active === "yaml"}
         class={active === "yaml" ? "active" : ""}
@@ -162,7 +153,7 @@ export function EditorTabs({
         onClick={onYaml}
       >
         YAML
-      </button>
+      </Button>
     </div>
   );
 }
@@ -181,14 +172,13 @@ export function OperationNotices({
           operation?.error && (
             <div class="notice error" key={key}>
               <span>{operation.error}</span>
-              <button
-                type="button"
+              <Button
                 onClick={() =>
                   onDismiss(key as OperationKey, operation.requestId)
                 }
               >
                 ×
-              </button>
+              </Button>
             </div>
           ),
       )}

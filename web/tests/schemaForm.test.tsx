@@ -498,7 +498,7 @@ describe("schema form", () => {
     };
     const node: CompiledNode = {
       kind: "object",
-      xUi: {},
+      xUi: { widget: "json_parser" },
       required: new Set(["common", "json_parser"]),
       properties: {
         common: {
@@ -577,7 +577,7 @@ describe("schema form", () => {
   it("renders parser selection in the endpoint and details separately", () => {
     const parserContainer: CompiledNode = {
       kind: "object",
-      xUi: {},
+      xUi: { widget: "json_parser" },
       required: new Set(["common", "json_parser"]),
       properties: {
         common: {

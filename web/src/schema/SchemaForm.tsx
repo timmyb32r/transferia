@@ -1,33 +1,32 @@
-import { createContext, type ComponentChildren } from "preact";
+import { createContext } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
+import { Button } from "../ui/Button";
+import { Disclosure } from "../ui/Disclosure";
+import { FormField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 export { SelectControl } from "../ui/SelectControl";
-import { CompactArrayEditor } from "./CompactArrayEditor";
-import { ColumnMappingsEditor } from "./ColumnMappingsEditor";
 import {
   branchMatches,
   createValue,
   humanize,
   type CompiledNode,
 } from "./compiler";
-import {
-  ByteSizeInput,
-  PartitionRangesInput,
-  PasswordInput,
-  SystemColumnsEditor,
-  TrashIcon,
-} from "./controls";
+import { TrashIcon } from "../ui/icons";
 import { DynamicSelectControl } from "./DynamicSelectControl";
 import type { NodeEditorProps, PropertyEditorProps } from "./editorTypes";
-import { isJsonParserContainer, JsonParserEditor } from "./JsonParserEditor";
 import {
   clearConfiguredPartitionRanges,
   hasConfiguredPartitionRanges,
   partitionRangesProperty,
 } from "./partitionRanges";
-import { isObject, stringArray } from "./value";
+import { isObject } from "./value";
+import {
+  isHiddenProperty,
+  renderNodeWidget,
+  renderPropertyWidget,
+} from "./widgetRenderers";
 
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
@@ -103,21 +102,6 @@ export function ParserDetailsForm({
   );
 }
 
-function DisclosureSummary({ children }: { children: ComponentChildren }) {
-  return (
-    <summary
-      onClick={(event) => {
-        if (event.detail > 0) {
-          const summary = event.currentTarget;
-          queueMicrotask(() => summary.blur());
-        }
-      }}
-    >
-      {children}
-    </summary>
-  );
-}
-
 function NodeEditor({
   node,
   value,
@@ -151,43 +135,16 @@ function NodeEditor({
     partitionRanges?.arrayName,
     partitionRanges?.fieldName,
   ]);
-  if (node.kind === "object" && isJsonParserContainer(node))
-    return (
-      <JsonParserEditor
-        node={node}
-        value={value}
-        disabled={isDisabled}
-        onChange={onChange}
-        NodeEditor={NodeEditor}
-        PropertyEditor={PropertyEditor}
-      />
-    );
-  if (node.kind === "object" && node.xUi.widget === "system_columns")
-    return (
-      <SystemColumnsEditor
-        node={node}
-        value={value}
-        disabled={isDisabled}
-        onChange={onChange}
-      />
-    );
-  if (node.kind === "array" && node.xUi.widget === "partition_ranges")
-    return (
-      <PartitionRangesInput
-        id={controlId}
-        value={value}
-        disabled={isDisabled}
-        onChange={onChange}
-      />
-    );
+  const customWidget = renderNodeWidget(
+    { node, value, disabled: isDisabled, onChange, path, controlId },
+    { NodeEditor, PropertyEditor },
+  );
+  if (customWidget !== undefined) return <>{customWidget}</>;
   switch (node.kind) {
     case "object": {
       const object = isObject(value) ? value : {};
       const visible = Object.entries(node.properties).filter(
-        ([, child]) =>
-          child.xUi.widget !== "column_keys" &&
-          child.xUi.widget !== "hidden" &&
-          !(child.kind === "string" && child.enumValues?.length === 1),
+        ([, child]) => !isHiddenProperty(child),
       );
       const regular = visible.filter(
         ([, child]) =>
@@ -202,101 +159,77 @@ function NodeEditor({
       );
       return (
         <div class="schema-object">
-          {regular.map(([name, child]) =>
-            child.xUi.widget === "column_mappings" && child.kind === "array" ? (
-              <ColumnMappingsEditor
-                key={name}
-                node={child.item}
-                value={Array.isArray(object[name]) ? object[name] : []}
-                keys={stringArray(object.keys)}
-                additionalKeyOptions={[]}
-                disabled={isDisabled}
-                NodeEditor={NodeEditor}
-                PropertyEditor={PropertyEditor}
-                onChange={(columns, keys) =>
-                  onChange({
-                    ...object,
-                    [name]: columns,
-                    keys,
-                  })
-                }
-              />
-            ) : (
-              <PropertyEditor
-                key={name}
-                name={name}
-                node={child}
-                required={node.required.has(name)}
-                value={object[name]}
-                disabled={isDisabled}
-                showPartitionRanges={partitionRangesVisible}
-                path={`${path}/${name}`}
-                onChange={(next) => onChange({ ...object, [name]: next })}
-              />
-            ),
-          )}
+          {regular.map(([name, child]) => (
+            <PropertyEditor
+              key={name}
+              name={name}
+              node={child}
+              required={node.required.has(name)}
+              value={object[name]}
+              disabled={isDisabled}
+              showPartitionRanges={partitionRangesVisible}
+              parentValue={object}
+              onParentChange={onChange}
+              path={`${path}/${name}`}
+              onChange={(next) => onChange({ ...object, [name]: next })}
+            />
+          ))}
           {(advanced.length > 0 || partitionRanges !== undefined) && (
-            <details class="foldout">
-              <DisclosureSummary>Advanced settings</DisclosureSummary>
-              <div class="foldout-content">
-                {partitionRanges !== undefined && (
-                  <div class="form-row partition-mode-control">
-                    <span class="field-label">Specify partitions</span>
-                    <label class="toggle">
-                      <input
-                        type="checkbox"
-                        aria-label="Specify partitions"
-                        checked={partitionRangesVisible}
-                        disabled={isDisabled}
-                        onChange={(event) => {
-                          const visible = event.currentTarget.checked;
-                          setPartitionRangesVisible(visible);
-                          if (!visible) {
-                            onChange(
-                              clearConfiguredPartitionRanges(
-                                object,
-                                partitionRanges,
-                              ),
-                            );
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                )}
-                {advanced.map(([name, child]) => (
-                  <PropertyEditor
-                    key={name}
-                    name={name}
-                    node={child}
-                    required={node.required.has(name)}
-                    value={object[name]}
-                    disabled={isDisabled}
-                    path={`${path}/${name}`}
-                    onChange={(next) => onChange({ ...object, [name]: next })}
-                  />
-                ))}
-              </div>
-            </details>
+            <Disclosure label="Advanced settings">
+              {partitionRanges !== undefined && (
+                <div class="form-row partition-mode-control">
+                  <span class="field-label">Specify partitions</span>
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      aria-label="Specify partitions"
+                      checked={partitionRangesVisible}
+                      disabled={isDisabled}
+                      onChange={(event) => {
+                        const visible = event.currentTarget.checked;
+                        setPartitionRangesVisible(visible);
+                        if (!visible) {
+                          onChange(
+                            clearConfiguredPartitionRanges(
+                              object,
+                              partitionRanges,
+                            ),
+                          );
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+              {advanced.map(([name, child]) => (
+                <PropertyEditor
+                  key={name}
+                  name={name}
+                  node={child}
+                  required={node.required.has(name)}
+                  value={object[name]}
+                  disabled={isDisabled}
+                  path={`${path}/${name}`}
+                  onChange={(next) => onChange({ ...object, [name]: next })}
+                />
+              ))}
+            </Disclosure>
           )}
           {systemColumns.length > 0 && (
-            <details class="foldout system-columns">
-              <DisclosureSummary>Add system columns</DisclosureSummary>
-              <div class="foldout-content">
-                {systemColumns.map(([name, child]) => (
-                  <PropertyEditor
-                    key={name}
-                    name={name}
-                    node={child}
-                    required={node.required.has(name)}
-                    value={object[name]}
-                    disabled={isDisabled}
-                    path={`${path}/${name}`}
-                    onChange={(next) => onChange({ ...object, [name]: next })}
-                  />
-                ))}
-              </div>
-            </details>
+            <Disclosure label="Add system columns" class="system-columns">
+              {systemColumns.map(([name, child]) => (
+                <PropertyEditor
+                  key={name}
+                  name={name}
+                  node={child}
+                  required={node.required.has(name)}
+                  value={object[name]}
+                  disabled={isDisabled}
+                  path={`${path}/${name}`}
+                  onChange={(next) => onChange({ ...object, [name]: next })}
+                />
+              ))}
+            </Disclosure>
           )}
         </div>
       );
@@ -321,9 +254,9 @@ function NodeEditor({
                   }}
                 />
               </div>
-              <button
-                class="icon-button danger"
-                type="button"
+              <Button
+                shape="icon"
+                class="danger"
                 title="Remove"
                 disabled={isDisabled}
                 onClick={() =>
@@ -331,18 +264,18 @@ function NodeEditor({
                 }
               >
                 <TrashIcon />
-              </button>
+              </Button>
             </div>
           ))}
-          <button
-            class="icon-button add"
-            type="button"
+          <Button
+            shape="icon"
+            class="add"
             title="Add"
             disabled={isDisabled}
             onClick={() => onChange([...items, createValue(node.item)])}
           >
             +
-          </button>
+          </Button>
         </div>
       );
     }
@@ -428,15 +361,6 @@ function NodeEditor({
         </label>
       );
     case "number":
-      if (node.xUi.widget === "byte_size")
-        return (
-          <ByteSizeInput
-            id={controlId}
-            value={typeof value === "number" ? value : null}
-            disabled={isDisabled}
-            onChange={onChange}
-          />
-        );
       return (
         <input
           id={controlId}
@@ -484,14 +408,7 @@ function NodeEditor({
           />
         );
       }
-      return node.xUi.widget === "password" ? (
-        <PasswordInput
-          id={controlId}
-          value={typeof value === "string" ? value : ""}
-          disabled={isDisabled}
-          onChange={onChange}
-        />
-      ) : (
+      return (
         <input
           id={controlId}
           type="text"
@@ -510,86 +427,50 @@ function PropertyEditor({
   value,
   disabled,
   showPartitionRanges = true,
+  parentValue,
+  onParentChange,
   onChange,
   path = `#/${name}`,
 }: PropertyEditorProps) {
   const effective = value ?? createValue(node);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
-  if (node.xUi.widget === "parser_common")
-    return (
-      <section class="parser-common-section">
-        <h3>{node.title ?? "Parser settings"}</h3>
-        <NodeEditor
-          node={node}
-          value={effective}
-          disabled={disabled}
-          onChange={onChange}
-        />
-      </section>
-    );
-  if (node.xUi.widget === "system_columns")
-    return (
-      <details class="foldout system-columns unified-system-columns">
-        <DisclosureSummary>Add system columns</DisclosureSummary>
-        <div class="foldout-content">
-          <NodeEditor
-            node={node}
-            value={effective}
-            disabled={disabled}
-            onChange={onChange}
-          />
-        </div>
-      </details>
-    );
-  if (node.kind === "array" && node.xUi.widget === "compact_array")
-    return (
-      <div class="form-row form-row-wide compact-array-field">
-        <label class="field-label">
-          <span>
-            {node.title ?? humanize(name)}
-            {!required && <small class="optional">(optional)</small>}
-          </span>
-        </label>
-        <CompactArrayEditor
-          node={node}
-          value={Array.isArray(value) ? value : []}
-          disabled={disabled}
-          showPartitionRanges={showPartitionRanges}
-          onChange={onChange}
-          NodeEditor={NodeEditor}
-        />
-      </div>
-    );
+  const customWidget = renderPropertyWidget(
+    {
+      name,
+      node,
+      required,
+      value,
+      effectiveValue: effective,
+      disabled,
+      showPartitionRanges,
+      parentValue,
+      onParentChange,
+      onChange,
+      path,
+      controlId: identifier,
+    },
+    { NodeEditor, PropertyEditor },
+  );
+  if (customWidget !== undefined) return <>{customWidget}</>;
+  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
-    <div
-      class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`}
+    <FormField
+      label={node.title ?? humanize(name)}
+      optional={!required}
+      description={node.xUi.widget === "parser" ? undefined : node.description}
+      controlId={isDirectlyLabelled(node) ? identifier : undefined}
+      class={classes}
     >
-      <label
-        class="field-label"
-        for={isDirectlyLabelled(node) ? identifier : undefined}
-      >
-        <span>
-          {node.title ?? humanize(name)}
-          {!required && <small class="optional">(optional)</small>}
-        </span>
-        {node.description && node.xUi.widget !== "parser" && (
-          <span class="help" tabindex={0} data-tooltip={node.description}>
-            ?
-          </span>
-        )}
-      </label>
-      <div class="field-control">
-        <NodeEditor
-          node={node}
-          value={effective}
-          disabled={disabled}
-          onChange={onChange}
-          path={path}
-          controlId={identifier}
-        />
-      </div>
-    </div>
+      <NodeEditor
+        node={node}
+        value={effective}
+        disabled={disabled}
+        onChange={onChange}
+        path={path}
+        controlId={identifier}
+      />
+    </FormField>
   );
 }
 
@@ -616,9 +497,7 @@ function controlWidthClass(_name: string, node: CompiledNode): string {
 function nodeHasEditableContent(node: CompiledNode): boolean {
   if (node.kind !== "object") return true;
   return Object.entries(node.properties).some(
-    ([, child]) =>
-      child.xUi.widget !== "hidden" &&
-      !(child.kind === "string" && child.enumValues?.length === 1),
+    ([, child]) => !isHiddenProperty(child),
   );
 }
 

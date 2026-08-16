@@ -13,13 +13,14 @@ const catalogJson = (
   }
 ).process?.env?.TRANSFERIA_CATALOG_CONTRACT;
 
-describe("Rust catalog contract", () => {
-  const contractTest = catalogJson === undefined ? it.skip : it;
+if (catalogJson === undefined)
+  throw new Error("Rust catalog contract payload is required");
 
-  contractTest("compiles every schema emitted by the Rust catalog", () => {
+describe("Rust catalog contract", () => {
+  it("compiles every schema emitted by the Rust catalog", () => {
     const catalog = decodeApi(
       "catalog_response",
-      JSON.parse(catalogJson!),
+      JSON.parse(catalogJson),
       "catalog",
     );
 

@@ -1,15 +1,15 @@
 import type { ComponentType } from "preact";
 
-import type { JsonValue } from "../json";
+import type { JsonObject, JsonValue } from "../json";
 import type { CompiledNode } from "./compiler";
 
 export interface NodeEditorProps {
   node: CompiledNode;
   value: JsonValue;
-  disabled?: boolean;
+  disabled?: boolean | undefined;
   onChange: (value: JsonValue) => void;
-  path?: string;
-  controlId?: string;
+  path?: string | undefined;
+  controlId?: string | undefined;
 }
 
 export interface PropertyEditorProps {
@@ -18,9 +18,11 @@ export interface PropertyEditorProps {
   required: boolean;
   value: JsonValue | undefined;
   disabled: boolean;
-  showPartitionRanges?: boolean;
+  showPartitionRanges?: boolean | undefined;
+  parentValue?: JsonObject | undefined;
+  onParentChange?: ((value: JsonObject) => void) | undefined;
   onChange: (value: JsonValue) => void;
-  path?: string;
+  path?: string | undefined;
 }
 
 export type NodeEditorComponent = ComponentType<NodeEditorProps>;

@@ -1,4 +1,5 @@
 import type { JsonObject, JsonSchema, JsonValue } from "../types";
+import { isWidgetName, widgetSupportsKind } from "./widgetDefinitions";
 
 interface NodeBase {
   title?: string;
@@ -255,31 +256,6 @@ const SUPPORTED_UI_HINTS = new Set([
   "item_label",
 ]);
 
-const WIDGET_KINDS: Readonly<
-  Record<string, ReadonlySet<CompiledNode["kind"]>>
-> = {
-  byte_size: new Set(["number", "string"]),
-  column_keys: new Set(["array"]),
-  column_mappings: new Set(["array"]),
-  compact_array: new Set(["array"]),
-  duration: new Set(["string"]),
-  hidden: new Set([
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "array",
-    "union",
-    "nullable",
-  ]),
-  parser: new Set(["object", "union"]),
-  parser_common: new Set(["object"]),
-  partition_ranges: new Set(["array"]),
-  password: new Set(["string"]),
-  select: new Set(["string"]),
-  system_columns: new Set(["object"]),
-};
-
 function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
   if (value === undefined) return;
   const unknown = Object.keys(value).filter(
@@ -289,11 +265,7 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
     throw new SchemaContractError(
       `${path}: unsupported x-ui hints: ${unknown.join(", ")}`,
     );
-  if (
-    value.widget !== undefined &&
-    (typeof value.widget !== "string" ||
-      WIDGET_KINDS[value.widget] === undefined)
-  )
+  if (value.widget !== undefined && !isWidgetName(value.widget))
     throw new SchemaContractError(`${path}: unsupported x-ui widget`);
   if (
     value.section !== undefined &&
@@ -334,12 +306,10 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
 
 function validateWidgetTree(node: CompiledNode, path: string): void {
   const widget = node.xUi.widget;
-  const widgetKinds =
-    typeof widget === "string" ? WIDGET_KINDS[widget] : undefined;
   const supported =
-    widgetKinds === undefined ||
-    widgetKinds.has(node.kind) ||
-    (node.kind === "nullable" && widgetKinds.has(node.inner.kind));
+    !isWidgetName(widget) ||
+    widgetSupportsKind(widget, node.kind) ||
+    (node.kind === "nullable" && widgetSupportsKind(widget, node.inner.kind));
   if (!supported) {
     throw new SchemaContractError(
       `${path}: x-ui widget ${JSON.stringify(widget)} does not support ${node.kind}`,

@@ -1,6 +1,8 @@
 import type { JsonValue } from "../json";
+import { Button } from "../ui/Button";
+import { TrashIcon } from "../ui/icons";
 import { createValue, humanize, type CompiledNode } from "./compiler";
-import { TrashIcon, useStableRowIds } from "./controls";
+import { useStableRowIds } from "./controls";
 import type { NodeEditorComponent } from "./editorTypes";
 import { isObject } from "./value";
 
@@ -103,9 +105,9 @@ export function CompactArrayEditor({
                     </td>
                   )}
                   <td class="actions-column">
-                    <button
-                      class="row-action danger"
-                      type="button"
+                    <Button
+                      shape="row"
+                      class="danger"
                       title={`Remove ${singular}`}
                       aria-label={`Remove ${singular} ${index + 1}`}
                       disabled={disabled}
@@ -117,7 +119,7 @@ export function CompactArrayEditor({
                       }}
                     >
                       <TrashIcon />
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               );
@@ -125,9 +127,8 @@ export function CompactArrayEditor({
           </tbody>
         </table>
       </div>
-      <button
-        class="add-row-button"
-        type="button"
+      <Button
+        shape="add-row"
         disabled={disabled}
         onClick={() => {
           rowIds.insert(value.length);
@@ -135,7 +136,7 @@ export function CompactArrayEditor({
         }}
       >
         + Add {singular}
-      </button>
+      </Button>
     </div>
   );
 }

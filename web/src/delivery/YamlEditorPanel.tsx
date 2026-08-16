@@ -14,12 +14,9 @@ export function YamlEditorPanel({
           <small>RUNNABLE CONFIGURATION</small>
           <h2>YAML</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard.writeText(value)}
-        >
+        <Button onClick={() => void navigator.clipboard.writeText(value)}>
           Copy
-        </button>
+        </Button>
       </div>
       <textarea
         aria-label="YAML configuration"
@@ -32,3 +29,4 @@ export function YamlEditorPanel({
     </section>
   );
 }
+import { Button } from "../ui/Button";

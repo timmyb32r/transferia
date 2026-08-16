@@ -18,6 +18,7 @@ pub enum ParserSchema {
 }
 
 #[derive(JsonSchema)]
+#[schemars(extend("x-ui" = { "widget": "json_parser" }))]
 pub struct JsonParserSchema {
     #[schemars(
         title = "Parser settings",

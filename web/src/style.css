@@ -38,6 +38,15 @@
   --blue: #2a9fff;
   --blue-hover: #45aaff;
   --red: #ff747d;
+  --text-primary: rgba(255, 255, 255, 0.85);
+  --text-secondary: rgba(255, 255, 255, 0.82);
+  --control-height: 30px;
+  --button-height: 28px;
+  --radius-control: 5px;
+  --radius-panel: 4px;
+  --motion-press: 70ms;
+  --motion-control: 120ms;
+  --focus-ring: rgba(42, 159, 255, 0.82);
 }
 * {
   box-sizing: border-box;
@@ -165,7 +174,7 @@ h3 {
 .card {
   background: rgba(255, 255, 255, 0.018);
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--radius-panel);
   padding: 20px;
 }
 .editor-tabs {
@@ -246,7 +255,7 @@ h3 {
 .field-label {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--text-secondary);
 }
 .optional {
   margin-left: 5px;
@@ -366,7 +375,7 @@ h3 {
   gap: 9px;
   list-style: none;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-panel);
   padding: 5px 3px;
   color: var(--muted);
   font-size: 12px;
@@ -376,8 +385,8 @@ h3 {
   -webkit-touch-callout: none;
   transform-origin: center;
   transition:
-    transform 70ms ease,
-    background-color 120ms ease;
+    transform var(--motion-press) ease,
+    background-color var(--motion-control) ease;
 }
 .foldout summary::-webkit-details-marker {
   display: none;
@@ -424,17 +433,17 @@ input[type="password"],
 input[type="number"],
 input[type="search"] {
   width: 100%;
-  height: 30px;
+  height: var(--control-height);
   padding: 0 9px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   background: var(--control);
   border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   outline: none;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease;
+    border-color var(--motion-control) ease,
+    background-color var(--motion-control) ease,
+    box-shadow var(--motion-control) ease;
 }
 input[type="number"] {
   appearance: textfield;
@@ -561,22 +570,22 @@ input[type="checkbox"]:disabled {
 }
 .select-trigger {
   width: 100%;
-  height: 30px;
+  height: var(--control-height);
   border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   padding: 0 8px 0 10px;
   background: var(--control);
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   text-align: left;
   font-weight: 400;
   transition:
-    transform 70ms ease,
-    border-color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease;
+    transform var(--motion-press) ease,
+    border-color var(--motion-control) ease,
+    background-color var(--motion-control) ease,
+    box-shadow var(--motion-control) ease;
 }
 .select-trigger:hover:not(:disabled) {
   background: var(--control-hover);
@@ -614,7 +623,7 @@ input[type="checkbox"]:disabled {
   overflow: auto;
   background: var(--popup);
   border: 1px solid var(--line-strong);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.48);
   padding: 6px;
 }
@@ -631,9 +640,9 @@ input[type="checkbox"]:disabled {
   width: 100%;
   border: 0;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   padding: 7px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-panel);
   text-align: left;
   font-weight: 400;
 }
@@ -790,12 +799,12 @@ input[type="checkbox"]:disabled {
   stroke-width: 1.25;
 }
 button {
-  height: 28px;
+  height: var(--button-height);
   padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--text-primary);
   cursor: pointer;
   font-weight: 400;
   font-size: 12px;
@@ -804,9 +813,9 @@ button {
   -webkit-touch-callout: none;
   transform-origin: center;
   transition:
-    transform 70ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease;
+    transform var(--motion-press) ease,
+    background-color var(--motion-control) ease,
+    border-color var(--motion-control) ease;
 }
 button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.09);
@@ -814,7 +823,7 @@ button:hover:not(:disabled) {
 button:focus-visible,
 summary:focus-visible,
 input[type="checkbox"]:focus-visible {
-  outline: 2px solid rgba(42, 159, 255, 0.82);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 button:active:not(:disabled) {

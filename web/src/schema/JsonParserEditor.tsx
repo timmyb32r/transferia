@@ -8,29 +8,6 @@ import type {
 import { reconcileSystemColumnKeys } from "./formLogic";
 import { isObject, stringArray } from "./value";
 
-export function isJsonParserContainer(
-  node: Extract<CompiledNode, { kind: "object" }>,
-): boolean {
-  const common = Object.values(node.properties).find(
-    (child) => child.xUi.widget === "parser_common",
-  );
-  const parser = Object.values(node.properties).find(
-    (child) =>
-      child.kind === "object" &&
-      Object.values(child.properties).some(
-        (property) => property.xUi.widget === "column_mappings",
-      ),
-  );
-  return (
-    common?.kind === "object" &&
-    parser?.kind === "object" &&
-    Object.values(parser.properties).some(
-      (property) =>
-        property.kind === "array" && property.xUi.widget === "column_mappings",
-    )
-  );
-}
-
 export function JsonParserEditor({
   node,
   value,

@@ -2,11 +2,13 @@ import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { JsonValue } from "../json";
+import { Button } from "../ui/Button";
+import { DragHandleIcon, TrashIcon } from "../ui/icons";
 import { MultiSelectControl } from "../ui/SelectControl";
 import { ColumnActions } from "./ColumnActions";
 import { createColumnDragPreview, insertionSlot } from "./columnDrag";
 import { createValue, type CompiledNode } from "./compiler";
-import { DragHandleIcon, IndeterminateCheckbox, TrashIcon } from "./controls";
+import { IndeterminateCheckbox } from "./controls";
 import type {
   NodeEditorComponent,
   PropertyEditorComponent,
@@ -98,8 +100,7 @@ export function ColumnMappingsEditor({
           {someRowsSelected && (
             <div class="bulk-selection-toolbar" role="status">
               <span>{selectedRows.size} selected</span>
-              <button
-                type="button"
+              <Button
                 class="bulk-delete"
                 aria-label={`Delete ${selectedRows.size} selected ${selectedRows.size === 1 ? "column" : "columns"}`}
                 title="Delete selected columns"
@@ -107,12 +108,11 @@ export function ColumnMappingsEditor({
                 onClick={deleteSelectedRows}
               >
                 <TrashIcon />
-              </button>
+              </Button>
             </div>
           )}
           {systemColumns && (
-            <button
-              type="button"
+            <Button
               class="inline-disclosure"
               aria-expanded={systemColumnsOpen}
               disabled={disabled}
@@ -125,11 +125,10 @@ export function ColumnMappingsEditor({
               }}
             >
               Add system columns
-            </button>
+            </Button>
           )}
-          <button
-            class="add-row-button"
-            type="button"
+          <Button
+            shape="add-row"
             disabled={disabled}
             onClick={() => {
               rowIds.insert(value.length);
@@ -137,20 +136,19 @@ export function ColumnMappingsEditor({
             }}
           >
             + Add column
-          </button>
+          </Button>
         </div>
       </div>
       {systemColumns && systemColumnsOpen && (
         <section class="schema-system-columns-panel">
           <div class="subsection-heading">
             <h4>System columns</h4>
-            <button
-              type="button"
+            <Button
               aria-label="Close system columns"
               onClick={() => setSystemColumnsOpen(false)}
             >
               ×
-            </button>
+            </Button>
           </div>
           <NodeEditor
             node={systemColumns.node}
@@ -233,8 +231,7 @@ export function ColumnMappingsEditor({
                     }}
                   >
                     <td class="drag-column">
-                      <button
-                        type="button"
+                      <Button
                         class="drag-handle"
                         draggable={!disabled}
                         disabled={disabled}
@@ -280,7 +277,7 @@ export function ColumnMappingsEditor({
                         }}
                       >
                         <DragHandleIcon />
-                      </button>
+                      </Button>
                     </td>
                     <td class="selection-column">
                       <input
@@ -377,13 +374,12 @@ export function ColumnMappingsEditor({
                         <section class="column-details">
                           <div class="column-details-heading">
                             <strong>Advanced column settings</strong>
-                            <button
-                              type="button"
+                            <Button
                               aria-label={`Close column ${index + 1} settings`}
                               onClick={() => toggleSettings(index)}
                             >
                               ×
-                            </button>
+                            </Button>
                           </div>
                           <div class="schema-object">
                             {extraFields.map(([field, child]) => (

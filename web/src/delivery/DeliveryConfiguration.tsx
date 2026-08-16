@@ -4,15 +4,11 @@ import {
   selectedEndpoints,
   stringValue,
 } from "./editorConfig";
-import {
-  CommonSettings,
-  ContractView,
-  EndpointCard,
-  FieldLabel,
-} from "./EditorViews";
+import { CommonSettings, ContractView, EndpointCard } from "./EditorViews";
 import { ParserDetailsForm, SelectControl } from "../schema/SchemaForm";
 import type { EditorState } from "../state";
 import type { DiscoveryResult, JsonObject, UiCatalog } from "../types";
+import { TopField } from "../ui/FormField";
 
 type EndpointSelection = ReturnType<typeof selectedEndpoints>;
 
@@ -46,7 +42,7 @@ export function DeliveryConfiguration({
   return (
     <div class="editor-view" role="tabpanel" key={`editor-${editor.sessionId}`}>
       <section class="card identity-card">
-        <FieldLabel label="Delivery name" required>
+        <TopField label="Delivery name" required>
           <input
             type="text"
             value={editor.name}
@@ -54,16 +50,16 @@ export function DeliveryConfiguration({
             placeholder="e.g. Events to ClickHouse"
             onInput={(event) => onName(event.currentTarget.value)}
           />
-        </FieldLabel>
-        <FieldLabel label="Description">
+        </TopField>
+        <TopField label="Description">
           <input
             type="text"
             value={editor.description}
             disabled={readOnly}
             onInput={(event) => onDescription(event.currentTarget.value)}
           />
-        </FieldLabel>
-        <FieldLabel label="Delivery type" required>
+        </TopField>
+        <TopField label="Delivery type" required>
           <SelectControl
             value={stringValue(editor.config.delivery_type)}
             disabled={readOnly}
@@ -77,7 +73,7 @@ export function DeliveryConfiguration({
               onConfig({ ...editor.config, delivery_type: value })
             }
           />
-        </FieldLabel>
+        </TopField>
       </section>
 
       <section class="route-composition">
