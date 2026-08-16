@@ -4,26 +4,106 @@ use crate::core::data::message::Message;
 use crate::core::data::system_columns::{SystemColumnKind, SystemColumns};
 
 pub(super) const MAX_DELIVERY_BYTES: usize = 256 * 1024 * 1024;
-const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
+pub(super) const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
 
-pub(super) fn exceeds_safety_limits(
+#[derive(Debug)]
+pub(super) enum SafetyLimitViolation {
+    Record {
+        input_bytes: usize,
+        message_count: usize,
+        record_count: usize,
+        message_index: usize,
+        record_index: usize,
+        record_bytes: usize,
+    },
+    WorkingSet {
+        input_bytes: usize,
+        message_count: usize,
+        record_count: usize,
+        max_record_bytes: usize,
+        estimated_working_set_bytes: usize,
+    },
+}
+
+impl core::fmt::Display for SafetyLimitViolation {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Record {
+                input_bytes,
+                message_count,
+                record_count,
+                message_index,
+                record_index,
+                record_bytes,
+            } => write!(
+                formatter,
+                "JSON parser record safety limit exceeded: record_bytes={record_bytes}, limit_bytes={MAX_RECORD_BYTES}, message_index={message_index}, record_index={record_index}, input_bytes={input_bytes}, message_count={message_count}, record_count={record_count}"
+            ),
+            Self::WorkingSet {
+                input_bytes,
+                message_count,
+                record_count,
+                max_record_bytes,
+                estimated_working_set_bytes,
+            } => write!(
+                formatter,
+                "JSON parser delivery safety limit exceeded: estimated_working_set_bytes={estimated_working_set_bytes}, limit_bytes={MAX_DELIVERY_BYTES}, input_bytes={input_bytes}, message_count={message_count}, record_count={record_count}, max_record_bytes={max_record_bytes}"
+            ),
+        }
+    }
+}
+
+pub(super) fn safety_limit_violation(
     kinds: &[ColumnKind],
     system_kinds: &[SystemColumnKind],
     dlq_system_columns: &SystemColumns,
     framing: JsonFramingMode,
     messages: &[Message],
-) -> bool {
-    if output_memory_bound(kinds, system_kinds, dlq_system_columns, framing, messages)
-        > MAX_DELIVERY_BYTES
-    {
-        return true;
+) -> Option<SafetyLimitViolation> {
+    let input_bytes = messages.iter().fold(0_usize, |total, message| {
+        total.saturating_add(message.value.len())
+    });
+    let message_count = messages.len();
+    let record_count = messages.iter().fold(0_usize, |total, message| {
+        total.saturating_add(framing.count_records(&message.value))
+    });
+    let mut largest_record = (0_usize, 0_usize, 0_usize);
+    for (message_index, message) in messages.iter().enumerate() {
+        match framing {
+            JsonFramingMode::SingleDocument => {
+                if message.value.len() > largest_record.2 {
+                    largest_record = (message_index, 0, message.value.len());
+                }
+            }
+            JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => {
+                // `split` is allocation-free and matches the parser's record framing.
+                for (record_index, record) in message.value.split(|byte| *byte == b'\n').enumerate()
+                {
+                    if record.len() > largest_record.2 {
+                        largest_record = (message_index, record_index, record.len());
+                    }
+                }
+            }
+        }
     }
-    messages.iter().any(|message| match framing {
-        JsonFramingMode::SingleDocument => message.value.len() > MAX_RECORD_BYTES,
-        JsonFramingMode::JsonLines | JsonFramingMode::JsonArray => message
-            .value
-            .split(|byte| *byte == b'\n')
-            .any(|record| record.len() > MAX_RECORD_BYTES),
+    if largest_record.2 > MAX_RECORD_BYTES {
+        return Some(SafetyLimitViolation::Record {
+            input_bytes,
+            message_count,
+            record_count,
+            message_index: largest_record.0,
+            record_index: largest_record.1,
+            record_bytes: largest_record.2,
+        });
+    }
+    let estimated_working_set_bytes =
+        output_memory_bound(kinds, system_kinds, dlq_system_columns, framing, messages);
+    (estimated_working_set_bytes > MAX_DELIVERY_BYTES).then_some(SafetyLimitViolation::WorkingSet {
+        input_bytes,
+        message_count,
+        record_count,
+        max_record_bytes: largest_record.2,
+        estimated_working_set_bytes,
     })
 }
 

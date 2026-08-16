@@ -687,8 +687,11 @@ impl JsonParser {
         )
     }
 
-    fn exceeds_safety_limits(&self, messages: &[Message]) -> bool {
-        super::memory::exceeds_safety_limits(
+    fn safety_limit_violation(
+        &self,
+        messages: &[Message],
+    ) -> Option<super::memory::SafetyLimitViolation> {
+        super::memory::safety_limit_violation(
             &self.kinds,
             &self.system_kinds,
             &self.dlq_system_columns,
@@ -1432,10 +1435,44 @@ impl JsonParser {
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let messages = frame_json_arrays(self.json_framing, self.conversion_error, messages)?;
-        if self.exceeds_safety_limits(&messages) {
-            anyhow::bail!(
-                "JSON parser input exceeds the configured 256MiB delivery or 4MiB record safety limit"
-            );
+        if let Some(violation) = self.safety_limit_violation(&messages) {
+            match &violation {
+                super::memory::SafetyLimitViolation::Record {
+                    input_bytes,
+                    message_count,
+                    record_count,
+                    message_index,
+                    record_index,
+                    record_bytes,
+                } => tracing::error!(
+                    limit_kind = "record",
+                    input_bytes,
+                    message_count,
+                    record_count,
+                    message_index,
+                    record_index,
+                    record_bytes,
+                    limit_bytes = super::memory::MAX_RECORD_BYTES,
+                    "JSON parser safety limit exceeded"
+                ),
+                super::memory::SafetyLimitViolation::WorkingSet {
+                    input_bytes,
+                    message_count,
+                    record_count,
+                    max_record_bytes,
+                    estimated_working_set_bytes,
+                } => tracing::error!(
+                    limit_kind = "delivery",
+                    input_bytes,
+                    message_count,
+                    record_count,
+                    max_record_bytes,
+                    estimated_working_set_bytes,
+                    limit_bytes = super::memory::MAX_DELIVERY_BYTES,
+                    "JSON parser safety limit exceeded"
+                ),
+            }
+            anyhow::bail!(violation);
         }
 
         // Count rows without retaining a second per-record index. Parsing

@@ -333,7 +333,9 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    assert!(!parser.exceeds_safety_limits(&[Message::new(payload.clone())]));
+    assert!(parser
+        .safety_limit_violation(&[Message::new(payload.clone())])
+        .is_none());
     let (main, dlq) =
         parser.parse_into(vec![Message::new(payload)], &mut ParserWorkspace::new())?;
 
@@ -380,8 +382,40 @@ fn oversized_parser_working_set_fails_before_builder_allocation() -> anyhow::Res
     let error = parser
         .parse_into(vec![Message::new(payload)], &mut workspace)
         .expect_err("oversized input must fail before materialization");
-    assert!(error.to_string().contains("safety limit"));
+    let message = error.to_string();
+    assert!(message.contains("delivery safety limit exceeded"));
+    assert!(message.contains("estimated_working_set_bytes="));
+    assert!(message.contains("input_bytes=33554432"));
+    assert!(message.contains("message_count=1"));
+    assert!(message.contains("record_count=1"));
     assert!(workspace.builders.is_empty());
+    Ok(())
+}
+
+#[test]
+fn oversized_record_reports_its_exact_location_and_size() -> anyhow::Result<()> {
+    let parser = parser_for(vec![crate::parsers::json_parser::ColumnMapping::new(
+        "$.value".into(),
+        "value".into(),
+        "Utf8".into(),
+        false,
+    )])?;
+    let oversized_bytes = 4 * 1024 * 1024 + 1;
+    let mut payload = b"{}\n".to_vec();
+    payload.extend(core::iter::repeat_n(b'x', oversized_bytes));
+    let error = parser
+        .parse_into(
+            vec![Message::new(Bytes::from(payload))],
+            &mut ParserWorkspace::new(),
+        )
+        .expect_err("oversized JSONL record unexpectedly reached parsing");
+    let message = error.to_string();
+    assert!(message.contains("record safety limit exceeded"));
+    assert!(message.contains("record_bytes=4194305"));
+    assert!(message.contains("message_index=0"));
+    assert!(message.contains("record_index=1"));
+    assert!(message.contains("message_count=1"));
+    assert!(message.contains("record_count=2"));
     Ok(())
 }
 
