@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use arrow::datatypes::{DataType, TimeUnit};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 
@@ -37,6 +37,7 @@ pub struct JsonParserConfig {
     }))]
     pub conversion_error: ConversionErrorPolicy,
 
+    #[serde(default)]
     #[schemars(title = "On Unknown Field")]
     pub unknown_fields: UnknownFieldPolicy,
 
@@ -68,10 +69,10 @@ impl JsonParserConfig {
         let mut columns = columns;
         match &self.unknown_fields {
             UnknownFieldPolicy::Drop | UnknownFieldPolicy::Fail => {}
-            UnknownFieldPolicy::Rest { column_name } => {
+            UnknownFieldPolicy::SendToColumn { column_name } => {
                 anyhow::ensure!(
                     !column_name.is_empty() && !names.contains(column_name.as_str()),
-                    "unknown_fields.rest column_name must be non-empty and unique"
+                    "unknown_fields.send_to_column column_name must be non-empty and unique"
                 );
                 names.insert(column_name);
                 columns.push(SchemaColumn::new(
@@ -119,7 +120,7 @@ pub enum ConversionErrorPolicy {
     Fail,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum UnknownFieldPolicy {
     #[schemars(title = "Drop")]
@@ -128,11 +129,27 @@ pub enum UnknownFieldPolicy {
     #[schemars(title = "Fail delivery")]
     Fail,
 
-    #[schemars(title = "Send to rest")]
-    Rest {
-        #[schemars(title = "Rest column name")]
+    #[schemars(title = "Send to a column")]
+    SendToColumn {
+        #[serde(default = "default_additional_properties_column")]
+        #[schemars(
+            title = "Column name",
+            default = "default_additional_properties_column"
+        )]
         column_name: String,
     },
+}
+
+impl Default for UnknownFieldPolicy {
+    fn default() -> Self {
+        Self::SendToColumn {
+            column_name: default_additional_properties_column(),
+        }
+    }
+}
+
+fn default_additional_properties_column() -> String {
+    "additional_properties".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]

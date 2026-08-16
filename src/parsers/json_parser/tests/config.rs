@@ -57,6 +57,39 @@ fn produces_sink_neutral_schema() -> anyhow::Result<()> {
 }
 
 #[test]
+fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Result<()> {
+    let config: JsonParserConfig = serde_yaml::from_str(
+        "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: number\n    arrow_type: UInt64\n    nullable: false\nconversion_error: dlq\n",
+    )?;
+    assert_eq!(
+        config.unknown_fields,
+        UnknownFieldPolicy::SendToColumn {
+            column_name: "additional_properties".to_owned(),
+        }
+    );
+
+    let schema = serde_json::to_value(schemars::schema_for!(JsonParserConfig))?;
+    assert_eq!(
+        schema.pointer("/properties/unknown_fields/default/action"),
+        Some(&serde_json::json!("send_to_column"))
+    );
+    assert_eq!(
+        schema.pointer("/properties/unknown_fields/default/column_name"),
+        Some(&serde_json::json!("additional_properties"))
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_the_removed_rest_unknown_field_action() {
+    let error = serde_yaml::from_str::<JsonParserConfig>(
+        "columns: []\nconversion_error: fail\nunknown_fields: { action: rest, column_name: rest }\n",
+    )
+    .expect_err("the obsolete rest action must not be accepted");
+    assert!(error.to_string().contains("rest"), "{error:#}");
+}
+
+#[test]
 fn rejects_sink_specific_fields_in_parser_config() {
     let result =
         serde_yaml::from_str::<JsonParserConfig>("columns: []\nsink_specific_field: true\n");

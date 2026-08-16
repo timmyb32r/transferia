@@ -2111,14 +2111,21 @@ svg.trash-icon {
 :root[data-design="airy-v0"] .config-table td {
   padding-block: 9px;
 }
-:root[data-design="airy-v0"] .config-table td input,
+:root[data-design="airy-v0"] .config-table td input:not([type="checkbox"]),
 :root[data-design="airy-v0"] .config-table td .select-trigger {
   border-color: transparent;
   background: transparent;
 }
-:root[data-design="airy-v0"] .config-table tr:hover td input,
+:root[data-design="airy-v0"]
+  .config-table
+  tr:hover
+  td
+  input:not([type="checkbox"]),
 :root[data-design="airy-v0"] .config-table tr:hover td .select-trigger,
-:root[data-design="airy-v0"] .config-table td input:focus,
+:root[data-design="airy-v0"]
+  .config-table
+  td
+  input:not([type="checkbox"]):focus,
 :root[data-design="airy-v0"] .config-table td .select-trigger:focus {
   border-color: var(--field-border);
   background: var(--control);

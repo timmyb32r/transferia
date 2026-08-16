@@ -478,8 +478,8 @@ describe("schema form", () => {
       xUi: {},
       branches: [
         {
-          label: "Send to rest",
-          discriminator: { key: "action", value: "rest" },
+          label: "Send to a column",
+          discriminator: { key: "action", value: "send_to_column" },
           requiredKeys: ["action", "column_name"],
           node: {
             kind: "object",
@@ -488,10 +488,13 @@ describe("schema form", () => {
             properties: {
               action: {
                 kind: "string",
-                enumValues: ["rest"],
+                enumValues: ["send_to_column"],
                 xUi: {},
               },
-              column_name: stringNode("Rest column name"),
+              column_name: {
+                ...stringNode("Column name"),
+                defaultValue: "additional_properties",
+              },
             },
           },
         },
@@ -500,11 +503,14 @@ describe("schema form", () => {
     const { queryByText, getByText } = render(
       <SchemaForm
         node={node}
-        value={{ action: "rest", column_name: "rest" }}
+        value={{
+          action: "send_to_column",
+          column_name: "additional_properties",
+        }}
         onChange={() => undefined}
       />,
     );
-    expect(getByText("Rest column name")).toBeTruthy();
+    expect(getByText("Column name")).toBeTruthy();
     expect(queryByText("Action")).toBeNull();
   });
 

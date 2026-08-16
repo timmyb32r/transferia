@@ -91,7 +91,7 @@ fn parse_errors_can_be_dropped_without_dlq_output() -> anyhow::Result<()> {
 }
 
 #[test]
-fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
+fn unknown_fields_can_be_rejected_or_sent_to_a_column() -> anyhow::Result<()> {
     let id_mapping = mapping("$.id", "id", "Int64", false);
     let fail = parser_config(vec![id_mapping.clone()], JsonFramingMode::SingleDocument);
     let (main, dlq) = parse_with_config(
@@ -105,12 +105,12 @@ fn unknown_fields_can_be_rejected_or_captured_in_rest() -> anyhow::Result<()> {
         1
     );
 
-    let mut rest = parser_config(vec![id_mapping], JsonFramingMode::SingleDocument);
-    rest.unknown_fields = UnknownFieldPolicy::Rest {
-        column_name: "rest".into(),
+    let mut captured = parser_config(vec![id_mapping], JsonFramingMode::SingleDocument);
+    captured.unknown_fields = UnknownFieldPolicy::SendToColumn {
+        column_name: "additional_properties".into(),
     };
     let (main, dlq) = parse_with_config(
-        &rest,
+        &captured,
         &crate::parsers::SystemColumnsConfig::default(),
         b"{\"id\":1,\"extra\":true}",
     )?;

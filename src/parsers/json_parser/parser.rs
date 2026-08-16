@@ -763,7 +763,10 @@ impl JsonParser {
         let required_total = required.iter().filter(|r| **r).count();
 
         let mode = if all_root
-            && !matches!(config.unknown_fields, UnknownFieldPolicy::Rest { .. })
+            && !matches!(
+                config.unknown_fields,
+                UnknownFieldPolicy::SendToColumn { .. }
+            )
             && config.conversion_error == ConversionErrorPolicy::Dlq
             && config
                 .columns
@@ -815,10 +818,10 @@ impl JsonParser {
                     .with_metadata(schema.arrow_metadata())
             })
             .collect();
-        if let UnknownFieldPolicy::Rest { column_name } = &config.unknown_fields {
+        if let UnknownFieldPolicy::SendToColumn { column_name } = &config.unknown_fields {
             anyhow::ensure!(
                 all_root,
-                "unknown_fields.action=rest currently requires only simple top-level JSONPaths"
+                "unknown_fields.action=send_to_column currently requires only simple top-level JSONPaths"
             );
             fields.push(Field::new(column_name, DataType::Utf8, false));
             data_types.push(DataType::Utf8);
