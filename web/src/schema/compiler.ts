@@ -51,11 +51,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
         );
       const merged = { ...referenceTarget(root, reference), ...input };
       delete merged.$ref;
-      return compile(
-        merged,
-        path,
-        new Set(activeReferences).add(reference),
-      );
+      return compile(merged, path, new Set(activeReferences).add(reference));
     }
     const schema = input;
     validateKeywords(schema, path);
@@ -94,14 +90,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
         ...base,
         kind: "union",
         branches: choices.map((choice, index) =>
-          compileBranch(
-            choice,
-            index,
-            path,
-            compile,
-            root,
-            activeReferences,
-          ),
+          compileBranch(choice, index, path, compile, root, activeReferences),
         ),
       };
     }
@@ -205,18 +194,12 @@ function validateKeywords(schema: JsonSchema, path: string): void {
     );
   }
   validateUiHints(schema["x-ui"], path);
-  if (
-    schema.format !== undefined &&
-    !NUMERIC_FORMATS.has(schema.format)
-  ) {
+  if (schema.format !== undefined && !NUMERIC_FORMATS.has(schema.format)) {
     throw new SchemaContractError(
       `${path}: unsupported JSON Schema format: ${schema.format}`,
     );
   }
-  if (
-    schema.format !== undefined &&
-    !numericSchemaType(schema.type)
-  ) {
+  if (schema.format !== undefined && !numericSchemaType(schema.type)) {
     throw new SchemaContractError(
       `${path}: numeric JSON Schema format ${schema.format} requires a numeric type`,
     );
@@ -272,13 +255,23 @@ const SUPPORTED_UI_HINTS = new Set([
   "item_label",
 ]);
 
-const WIDGET_KINDS: Readonly<Record<string, ReadonlySet<CompiledNode["kind"]>>> = {
+const WIDGET_KINDS: Readonly<
+  Record<string, ReadonlySet<CompiledNode["kind"]>>
+> = {
   byte_size: new Set(["number", "string"]),
   column_keys: new Set(["array"]),
   column_mappings: new Set(["array"]),
   compact_array: new Set(["array"]),
   duration: new Set(["string"]),
-  hidden: new Set(["string", "number", "boolean", "object", "array", "union", "nullable"]),
+  hidden: new Set([
+    "string",
+    "number",
+    "boolean",
+    "object",
+    "array",
+    "union",
+    "nullable",
+  ]),
   parser: new Set(["object", "union"]),
   parser_common: new Set(["object"]),
   partition_ranges: new Set(["array"]),
@@ -289,14 +282,17 @@ const WIDGET_KINDS: Readonly<Record<string, ReadonlySet<CompiledNode["kind"]>>> 
 
 function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
   if (value === undefined) return;
-  const unknown = Object.keys(value).filter((key) => !SUPPORTED_UI_HINTS.has(key));
+  const unknown = Object.keys(value).filter(
+    (key) => !SUPPORTED_UI_HINTS.has(key),
+  );
   if (unknown.length > 0)
     throw new SchemaContractError(
       `${path}: unsupported x-ui hints: ${unknown.join(", ")}`,
     );
   if (
     value.widget !== undefined &&
-    (typeof value.widget !== "string" || WIDGET_KINDS[value.widget] === undefined)
+    (typeof value.widget !== "string" ||
+      WIDGET_KINDS[value.widget] === undefined)
   )
     throw new SchemaContractError(`${path}: unsupported x-ui widget`);
   if (
@@ -311,15 +307,21 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
       !Number.isSafeInteger(value.initial_items) ||
       value.initial_items < 0)
   )
-    throw new SchemaContractError(`${path}: x-ui initial_items must be a non-negative integer`);
+    throw new SchemaContractError(
+      `${path}: x-ui initial_items must be a non-negative integer`,
+    );
   if (
     value.dynamic_options !== undefined &&
     typeof value.dynamic_options !== "string"
   )
-    throw new SchemaContractError(`${path}: x-ui dynamic_options must be a string`);
+    throw new SchemaContractError(
+      `${path}: x-ui dynamic_options must be a string`,
+    );
   if (
     value.labels !== undefined &&
-    (typeof value.labels !== "object" || value.labels === null || Array.isArray(value.labels))
+    (typeof value.labels !== "object" ||
+      value.labels === null ||
+      Array.isArray(value.labels))
   )
     throw new SchemaContractError(`${path}: x-ui labels must be an object`);
   if (value.options !== undefined && !Array.isArray(value.options))
@@ -332,7 +334,8 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
 
 function validateWidgetTree(node: CompiledNode, path: string): void {
   const widget = node.xUi.widget;
-  const widgetKinds = typeof widget === "string" ? WIDGET_KINDS[widget] : undefined;
+  const widgetKinds =
+    typeof widget === "string" ? WIDGET_KINDS[widget] : undefined;
   const supported =
     widgetKinds === undefined ||
     widgetKinds.has(node.kind) ||
@@ -386,7 +389,10 @@ export function createValue(node: CompiledNode): JsonValue {
   }
 }
 
-export function acceptsDraftSeed(node: CompiledNode, value: JsonValue): boolean {
+export function acceptsDraftSeed(
+  node: CompiledNode,
+  value: JsonValue,
+): boolean {
   return draftSeedError(node, value) === undefined;
 }
 
@@ -400,7 +406,9 @@ export function draftSeedError(
     case "nullable":
       return draftSeedError(node.inner, value, path);
     case "union":
-      return node.branches.some((branch) => draftSeedError(branch.node, value, path) === undefined)
+      return node.branches.some(
+        (branch) => draftSeedError(branch.node, value, path) === undefined,
+      )
         ? undefined
         : `${path}: value does not match any union branch`;
     case "object": {
@@ -426,7 +434,9 @@ export function draftSeedError(
       }
       return undefined;
     case "boolean":
-      return typeof value === "boolean" ? undefined : `${path}: expected a boolean`;
+      return typeof value === "boolean"
+        ? undefined
+        : `${path}: expected a boolean`;
     case "number":
       return typeof value === "number" &&
         Number.isFinite(value) &&
@@ -438,8 +448,7 @@ export function draftSeedError(
     case "string":
       return value === "" ||
         (typeof value === "string" &&
-        (node.enumValues === undefined || node.enumValues.includes(value))
-        )
+          (node.enumValues === undefined || node.enumValues.includes(value)))
         ? undefined
         : `${path}: invalid string value`;
   }
@@ -519,8 +528,8 @@ const NUMERIC_FORMATS = new Set([
 
 function numericSchemaType(type: JsonSchema["type"]): boolean {
   const types = Array.isArray(type) ? type : [type];
-  return types.some((candidate) =>
-    candidate === "number" || candidate === "integer",
+  return types.some(
+    (candidate) => candidate === "number" || candidate === "integer",
   );
 }
 

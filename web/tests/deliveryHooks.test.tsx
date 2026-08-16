@@ -41,12 +41,15 @@ describe("delivery controllers", () => {
   it("cancels every editor-scoped latest job as one operation", async () => {
     const { result } = renderHook(() => useDeliveryJobs());
     const context = { sessionId: "session", localRevision: 1 };
-    const pending = result.current.yaml.run(context, {}, (_input, signal) =>
-      new Promise<{ yaml: string }>((resolve) => {
-        signal.addEventListener("abort", () => resolve({ yaml: "stale" }), {
-          once: true,
-        });
-      }),
+    const pending = result.current.yaml.run(
+      context,
+      {},
+      (_input, signal) =>
+        new Promise<{ yaml: string }>((resolve) => {
+          signal.addEventListener("abort", () => resolve({ yaml: "stale" }), {
+            once: true,
+          });
+        }),
     );
 
     act(() => result.current.cancelEditorJobs());

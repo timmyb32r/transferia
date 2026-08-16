@@ -1,8 +1,6 @@
 import type { JsonObject, JsonValue } from "../json";
 
-export function isObject(
-  value: JsonValue | undefined,
-): value is JsonObject {
+export function isObject(value: JsonValue | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

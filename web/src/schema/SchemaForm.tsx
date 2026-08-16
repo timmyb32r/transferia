@@ -4,6 +4,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { JsonObject, JsonValue } from "../types";
 import { SelectControl } from "../ui/SelectControl";
 export { SelectControl } from "../ui/SelectControl";
+import { CompactArrayEditor } from "./CompactArrayEditor";
 import { ColumnMappingsEditor } from "./ColumnMappingsEditor";
 import {
   branchMatches,
@@ -17,20 +18,19 @@ import {
   PasswordInput,
   SystemColumnsEditor,
   TrashIcon,
-  useStableRowIds,
 } from "./controls";
 import { DynamicSelectControl } from "./DynamicSelectControl";
-import { reconcileSystemColumnKeys } from "./formLogic";
+import type { NodeEditorProps, PropertyEditorProps } from "./editorTypes";
+import { isJsonParserContainer, JsonParserEditor } from "./JsonParserEditor";
+import {
+  clearConfiguredPartitionRanges,
+  hasConfiguredPartitionRanges,
+  partitionRangesProperty,
+} from "./partitionRanges";
 import { isObject, stringArray } from "./value";
 
-interface SchemaFormProps {
-  node: CompiledNode;
-  value: JsonValue;
-  disabled?: boolean;
+interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
-  onChange: (value: JsonValue) => void;
-  path?: string;
-  controlId?: string;
 }
 
 const ParserSelectionContext = createContext(false);
@@ -158,6 +158,8 @@ function NodeEditor({
         value={value}
         disabled={isDisabled}
         onChange={onChange}
+        NodeEditor={NodeEditor}
+        PropertyEditor={PropertyEditor}
       />
     );
   if (node.kind === "object" && node.xUi.widget === "system_columns")
@@ -185,10 +187,7 @@ function NodeEditor({
         ([, child]) =>
           child.xUi.widget !== "column_keys" &&
           child.xUi.widget !== "hidden" &&
-          !(
-            child.kind === "string" &&
-            child.enumValues?.length === 1
-          ),
+          !(child.kind === "string" && child.enumValues?.length === 1),
       );
       const regular = visible.filter(
         ([, child]) =>
@@ -504,219 +503,6 @@ function NodeEditor({
   }
 }
 
-function isJsonParserContainer(
-  node: Extract<CompiledNode, { kind: "object" }>,
-): boolean {
-  const common = Object.values(node.properties).find(
-    (child) => child.xUi.widget === "parser_common",
-  );
-  const parser = Object.values(node.properties).find(
-    (child) =>
-      child.kind === "object" &&
-      Object.values(child.properties).some(
-        (property) => property.xUi.widget === "column_mappings",
-      ),
-  );
-  return (
-    common?.kind === "object" &&
-    parser?.kind === "object" &&
-    Object.values(parser.properties).some(
-      (property) =>
-        property.kind === "array" &&
-        property.xUi.widget === "column_mappings",
-    )
-  );
-}
-
-interface PartitionRangesProperty {
-  arrayName: string;
-  fieldName: string;
-}
-
-function partitionRangesProperty(
-  node: CompiledNode,
-): PartitionRangesProperty | undefined {
-  if (node.kind !== "object") return undefined;
-  for (const [arrayName, property] of Object.entries(node.properties)) {
-    if (property.kind !== "array" || property.item.kind !== "object") continue;
-    const field = Object.entries(property.item.properties).find(
-      ([, child]) => child.xUi.widget === "partition_ranges",
-    );
-    if (field !== undefined) return { arrayName, fieldName: field[0] };
-  }
-  return undefined;
-}
-
-function hasConfiguredPartitionRanges(
-  value: JsonValue,
-  property: PartitionRangesProperty | undefined,
-): boolean {
-  if (property === undefined || !isObject(value)) return false;
-  const items = value[property.arrayName];
-  return (
-    Array.isArray(items) &&
-    items.some((item) => {
-      if (!isObject(item)) return false;
-      const ranges = item[property.fieldName];
-      return Array.isArray(ranges) && ranges.length > 0;
-    })
-  );
-}
-
-function clearConfiguredPartitionRanges(
-  object: JsonObject,
-  property: PartitionRangesProperty,
-): JsonObject {
-  const items = object[property.arrayName];
-  if (!Array.isArray(items)) return object;
-  return {
-    ...object,
-    [property.arrayName]: items.map((item) =>
-      isObject(item) ? { ...item, [property.fieldName]: [] } : item,
-    ),
-  };
-}
-
-function JsonParserEditor({
-  node,
-  value,
-  disabled,
-  onChange,
-}: {
-  node: Extract<CompiledNode, { kind: "object" }>;
-  value: JsonValue;
-  disabled: boolean;
-  onChange: (value: JsonValue) => void;
-}) {
-  const object = isObject(value) ? value : {};
-  const commonNode = node.properties.common;
-  const parserNode = node.properties.json_parser;
-  if (commonNode?.kind !== "object" || parserNode?.kind !== "object")
-    return null;
-  const common = isObject(object.common) ? object.common : {};
-  const parser = isObject(object.json_parser) ? object.json_parser : {};
-  const columnsNode = parserNode.properties.columns;
-  if (columnsNode?.kind !== "array") return null;
-  const updateCommon = (name: string, next: JsonValue) =>
-    onChange({ ...object, common: { ...common, [name]: next } });
-  const updateParser = (name: string, next: JsonValue) =>
-    onChange({ ...object, json_parser: { ...parser, [name]: next } });
-  const systemColumns = isObject(common.system_columns)
-    ? Object.values(common.system_columns).filter(
-        (name): name is string => typeof name === "string" && name !== "",
-      )
-    : [];
-  const commonFields = Object.entries(commonNode.properties).filter(
-    ([name]) => name !== "table_naming" && name !== "system_columns",
-  );
-  const parserFields = Object.entries(parserNode.properties).filter(
-    ([name]) => !["json_framing", "columns", "keys"].includes(name),
-  );
-  return (
-    <div class="schema-object json-parser-editor">
-      <section class="parser-common-section">
-        <h3>Parser settings</h3>
-        {commonNode.properties.table_naming && (
-          <PropertyEditor
-            name="table_naming"
-            node={commonNode.properties.table_naming}
-            required={commonNode.required.has("table_naming")}
-            value={common.table_naming}
-            disabled={disabled}
-            onChange={(next) => updateCommon("table_naming", next)}
-          />
-        )}
-        {parserNode.properties.json_framing && (
-          <PropertyEditor
-            name="json_framing"
-            node={parserNode.properties.json_framing}
-            required={parserNode.required.has("json_framing")}
-            value={parser.json_framing}
-            disabled={disabled}
-            onChange={(next) => updateParser("json_framing", next)}
-          />
-        )}
-        {commonFields.map(([name, child]) => (
-          <PropertyEditor
-            key={name}
-            name={name}
-            node={child}
-            required={commonNode.required.has(name)}
-            value={common[name]}
-            disabled={disabled}
-            onChange={(next) => updateCommon(name, next)}
-          />
-        ))}
-      </section>
-      <ColumnMappingsEditor
-        node={columnsNode.item}
-        value={Array.isArray(parser.columns) ? parser.columns : []}
-        keys={stringArray(parser.keys)}
-        additionalKeyOptions={systemColumns}
-        {...(commonNode.properties.system_columns === undefined
-          ? {}
-          : {
-              systemColumns: {
-                node: commonNode.properties.system_columns,
-                value: common.system_columns,
-                onChange: (next: JsonValue) =>
-                  onChange({
-                    ...object,
-                    common: { ...common, system_columns: next },
-                    json_parser: {
-                      ...parser,
-                      keys: reconcileSystemColumnKeys(
-                        common.system_columns,
-                        next,
-                        stringArray(parser.keys),
-                      ),
-                    },
-                  }),
-              },
-            })}
-        disabled={disabled}
-        NodeEditor={NodeEditor}
-        PropertyEditor={PropertyEditor}
-        onChange={(columns, keys) =>
-          onChange({
-            ...object,
-            json_parser: { ...parser, columns, keys },
-          })
-        }
-      />
-      {parserFields.length > 0 && (
-        <section class="parser-secondary-section">
-          <h3>Parsing behavior</h3>
-          <div class="schema-object">
-            {parserFields.map(([name, child]) => (
-              <PropertyEditor
-                key={name}
-                name={name}
-                node={child}
-                required={parserNode.required.has(name)}
-                value={parser[name]}
-                disabled={disabled}
-                onChange={(next) => updateParser(name, next)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-interface PropertyEditorProps {
-  name: string;
-  node: CompiledNode;
-  required: boolean;
-  value: JsonValue | undefined;
-  disabled: boolean;
-  showPartitionRanges?: boolean;
-  onChange: (value: JsonValue) => void;
-  path?: string;
-}
-
 function PropertyEditor({
   name,
   node,
@@ -771,6 +557,7 @@ function PropertyEditor({
           disabled={disabled}
           showPartitionRanges={showPartitionRanges}
           onChange={onChange}
+          NodeEditor={NodeEditor}
         />
       </div>
     );
@@ -778,17 +565,19 @@ function PropertyEditor({
     <div
       class={`form-row ${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`}
     >
-      <label class="field-label" for={isDirectlyLabelled(node) ? identifier : undefined}>
+      <label
+        class="field-label"
+        for={isDirectlyLabelled(node) ? identifier : undefined}
+      >
         <span>
           {node.title ?? humanize(name)}
           {!required && <small class="optional">(optional)</small>}
         </span>
-        {node.description &&
-          node.xUi.widget !== "parser" && (
-            <span class="help" tabindex={0} data-tooltip={node.description}>
-              ?
-            </span>
-          )}
+        {node.description && node.xUi.widget !== "parser" && (
+          <span class="help" tabindex={0} data-tooltip={node.description}>
+            ?
+          </span>
+        )}
       </label>
       <div class="field-control">
         <NodeEditor
@@ -809,11 +598,13 @@ function isDirectlyLabelled(node: CompiledNode): boolean {
 }
 
 function controlWidthClass(_name: string, node: CompiledNode): string {
-  if (node.xUi.control_width === "installation") return "control-width-installation";
+  if (node.xUi.control_width === "installation")
+    return "control-width-installation";
   if (node.xUi.widget === "parser") return "control-width-parser";
   if (node.xUi.control_width === "auth") return "control-width-auth";
   if (node.xUi.control_width === "medium") return "control-width-medium";
-  if (node.xUi.control_width === "table_name") return "control-width-table-name";
+  if (node.xUi.control_width === "table_name")
+    return "control-width-table-name";
   if (
     node.kind === "union" ||
     (node.kind === "string" && node.enumValues !== undefined)
@@ -822,149 +613,12 @@ function controlWidthClass(_name: string, node: CompiledNode): string {
   return "";
 }
 
-function CompactArrayEditor({
-  node,
-  value,
-  disabled,
-  showPartitionRanges,
-  onChange,
-}: {
-  node: Extract<CompiledNode, { kind: "array" }>;
-  value: JsonValue[];
-  disabled: boolean;
-  showPartitionRanges: boolean;
-  onChange: (value: JsonValue) => void;
-}) {
-  const rowIds = useStableRowIds(value.length);
-  const fields =
-    node.item.kind === "object"
-      ? Object.entries(node.item.properties).filter(
-          ([, child]) =>
-            child.xUi.widget !== "hidden" &&
-            (showPartitionRanges || child.xUi.widget !== "partition_ranges"),
-        )
-      : [];
-  const singular =
-    typeof node.xUi.item_label === "string" ? node.xUi.item_label : "item";
-  const updateItem = (index: number, next: JsonValue) => {
-    const items = [...value];
-    items[index] = next;
-    onChange(items);
-  };
-  return (
-    <div class="compact-array-editor">
-      <div class="table-shell">
-        <table class="config-table compact-array-table">
-          <thead>
-            <tr>
-              <th class="row-number" aria-label="Row" />
-              {fields.length > 0 ? (
-                fields.map(([field, child]) => (
-                  <th key={field}>
-                    {child.title ?? humanize(field)}
-                    {child.xUi.widget === "partition_ranges" && (
-                      <small class="optional">(optional)</small>
-                    )}
-                  </th>
-                ))
-              ) : (
-                <th>{humanize(singular)}</th>
-              )}
-              <th class="actions-column">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {value.map((item, index) => {
-              const object = isObject(item) ? item : {};
-              return (
-                <tr class="config-table-row" key={rowIds.values[index]}>
-                  <td class="row-number">{index + 1}</td>
-                  {fields.length > 0 ? (
-                    fields.map(([field, child]) => (
-                      <td key={field}>
-                        <label
-                          class="visually-hidden"
-                          for={`compact-${rowIds.values[index]}-${field}`}
-                        >
-                          {child.title ?? humanize(field)} row {index + 1}
-                        </label>
-                        <NodeEditor
-                          node={child}
-                          value={object[field] ?? createValue(child)}
-                          disabled={disabled}
-                          path={`#/compact/${rowIds.values[index]}/${field}`}
-                          controlId={`compact-${rowIds.values[index]}-${field}`}
-                          onChange={(next) =>
-                            updateItem(index, { ...object, [field]: next })
-                          }
-                        />
-                      </td>
-                    ))
-                  ) : (
-                    <td>
-                      <label
-                        class="visually-hidden"
-                        for={`compact-${rowIds.values[index]}-value`}
-                      >
-                        {humanize(singular)} row {index + 1}
-                      </label>
-                      <NodeEditor
-                        node={node.item}
-                        value={item}
-                        disabled={disabled}
-                        path={`#/compact/${rowIds.values[index]}/value`}
-                        controlId={`compact-${rowIds.values[index]}-value`}
-                        onChange={(next) => updateItem(index, next)}
-                      />
-                    </td>
-                  )}
-                  <td class="actions-column">
-                    <button
-                      class="row-action danger"
-                      type="button"
-                      title={`Remove ${singular}`}
-                      aria-label={`Remove ${singular} ${index + 1}`}
-                      disabled={disabled}
-                      onClick={() => {
-                        rowIds.remove(index);
-                        onChange(
-                          value.filter((_, itemIndex) => itemIndex !== index),
-                        );
-                      }}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <button
-        class="add-row-button"
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          rowIds.insert(value.length);
-          onChange([...value, createValue(node.item)]);
-        }}
-      >
-        + Add {singular}
-      </button>
-    </div>
-  );
-}
-
 function nodeHasEditableContent(node: CompiledNode): boolean {
   if (node.kind !== "object") return true;
   return Object.entries(node.properties).some(
     ([, child]) =>
       child.xUi.widget !== "hidden" &&
-      !(
-        child.kind === "string" &&
-        child.enumValues?.length === 1
-      ),
+      !(child.kind === "string" && child.enumValues?.length === 1),
   );
 }
 

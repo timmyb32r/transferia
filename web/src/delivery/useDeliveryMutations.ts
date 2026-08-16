@@ -30,10 +30,7 @@ export function useDeliveryMutations({
     context: EditorRequestContext,
     delivery: DeliveryRecord,
   ) => void;
-  onRuntime: (
-    context: EditorRequestContext,
-    delivery: DeliveryRecord,
-  ) => void;
+  onRuntime: (context: EditorRequestContext, delivery: DeliveryRecord) => void;
   onDiscovery: (discovery: DiscoveryResult) => void;
   isCurrentContext: (context: EditorRequestContext) => boolean;
 }) {

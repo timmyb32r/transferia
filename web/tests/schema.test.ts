@@ -170,7 +170,11 @@ describe("schema compiler", () => {
       compileSchema({ type: "string", "x-ui": { widget: "magic" } }),
     ).toThrow(/unsupported x-ui widget/);
     expect(() =>
-      compileSchema({ type: "array", items: { type: "string" }, "x-ui": { initial_items: -1 } }),
+      compileSchema({
+        type: "array",
+        items: { type: "string" },
+        "x-ui": { initial_items: -1 },
+      }),
     ).toThrow(/initial_items/);
     expect(() =>
       compileSchema({ type: "string", "x-ui": { surprise: true } }),

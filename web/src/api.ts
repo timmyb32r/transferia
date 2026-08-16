@@ -27,7 +27,8 @@ async function request<Name extends ApiContractName>(
   if (!response.ok) {
     let message = text || `${response.status} ${response.statusText}`;
     try {
-      message = decodeApi("error_response", JSON.parse(text), path).error.message;
+      message = decodeApi("error_response", JSON.parse(text), path).error
+        .message;
     } catch {
       // Non-JSON proxy errors still produce a useful message.
     }
@@ -50,7 +51,10 @@ export const api = {
     ),
   deliveries: () => request("/api/v1/deliveries", "delivery_list_response"),
   delivery: (id: string) =>
-    request(`/api/v1/deliveries/${encodeURIComponent(id)}`, "delivery_response"),
+    request(
+      `/api/v1/deliveries/${encodeURIComponent(id)}`,
+      "delivery_response",
+    ),
   create: (name: string, description: string, config: JsonObject) => {
     const body: CreateDraftRequest = { name, description, config };
     return request("/api/v1/deliveries", "delivery_response", {
@@ -73,10 +77,14 @@ export const api = {
       description,
       config,
     };
-    return request(`/api/v1/deliveries/${encodeURIComponent(id)}`, "delivery_response", {
-      method: "PUT",
-      body: json(body),
-    });
+    return request(
+      `/api/v1/deliveries/${encodeURIComponent(id)}`,
+      "delivery_response",
+      {
+        method: "PUT",
+        body: json(body),
+      },
+    );
   },
   yaml: (config: JsonObject, signal?: AbortSignal) => {
     const body: ConfigRequest = { config };

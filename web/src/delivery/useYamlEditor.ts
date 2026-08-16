@@ -22,10 +22,7 @@ export function useYamlEditor({
   jobs: Pick<DeliveryJobs, "yaml" | "parseYaml">;
   operations: Pick<
     Operations,
-    | "beginOperation"
-    | "finishOperation"
-    | "clearOperation"
-    | "clearErrors"
+    "beginOperation" | "finishOperation" | "clearOperation" | "clearErrors"
   >;
   isCurrentContext: (context: EditorRequestContext) => boolean;
   applyConfig: (config: JsonObject) => void;
@@ -57,11 +54,7 @@ export function useYamlEditor({
         })
         .catch((reason: unknown) => {
           const requestId = operations.beginOperation("yaml");
-          operations.finishOperation(
-            "yaml",
-            requestId,
-            errorMessage(reason),
-          );
+          operations.finishOperation("yaml", requestId, errorMessage(reason));
         });
     }, 120);
     return () => {
@@ -100,11 +93,7 @@ export function useYamlEditor({
         yamlContext.current = result.context;
         operations.finishOperation("yaml", requestId);
       } catch (reason) {
-        operations.finishOperation(
-          "yaml",
-          requestId,
-          errorMessage(reason),
-        );
+        operations.finishOperation("yaml", requestId, errorMessage(reason));
         return;
       }
     }
@@ -134,11 +123,7 @@ export function useYamlEditor({
       setActiveView("ui");
       operations.finishOperation("parseYaml", requestId);
     } catch (reason) {
-      operations.finishOperation(
-        "parseYaml",
-        requestId,
-        errorMessage(reason),
-      );
+      operations.finishOperation("parseYaml", requestId, errorMessage(reason));
     }
   };
 

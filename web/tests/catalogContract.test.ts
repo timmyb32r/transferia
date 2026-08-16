@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { decodeApi } from "../src/api/contractDecoder";
-import { acceptsDraftSeed, compileSchema, draftSeedError } from "../src/schema/compiler";
+import {
+  acceptsDraftSeed,
+  compileSchema,
+  draftSeedError,
+} from "../src/schema/compiler";
 
 const catalogJson = (
   globalThis as typeof globalThis & {
@@ -20,9 +24,12 @@ describe("Rust catalog contract", () => {
     );
 
     const common = compileSchema(catalog.common_schema);
-    if (common.kind !== "object") throw new Error("common schema must be an object");
+    if (common.kind !== "object")
+      throw new Error("common schema must be an object");
     const commonInitial = Object.fromEntries(
-      Object.entries(catalog.initial).filter(([name]) => common.properties[name] !== undefined),
+      Object.entries(catalog.initial).filter(
+        ([name]) => common.properties[name] !== undefined,
+      ),
     );
     expect(acceptsDraftSeed(common, commonInitial)).toBe(true);
     let endpointCount = 0;

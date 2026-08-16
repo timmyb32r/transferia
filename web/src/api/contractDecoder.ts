@@ -11,7 +11,8 @@ export function decodeApi<Name extends ApiContractName>(
 ): ApiContract[Name] {
   const properties = objectValue(contract.properties, "contract.properties");
   const schema = properties[name];
-  if (schema === undefined) throw new Error(`Unknown API contract root: ${name}`);
+  if (schema === undefined)
+    throw new Error(`Unknown API contract root: ${name}`);
   validate(value, schema as Schema, path);
   return value as ApiContract[Name];
 }
@@ -31,19 +32,23 @@ function validate(value: unknown, rawSchema: Schema, path: string): void {
       : undefined;
   if (choices !== undefined) {
     const effective = schema["x-omit-none"]
-      ? choices.filter(
-          (choice) => !isObject(choice) || choice.type !== "null",
-        )
+      ? choices.filter((choice) => !isObject(choice) || choice.type !== "null")
       : choices;
-    const matches = effective.filter((choice) => accepts(value, choice as Schema));
-    if (matches.length === 0) invalid(path, "value matches no contract variant");
+    const matches = effective.filter((choice) =>
+      accepts(value, choice as Schema),
+    );
+    if (matches.length === 0)
+      invalid(path, "value matches no contract variant");
     if (Array.isArray(schema.oneOf) && matches.length !== 1)
       invalid(path, "value matches multiple exclusive contract variants");
     return;
   }
   if ("const" in schema && !deepEqual(value, schema.const))
     invalid(path, `expected ${JSON.stringify(schema.const)}`);
-  if (Array.isArray(schema.enum) && !schema.enum.some((item) => deepEqual(value, item)))
+  if (
+    Array.isArray(schema.enum) &&
+    !schema.enum.some((item) => deepEqual(value, item))
+  )
     invalid(path, "value is not in the allowed enum");
   const rawTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
   const types = schema["x-omit-none"]
@@ -74,7 +79,10 @@ function acceptsType(
       return value === null;
     case "string":
       if (typeof value !== "string") return false;
-      if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value))
+      if (
+        typeof schema.pattern === "string" &&
+        !new RegExp(schema.pattern).test(value)
+      )
         invalid(path, `string does not match ${schema.pattern}`);
       return true;
     case "boolean":
@@ -82,9 +90,12 @@ function acceptsType(
     case "number":
       return typeof value === "number" && Number.isFinite(value);
     case "integer":
-      if (typeof value !== "number" || !Number.isSafeInteger(value)) return false;
-      if (typeof schema.minimum === "number" && value < schema.minimum) return false;
-      if (typeof schema.maximum === "number" && value > schema.maximum) return false;
+      if (typeof value !== "number" || !Number.isSafeInteger(value))
+        return false;
+      if (typeof schema.minimum === "number" && value < schema.minimum)
+        return false;
+      if (typeof schema.maximum === "number" && value > schema.maximum)
+        return false;
       return true;
     case "array":
       if (!Array.isArray(value)) return false;
@@ -111,7 +122,8 @@ function validateObject(
     ? schema.required.filter((name): name is string => typeof name === "string")
     : [];
   for (const name of required) {
-    if (!(name in value)) invalid(`${path}.${name}`, "required field is missing");
+    if (!(name in value))
+      invalid(`${path}.${name}`, "required field is missing");
   }
   for (const [name, item] of Object.entries(value)) {
     const property = properties[name];
@@ -127,15 +139,18 @@ function validateObject(
 
 function resolveReference(reference: string): Schema {
   const prefix = "#/$defs/";
-  if (!reference.startsWith(prefix)) throw new Error(`Unsupported API schema ref: ${reference}`);
+  if (!reference.startsWith(prefix))
+    throw new Error(`Unsupported API schema ref: ${reference}`);
   const definitions = objectValue(contract.$defs, "contract.$defs");
   const schema = definitions[reference.slice(prefix.length)];
-  if (schema === undefined) throw new Error(`Unknown API schema ref: ${reference}`);
+  if (schema === undefined)
+    throw new Error(`Unknown API schema ref: ${reference}`);
   return schema as Schema;
 }
 
 function objectValue(value: unknown, path: string): Record<string, unknown> {
-  if (!isObject(value)) throw new Error(`Invalid generated API schema at ${path}`);
+  if (!isObject(value))
+    throw new Error(`Invalid generated API schema at ${path}`);
   return value;
 }
 

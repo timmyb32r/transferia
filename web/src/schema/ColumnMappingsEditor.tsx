@@ -1,75 +1,19 @@
-import { Fragment, type ComponentType } from "preact";
+import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { JsonObject, JsonValue } from "../json";
+import type { JsonValue } from "../json";
 import { MultiSelectControl } from "../ui/SelectControl";
 import { ColumnActions } from "./ColumnActions";
+import { createColumnDragPreview, insertionSlot } from "./columnDrag";
 import { createValue, type CompiledNode } from "./compiler";
-import {
-  DragHandleIcon,
-  IndeterminateCheckbox,
-  TrashIcon,
-  useStableRowIds,
-} from "./controls";
-import { closestArrowType, isStringArrowType } from "./formLogic";
-import {
-  isObject,
-  jsonValuesEqual,
-  uniqueStrings,
-} from "./value";
-
-interface NodeEditorProps {
-  node: CompiledNode;
-  value: JsonValue;
-  disabled?: boolean;
-  onChange: (value: JsonValue) => void;
-  path?: string;
-  controlId?: string;
-}
-
-interface PropertyEditorProps {
-  name: string;
-  node: CompiledNode;
-  required: boolean;
-  value: JsonValue | undefined;
-  disabled: boolean;
-  showPartitionRanges?: boolean;
-  onChange: (value: JsonValue) => void;
-  path?: string;
-}
-
-function createColumnDragPreview(
-  row: HTMLTableRowElement,
-  dataTransfer: DataTransfer,
-  clientX: number,
-  clientY: number,
-): HTMLTableElement {
-  const bounds = row.getBoundingClientRect();
-  const table = document.createElement("table");
-  const body = document.createElement("tbody");
-  const clone = row.cloneNode(true) as HTMLTableRowElement;
-  const sourceInputs = row.querySelectorAll<HTMLInputElement>("input");
-  const clonedInputs = clone.querySelectorAll<HTMLInputElement>("input");
-
-  sourceInputs.forEach((input, index) => {
-    const cloned = clonedInputs[index];
-    if (cloned === undefined) return;
-    cloned.value = input.value;
-    cloned.checked = input.checked;
-  });
-  clone.classList.remove("dragged", "drag-before", "drag-after");
-  table.className = "config-table column-table column-drag-preview";
-  table.style.width = `${bounds.width}px`;
-  body.append(clone);
-  table.append(body);
-  document.body.append(table);
-  dataTransfer.setDragImage(
-    table,
-    Math.max(0, clientX - bounds.left),
-    Math.max(0, clientY - bounds.top),
-  );
-  return table;
-}
+import { DragHandleIcon, IndeterminateCheckbox, TrashIcon } from "./controls";
+import type {
+  NodeEditorComponent,
+  PropertyEditorComponent,
+} from "./editorTypes";
+import { isStringArrowType } from "./formLogic";
+import { useColumnMappings } from "./useColumnMappings";
+import { isObject, jsonValuesEqual, uniqueStrings } from "./value";
 
 export function ColumnMappingsEditor({
   node,
@@ -93,33 +37,43 @@ export function ColumnMappingsEditor({
   };
   disabled: boolean;
   onChange: (columns: JsonValue[], keys: string[]) => void;
-  NodeEditor: ComponentType<NodeEditorProps>;
-  PropertyEditor: ComponentType<PropertyEditorProps>;
+  NodeEditor: NodeEditorComponent;
+  PropertyEditor: PropertyEditorComponent;
 }) {
-  const [expandedSettings, setExpandedSettings] = useState<Set<number>>(
-    () => new Set(),
-  );
-  const [selectedRows, setSelectedRows] = useState<Set<number>>(
-    () => new Set(),
-  );
   const [systemColumnsOpen, setSystemColumnsOpen] = useState(false);
   const [draggedRow, setDraggedRow] = useState<number>();
   const [dragTargetSlot, setDragTargetSlot] = useState<number>();
   const dragPreview = useRef<HTMLTableElement | null>(null);
-  const rowIds = useStableRowIds(value.length);
+  const mappings = useColumnMappings({ value, keys, onChange });
+  const {
+    expandedSettings,
+    selectedRows,
+    rowIds,
+    updateColumn,
+    toggleSettings,
+    duplicateColumn,
+    deleteColumn,
+    toggleRowSelection,
+    selectAllRows,
+    deleteSelectedRows,
+    moveColumn: moveColumnModel,
+    moveColumnToSlot: moveColumnToSlotModel,
+  } = mappings;
+  const moveColumn = (from: number, to: number) => {
+    setDraggedRow(undefined);
+    setDragTargetSlot(undefined);
+    moveColumnModel(from, to);
+  };
+  const moveColumnToSlot = (from: number, slot: number) => {
+    setDraggedRow(undefined);
+    setDragTargetSlot(undefined);
+    moveColumnToSlotModel(from, slot);
+  };
   const removeDragPreview = () => {
     dragPreview.current?.remove();
     dragPreview.current = null;
   };
   useEffect(() => removeDragPreview, []);
-  useEffect(() => {
-    setSelectedRows((current) => {
-      const next = new Set(
-        [...current].filter((index) => index < value.length),
-      );
-      return next.size === current.size ? current : next;
-    });
-  }, [value.length]);
   if (node.kind !== "object")
     return (
       <NodeEditor
@@ -129,124 +83,6 @@ export function ColumnMappingsEditor({
         onChange={(next) => onChange(Array.isArray(next) ? next : [], keys)}
       />
     );
-  const updateColumn = (index: number, next: JsonObject) => {
-    const previous = isObject(value[index]) ? value[index] : {};
-    const oldName =
-      typeof previous.column_name === "string" ? previous.column_name : "";
-    const newName =
-      typeof next.column_name === "string" ? next.column_name : "";
-    const oldJsonType = previous.json_data_type;
-    if (
-      typeof next.json_data_type === "string" &&
-      next.json_data_type !== oldJsonType
-    ) {
-      next = {
-        ...next,
-        arrow_type: closestArrowType(next.json_data_type),
-      };
-    }
-    if (!isStringArrowType(next.arrow_type))
-      next = { ...next, low_cardinality: false };
-    if (
-      newName !== oldName &&
-      (previous.jsonpath === "" || previous.jsonpath === `$.${oldName}`)
-    )
-      next = { ...next, jsonpath: newName === "" ? "" : `$.${newName}` };
-    const columns = [...value];
-    columns[index] = next;
-    const nextKeys =
-      newName === oldName
-        ? keys
-        : keys.map((key) => (key === oldName ? newName : key)).filter(Boolean);
-    onChange(columns, nextKeys);
-  };
-  const toggleSettings = (index: number) =>
-    setExpandedSettings((current) => {
-      const next = new Set(current);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  const duplicateColumn = (index: number) => {
-    const columns = [...value];
-    columns.splice(index + 1, 0, structuredClone(value[index]!));
-    rowIds.insert(index + 1);
-    setExpandedSettings(new Set());
-    setSelectedRows(new Set());
-    onChange(columns, keys);
-  };
-  const deleteColumn = (index: number, name: string) => {
-    rowIds.remove(index);
-    setExpandedSettings(new Set());
-    setSelectedRows(new Set());
-    onChange(
-      value.filter((_, itemIndex) => itemIndex !== index),
-      keys.filter((key) => key !== name),
-    );
-  };
-  const toggleRowSelection = (index: number) =>
-    setSelectedRows((current) => {
-      const next = new Set(current);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  const selectAllRows = (selected: boolean) =>
-    setSelectedRows(
-      selected ? new Set(value.map((_, index) => index)) : new Set(),
-    );
-  const deleteSelectedRows = () => {
-    const deletedNames = new Set(
-      [...selectedRows].flatMap((index) => {
-        const column = isObject(value[index]) ? value[index] : {};
-        return typeof column.column_name === "string" &&
-          column.column_name !== ""
-          ? [column.column_name]
-          : [];
-      }),
-    );
-    setExpandedSettings(new Set());
-    setSelectedRows(new Set());
-    rowIds.retain((_, index) => !selectedRows.has(index));
-    onChange(
-      value.filter((_, index) => !selectedRows.has(index)),
-      keys.filter((key) => !deletedNames.has(key)),
-    );
-  };
-  const moveColumn = (from: number, to: number) => {
-    setDraggedRow(undefined);
-    setDragTargetSlot(undefined);
-    if (from === to || value[from] === undefined || value[to] === undefined)
-      return;
-    const columns = [...value];
-    const [column] = columns.splice(from, 1);
-    columns.splice(to, 0, column!);
-    rowIds.move(from, to);
-    setExpandedSettings(new Set());
-    setSelectedRows(new Set());
-    onChange(columns, keys);
-  };
-  const moveColumnToSlot = (from: number, slot: number) => {
-    setDraggedRow(undefined);
-    setDragTargetSlot(undefined);
-    if (value[from] === undefined || slot < 0 || slot > value.length) return;
-    const target = slot > from ? slot - 1 : slot;
-    if (target === from) return;
-    const columns = [...value];
-    const [column] = columns.splice(from, 1);
-    columns.splice(target, 0, column!);
-    rowIds.move(from, target);
-    setExpandedSettings(new Set());
-    setSelectedRows(new Set());
-    onChange(columns, keys);
-  };
-  const insertionSlot = (event: DragEvent, index: number) => {
-    const bounds = (
-      event.currentTarget as HTMLTableRowElement
-    ).getBoundingClientRect();
-    if (bounds.height === 0) return index + 1;
-    return event.clientY > bounds.top + bounds.height / 2 ? index + 1 : index;
-  };
   const showLowCardinality = node.properties.low_cardinality !== undefined;
   const allRowsSelected =
     value.length > 0 && selectedRows.size === value.length;
@@ -606,4 +442,3 @@ export function ColumnMappingsEditor({
     </div>
   );
 }
-

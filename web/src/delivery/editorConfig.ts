@@ -33,7 +33,10 @@ export function freshConfig(catalog: UiCatalog): JsonObject {
   };
 }
 
-export function selectedEndpoints(catalog: UiCatalog, config: JsonObject): {
+export function selectedEndpoints(
+  catalog: UiCatalog,
+  config: JsonObject,
+): {
   sourceKey: string;
   sinkKey: string;
   source: EndpointDefinition | undefined;
@@ -83,9 +86,7 @@ export function endpointValue(
   return isObject(container) ? (container[key] ?? {}) : {};
 }
 
-export function isObject(
-  value: JsonValue | undefined,
-): value is JsonObject {
+export function isObject(value: JsonValue | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

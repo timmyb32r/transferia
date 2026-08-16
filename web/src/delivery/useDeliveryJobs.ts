@@ -18,11 +18,7 @@ export interface EditorRequestContext {
 export function useDeliveryJobs() {
   return useMemo(() => {
     const jobs = {
-      yaml: new LatestJob<
-        EditorRequestContext,
-        JsonObject,
-        { yaml: string }
-      >(),
+      yaml: new LatestJob<EditorRequestContext, JsonObject, { yaml: string }>(),
       discovery: new LatestJob<
         EditorRequestContext,
         JsonObject,

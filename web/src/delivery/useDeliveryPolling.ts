@@ -37,11 +37,7 @@ export function useDeliveryPolling({
           .run(sessionId, editor.id, (id) => api.delivery(id))
           .then((result) => {
             if (result !== undefined)
-              onRuntime(
-                result.context,
-                expectedLocalRevision,
-                result.value,
-              );
+              onRuntime(result.context, expectedLocalRevision, result.value);
           })
           .catch(() => undefined);
       }

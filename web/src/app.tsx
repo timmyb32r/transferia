@@ -9,6 +9,7 @@ import {
 } from "preact/hooks";
 
 import { api } from "./api";
+import { DeliveryConfiguration } from "./delivery/DeliveryConfiguration";
 import {
   DeliverySidebar,
   EditorActions,
@@ -17,20 +18,14 @@ import {
   type OperationKey,
   type OperationState,
 } from "./delivery/EditorChrome";
-import {
-  CommonSettings,
-  ContractView,
-  EndpointCard,
-  FieldLabel,
-  StatusPill,
-} from "./delivery/EditorViews";
+import { StatusPill } from "./delivery/EditorViews";
+import { YamlEditorPanel } from "./delivery/YamlEditorPanel";
 import {
   compiledSchema,
   endpointValue,
   errorMessage,
   freshConfig,
   selectedEndpoints,
-  stringValue,
 } from "./delivery/editorConfig";
 import {
   useDeliveryJobs,
@@ -41,11 +36,6 @@ import { useDeliveryPolling } from "./delivery/useDeliveryPolling";
 import { useDiscovery } from "./delivery/useDiscovery";
 import { useOperations } from "./delivery/useOperations";
 import { useYamlEditor } from "./delivery/useYamlEditor";
-import {
-  ParserDetailsForm,
-  SchemaForm,
-  SelectControl,
-} from "./schema/SchemaForm";
 import { isComplete } from "./schema/compiler";
 import {
   editorReducer,
@@ -210,8 +200,7 @@ export function App() {
       clearErrors,
     },
     isCurrentContext,
-    applyConfig: (config) =>
-      dispatchLocalChange({ type: "config", config }),
+    applyConfig: (config) => dispatchLocalChange({ type: "config", config }),
   });
   const applyPersisted = useCallback(
     (context: EditorRequestContext, delivery: DeliveryRecord) =>
@@ -248,13 +237,8 @@ export function App() {
     onDiscovery: setDiscovery,
     isCurrentContext,
   });
-  const {
-    activeView,
-    yamlDraft,
-    editYaml,
-    showYaml,
-    applyYamlAndShowUi,
-  } = yamlEditor;
+  const { activeView, yamlDraft, editYaml, showYaml, applyYamlAndShowUi } =
+    yamlEditor;
 
   if (catalog === undefined)
     return (
@@ -270,13 +254,6 @@ export function App() {
     );
 
   const readOnly = isReadOnly(editor);
-  const sourceProviders = catalog.providers.filter(
-    (provider) => provider.source !== undefined,
-  );
-  const sinkProviders = catalog.providers.filter(
-    (provider) => provider.sink !== undefined,
-  );
-
   const updateConfig = (next: JsonObject) =>
     dispatchLocalChange({ type: "config", config: next });
   const chooseEndpoint = (role: "source" | "sink", key: string) => {
@@ -394,149 +371,25 @@ export function App() {
         />
 
         {activeView === "ui" ? (
-          <div
-            class="editor-view"
-            role="tabpanel"
-            key={`editor-${editor.sessionId}`}
-          >
-            <section class="card identity-card">
-              <FieldLabel label="Delivery name" required>
-                <input
-                  type="text"
-                  value={editor.name}
-                  disabled={readOnly}
-                  placeholder="e.g. Events to ClickHouse"
-                  onInput={(event) =>
-                    dispatchLocalChange({
-                      type: "name",
-                      name: event.currentTarget.value,
-                    })
-                  }
-                />
-              </FieldLabel>
-              <FieldLabel label="Description">
-                <input
-                  type="text"
-                  value={editor.description}
-                  disabled={readOnly}
-                  onInput={(event) =>
-                    dispatchLocalChange({
-                      type: "description",
-                      description: event.currentTarget.value,
-                    })
-                  }
-                />
-              </FieldLabel>
-              <FieldLabel label="Delivery type" required>
-                <SelectControl
-                  value={stringValue(editor.config.delivery_type)}
-                  disabled={readOnly}
-                  placeholder="Not selected"
-                  options={[
-                    { value: "batch", label: "Batch" },
-                    { value: "stream", label: "Stream" },
-                    { value: "batch_and_stream", label: "Batch + stream" },
-                  ]}
-                  onChange={(value) =>
-                    updateConfig({ ...editor.config, delivery_type: value })
-                  }
-                />
-              </FieldLabel>
-            </section>
-
-            <section class="route-composition">
-              <EndpointCard
-                title="Source"
-                role="source"
-                selectedKey={selection?.sourceKey ?? ""}
-                providers={sourceProviders}
-                {...(selection?.source === undefined ||
-                selection.error !== undefined
-                  ? {}
-                  : { endpoint: selection.source })}
-                config={editor.config}
-                readOnly={readOnly}
-                onChoose={chooseEndpoint}
-                onConfig={updateConfig}
-              />
-              <div class="route-arrow">→</div>
-              <EndpointCard
-                title="Destination"
-                role="sink"
-                selectedKey={selection?.sinkKey ?? ""}
-                providers={sinkProviders}
-                {...(selection?.sink === undefined ||
-                selection.error !== undefined
-                  ? {}
-                  : { endpoint: selection.sink })}
-                config={editor.config}
-                readOnly={readOnly}
-                onChoose={chooseEndpoint}
-                onConfig={updateConfig}
-              />
-              {selection?.error === undefined && selection?.source && (
-                <ParserDetailsForm
-                  node={compiledSchema(selection.source.schema)}
-                  value={endpointValue(
-                    editor.config,
-                    "source",
-                    selection.sourceKey,
-                  )}
-                  disabled={readOnly}
-                  onChange={(next) =>
-                    updateConfig({
-                      ...editor.config,
-                      source: { [selection.sourceKey]: next },
-                    })
-                  }
-                />
-              )}
-            </section>
-            {selection?.error && (
-              <div class="compatibility-error">
-                <strong>Incompatible route</strong>
-                <span>{selection.error}</span>
-              </div>
-            )}
-
-            <section class="pipeline-section">
-              <h2>Pipeline settings</h2>
-              <CommonSettings
-                schema={catalog.common_schema}
-                config={editor.config}
-                disabled={readOnly}
-                partitionedSource={selection?.source?.partitioned === true}
-                onChange={updateConfig}
-              />
-            </section>
-
-            {discovery && <ContractView result={discovery} />}
-          </div>
+          <DeliveryConfiguration
+            catalog={catalog}
+            editor={editor}
+            selection={selection}
+            discovery={discovery}
+            readOnly={readOnly}
+            onName={(name) => dispatchLocalChange({ type: "name", name })}
+            onDescription={(description) =>
+              dispatchLocalChange({ type: "description", description })
+            }
+            onConfig={updateConfig}
+            onChooseEndpoint={chooseEndpoint}
+          />
         ) : (
-          <section class="yaml-editor card" role="tabpanel">
-            <div class="card-heading">
-              <div>
-                <small>RUNNABLE CONFIGURATION</small>
-                <h2>YAML</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => void navigator.clipboard.writeText(yamlDraft)}
-              >
-                Copy
-              </button>
-            </div>
-            <textarea
-              aria-label="YAML configuration"
-              spellcheck={false}
-              value={yamlDraft}
-              disabled={readOnly}
-              onInput={(event) => editYaml(event.currentTarget.value)}
-            />
-            <p>
-              Switch to UI to parse this YAML and continue editing it as a form.
-            </p>
-          </section>
+          <YamlEditorPanel
+            value={yamlDraft}
+            disabled={readOnly}
+            onChange={editYaml}
+          />
         )}
       </main>
     </div>
