@@ -49,6 +49,12 @@ import type {
   JsonObject,
   UiCatalog,
 } from "./types";
+import {
+  applyAppearance,
+  loadAppearance,
+  saveAppearance,
+  type Appearance,
+} from "./ui/appearance";
 
 const EMPTY_STATE: EditorState = {
   sessionId: "bootstrap",
@@ -61,6 +67,9 @@ const EMPTY_STATE: EditorState = {
 };
 
 export function App() {
+  const [appearance, setAppearance] = useState<Appearance>(() =>
+    loadAppearance(window.localStorage),
+  );
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
@@ -93,6 +102,11 @@ export function App() {
     sessionId: editor.sessionId,
     localRevision: editor.localRevision,
   };
+
+  useEffect(() => {
+    applyAppearance(document.documentElement, appearance);
+    saveAppearance(window.localStorage, appearance);
+  }, [appearance]);
 
   const nextSession = (): EditorSessionId =>
     `editor-${++sessionSequence.current}`;
@@ -305,6 +319,8 @@ export function App() {
       <DeliverySidebar
         deliveries={deliveries}
         selectedId={editor.id}
+        appearance={appearance}
+        onAppearance={setAppearance}
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});

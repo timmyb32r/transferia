@@ -1,7 +1,9 @@
 import type { EditorState } from "../state";
 import { isDirty } from "../state";
 import type { DeliverySummary } from "../types";
+import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
+import type { Appearance } from "../ui/appearance";
 import { StatusPill } from "./EditorViews";
 
 export type OperationKey =
@@ -83,11 +85,15 @@ export function DeliverySidebar({
   selectedId,
   onNew,
   onOpen,
+  appearance,
+  onAppearance,
 }: {
   deliveries: DeliverySummary[];
   selectedId: string | undefined;
   onNew: () => void;
   onOpen: (id: string) => void;
+  appearance: Appearance;
+  onAppearance: (appearance: Appearance) => void;
 }) {
   return (
     <aside class="sidebar">
@@ -119,6 +125,7 @@ export function DeliverySidebar({
           <p class="empty-list">No saved deliveries yet.</p>
         )}
       </nav>
+      <AppearanceSettings value={appearance} onChange={onAppearance} />
     </aside>
   );
 }

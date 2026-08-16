@@ -84,6 +84,8 @@ describe("editor chrome", () => {
           },
         ]}
         selectedId={undefined}
+        appearance={{ design: "yandex-cloud", theme: "dark" }}
+        onAppearance={() => undefined}
         onNew={onNew}
         onOpen={onOpen}
       />,
