@@ -590,30 +590,56 @@ impl Source for YdbTopicSource {
                 }
                 let (commit_offsets, mut targets) =
                     build_commit_request(markers, &self.partition_sessions)?;
+                tracing::info!(
+                    partition_sessions = targets.len(),
+                    target_offsets = ?targets,
+                    "committing YDB Topic source offsets"
+                );
                 self.send(ClientMessage::CommitOffsetRequest(CommitOffsetRequest {
                     commit_offsets,
                 }))
                 .await?;
-                loop {
-                    match self.receive_event().await? {
-                        SessionEvent::CommitAck(committed) => {
-                            for (session_id, committed_offset) in committed {
-                                if targets
-                                    .get(&session_id)
-                                    .is_some_and(|target| committed_offset >= *target)
-                                {
-                                    targets.remove(&session_id);
+                tokio::time::timeout(super::NETWORK_TIMEOUT, async {
+                    loop {
+                        match self.receive_event().await? {
+                            SessionEvent::CommitAck(committed) => {
+                                tracing::info!(
+                                    committed_offsets = ?committed,
+                                    "received YDB Topic source offset acknowledgement"
+                                );
+                                for (session_id, committed_offset) in committed {
+                                    if targets
+                                        .get(&session_id)
+                                        .is_some_and(|target| committed_offset >= *target)
+                                    {
+                                        targets.remove(&session_id);
+                                    }
+                                }
+                                if targets.is_empty() {
+                                    self.release_gracefully_stopped_sessions().await?;
+                                    tracing::info!("YDB Topic source offsets committed");
+                                    return Ok::<(), anyhow::Error>(());
                                 }
                             }
-                            if targets.is_empty() {
-                                self.release_gracefully_stopped_sessions().await?;
-                                return Ok(());
+                            SessionEvent::Batch(batch) => {
+                                tracing::debug!(
+                                    buffered_batches = self.buffered_batches.len() + 1,
+                                    "buffering YDB Topic batch while awaiting source offset acknowledgement"
+                                );
+                                self.buffered_batches.push_back(batch);
                             }
+                            SessionEvent::Continue => {}
                         }
-                        SessionEvent::Batch(batch) => self.buffered_batches.push_back(batch),
-                        SessionEvent::Continue => {}
                     }
-                }
+                })
+                .await
+                .map_err(|_| {
+                    DataPlaneFailure::retryable(anyhow!(
+                        "YDB Topic source offset acknowledgement timed out after {} ms; pending targets: {targets:?}",
+                        super::NETWORK_TIMEOUT.as_millis()
+                    ))
+                })??;
+                Ok(())
             }
             .await;
             result.map_err(DataPlaneFailure::retryable_or_passthrough)
