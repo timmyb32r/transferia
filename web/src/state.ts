@@ -7,6 +7,7 @@ import type {
 
 export interface EditorState {
   sessionId: EditorSessionId;
+  editing: boolean;
   id?: string;
   persistedRevision?: number;
   recordVersion?: string;
@@ -31,6 +32,7 @@ export type EditorAction =
   | { type: "name"; name: string }
   | { type: "description"; description: string }
   | { type: "config"; config: JsonObject }
+  | { type: "edit" }
   | {
       type: "persisted";
       sessionId: EditorSessionId;
@@ -52,6 +54,7 @@ export function editorReducer(
     case "new":
       return {
         sessionId: action.sessionId,
+        editing: true,
         localRevision: 0,
         name: "",
         description: "",
@@ -62,6 +65,7 @@ export function editorReducer(
     case "open":
       return {
         sessionId: action.sessionId,
+        editing: false,
         id: action.delivery.id,
         persistedRevision: action.delivery.revision,
         recordVersion: action.delivery.record_version,
@@ -79,6 +83,8 @@ export function editorReducer(
       return changed(state, { description: action.description });
     case "config":
       return changed(state, { config: action.config });
+    case "edit":
+      return { ...state, editing: true };
     case "persisted":
       if (
         action.sessionId !== state.sessionId ||
@@ -95,6 +101,10 @@ export function editorReducer(
         persistedRevision: action.delivery.revision,
         recordVersion: action.delivery.record_version,
         savedLocalRevision: action.savedLocalRevision,
+        editing:
+          action.savedLocalRevision === state.localRevision
+            ? false
+            : state.editing,
         validation:
           action.savedLocalRevision === state.localRevision
             ? action.delivery.validation
@@ -138,6 +148,7 @@ export const isDirty = (state: EditorState): boolean =>
   state.savedLocalRevision !== state.localRevision;
 
 export const isReadOnly = (state: EditorState): boolean =>
+  !state.editing ||
   state.runtime.state === "running" ||
   state.runtime.state === "starting" ||
   state.runtime.state === "stopping";

@@ -53,7 +53,7 @@ describe("App request orchestration", () => {
     fireEvent.input(app.getByLabelText("Delivery name"), {
       target: { value: "Unsaved" },
     });
-    fireEvent.click(app.getByRole("button", { name: "Save draft" }));
+    fireEvent.click(app.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.create).toHaveBeenCalledOnce());
     fireEvent.click(app.getByText("Existing").closest("button")!);
     await app.findByRole("heading", { name: "Existing" });
@@ -82,6 +82,27 @@ describe("App request orchestration", () => {
     await act(async () => firstRequest.resolve(first));
 
     expect(app.getByRole("heading", { name: "Second" })).toBeTruthy();
+  });
+
+  it("opens existing deliveries read-only until Edit is clicked", async () => {
+    const existing = delivery("existing", "Existing");
+    installApiMocks([existing]);
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+
+    const name = app.getByLabelText("Delivery name") as HTMLInputElement;
+    expect(name.disabled).toBe(true);
+    expect(app.queryByRole("button", { name: "Save" })).toBeNull();
+
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+
+    expect(name.disabled).toBe(false);
+    expect(app.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
   it("ignores an action response after navigating to another delivery", async () => {

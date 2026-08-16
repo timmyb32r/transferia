@@ -8,6 +8,7 @@ import type { EditorState } from "../src/state";
 
 const editor = (runtime: EditorState["runtime"]): EditorState => ({
   sessionId: "session",
+  editing: true,
   id: "delivery",
   persistedRevision: 1,
   recordVersion: "2",
@@ -29,6 +30,7 @@ describe("editor chrome", () => {
       <EditorActions
         editor={editor({ state: "running", run_id: "run-17", pid: 42 })}
         blocked={false}
+        onEdit={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -46,6 +48,7 @@ describe("editor chrome", () => {
       <EditorActions
         editor={editor({ state: "stopped" })}
         blocked
+        onEdit={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
         onActivate={() => undefined}
@@ -54,7 +57,7 @@ describe("editor chrome", () => {
     );
 
     expect(
-      (view.getByRole("button", { name: "Save draft" }) as HTMLButtonElement)
+      (view.getByRole("button", { name: "Save" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
     expect(
@@ -65,6 +68,25 @@ describe("editor chrome", () => {
       (view.getByRole("button", { name: "Activate" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+
+  it("shows Edit instead of Save for an existing delivery in view mode", () => {
+    const onEdit = vi.fn();
+    const view = render(
+      <EditorActions
+        editor={{ ...editor({ state: "stopped" }), editing: false }}
+        blocked={false}
+        onEdit={onEdit}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />,
+    );
+
+    expect(view.queryByRole("button", { name: "Save" })).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Edit" }));
+    expect(onEdit).toHaveBeenCalledOnce();
   });
 
   it("reports sidebar navigation without owning request state", () => {

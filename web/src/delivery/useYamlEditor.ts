@@ -11,6 +11,7 @@ type Operations = ReturnType<typeof useOperations>;
 
 export function useYamlEditor({
   enabled,
+  editable,
   editor,
   jobs,
   operations,
@@ -18,6 +19,7 @@ export function useYamlEditor({
   applyConfig,
 }: {
   enabled: boolean;
+  editable: boolean;
   editor: EditorState;
   jobs: Pick<DeliveryJobs, "yaml" | "parseYaml">;
   operations: Pick<
@@ -97,7 +99,7 @@ export function useYamlEditor({
         return;
       }
     }
-    yamlEditing.current = true;
+    yamlEditing.current = editable;
     setYamlDraft(currentYaml);
     setActiveView("yaml");
     operations.clearErrors();
@@ -105,6 +107,11 @@ export function useYamlEditor({
 
   const applyYamlAndShowUi = async () => {
     if (activeView === "ui") return;
+    if (!editable) {
+      yamlEditing.current = false;
+      setActiveView("ui");
+      return;
+    }
     const requestId = operations.beginOperation("parseYaml", "Applying YAML…");
     const context = {
       sessionId: editor.sessionId,

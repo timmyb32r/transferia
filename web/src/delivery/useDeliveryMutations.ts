@@ -76,7 +76,7 @@ export function useDeliveryMutations({
   };
 
   const save = async (): Promise<DeliveryRecord | undefined> => {
-    const requestId = beginOperation("save", "Saving draft…");
+    const requestId = beginOperation("save", "Saving…");
     const context = editorContext(editor);
     const snapshot = {
       id: editor.id,

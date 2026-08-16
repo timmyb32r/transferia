@@ -7,6 +7,7 @@ describe("editor state", () => {
     const fresh = editorReducer(
       {
         sessionId: "initial",
+        editing: true,
         localRevision: 0,
         name: "",
         description: "",
@@ -38,11 +39,13 @@ describe("editor state", () => {
     });
     expect(isDirty(saved)).toBe(false);
     expect(saved.persistedRevision).toBe(1);
+    expect(saved.editing).toBe(false);
   });
 
   it("marks only the submitted snapshot as saved", () => {
     const state = {
       sessionId: "editor-1",
+      editing: true,
       localRevision: 2,
       savedLocalRevision: 0,
       name: "newer local name",
@@ -62,11 +65,13 @@ describe("editor state", () => {
     expect(saved.savedLocalRevision).toBe(1);
     expect(isDirty(saved)).toBe(true);
     expect(saved.name).toBe("newer local name");
+    expect(saved.editing).toBe(true);
   });
 
   it("ignores responses from an older editor session", () => {
     const state = {
       sessionId: "editor-2",
+      editing: false,
       localRevision: 0,
       savedLocalRevision: 0,
       id: "delivery-2",
@@ -91,6 +96,7 @@ describe("editor state", () => {
   it("ignores an older record version with the same config revision", () => {
     const state = {
       sessionId: "editor-2",
+      editing: false,
       localRevision: 0,
       savedLocalRevision: 0,
       id: "delivery-2",
@@ -118,6 +124,7 @@ describe("editor state", () => {
   it("ignores runtime responses for an older local revision", () => {
     const state = {
       sessionId: "editor-2",
+      editing: true,
       localRevision: 3,
       savedLocalRevision: 2,
       id: "delivery-2",

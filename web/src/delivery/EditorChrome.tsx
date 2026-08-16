@@ -26,6 +26,7 @@ export interface OperationState {
 export function EditorActions({
   editor,
   blocked,
+  onEdit,
   onSave,
   onValidate,
   onActivate,
@@ -33,6 +34,7 @@ export function EditorActions({
 }: {
   editor: EditorState;
   blocked: boolean;
+  onEdit: () => void;
   onSave: () => void;
   onValidate: () => void;
   onActivate: () => void;
@@ -52,10 +54,38 @@ export function EditorActions({
       </div>
     );
   }
+  if (!editor.editing && editor.id !== undefined) {
+    const runtimeAllowsEditing =
+      editor.runtime.state === "stopped" || editor.runtime.state === "failed";
+    return (
+      <div class="actions">
+        <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
+          Edit
+        </Button>
+        <Button
+          disabled={blocked || editor.name.trim() === ""}
+          onClick={onValidate}
+        >
+          Validate
+        </Button>
+        <Button
+          variant="primary"
+          disabled={
+            blocked ||
+            editor.validation.state !== "ready" ||
+            editor.validation.revision !== editor.persistedRevision
+          }
+          onClick={onActivate}
+        >
+          Activate
+        </Button>
+      </div>
+    );
+  }
   return (
     <div class="actions">
       <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
-        Save draft
+        Save
       </Button>
       <Button
         disabled={blocked || editor.name.trim() === ""}

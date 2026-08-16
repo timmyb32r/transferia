@@ -75,6 +75,7 @@ describe("delivery controllers", () => {
     const onRuntime = vi.fn();
     const editor: EditorState = {
       sessionId: "session",
+      editing: false,
       id: record.id,
       persistedRevision: 3,
       recordVersion: "4",
@@ -183,6 +184,7 @@ describe("delivery controllers", () => {
       const operations = useOperations();
       return useYamlEditor({
         enabled: true,
+        editable: true,
         editor,
         jobs,
         operations,
@@ -199,6 +201,36 @@ describe("delivery controllers", () => {
 
     expect(applyConfig).toHaveBeenCalledWith({ source: {} });
     expect(result.current.activeView).toBe("ui");
+  });
+
+  it("switches a read-only YAML view back to UI without parsing it", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, "yaml").mockResolvedValue({ yaml: "source: {}" });
+    const parseYaml = vi.spyOn(api, "parseYaml");
+    const applyConfig = vi.fn();
+    const editor = { ...newEditor(), editing: false };
+    const { result } = renderHook(() => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      return useYamlEditor({
+        enabled: true,
+        editable: false,
+        editor,
+        jobs,
+        operations,
+        isCurrentContext: () => true,
+        applyConfig,
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
+    await act(async () => result.current.showYaml());
+    await act(async () => result.current.applyYamlAndShowUi());
+
+    expect(result.current.activeView).toBe("ui");
+    expect(parseYaml).not.toHaveBeenCalled();
+    expect(applyConfig).not.toHaveBeenCalled();
   });
 });
 
@@ -220,6 +252,7 @@ function delivery(): DeliveryRecord {
 function newEditor(): EditorState {
   return {
     sessionId: "session",
+    editing: true,
     localRevision: 1,
     name: "Delivery",
     description: "",

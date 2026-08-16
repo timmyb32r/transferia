@@ -58,6 +58,7 @@ import {
 
 const EMPTY_STATE: EditorState = {
   sessionId: "bootstrap",
+  editing: true,
   localRevision: 0,
   name: "",
   description: "",
@@ -205,6 +206,7 @@ export function App() {
   });
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
+    editable: !isReadOnly(editor),
     editor,
     jobs: { yaml: yamlJob, parseYaml: parseYamlJob },
     operations: {
@@ -290,6 +292,7 @@ export function App() {
     <EditorActions
       editor={editor}
       blocked={blockingOperation}
+      onEdit={() => dispatch({ type: "edit" })}
       onSave={() => void mutations.save()}
       onValidate={() => void mutations.validate()}
       onActivate={() =>
