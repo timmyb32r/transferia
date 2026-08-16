@@ -86,24 +86,24 @@ pub(super) fn safety_limit_violation(
             }
         }
     }
-    if largest_record.2 > MAX_RECORD_BYTES {
-        return Some(SafetyLimitViolation::Record {
+    let estimated_working_set_bytes =
+        output_memory_bound(kinds, system_kinds, dlq_system_columns, framing, messages);
+    if estimated_working_set_bytes > MAX_DELIVERY_BYTES {
+        return Some(SafetyLimitViolation::WorkingSet {
             input_bytes,
             message_count,
             record_count,
-            message_index: largest_record.0,
-            record_index: largest_record.1,
-            record_bytes: largest_record.2,
+            max_record_bytes: largest_record.2,
+            estimated_working_set_bytes,
         });
     }
-    let estimated_working_set_bytes =
-        output_memory_bound(kinds, system_kinds, dlq_system_columns, framing, messages);
-    (estimated_working_set_bytes > MAX_DELIVERY_BYTES).then_some(SafetyLimitViolation::WorkingSet {
+    (largest_record.2 > MAX_RECORD_BYTES).then_some(SafetyLimitViolation::Record {
         input_bytes,
         message_count,
         record_count,
-        max_record_bytes: largest_record.2,
-        estimated_working_set_bytes,
+        message_index: largest_record.0,
+        record_index: largest_record.1,
+        record_bytes: largest_record.2,
     })
 }
 
