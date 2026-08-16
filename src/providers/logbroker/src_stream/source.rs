@@ -288,6 +288,8 @@ impl YdbTopicSource {
                         partition = session.partition_id,
                         partition_session = session.partition_session_id,
                         committed_offset = request.committed_offset,
+                        partition_start = ?request.partition_offsets.as_ref().map(|offsets| offsets.start),
+                        partition_end = ?request.partition_offsets.as_ref().map(|offsets| offsets.end),
                         "YDB Topic partition assigned"
                     );
                 }
