@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::parsers::ParserPlan;
@@ -210,7 +211,7 @@ impl DeliveryDiscovery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NameSyntax {
     AnyNonEmptyUtf8,
@@ -218,13 +219,17 @@ pub enum NameSyntax {
     ObjectStorePathSegment,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextLimit {
     pub syntax: NameSyntax,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub max_utf8_bytes: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArrowTypeFamily {
     Utf8,
@@ -238,19 +243,31 @@ pub enum ArrowTypeFamily {
     Timestamp,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectKeyLimit {
     pub max_utf8_bytes: usize,
     pub normalized_relative_path: bool,
 }
 
 /// Machine-readable summary of the restrictions enforced by one sink.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SinkLimitsDescription {
     pub sink: &'static str,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub dataset_name: Option<TextLimit>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub column_name: Option<TextLimit>,
+
     pub supported_arrow_types: Vec<ArrowTypeFamily>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub object_key: Option<ObjectKeyLimit>,
 }
 

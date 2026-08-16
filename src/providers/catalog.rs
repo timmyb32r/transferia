@@ -16,30 +16,42 @@ use crate::providers::traits::{SinkProvider, SourceProvider};
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
     Batch,
     Stream,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct EndpointDefinition {
+    #[schemars(
+        with = "BTreeMap<String, JsonValue>",
+        extend("x-typescript-type" = "JsonSchema")
+    )]
     pub schema: JsonValue,
+
+    #[schemars(
+        with = "BTreeMap<String, JsonValue>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
     pub initial: JsonValue,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub delivery_modes: Vec<DeliveryMode>,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub partitioned: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProviderDefinition {
     pub key: &'static str,
     pub title: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub source: Option<EndpointDefinition>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub sink: Option<EndpointDefinition>,
 }
 

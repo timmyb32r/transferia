@@ -76,13 +76,11 @@
         "syntax": "ascii_identifier",
         "max_utf8_bytes": 255
       },
-      "column_name": null,
       "supported_arrow_types": [
         "utf8",
         "signed_integer",
         "timestamp"
-      ],
-      "object_key": null
+      ]
     }
   },
   "error_envelope": {

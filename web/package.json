@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && node scripts/build.mjs",
+    "generate:api": "node scripts/generate-api.mjs",
+    "build": "npm run generate:api && tsc --noEmit && node scripts/build.mjs",
+    "pretest": "npm run generate:api",
     "test": "vitest run"
   },
   "dependencies": {

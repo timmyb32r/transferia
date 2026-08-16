@@ -12,6 +12,11 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Regenerate the Rust-owned server API schema and its TypeScript projection
+api-contract:
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run --bin generate-server-api
+    cd web && npm run generate:api
+
 # Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
 check: fmt-check
     cargo clippy --all-targets --all-features -- -D warnings

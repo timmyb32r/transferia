@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -83,7 +84,8 @@ impl From<SupervisorError> for ServiceError {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiscoveryResult {
     pub source: String,
     pub sink: String,
@@ -91,22 +93,25 @@ pub struct DiscoveryResult {
     pub sink_limits: SinkLimitsDescription,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidationCommandResult {
     pub delivery: DeliveryRecord,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub discovery: Option<DiscoveryResult>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DatasetView {
     pub role: DatasetRoleView,
     pub name: String,
     pub columns: Vec<ColumnView>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, JsonSchema, Serialize)]
 pub enum DatasetRoleView {
     Main,
     DeadLetterQueue,
@@ -121,7 +126,8 @@ impl From<DatasetRole> for DatasetRoleView {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ColumnView {
     pub name: String,
     pub arrow_type: String,
@@ -129,6 +135,7 @@ pub struct ColumnView {
     pub primary_key: bool,
     pub low_cardinality: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
     pub max_length: Option<usize>,
 }
 

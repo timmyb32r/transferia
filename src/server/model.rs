@@ -1,15 +1,16 @@
 use std::collections::BTreeMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const STATE_VERSION: u32 = 4;
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct RunId(pub String);
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ValidationState {
     Draft,
@@ -17,7 +18,7 @@ pub enum ValidationState {
     Invalid { revision: u64, message: String },
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RuntimeState {
     Stopped,
@@ -48,17 +49,26 @@ impl RuntimeState {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeliveryRecord {
     pub id: String,
     pub name: String,
     pub description: String,
+
+    #[schemars(
+        with = "BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
     pub config: Value,
 
     pub revision: u64,
 
     #[serde(with = "decimal_u64")]
+    #[schemars(
+        with = "String",
+        extend("pattern" = "^(?:0|[1-9][0-9]*)$")
+    )]
     pub record_version: u64,
 
     pub validation: ValidationState,

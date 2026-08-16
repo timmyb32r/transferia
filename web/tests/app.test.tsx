@@ -295,10 +295,7 @@ function discovery(): DiscoveryResult {
     datasets: [],
     sink_limits: {
       sink: "sink",
-      dataset_name: null,
-      column_name: null,
       supported_arrow_types: [],
-      object_key: null,
     },
   };
 }

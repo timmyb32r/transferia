@@ -4,13 +4,9 @@ use axum::http::Request;
 use tower::ServiceExt as _;
 
 use super::*;
-use crate::server::service::{ColumnView, DatasetRoleView, DatasetView, DiscoveryResult};
 use crate::server::store::JsonDeliveryStore;
 use crate::server::tests::TestSupervisor;
 use crate::server::ui_catalog::build_ui_catalog;
-use transferia::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
-
-const API_CONTRACT: &str = include_str!("../../../contracts/server-api.json");
 
 static TEST_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -332,101 +328,9 @@ async fn invalid_and_oversized_json_are_rejected_before_the_service() -> anyhow:
     Ok(())
 }
 
-#[test]
-fn rust_dtos_serialize_exactly_as_the_shared_api_contract() -> anyhow::Result<()> {
-    let fixture: serde_json::Value = serde_json::from_str(API_CONTRACT)?;
-    let delivery = DeliveryRecord {
-        id: "delivery-1".to_owned(),
-        name: "Example".to_owned(),
-        description: "Contract fixture".to_owned(),
-        config: serde_json::json!({ "delivery_type": "stream" }),
-        revision: 7,
-        record_version: 11,
-        validation: ValidationState::Invalid {
-            revision: 7,
-            message: "invalid fixture".to_owned(),
-        },
-        runtime: RuntimeState::Running {
-            run_id: crate::server::model::RunId("run-7".to_owned()),
-            pid: 42,
-        },
-        created_at_ms: 1000,
-        updated_at_ms: 2000,
-    };
-    assert_eq!(serde_json::to_value(delivery)?, fixture["delivery_record"]);
-
-    let runtime_states = [
-        RuntimeState::Stopped,
-        RuntimeState::Starting {
-            run_id: crate::server::model::RunId("run-1".to_owned()),
-        },
-        RuntimeState::Running {
-            run_id: crate::server::model::RunId("run-2".to_owned()),
-            pid: 42,
-        },
-        RuntimeState::Stopping {
-            run_id: crate::server::model::RunId("run-3".to_owned()),
-        },
-        RuntimeState::Failed {
-            run_id: crate::server::model::RunId("run-4".to_owned()),
-            message: "worker failed".to_owned(),
-        },
-    ];
-    assert_eq!(
-        serde_json::to_value(runtime_states)?,
-        fixture["runtime_states"]
-    );
-
-    let discovery = DiscoveryResult {
-        source: "logbroker".to_owned(),
-        sink: "clickhouse".to_owned(),
-        datasets: vec![DatasetView {
-            role: DatasetRoleView::Main,
-            name: "events".to_owned(),
-            columns: vec![
-                ColumnView {
-                    name: "id".to_owned(),
-                    arrow_type: "Utf8".to_owned(),
-                    nullable: false,
-                    primary_key: true,
-                    low_cardinality: true,
-                    max_length: Some(64),
-                },
-                ColumnView {
-                    name: "created_at".to_owned(),
-                    arrow_type: "Timestamp(Millisecond, None)".to_owned(),
-                    nullable: true,
-                    primary_key: false,
-                    low_cardinality: false,
-                    max_length: None,
-                },
-            ],
-        }],
-        sink_limits: SinkLimitsDescription {
-            sink: "clickhouse",
-            dataset_name: Some(TextLimit {
-                syntax: NameSyntax::AsciiIdentifier,
-                max_utf8_bytes: Some(255),
-            }),
-            column_name: None,
-            supported_arrow_types: vec![
-                ArrowTypeFamily::Utf8,
-                ArrowTypeFamily::SignedInteger,
-                ArrowTypeFamily::Timestamp,
-            ],
-            object_key: None,
-        },
-    };
-    assert_eq!(
-        serde_json::to_value(discovery)?,
-        fixture["discovery_result"]
-    );
-    Ok(())
-}
-
 #[tokio::test]
 async fn api_errors_use_the_shared_json_envelope_and_are_never_cached() -> anyhow::Result<()> {
-    let fixture: serde_json::Value = serde_json::from_str(API_CONTRACT)?;
+    let fixture = crate::server::api_contract::fixture()?;
     let (app, root) = test_router().await?;
     let response = app
         .oneshot(Request::get("/api/v1/deliveries/missing").body(Body::empty())?)

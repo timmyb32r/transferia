@@ -28,10 +28,21 @@ enum MiddlewareSchema {
     Filter(transferia::middleware::filter::FilterConfig),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct UiCatalog {
+    #[schemars(
+        with = "std::collections::BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonSchema")
+    )]
     pub common_schema: Value,
+
+    #[schemars(
+        with = "std::collections::BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
     pub initial: Value,
+
     pub providers: Vec<ProviderDefinition>,
 }
 

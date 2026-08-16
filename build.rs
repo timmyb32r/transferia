@@ -22,8 +22,17 @@ fn build_server_ui() -> Result<(), Box<dyn core::error::Error>> {
 
     println!("cargo:rerun-if-changed=web/src");
     println!("cargo:rerun-if-changed=web/scripts/build.mjs");
+    println!("cargo:rerun-if-changed=web/scripts/generate-api.mjs");
+    println!("cargo:rerun-if-changed=contracts/server-api.schema.json");
     println!("cargo:rerun-if-changed=web/package.json");
     println!("cargo:rerun-if-changed=web/package-lock.json");
+    println!("cargo:rerun-if-env-changed=TRANSFERIA_SKIP_SERVER_UI");
+
+    // Updating the Rust-owned API schema must not depend on a frontend build
+    // that still consumes the previously committed schema artifact.
+    if std::env::var_os("TRANSFERIA_SKIP_SERVER_UI").is_some() {
+        return Ok(());
+    }
 
     if !PathBuf::from("web/node_modules").is_dir() {
         return Err("web dependencies are missing; run `npm ci --prefix web`".into());

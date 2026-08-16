@@ -13,7 +13,7 @@ describe("control-plane API", () => {
       vi.fn().mockResolvedValue(
         new Response(
           JSON.stringify({
-            error: { code: "revision_conflict", message: "Draft changed" },
+            error: { code: "conflict", message: "Draft changed" },
           }),
           { status: 409, headers: { "content-type": "application/json" } },
         ),
@@ -111,7 +111,26 @@ describe("control-plane API", () => {
     );
 
     await expect(api.delivery("delivery-1")).rejects.toThrow(
-      /record_version: expected a string/,
+      /record_version: expected string/,
+    );
+  });
+
+  it("rejects response fields that are absent from the Rust DTO", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...delivery("delivery-1", "Saved"),
+            legacy_status: "active",
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(api.delivery("delivery-1")).rejects.toThrow(
+      /legacy_status: unknown field/,
     );
   });
 });

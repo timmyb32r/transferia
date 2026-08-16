@@ -11,14 +11,18 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use transferia::extension::OptionsRequest;
 
+use super::api_contract::{
+    ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse, CreateDraftRequest,
+    DeliverySummary, HealthResponse, RevisionRequest, StopRequest, UpdateDraftRequest, YamlRequest,
+    YamlResponse,
+};
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
-use super::model::{DeliveryRecord, RunId, RuntimeState, ValidationState};
+use super::model::{DeliveryRecord, RunId};
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
 
@@ -30,60 +34,6 @@ struct AppState {
     catalog: UiCatalog,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfigRequest {
-    config: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct YamlRequest {
-    yaml: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CreateDraftRequest {
-    name: String,
-    #[serde(default)]
-    description: String,
-    config: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct UpdateDraftRequest {
-    expected_revision: u64,
-    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
-    expected_record_version: u64,
-    name: String,
-    #[serde(default)]
-    description: String,
-    config: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RevisionRequest {
-    expected_revision: u64,
-    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
-    expected_record_version: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(
-    clippy::struct_field_names,
-    reason = "expected_* names are the optimistic-concurrency wire contract"
-)]
-struct StopRequest {
-    expected_revision: u64,
-    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
-    expected_record_version: u64,
-    expected_run_id: String,
-}
-
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OptionsQuery {
@@ -91,57 +41,6 @@ struct OptionsQuery {
 
     #[serde(default)]
     refresh: bool,
-}
-
-#[derive(Serialize)]
-struct YamlResponse {
-    yaml: String,
-}
-
-#[derive(Serialize)]
-struct ConfigResponse {
-    config: Value,
-}
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: &'static str,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct DeliverySummary {
-    id: String,
-    name: String,
-    description: String,
-    revision: u64,
-    validation: ValidationState,
-    runtime: RuntimeState,
-    updated_at_ms: u64,
-}
-
-impl From<DeliveryRecord> for DeliverySummary {
-    fn from(record: DeliveryRecord) -> Self {
-        Self {
-            id: record.id,
-            name: record.name,
-            description: record.description,
-            revision: record.revision,
-            validation: record.validation,
-            runtime: record.runtime,
-            updated_at_ms: record.updated_at_ms,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct ApiErrorBody {
-    error: ApiErrorView,
-}
-
-#[derive(Serialize)]
-struct ApiErrorView {
-    code: &'static str,
-    message: String,
 }
 
 struct ApiError(ServiceError);
@@ -171,9 +70,9 @@ where
 impl IntoResponse for ApiJsonRejection {
     fn into_response(self) -> Response {
         let (status, code) = if self.0.status() == StatusCode::PAYLOAD_TOO_LARGE {
-            (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large")
+            (StatusCode::PAYLOAD_TOO_LARGE, ApiErrorCode::PayloadTooLarge)
         } else {
-            (StatusCode::BAD_REQUEST, "invalid_request")
+            (StatusCode::BAD_REQUEST, ApiErrorCode::InvalidRequest)
         };
         error_response(status, code, self.0.body_text())
     }
@@ -188,21 +87,27 @@ impl From<ServiceError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self.0 {
-            ServiceError::InvalidInput(message) => {
-                (StatusCode::BAD_REQUEST, "invalid_request", message)
+            ServiceError::InvalidInput(message) => (
+                StatusCode::BAD_REQUEST,
+                ApiErrorCode::InvalidRequest,
+                message,
+            ),
+            ServiceError::NotFound(message) => {
+                (StatusCode::NOT_FOUND, ApiErrorCode::NotFound, message)
             }
-            ServiceError::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
-            ServiceError::Conflict(message) => (StatusCode::CONFLICT, "conflict", message),
+            ServiceError::Conflict(message) => {
+                (StatusCode::CONFLICT, ApiErrorCode::Conflict, message)
+            }
             ServiceError::Validation(message) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "validation_failed",
+                ApiErrorCode::ValidationFailed,
                 message,
             ),
             ServiceError::Internal(error) => {
                 tracing::error!(error = ?error, "control-plane request failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal_error",
+                    ApiErrorCode::InternalError,
                     "the control plane could not complete the request".to_owned(),
                 )
             }
@@ -211,7 +116,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-fn error_response(status: StatusCode, code: &'static str, message: String) -> Response {
+fn error_response(status: StatusCode, code: ApiErrorCode, message: String) -> Response {
     let mut response = (
         status,
         Json(ApiErrorBody {
@@ -278,7 +183,7 @@ async fn enforce_loopback_origin(
 fn forbidden_boundary(kind: &str) -> Response {
     error_response(
         StatusCode::FORBIDDEN,
-        "invalid_request",
+        ApiErrorCode::InvalidRequest,
         format!("{kind} must identify this loopback control plane"),
     )
 }

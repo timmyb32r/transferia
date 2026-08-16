@@ -6,6 +6,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use transferia::extension::Transferia;
 
+pub mod api_contract;
 mod assets;
 mod http;
 mod model;

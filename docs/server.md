@@ -11,9 +11,14 @@ The local control plane owns delivery drafts, validation, worker processes, and 
 | `server/service.rs` | Delivery use cases and state transitions; depends only on the storage and supervisor ports |
 | `server/store.rs` | `DeliveryStore` port and the transactional local JSON implementation |
 | `server/supervisor.rs` | `WorkerSupervisor` port and the local child-process implementation |
-| `server/http.rs` | Versioned HTTP DTOs, routing, error classification, limits, and embedded assets |
+| `server/api_contract.rs` | The Rust-owned HTTP request/response DTOs and generated JSON Schema root |
+| `server/http.rs` | Routing, error classification, body limits, headers, and embedded assets |
 | `server/ui_catalog.rs` | The root form schema composed with the provider catalog |
-| `web/` | Preact UI, strict JSON Schema compiler, reducer state, and cancellable effects |
+| `web/src/api/` | Runtime decoding of every server response against the generated Rust contract |
+| `web/src/delivery/` | Delivery-editor composition and feature views |
+| `web/src/schema/` | Strict JSON Schema compiler, generic form controls, and specialized schema widgets |
+| `web/src/ui/` | Reusable overlay and select primitives |
+| `web/src/app.tsx` | Application orchestration only: sessions, effects, navigation, and commands |
 
 Do not let HTTP DTOs, JSON persistence, or `tokio::process::Child` enter `ControlPlane`. A replacement database implements `DeliveryStore`; a container or remote launcher implements `WorkerSupervisor`. Neither change should alter application use cases.
 
@@ -79,9 +84,30 @@ runtime; there is no whole-document environment expansion. Frontend validation
 is only guidance: activation always repeats authoritative server-side
 validation.
 
+## Server API contract
+
+`server/api_contract.rs` is the only source of truth for control-plane request
+and response shapes. Its Rust DTOs derive `JsonSchema`; the
+`generate-server-api` binary materializes that schema as
+`contracts/server-api.schema.json`. The web generator projects the committed
+schema into `web/src/generated/apiContract.ts`, and the API client validates
+every successful response and every structured error at runtime before it can
+enter application state. Frontend code must import these generated types through
+`web/src/types.ts`; it must not restate server DTOs with handwritten TypeScript
+interfaces or unchecked casts.
+
+Run `just api-contract` after changing a server DTO. The temporary
+`TRANSFERIA_SKIP_SERVER_UI` build flag deliberately breaks the generation cycle:
+the Rust generator can compile before the frontend consumes the newly generated
+schema. Normal builds never set this flag. Rust freshness tests compare the
+committed schema and interop fixture to their Rust-generated values, while
+Vitest decodes that exact Rust serialization fixture and rejects malformed
+responses.
+
 ## Verification contracts
 
-`cargo build` type-checks and bundles the embedded UI. The normal Cargo test
+`cargo build` regenerates TypeScript types, type-checks, and bundles the embedded
+UI from the committed Rust schema. The normal Cargo test
 suite invokes Vitest and also runs the real Rust catalog through the TypeScript
 schema compiler. `just check`/`just ci` enforce formatting, all-target/all-feature
 Clippy, Rust tests, UI contracts, and configured sink E2E tests. The internal
