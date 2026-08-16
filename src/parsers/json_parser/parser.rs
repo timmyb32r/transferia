@@ -1554,16 +1554,12 @@ impl ParserSession for JsonParserSession {
             let input_bytes = messages.iter().fold(0_usize, |total, message| {
                 total.saturating_add(message.value.len())
             });
-            tracing::error!(
+            tracing::warn!(
                 input_bytes,
                 message_count = messages.len(),
                 estimated_working_set_bytes,
                 pipeline_memory_limit_bytes = self.memory_limit_bytes,
-                "JSON parser working set exceeds the configured pipeline memory limit"
-            );
-            anyhow::bail!(
-                "JSON parser estimated working set of {estimated_working_set_bytes} bytes exceeds the configured pipeline memory limit of {} bytes; raise pipeline_memory_limit_bytes or reduce the source read size",
-                self.memory_limit_bytes,
+                "single JSON parser delivery exceeds the pipeline memory budget; admitting it alone under pipeline backpressure"
             );
         }
         self.parser.parse_into(messages, &mut self.workspace)

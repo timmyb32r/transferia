@@ -237,7 +237,7 @@ async fn parser_loop(
         let ReadPayload::Raw(messages) = payload else {
             unreachable!();
         };
-        let admission_bound = output_bound.min(memory.limit());
+        let admission_bound = output_bound;
         let parse_memory = if messages.is_empty() {
             None
         } else {
@@ -292,12 +292,6 @@ async fn parser_loop(
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
         let has_output = valid.batch.num_rows() > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
-        anyhow::ensure!(
-            !has_output || output_bytes <= memory.limit(),
-            "parser delivery {} materialized {output_bytes} bytes, exceeding the configured pipeline memory limit of {} bytes; raise pipeline_memory_limit_bytes or reduce the source read size",
-            id.get(),
-            memory.limit(),
-        );
         if has_output && output_bytes > output_bound {
             tracing::warn!(
                 delivery_id = id.get(),

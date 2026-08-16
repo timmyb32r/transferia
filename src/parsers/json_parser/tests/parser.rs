@@ -358,7 +358,7 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
 }
 
 #[test]
-fn parser_session_uses_the_explicit_pipeline_memory_limit() -> anyhow::Result<()> {
+fn parser_session_has_no_hidden_limit_below_the_pipeline_budget() -> anyhow::Result<()> {
     let parser = Arc::new(parser_for(
         (0..8)
             .map(|index| {
@@ -374,13 +374,6 @@ fn parser_session_uses_the_explicit_pipeline_memory_limit() -> anyhow::Result<()
     let payload = Bytes::from(vec![b'x'; 32 * 1024 * 1024]);
     let estimated = parser.output_memory_bound(&[Message::new(payload.clone())]);
     assert!(estimated > 256 * 1024 * 1024);
-
-    let mut constrained = Arc::clone(&parser).create_session(256 * 1024 * 1024);
-    let error = constrained
-        .parse_into(vec![Message::new(payload.clone())])
-        .expect_err("explicitly constrained parser session unexpectedly accepted the input");
-    let message = error.to_string();
-    assert!(message.contains("configured pipeline memory limit of 268435456 bytes"));
 
     let mut allowed = parser.create_session(1024 * 1024 * 1024);
     let (_main, dlq) = allowed.parse_into(vec![Message::new(payload)])?;
