@@ -12,7 +12,7 @@ struct OverestimatedSession;
 struct OverestimatedFactory;
 
 impl ParserFactory for OverestimatedFactory {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+    fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(OverestimatedSession)
     }
 }
@@ -22,7 +22,7 @@ struct StatefulFactory {
 }
 
 impl ParserFactory for StatefulFactory {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+    fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         self.created.fetch_add(1, Ordering::Relaxed);
         Box::new(StatefulSession { calls: 0 })
     }
@@ -35,10 +35,6 @@ struct StatefulSession {
 impl ParserSession for StatefulSession {
     fn output_memory_bound(&self, _messages: &[Message]) -> usize {
         1024
-    }
-
-    fn hard_output_limit(&self) -> Option<usize> {
-        Some(1024)
     }
 
     fn parse_into(
@@ -69,10 +65,6 @@ impl ParserSession for StatefulSession {
 impl ParserSession for OverestimatedSession {
     fn output_memory_bound(&self, _messages: &[Message]) -> usize {
         2048
-    }
-
-    fn hard_output_limit(&self) -> Option<usize> {
-        Some(1024)
     }
 
     fn parse_into(

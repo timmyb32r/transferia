@@ -77,6 +77,12 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Performance and design
 
+- Every operational or safety limit must come from an explicit user-visible
+  configuration value and be validated before execution. A hardcoded constant
+  must never reject, truncate, or otherwise break a delivery that satisfies its
+  configured limits. Constants may define implementation capacities only when
+  exceeding them is structurally impossible or the corresponding constraint is
+  explicitly exposed and validated in configuration.
 - Strive for the most efficient practical implementation: bounded memory,
   explicit backpressure, minimal copies and allocations, useful concurrency,
   deterministic behavior, and no blocking work on async executor threads.

@@ -38,10 +38,6 @@ impl ParserSession for BenchmarkDiscardSession {
         1
     }
 
-    fn hard_output_limit(&self) -> Option<usize> {
-        None
-    }
-
     fn parse_into(
         &mut self,
         _messages: Vec<Message>,
@@ -60,7 +56,7 @@ impl ParserSession for BenchmarkDiscardSession {
 }
 
 impl ParserFactory for BenchmarkDiscardParser {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+    fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(BenchmarkDiscardSession {
             table: Arc::clone(&self.table),
         })

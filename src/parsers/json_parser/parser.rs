@@ -16,7 +16,6 @@ use super::extraction::{
     parse_root_fields_typed, ColumnIndex, DuplicateMappedRootVisitor, RootFieldInfo,
 };
 use super::framing::frame_json_arrays;
-use super::memory::MAX_DELIVERY_BYTES;
 use super::system_columns::{
     append_system_columns, make_exact_system_builder, make_system_builder, SystemColumnValues,
 };
@@ -679,19 +678,6 @@ struct ColumnMappingExt {
 impl JsonParser {
     fn output_memory_bound(&self, messages: &[Message]) -> usize {
         super::memory::output_memory_bound(
-            &self.kinds,
-            &self.system_kinds,
-            &self.dlq_system_columns,
-            self.json_framing,
-            messages,
-        )
-    }
-
-    fn safety_limit_violation(
-        &self,
-        messages: &[Message],
-    ) -> Option<super::memory::SafetyLimitViolation> {
-        super::memory::safety_limit_violation(
             &self.kinds,
             &self.system_kinds,
             &self.dlq_system_columns,
@@ -1435,46 +1421,6 @@ impl JsonParser {
         ws: &mut ParserWorkspace,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
         let messages = frame_json_arrays(self.json_framing, self.conversion_error, messages)?;
-        if let Some(violation) = self.safety_limit_violation(&messages) {
-            match &violation {
-                super::memory::SafetyLimitViolation::Record {
-                    input_bytes,
-                    message_count,
-                    record_count,
-                    message_index,
-                    record_index,
-                    record_bytes,
-                } => tracing::error!(
-                    limit_kind = "record",
-                    input_bytes,
-                    message_count,
-                    record_count,
-                    message_index,
-                    record_index,
-                    record_bytes,
-                    limit_bytes = super::memory::MAX_RECORD_BYTES,
-                    "JSON parser safety limit exceeded"
-                ),
-                super::memory::SafetyLimitViolation::WorkingSet {
-                    input_bytes,
-                    message_count,
-                    record_count,
-                    max_record_bytes,
-                    estimated_working_set_bytes,
-                } => tracing::error!(
-                    limit_kind = "delivery",
-                    input_bytes,
-                    message_count,
-                    record_count,
-                    max_record_bytes,
-                    estimated_working_set_bytes,
-                    limit_bytes = super::memory::MAX_DELIVERY_BYTES,
-                    "JSON parser safety limit exceeded"
-                ),
-            }
-            anyhow::bail!(violation);
-        }
-
         // Count rows without retaining a second per-record index. Parsing
         // performs the same allocation-free split over the source buffers.
         let n_rows: usize = match self.json_framing {
@@ -1591,6 +1537,7 @@ impl JsonParser {
 struct JsonParserSession {
     parser: Arc<JsonParser>,
     workspace: ParserWorkspace,
+    memory_limit_bytes: usize,
 }
 
 impl ParserSession for JsonParserSession {
@@ -1598,23 +1545,37 @@ impl ParserSession for JsonParserSession {
         self.parser.output_memory_bound(messages)
     }
 
-    fn hard_output_limit(&self) -> Option<usize> {
-        Some(MAX_DELIVERY_BYTES)
-    }
-
     fn parse_into(
         &mut self,
         messages: Vec<Message>,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let estimated_working_set_bytes = self.parser.output_memory_bound(&messages);
+        if estimated_working_set_bytes > self.memory_limit_bytes {
+            let input_bytes = messages.iter().fold(0_usize, |total, message| {
+                total.saturating_add(message.value.len())
+            });
+            tracing::error!(
+                input_bytes,
+                message_count = messages.len(),
+                estimated_working_set_bytes,
+                pipeline_memory_limit_bytes = self.memory_limit_bytes,
+                "JSON parser working set exceeds the configured pipeline memory limit"
+            );
+            anyhow::bail!(
+                "JSON parser estimated working set of {estimated_working_set_bytes} bytes exceeds the configured pipeline memory limit of {} bytes; raise pipeline_memory_limit_bytes or reduce the source read size",
+                self.memory_limit_bytes,
+            );
+        }
         self.parser.parse_into(messages, &mut self.workspace)
     }
 }
 
 impl ParserFactory for JsonParser {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+    fn create_session(self: Arc<Self>, memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(JsonParserSession {
             parser: self,
             workspace: ParserWorkspace::new(),
+            memory_limit_bytes,
         })
     }
 }

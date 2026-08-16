@@ -7,7 +7,7 @@ use crate::parsers::{ParserFactory, ParserSession};
 pub(super) struct NativeSourceParser;
 
 impl ParserFactory for NativeSourceParser {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession> {
+    fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(Self)
     }
 }
@@ -15,10 +15,6 @@ impl ParserFactory for NativeSourceParser {
 impl ParserSession for NativeSourceParser {
     fn output_memory_bound(&self, _messages: &[Message]) -> usize {
         0
-    }
-
-    fn hard_output_limit(&self) -> Option<usize> {
-        None
     }
 
     fn parse_into(

@@ -116,7 +116,10 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
             durable: support::durable_context(),
         })
         .await?;
-    let mut parser = provider.parser_plan().parser().create_session();
+    let mut parser = provider
+        .parser_plan()
+        .parser()
+        .create_session(256 * 1024 * 1024);
     let mut ids = Vec::new();
     for expected_key in ["snapshot/01.json", "snapshot/02.json"] {
         match source.read_batch().await? {

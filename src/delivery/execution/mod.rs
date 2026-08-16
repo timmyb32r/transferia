@@ -133,6 +133,7 @@ async fn parser_loop(
 ) -> anyhow::Result<()> {
     let mut parser: Option<Box<dyn ParserSession>> = None;
     let mut downstream_pressured = false;
+    let memory_limit_bytes = memory.limit();
     while !cancellation.is_cancelled() {
         if downstream_pressured {
             let capacity_available = tokio::select! {
@@ -217,15 +218,15 @@ async fn parser_loop(
         // until their first delivery).
         let parser_factory = Arc::clone(&parser_factory);
         let estimate_task = tokio::task::spawn_blocking(move || {
-            let parser = parser.unwrap_or_else(|| parser_factory.create_session());
+            let parser =
+                parser.unwrap_or_else(|| parser_factory.create_session(memory_limit_bytes));
             let ReadPayload::Raw(messages) = &envelope.payload else {
                 unreachable!();
             };
             let output_bound = parser.output_memory_bound(messages);
-            let hard_output_limit = parser.hard_output_limit();
-            (parser, envelope, output_bound, hard_output_limit)
+            (parser, envelope, output_bound)
         });
-        let (active_parser, envelope, output_bound, hard_output_limit) =
+        let (active_parser, envelope, output_bound) =
             parser_worker_result("estimate", estimate_task.await)?;
         let ReadEnvelope {
             id,
@@ -236,8 +237,7 @@ async fn parser_loop(
         let ReadPayload::Raw(messages) = payload else {
             unreachable!();
         };
-        let admission_bound =
-            hard_output_limit.map_or(output_bound, |limit| output_bound.min(limit));
+        let admission_bound = output_bound.min(memory.limit());
         let parse_memory = if messages.is_empty() {
             None
         } else {
@@ -292,13 +292,12 @@ async fn parser_loop(
         let output_bytes = valid_bytes.saturating_add(dlq_bytes);
         let has_output = valid.batch.num_rows() > 0
             || dlq.as_ref().is_some_and(|batch| batch.batch.num_rows() > 0);
-        if let Some(limit) = hard_output_limit {
-            anyhow::ensure!(
-                !has_output || output_bytes <= limit,
-                "parser delivery {} materialized {output_bytes} bytes, exceeding its hard output limit of {limit} bytes; reduce source read size, mapping width, or record size",
-                id.get(),
-            );
-        }
+        anyhow::ensure!(
+            !has_output || output_bytes <= memory.limit(),
+            "parser delivery {} materialized {output_bytes} bytes, exceeding the configured pipeline memory limit of {} bytes; raise pipeline_memory_limit_bytes or reduce the source read size",
+            id.get(),
+            memory.limit(),
+        );
         if has_output && output_bytes > output_bound {
             tracing::warn!(
                 delivery_id = id.get(),

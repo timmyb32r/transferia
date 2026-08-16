@@ -8,7 +8,7 @@ fn benchmark_discard_parser_drops_all_rows() -> anyhow::Result<()> {
         Message::new(Bytes::from_static(b"{\"id\":\"a\"}")),
         Message::new(Bytes::from_static(b"{\"id\":\"b\"}")),
     ];
-    let mut session = Arc::new(parser).create_session();
+    let mut session = Arc::new(parser).create_session(1024);
     let (valid, dlq) = session.parse_into(messages)?;
     assert_eq!(valid.batch.num_rows(), 0);
     assert!(!valid.is_dlq);

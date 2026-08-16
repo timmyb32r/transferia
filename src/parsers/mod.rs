@@ -22,7 +22,7 @@ pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNam
 /// Common parser interface. Every parser converts raw [`Message`]s into
 /// Arrow [`TableData`] (valid + optional DLQ).
 pub trait ParserFactory: Send + Sync {
-    fn create_session(self: Arc<Self>) -> Box<dyn ParserSession>;
+    fn create_session(self: Arc<Self>, memory_limit_bytes: usize) -> Box<dyn ParserSession>;
 }
 
 /// Mutable parser state owned by exactly one partition parser thread.
@@ -31,11 +31,6 @@ pub trait ParserSession: Send {
     /// admission before builders allocate. The pipeline accounts the exact
     /// materialized output afterwards; an estimate is never a correctness gate.
     fn output_memory_bound(&self, messages: &[Message]) -> usize;
-
-    /// Optional hard bound for one materialized parser delivery. Parsers that
-    /// return a limit must route larger inputs to a bounded representation or
-    /// fail before returning an oversized Arrow batch.
-    fn hard_output_limit(&self) -> Option<usize>;
 
     fn parse_into(
         &mut self,

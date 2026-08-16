@@ -333,9 +333,6 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    assert!(parser
-        .safety_limit_violation(&[Message::new(payload.clone())])
-        .is_none());
     let (main, dlq) =
         parser.parse_into(vec![Message::new(payload)], &mut ParserWorkspace::new())?;
 
@@ -361,8 +358,8 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
 }
 
 #[test]
-fn oversized_parser_working_set_fails_before_builder_allocation() -> anyhow::Result<()> {
-    let parser = parser_for(
+fn parser_session_uses_the_explicit_pipeline_memory_limit() -> anyhow::Result<()> {
+    let parser = Arc::new(parser_for(
         (0..8)
             .map(|index| {
                 crate::parsers::json_parser::ColumnMapping::new(
@@ -373,27 +370,29 @@ fn oversized_parser_working_set_fails_before_builder_allocation() -> anyhow::Res
                 )
             })
             .collect(),
-    )?;
-    // SingleDocument counts this as one row, but every string mapping may
-    // retain the full source text. The preflight must fail instead of
-    // silently changing valid input into a DLQ row.
+    )?);
     let payload = Bytes::from(vec![b'x'; 32 * 1024 * 1024]);
-    let mut workspace = ParserWorkspace::new();
-    let error = parser
-        .parse_into(vec![Message::new(payload)], &mut workspace)
-        .expect_err("oversized input must fail before materialization");
+    let estimated = parser.output_memory_bound(&[Message::new(payload.clone())]);
+    assert!(estimated > 256 * 1024 * 1024);
+
+    let mut constrained = Arc::clone(&parser).create_session(256 * 1024 * 1024);
+    let error = constrained
+        .parse_into(vec![Message::new(payload.clone())])
+        .expect_err("explicitly constrained parser session unexpectedly accepted the input");
     let message = error.to_string();
-    assert!(message.contains("delivery safety limit exceeded"));
-    assert!(message.contains("estimated_working_set_bytes="));
-    assert!(message.contains("input_bytes=33554432"));
-    assert!(message.contains("message_count=1"));
-    assert!(message.contains("record_count=1"));
-    assert!(workspace.builders.is_empty());
+    assert!(message.contains("configured pipeline memory limit of 268435456 bytes"));
+
+    let mut allowed = parser.create_session(1024 * 1024 * 1024);
+    let (_main, dlq) = allowed.parse_into(vec![Message::new(payload)])?;
+    assert_eq!(
+        dlq.expect("invalid JSON must reach DLQ").batch.num_rows(),
+        1
+    );
     Ok(())
 }
 
 #[test]
-fn oversized_record_reports_its_exact_location_and_size() -> anyhow::Result<()> {
+fn records_larger_than_four_mebibytes_have_no_hidden_limit() -> anyhow::Result<()> {
     let parser = JsonParser::new(
         &parser_config(
             vec![crate::parsers::json_parser::ColumnMapping::new(
@@ -410,19 +409,17 @@ fn oversized_record_reports_its_exact_location_and_size() -> anyhow::Result<()> 
     let oversized_bytes = 4 * 1024 * 1024 + 1;
     let mut payload = b"{}\n".to_vec();
     payload.extend(core::iter::repeat_n(b'x', oversized_bytes));
-    let error = parser
-        .parse_into(
-            vec![Message::new(Bytes::from(payload))],
-            &mut ParserWorkspace::new(),
-        )
-        .expect_err("oversized JSONL record unexpectedly reached parsing");
-    let message = error.to_string();
-    assert!(message.contains("record safety limit exceeded"));
-    assert!(message.contains("record_bytes=4194305"));
-    assert!(message.contains("message_index=0"));
-    assert!(message.contains("record_index=1"));
-    assert!(message.contains("message_count=1"));
-    assert!(message.contains("record_count=2"));
+    let (main, dlq) = parser.parse_into(
+        vec![Message::new(Bytes::from(payload))],
+        &mut ParserWorkspace::new(),
+    )?;
+    assert_eq!(main.batch.num_rows(), 0);
+    assert_eq!(
+        dlq.expect("invalid records must reach DLQ")
+            .batch
+            .num_rows(),
+        2
+    );
     Ok(())
 }
 
