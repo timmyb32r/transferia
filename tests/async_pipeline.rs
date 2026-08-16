@@ -14,13 +14,13 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::data::message::{Message, MessageMeta, SourceBatch};
-use transferia::delivery::execution::memory::PipelineMemory;
+use transferia::core::data::message::{Message, MessageMeta, SourceBatch};
+use transferia::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use transferia::core::memory::PipelineMemory;
+use transferia::core::source::{CommitMarker, Source};
 use transferia::delivery::execution::middleware::Middleware;
 use transferia::delivery::execution::run_partition_pipeline;
-use transferia::delivery::execution::source::{CommitMarker, Source};
 use transferia::delivery::execution::PipelineFailure;
-use transferia::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia::metrics::{ParseCounters, SinkCounters};
 use transferia::middleware::filter::FilterMiddleware;
 use transferia::providers::clickhouse::{
@@ -282,10 +282,9 @@ json_parser:
     .unwrap();
     let plan = transferia::parsers::ParserPlan::from_config(&config, "topic").unwrap();
     Arc::new(
-        DeliveryDiscovery::parser_projection(
+        plan.delivery_discovery(
             Arc::from("topic"),
-            transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
-            &plan,
+            transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
             DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },

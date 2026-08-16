@@ -21,9 +21,9 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::{
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::{connect_client, set_ydb_headers, LogbrokerSourceConfig};
-use crate::delivery::data::message::{Message, MessageMeta, SourceBatch};
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::core::data::message::{Message, MessageMeta, SourceBatch};
+use crate::core::memory::PipelineMemory;
+use crate::core::source::{CommitMarker, Source};
 use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
 

@@ -1,0 +1,17 @@
+pub mod data;
+pub mod delivery;
+pub mod memory;
+pub mod sink;
+pub mod source;
+
+pub use data::message::{Message, MessageMeta, SourceBatch};
+pub use data::schema::{DatasetSchema, SchemaColumn};
+pub use data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+pub use data::table_data::TableData;
+pub use delivery::{
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset,
+    DiscoveredSystemColumn, SchemaOrigin, SinkLimits, SinkLimitsDescription, SourceTopology,
+};
+pub use memory::{MemoryReservation, PipelineMemory};
+pub use sink::{Sink, SinkBatch, SinkIo};
+pub use source::{CommitMarker, Source};

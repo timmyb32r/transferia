@@ -13,13 +13,11 @@ use tokio_util::sync::CancellationToken;
 
 use super::actor::without_system_columns;
 use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
-};
-use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use crate::core::memory::PipelineMemory;
+use crate::core::sink::{Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::metrics::SinkCounters;
 
 #[derive(Clone, Copy)]
@@ -147,7 +145,7 @@ fn delivery(memory: &PipelineMemory, id: u64, tables: &[&str]) -> Delivery {
             batch,
             byte_size: bytes,
             memory: memory.reserve_transform(bytes),
-            system_columns: crate::delivery::data::system_columns::SystemColumns::default(),
+            system_columns: crate::core::data::system_columns::SystemColumns::default(),
         });
     }
     Delivery {
@@ -165,7 +163,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
     )]);
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("source-topic"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![

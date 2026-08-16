@@ -8,12 +8,12 @@ use tokio_util::task::AbortOnDropHandle;
 
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
-use crate::delivery::data::system_columns::SystemColumns;
+use crate::core::data::system_columns::SystemColumns;
+use crate::core::delivery::{DeliveryDiscovery, SinkLimits};
+use crate::core::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::delivery::execution::delivery_tracker::DeliveryTracker;
 use crate::delivery::execution::retry::{jittered_retry_delay, stable_retry_seed};
-use crate::delivery::execution::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
 use crate::delivery::execution::PipelineFailure;
-use crate::delivery::{DeliveryDiscovery, SinkLimits};
 use crate::metrics::SinkCounters;
 
 struct BufferedBatch {
@@ -365,7 +365,7 @@ impl ClickHouseSink {
 
 pub(super) fn without_system_columns(
     batch: &RecordBatch,
-    system_columns: &crate::delivery::data::system_columns::SystemColumns,
+    system_columns: &crate::core::data::system_columns::SystemColumns,
 ) -> anyhow::Result<RecordBatch> {
     let mut visible = vec![true; batch.num_columns()];
     for column in system_columns.iter() {

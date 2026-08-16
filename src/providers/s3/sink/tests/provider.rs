@@ -1,6 +1,6 @@
 use super::*;
-use crate::delivery::data::schema::SchemaColumn;
-use crate::delivery::{DiscoveredDataset, SchemaOrigin};
+use crate::core::data::schema::SchemaColumn;
+use crate::core::delivery::{DiscoveredDataset, SchemaOrigin};
 
 fn discovered_dataset(
     role: DatasetRole,
@@ -48,7 +48,7 @@ fn discovered_dataset(
 fn discovery(value_type: DataType, value_nullable: bool) -> DeliveryDiscovery {
     DeliveryDiscovery {
         source_name: Arc::from("topic-a"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![
@@ -194,10 +194,10 @@ fn record_time_discovery_validates_the_rendered_namespace_without_rewriting() ->
 #[tokio::test]
 async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
     let provider = S3SinkProvider::from_config(serde_yaml::from_str("bucket: test\n")?)?;
-    let discovery = Arc::new(crate::delivery::DeliveryDiscovery {
+    let discovery = Arc::new(crate::core::delivery::DeliveryDiscovery {
         source_name: Arc::from("test"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![1, 2]),
-        schema_origin: crate::delivery::SchemaOrigin::ParserProjection,
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![1, 2]),
+        schema_origin: crate::core::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
     });

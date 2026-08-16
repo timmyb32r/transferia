@@ -17,13 +17,13 @@ use super::config::{YTsaurusSinkConfig, YTsaurusWriteFormat};
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, validate_column_name, MAX_COLUMNS,
 };
-use crate::delivery::execution::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use crate::delivery::execution::PipelineFailure;
-use crate::delivery::semantics::EndpointDescriptor;
-use crate::delivery::{
+use crate::core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
 };
+use crate::core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use crate::delivery::execution::PipelineFailure;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::metrics::SinkCounters;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
@@ -117,7 +117,7 @@ impl SinkLimits for YTsaurusSinkConfig {
     fn validate_batch(
         &self,
         discovery: &DeliveryDiscovery,
-        batch: &crate::delivery::execution::sink::SinkBatch,
+        batch: &crate::core::sink::SinkBatch,
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.path_for_dataset(&batch.table)?;
@@ -243,7 +243,7 @@ impl Sink for YTsaurusSink {
 
 fn project_user_columns(
     batch: &RecordBatch,
-    system_columns: &crate::delivery::data::system_columns::SystemColumns,
+    system_columns: &crate::core::data::system_columns::SystemColumns,
 ) -> anyhow::Result<RecordBatch> {
     let system_indexes = system_columns
         .iter()

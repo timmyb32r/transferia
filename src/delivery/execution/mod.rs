@@ -1,10 +1,7 @@
 pub(crate) mod delivery_tracker;
-pub mod memory;
 pub mod middleware;
 pub mod retry;
 pub mod runner;
-pub mod sink;
-pub mod source;
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -17,14 +14,12 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio_util::sync::CancellationToken;
 
-use crate::delivery::data::message::{Message, SourceBatch};
-use crate::delivery::data::table_data::TableData;
-use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
+use crate::core::data::message::{Message, SourceBatch};
+use crate::core::data::table_data::TableData;
+use crate::core::memory::{MemoryReservation, PipelineMemory};
+use crate::core::sink::{Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo};
+use crate::core::source::{CommitMarker, Source};
 use crate::delivery::execution::middleware::Middleware;
-use crate::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
-};
-use crate::delivery::execution::source::{CommitMarker, Source};
 use crate::metrics::ParseCounters;
 use crate::parsers::{ParserFactory, ParserSession};
 

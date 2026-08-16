@@ -7,8 +7,8 @@ use arrow::datatypes::DataType;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::delivery::data::schema::DatasetSchema;
-use crate::delivery::data::table_data::TableData;
+use crate::core::data::schema::DatasetSchema;
+use crate::core::data::table_data::TableData;
 use crate::delivery::execution::middleware::Middleware;
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

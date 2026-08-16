@@ -9,9 +9,9 @@ use arrow::datatypes::Schema;
 use arrow::record_batch::RecordBatch;
 use serde::Deserialize;
 
-use crate::delivery::data::message::Message;
-use crate::delivery::data::system_columns::SystemColumns;
-use crate::delivery::data::table_data::TableData;
+use crate::core::data::message::Message;
+use crate::core::data::system_columns::SystemColumns;
+use crate::core::data::table_data::TableData;
 use crate::parsers::{ParserFactory, ParserSession};
 
 #[derive(Deserialize)]

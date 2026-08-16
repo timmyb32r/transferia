@@ -6,13 +6,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::source::Source;
+use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
+use crate::core::memory::PipelineMemory;
+use crate::core::source::Source;
 use crate::delivery::execution::PipelineFailure;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::logbroker::pqv1::credentials::load_access_token;
@@ -202,10 +202,9 @@ impl PqV1SourceProvider {
         // PQ delivers opaque message bytes, not an Arrow row schema. DescribeTopic
         // validates the remote topic topology and consumer below; row schemas must
         // therefore remain the projection declared by the configured parser.
-        DeliveryDiscovery::parser_projection(
+        self.parser_plan.delivery_discovery(
             Arc::from(self.cfg.topic_path.as_str()),
             SourceTopology::StaticPartitions(self.cfg.partition_group_ids.clone()),
-            &self.parser_plan,
             request,
         )
     }

@@ -6,12 +6,12 @@ use super::client::ReconnectingClient;
 use super::table::{prepare_tables, validate_table_schema};
 use super::transport::NativeTransport;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
-use crate::delivery::execution::sink::Sink;
-use crate::delivery::semantics::EndpointDescriptor;
-use crate::delivery::{
+use crate::core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
+use crate::core::sink::Sink;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct ClickHouseSinkProvider {

@@ -6,8 +6,8 @@ The local control plane owns delivery drafts, validation, worker processes, and 
 
 | Module | Responsibility |
 | --- | --- |
+| `core/` | Stable provider-neutral data, discovery, limits, memory, and Source/Sink contracts |
 | `delivery/config/` | Runnable delivery configuration and strict YAML parsing |
-| `delivery/data/` | Provider-neutral messages, Arrow datasets, schemas, and system columns |
 | `delivery/semantics.rs` | Cross-provider compatibility and delivery-guarantee diagnostics |
 | `delivery/preparation/` | The one resolution, discovery, and validation sequence shared by workers and the control plane |
 | `delivery/execution/` | Partition assignment, startup barrier, retries, pipeline flow, memory, and commit ordering |

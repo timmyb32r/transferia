@@ -1,5 +1,5 @@
 use super::*;
-use crate::delivery::data::schema::SchemaColumn;
+use crate::core::data::schema::SchemaColumn;
 use arrow::datatypes::DataType;
 
 fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
@@ -18,7 +18,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
     };
     DeliveryDiscovery {
         source_name: Arc::from("topic"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: vec![DiscoveredDataset {

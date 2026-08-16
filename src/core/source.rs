@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::delivery::data::message::SourceBatch;
+use crate::core::data::message::SourceBatch;
 
 // ---------------------------------------------------------------------------
 // CommitMarker

@@ -5,12 +5,12 @@ use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use super::memory::PipelineMemory;
 use super::middleware::Middleware;
 use super::retry::{jittered_retry_delay, stable_retry_seed};
 use super::{run_partition_pipeline_with_progress, PipelineFailure, PipelineProgress};
+use crate::core::delivery::DeliveryDiscovery;
+use crate::core::memory::PipelineMemory;
 use crate::delivery::preparation::DeliveryPlan;
-use crate::delivery::DeliveryDiscovery;
 use crate::durable::DurableContext;
 use crate::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
 use crate::parsers::ParserFactory;

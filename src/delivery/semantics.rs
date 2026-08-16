@@ -5,9 +5,9 @@
 use arrow::datatypes::DataType;
 use serde::Serialize;
 
+use crate::core::data::system_columns::SystemColumnKind;
+use crate::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset};
 use crate::delivery::config::yaml::DeliveryType;
-use crate::delivery::data::system_columns::SystemColumnKind;
-use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset};
 
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {

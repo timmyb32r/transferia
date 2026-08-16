@@ -1,6 +1,6 @@
 use super::*;
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::sink::{Delivery, DeliveryId, DeliveryMeta, SinkIo};
+use crate::core::memory::PipelineMemory;
+use crate::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkIo};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 

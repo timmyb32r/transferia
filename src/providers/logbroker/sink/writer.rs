@@ -22,9 +22,9 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::topic::Codec;
 
 use super::config::LogbrokerSinkConfig;
-use crate::delivery::execution::sink::{Sink, SinkEvent, SinkIo};
+use crate::core::delivery::SinkLimits;
+use crate::core::sink::{Sink, SinkEvent, SinkIo};
 use crate::delivery::execution::PipelineFailure;
-use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
 use crate::providers::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::providers::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
@@ -38,7 +38,7 @@ pub(super) struct YdbTopicSink {
     config: Arc<LogbrokerSinkConfig>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
-    discovery: Arc<crate::delivery::DeliveryDiscovery>,
+    discovery: Arc<crate::core::delivery::DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
 }
 

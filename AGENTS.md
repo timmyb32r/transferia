@@ -71,15 +71,22 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Repository architecture
 
-- `src/delivery/` owns the delivery domain. `delivery/mod.rs` contains discovered
-  dataset contracts and declarative sink limits; `delivery/config/` owns the
-  runnable delivery configuration; `delivery/data/` owns provider-neutral data
-  plane values and schemas; `delivery/semantics.rs` owns cross-provider delivery
+- `src/core/` is the stable internal API. It owns provider-neutral messages,
+  Arrow datasets and schemas, discovery and sink-limit contracts, memory leases,
+  and the runtime `Source`/`Sink` ports. `core` may depend on external primitive
+  libraries, but never on providers, parsers, delivery preparation/execution,
+  runtime adapters, or server code. Export the most important contracts from
+  `core/mod.rs` so callers do not need to discover their storage layout.
+- `src/delivery/` owns delivery orchestration. `delivery/config/` owns the
+  runnable configuration; `delivery/semantics.rs` owns cross-provider delivery
   compatibility; `delivery/preparation/` owns configuration resolution,
   discovery, validation, and construction of a resolved `DeliveryPlan`;
-  `delivery/execution/` owns partition execution, pipeline flow, memory
-  accounting, retries, middleware, and commit ordering.
-- `src/providers/traits.rs` defines source and sink provider boundaries.
+  `delivery/execution/` owns partition execution, pipeline flow, retries,
+  middleware, and commit ordering.
+- `src/providers/traits.rs` defines configured provider factory boundaries. It
+  is intentionally not `core::Source`/`core::Sink`: factories assemble parser,
+  metrics, durable-storage, and runtime-port implementations around those core
+  data-plane ports.
 - `src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
   types, YDB Topic and PQv1 transports, protocol decoding, and source/sink
   behavior. Do not expose Logbroker/YDB transport details at crate root or in

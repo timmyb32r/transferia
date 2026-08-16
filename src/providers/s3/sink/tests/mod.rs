@@ -10,15 +10,13 @@ use futures_util::future::BoxFuture;
 use tokio::sync::{mpsc, Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::delivery::data::message::{Message, MessageMeta, SourceBatch};
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo,
-};
-use crate::delivery::execution::source::{CommitMarker, Source};
-use crate::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use crate::core::data::message::{Message, MessageMeta, SourceBatch};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use crate::core::memory::PipelineMemory;
+use crate::core::sink::{Delivery, DeliveryId, DeliveryMeta, Sink, SinkBatch, SinkEvent, SinkIo};
+use crate::core::source::{CommitMarker, Source};
 use crate::metrics::SinkCounters;
 
 use super::actor::S3Sink;
@@ -417,7 +415,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
     };
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("topic-a"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![3]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![3]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: [
@@ -1823,7 +1821,7 @@ async fn schema_metadata_drift_is_fatal_before_upload() {
     fields[0] = fields[0]
         .clone()
         .with_metadata(std::collections::HashMap::from([(
-            crate::delivery::data::schema::META_LOW_CARDINALITY.to_owned(),
+            crate::core::data::schema::META_LOW_CARDINALITY.to_owned(),
             "true".to_owned(),
         )]));
     invalid.outputs[0].batch = RecordBatch::try_new(

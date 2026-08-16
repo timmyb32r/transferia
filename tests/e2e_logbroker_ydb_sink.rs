@@ -24,13 +24,11 @@ use hyper::{Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::delivery::data::system_columns::SystemColumns;
-use transferia::delivery::execution::memory::PipelineMemory;
-use transferia::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
-};
-use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::core::memory::PipelineMemory;
+use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::build_sink_provider;
 use transferia::providers::traits::SinkContext;
@@ -78,7 +76,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     ]);
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

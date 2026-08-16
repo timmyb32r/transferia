@@ -1,6 +1,6 @@
 use super::*;
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::{DiscoveredDataset, SchemaOrigin};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::delivery::{DiscoveredDataset, SchemaOrigin};
 
 fn source() -> EndpointDescriptor {
     EndpointDescriptor::Logbroker(SourceDescriptor {
@@ -20,7 +20,7 @@ fn source_delivery_modes_are_explicit() {
 fn discovery() -> DeliveryDiscovery {
     DeliveryDiscovery {
         source_name: "topic".into(),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

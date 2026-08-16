@@ -15,10 +15,10 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::data::message::SourceBatch;
-use transferia::delivery::execution::memory::PipelineMemory;
-use transferia::delivery::execution::source::Source as _;
-use transferia::delivery::{DeliveryDiscoveryRequest, SchemaOrigin};
+use transferia::core::data::message::SourceBatch;
+use transferia::core::delivery::{DeliveryDiscoveryRequest, SchemaOrigin};
+use transferia::core::memory::PipelineMemory;
+use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::clickhouse::ClickHouseSourceProvider;
 use transferia::providers::traits::SourceProvider as _;

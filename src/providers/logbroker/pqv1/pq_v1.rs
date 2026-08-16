@@ -26,9 +26,9 @@ use anyhow::anyhow;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
-use crate::delivery::data::message::{Message, MessageMeta, SourceBatch};
-use crate::delivery::execution::memory::{MemoryReservation, PipelineMemory};
-use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::core::data::message::{Message, MessageMeta, SourceBatch};
+use crate::core::memory::{MemoryReservation, PipelineMemory};
+use crate::core::source::{CommitMarker, Source};
 use crate::delivery::execution::PipelineFailure;
 use crate::metrics::SourceCounters;
 use crate::providers::logbroker::proto::pers_queue::v1::{

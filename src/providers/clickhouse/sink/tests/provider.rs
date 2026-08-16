@@ -1,8 +1,8 @@
 use arrow::datatypes::DataType;
 
 use super::*;
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
 
 fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
     let schema = DatasetSchema::new(vec![
@@ -10,7 +10,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
     ]);
     DeliveryDiscovery {
         source_name: Arc::from("source-topic"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![

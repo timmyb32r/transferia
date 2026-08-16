@@ -6,16 +6,16 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use super::reader::PostgresSource;
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::data::system_columns::SystemColumnKind;
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::source::Source;
-use crate::delivery::semantics::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
-};
-use crate::delivery::{
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::system_columns::SystemColumnKind;
+use crate::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
+};
+use crate::core::memory::PipelineMemory;
+use crate::core::source::Source;
+use crate::delivery::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;

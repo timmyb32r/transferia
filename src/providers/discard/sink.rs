@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 
-use crate::delivery::execution::sink::{Sink, SinkEvent, SinkIo};
+use crate::core::sink::{Sink, SinkEvent, SinkIo};
 use crate::metrics::SinkCounters;
 
 /// Benchmark-only sink which acknowledges every delivery after counting and

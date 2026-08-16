@@ -3,12 +3,12 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 
 use super::writer::PqV1Sink;
-use crate::delivery::execution::sink::Sink;
-use crate::delivery::semantics::EndpointDescriptor;
-use crate::delivery::{
+use crate::core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
+use crate::core::sink::Sink;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;

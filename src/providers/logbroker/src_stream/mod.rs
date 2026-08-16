@@ -10,12 +10,12 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::source::Source;
+use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
+use crate::core::memory::PipelineMemory;
+use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
@@ -84,10 +84,9 @@ impl YdbDriverSourceProvider {
         &self,
         request: DeliveryDiscoveryRequest,
     ) -> anyhow::Result<DeliveryDiscovery> {
-        DeliveryDiscovery::parser_projection(
+        self.parser_plan.delivery_discovery(
             Arc::from(self.cfg.topics[0].path.as_str()),
             SourceTopology::DynamicWorkerLanes,
-            &self.parser_plan,
             request,
         )
     }

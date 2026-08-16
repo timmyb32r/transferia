@@ -5,13 +5,13 @@ use chrono::TimeZone as _;
 use futures_util::future::BoxFuture;
 use object_store::path::PathPart;
 
-use crate::delivery::data::schema::DatasetSchema;
-use crate::delivery::data::system_columns::SystemColumnKind;
-use crate::delivery::execution::sink::Sink;
-use crate::delivery::{
+use crate::core::data::schema::DatasetSchema;
+use crate::core::data::system_columns::SystemColumnKind;
+use crate::core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DatasetRole, DeliveryDiscovery, NameSyntax,
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
+use crate::core::sink::Sink;
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 use super::actor::S3Sink;

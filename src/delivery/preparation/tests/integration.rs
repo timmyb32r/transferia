@@ -1,17 +1,16 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
-use crate::delivery::SinkLimits;
+use crate::core::delivery::SinkLimits;
 use crate::providers::catalog::build_provider_catalog;
 
 fn configured_discovery(
     source: &dyn SourceProvider,
     keep_system_columns: bool,
 ) -> anyhow::Result<DeliveryDiscovery> {
-    DeliveryDiscovery::parser_projection(
+    source.parser_plan().delivery_discovery(
         Arc::from("configured-source"),
-        crate::delivery::SourceTopology::StaticPartitions(vec![0]),
-        source.parser_plan(),
+        crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         DeliveryDiscoveryRequest {
             keep_system_columns,
         },
@@ -57,8 +56,8 @@ struct RecordingLimits {
 }
 
 impl SinkLimits for RecordingLimits {
-    fn description(&self) -> transferia::delivery::SinkLimitsDescription {
-        transferia::delivery::SinkLimitsDescription {
+    fn description(&self) -> transferia::core::delivery::SinkLimitsDescription {
+        transferia::core::delivery::SinkLimitsDescription {
             sink: "test",
             dataset_name: None,
             column_name: None,
@@ -80,8 +79,8 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
     };
     let discovery = DeliveryDiscovery {
         source_name: Arc::from("topic"),
-        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
-        schema_origin: transferia::delivery::SchemaOrigin::ParserProjection,
+        source_topology: crate::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: transferia::core::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
     };

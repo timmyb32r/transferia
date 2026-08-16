@@ -23,8 +23,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::execution::memory::PipelineMemory;
-use transferia::delivery::DeliveryDiscoveryRequest;
+use transferia::core::delivery::DeliveryDiscoveryRequest;
+use transferia::core::memory::PipelineMemory;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::logbroker::pqv1::src_stream::PqV1SourceProvider;
 use transferia::providers::logbroker::proto::discovery::{EndpointInfo, ListEndpointsResult};
@@ -397,7 +397,7 @@ parser:
         .await?;
     assert_eq!(
         discovery.source_topology,
-        transferia::delivery::SourceTopology::StaticPartitions(vec![0])
+        transferia::core::delivery::SourceTopology::StaticPartitions(vec![0])
     );
 
     let mut source = provider
@@ -410,7 +410,7 @@ parser:
         .await?;
     let batch =
         tokio::time::timeout(core::time::Duration::from_secs(3), source.read_batch()).await??;
-    let transferia::delivery::data::message::SourceBatch::Raw {
+    let transferia::core::data::message::SourceBatch::Raw {
         messages,
         commit_marker,
         ..

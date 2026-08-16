@@ -14,10 +14,10 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 
-use crate::delivery::data::message::{Message, MessageMeta};
-use crate::delivery::data::schema::SchemaColumn;
-use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::delivery::data::table_data::{dlq_name, TableData};
+use crate::core::data::message::{Message, MessageMeta};
+use crate::core::data::schema::SchemaColumn;
+use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::core::data::table_data::{dlq_name, TableData};
 use crate::parsers::json_parser::config::{
     parse_arrow_type, ConversionErrorPolicy, EpochUnit, JsonDataType, JsonFramingMode,
     JsonParserConfig, TimeConversion, UnknownFieldPolicy,

@@ -22,13 +22,11 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use transferia::delivery::execution::memory::PipelineMemory;
-use transferia::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
-};
-use transferia::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia::core::memory::PipelineMemory;
+use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
 use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::discard::provider::DiscardSinkProvider;
@@ -60,7 +58,7 @@ fn discovery(
 ) -> Arc<DeliveryDiscovery> {
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from(source_name),
-        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: vec![
@@ -83,7 +81,7 @@ fn discovery(
 }
 
 async fn run_one_delivery(
-    sink: Box<dyn transferia::delivery::execution::sink::Sink>,
+    sink: Box<dyn transferia::core::sink::Sink>,
     memory: PipelineMemory,
     delivery: Delivery,
 ) -> anyhow::Result<()> {
@@ -114,7 +112,7 @@ async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::
     let provider = DiscardSinkProvider::new();
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("benchmark-source"),
-        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),

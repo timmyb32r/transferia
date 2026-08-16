@@ -233,24 +233,24 @@ fn configured_discovery_uses_the_parser_projection() -> anyhow::Result<()> {
 
     assert_eq!(
         discovery.schema_origin,
-        crate::delivery::SchemaOrigin::ParserProjection
+        crate::core::delivery::SchemaOrigin::ParserProjection
     );
     assert_eq!(discovery.source_name.as_ref(), "topic");
     assert_eq!(
         discovery.source_topology,
-        crate::delivery::SourceTopology::StaticPartitions(vec![0])
+        crate::core::delivery::SourceTopology::StaticPartitions(vec![0])
     );
     assert_eq!(discovery.datasets.len(), 2);
     assert_eq!(
         discovery
-            .dataset(crate::delivery::DatasetRole::Main)?
+            .dataset(crate::core::delivery::DatasetRole::Main)?
             .name
             .as_ref(),
         "events"
     );
     assert_eq!(
         discovery
-            .dataset(crate::delivery::DatasetRole::DeadLetterQueue)?
+            .dataset(crate::core::delivery::DatasetRole::DeadLetterQueue)?
             .name
             .as_ref(),
         "events_dlq"

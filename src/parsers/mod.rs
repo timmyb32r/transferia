@@ -9,10 +9,13 @@ use alloc::sync::Arc;
 use serde::Deserialize;
 use serde_yaml::Value;
 
-use crate::delivery::data::message::Message;
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use crate::delivery::data::table_data::TableData;
-use crate::delivery::DiscoveredSystemColumn;
+use crate::core::data::message::Message;
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::table_data::{dlq_name, TableData};
+use crate::core::delivery::{
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset,
+    DiscoveredSystemColumn, SchemaOrigin, SourceTopology,
+};
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
 
@@ -62,6 +65,52 @@ impl ParserPlan {
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
         }
+    }
+
+    /// Build sink-facing discovery for a raw source whose rows are defined by this parser.
+    pub fn delivery_discovery(
+        &self,
+        source_name: Arc<str>,
+        source_topology: SourceTopology,
+        request: DeliveryDiscoveryRequest,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        anyhow::ensure!(
+            !source_name.is_empty(),
+            "discovered source name must not be empty"
+        );
+        source_topology.validate()?;
+
+        let datasets = if self.parses_rows() {
+            let system_columns = self.system_columns();
+            let table = self.table();
+            let dlq_table: Arc<str> = dlq_name(&table).into();
+            vec![
+                DiscoveredDataset {
+                    role: DatasetRole::Main,
+                    name: table,
+                    incoming_schema: self.sink_schema(true),
+                    stored_schema: self.sink_schema(request.keep_system_columns),
+                    system_columns: system_columns.clone(),
+                },
+                DiscoveredDataset {
+                    role: DatasetRole::DeadLetterQueue,
+                    name: dlq_table,
+                    incoming_schema: self.dlq_schema(true),
+                    stored_schema: self.dlq_schema(request.keep_system_columns),
+                    system_columns,
+                },
+            ]
+        } else {
+            Vec::new()
+        };
+
+        Ok(DeliveryDiscovery {
+            source_name,
+            source_topology,
+            schema_origin: SchemaOrigin::ParserProjection,
+            keep_system_columns: request.keep_system_columns,
+            datasets,
+        })
     }
 
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {

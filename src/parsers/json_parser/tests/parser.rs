@@ -145,7 +145,7 @@ fn renamed_system_columns_are_materialized_physically() -> anyhow::Result<()> {
     let parser = JsonParser::new(&config, &system, "test".into())?;
     let message = Message {
         value: Bytes::from_static(b"{\"id\":1}"),
-        meta: crate::delivery::data::message::MessageMeta {
+        meta: crate::core::data::message::MessageMeta {
             offset: Some(42),
             ..Default::default()
         },
@@ -345,7 +345,7 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
     assert_eq!(raw.value(ROWS - 1), "eA==");
     let index = dlq
         .system_columns
-        .get(crate::delivery::data::system_columns::SystemColumnKind::MessageIndex)
+        .get(crate::core::data::system_columns::SystemColumnKind::MessageIndex)
         .expect("message index system column");
     let indexes = dlq
         .batch
@@ -696,8 +696,8 @@ fn json_array_framing_honors_parse_error_policy() -> anyhow::Result<()> {
 
 #[test]
 fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
-    use crate::delivery::data::message::MessageMeta;
-    use crate::delivery::data::system_columns::SystemColumnKind;
+    use crate::core::data::message::MessageMeta;
+    use crate::core::data::system_columns::SystemColumnKind;
     use crate::parsers::json_parser::{ColumnMapping, JsonFramingMode};
     use crate::parsers::SystemColumnsConfig;
 

@@ -23,16 +23,14 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::delivery::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::delivery::data::system_columns::SystemColumns;
-use transferia::delivery::execution::memory::PipelineMemory;
-use transferia::delivery::execution::run_partition_pipeline;
-use transferia::delivery::execution::sink::{
-    Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo,
-};
-use transferia::delivery::{
+use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
+use transferia::core::memory::PipelineMemory;
+use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia::delivery::execution::run_partition_pipeline;
 use transferia::metrics::{MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::postgres::{PostgresSinkProvider, PostgresSourceProvider};
@@ -134,7 +132,7 @@ async fn run_pipeline(
 }
 
 async fn run_one_delivery(
-    sink: Box<dyn transferia::delivery::execution::sink::Sink>,
+    sink: Box<dyn transferia::core::sink::Sink>,
     memory: PipelineMemory,
     delivery: Delivery,
 ) -> anyhow::Result<()> {
@@ -322,7 +320,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     ]);
     let copy_discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

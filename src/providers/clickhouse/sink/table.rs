@@ -10,7 +10,7 @@ use clickhouse_arrow::Type;
 use super::client::{quote_identifier, ReconnectingClient};
 use super::identifier::validate_identifier;
 use super::ClickHouseSinkConfig;
-use crate::delivery::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::providers::traits::SinkPrepare;
 
 /// Validate the part of a discovered dataset that is materialized in
@@ -55,7 +55,7 @@ pub(super) async fn prepare_tables(
             .filter(|column| column.primary_key)
             .map(|column| column.name.clone())
             .collect::<Vec<_>>();
-        let sorting_key: &[String] = if dataset.role == crate::delivery::DatasetRole::Main {
+        let sorting_key: &[String] = if dataset.role == crate::core::delivery::DatasetRole::Main {
             &schema_primary_key
         } else {
             &[]

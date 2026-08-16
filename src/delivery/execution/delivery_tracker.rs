@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::sink::DeliveryId;
+use crate::core::sink::DeliveryId;
 
 struct DeliveryState {
     remaining: usize,

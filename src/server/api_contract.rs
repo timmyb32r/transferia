@@ -7,7 +7,7 @@ use super::service::{
     ColumnView, DatasetRoleView, DatasetView, DiscoveryResult, ValidationCommandResult,
 };
 use super::ui_catalog::UiCatalog;
-use transferia::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
+use transferia::core::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
 use transferia::extension::DynamicOptions;
 use transferia::runtime::RunId;
 

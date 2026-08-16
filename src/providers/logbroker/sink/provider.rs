@@ -4,12 +4,12 @@ use futures_util::future::BoxFuture;
 
 use super::config::LogbrokerSinkConfig;
 use super::writer::YdbTopicSink;
-use crate::delivery::execution::sink::Sink;
-use crate::delivery::semantics::EndpointDescriptor;
-use crate::delivery::{
+use crate::core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
+use crate::core::sink::Sink;
+use crate::delivery::semantics::EndpointDescriptor;
 use crate::providers::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
 use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;

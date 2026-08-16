@@ -59,7 +59,7 @@ impl ParserSession for StatefulSession {
                 "events".into(),
                 false,
                 batch,
-                crate::delivery::data::system_columns::SystemColumns::default(),
+                crate::core::data::system_columns::SystemColumns::default(),
             ),
             None,
         ))
@@ -92,7 +92,7 @@ impl ParserSession for OverestimatedSession {
                 "events".into(),
                 false,
                 batch,
-                crate::delivery::data::system_columns::SystemColumns::default(),
+                crate::core::data::system_columns::SystemColumns::default(),
             ),
             None,
         ))
@@ -102,10 +102,8 @@ impl ParserSession for OverestimatedSession {
 impl Source for RecordingSource {
     fn read_batch(
         &mut self,
-    ) -> futures_util::future::BoxFuture<
-        '_,
-        anyhow::Result<crate::delivery::data::message::SourceBatch>,
-    > {
+    ) -> futures_util::future::BoxFuture<'_, anyhow::Result<crate::core::data::message::SourceBatch>>
+    {
         Box::pin(async { anyhow::bail!("recording source is commit-only") })
     }
 

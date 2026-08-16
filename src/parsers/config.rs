@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::delivery::data::system_columns::SystemColumnKind;
+use crate::core::data::system_columns::SystemColumnKind;
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::ParserEntry;
 

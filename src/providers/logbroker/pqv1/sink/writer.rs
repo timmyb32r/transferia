@@ -9,9 +9,9 @@ use futures_util::{Stream, TryStreamExt as _};
 use tokio::sync::mpsc;
 use tonic::Request;
 
-use crate::delivery::execution::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use crate::core::delivery::SinkLimits;
+use crate::core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use crate::delivery::execution::PipelineFailure;
-use crate::delivery::SinkLimits;
 use crate::metrics::SinkCounters;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::providers::logbroker::pqv1::pq_v1::{
@@ -32,7 +32,7 @@ pub(super) struct PqV1Sink {
     config: Arc<PqV1SinkConfig>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
-    discovery: Arc<crate::delivery::DeliveryDiscovery>,
+    discovery: Arc<crate::core::delivery::DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
 }
 
@@ -235,7 +235,7 @@ fn write_message(
 
 pub fn serialize_delivery(
     delivery: &Delivery,
-    discovery: &crate::delivery::DeliveryDiscovery,
+    discovery: &crate::core::delivery::DeliveryDiscovery,
     limits: &dyn SinkLimits,
 ) -> anyhow::Result<(Vec<Vec<u8>>, u64)> {
     let mut payloads = Vec::new();

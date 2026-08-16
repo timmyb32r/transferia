@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::delivery::data::message::Message;
-use crate::delivery::data::table_data::TableData;
+use crate::core::data::message::Message;
+use crate::core::data::table_data::TableData;
 use crate::parsers::{ParserFactory, ParserSession};
 
 pub(super) struct NativeSourceParser;

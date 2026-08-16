@@ -8,10 +8,10 @@ use futures_util::future::BoxFuture;
 use futures_util::StreamExt as _;
 
 use super::provider::DiscoveredTable;
-use crate::delivery::data::message::SourceBatch;
-use crate::delivery::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
-use crate::delivery::data::table_data::TableData;
-use crate::delivery::execution::source::{CommitMarker, Source};
+use crate::core::data::message::SourceBatch;
+use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
+use crate::core::data::table_data::TableData;
+use crate::core::source::{CommitMarker, Source};
 use crate::metrics::SourceCounters;
 
 pub(super) struct ClickHouseSource {

@@ -16,7 +16,7 @@ use super::{
     MAX_READ_MESSAGES_COUNT, MAX_READ_SIZE, MAX_ZSTD_WINDOW_LOG, MIN_VEC_ALLOCATION_CAPACITY,
     OUTPUT_MESSAGE_METADATA_BYTES,
 };
-use crate::delivery::execution::memory::MemoryReservation;
+use crate::core::memory::MemoryReservation;
 use crate::metrics::SourceCounters;
 use crate::providers::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_server_message, Codec, CommitCookie,

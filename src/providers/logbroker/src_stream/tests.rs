@@ -8,7 +8,7 @@ use super::source::{
     PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
 };
 use super::*;
-use crate::delivery::execution::source::CommitMarker;
+use crate::core::source::CommitMarker;
 
 fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
     provider_with_topics("  - path: topic\n    partitions: []\n", extra)

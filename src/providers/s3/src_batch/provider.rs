@@ -8,12 +8,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
 use super::reader::S3Source;
-use crate::delivery::execution::memory::PipelineMemory;
-use crate::delivery::execution::source::Source;
+use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
+use crate::core::memory::PipelineMemory;
+use crate::core::source::Source;
 use crate::delivery::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::traits::SourceProvider;
@@ -83,10 +83,9 @@ impl SourceProvider for S3SourceProvider {
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
             drop(self.snapshot(&cancellation).await?);
-            DeliveryDiscovery::parser_projection(
+            self.parser_plan.delivery_discovery(
                 Arc::from(self.config.prefix.as_str()),
                 SourceTopology::StaticPartitions(vec![0]),
-                &self.parser_plan,
                 request,
             )
         })
