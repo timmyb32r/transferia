@@ -62,7 +62,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert_eq!(sink.initial["driver"], "ydb");
     assert!(!sink_schema.contains("access_token"));
     assert_eq!(
-        sink.initial.pointer("/installation/auth/type"),
+        sink.initial.pointer("/auth/type"),
         Some(&serde_json::json!("token"))
     );
     Ok(())

@@ -11,9 +11,9 @@ source:
       host: localhost
       port: 2135
       trusted_plaintext: true
-      auth:
-        type: token_file
-        token_file: "${HOME}/path/to/token"
+    auth:
+      type: token_file
+      token_file: "${HOME}/path/to/token"
     topics:
       - path: "/cdc/prod/events"
         partitions: [0]

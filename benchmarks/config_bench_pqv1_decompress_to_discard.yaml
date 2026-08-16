@@ -11,9 +11,9 @@ source:
       host: "${PQ_HOST:-localhost}"
       port: ${PQ_PORT:-2136}
       trusted_plaintext: true
-      auth:
-        type: token
-        token: "${PQ_TOKEN:-benchmark-token}"
+    auth:
+      type: token
+      token: "${PQ_TOKEN:-benchmark-token}"
     topics:
       - path: "${PQ_TOPIC:-/benchmark/events}"
         partitions: [0]

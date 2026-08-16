@@ -451,17 +451,10 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
         serde_json::json!({
             "host": { "type": "string", "title": "Host" },
             "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-            "auth": {
-                "title": "Authentication",
-                "oneOf": [
-                    { "type": "object", "title": "Token", "properties": { "type": { "const": "token" }, "token": { "type": "string", "x-ui": { "widget": "password" } } }, "required": ["type", "token"] },
-                    { "type": "object", "title": "Token file", "properties": { "type": { "const": "token_file" }, "token_file": { "type": "string" } }, "required": ["type", "token_file"] }
-                ]
-            },
             "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
         }),
-        &["host", "port", "auth", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 2135, "auth": { "type": "token", "token": "" }, "trusted_plaintext": true }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
     )?;
     register_on_premise(
         registry,
@@ -470,17 +463,10 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
         serde_json::json!({
             "host": { "type": "string", "title": "Host" },
             "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-            "auth": {
-                "title": "Authentication",
-                "oneOf": [
-                    { "type": "object", "title": "Token", "properties": { "type": { "const": "token" }, "token": { "type": "string", "x-ui": { "widget": "password" } } }, "required": ["type", "token"] },
-                    { "type": "object", "title": "Token file", "properties": { "type": { "const": "token_file" }, "token_file": { "type": "string" } }, "required": ["type", "token_file"] }
-                ]
-            },
             "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
         }),
-        &["host", "port", "auth", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 2135, "auth": { "type": "token", "token": "" }, "trusted_plaintext": true }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
     )?;
     register_on_premise(
         registry,

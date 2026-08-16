@@ -294,6 +294,50 @@ describe("schema form", () => {
     options.mockRestore();
   });
 
+  it("shows progress while dynamic options are loading", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof api.options>>>();
+    const options = vi.spyOn(api, "options").mockReturnValue(pending.promise);
+    const view = render(
+      <SchemaForm
+        node={{ kind: "string", xUi: { dynamic_options: "clusters" } }}
+        value=""
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }));
+
+    expect((await form.findByRole("status")).textContent).toContain("Loading…");
+    expect(form.queryByText("No matches")).toBeNull();
+    pending.resolve({ options: [{ value: "cluster", label: "Cluster" }] });
+    expect(await form.findByRole("option", { name: "Cluster" })).toBeTruthy();
+    view.unmount();
+    options.mockRestore();
+  });
+
+  it("closes an open select when the form becomes read-only", () => {
+    const onChange = vi.fn();
+    const node: CompiledNode = {
+      kind: "string",
+      enumValues: ["first"],
+      xUi: { labels: { first: "First option" } },
+    };
+    const view = render(
+      <SchemaForm node={node} value="" onChange={onChange} />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }));
+    expect(form.getByRole("option", { name: "First option" })).toBeTruthy();
+
+    view.rerender(
+      <SchemaForm node={node} value="" disabled onChange={onChange} />,
+    );
+
+    expect(form.queryByRole("option", { name: "First option" })).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("supports arrow navigation and Escape in dropdowns", async () => {
     const { container } = render(
       <SelectControl

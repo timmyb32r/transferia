@@ -23,8 +23,8 @@ pub(super) struct ProviderDescriptor {
 
 const LOGBROKER_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
-        output_fields: &["host", "port", "auth", "trusted_plaintext"],
-        required_output_fields: &["host", "port", "auth", "trusted_plaintext"],
+        output_fields: &["host", "port", "trusted_plaintext"],
+        required_output_fields: &["host", "port", "trusted_plaintext"],
     }),
 });
 

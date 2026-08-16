@@ -61,6 +61,7 @@ export function DynamicSelectControl({
         id={id}
         value={value}
         disabled={disabled}
+        loading={status === "Loading…"}
         placeholder={status ?? "Not selected"}
         options={visibleOptions}
         searchable

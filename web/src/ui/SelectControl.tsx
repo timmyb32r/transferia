@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import {
   anchoredMenuStyle,
@@ -17,6 +17,7 @@ interface SelectControlProps {
   placeholder: string;
   options: SelectOption[];
   disabled?: boolean;
+  loading?: boolean;
   searchable?: boolean;
   onOpen?: () => void;
   onChange: (value: string) => void;
@@ -28,6 +29,7 @@ export function SelectControl({
   placeholder,
   options,
   disabled = false,
+  loading = false,
   searchable = false,
   onOpen,
   onChange,
@@ -48,7 +50,11 @@ export function SelectControl({
     setOpen(false);
     setQuery("");
   };
+  useEffect(() => {
+    if (disabled) close();
+  }, [disabled]);
   const toggle = () => {
+    if (disabled) return;
     setQuery("");
     setOpen((current) => {
       if (!current) onOpen?.();
@@ -57,6 +63,7 @@ export function SelectControl({
   };
   useAnchoredOverlay({ open, root, trigger, onClose: close });
   const choose = (next: string) => {
+    if (disabled) return;
     onChange(next);
     close();
   };
@@ -124,10 +131,16 @@ export function SelectControl({
             />
           )}
           <div role="listbox">
+            {loading && (
+              <div class="select-loading" role="status">
+                <span class="spinner" aria-hidden="true" /> Loading…
+              </div>
+            )}
             {filtered.map((option) => (
               <button
                 key={option.value}
                 type="button"
+                disabled={disabled}
                 role="option"
                 aria-selected={option.value === value}
                 class="select-option"
@@ -144,7 +157,7 @@ export function SelectControl({
                 {option.label}
               </button>
             ))}
-            {filtered.length === 0 && (
+            {!loading && filtered.length === 0 && (
               <div class="select-empty">No matches</div>
             )}
           </div>
@@ -176,6 +189,9 @@ export function MultiSelectControl({
     setQuery("");
   };
   useAnchoredOverlay({ open, root, trigger, onClose: close });
+  useEffect(() => {
+    if (disabled) close();
+  }, [disabled]);
   const labels = values.map(
     (value) => options.find((option) => option.value === value)?.label ?? value,
   );
@@ -183,6 +199,7 @@ export function MultiSelectControl({
     option.label.toLowerCase().includes(query.toLowerCase()),
   );
   const toggle = () => {
+    if (disabled) return;
     setQuery("");
     setOpen((current) => !current);
   };
@@ -243,6 +260,7 @@ export function MultiSelectControl({
           {filtered.map((option) => {
             const selected = values.includes(option.value);
             const choose = () =>
+              !disabled &&
               onChange(
                 selected
                   ? values.filter((value) => value !== option.value)
@@ -252,6 +270,7 @@ export function MultiSelectControl({
               <button
                 key={option.value}
                 type="button"
+                disabled={disabled}
                 role="option"
                 aria-selected={selected}
                 class="select-option multi-select-option"

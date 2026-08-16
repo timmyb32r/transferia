@@ -1104,6 +1104,21 @@ button::after {
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+
+.select-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 12px;
+  color: var(--muted);
+}
+
+.select-loading .spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
