@@ -5,6 +5,12 @@ edition = "2021"
 description = "Native Rust data transfer pipeline demo"
 publish = false
 
+[[bin]]
+name = "generate-server-api"
+path = "src/server/bin/generate_server_api.rs"
+test = false
+bench = false
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
