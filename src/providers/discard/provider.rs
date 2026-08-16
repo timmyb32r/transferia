@@ -1,6 +1,4 @@
 use futures_util::future::BoxFuture;
-use serde::Deserialize;
-use serde_yaml::Value;
 
 use crate::compatibility::EndpointDescriptor;
 use crate::delivery::{SinkLimits, NO_LIMITS};
@@ -10,15 +8,16 @@ use crate::providers::traits::{SinkContext, SinkPrepare, SinkProvider};
 
 pub struct DiscardSinkProvider;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DiscardSinkConfig {}
+impl Default for DiscardSinkProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl DiscardSinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let _: DiscardSinkConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse discard sink config: {error}"))?;
-        Ok(Self)
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
     }
 }
 

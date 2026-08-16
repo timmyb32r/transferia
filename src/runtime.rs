@@ -10,7 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 #[cfg(test)]
 use transferia::application::delivery_plan::validate_discovered_pipeline;
-use transferia::application::delivery_plan::{build_delivery_plan_with, DeliveryPlan};
+use transferia::application::delivery_plan::{
+    build_delivery_plan_with, build_resolved_delivery_plan_with, DeliveryPlan,
+};
 use transferia::application::worker_control::WorkerControl;
 use transferia::config::yaml::Config;
 use transferia::delivery::DeliveryDiscovery;
@@ -50,6 +52,10 @@ struct Cli {
     parent_control: Option<std::net::SocketAddr>,
     #[arg(long, env = "TRANSFERIA_PARENT_TOKEN", hide = true)]
     parent_token: Option<String>,
+    #[arg(long, hide = true)]
+    resolved_config: bool,
+    #[arg(long, hide = true)]
+    composition_fingerprint: Option<String>,
 }
 
 fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
@@ -61,6 +67,10 @@ fn validate_worker_assignment(cli: &Cli) -> anyhow::Result<()> {
     anyhow::ensure!(
         cli.parent_control.is_some() == cli.parent_token.is_some(),
         "--parent-control and TRANSFERIA_PARENT_TOKEN must be provided together"
+    );
+    anyhow::ensure!(
+        cli.resolved_config == cli.composition_fingerprint.is_some(),
+        "--resolved-config and --composition-fingerprint must be provided together"
     );
     Ok(())
 }
@@ -296,6 +306,17 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         }
     };
     spawn_shutdown_listener(cancellation.clone())?;
+    if let Some(expected) = &cli.composition_fingerprint {
+        anyhow::ensure!(
+            expected == transferia.composition_fingerprint(),
+            "worker composition does not match the composition that resolved its configuration"
+        );
+    }
+    let plan = if cli.resolved_config {
+        build_resolved_delivery_plan_with(config, cancellation.clone(), &transferia).await?
+    } else {
+        build_delivery_plan_with(config, cancellation.clone(), &transferia).await?
+    };
     let DeliveryPlan {
         config,
         durable,
@@ -307,7 +328,7 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         semantics,
         finite_source,
         ..
-    } = build_delivery_plan_with(config, cancellation.clone(), &transferia).await?;
+    } = plan;
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
     tracing::info!(limits = %serde_json::to_string(&sink_provider.limits().description())?, "sink limits validated against delivery discovery");
 

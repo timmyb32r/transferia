@@ -13,7 +13,13 @@ import {
   isComplete,
   type CompiledNode,
 } from "./schema/compiler";
-import { editorReducer, isDirty, isReadOnly, type EditorState } from "./state";
+import {
+  editorReducer,
+  isDirty,
+  isReadOnly,
+  type EditorSessionId,
+  type EditorState,
+} from "./state";
 import type {
   DeliveryRecord,
   DeliverySummary,
@@ -25,8 +31,19 @@ import type {
   UiCatalog,
 } from "./types";
 
+const compiledSchemaCache = new WeakMap<object, CompiledNode>();
+
+function compiledSchema(schema: UiCatalog["common_schema"]): CompiledNode {
+  const cached = compiledSchemaCache.get(schema);
+  if (cached !== undefined) return cached;
+  const compiled = compileSchema(schema);
+  compiledSchemaCache.set(schema, compiled);
+  return compiled;
+}
+
 const EMPTY_STATE: EditorState = {
-  editRevision: 0,
+  sessionId: "bootstrap",
+  localRevision: 0,
   name: "",
   description: "",
   config: {},
@@ -34,7 +51,29 @@ const EMPTY_STATE: EditorState = {
   runtime: { state: "stopped" },
 };
 
-function App() {
+type OperationKey =
+  | "bootstrap"
+  | "list"
+  | "open"
+  | "save"
+  | "validate"
+  | "action"
+  | "yaml"
+  | "parseYaml"
+  | "discovery";
+
+interface OperationState {
+  requestId: number;
+  label?: string;
+  error?: string;
+}
+
+interface EditorRequestContext {
+  sessionId: EditorSessionId;
+  localRevision: number;
+}
+
+export function App() {
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
@@ -42,61 +81,203 @@ function App() {
   const [yamlDraft, setYamlDraft] = useState("");
   const [activeView, setActiveView] = useState<"ui" | "yaml">("ui");
   const [discovery, setDiscovery] = useState<DiscoveryResult>();
-  const [busy, setBusy] = useState<string>();
-  const [error, setError] = useState<string>();
-  const yamlJob = useRef(new LatestJob<JsonObject, { yaml: string }>()).current;
+  const [operations, setOperations] = useState<
+    Partial<Record<OperationKey, OperationState>>
+  >({});
+  const operationSequence = useRef(0);
+  const sessionSequence = useRef(0);
+  const yamlJob = useRef(
+    new LatestJob<EditorRequestContext, JsonObject, { yaml: string }>(),
+  ).current;
   const discoveryJob = useRef(
-    new LatestJob<JsonObject, DiscoveryResult>(),
+    new LatestJob<EditorRequestContext, JsonObject, DiscoveryResult>(),
+  ).current;
+  const listJob = useRef(
+    new LatestJob<void, undefined, DeliverySummary[]>(),
+  ).current;
+  const pollJob = useRef(
+    new LatestJob<EditorSessionId, string, DeliveryRecord>(),
+  ).current;
+  const openJob = useRef(
+    new LatestJob<EditorSessionId, string, DeliveryRecord>(),
+  ).current;
+  const saveJob = useRef(
+    new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
+  ).current;
+  const validateJob = useRef(
+    new LatestJob<
+      EditorRequestContext,
+      undefined,
+      {
+        discovery: DiscoveryResult;
+        delivery: DeliveryRecord;
+      }
+    >(),
+  ).current;
+  const actionJob = useRef(
+    new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
+  ).current;
+  const parseYamlJob = useRef(
+    new LatestJob<EditorRequestContext, string, { config: JsonObject }>(),
   ).current;
   const yamlEditing = useRef(false);
+  const currentEditorContext = useRef<EditorRequestContext>({
+    sessionId: editor.sessionId,
+    localRevision: editor.localRevision,
+  });
+  currentEditorContext.current = {
+    sessionId: editor.sessionId,
+    localRevision: editor.localRevision,
+  };
+
+  const nextSession = (): EditorSessionId =>
+    `editor-${++sessionSequence.current}`;
+  const isCurrentContext = (context: EditorRequestContext): boolean =>
+    context.sessionId === currentEditorContext.current.sessionId &&
+    context.localRevision === currentEditorContext.current.localRevision;
+  const beginOperation = (key: OperationKey, label?: string): number => {
+    const requestId = ++operationSequence.current;
+    setOperations((current) => ({
+      ...current,
+      [key]: { requestId, ...(label === undefined ? {} : { label }) },
+    }));
+    return requestId;
+  };
+  const finishOperation = (
+    key: OperationKey,
+    requestId: number,
+    error?: string,
+  ) =>
+    setOperations((current) => {
+      if (current[key]?.requestId !== requestId) return current;
+      if (error !== undefined)
+        return { ...current, [key]: { requestId, error } };
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  const clearErrors = () =>
+    setOperations((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([, operation]) => !operation?.error),
+      ),
+    );
+  const clearOperation = (key: OperationKey) =>
+    setOperations((current) => {
+      if (current[key] === undefined) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  const cancelEditorJobs = () => {
+    yamlJob.cancel();
+    discoveryJob.cancel();
+    pollJob.cancel();
+    openJob.cancel();
+    saveJob.cancel();
+    validateJob.cancel();
+    actionJob.cancel();
+    parseYamlJob.cancel();
+  };
+  const dispatchLocalChange = (
+    action:
+      | { type: "name"; name: string }
+      | { type: "description"; description: string }
+      | { type: "config"; config: JsonObject },
+  ) => {
+    yamlJob.cancel();
+    discoveryJob.cancel();
+    pollJob.cancel();
+    validateJob.cancel();
+    actionJob.cancel();
+    parseYamlJob.cancel();
+    dispatch(action);
+  };
 
   useEffect(() => {
+    validateJob.cancel();
+    actionJob.cancel();
+    parseYamlJob.cancel();
+  }, [editor.sessionId, editor.localRevision]);
+
+  useEffect(() => {
+    const requestId = beginOperation("bootstrap", "Loading control plane…");
     void Promise.all([api.catalog(), api.deliveries()])
       .then(([nextCatalog, nextDeliveries]) => {
         setCatalog(nextCatalog);
         setDeliveries(nextDeliveries);
-        dispatch({ type: "new", config: freshConfig(nextCatalog) });
+        dispatch({
+          type: "new",
+          sessionId: nextSession(),
+          config: freshConfig(nextCatalog),
+        });
+        finishOperation("bootstrap", requestId);
       })
-      .catch(reportError(setError));
+      .catch((reason: unknown) =>
+        finishOperation("bootstrap", requestId, errorMessage(reason)),
+      );
   }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void api
-        .deliveries()
-        .then(setDeliveries)
+      void listJob
+        .run(undefined, undefined, () => api.deliveries())
+        .then((result) => {
+          if (result !== undefined) setDeliveries(result.value);
+        })
         .catch(() => undefined);
       if (editor.id !== undefined && !isDirty(editor)) {
-        void api
-          .delivery(editor.id)
-          .then((delivery) => dispatch({ type: "runtime", delivery }))
+        const sessionId = editor.sessionId;
+        void pollJob
+          .run(sessionId, editor.id, (id) => api.delivery(id))
+          .then((result) => {
+            if (result !== undefined)
+              dispatch({
+                type: "runtime",
+                sessionId: result.context,
+                expectedLocalRevision: editor.localRevision,
+                delivery: result.value,
+              });
+          })
           .catch(() => undefined);
       }
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [editor.id, editor.editRevision, editor.savedEditRevision]);
+  }, [
+    editor.id,
+    editor.sessionId,
+    editor.localRevision,
+    editor.savedLocalRevision,
+  ]);
 
   useEffect(() => {
+    yamlJob.cancel();
+    clearOperation("yaml");
     if (catalog === undefined) return;
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
     const timer = window.setTimeout(() => {
       void yamlJob
-        .run(editor.editRevision, editor.config, (config, signal) =>
+        .run(context, editor.config, (config, signal) =>
           api.yaml(config, signal),
         )
         .then((result) => {
-          if (result !== undefined && result.revision === editor.editRevision)
-            setYaml(result.value.yaml);
-          if (
-            result !== undefined &&
-            result.revision === editor.editRevision &&
-            !yamlEditing.current
-          )
-            setYamlDraft(result.value.yaml);
+          if (result === undefined || !isCurrentContext(result.context)) return;
+          setYaml(result.value.yaml);
+          if (!yamlEditing.current) setYamlDraft(result.value.yaml);
         })
-        .catch(ignoreAbort(setError));
+        .catch((reason: unknown) => {
+          const requestId = beginOperation("yaml");
+          finishOperation("yaml", requestId, errorMessage(reason));
+        });
     }, 120);
-    return () => window.clearTimeout(timer);
-  }, [catalog, editor.config, editor.editRevision]);
+    return () => {
+      window.clearTimeout(timer);
+      yamlJob.cancel();
+    };
+  }, [catalog, editor.config, editor.sessionId, editor.localRevision]);
 
   const selection = useMemo(
     () =>
@@ -111,43 +292,62 @@ function App() {
     selection.source !== undefined &&
     selection.sink !== undefined &&
     isComplete(
-      compileSchema(selection.source.schema),
+      compiledSchema(selection.source.schema),
       endpointValue(editor.config, "source", selection.sourceKey),
     ) &&
     isComplete(
-      compileSchema(selection.sink.schema),
+      compiledSchema(selection.sink.schema),
       endpointValue(editor.config, "sink", selection.sinkKey),
     );
   useEffect(() => {
     discoveryJob.cancel();
+    clearOperation("discovery");
     setDiscovery(undefined);
     if (!structurallyComplete) return;
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
     const timer = window.setTimeout(() => {
-      setBusy("Discovering topology and schema…");
+      const requestId = beginOperation(
+        "discovery",
+        "Discovering topology and schema…",
+      );
       void discoveryJob
-        .run(editor.editRevision, editor.config, (config, signal) =>
+        .run(context, editor.config, (config, signal) =>
           api.discover(config, signal),
         )
         .then((result) => {
-          if (result !== undefined && result.revision === editor.editRevision) {
+          if (result !== undefined && isCurrentContext(result.context)) {
             setDiscovery(result.value);
-            setError(undefined);
           }
+          finishOperation("discovery", requestId);
         })
-        .catch(ignoreAbort(setError))
-        .finally(() =>
-          setBusy((current) =>
-            current?.startsWith("Discovering") ? undefined : current,
-          ),
+        .catch((reason: unknown) =>
+          finishOperation("discovery", requestId, errorMessage(reason)),
         );
     }, 450);
-    return () => window.clearTimeout(timer);
-  }, [editor.config, editor.editRevision, structurallyComplete]);
+    return () => {
+      window.clearTimeout(timer);
+      discoveryJob.cancel();
+    };
+  }, [
+    editor.config,
+    editor.sessionId,
+    editor.localRevision,
+    structurallyComplete,
+  ]);
 
   if (catalog === undefined)
     return (
       <main class="loading-screen">
-        <span class="spinner" /> Loading control plane…
+        {operations.bootstrap?.error === undefined ? (
+          <>
+            <span class="spinner" /> Loading control plane…
+          </>
+        ) : (
+          <span>{operations.bootstrap.error}</span>
+        )}
       </main>
     );
 
@@ -160,7 +360,7 @@ function App() {
   );
 
   const updateConfig = (next: JsonObject) =>
-    dispatch({ type: "config", config: next });
+    dispatchLocalChange({ type: "config", config: next });
   const chooseEndpoint = (role: "source" | "sink", key: string) => {
     const provider = catalog.providers.find(
       (candidate) => candidate.key === key,
@@ -174,70 +374,128 @@ function App() {
           : { [key]: structuredClone(endpoint.initial) },
     });
   };
-  const refreshList = async () => setDeliveries(await api.deliveries());
+  const refreshList = async () => {
+    const result = await listJob.run(undefined, undefined, () =>
+      api.deliveries(),
+    );
+    if (result !== undefined) setDeliveries(result.value);
+  };
   const runAction = async (
     label: string,
     action: () => Promise<DeliveryRecord>,
   ) => {
-    setBusy(label);
-    setError(undefined);
+    const requestId = beginOperation("action", label);
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
     try {
-      const delivery = await action();
-      dispatch({ type: "runtime", delivery });
+      const result = await actionJob.run(context, undefined, action);
+      if (result === undefined) {
+        finishOperation("action", requestId);
+        return undefined;
+      }
+      dispatch({
+        type: "runtime",
+        sessionId: result.context.sessionId,
+        expectedLocalRevision: result.context.localRevision,
+        delivery: result.value,
+      });
       await refreshList();
-      return delivery;
+      finishOperation("action", requestId);
+      return result.value;
     } catch (reason) {
-      setError(errorMessage(reason));
+      finishOperation("action", requestId, errorMessage(reason));
       return undefined;
-    } finally {
-      setBusy(undefined);
     }
   };
   const save = async (): Promise<DeliveryRecord | undefined> => {
-    setBusy("Saving draft…");
-    setError(undefined);
+    const requestId = beginOperation("save", "Saving draft…");
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
+    const snapshot = {
+      id: editor.id,
+      persistedRevision: editor.persistedRevision,
+      recordVersion: editor.recordVersion,
+      name: editor.name,
+      description: editor.description,
+      config: editor.config,
+    };
     try {
-      const saved =
-        editor.id === undefined
-          ? await api.create(editor.name, editor.description, editor.config)
-          : await api.update(
-              editor.id,
-              editor.persistedRevision!,
-              editor.name,
-              editor.description,
-              editor.config,
-            );
-      dispatch({ type: "persisted", delivery: saved });
+      const result = await saveJob.run(context, undefined, () =>
+        snapshot.id === undefined
+          ? api.create(snapshot.name, snapshot.description, snapshot.config)
+          : api.update(
+              snapshot.id,
+              snapshot.persistedRevision!,
+              snapshot.recordVersion!,
+              snapshot.name,
+              snapshot.description,
+              snapshot.config,
+            ),
+      );
+      if (result === undefined) {
+        finishOperation("save", requestId);
+        return undefined;
+      }
+      dispatch({
+        type: "persisted",
+        sessionId: result.context.sessionId,
+        savedLocalRevision: result.context.localRevision,
+        delivery: result.value,
+      });
       await refreshList();
-      return saved;
+      finishOperation("save", requestId);
+      return result.value;
     } catch (reason) {
-      setError(errorMessage(reason));
+      finishOperation("save", requestId, errorMessage(reason));
       return undefined;
-    } finally {
-      setBusy(undefined);
     }
   };
   const validate = async () => {
     const saved =
-      isDirty(editor) || editor.id === undefined
-        ? await save()
-        : await api.delivery(editor.id);
-    if (saved === undefined) return;
-    setBusy("Validating current revision…");
-    setError(undefined);
+      isDirty(editor) || editor.id === undefined ? await save() : undefined;
+    const id = saved?.id ?? editor.id;
+    const revision = saved?.revision ?? editor.persistedRevision;
+    const recordVersion = saved?.record_version ?? editor.recordVersion;
+    if (
+      id === undefined ||
+      revision === undefined ||
+      recordVersion === undefined
+    )
+      return;
+    const requestId = beginOperation(
+      "validate",
+      "Validating current revision…",
+    );
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
     try {
-      const result = await api.validate(saved.id, saved.revision);
-      setDiscovery(result);
-      const updated = await api.delivery(saved.id);
-      dispatch({ type: "runtime", delivery: updated });
+      const result = await validateJob.run(context, undefined, async () => {
+        const nextDiscovery = await api.validate(id, revision, recordVersion);
+        const delivery = await api.delivery(id);
+        return { discovery: nextDiscovery, delivery };
+      });
+      if (result === undefined) {
+        finishOperation("validate", requestId);
+        return;
+      }
+      if (isCurrentContext(result.context))
+        setDiscovery(result.value.discovery);
+      dispatch({
+        type: "runtime",
+        sessionId: result.context.sessionId,
+        expectedLocalRevision: result.context.localRevision,
+        delivery: result.value.delivery,
+      });
       await refreshList();
+      finishOperation("validate", requestId);
     } catch (reason) {
-      setError(errorMessage(reason));
-      const updated = await api.delivery(saved.id).catch(() => undefined);
-      if (updated !== undefined)
-        dispatch({ type: "runtime", delivery: updated });
-    } finally {
-      setBusy(undefined);
+      finishOperation("validate", requestId, errorMessage(reason));
     }
   };
   const showYaml = () => {
@@ -245,33 +503,55 @@ function App() {
     yamlEditing.current = true;
     setYamlDraft(yaml);
     setActiveView("yaml");
-    setError(undefined);
+    clearErrors();
   };
   const applyYamlAndShowUi = async () => {
     if (activeView === "ui") return;
-    setBusy("Applying YAML…");
-    setError(undefined);
+    const requestId = beginOperation("parseYaml", "Applying YAML…");
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
     try {
-      const parsed = await api.parseYaml(yamlDraft);
-      dispatch({ type: "config", config: parsed.config });
+      const result = await parseYamlJob.run(context, yamlDraft, (text) =>
+        api.parseYaml(text),
+      );
+      if (result === undefined) {
+        finishOperation("parseYaml", requestId);
+        return;
+      }
+      if (!isCurrentContext(result.context)) {
+        finishOperation("parseYaml", requestId);
+        return;
+      }
+      dispatchLocalChange({ type: "config", config: result.value.config });
       yamlEditing.current = false;
       setActiveView("ui");
+      finishOperation("parseYaml", requestId);
     } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setBusy(undefined);
+      finishOperation("parseYaml", requestId, errorMessage(reason));
     }
   };
+  const blockingOperation = (
+    ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
+  ).some((key) => operations[key]?.label !== undefined);
+  const runningRunId =
+    editor.runtime.state === "running" ? editor.runtime.run_id : undefined;
   const actionButtons = (
     <div class="actions">
-      {editor.runtime.state === "running" ? (
+      {runningRunId !== undefined ? (
         <button
           class="danger-button"
           type="button"
-          disabled={busy !== undefined}
+          disabled={blockingOperation}
           onClick={() =>
             void runAction("Stopping worker…", () =>
-              api.stop(editor.id!, editor.persistedRevision!),
+              api.stop(
+                editor.id!,
+                editor.persistedRevision!,
+                editor.recordVersion!,
+                runningRunId,
+              ),
             )
           }
         >
@@ -281,14 +561,14 @@ function App() {
         <>
           <button
             type="button"
-            disabled={busy !== undefined || !isDirty(editor)}
+            disabled={blockingOperation || !isDirty(editor)}
             onClick={() => void save()}
           >
             Save draft
           </button>
           <button
             type="button"
-            disabled={busy !== undefined || editor.name.trim() === ""}
+            disabled={blockingOperation || editor.name.trim() === ""}
             onClick={() => void validate()}
           >
             Validate
@@ -297,7 +577,7 @@ function App() {
             class="primary"
             type="button"
             disabled={
-              busy !== undefined ||
+              blockingOperation ||
               editor.id === undefined ||
               isDirty(editor) ||
               editor.validation.state !== "ready" ||
@@ -305,7 +585,11 @@ function App() {
             }
             onClick={() =>
               void runAction("Starting worker…", () =>
-                api.activate(editor.id!, editor.persistedRevision!),
+                api.activate(
+                  editor.id!,
+                  editor.persistedRevision!,
+                  editor.recordVersion!,
+                ),
               )
             }
           >
@@ -330,10 +614,15 @@ function App() {
           class="primary new-button"
           type="button"
           onClick={() => {
-            dispatch({ type: "new", config: freshConfig(catalog) });
+            cancelEditorJobs();
+            setOperations({});
+            dispatch({
+              type: "new",
+              sessionId: nextSession(),
+              config: freshConfig(catalog),
+            });
             yamlEditing.current = false;
             setActiveView("ui");
-            setError(undefined);
             setDiscovery(undefined);
           }}
         >
@@ -349,16 +638,29 @@ function App() {
                   : "delivery-item"
               }
               onClick={() => {
-                setBusy("Opening delivery…");
-                void api
-                  .delivery(delivery.id)
-                  .then((record) => {
+                cancelEditorJobs();
+                const sessionId = nextSession();
+                const requestId = beginOperation("open", "Opening delivery…");
+                void openJob
+                  .run(sessionId, delivery.id, (id) => api.delivery(id))
+                  .then((result) => {
+                    if (result === undefined) {
+                      finishOperation("open", requestId);
+                      return;
+                    }
                     yamlEditing.current = false;
                     setActiveView("ui");
-                    dispatch({ type: "open", delivery: record });
+                    setDiscovery(undefined);
+                    dispatch({
+                      type: "open",
+                      sessionId: result.context,
+                      delivery: result.value,
+                    });
+                    finishOperation("open", requestId);
                   })
-                  .catch(reportError(setError))
-                  .finally(() => setBusy(undefined));
+                  .catch((reason: unknown) =>
+                    finishOperation("open", requestId, errorMessage(reason)),
+                  );
               }}
             >
               <span>{delivery.name}</span>
@@ -394,7 +696,7 @@ function App() {
             role="tab"
             aria-selected={activeView === "ui"}
             class={activeView === "ui" ? "active" : ""}
-            disabled={busy !== undefined}
+            disabled={blockingOperation}
             onClick={() => void applyYamlAndShowUi()}
           >
             UI
@@ -404,25 +706,36 @@ function App() {
             role="tab"
             aria-selected={activeView === "yaml"}
             class={activeView === "yaml" ? "active" : ""}
-            disabled={busy !== undefined}
+            disabled={blockingOperation}
             onClick={showYaml}
           >
             YAML
           </button>
         </div>
-        {error && (
-          <div class="notice error">
-            <span>{error}</span>
-            <button type="button" onClick={() => setError(undefined)}>
-              ×
-            </button>
-          </div>
+        {Object.entries(operations).map(
+          ([key, operation]) =>
+            operation?.error && (
+              <div class="notice error" key={key}>
+                <span>{operation.error}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    finishOperation(key as OperationKey, operation.requestId)
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            ),
         )}
-        {busy && (
-          <div class="notice progress">
-            <span class="spinner" />
-            {busy}
-          </div>
+        {Object.values(operations).map(
+          (operation) =>
+            operation?.label && (
+              <div class="notice progress" key={operation.requestId}>
+                <span class="spinner" />
+                {operation.label}
+              </div>
+            ),
         )}
 
         {activeView === "ui" ? (
@@ -435,7 +748,10 @@ function App() {
                   disabled={readOnly}
                   placeholder="e.g. Events to ClickHouse"
                   onInput={(event) =>
-                    dispatch({ type: "name", name: event.currentTarget.value })
+                    dispatchLocalChange({
+                      type: "name",
+                      name: event.currentTarget.value,
+                    })
                   }
                 />
               </FieldLabel>
@@ -445,7 +761,7 @@ function App() {
                   value={editor.description}
                   disabled={readOnly}
                   onInput={(event) =>
-                    dispatch({
+                    dispatchLocalChange({
                       type: "description",
                       description: event.currentTarget.value,
                     })
@@ -501,7 +817,7 @@ function App() {
               />
               {selection?.error === undefined && selection?.source && (
                 <ParserDetailsForm
-                  node={compileSchema(selection.source.schema)}
+                  node={compiledSchema(selection.source.schema)}
                   value={endpointValue(
                     editor.config,
                     "source",
@@ -603,7 +919,7 @@ function EndpointCard(props: {
       {props.endpoint && (
         <div class="endpoint-fields">
           <SchemaForm
-            node={compileSchema(props.endpoint.schema)}
+            node={compiledSchema(props.endpoint.schema)}
             value={value}
             disabled={props.readOnly}
             parserSelectionOnly={props.role === "source"}
@@ -633,7 +949,7 @@ function CommonSettings({
   partitionedSource: boolean;
   onChange: (config: JsonObject) => void;
 }) {
-  const compiled = compileSchema(schema);
+  const compiled = compiledSchema(schema);
   if (compiled.kind !== "object") return null;
   const excluded = new Set(["delivery_type"]);
   let properties = Object.fromEntries(
@@ -807,14 +1123,6 @@ function isObject(value: JsonValue | undefined): value is JsonObject {
 function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
 }
-function reportError(setter: (message: string) => void) {
-  return (reason: unknown) => setter(errorMessage(reason));
-}
-function ignoreAbort(setter: (message: string) => void) {
-  return (reason: unknown) => {
-    if (!(reason instanceof DOMException && reason.name === "AbortError"))
-      setter(errorMessage(reason));
-  };
-}
 
-render(<App />, document.getElementById("app")!);
+const appRoot = document.getElementById("app");
+if (appRoot !== null) render(<App />, appRoot);

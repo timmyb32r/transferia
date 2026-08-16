@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
@@ -48,11 +47,9 @@ struct PqV1DriverSourceProvider {
 
 impl YdbDriverSourceProvider {
     pub fn from_config(
-        value: Value,
+        cfg: LogbrokerSourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        let cfg: LogbrokerSourceConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
         validate_config(&cfg)?;
         anyhow::ensure!(
             cfg.driver == LogbrokerDriver::Ydb,
@@ -116,11 +113,9 @@ impl YdbDriverSourceProvider {
 }
 
 pub fn build_source_provider(
-    value: Value,
+    cfg: LogbrokerSourceConfig,
     metrics_registry: Arc<MetricsRegistry>,
 ) -> anyhow::Result<Box<dyn SourceProvider>> {
-    let cfg: LogbrokerSourceConfig = serde_yaml::from_value(value.clone())
-        .map_err(|error| anyhow::anyhow!("Failed to parse YDB Topic source config: {error}"))?;
     validate_config(&cfg)?;
     match cfg.driver {
         LogbrokerDriver::Ydb => {
@@ -131,7 +126,7 @@ pub fn build_source_provider(
                 "PQv1-only settings require logbroker.driver=pqv1"
             );
             Ok(Box::new(YdbDriverSourceProvider::from_config(
-                value,
+                cfg,
                 metrics_registry,
             )?))
         }
@@ -157,58 +152,37 @@ pub fn build_source_provider(
                 "logbroker PQv1 decompression concurrency must be positive"
             );
 
-            let mut mapping = value.as_mapping().cloned().ok_or_else(|| {
-                anyhow::anyhow!("YDB Topic source configuration must be an object")
-            })?;
-            for key in [
-                "driver",
-                "topics",
-                "trusted_plaintext",
-                "allow_ttl_rewind",
-                "read_buffer_bytes",
-                "pqv1_decompression_concurrency",
-                "pqv1_discard_before_decompression",
-            ] {
-                mapping.remove(Value::String(key.to_owned()));
-            }
-            mapping.insert(
-                Value::String("topic_path".into()),
-                Value::String(cfg.topics[0].path.clone()),
-            );
-            mapping.insert(
-                Value::String("partition_group_ids".into()),
-                Value::Sequence(
-                    cfg.topics[0]
-                        .partitions
-                        .iter()
-                        .copied()
-                        .map(Value::from)
-                        .collect(),
-                ),
-            );
-            let auth = mapping
-                .get_mut(Value::String("auth".into()))
-                .and_then(Value::as_mapping_mut)
-                .ok_or_else(|| anyhow::anyhow!("logbroker.auth must be an object"))?;
-            auth.insert(
-                Value::String("type".into()),
-                Value::String("access_token".into()),
-            );
-            mapping.insert(
-                Value::String("network_timeout_ms".into()),
-                Value::from(30_000_u64),
-            );
-            mapping.insert(
-                Value::String("decompression_concurrency".into()),
-                Value::from(cfg.pqv1_decompression_concurrency as u64),
-            );
-            mapping.insert(
-                Value::String("benchmark_discard_before_decompression".into()),
-                Value::Bool(cfg.pqv1_discard_before_decompression),
-            );
+            let auth = match cfg.auth {
+                crate::providers::logbroker::LogbrokerAuthConfig::Token { token } => {
+                    crate::providers::logbroker::pqv1::config::PqV1AuthConfig {
+                        auth_type: "access_token".to_owned(),
+                        token: Some(token),
+                        token_file: None,
+                    }
+                }
+                crate::providers::logbroker::LogbrokerAuthConfig::TokenFile { token_file } => {
+                    crate::providers::logbroker::pqv1::config::PqV1AuthConfig {
+                        auth_type: "access_token".to_owned(),
+                        token: None,
+                        token_file: Some(token_file),
+                    }
+                }
+            };
+            let pqv1 = crate::providers::logbroker::pqv1::src_stream::PqV1SourceConfig {
+                host: cfg.host,
+                port: cfg.port,
+                topic_path: cfg.topics[0].path.clone(),
+                consumer_name: cfg.consumer_name,
+                auth,
+                parser: cfg.parser,
+                partition_group_ids: cfg.topics[0].partitions.clone(),
+                network_timeout_ms: 30_000,
+                decompression_concurrency: cfg.pqv1_decompression_concurrency,
+                benchmark_discard_before_decompression: cfg.pqv1_discard_before_decompression,
+            };
             let inner =
                 crate::providers::logbroker::pqv1::src_stream::PqV1SourceProvider::from_config(
-                    Value::Mapping(mapping),
+                    pqv1,
                     metrics_registry,
                 )?;
             let behavior = inner

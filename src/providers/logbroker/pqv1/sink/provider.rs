@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 
 use super::writer::PqV1Sink;
 use crate::compatibility::EndpointDescriptor;
@@ -20,9 +19,7 @@ pub struct PqV1SinkProvider {
 }
 
 impl PqV1SinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let config: PqV1SinkConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse PQv1 sink config: {error}"))?;
+    pub fn from_config(config: PqV1SinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         let token =
             crate::providers::logbroker::pqv1::credentials::load_access_token(&config.auth)?;

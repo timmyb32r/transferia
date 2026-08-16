@@ -8,10 +8,14 @@ _default:
 fmt:
     cargo fmt --all
 
-# Fast local check: rustfmt + clippy (strict) + tests
-check: fmt
+# Verify formatting without modifying the working tree
+fmt-check:
+    cargo fmt --all -- --check
+
+# Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
+check: fmt-check
     cargo clippy --all-targets --all-features -- -D warnings
-    cargo test
+    cargo test --all-targets --all-features
 
 # Full verification: check + MIRI UB detection
 verify: check
@@ -22,15 +26,15 @@ miri: fmt
     cargo miri test -- --test-threads=1
 
 # Run tests only
-test: fmt
-    cargo test
+test: fmt-check
+    cargo test --all-targets --all-features
 
 # Run clippy only (strict — warnings are errors)
-clippy: fmt
+clippy: fmt-check
     cargo clippy --all-targets --all-features -- -D warnings
 
-# CI pipeline — same as verify
-ci: verify
+# CI pipeline. Miri remains an explicit additional gate for unsafe changes.
+ci: check
 
 # Sort Cargo.toml dependencies alphabetically
 cargo-sort:

@@ -60,6 +60,22 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(sink_schema.contains("PQv1"));
     assert!(!sink_schema.contains("network_timeout_ms"));
     assert_eq!(sink.initial["driver"], "ydb");
+    assert!(!sink_schema.contains("access_token"));
+    assert_eq!(
+        sink.initial.pointer("/installation/auth/type"),
+        Some(&serde_json::json!("token"))
+    );
+    Ok(())
+}
+
+#[test]
+fn typed_endpoint_decoder_rejects_unknown_fields_before_factory() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let Err(error) = catalog.build_sink("discard", serde_yaml::from_str("unexpected: true\n")?)
+    else {
+        panic!("unknown fields unexpectedly reached the provider factory");
+    };
+    assert!(error.to_string().contains("unknown field `unexpected`"));
     Ok(())
 }
 
@@ -78,6 +94,43 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
             assert!(sink.initial.is_object());
         }
     }
+    Ok(())
+}
+
+#[test]
+fn provider_descriptors_are_the_authoritative_runtime_catalog() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    assert_eq!(catalog.definitions().len(), PROVIDERS.len());
+    for (definition, descriptor) in catalog.definitions().iter().zip(PROVIDERS) {
+        assert_eq!(definition.key, descriptor.key);
+        assert_eq!(definition.title, descriptor.title);
+        assert_eq!(definition.source.is_some(), descriptor.source.is_some());
+        assert_eq!(definition.sink.is_some(), descriptor.sink.is_some());
+    }
+    Ok(())
+}
+
+#[test]
+fn endpoint_factory_receives_the_schema_config_type() -> anyhow::Result<()> {
+    #[derive(serde::Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct TypedConfig {
+        marker: String,
+    }
+
+    let mut catalog = ProviderCatalog::new();
+    catalog.register(
+        ProviderRegistration::new("discard", true)?.sink::<TypedConfig, _, _>(
+            || serde_json::json!({ "marker": "initial" }),
+            |config| {
+                anyhow::ensure!(config.marker == "typed", "typed config was not delivered");
+                Ok(Box::new(
+                    crate::providers::discard::provider::DiscardSinkProvider,
+                ))
+            },
+        )?,
+    )?;
+    catalog.build_sink("discard", serde_yaml::from_str("marker: typed\n")?)?;
     Ok(())
 }
 

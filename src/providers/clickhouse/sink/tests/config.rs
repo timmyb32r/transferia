@@ -2,36 +2,41 @@ use super::*;
 
 const BASE: &str = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n";
 
+fn parse_config(yaml: &str) -> anyhow::Result<ClickHouseSinkConfig> {
+    let config: ClickHouseSinkConfig = serde_yaml::from_str(yaml)?;
+    config.validate()?;
+    Ok(config)
+}
+
 #[test]
 fn parses_multiple_hosts_with_one_native_port() -> anyhow::Result<()> {
-    let config = ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+    let config = parse_config(
         "hosts: [ch-a, ch-b]\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
-    )?)?;
+    )?;
     assert_eq!(config.hosts, ["ch-a", "ch-b"]);
     assert_eq!(config.port, 9000);
     Ok(())
 }
 
 #[test]
-fn database_and_username_have_no_defaults() -> anyhow::Result<()> {
+fn database_and_username_have_no_defaults() {
     for yaml in [
         "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: transferia\n",
         "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\n",
     ] {
-        assert!(ClickHouseSinkConfig::from_value(serde_yaml::from_str(yaml)?).is_err());
+        assert!(parse_config(yaml).is_err());
     }
-    Ok(())
 }
 
 #[test]
 fn transport_choice_is_explicit_and_verified_tls_is_supported() -> anyhow::Result<()> {
-    assert!(ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+    assert!(parse_config(
         "hosts: [localhost]\nport: 9000\ndatabase: analytics\nusername: transferia\n"
-    )?)
+    )
     .is_err());
-    let tls = ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+    let tls = parse_config(
         "hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: /tmp/ca.pem\ndatabase: analytics\nusername: transferia\n",
-    )?)?;
+    )?;
     assert!(!tls.trusted_plaintext);
     assert_eq!(tls.tls_ca_file.as_deref(), Some("/tmp/ca.pem"));
     Ok(())
@@ -48,49 +53,44 @@ fn rejects_old_endpoint_and_sorting_key_options() {
 }
 
 #[test]
-fn validates_hosts_and_native_port() -> anyhow::Result<()> {
+fn validates_hosts_and_native_port() {
     for yaml in [
         "hosts: []\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
         "hosts: [localhost, localhost]\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
         "hosts: ['http://localhost']\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
     ] {
-        assert!(ClickHouseSinkConfig::from_value(serde_yaml::from_str(yaml)?).is_err());
+        assert!(parse_config(yaml).is_err());
     }
-    let error = ClickHouseSinkConfig::from_value(serde_yaml::from_str(
+    let error = parse_config(
         "hosts: [localhost]\nport: 8123\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
-    )?)
+    )
     .unwrap_err();
     assert!(error.to_string().contains("HTTP port"));
     assert!(error.to_string().contains("native protocol"));
-    Ok(())
 }
 
 #[test]
 fn defaults_to_finite_retries() -> anyhow::Result<()> {
-    let config = ClickHouseSinkConfig::from_value(serde_yaml::from_str(BASE)?)?;
+    let config = parse_config(BASE)?;
     assert_eq!(config.effective_retry_max_attempts(), 20);
     Ok(())
 }
 
 #[test]
-fn validates_retry_policy() -> anyhow::Result<()> {
+fn validates_retry_policy() {
     for suffix in [
         "retry_max_attempts: 0\n",
         "retry_initial_ms: 20\nretry_max_ms: 10\n",
         "connect_timeout_ms: 0\n",
         "request_timeout_ms: 0\n",
     ] {
-        let value = serde_yaml::from_str(&format!("{BASE}{suffix}"))?;
-        assert!(ClickHouseSinkConfig::from_value(value).is_err());
+        assert!(parse_config(&format!("{BASE}{suffix}")).is_err());
     }
-    Ok(())
 }
 
 #[test]
 fn debug_redacts_password() -> anyhow::Result<()> {
-    let config = ClickHouseSinkConfig::from_value(serde_yaml::from_str(&format!(
-        "{BASE}password: super-secret\n"
-    ))?)?;
+    let config = parse_config(&format!("{BASE}password: super-secret\n"))?;
     let debug = format!("{config:?}");
     assert!(debug.contains("<redacted>"));
     assert!(!debug.contains("super-secret"));

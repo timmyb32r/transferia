@@ -248,7 +248,7 @@ fn validate_primary_key(
 // ---------------------------------------------------------------------------
 
 /// Parser config entry: `parser: { <kind>: { ... } }` — exactly one key.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct ParserEntry {
     #[serde(flatten)]
     pub inner: HashMap<String, Value>,

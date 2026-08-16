@@ -2,12 +2,15 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::rejection::JsonRejection;
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::net::TcpListener;
@@ -15,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 use transferia::extension::OptionsRequest;
 
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
-use super::model::{DeliveryRecord, RuntimeState, ValidationState};
+use super::model::{DeliveryRecord, RunId, RuntimeState, ValidationState};
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
 
@@ -28,16 +31,19 @@ struct AppState {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConfigRequest {
     config: Value,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct YamlRequest {
     yaml: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateDraftRequest {
     name: String,
     #[serde(default)]
@@ -46,8 +52,10 @@ struct CreateDraftRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UpdateDraftRequest {
     expected_revision: u64,
+    expected_record_version: u64,
     name: String,
     #[serde(default)]
     description: String,
@@ -55,11 +63,26 @@ struct UpdateDraftRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RevisionRequest {
     expected_revision: u64,
+    expected_record_version: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "expected_* names are the optimistic-concurrency wire contract"
+)]
+struct StopRequest {
+    expected_revision: u64,
+    expected_record_version: u64,
+    expected_run_id: String,
 }
 
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OptionsQuery {
     q: Option<String>,
 
@@ -120,6 +143,39 @@ struct ApiErrorView {
 
 struct ApiError(ServiceError);
 
+struct ApiJson<T>(T);
+
+struct ApiJsonRejection(JsonRejection);
+
+impl<S, T> FromRequest<S> for ApiJson<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned,
+{
+    type Rejection = ApiJsonRejection;
+
+    async fn from_request(
+        request: axum::extract::Request,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Json::<T>::from_request(request, state)
+            .await
+            .map(|Json(value)| Self(value))
+            .map_err(ApiJsonRejection)
+    }
+}
+
+impl IntoResponse for ApiJsonRejection {
+    fn into_response(self) -> Response {
+        let (status, code) = if self.0.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large")
+        } else {
+            (StatusCode::BAD_REQUEST, "invalid_request")
+        };
+        error_response(status, code, self.0.body_text())
+    }
+}
+
 impl From<ServiceError> for ApiError {
     fn from(error: ServiceError) -> Self {
         Self(error)
@@ -148,14 +204,22 @@ impl IntoResponse for ApiError {
                 )
             }
         };
-        (
-            status,
-            Json(ApiErrorBody {
-                error: ApiErrorView { code, message },
-            }),
-        )
-            .into_response()
+        error_response(status, code, message)
     }
+}
+
+fn error_response(status: StatusCode, code: &'static str, message: String) -> Response {
+    let mut response = (
+        status,
+        Json(ApiErrorBody {
+            error: ApiErrorView { code, message },
+        }),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router {
@@ -185,7 +249,16 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/api/v1/deliveries/{id}/activate", post(activate))
         .route("/api/v1/deliveries/{id}/stop", post(stop))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(axum::middleware::from_fn(no_store))
         .with_state(state)
+}
+
+async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 pub async fn serve(
@@ -223,8 +296,10 @@ async fn get_catalog(State(state): State<AppState>) -> Json<UiCatalog> {
 async fn dynamic_options(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    Query(query): Query<OptionsQuery>,
+    query: Result<Query<OptionsQuery>, QueryRejection>,
 ) -> Result<impl IntoResponse, ApiError> {
+    let Query(query) =
+        query.map_err(|error| ApiError(ServiceError::InvalidInput(error.body_text())))?;
     let result = state
         .control_plane
         .dynamic_options(
@@ -238,13 +313,17 @@ async fn dynamic_options(
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }
 
-async fn render_yaml(Json(request): Json<ConfigRequest>) -> Result<Json<YamlResponse>, ApiError> {
+async fn render_yaml(
+    ApiJson(request): ApiJson<ConfigRequest>,
+) -> Result<Json<YamlResponse>, ApiError> {
     Ok(Json(YamlResponse {
         yaml: ControlPlane::render_yaml(&request.config)?,
     }))
 }
 
-async fn parse_yaml(Json(request): Json<YamlRequest>) -> Result<Json<ConfigResponse>, ApiError> {
+async fn parse_yaml(
+    ApiJson(request): ApiJson<YamlRequest>,
+) -> Result<Json<ConfigResponse>, ApiError> {
     Ok(Json(ConfigResponse {
         config: ControlPlane::parse_yaml(&request.yaml)?,
     }))
@@ -252,7 +331,7 @@ async fn parse_yaml(Json(request): Json<YamlRequest>) -> Result<Json<ConfigRespo
 
 async fn discover(
     State(state): State<AppState>,
-    Json(request): Json<ConfigRequest>,
+    ApiJson(request): ApiJson<ConfigRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .control_plane
@@ -285,7 +364,7 @@ async fn get_delivery(
 
 async fn create_draft(
     State(state): State<AppState>,
-    Json(request): Json<CreateDraftRequest>,
+    ApiJson(request): ApiJson<CreateDraftRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let delivery = state
         .control_plane
@@ -297,7 +376,7 @@ async fn create_draft(
 async fn update_draft(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<UpdateDraftRequest>,
+    ApiJson(request): ApiJson<UpdateDraftRequest>,
 ) -> Result<Json<DeliveryRecord>, ApiError> {
     Ok(Json(
         state
@@ -305,6 +384,7 @@ async fn update_draft(
             .update_draft(
                 &id,
                 request.expected_revision,
+                request.expected_record_version,
                 request.name,
                 request.description,
                 request.config,
@@ -316,11 +396,16 @@ async fn update_draft(
 async fn validate_saved(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<RevisionRequest>,
+    ApiJson(request): ApiJson<RevisionRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .control_plane
-        .validate_saved(&id, request.expected_revision, CancellationToken::new())
+        .validate_saved(
+            &id,
+            request.expected_revision,
+            request.expected_record_version,
+            CancellationToken::new(),
+        )
         .await?;
     Ok(Json(result))
 }
@@ -328,12 +413,16 @@ async fn validate_saved(
 async fn activate(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<RevisionRequest>,
+    ApiJson(request): ApiJson<RevisionRequest>,
 ) -> Result<Json<DeliveryRecord>, ApiError> {
     Ok(Json(
         state
             .control_plane
-            .activate(&id, request.expected_revision)
+            .activate(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+            )
             .await?,
     ))
 }
@@ -341,12 +430,17 @@ async fn activate(
 async fn stop(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<RevisionRequest>,
+    ApiJson(request): ApiJson<StopRequest>,
 ) -> Result<Json<DeliveryRecord>, ApiError> {
     Ok(Json(
         state
             .control_plane
-            .stop(&id, request.expected_revision)
+            .stop(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+                &RunId(request.expected_run_id),
+            )
             .await?,
     ))
 }

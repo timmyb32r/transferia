@@ -34,8 +34,9 @@ async fn main() -> anyhow::Result<()> {
     );
     let durable = config.durable_storage.build(&config.delivery_id)?;
     let metrics = Arc::new(MetricsRegistry::new());
+    let source_config = serde_yaml::from_value(config.source.raw()?.clone())?;
     let provider = Arc::new(YdbDriverSourceProvider::from_config(
-        config.source.raw()?.clone(),
+        source_config,
         metrics,
     )?);
     let cancellation = CancellationToken::new();

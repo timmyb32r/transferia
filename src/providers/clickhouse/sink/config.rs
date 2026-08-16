@@ -2,7 +2,6 @@ use core::fmt;
 
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_yaml::Value;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -62,14 +61,7 @@ pub struct ClickHouseSinkConfig {
 }
 
 impl ClickHouseSinkConfig {
-    pub(super) fn from_value(value: Value) -> anyhow::Result<Self> {
-        let config: Self = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse ClickHouse sink config: {error}"))?;
-        config.validate()?;
-        Ok(config)
-    }
-
-    fn validate(&self) -> anyhow::Result<()> {
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
         let mut hosts = std::collections::HashSet::with_capacity(self.hosts.len());
         for host in &self.hosts {

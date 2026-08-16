@@ -16,6 +16,7 @@ import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -100,6 +101,25 @@ NUMERIC_SAMPLE_KEYS = (
     "rss_bytes",
 )
 CONSUMER_ENV_PREFIX = "PQ_CONSUMER_"
+CONFIG_PLACEHOLDER = re.compile(
+    r"\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::-(?P<default>[^}]*))?}"
+)
+
+
+def render_config_template(template: str, environment: dict[str, str]) -> str:
+    """Expand the benchmark template explicitly before invoking Transferia."""
+
+    def replacement(match: re.Match[str]) -> str:
+        name = match.group("name")
+        value = environment.get(name)
+        default = match.group("default")
+        if value is not None and (value != "" or default is None):
+            return value
+        if default is not None:
+            return default
+        raise ValueError(f"benchmark configuration requires environment variable {name}")
+
+    return CONFIG_PLACEHOLDER.sub(replacement, template)
 
 
 def parse_bytes(text: str) -> float:
@@ -402,28 +422,38 @@ def run_once(
     sample_seconds: float,
     min_samples: int,
 ) -> dict[str, Any]:
-    command = [
-        str(binary),
-        "--config",
-        str(config),
-        "--total-workers",
-        "1",
-        "--worker-index",
-        "0",
-    ]
     environment = os.environ.copy()
     environment.setdefault("RUST_LOG", "info")
     environment.setdefault("NO_COLOR", "1")
     environment["BENCHMARK_REPETITION"] = str(repetition)
     environment["BENCHMARK_RUN_NAMESPACE"] = run_namespace(output, repetition)
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=environment,
-    )
+    rendered = render_config_template(config.read_text(), environment)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", prefix="transferia-benchmark-", suffix=".yaml", delete=False
+    ) as rendered_file:
+        rendered_file.write(rendered)
+        rendered_path = pathlib.Path(rendered_file.name)
+    command = [
+        str(binary),
+        "--config",
+        str(rendered_path),
+        "--total-workers",
+        "1",
+        "--worker-index",
+        "0",
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env=environment,
+        )
+    except BaseException:
+        rendered_path.unlink(missing_ok=True)
+        raise
     log_path = output / f"run-{repetition:02d}.log"
     lines: queue.Queue[tuple[float, str] | None] = queue.Queue()
     reader = threading.Thread(target=stream_output, args=(process, lines, log_path), daemon=True)
@@ -460,6 +490,7 @@ def run_once(
         reader.join(timeout=2)
         if process.stdout is not None and hasattr(process.stdout, "close"):
             process.stdout.close()
+        rendered_path.unlink(missing_ok=True)
     if failures:
         raise RuntimeError("pipeline failures occurred during benchmark: " + "; ".join(failures))
     if len(samples) < min_samples:

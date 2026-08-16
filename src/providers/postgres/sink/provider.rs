@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use arrow::datatypes::DataType;
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 
 use super::config::PostgresSinkConfig;
 use super::writer::PostgresSink;
@@ -22,9 +21,7 @@ pub struct PostgresSinkProvider {
 }
 
 impl PostgresSinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let config: PostgresSinkConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse PostgreSQL sink config: {error}"))?;
+    pub fn from_config(config: PostgresSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
             config: Arc::new(config),

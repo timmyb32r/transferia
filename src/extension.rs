@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,8 +70,6 @@ pub struct InstallationRegistration {
 
     pub initial: JsonValue,
 
-    pub replaces: &'static [&'static str],
-
     pub preferred: bool,
 
     pub resolver: Arc<dyn InstallationResolver>,
@@ -87,15 +86,54 @@ impl InstallationRegistration {
             self.schema.is_object(),
             "installation schema must be an object"
         );
-        anyhow::ensure!(
-            self.initial.is_object(),
-            "installation initial value must be an object"
-        );
+        let initial = self
+            .initial
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("installation initial value must be an object"))?;
         anyhow::ensure!(
             self.initial.get("type").and_then(JsonValue::as_str) == Some(self.kind),
             "installation initial value must contain type '{}'",
             self.kind
         );
+        let properties = self
+            .schema
+            .get("properties")
+            .and_then(JsonValue::as_object)
+            .ok_or_else(|| anyhow::anyhow!("installation schema must declare object properties"))?;
+        anyhow::ensure!(
+            self.schema.get("additionalProperties") == Some(&JsonValue::Bool(false)),
+            "installation schema must set additionalProperties=false"
+        );
+        anyhow::ensure!(
+            properties
+                .get("type")
+                .and_then(|schema| schema.get("const"))
+                .and_then(JsonValue::as_str)
+                == Some(self.kind),
+            "installation schema type discriminator must be const '{}'",
+            self.kind
+        );
+        for key in initial.keys() {
+            anyhow::ensure!(
+                properties.contains_key(key),
+                "installation initial value contains undeclared field '{key}'"
+            );
+        }
+        if let Some(required) = self.schema.get("required").and_then(JsonValue::as_array) {
+            anyhow::ensure!(
+                required.iter().any(|field| field == "type"),
+                "installation schema must require its type discriminator"
+            );
+            for field in required {
+                let field = field.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("installation schema required entries must be strings")
+                })?;
+                anyhow::ensure!(
+                    self.initial.get(field).is_some(),
+                    "installation initial value omits required field '{field}'"
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -154,6 +192,20 @@ impl ExtensionRegistry {
             .collect()
     }
 
+    pub(crate) fn installation_keys(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, EndpointRole, &'static str)> + '_ {
+        self.installations.keys().copied()
+    }
+
+    pub(crate) fn installations(&self) -> impl Iterator<Item = &InstallationRegistration> {
+        self.installations.values()
+    }
+
+    pub(crate) fn option_keys(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.option_sources.keys().copied()
+    }
+
     pub async fn options(
         &self,
         key: &str,
@@ -172,6 +224,10 @@ impl ExtensionRegistry {
         role: EndpointRole,
         raw: Value,
     ) -> anyhow::Result<Value> {
+        anyhow::ensure!(
+            crate::providers::catalog::provider_supports_role(provider, role),
+            "unknown {role:?} provider '{provider}'"
+        );
         if !self
             .installations
             .values()
@@ -213,6 +269,25 @@ impl ExtensionRegistry {
                 },
             )
             .await?;
+        let contract = crate::providers::catalog::installation_contract(provider, role)
+            .ok_or_else(|| {
+                anyhow::anyhow!("provider '{provider}' does not support the {role:?} role")
+            })?;
+        for key in resolved.keys() {
+            let field = key
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("resolved installation field must be a string"))?;
+            anyhow::ensure!(
+                contract.output_fields.contains(&field),
+                "installation resolver returned undeclared {provider}.{role:?} field '{field}'"
+            );
+        }
+        for field in contract.required_output_fields {
+            anyhow::ensure!(
+                resolved.contains_key(Value::String((*field).to_owned())),
+                "installation resolver omitted required {provider}.{role:?} field '{field}'"
+            );
+        }
         for (key, value) in resolved {
             anyhow::ensure!(
                 !config.contains_key(&key),
@@ -225,7 +300,16 @@ impl ExtensionRegistry {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct ExtensionIdentity {
+    pub package: &'static str,
+
+    pub abi_version: u32,
+}
+
 pub trait TransferiaExtension: Send + Sync {
+    fn identity(&self) -> ExtensionIdentity;
+
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()>;
 }
 
@@ -249,12 +333,35 @@ impl TransferiaBuilder {
 
     pub fn build(self) -> anyhow::Result<Transferia> {
         let mut registry = ExtensionRegistry::default();
+        let mut identities = Vec::with_capacity(self.extensions.len());
         crate::providers::catalog::register_builtin_installations(&mut registry)?;
         for extension in self.extensions {
+            let identity = extension.identity();
+            anyhow::ensure!(
+                !identity.package.trim().is_empty(),
+                "extension package identity must not be empty"
+            );
+            anyhow::ensure!(
+                !identities.contains(&identity),
+                "extension '{}@{}' is registered more than once",
+                identity.package,
+                identity.abi_version
+            );
+            identities.push(identity);
             extension.register(&mut registry)?;
         }
+        crate::providers::catalog::validate_extension_registry(&registry)?;
+        identities.sort_unstable();
+        let definitions = crate::providers::catalog::compile_provider_definitions(&registry)?;
+        let composition_fingerprint =
+            composition_fingerprint(&registry, &identities, &definitions)?;
         Ok(Transferia {
-            registry: Arc::new(registry),
+            composition: Arc::new(CompiledComposition {
+                registry,
+                definitions: definitions.into(),
+                extension_identities: identities.into(),
+                fingerprint: Arc::from(composition_fingerprint),
+            }),
         })
     }
 }
@@ -267,7 +374,17 @@ impl Default for TransferiaBuilder {
 
 #[derive(Clone)]
 pub struct Transferia {
-    registry: Arc<ExtensionRegistry>,
+    composition: Arc<CompiledComposition>,
+}
+
+pub struct CompiledComposition {
+    registry: ExtensionRegistry,
+
+    definitions: Arc<[crate::providers::catalog::ProviderDefinition]>,
+
+    extension_identities: Arc<[ExtensionIdentity]>,
+
+    fingerprint: Arc<str>,
 }
 
 impl Transferia {
@@ -276,9 +393,107 @@ impl Transferia {
     }
 
     #[must_use]
-    pub const fn registry(&self) -> &Arc<ExtensionRegistry> {
-        &self.registry
+    pub fn registry(&self) -> &ExtensionRegistry {
+        &self.composition.registry
     }
+
+    #[must_use]
+    pub fn composition(&self) -> &CompiledComposition {
+        &self.composition
+    }
+
+    #[must_use]
+    pub fn composition_fingerprint(&self) -> &str {
+        self.composition.fingerprint()
+    }
+}
+
+impl CompiledComposition {
+    #[must_use]
+    pub fn provider_definitions(&self) -> &[crate::providers::catalog::ProviderDefinition] {
+        &self.definitions
+    }
+
+    #[must_use]
+    pub fn extension_identities(&self) -> &[ExtensionIdentity] {
+        &self.extension_identities
+    }
+
+    #[must_use]
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+}
+
+fn composition_fingerprint(
+    registry: &ExtensionRegistry,
+    identities: &[ExtensionIdentity],
+    definitions: &[crate::providers::catalog::ProviderDefinition],
+) -> anyhow::Result<String> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let installations = registry
+        .installations()
+        .map(|registration| {
+            serde_json::json!({
+                "provider": registration.provider,
+                "role": registration.role,
+                "kind": registration.kind,
+                "title": registration.title,
+                "schema": registration.schema,
+                "initial": registration.initial,
+                "preferred": registration.preferred,
+            })
+        })
+        .collect::<Vec<_>>();
+    let contract = serde_json::json!({
+        "core_version": env!("CARGO_PKG_VERSION"),
+        "extensions": identities,
+        "provider_contracts": crate::providers::catalog::provider_contracts(),
+        "providers": definitions,
+        "installations": installations,
+        "dynamic_option_keys": registry.option_keys().collect::<Vec<_>>(),
+    });
+    let mut bytes = Vec::new();
+    write_canonical_json(&contract, &mut bytes)?;
+    let digest = Sha256::digest(bytes);
+    let mut encoded = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    Ok(format!("v2-sha256-{encoded}"))
+}
+
+fn write_canonical_json(value: &JsonValue, output: &mut Vec<u8>) -> anyhow::Result<()> {
+    match value {
+        JsonValue::Object(object) => {
+            output.push(b'{');
+            let mut entries = object.iter().collect::<Vec<_>>();
+            entries.sort_unstable_by_key(|(key, _)| *key);
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(b',');
+                }
+                serde_json::to_writer(&mut *output, key)?;
+                output.push(b':');
+                write_canonical_json(value, output)?;
+            }
+            output.push(b'}');
+        }
+        JsonValue::Array(values) => {
+            output.push(b'[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(b',');
+                }
+                write_canonical_json(value, output)?;
+            }
+            output.push(b']');
+        }
+        _ => serde_json::to_writer(output, value)?,
+    }
+    Ok(())
 }
 
 pub struct OnPremiseResolver;

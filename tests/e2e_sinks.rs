@@ -111,7 +111,7 @@ async fn run_one_delivery(
 
 #[tokio::test]
 async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::Result<()> {
-    let provider = DiscardSinkProvider::from_config(serde_yaml::from_str("{}")?)?;
+    let provider = DiscardSinkProvider::new();
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("benchmark-source"),
         source_partitions: vec![0],

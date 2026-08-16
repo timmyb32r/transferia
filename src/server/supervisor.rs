@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use anyhow::Context as _;
@@ -9,7 +10,10 @@ use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command};
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex};
+use tokio_util::sync::CancellationToken;
+
+use super::model::RunId;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -25,6 +29,9 @@ pub enum WorkerOutcome {
 #[derive(Clone, Debug)]
 pub struct WorkerEvent {
     pub delivery_id: String,
+
+    pub run_id: RunId,
+
     pub outcome: WorkerOutcome,
 }
 
@@ -39,8 +46,18 @@ pub enum SupervisorError {
     AlreadyRunning(String),
     #[error("delivery '{0}' is not running")]
     NotRunning(String),
+    #[error("delivery '{delivery_id}' is running under a different run id")]
+    RunMismatch { delivery_id: String },
     #[error("worker startup failed: {0}")]
     Startup(String),
+    #[error("worker startup was cancelled")]
+    StartupCancelled,
+    #[error("worker supervisor is shutting down")]
+    ShuttingDown,
+    #[error("worker stop failed: {0}")]
+    Stop(String),
+    #[error("worker event receiver was already taken")]
+    EventsAlreadyTaken,
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -50,56 +67,65 @@ pub trait WorkerSupervisor: Send + Sync {
     async fn start(
         &self,
         delivery_id: &str,
+        run_id: &RunId,
         config_yaml: &str,
+        composition_fingerprint: &str,
     ) -> Result<WorkerInfo, SupervisorError>;
 
-    async fn stop(&self, delivery_id: &str) -> Result<(), SupervisorError>;
+    async fn stop(&self, delivery_id: &str, run_id: &RunId) -> Result<(), SupervisorError>;
 
     async fn shutdown_all(&self) -> Result<(), SupervisorError>;
 
-    fn subscribe(&self) -> broadcast::Receiver<WorkerEvent>;
+    fn take_events(&self) -> Result<mpsc::UnboundedReceiver<WorkerEvent>, SupervisorError>;
 }
 
+#[derive(Clone)]
 struct WorkerHandle {
-    commands: mpsc::Sender<WorkerCommand>,
-}
-
-enum WorkerCommand {
-    Stop {
-        completed: oneshot::Sender<anyhow::Result<()>>,
-    },
+    run_id: RunId,
+    cancellation: CancellationToken,
+    completion: watch::Receiver<Option<Result<(), String>>>,
 }
 
 pub struct LocalWorkerSupervisor {
     executable: PathBuf,
     state_dir: PathBuf,
     workers: Arc<Mutex<BTreeMap<String, WorkerHandle>>>,
-    starting: Mutex<BTreeSet<String>>,
-    events: broadcast::Sender<WorkerEvent>,
+    start_lock: Mutex<()>,
+    shutting_down: AtomicBool,
+    events: mpsc::UnboundedSender<WorkerEvent>,
+    event_receiver: StdMutex<Option<mpsc::UnboundedReceiver<WorkerEvent>>>,
 }
 
 impl LocalWorkerSupervisor {
     pub fn new(executable: PathBuf, state_dir: PathBuf) -> Self {
-        let (events, _) = broadcast::channel(128);
+        if let Err(error) = cleanup_stale_worker_configs(&state_dir) {
+            tracing::warn!(%error, "failed to remove stale resolved worker configurations");
+        }
+        let (events, event_receiver) = mpsc::unbounded_channel();
         Self {
             executable,
             state_dir,
             workers: Arc::new(Mutex::new(BTreeMap::new())),
-            starting: Mutex::new(BTreeSet::new()),
+            start_lock: Mutex::new(()),
+            shutting_down: AtomicBool::new(false),
             events,
+            event_receiver: StdMutex::new(Some(event_receiver)),
         }
     }
 
-    async fn start_worker(
+    async fn spawn_worker(
         &self,
         delivery_id: &str,
+        run_id: &RunId,
         config_yaml: &str,
-    ) -> anyhow::Result<WorkerInfo> {
+        composition_fingerprint: &str,
+    ) -> anyhow::Result<(WorkerInfo, StartupWait)> {
         let runs_dir = self.state_dir.join("runs");
         tokio::fs::create_dir_all(&runs_dir).await?;
         secure_directory(&runs_dir).await?;
-        let config_path = runs_dir.join(format!("{delivery_id}.yaml"));
+        let config_path = runs_dir.join(format!("{delivery_id}-{}.yaml", run_id.0));
         let log_path = runs_dir.join(format!("{delivery_id}.log"));
+        let temporary_config = TemporaryConfig::new(config_path.clone());
         secure_write(&config_path, config_yaml.as_bytes()).await?;
         let log = secure_log_file(&log_path)?;
         let error_log = log.try_clone()?;
@@ -107,9 +133,12 @@ impl LocalWorkerSupervisor {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let control_address = listener.local_addr()?;
         let token = random_token()?;
-        let mut child = Command::new(&self.executable)
+        let child = match Command::new(&self.executable)
             .arg("--config")
             .arg(&config_path)
+            .arg("--resolved-config")
+            .arg("--composition-fingerprint")
+            .arg(composition_fingerprint)
             .arg("--parent-control")
             .arg(control_address.to_string())
             .env(PARENT_TOKEN_ENV, &token)
@@ -117,45 +146,66 @@ impl LocalWorkerSupervisor {
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(error_log))
             .kill_on_drop(true)
-            .spawn()?;
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                let _ignored = tokio::fs::remove_file(&config_path).await;
+                return Err(error.into());
+            }
+        };
         let pid = child
             .id()
             .context("spawned worker did not expose a process id")?;
 
-        let stream = match authenticate_worker(&listener, &token, &mut child).await {
-            Ok(stream) => stream,
-            Err(error) => {
-                let _ignored = child.kill().await;
-                let _ignored = tokio::fs::remove_file(&config_path).await;
-                return Err(error);
-            }
-        };
-        let stream = match await_ready(stream, &mut child).await {
-            Ok(stream) => stream,
-            Err(error) => {
-                let _ignored = child.kill().await;
-                let _ignored = tokio::fs::remove_file(&config_path).await;
-                return Err(error);
-            }
-        };
-
-        let (commands, receiver) = mpsc::channel(4);
+        let cancellation = CancellationToken::new();
+        let startup_cancellation = cancellation.clone();
+        let (completion, completion_rx) = watch::channel(None);
+        let (startup, startup_rx) = oneshot::channel();
         self.workers.lock().await.insert(
             delivery_id.to_owned(),
             WorkerHandle {
-                commands: commands.clone(),
+                run_id: run_id.clone(),
+                cancellation: cancellation.clone(),
+                completion: completion_rx,
             },
         );
-        spawn_worker_actor(
-            delivery_id.to_owned(),
+        let config_path = temporary_config.disarm();
+        spawn_worker_actor(WorkerActor {
+            delivery_id: delivery_id.to_owned(),
+            run_id: run_id.clone(),
             child,
-            stream,
-            receiver,
+            listener,
+            token,
+            cancellation,
+            startup,
+            completion,
             config_path,
-            Arc::clone(&self.workers),
-            self.events.clone(),
-        );
-        Ok(WorkerInfo { pid })
+            workers: Arc::clone(&self.workers),
+            events: self.events.clone(),
+        });
+        Ok((
+            WorkerInfo { pid },
+            StartupWait {
+                receiver: startup_rx,
+                cancellation: startup_cancellation,
+                completed: false,
+            },
+        ))
+    }
+
+    async fn stop_handle(handle: WorkerHandle) -> Result<(), SupervisorError> {
+        handle.cancellation.cancel();
+        let mut completion = handle.completion;
+        loop {
+            let current = completion.borrow().clone();
+            if let Some(result) = current {
+                return result.map_err(SupervisorError::Stop);
+            }
+            completion.changed().await.map_err(|_| {
+                SupervisorError::Stop("worker completion channel closed".to_owned())
+            })?;
+        }
     }
 }
 
@@ -164,104 +214,282 @@ impl WorkerSupervisor for LocalWorkerSupervisor {
     async fn start(
         &self,
         delivery_id: &str,
+        run_id: &RunId,
         config_yaml: &str,
+        composition_fingerprint: &str,
     ) -> Result<WorkerInfo, SupervisorError> {
-        {
-            let mut starting = self.starting.lock().await;
-            if starting.contains(delivery_id) || self.workers.lock().await.contains_key(delivery_id)
-            {
+        let (worker, startup) = {
+            let _start = self.start_lock.lock().await;
+            if self.shutting_down.load(Ordering::Acquire) {
+                return Err(SupervisorError::ShuttingDown);
+            }
+            if self.workers.lock().await.contains_key(delivery_id) {
                 return Err(SupervisorError::AlreadyRunning(delivery_id.to_owned()));
             }
-            starting.insert(delivery_id.to_owned());
+            self.spawn_worker(delivery_id, run_id, config_yaml, composition_fingerprint)
+                .await
+                .map_err(|error| SupervisorError::Startup(error.to_string()))?
+        };
+        match startup.wait().await {
+            Ok(StartupOutcome::Ready) => Ok(worker),
+            Ok(StartupOutcome::Failed(message)) => Err(SupervisorError::Startup(message)),
+            Ok(StartupOutcome::Cancelled) => Err(SupervisorError::StartupCancelled),
+            Err(_) => Err(SupervisorError::Startup(
+                "worker startup task ended without a result".to_owned(),
+            )),
         }
-        let result = self
-            .start_worker(delivery_id, config_yaml)
-            .await
-            .map_err(|error| SupervisorError::Startup(error.to_string()));
-        self.starting.lock().await.remove(delivery_id);
-        result
     }
 
-    async fn stop(&self, delivery_id: &str) -> Result<(), SupervisorError> {
-        let commands = self
+    async fn stop(&self, delivery_id: &str, run_id: &RunId) -> Result<(), SupervisorError> {
+        let handle = self
             .workers
             .lock()
             .await
             .get(delivery_id)
-            .map(|worker| worker.commands.clone())
+            .cloned()
             .ok_or_else(|| SupervisorError::NotRunning(delivery_id.to_owned()))?;
-        let (completed, result) = oneshot::channel();
-        commands
-            .send(WorkerCommand::Stop { completed })
-            .await
-            .map_err(|_| SupervisorError::NotRunning(delivery_id.to_owned()))?;
-        result
-            .await
-            .map_err(|_| SupervisorError::NotRunning(delivery_id.to_owned()))??;
-        Ok(())
+        if &handle.run_id != run_id {
+            return Err(SupervisorError::RunMismatch {
+                delivery_id: delivery_id.to_owned(),
+            });
+        }
+        Self::stop_handle(handle).await
     }
 
     async fn shutdown_all(&self) -> Result<(), SupervisorError> {
-        let ids = self
-            .workers
-            .lock()
-            .await
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        for id in ids {
-            if let Err(error) = self.stop(&id).await {
-                tracing::warn!(delivery_id = %id, %error, "failed to stop worker during shutdown");
+        let workers = {
+            let _start = self.start_lock.lock().await;
+            self.shutting_down.store(true, Ordering::Release);
+            self.workers
+                .lock()
+                .await
+                .values()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let mut errors = Vec::new();
+        for worker in workers {
+            if let Err(error) = Self::stop_handle(worker.clone()).await {
+                tracing::warn!(run_id = %worker.run_id.0, %error, "failed to stop worker during shutdown");
+                errors.push(format!("{}: {error}", worker.run_id.0));
             }
         }
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(SupervisorError::Stop(format!(
+                "failed to stop workers: {}",
+                errors.join("; ")
+            )))
+        }
     }
 
-    fn subscribe(&self) -> broadcast::Receiver<WorkerEvent> {
-        self.events.subscribe()
+    fn take_events(&self) -> Result<mpsc::UnboundedReceiver<WorkerEvent>, SupervisorError> {
+        self.event_receiver
+            .lock()
+            .map_err(|_| anyhow::anyhow!("worker event receiver mutex was poisoned"))?
+            .take()
+            .ok_or(SupervisorError::EventsAlreadyTaken)
     }
 }
 
-fn spawn_worker_actor(
+fn cleanup_stale_worker_configs(state_dir: &Path) -> std::io::Result<()> {
+    let runs_dir = state_dir.join("runs");
+    let entries = match std::fs::read_dir(runs_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.file_type()?.is_file()
+            && entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "yaml")
+        {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+struct TemporaryConfig {
+    path: PathBuf,
+    armed: bool,
+}
+
+impl TemporaryConfig {
+    const fn new(path: PathBuf) -> Self {
+        Self { path, armed: true }
+    }
+
+    fn disarm(mut self) -> PathBuf {
+        self.armed = false;
+        self.path.clone()
+    }
+}
+
+impl Drop for TemporaryConfig {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ignored = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+struct WorkerActor {
     delivery_id: String,
-    mut child: Child,
-    mut control: TcpStream,
-    mut commands: mpsc::Receiver<WorkerCommand>,
+    run_id: RunId,
+    child: Child,
+    listener: TcpListener,
+    token: String,
+    cancellation: CancellationToken,
+    startup: oneshot::Sender<StartupOutcome>,
+    completion: watch::Sender<Option<Result<(), String>>>,
     config_path: PathBuf,
     workers: Arc<Mutex<BTreeMap<String, WorkerHandle>>>,
-    events: broadcast::Sender<WorkerEvent>,
-) {
+    events: mpsc::UnboundedSender<WorkerEvent>,
+}
+
+enum StartupOutcome {
+    Ready,
+    Failed(String),
+    Cancelled,
+}
+
+struct StartupWait {
+    receiver: oneshot::Receiver<StartupOutcome>,
+    cancellation: CancellationToken,
+    completed: bool,
+}
+
+impl StartupWait {
+    async fn wait(mut self) -> Result<StartupOutcome, oneshot::error::RecvError> {
+        let result = (&mut self.receiver).await;
+        self.completed = true;
+        result
+    }
+}
+
+impl Drop for StartupWait {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.cancellation.cancel();
+        }
+    }
+}
+
+fn spawn_worker_actor(actor: WorkerActor) {
     tokio::spawn(async move {
-        let outcome = tokio::select! {
-            status = child.wait() => match status {
-                Ok(status) => WorkerOutcome::Exited {
-                    success: status.success(),
-                    message: status.to_string(),
-                },
-                Err(error) => WorkerOutcome::Exited {
-                    success: false,
-                    message: error.to_string(),
-                },
-            },
-            command = commands.recv() => match command {
-                Some(WorkerCommand::Stop { completed }) => {
-                    let result = stop_child(&mut child, &mut control).await;
-                    let _ignored = completed.send(result);
-                    WorkerOutcome::Stopped
-                }
-                None => {
-                    let _ignored = stop_child(&mut child, &mut control).await;
-                    WorkerOutcome::Stopped
+        run_worker_actor(actor).await;
+    });
+}
+
+async fn run_worker_actor(mut actor: WorkerActor) {
+    let startup_result = {
+        let startup = async {
+            let stream =
+                authenticate_worker(&actor.listener, &actor.token, &mut actor.child).await?;
+            await_ready(stream, &mut actor.child).await
+        };
+        tokio::pin!(startup);
+        tokio::select! {
+            biased;
+            () = actor.cancellation.cancelled() => None,
+            result = &mut startup => Some(result),
+        }
+    };
+
+    let (outcome, stop_result) = match startup_result {
+        Some(Ok(mut control)) => {
+            let _ignored = tokio::fs::remove_file(&actor.config_path).await;
+            if actor.startup.send(StartupOutcome::Ready).is_err() {
+                let result = stop_child(&mut actor.child, &mut control).await;
+                outcome_from_stop(result)
+            } else {
+                tokio::select! {
+                    biased;
+                    () = actor.cancellation.cancelled() => {
+                        outcome_from_stop(stop_child(&mut actor.child, &mut control).await)
+                    },
+                    status = actor.child.wait() => match status {
+                        Ok(status) => {
+                            let message = status.to_string();
+                            let stop_result = if status.success() {
+                                Ok(())
+                            } else {
+                                Err(message.clone())
+                            };
+                            (
+                                WorkerOutcome::Exited {
+                                    success: status.success(),
+                                    message,
+                                },
+                                stop_result,
+                            )
+                        }
+                        Err(error) => (
+                            WorkerOutcome::Exited {
+                                success: false,
+                                message: error.to_string(),
+                            },
+                            Err(error.to_string()),
+                        ),
+                    }
                 }
             }
-        };
-        workers.lock().await.remove(&delivery_id);
-        let _ignored = tokio::fs::remove_file(config_path).await;
-        let _ignored = events.send(WorkerEvent {
-            delivery_id,
-            outcome,
-        });
+        }
+        Some(Err(error)) => {
+            let message = error.to_string();
+            let _ignored = actor.startup.send(StartupOutcome::Failed(message.clone()));
+            let _ignored = actor.child.kill().await;
+            (
+                WorkerOutcome::Exited {
+                    success: false,
+                    message: message.clone(),
+                },
+                Err(message),
+            )
+        }
+        None => {
+            let _ignored = actor.startup.send(StartupOutcome::Cancelled);
+            let _ignored = actor.child.kill().await;
+            (WorkerOutcome::Stopped, Ok(()))
+        }
+    };
+
+    let _ignored = tokio::fs::remove_file(&actor.config_path).await;
+    let mut workers = actor.workers.lock().await;
+    if workers
+        .get(&actor.delivery_id)
+        .is_some_and(|worker| worker.run_id == actor.run_id)
+    {
+        workers.remove(&actor.delivery_id);
+    }
+    drop(workers);
+    let _ignored = actor.events.send(WorkerEvent {
+        delivery_id: actor.delivery_id,
+        run_id: actor.run_id,
+        outcome,
     });
+    actor.completion.send_replace(Some(stop_result));
+}
+
+fn outcome_from_stop(result: anyhow::Result<()>) -> (WorkerOutcome, Result<(), String>) {
+    match result {
+        Ok(()) => (WorkerOutcome::Stopped, Ok(())),
+        Err(error) => {
+            let message = error.to_string();
+            (
+                WorkerOutcome::Exited {
+                    success: false,
+                    message: message.clone(),
+                },
+                Err(message),
+            )
+        }
+    }
 }
 
 async fn stop_child(child: &mut Child, control: &mut TcpStream) -> anyhow::Result<()> {
@@ -341,11 +569,21 @@ fn random_token() -> anyhow::Result<String> {
 }
 
 async fn secure_write(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
-    tokio::fs::write(path, contents).await?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        let mut file = options.open(path).await?;
+        file.write_all(contents).await?;
+        file.sync_all().await?;
+    }
+    #[cfg(not(unix))]
+    {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut file = options.open(path).await?;
+        file.write_all(contents).await?;
+        file.sync_all().await?;
     }
     Ok(())
 }

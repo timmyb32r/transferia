@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 
 use super::config::LogbrokerSinkConfig;
 use super::writer::YdbTopicSink;
@@ -35,9 +34,7 @@ impl YdbDriverSinkProvider {
     }
 }
 
-pub fn build_sink_provider(value: Value) -> anyhow::Result<Box<dyn SinkProvider>> {
-    let config: LogbrokerSinkConfig = serde_yaml::from_value(value)
-        .map_err(|error| anyhow::anyhow!("Failed to parse Logbroker sink config: {error}"))?;
+pub fn build_sink_provider(config: LogbrokerSinkConfig) -> anyhow::Result<Box<dyn SinkProvider>> {
     config.validate()?;
     match config.driver {
         LogbrokerDriver::Ydb => Ok(Box::new(YdbDriverSinkProvider::from_config(config)?)),
@@ -46,29 +43,31 @@ pub fn build_sink_provider(value: Value) -> anyhow::Result<Box<dyn SinkProvider>
                 anyhow::anyhow!("logbroker.driver=pqv1 requires an explicit partition_id")
             })?;
             let auth = match config.auth {
-                LogbrokerAuthConfig::Token { token } => serde_yaml::to_value(serde_json::json!({
-                    "type": "access_token",
-                    "token": token,
-                    "token_file": null
-                }))?,
+                LogbrokerAuthConfig::Token { token } => {
+                    crate::providers::logbroker::pqv1::config::PqV1AuthConfig {
+                        auth_type: "access_token".to_owned(),
+                        token: Some(token),
+                        token_file: None,
+                    }
+                }
                 LogbrokerAuthConfig::TokenFile { token_file } => {
-                    serde_yaml::to_value(serde_json::json!({
-                        "type": "access_token",
-                        "token": null,
-                        "token_file": token_file
-                    }))?
+                    crate::providers::logbroker::pqv1::config::PqV1AuthConfig {
+                        auth_type: "access_token".to_owned(),
+                        token: None,
+                        token_file: Some(token_file),
+                    }
                 }
             };
-            let pqv1 = serde_yaml::to_value(serde_json::json!({
-                "host": config.host,
-                "port": config.port,
-                "topic_path": config.topic_path,
-                "message_group_id": config.producer_id,
-                "partition_group_id": partition_id,
-                "auth": auth,
-                "trusted_plaintext": config.trusted_plaintext,
-                "network_timeout_ms": 30_000
-            }))?;
+            let pqv1 = crate::providers::logbroker::pqv1::config::PqV1SinkConfig {
+                host: config.host,
+                port: config.port,
+                topic_path: config.topic_path,
+                message_group_id: config.producer_id,
+                partition_group_id: partition_id,
+                auth,
+                trusted_plaintext: config.trusted_plaintext,
+                network_timeout_ms: 30_000,
+            };
             Ok(Box::new(
                 crate::providers::logbroker::pqv1::PqV1SinkProvider::from_config(pqv1)?,
             ))

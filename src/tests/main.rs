@@ -110,12 +110,18 @@ fn rejects_invalid_worker_assignment_before_partitioning() {
         worker_index: 0,
         parent_control: None,
         parent_token: None,
+        resolved_config: false,
+        composition_fingerprint: None,
     };
     assert!(validate_worker_assignment(&cli).is_err());
     cli.total_workers = 2;
     cli.worker_index = 2;
     assert!(validate_worker_assignment(&cli).is_err());
     cli.worker_index = 1;
+    assert!(validate_worker_assignment(&cli).is_ok());
+    cli.resolved_config = true;
+    assert!(validate_worker_assignment(&cli).is_err());
+    cli.composition_fingerprint = Some("test-composition".to_owned());
     assert!(validate_worker_assignment(&cli).is_ok());
 }
 
@@ -215,8 +221,12 @@ async fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::
         "benchmarks/config_bench_pqv1_json_parser_to_s3.yaml",
     ] {
         let path = format!("{}/{relative_path}", env!("CARGO_MANIFEST_DIR"));
-        let config =
-            Config::from_file(&path).with_context(|| format!("failed to load {relative_path}"))?;
+        let template = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to load {relative_path}"))?;
+        let rendered = render_benchmark_template_defaults(&template)
+            .with_context(|| format!("invalid benchmark template {relative_path}"))?;
+        let config: Config = serde_yaml::from_str(&rendered)
+            .with_context(|| format!("failed to parse {relative_path}"))?;
         let (source, sink) = build_resolved_endpoints(&config)
             .await
             .with_context(|| format!("invalid endpoints in {relative_path}"))?;
@@ -233,6 +243,26 @@ async fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::
         .with_context(|| format!("incompatible providers in {relative_path}"))?;
     }
     Ok(())
+}
+
+fn render_benchmark_template_defaults(template: &str) -> anyhow::Result<String> {
+    let mut rendered = String::with_capacity(template.len());
+    let mut remaining = template;
+    while let Some(start) = remaining.find("${") {
+        rendered.push_str(&remaining[..start]);
+        let expression = &remaining[start + 2..];
+        let end = expression
+            .find('}')
+            .ok_or_else(|| anyhow::anyhow!("unterminated benchmark placeholder"))?;
+        let placeholder = &expression[..end];
+        let (_, default) = placeholder.split_once(":-").ok_or_else(|| {
+            anyhow::anyhow!("benchmark placeholder '{placeholder}' has no test default")
+        })?;
+        rendered.push_str(default);
+        remaining = &expression[end + 1..];
+    }
+    rendered.push_str(remaining);
+    Ok(rendered)
 }
 
 #[tokio::test]

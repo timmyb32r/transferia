@@ -20,6 +20,7 @@ export type CompiledNode =
       kind: "object";
       properties: Record<string, CompiledNode>;
       required: Set<string>;
+      additionalProperties?: boolean;
     })
   | (NodeBase & { kind: "array"; item: CompiledNode })
   | (NodeBase & { kind: "union"; branches: UnionBranch[] })
@@ -37,44 +38,92 @@ export interface UnionBranch {
 export class SchemaContractError extends Error {}
 
 export function compileSchema(root: JsonSchema): CompiledNode {
-  const seen = new Set<string>();
-  const compile = (input: JsonSchema, path: string): CompiledNode => {
-    const schema = resolveReference(root, input, seen);
+  const compile = (
+    input: JsonSchema,
+    path: string,
+    activeReferences = new Set<string>(),
+  ): CompiledNode => {
+    if (input.$ref !== undefined) {
+      const reference = input.$ref;
+      if (activeReferences.has(reference))
+        throw new SchemaContractError(
+          `${path}: cyclic schema reference: ${reference}`,
+        );
+      const merged = { ...referenceTarget(root, reference), ...input };
+      delete merged.$ref;
+      return compile(
+        merged,
+        path,
+        new Set(activeReferences).add(reference),
+      );
+    }
+    const schema = input;
     validateKeywords(schema, path);
     const base = baseNode(schema);
+    if (Array.isArray(schema.type)) {
+      const nonNull = schema.type.filter((type) => type !== "null");
+      if (nonNull.length === 1 && nonNull.length !== schema.type.length) {
+        const nonNullType = nonNull[0]!;
+        return {
+          ...base,
+          kind: "nullable",
+          inner: compile(
+            { ...schema, type: nonNullType },
+            `${path}/nullable`,
+            activeReferences,
+          ),
+        };
+      }
+      throw new SchemaContractError(
+        `${path}: ambiguous type union: ${JSON.stringify(schema.type)}`,
+      );
+    }
     const choices = schema.oneOf ?? schema.anyOf;
     if (choices !== undefined) {
       const nonNull = choices.filter(
-        (choice) => !isNullSchema(resolveReference(root, choice, seen)),
+        (choice) => !isNullSchema(resolveShallowReference(root, choice)),
       );
       if (nonNull.length === 1 && nonNull.length !== choices.length) {
         return {
           ...base,
           kind: "nullable",
-          inner: compile(nonNull[0]!, `${path}/nullable`),
+          inner: compile(nonNull[0]!, `${path}/nullable`, activeReferences),
         };
       }
       return {
         ...base,
         kind: "union",
         branches: choices.map((choice, index) =>
-          compileBranch(choice, index, path, compile, root, seen),
+          compileBranch(
+            choice,
+            index,
+            path,
+            compile,
+            root,
+            activeReferences,
+          ),
         ),
       };
     }
     if (schema.enum !== undefined || schema.const !== undefined) {
+      const enumValues = schema.enum ?? [schema.const as JsonValue];
+      if (!enumValues.every((value) => typeof value === "string")) {
+        throw new SchemaContractError(
+          `${path}: only string enum and const values are supported`,
+        );
+      }
       return {
         ...base,
         kind: "string",
-        enumValues: schema.enum ?? [schema.const as JsonValue],
+        enumValues,
       };
     }
-    const type = normalizedType(schema.type);
+    const type = schema.type;
     if (type === "object" || schema.properties !== undefined) {
       const properties = Object.fromEntries(
         Object.entries(schema.properties ?? {}).map(([name, child]) => [
           name,
-          compile(child, `${path}/${name}`),
+          compile(child, `${path}/${name}`, activeReferences),
         ]),
       );
       return {
@@ -82,6 +131,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
         kind: "object",
         properties,
         required: new Set(schema.required ?? []),
+        additionalProperties: schema.additionalProperties !== false,
       };
     }
     if (type === "array") {
@@ -90,16 +140,19 @@ export function compileSchema(root: JsonSchema): CompiledNode {
       return {
         ...base,
         kind: "array",
-        item: compile(schema.items, `${path}/items`),
+        item: compile(schema.items, `${path}/items`, activeReferences),
       };
     }
     if (type === "boolean") return { ...base, kind: "boolean" };
     if (type === "number" || type === "integer") {
+      const minimum = schema.format?.startsWith("uint")
+        ? Math.max(0, schema.minimum ?? 0)
+        : schema.minimum;
       return {
         ...base,
         kind: "number",
         integer: type === "integer",
-        ...(schema.minimum === undefined ? {} : { minimum: schema.minimum }),
+        ...(minimum === undefined ? {} : { minimum }),
         ...(schema.maximum === undefined ? {} : { maximum: schema.maximum }),
       };
     }
@@ -148,6 +201,60 @@ function validateKeywords(schema: JsonSchema, path: string): void {
     throw new SchemaContractError(
       `${path}: unsupported JSON Schema keywords: ${unsupported.join(", ")}`,
     );
+  }
+  if (
+    schema.format !== undefined &&
+    !NUMERIC_FORMATS.has(schema.format)
+  ) {
+    throw new SchemaContractError(
+      `${path}: unsupported JSON Schema format: ${schema.format}`,
+    );
+  }
+  if (
+    schema.format !== undefined &&
+    !numericSchemaType(schema.type)
+  ) {
+    throw new SchemaContractError(
+      `${path}: numeric JSON Schema format ${schema.format} requires a numeric type`,
+    );
+  }
+  if (
+    schema.additionalProperties !== undefined &&
+    typeof schema.additionalProperties !== "boolean"
+  ) {
+    throw new SchemaContractError(
+      `${path}: schema-valued additionalProperties is not supported`,
+    );
+  }
+  if (
+    schema.minimum !== undefined &&
+    (!Number.isFinite(schema.minimum) || typeof schema.minimum !== "number")
+  ) {
+    throw new SchemaContractError(`${path}: minimum must be a finite number`);
+  }
+  if (
+    schema.maximum !== undefined &&
+    (!Number.isFinite(schema.maximum) || typeof schema.maximum !== "number")
+  ) {
+    throw new SchemaContractError(`${path}: maximum must be a finite number`);
+  }
+  if (
+    schema.minimum !== undefined &&
+    schema.maximum !== undefined &&
+    schema.minimum > schema.maximum
+  ) {
+    throw new SchemaContractError(`${path}: minimum exceeds maximum`);
+  }
+  if (schema.required !== undefined) {
+    const unique = new Set(schema.required);
+    if (unique.size !== schema.required.length)
+      throw new SchemaContractError(`${path}: required contains duplicates`);
+    for (const required of schema.required) {
+      if (schema.properties?.[required] === undefined)
+        throw new SchemaContractError(
+          `${path}: required property ${JSON.stringify(required)} is missing from properties`,
+        );
+    }
   }
 }
 
@@ -203,6 +310,11 @@ export function isComplete(
     }
     case "object": {
       if (!isObject(value)) return false;
+      if (
+        node.additionalProperties === false &&
+        Object.keys(value).some((key) => node.properties[key] === undefined)
+      )
+        return false;
       for (const required of node.required) {
         if (
           !(required in value) ||
@@ -220,12 +332,39 @@ export function isComplete(
     case "boolean":
       return typeof value === "boolean";
     case "number":
-      return typeof value === "number" && Number.isFinite(value);
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        (!node.integer || Number.isSafeInteger(value)) &&
+        (node.minimum === undefined || value >= node.minimum) &&
+        (node.maximum === undefined || value <= node.maximum)
+      );
     case "string":
       return node.enumValues === undefined
         ? typeof value === "string" && value.length > 0
         : node.enumValues.some((candidate) => Object.is(candidate, value));
   }
+}
+
+const NUMERIC_FORMATS = new Set([
+  "uint",
+  "uint8",
+  "uint16",
+  "uint32",
+  "uint64",
+  "int8",
+  "int16",
+  "int32",
+  "int64",
+  "float",
+  "double",
+]);
+
+function numericSchemaType(type: JsonSchema["type"]): boolean {
+  const types = Array.isArray(type) ? type : [type];
+  return types.some((candidate) =>
+    candidate === "number" || candidate === "integer",
+  );
 }
 
 export function branchMatches(branch: UnionBranch, value: JsonValue): boolean {
@@ -250,12 +389,16 @@ function compileBranch(
   choice: JsonSchema,
   index: number,
   path: string,
-  compile: (schema: JsonSchema, path: string) => CompiledNode,
+  compile: (
+    schema: JsonSchema,
+    path: string,
+    activeReferences?: Set<string>,
+  ) => CompiledNode,
   root: JsonSchema,
-  seen: Set<string>,
+  activeReferences: Set<string>,
 ): UnionBranch {
-  const resolved = resolveReference(root, choice, seen);
-  const node = compile(resolved, `${path}/branch/${index}`);
+  const resolved = resolveShallowReference(root, choice);
+  const node = compile(choice, `${path}/branch/${index}`, activeReferences);
   const objectKey =
     resolved.properties !== undefined &&
     Object.keys(resolved.properties).length === 1
@@ -289,20 +432,26 @@ function compileBranch(
   };
 }
 
-function resolveReference(
+function resolveShallowReference(
   root: JsonSchema,
   input: JsonSchema,
-  seen: Set<string>,
+  seen = new Set<string>(),
 ): JsonSchema {
   if (input.$ref === undefined) return input;
-  if (!input.$ref.startsWith("#/"))
+  const reference = input.$ref;
+  if (seen.has(reference))
+    throw new SchemaContractError(`cyclic schema reference: ${reference}`);
+  const merged = { ...referenceTarget(root, reference), ...input };
+  delete merged.$ref;
+  return resolveShallowReference(root, merged, new Set(seen).add(reference));
+}
+
+function referenceTarget(root: JsonSchema, reference: string): JsonSchema {
+  if (!reference.startsWith("#/"))
     throw new SchemaContractError(
-      `external schema reference is not supported: ${input.$ref}`,
+      `external schema reference is not supported: ${reference}`,
     );
-  if (seen.has(input.$ref))
-    throw new SchemaContractError(`cyclic schema reference: ${input.$ref}`);
-  const nextSeen = new Set(seen).add(input.$ref);
-  const target = input.$ref
+  const target = reference
     .slice(2)
     .split("/")
     .reduce<unknown>((value, segment) => {
@@ -312,10 +461,8 @@ function resolveReference(
       ];
     }, root);
   if (typeof target !== "object" || target === null)
-    throw new SchemaContractError(`unresolved schema reference: ${input.$ref}`);
-  const merged = { ...(target as JsonSchema), ...input };
-  delete merged.$ref;
-  return resolveReference(root, merged, nextSeen);
+    throw new SchemaContractError(`unresolved schema reference: ${reference}`);
+  return target as JsonSchema;
 }
 
 function baseNode(schema: JsonSchema): NodeBase {
@@ -327,15 +474,6 @@ function baseNode(schema: JsonSchema): NodeBase {
     ...(schema.default === undefined ? {} : { defaultValue: schema.default }),
     xUi: schema["x-ui"] ?? {},
   };
-}
-
-function normalizedType(type: JsonSchema["type"]): string | undefined {
-  if (!Array.isArray(type)) return type;
-  const nonNull = type.filter((value) => value !== "null");
-  if (nonNull.length === 1) return nonNull[0];
-  throw new SchemaContractError(
-    `ambiguous type union: ${JSON.stringify(type)}`,
-  );
 }
 
 function isNullSchema(schema: JsonSchema): boolean {

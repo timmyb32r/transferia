@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde_yaml::Value;
+use serde_yaml::{Mapping, Value};
 
 use super::*;
 
@@ -38,20 +38,43 @@ async fn public_composition_rejects_plugin_only_installations() -> anyhow::Resul
             "postgres",
             EndpointRole::Source,
             serde_yaml::from_str(
-                "installation: { type: managed_service, cluster_id: cluster-id }\ndatabase: postgres\nusername: user\npassword: secret\ntables: []\n",
+                "installation: { type: plugin_only }\ndatabase: postgres\nusername: user\npassword: secret\ntables: []\n",
             )?,
         )
         .await
         .expect_err("public composition must reject plugin-only installation types");
     assert!(error
         .to_string()
-        .contains("unknown postgres installation type 'managed_service'"));
+        .contains("unknown postgres installation type 'plugin_only'"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn resolution_rejects_unknown_provider_roles_before_using_raw_config() -> anyhow::Result<()> {
+    let transferia = Transferia::public()?;
+    let error = transferia
+        .registry()
+        .resolve(
+            "typo",
+            EndpointRole::Source,
+            Value::Mapping(Mapping::default()),
+        )
+        .await
+        .expect_err("unknown providers must not bypass installation resolution");
+    assert!(error.to_string().contains("unknown Source provider 'typo'"));
     Ok(())
 }
 
 struct DuplicateExtension;
 
 impl TransferiaExtension for DuplicateExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-duplicate",
+            abi_version: 1,
+        }
+    }
+
     fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
         registry.register_options("duplicates", Arc::new(EmptyOptions))?;
         registry.register_options("duplicates", Arc::new(EmptyOptions))
@@ -65,6 +88,323 @@ impl DynamicOptionsProvider for EmptyOptions {
     async fn list(&self, _request: OptionsRequest) -> anyhow::Result<DynamicOptions> {
         Ok(DynamicOptions::default())
     }
+}
+
+struct UnknownProviderExtension;
+
+impl TransferiaExtension for UnknownProviderExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-unknown-provider",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_installation(InstallationRegistration {
+            provider: "typo",
+            role: EndpointRole::Source,
+            kind: "instance",
+            title: "Instance",
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "type": { "const": "instance" } },
+                "required": ["type"],
+                "additionalProperties": false
+            }),
+            initial: serde_json::json!({ "type": "instance" }),
+            preferred: false,
+            resolver: Arc::new(OnPremiseResolver),
+        })
+    }
+}
+
+#[test]
+fn composition_rejects_unknown_provider_roles() {
+    let Err(error) = TransferiaBuilder::new()
+        .with_extension(Arc::new(UnknownProviderExtension))
+        .build()
+    else {
+        panic!("unknown provider role unexpectedly compiled");
+    };
+    assert!(error.to_string().contains("unknown provider role"));
+}
+
+#[test]
+fn composition_fingerprint_is_stable_and_identifies_extensions() -> anyhow::Result<()> {
+    let public_a = Transferia::public()?;
+    let public_b = Transferia::public()?;
+    assert_eq!(
+        public_a.composition_fingerprint(),
+        public_b.composition_fingerprint()
+    );
+
+    let extended = TransferiaBuilder::new()
+        .with_extension(Arc::new(DuplicateFreeExtension))
+        .build()?;
+    assert_ne!(
+        public_a.composition_fingerprint(),
+        extended.composition_fingerprint()
+    );
+    Ok(())
+}
+
+struct AbiExtension(u32);
+
+impl TransferiaExtension for AbiExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "fingerprint-abi",
+            abi_version: self.0,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_options("fingerprint-abi-options", Arc::new(EmptyOptions))
+    }
+}
+
+struct OrderedExtension {
+    package: &'static str,
+    option: &'static str,
+}
+
+impl TransferiaExtension for OrderedExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: self.package,
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_options(self.option, Arc::new(EmptyOptions))
+    }
+}
+
+struct FingerprintInstallations {
+    alpha_preferred: bool,
+    schema_revision: u32,
+}
+
+impl TransferiaExtension for FingerprintInstallations {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "fingerprint-installations",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        for (kind, preferred) in [
+            ("fingerprint_alpha", self.alpha_preferred),
+            ("fingerprint_beta", !self.alpha_preferred),
+        ] {
+            registry.register_installation(InstallationRegistration {
+                provider: "postgres",
+                role: EndpointRole::Source,
+                kind,
+                title: kind,
+                schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "type": { "const": kind },
+                        "revision": { "const": self.schema_revision }
+                    },
+                    "required": ["type", "revision"],
+                    "additionalProperties": false
+                }),
+                initial: serde_json::json!({
+                    "type": kind,
+                    "revision": self.schema_revision
+                }),
+                preferred,
+                resolver: Arc::new(OnPremiseResolver),
+            })?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn composition_fingerprint_covers_abi_schema_preference_and_is_order_independent(
+) -> anyhow::Result<()> {
+    let abi_one = TransferiaBuilder::new()
+        .with_extension(Arc::new(AbiExtension(1)))
+        .build()?;
+    let abi_two = TransferiaBuilder::new()
+        .with_extension(Arc::new(AbiExtension(2)))
+        .build()?;
+    assert_ne!(
+        abi_one.composition_fingerprint(),
+        abi_two.composition_fingerprint()
+    );
+
+    let schema_one = TransferiaBuilder::new()
+        .with_extension(Arc::new(FingerprintInstallations {
+            alpha_preferred: true,
+            schema_revision: 1,
+        }))
+        .build()?;
+    let schema_two = TransferiaBuilder::new()
+        .with_extension(Arc::new(FingerprintInstallations {
+            alpha_preferred: true,
+            schema_revision: 2,
+        }))
+        .build()?;
+    let preferred_beta = TransferiaBuilder::new()
+        .with_extension(Arc::new(FingerprintInstallations {
+            alpha_preferred: false,
+            schema_revision: 1,
+        }))
+        .build()?;
+    assert_ne!(
+        schema_one.composition_fingerprint(),
+        schema_two.composition_fingerprint()
+    );
+    assert_ne!(
+        schema_one.composition_fingerprint(),
+        preferred_beta.composition_fingerprint()
+    );
+
+    let left = Arc::new(OrderedExtension {
+        package: "ordered-left",
+        option: "ordered-left-option",
+    });
+    let right = Arc::new(OrderedExtension {
+        package: "ordered-right",
+        option: "ordered-right-option",
+    });
+    let left_first = TransferiaBuilder::new()
+        .with_extension(left.clone())
+        .with_extension(right.clone())
+        .build()?;
+    let right_first = TransferiaBuilder::new()
+        .with_extension(right)
+        .with_extension(left)
+        .build()?;
+    assert_eq!(
+        left_first.composition_fingerprint(),
+        right_first.composition_fingerprint()
+    );
+    Ok(())
+}
+
+struct IncompleteResolverExtension;
+
+impl TransferiaExtension for IncompleteResolverExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-incomplete-resolver",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_installation(InstallationRegistration {
+            provider: "postgres",
+            role: EndpointRole::Source,
+            kind: "incomplete",
+            title: "Incomplete",
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "type": { "const": "incomplete" } },
+                "required": ["type"],
+                "additionalProperties": false
+            }),
+            initial: serde_json::json!({ "type": "incomplete" }),
+            preferred: true,
+            resolver: Arc::new(IncompleteResolver),
+        })
+    }
+}
+
+struct IncompleteResolver;
+
+#[async_trait]
+impl InstallationResolver for IncompleteResolver {
+    async fn resolve(
+        &self,
+        _installation: Value,
+        _context: ResolveContext,
+    ) -> anyhow::Result<serde_yaml::Mapping> {
+        let mut output = serde_yaml::Mapping::new();
+        output.insert(Value::from("host"), Value::from("localhost"));
+        Ok(output)
+    }
+}
+
+#[tokio::test]
+async fn resolver_must_satisfy_the_declared_output_contract() -> anyhow::Result<()> {
+    let transferia = TransferiaBuilder::new()
+        .with_extension(Arc::new(IncompleteResolverExtension))
+        .build()?;
+    let error = transferia
+        .registry()
+        .resolve(
+            "postgres",
+            EndpointRole::Source,
+            serde_yaml::from_str("installation: { type: incomplete }\n")?,
+        )
+        .await
+        .expect_err("incomplete resolver output unexpectedly succeeded");
+    assert!(error.to_string().contains("omitted required"));
+    Ok(())
+}
+
+struct DuplicateFreeExtension;
+
+impl TransferiaExtension for DuplicateFreeExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-fingerprint",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_options("fingerprint-test", Arc::new(EmptyOptions))
+    }
+}
+
+struct NoPreferredInstallationExtension;
+
+impl TransferiaExtension for NoPreferredInstallationExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-no-preferred",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_installation(InstallationRegistration {
+            provider: "postgres",
+            role: EndpointRole::Source,
+            kind: "alternative",
+            title: "Alternative",
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "type": { "const": "alternative" } },
+                "required": ["type"],
+                "additionalProperties": false
+            }),
+            initial: serde_json::json!({ "type": "alternative" }),
+            preferred: false,
+            resolver: Arc::new(OnPremiseResolver),
+        })
+    }
+}
+
+#[test]
+fn multiple_installations_require_exactly_one_preferred_variant() {
+    let Err(error) = TransferiaBuilder::new()
+        .with_extension(Arc::new(NoPreferredInstallationExtension))
+        .build()
+    else {
+        panic!("ambiguous installation default unexpectedly compiled");
+    };
+    assert!(error.to_string().contains("exactly one preferred"));
 }
 
 #[test]

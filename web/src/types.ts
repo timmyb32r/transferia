@@ -54,10 +54,10 @@ export type ValidationState =
 
 export type RuntimeState =
   | { state: "stopped" }
-  | { state: "starting" }
-  | { state: "running"; pid: number }
-  | { state: "stopping" }
-  | { state: "failed"; message: string };
+  | { state: "starting"; run_id: string }
+  | { state: "running"; run_id: string; pid: number }
+  | { state: "stopping"; run_id: string }
+  | { state: "failed"; run_id: string; message: string };
 
 export interface DeliverySummary {
   id: string;
@@ -70,6 +70,7 @@ export interface DeliverySummary {
 }
 
 export interface DeliveryRecord extends DeliverySummary {
+  record_version: number;
   config: JsonObject;
   created_at_ms: number;
 }
@@ -84,7 +85,7 @@ export interface ColumnView {
 }
 
 export interface DatasetView {
-  role: string;
+  role: "Main" | "DeadLetterQueue";
   name: string;
   columns: ColumnView[];
 }
@@ -93,7 +94,56 @@ export interface DiscoveryResult {
   source: string;
   sink: string;
   datasets: DatasetView[];
-  sink_limits: unknown;
+  sink_limits: SinkLimitsDescription;
+}
+
+export type NameSyntax =
+  | "any_non_empty_utf8"
+  | "ascii_identifier"
+  | "object_store_path_segment";
+
+export type ArrowTypeFamily =
+  | "utf8"
+  | "binary"
+  | "signed_integer"
+  | "unsigned_integer"
+  | "floating_point"
+  | "boolean"
+  | "date32"
+  | "date64"
+  | "timestamp";
+
+export interface TextLimit {
+  syntax: NameSyntax;
+  max_utf8_bytes: number | null;
+}
+
+export interface ObjectKeyLimit {
+  max_utf8_bytes: number;
+  normalized_relative_path: boolean;
+}
+
+export interface SinkLimitsDescription {
+  sink: string;
+  dataset_name: TextLimit | null;
+  column_name: TextLimit | null;
+  supported_arrow_types: ArrowTypeFamily[];
+  object_key: ObjectKeyLimit | null;
+}
+
+export type ApiErrorCode =
+  | "invalid_request"
+  | "payload_too_large"
+  | "not_found"
+  | "conflict"
+  | "validation_failed"
+  | "internal_error";
+
+export interface ApiErrorEnvelope {
+  error: {
+    code: ApiErrorCode;
+    message: string;
+  };
 }
 
 export interface DynamicOption {

@@ -34,6 +34,19 @@ def comparison_document(**overrides):
 
 
 class StatsParsingTest(unittest.TestCase):
+    def test_benchmark_template_expansion_is_explicit_and_strict(self):
+        template = "host: ${HOST:-localhost}\nport: ${PORT}\nempty: ${EMPTY:-fallback}\n"
+
+        self.assertEqual(
+            BENCH.render_config_template(
+                template,
+                {"PORT": "2135", "EMPTY": ""},
+            ),
+            "host: localhost\nport: 2135\nempty: fallback\n",
+        )
+        with self.assertRaisesRegex(ValueError, "PORT"):
+            BENCH.render_config_template("port: ${PORT}", {})
+
     def test_parses_partition_zero_stats_line(self):
         line = (
             "[stats p=0] source: 1200 msg/s | comp 1.5 MiB/s | decomp 2.0 GiB/s | "
@@ -381,10 +394,12 @@ class RunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, mock.patch.object(
             BENCH.subprocess, "Popen", return_value=process
         ), mock.patch.object(BENCH, "terminate"):
+            config = pathlib.Path(directory) / "config.yaml"
+            config.write_text("unused: true\n", encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "pipeline failures occurred"):
                 BENCH.run_once(
                     pathlib.Path("unused"),
-                    pathlib.Path("unused"),
+                    config,
                     pathlib.Path(directory),
                     1,
                     0,

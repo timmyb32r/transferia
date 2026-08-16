@@ -8,7 +8,7 @@ use crate::durable::DurableStorageConfig;
 use crate::metrics::MetricsConfig;
 use crate::middleware::MiddlewareEntry;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub delivery_id: String,
@@ -58,14 +58,12 @@ impl Config {
     }
 
     pub fn from_yaml(contents: &str) -> anyhow::Result<Self> {
-        let expanded = shellexpand::env(contents)
-            .map_err(|error| anyhow::anyhow!("Failed to expand env vars in config: {error}"))?;
-        serde_yaml::from_str(&expanded)
+        serde_yaml::from_str(contents)
             .map_err(|error| anyhow::anyhow!("Failed to parse YAML config: {error}"))
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SourceEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,
@@ -79,9 +77,14 @@ impl SourceEntry {
     pub fn raw(&self) -> anyhow::Result<&Value> {
         entry_value("source", &self.inner)
     }
+
+    pub(crate) fn replace_raw(&mut self, kind: String, value: Value) {
+        self.inner.clear();
+        self.inner.insert(kind, value);
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SinkEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,
@@ -94,6 +97,11 @@ impl SinkEntry {
 
     pub fn raw(&self) -> anyhow::Result<&Value> {
         entry_value("sink", &self.inner)
+    }
+
+    pub(crate) fn replace_raw(&mut self, kind: String, value: Value) {
+        self.inner.clear();
+        self.inner.insert(kind, value);
     }
 }
 

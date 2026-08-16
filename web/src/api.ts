@@ -1,4 +1,5 @@
 import type {
+  ApiErrorEnvelope,
   DeliveryRecord,
   DeliverySummary,
   DiscoveryResult,
@@ -6,10 +7,6 @@ import type {
   JsonObject,
   UiCatalog,
 } from "./types";
-
-interface ApiErrorEnvelope {
-  error?: { code?: string; message?: string };
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const requestInit: RequestInit = { ...init };
@@ -44,7 +41,11 @@ export const api = {
   deliveries: (): Promise<DeliverySummary[]> => request("/api/v1/deliveries"),
   delivery: (id: string): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}`),
-  create: (name: string, description: string, config: JsonObject): Promise<DeliveryRecord> =>
+  create: (
+    name: string,
+    description: string,
+    config: JsonObject,
+  ): Promise<DeliveryRecord> =>
     request("/api/v1/deliveries", {
       method: "POST",
       body: json({ name, description, config }),
@@ -52,13 +53,20 @@ export const api = {
   update: (
     id: string,
     expectedRevision: number,
+    expectedRecordVersion: number,
     name: string,
     description: string,
     config: JsonObject,
   ): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: json({ expected_revision: expectedRevision, name, description, config }),
+      body: json({
+        expected_revision: expectedRevision,
+        expected_record_version: expectedRecordVersion,
+        name,
+        description,
+        config,
+      }),
     }),
   yaml: (config: JsonObject, signal?: AbortSignal): Promise<{ yaml: string }> =>
     request("/api/v1/config/yaml", {
@@ -80,19 +88,42 @@ export const api = {
       body: json({ config }),
       ...(signal === undefined ? {} : { signal }),
     }),
-  validate: (id: string, expectedRevision: number): Promise<DiscoveryResult> =>
+  validate: (
+    id: string,
+    expectedRevision: number,
+    expectedRecordVersion: number,
+  ): Promise<DiscoveryResult> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}/validate`, {
       method: "POST",
-      body: json({ expected_revision: expectedRevision }),
+      body: json({
+        expected_revision: expectedRevision,
+        expected_record_version: expectedRecordVersion,
+      }),
     }),
-  activate: (id: string, expectedRevision: number): Promise<DeliveryRecord> =>
+  activate: (
+    id: string,
+    expectedRevision: number,
+    expectedRecordVersion: number,
+  ): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}/activate`, {
       method: "POST",
-      body: json({ expected_revision: expectedRevision }),
+      body: json({
+        expected_revision: expectedRevision,
+        expected_record_version: expectedRecordVersion,
+      }),
     }),
-  stop: (id: string, expectedRevision: number): Promise<DeliveryRecord> =>
+  stop: (
+    id: string,
+    expectedRevision: number,
+    expectedRecordVersion: number,
+    expectedRunId: string,
+  ): Promise<DeliveryRecord> =>
     request(`/api/v1/deliveries/${encodeURIComponent(id)}/stop`, {
       method: "POST",
-      body: json({ expected_revision: expectedRevision }),
+      body: json({
+        expected_revision: expectedRevision,
+        expected_record_version: expectedRecordVersion,
+        expected_run_id: expectedRunId,
+      }),
     }),
 };

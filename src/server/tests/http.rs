@@ -3,9 +3,13 @@ use axum::http::Request;
 use tower::ServiceExt as _;
 
 use super::*;
+use crate::server::service::{ColumnView, DatasetRoleView, DatasetView, DiscoveryResult};
 use crate::server::store::JsonDeliveryStore;
 use crate::server::tests::TestSupervisor;
 use crate::server::ui_catalog::build_ui_catalog;
+use transferia::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
+
+const API_CONTRACT: &str = include_str!("../../../contracts/server-api.json");
 
 static TEST_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -51,6 +55,13 @@ impl transferia::extension::DynamicOptionsProvider for TestOptions {
 struct TestExtension;
 
 impl transferia::extension::TransferiaExtension for TestExtension {
+    fn identity(&self) -> transferia::extension::ExtensionIdentity {
+        transferia::extension::ExtensionIdentity {
+            package: "server-http-test",
+            abi_version: 1,
+        }
+    }
+
     fn register(
         &self,
         registry: &mut transferia::extension::ExtensionRegistry,
@@ -93,6 +104,25 @@ async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
     assert_eq!(body["options"][0]["value"], "cluster");
     assert_eq!(body["options"][0]["label"], "fresh");
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_options_reject_unknown_query_fields_as_json() -> anyhow::Result<()> {
+    let transferia = transferia::extension::TransferiaBuilder::new()
+        .with_extension(Arc::new(TestExtension))
+        .build()?;
+    let (app, root) = test_router_with(transferia).await?;
+    let response = app
+        .oneshot(Request::get("/api/v1/options/test.options?unexpected=true").body(Body::empty())?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "invalid_request");
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }
@@ -159,6 +189,25 @@ async fn invalid_and_oversized_json_are_rejected_before_the_service() -> anyhow:
         )
         .await?;
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(invalid.headers()[CONTENT_TYPE], "application/json");
+    assert_eq!(invalid.headers()[CACHE_CONTROL], "no-store");
+    let invalid_body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(invalid.into_body(), 4096).await?)?;
+    assert_eq!(invalid_body["error"]["code"], "invalid_request");
+    assert!(invalid_body["error"]["message"].is_string());
+
+    let unknown_field = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/config/yaml")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"config":{},"unexpected":true}"#))?,
+        )
+        .await?;
+    assert_eq!(unknown_field.status(), StatusCode::BAD_REQUEST);
+    let unknown_body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(unknown_field.into_body(), 4096).await?)?;
+    assert_eq!(unknown_body["error"]["code"], "invalid_request");
 
     let oversized = app
         .oneshot(
@@ -168,6 +217,119 @@ async fn invalid_and_oversized_json_are_rejected_before_the_service() -> anyhow:
         )
         .await?;
     assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let oversized_body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(oversized.into_body(), 4096).await?)?;
+    assert_eq!(oversized_body["error"]["code"], "payload_too_large");
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[test]
+fn rust_dtos_serialize_exactly_as_the_shared_api_contract() -> anyhow::Result<()> {
+    let fixture: serde_json::Value = serde_json::from_str(API_CONTRACT)?;
+    let delivery = DeliveryRecord {
+        id: "delivery-1".to_owned(),
+        name: "Example".to_owned(),
+        description: "Contract fixture".to_owned(),
+        config: serde_json::json!({ "delivery_type": "stream" }),
+        revision: 7,
+        record_version: 11,
+        validation: ValidationState::Invalid {
+            revision: 7,
+            message: "invalid fixture".to_owned(),
+        },
+        runtime: RuntimeState::Running {
+            run_id: crate::server::model::RunId("run-7".to_owned()),
+            pid: 42,
+        },
+        created_at_ms: 1000,
+        updated_at_ms: 2000,
+    };
+    assert_eq!(serde_json::to_value(delivery)?, fixture["delivery_record"]);
+
+    let runtime_states = [
+        RuntimeState::Stopped,
+        RuntimeState::Starting {
+            run_id: crate::server::model::RunId("run-1".to_owned()),
+        },
+        RuntimeState::Running {
+            run_id: crate::server::model::RunId("run-2".to_owned()),
+            pid: 42,
+        },
+        RuntimeState::Stopping {
+            run_id: crate::server::model::RunId("run-3".to_owned()),
+        },
+        RuntimeState::Failed {
+            run_id: crate::server::model::RunId("run-4".to_owned()),
+            message: "worker failed".to_owned(),
+        },
+    ];
+    assert_eq!(
+        serde_json::to_value(runtime_states)?,
+        fixture["runtime_states"]
+    );
+
+    let discovery = DiscoveryResult {
+        source: "logbroker".to_owned(),
+        sink: "clickhouse".to_owned(),
+        datasets: vec![DatasetView {
+            role: DatasetRoleView::Main,
+            name: "events".to_owned(),
+            columns: vec![
+                ColumnView {
+                    name: "id".to_owned(),
+                    arrow_type: "Utf8".to_owned(),
+                    nullable: false,
+                    primary_key: true,
+                    low_cardinality: true,
+                    max_length: Some(64),
+                },
+                ColumnView {
+                    name: "created_at".to_owned(),
+                    arrow_type: "Timestamp(Millisecond, None)".to_owned(),
+                    nullable: true,
+                    primary_key: false,
+                    low_cardinality: false,
+                    max_length: None,
+                },
+            ],
+        }],
+        sink_limits: SinkLimitsDescription {
+            sink: "clickhouse",
+            dataset_name: Some(TextLimit {
+                syntax: NameSyntax::AsciiIdentifier,
+                max_utf8_bytes: Some(255),
+            }),
+            column_name: None,
+            supported_arrow_types: vec![
+                ArrowTypeFamily::Utf8,
+                ArrowTypeFamily::SignedInteger,
+                ArrowTypeFamily::Timestamp,
+            ],
+            object_key: None,
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(discovery)?,
+        fixture["discovery_result"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn api_errors_use_the_shared_json_envelope_and_are_never_cached() -> anyhow::Result<()> {
+    let fixture: serde_json::Value = serde_json::from_str(API_CONTRACT)?;
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(Request::get("/api/v1/deliveries/missing").body(Body::empty())?)
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body, fixture["error_envelope"]);
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

@@ -7,7 +7,6 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::{ClientBuilder, Type};
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::{ClickHouseSourceConfig, TableConfig};
@@ -45,10 +44,10 @@ pub struct ClickHouseSourceProvider {
 }
 
 impl ClickHouseSourceProvider {
-    pub fn from_config(value: Value, metrics: Arc<MetricsRegistry>) -> anyhow::Result<Self> {
-        let config: ClickHouseSourceConfig = serde_yaml::from_value(value).map_err(|error| {
-            anyhow::anyhow!("Failed to parse ClickHouse source config: {error}")
-        })?;
+    pub fn from_config(
+        config: ClickHouseSourceConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         let builders = config
             .hosts

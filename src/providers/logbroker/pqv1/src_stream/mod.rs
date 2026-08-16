@@ -1,6 +1,5 @@
 use alloc::sync::Arc;
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -148,11 +147,9 @@ impl PqV1SourceProvider {
     }
 
     pub fn from_config(
-        value: Value,
+        cfg: PqV1SourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        let cfg: PqV1SourceConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse PQv1 source config: {e}"))?;
         crate::providers::address::validate_host("pqv1.host", &cfg.host)?;
         crate::providers::address::validate_port("pqv1.port", cfg.port)?;
         if cfg.topic_path.is_empty() {

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::{PostgresSourceConfig, TableConfig};
@@ -39,10 +38,10 @@ pub struct PostgresSourceProvider {
 }
 
 impl PostgresSourceProvider {
-    pub fn from_config(value: Value, metrics: Arc<MetricsRegistry>) -> anyhow::Result<Self> {
-        let config: PostgresSourceConfig = serde_yaml::from_value(value).map_err(|error| {
-            anyhow::anyhow!("Failed to parse PostgreSQL source config: {error}")
-        })?;
+    pub fn from_config(
+        config: PostgresSourceConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
             config,

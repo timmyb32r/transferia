@@ -2,12 +2,12 @@ pub mod filter;
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
 use crate::pipeline::middleware::Middleware;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MiddlewareEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,

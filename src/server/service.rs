@@ -6,12 +6,12 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use super::model::{DeliveryRecord, RuntimeState, ValidationState};
+use super::model::{DeliveryRecord, RunId, RuntimeState, ValidationState};
 use super::store::{DeliveryStore, StoreError};
 use super::supervisor::{SupervisorError, WorkerEvent, WorkerOutcome, WorkerSupervisor};
 use transferia::application::delivery_plan::build_delivery_plan_with;
 use transferia::config::yaml::Config;
-use transferia::delivery::{DeliveryDiscovery, SinkLimitsDescription};
+use transferia::delivery::{DatasetRole, DeliveryDiscovery, SinkLimitsDescription};
 use transferia::extension::{DynamicOptions, OptionsRequest, Transferia};
 use transferia::providers::traits::SinkProvider;
 
@@ -36,12 +36,19 @@ impl From<StoreError> for ServiceError {
             StoreError::AlreadyExists(id) => {
                 Self::Conflict(format!("delivery '{id}' already exists"))
             }
-            StoreError::RevisionConflict {
+            StoreError::RecordVersionConflict {
                 id,
                 expected,
                 actual,
             } => Self::Conflict(format!(
-                "delivery '{id}' changed: expected revision {expected}, current revision {actual}"
+                "delivery '{id}' changed: expected record version {expected}, current record version {actual}"
+            )),
+            StoreError::InvalidRecordVersion {
+                id,
+                expected,
+                actual,
+            } => Self::Internal(anyhow::anyhow!(
+                "invalid record version for delivery '{id}': expected {expected}, got {actual}"
             )),
             StoreError::Internal(error) => Self::Internal(error),
         }
@@ -57,7 +64,20 @@ impl From<SupervisorError> for ServiceError {
             SupervisorError::NotRunning(id) => {
                 Self::Conflict(format!("delivery '{id}' is not running"))
             }
+            SupervisorError::RunMismatch { delivery_id } => Self::Conflict(format!(
+                "delivery '{delivery_id}' is running under a different run id"
+            )),
             SupervisorError::Startup(message) => Self::Validation(message),
+            SupervisorError::StartupCancelled => {
+                Self::Validation("worker startup was cancelled".to_owned())
+            }
+            SupervisorError::ShuttingDown => {
+                Self::Conflict("worker supervisor is shutting down".to_owned())
+            }
+            SupervisorError::Stop(message) => Self::Internal(anyhow::anyhow!(message)),
+            SupervisorError::EventsAlreadyTaken => {
+                Self::Internal(anyhow::anyhow!("worker event receiver was already taken"))
+            }
             SupervisorError::Internal(error) => Self::Internal(error),
         }
     }
@@ -73,9 +93,24 @@ pub struct DiscoveryResult {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DatasetView {
-    pub role: String,
+    pub role: DatasetRoleView,
     pub name: String,
     pub columns: Vec<ColumnView>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub enum DatasetRoleView {
+    Main,
+    DeadLetterQueue,
+}
+
+impl From<DatasetRole> for DatasetRoleView {
+    fn from(role: DatasetRole) -> Self {
+        match role {
+            DatasetRole::Main => Self::Main,
+            DatasetRole::DeadLetterQueue => Self::DeadLetterQueue,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -85,6 +120,7 @@ pub struct ColumnView {
     pub nullable: bool,
     pub primary_key: bool,
     pub low_cardinality: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_length: Option<usize>,
 }
 
@@ -146,6 +182,7 @@ impl ControlPlane {
             description,
             config,
             revision: 1,
+            record_version: 1,
             validation: ValidationState::Draft,
             runtime: RuntimeState::Stopped,
             created_at_ms: now,
@@ -159,6 +196,7 @@ impl ControlPlane {
         &self,
         id: &str,
         expected_revision: u64,
+        expected_record_version: u64,
         name: String,
         description: String,
         config: Value,
@@ -178,15 +216,18 @@ impl ControlPlane {
                 record.revision
             )));
         }
+        ensure_record_version(id, record.record_version, expected_record_version)?;
         record.name = name;
         record.description = description;
         record.config = config;
-        record.revision = record.revision.saturating_add(1);
+        record.revision = next_version(record.revision)?;
+        let expected_record_version = record.record_version;
+        record.record_version = next_version(record.record_version)?;
         record.validation = ValidationState::Draft;
         record.runtime = RuntimeState::Stopped;
         record.updated_at_ms = now_ms();
         self.store
-            .replace(record.clone(), expected_revision)
+            .replace(record.clone(), expected_record_version)
             .await?;
         Ok(record)
     }
@@ -214,6 +255,7 @@ impl ControlPlane {
         &self,
         id: &str,
         expected_revision: u64,
+        expected_record_version: u64,
         cancellation: CancellationToken,
     ) -> Result<DiscoveryResult, ServiceError> {
         let snapshot = self.store.get(id).await?;
@@ -223,10 +265,13 @@ impl ControlPlane {
                 snapshot.revision
             )));
         }
+        ensure_record_version(id, snapshot.record_version, expected_record_version)?;
         let result = self.validate_preview(&snapshot.config, cancellation).await;
         let _mutation = self.mutation.lock().await;
         let mut current = self.store.get(id).await?;
-        if current.revision != expected_revision {
+        if current.revision != expected_revision
+            || current.record_version != expected_record_version
+        {
             return Err(ServiceError::Conflict(format!(
                 "delivery '{id}' changed while validation was running"
             )));
@@ -240,8 +285,10 @@ impl ControlPlane {
                 message: error.to_string(),
             },
         };
+        let expected_record_version = current.record_version;
+        current.record_version = next_version(current.record_version)?;
         current.updated_at_ms = now_ms();
-        self.store.replace(current, expected_revision).await?;
+        self.store.replace(current, expected_record_version).await?;
         result
     }
 
@@ -249,16 +296,18 @@ impl ControlPlane {
         &self,
         id: &str,
         expected_revision: u64,
+        expected_record_version: u64,
     ) -> Result<DeliveryRecord, ServiceError> {
         let snapshot = {
             let _mutation = self.mutation.lock().await;
-            let mut record = self.store.get(id).await?;
+            let record = self.store.get(id).await?;
             if record.revision != expected_revision {
                 return Err(ServiceError::Conflict(format!(
                     "delivery '{id}' changed: expected revision {expected_revision}, current revision {}",
                     record.revision
                 )));
             }
+            ensure_record_version(id, record.record_version, expected_record_version)?;
             if record.runtime.is_running_or_transitioning() {
                 return Err(ServiceError::Conflict(format!(
                     "delivery '{id}' is already running or changing state"
@@ -273,38 +322,60 @@ impl ControlPlane {
                     "validate the current delivery revision before activation".to_owned(),
                 ));
             }
-            record.runtime = RuntimeState::Starting;
-            record.updated_at_ms = now_ms();
-            self.store
-                .replace(record.clone(), expected_revision)
-                .await?;
             record
         };
 
-        if let Err(error) = self
-            .ensure_unique_runtime_delivery_id(&snapshot)
-            .await
-            .and_then(|()| config_yaml_from_json(&snapshot.config))
-        {
-            self.mark_failed(id, expected_revision, &error.to_string())
-                .await?;
-            return Err(error);
-        }
-        let discovery = self
-            .validate_preview(&snapshot.config, CancellationToken::new())
-            .await;
-        if let Err(error) = discovery {
-            self.mark_failed(id, expected_revision, &error.to_string())
-                .await?;
-            return Err(error);
-        }
+        self.ensure_unique_runtime_delivery_id(&snapshot).await?;
         let yaml = config_yaml_from_json(&snapshot.config)?;
-        let worker = match self.supervisor.start(id, &yaml).await {
+        let parsed = Config::from_yaml(&yaml)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let plan = build_delivery_plan_with(parsed, CancellationToken::new(), &self.transferia)
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let resolved = plan
+            .resolved_config(self.transferia.composition_fingerprint())
+            .map_err(ServiceError::Internal)?;
+        let run_id = new_run_id()?;
+
+        {
+            let _mutation = self.mutation.lock().await;
+            let mut current = self.store.get(id).await?;
+            if current.revision != expected_revision
+                || current.record_version != snapshot.record_version
+            {
+                return Err(ServiceError::Conflict(format!(
+                    "delivery '{id}' changed while activation was being prepared"
+                )));
+            }
+            current.runtime = RuntimeState::Starting {
+                run_id: run_id.clone(),
+            };
+            let expected_record_version = current.record_version;
+            current.record_version = next_version(current.record_version)?;
+            current.updated_at_ms = now_ms();
+            self.store.replace(current, expected_record_version).await?;
+        }
+
+        let worker = match self
+            .supervisor
+            .start(
+                id,
+                &run_id,
+                &resolved.yaml,
+                &resolved.composition_fingerprint,
+            )
+            .await
+        {
             Ok(worker) => worker,
+            Err(SupervisorError::StartupCancelled) => {
+                self.mark_stopped(id, &run_id).await?;
+                return Err(ServiceError::Validation(
+                    "worker startup was cancelled".to_owned(),
+                ));
+            }
             Err(error) => {
                 let error = ServiceError::from(error);
-                self.mark_failed(id, expected_revision, &error.to_string())
-                    .await?;
+                self.mark_failed(id, &run_id, &error.to_string()).await?;
                 return Err(error);
             }
         };
@@ -312,20 +383,33 @@ impl ControlPlane {
         let _mutation = self.mutation.lock().await;
         let mut current = self.store.get(id).await?;
         if current.revision != expected_revision {
-            let _ignored = self.supervisor.stop(id).await;
+            let _ignored = self.supervisor.stop(id, &run_id).await;
             return Err(ServiceError::Conflict(format!(
                 "delivery '{id}' changed while activation was running"
             )));
         }
-        if current.runtime != RuntimeState::Starting {
+        if current.runtime
+            != (RuntimeState::Starting {
+                run_id: run_id.clone(),
+            })
+        {
             return Err(ServiceError::Validation(
                 "worker exited before activation completed".to_owned(),
             ));
         }
-        current.runtime = RuntimeState::Running { pid: worker.pid };
+        current.runtime = RuntimeState::Running {
+            run_id: run_id.clone(),
+            pid: worker.pid,
+        };
+        let expected_record_version = current.record_version;
+        current.record_version = next_version(current.record_version)?;
         current.updated_at_ms = now_ms();
-        if let Err(error) = self.store.replace(current.clone(), expected_revision).await {
-            let _ignored = self.supervisor.stop(id).await;
+        if let Err(error) = self
+            .store
+            .replace(current.clone(), expected_record_version)
+            .await
+        {
+            let _ignored = self.supervisor.stop(id, &run_id).await;
             return Err(error.into());
         }
         Ok(current)
@@ -335,8 +419,10 @@ impl ControlPlane {
         &self,
         id: &str,
         expected_revision: u64,
+        expected_record_version: u64,
+        expected_run_id: &RunId,
     ) -> Result<DeliveryRecord, ServiceError> {
-        {
+        let run_id = {
             let _mutation = self.mutation.lock().await;
             let mut record = self.store.get(id).await?;
             if record.revision != expected_revision {
@@ -345,43 +431,64 @@ impl ControlPlane {
                     record.revision
                 )));
             }
-            if !matches!(record.runtime, RuntimeState::Running { .. }) {
-                return Err(ServiceError::Conflict(format!(
-                    "delivery '{id}' is not running"
-                )));
-            }
-            record.runtime = RuntimeState::Stopping;
+            ensure_record_version(id, record.record_version, expected_record_version)?;
+            let run_id = match &record.runtime {
+                RuntimeState::Running { run_id, .. } if run_id == expected_run_id => run_id.clone(),
+                RuntimeState::Running { .. } => {
+                    return Err(ServiceError::Conflict(format!(
+                        "delivery '{id}' started a newer run"
+                    )))
+                }
+                _ => {
+                    return Err(ServiceError::Conflict(format!(
+                        "delivery '{id}' is not running"
+                    )))
+                }
+            };
+            record.runtime = RuntimeState::Stopping {
+                run_id: run_id.clone(),
+            };
+            let expected_record_version = record.record_version;
+            record.record_version = next_version(record.record_version)?;
             record.updated_at_ms = now_ms();
-            self.store.replace(record, expected_revision).await?;
-        }
-        if let Err(error) = self.supervisor.stop(id).await {
+            self.store.replace(record, expected_record_version).await?;
+            run_id
+        };
+        if let Err(error) = self.supervisor.stop(id, &run_id).await {
             let error = ServiceError::from(error);
-            self.mark_failed(id, expected_revision, &error.to_string())
-                .await?;
+            self.mark_failed(id, &run_id, &error.to_string()).await?;
             return Err(error);
         }
         let _mutation = self.mutation.lock().await;
         let mut current = self.store.get(id).await?;
+        if current.runtime == RuntimeState::Stopped {
+            return Ok(current);
+        }
+        if current.runtime.run_id() != Some(&run_id) {
+            return Err(ServiceError::Conflict(format!(
+                "delivery '{id}' started a newer run while stop was in progress"
+            )));
+        }
         current.runtime = RuntimeState::Stopped;
+        let expected_record_version = current.record_version;
+        current.record_version = next_version(current.record_version)?;
         current.updated_at_ms = now_ms();
         self.store
-            .replace(current.clone(), expected_revision)
+            .replace(current.clone(), expected_record_version)
             .await?;
         Ok(current)
     }
 
     pub fn spawn_supervisor_monitor(self: &Arc<Self>) {
-        let mut events = self.supervisor.subscribe();
+        let Ok(mut events) = self.supervisor.take_events() else {
+            tracing::error!("worker supervisor monitor was started more than once");
+            return;
+        };
         let control_plane = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
-                let event = match events.recv().await {
-                    Ok(event) => event,
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        tracing::warn!(skipped, "worker event consumer lagged");
-                        continue;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                let Some(event) = events.recv().await else {
+                    break;
                 };
                 let Some(control_plane) = control_plane.upgrade() else {
                     break;
@@ -399,9 +506,10 @@ impl ControlPlane {
         for mut record in self.store.list().await? {
             if record.runtime.is_running_or_transitioning() {
                 record.runtime = RuntimeState::Stopped;
+                let expected_record_version = record.record_version;
+                record.record_version = next_version(record.record_version)?;
                 record.updated_at_ms = now_ms();
-                let revision = record.revision;
-                self.store.replace(record, revision).await?;
+                self.store.replace(record, expected_record_version).await?;
             }
         }
         Ok(())
@@ -455,19 +563,36 @@ impl ControlPlane {
     async fn mark_failed(
         &self,
         id: &str,
-        expected_revision: u64,
+        run_id: &RunId,
         message: &str,
     ) -> Result<(), ServiceError> {
         let _mutation = self.mutation.lock().await;
         let mut current = self.store.get(id).await?;
-        if current.revision != expected_revision {
+        if current.runtime.run_id() != Some(run_id) {
             return Ok(());
         }
         current.runtime = RuntimeState::Failed {
+            run_id: run_id.clone(),
             message: message.to_owned(),
         };
+        let expected_record_version = current.record_version;
+        current.record_version = next_version(current.record_version)?;
         current.updated_at_ms = now_ms();
-        self.store.replace(current, expected_revision).await?;
+        self.store.replace(current, expected_record_version).await?;
+        Ok(())
+    }
+
+    async fn mark_stopped(&self, id: &str, run_id: &RunId) -> Result<(), ServiceError> {
+        let _mutation = self.mutation.lock().await;
+        let mut current = self.store.get(id).await?;
+        if current.runtime.run_id() != Some(run_id) {
+            return Ok(());
+        }
+        current.runtime = RuntimeState::Stopped;
+        let expected_record_version = current.record_version;
+        current.record_version = next_version(current.record_version)?;
+        current.updated_at_ms = now_ms();
+        self.store.replace(current, expected_record_version).await?;
         Ok(())
     }
 
@@ -478,6 +603,22 @@ impl ControlPlane {
             Err(StoreError::NotFound(_)) => return Ok(()),
             Err(error) => return Err(error.into()),
         };
+        if record.runtime.run_id() != Some(&event.run_id) {
+            tracing::debug!(
+                delivery_id = %event.delivery_id,
+                run_id = %event.run_id.0,
+                "ignoring a stale worker event"
+            );
+            return Ok(());
+        }
+        if matches!(record.runtime, RuntimeState::Failed { .. }) {
+            tracing::debug!(
+                delivery_id = %event.delivery_id,
+                run_id = %event.run_id.0,
+                "ignoring a worker event after a terminal control-plane failure"
+            );
+            return Ok(());
+        }
         record.runtime = match event.outcome {
             WorkerOutcome::Stopped | WorkerOutcome::Exited { success: true, .. } => {
                 RuntimeState::Stopped
@@ -485,11 +626,15 @@ impl ControlPlane {
             WorkerOutcome::Exited {
                 success: false,
                 message,
-            } => RuntimeState::Failed { message },
+            } => RuntimeState::Failed {
+                run_id: event.run_id,
+                message,
+            },
         };
+        let expected_record_version = record.record_version;
+        record.record_version = next_version(record.record_version)?;
         record.updated_at_ms = now_ms();
-        let revision = record.revision;
-        self.store.replace(record, revision).await?;
+        self.store.replace(record, expected_record_version).await?;
         Ok(())
     }
 }
@@ -536,7 +681,7 @@ fn discovery_result(
             .datasets
             .iter()
             .map(|dataset| DatasetView {
-                role: format!("{:?}", dataset.role),
+                role: dataset.role.into(),
                 name: dataset.name.to_string(),
                 columns: dataset
                     .stored_schema
@@ -557,6 +702,15 @@ fn discovery_result(
     }
 }
 
+fn ensure_record_version(id: &str, actual: u64, expected: u64) -> Result<(), ServiceError> {
+    if actual == expected {
+        return Ok(());
+    }
+    Err(ServiceError::Conflict(format!(
+        "delivery '{id}' changed: expected record version {expected}, current record version {actual}"
+    )))
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -573,6 +727,16 @@ fn new_id() -> Result<String, ServiceError> {
         write!(id, "{byte:02x}").map_err(anyhow::Error::from)?;
     }
     Ok(id)
+}
+
+fn new_run_id() -> Result<RunId, ServiceError> {
+    new_id().map(RunId)
+}
+
+fn next_version(version: u64) -> Result<u64, ServiceError> {
+    version
+        .checked_add(1)
+        .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("version counter overflow")))
 }
 
 #[cfg(test)]

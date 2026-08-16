@@ -6,10 +6,12 @@ import type {
 } from "./types";
 
 export interface EditorState {
+  sessionId: EditorSessionId;
   id?: string;
   persistedRevision?: number;
-  editRevision: number;
-  savedEditRevision?: number;
+  recordVersion?: number;
+  localRevision: number;
+  savedLocalRevision?: number;
   name: string;
   description: string;
   config: JsonObject;
@@ -17,14 +19,30 @@ export interface EditorState {
   runtime: RuntimeState;
 }
 
+export type EditorSessionId = string;
+
 export type EditorAction =
-  | { type: "new"; config: JsonObject }
-  | { type: "open"; delivery: DeliveryRecord }
+  | { type: "new"; sessionId: EditorSessionId; config: JsonObject }
+  | {
+      type: "open";
+      sessionId: EditorSessionId;
+      delivery: DeliveryRecord;
+    }
   | { type: "name"; name: string }
   | { type: "description"; description: string }
   | { type: "config"; config: JsonObject }
-  | { type: "persisted"; delivery: DeliveryRecord }
-  | { type: "runtime"; delivery: DeliveryRecord };
+  | {
+      type: "persisted";
+      sessionId: EditorSessionId;
+      savedLocalRevision: number;
+      delivery: DeliveryRecord;
+    }
+  | {
+      type: "runtime";
+      sessionId: EditorSessionId;
+      expectedLocalRevision: number;
+      delivery: DeliveryRecord;
+    };
 
 export function editorReducer(
   state: EditorState,
@@ -33,7 +51,8 @@ export function editorReducer(
   switch (action.type) {
     case "new":
       return {
-        editRevision: 0,
+        sessionId: action.sessionId,
+        localRevision: 0,
         name: "",
         description: "",
         config: action.config,
@@ -42,10 +61,12 @@ export function editorReducer(
       };
     case "open":
       return {
+        sessionId: action.sessionId,
         id: action.delivery.id,
         persistedRevision: action.delivery.revision,
-        editRevision: 0,
-        savedEditRevision: 0,
+        recordVersion: action.delivery.record_version,
+        localRevision: 0,
+        savedLocalRevision: 0,
         name: action.delivery.name,
         description: action.delivery.description,
         config: action.delivery.config,
@@ -59,18 +80,42 @@ export function editorReducer(
     case "config":
       return changed(state, { config: action.config });
     case "persisted":
+      if (
+        action.sessionId !== state.sessionId ||
+        (state.id !== undefined && action.delivery.id !== state.id) ||
+        (state.recordVersion !== undefined &&
+          action.delivery.record_version < state.recordVersion) ||
+        (state.persistedRevision !== undefined &&
+          action.delivery.revision < state.persistedRevision)
+      )
+        return state;
       return {
         ...state,
         id: action.delivery.id,
         persistedRevision: action.delivery.revision,
-        savedEditRevision: state.editRevision,
-        validation: action.delivery.validation,
+        recordVersion: action.delivery.record_version,
+        savedLocalRevision: action.savedLocalRevision,
+        validation:
+          action.savedLocalRevision === state.localRevision
+            ? action.delivery.validation
+            : state.validation,
         runtime: action.delivery.runtime,
       };
     case "runtime":
+      if (
+        action.sessionId !== state.sessionId ||
+        action.expectedLocalRevision !== state.localRevision ||
+        action.delivery.id !== state.id ||
+        (state.recordVersion !== undefined &&
+          action.delivery.record_version < state.recordVersion) ||
+        (state.persistedRevision !== undefined &&
+          action.delivery.revision < state.persistedRevision)
+      )
+        return state;
       return {
         ...state,
         persistedRevision: action.delivery.revision,
+        recordVersion: action.delivery.record_version,
         validation: action.delivery.validation,
         runtime: action.delivery.runtime,
       };
@@ -84,13 +129,13 @@ function changed(
   return {
     ...state,
     ...update,
-    editRevision: state.editRevision + 1,
+    localRevision: state.localRevision + 1,
     validation: { state: "draft" },
   };
 }
 
 export const isDirty = (state: EditorState): boolean =>
-  state.savedEditRevision !== state.editRevision;
+  state.savedLocalRevision !== state.localRevision;
 
 export const isReadOnly = (state: EditorState): boolean =>
   state.runtime.state === "running" ||

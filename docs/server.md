@@ -19,18 +19,70 @@ Do not let HTTP DTOs, JSON persistence, or `tokio::process::Child` enter `Contro
 
 ## Delivery lifecycle
 
-Draft edits increment the revision and invalidate its previous validation. Validation records either `ready(revision)` or `invalid(revision)`. Activation accepts only the current persisted and validated revision, repeats full preflight, waits for child readiness, and then records `running(pid)`.
+Draft edits increment the configuration `revision` and invalidate its previous
+validation. Every persisted mutation, including runtime-only transitions, uses a
+separate monotonic `record_version` for compare-and-swap. Each activation gets a
+fresh `run_id`; worker events and stop requests are applied only when that ID
+still matches the delivery's current run. A delayed exit from an old process can
+therefore never overwrite a newer activation.
 
-The server owns every worker it launches. Its authenticated loopback control channel provides readiness and stop commands. A worker cancels itself when the channel closes, so normal shutdown, crashes, and loss of the parent all terminate workers. Persisted transient states are normalized to `stopped` at the next server start; restart never activates them automatically.
+Every update, validate, activate, and stop request carries both the expected
+configuration revision and expected record version. Stop additionally carries
+the expected run ID. The application verifies these causal preconditions before
+persisting a transition or contacting the supervisor; delayed requests fail
+with `409 Conflict` instead of acting on newer state.
+
+Validation records either `ready(revision)` or `invalid(revision)`. Activation
+accepts only the current persisted and validated revision and performs the full
+preflight once in the parent. Installation resolvers produce the exact
+`ResolvedDeliveryConfig` that was validated. The worker receives that config in
+a private `0600`, create-new file, verifies the compiled-composition fingerprint,
+and does not invoke installation resolution again. The file is removed after
+the worker reports readiness.
+
+The server owns every worker from the moment it is spawned, including while it
+is starting. Its authenticated loopback control channel provides readiness and
+stop commands. Normal server termination stops starting and running workers;
+loss of the parent control channel also cancels the worker. Persisted transient
+states are normalized to `stopped` at the next server start and advance the
+record version; restart never activates them automatically.
 
 ## Persistence and secrets
 
-The JSON store writes a complete candidate state to a private temporary file, synchronizes it, renames it atomically, synchronizes the directory, and only then publishes the candidate in memory. The state directory is mode `0700`; state, configs, and logs are mode `0600` on Unix.
+Only one server process may own a state directory at a time; a lifetime-held
+file lock makes a second open fail fast. The JSON store uses `record_version`
+CAS, writes a complete candidate to a private temporary file, synchronizes it,
+and atomically renames it. Failures before rename leave memory and disk
+unchanged and remove the temporary file. Rename is the explicit logical commit
+point: if the following directory sync fails, memory follows the committed disk
+state and emits an explicit high-severity durability diagnostic while the
+application continues from the committed state. The state directory is mode `0700`; state, locks, configs,
+and logs are mode `0600` on Unix.
 
 The state directory contains its own deny-all `.gitignore`, and the repository ignores `.transferia-server/`. Delivery lists expose metadata only. Full delivery configuration is returned only by the detail endpoint needed by the local editor; internal errors are logged server-side and converted to a stable generic HTTP error.
 
 ## UI schema contract
 
-The browser compiles a deliberately small JSON Schema subset: local `$ref`, objects, arrays, scalar types, enums/constants, nullable schemas, and `oneOf`/`anyOf`. `x-ui` selects presentation such as password fields and folded sections. Unsupported keywords fail fast instead of silently rendering the wrong control.
+The browser compiles a deliberately small JSON Schema subset: local `$ref`,
+objects, arrays, scalar types, string enums/constants, nullable schemas,
+numeric ranges/formats, and `oneOf`/`anyOf`. Recursive references, unsupported
+formats/keywords, and schema-valued `additionalProperties` fail fast instead of
+silently rendering the wrong control. A Rust test feeds the real compiled
+provider catalog through this TypeScript compiler, so backend schema evolution
+cannot bypass the UI contract.
 
-All YAML and discovery requests are latest-only. A new edit aborts the old request and a stale response cannot overwrite the current preview. Background discovery starts only after the selected provider schemas are structurally complete. Activation always performs authoritative server-side validation again.
+Editor session IDs, local revisions, persisted record versions, and per-operation
+request IDs bind every asynchronous response to the state that created it. Save,
+open, polling, actions, YAML, discovery, and dynamic options all discard stale
+successes and stale failures. YAML values are parsed literally in both UI and
+runtime; there is no whole-document environment expansion. Frontend validation
+is only guidance: activation always repeats authoritative server-side
+validation.
+
+## Verification contracts
+
+`cargo build` type-checks and bundles the embedded UI. The normal Cargo test
+suite invokes Vitest and also runs the real Rust catalog through the TypeScript
+schema compiler. `just check`/`just ci` enforce formatting, all-target/all-feature
+Clippy, Rust tests, UI contracts, and configured sink E2E tests. The internal
+extension has its own Cargo tests and never requires `ya make`.

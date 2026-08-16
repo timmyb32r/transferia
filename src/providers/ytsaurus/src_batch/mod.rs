@@ -9,7 +9,6 @@ use arrow::ipc::reader::StreamDecoder;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
-use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::client::{classify_http_failure, YTsaurusClient};
@@ -49,9 +48,10 @@ pub struct YTsaurusSourceProvider {
 }
 
 impl YTsaurusSourceProvider {
-    pub fn from_config(value: Value, metrics: Arc<MetricsRegistry>) -> anyhow::Result<Self> {
-        let config: YTsaurusSourceConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse YTsaurus source config: {error}"))?;
+    pub fn from_config(
+        config: YTsaurusSourceConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         let client = YTsaurusClient::new(&config.connection)?;
         Ok(Self {

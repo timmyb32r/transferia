@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, within } from "@testing-library/preact";
+import { fireEvent, render, waitFor, within } from "@testing-library/preact";
 import { useState } from "preact/hooks";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { api } from "../src/api";
 import {
   ParserDetailsForm,
   SchemaForm,
@@ -19,6 +20,88 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("does not turn a cleared number input into zero", () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SchemaForm
+        node={{ kind: "number", integer: true, xUi: {} }}
+        value={12}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.input(view.getByRole("spinbutton"), { target: { value: "" } });
+
+    expect(onChange).toHaveBeenCalledWith(null);
+    expect(onChange).not.toHaveBeenCalledWith(0);
+    view.unmount();
+  });
+
+  it("keeps a cleared byte-size input empty", () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SchemaForm
+        node={{ kind: "number", integer: true, xUi: { widget: "byte_size" } }}
+        value={1024}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.input(view.getByRole("spinbutton"), { target: { value: "" } });
+
+    expect(onChange).toHaveBeenCalledWith(null);
+    expect(onChange).not.toHaveBeenCalledWith(0);
+    view.unmount();
+  });
+
+  it("ignores dynamic options returned for an older source", async () => {
+    const oldRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
+    const newRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
+    const options = vi
+      .spyOn(api, "options")
+      .mockImplementation((source) =>
+        source === "old-options" ? oldRequest.promise : newRequest.promise,
+      );
+    const dynamicNode = (source: string): CompiledNode => ({
+      kind: "string",
+      xUi: { dynamic_options: source },
+    });
+    const view = render(
+      <SchemaForm
+        node={dynamicNode("old-options")}
+        value="selected"
+        onChange={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(options).toHaveBeenCalledWith("old-options"));
+
+    view.rerender(
+      <SchemaForm
+        node={dynamicNode("new-options")}
+        value="selected"
+        onChange={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(options).toHaveBeenCalledWith("new-options"));
+    newRequest.resolve({
+      options: [{ value: "selected", label: "New option" }],
+    });
+    oldRequest.resolve({
+      options: [{ value: "old", label: "Old option" }],
+    });
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "New option" })).toBeTruthy(),
+    );
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "New option" }), {
+      button: 0,
+    });
+    expect(view.getByRole("option", { name: "New option" })).toBeTruthy();
+    expect(view.queryByRole("option", { name: "Old option" })).toBeNull();
+    options.mockRestore();
+    view.unmount();
+  });
+
   it("dismisses stale text selection before dropdown interactions", () => {
     const { getByRole } = render(
       <>
@@ -82,6 +165,51 @@ describe("schema form", () => {
     fireEvent.pointerDown(trigger, { button: 0, clientX: 1 });
     expect(form.getByRole("option", { name: "String" })).toBeTruthy();
     expect(form.getByRole("option", { name: "Integer" })).toBeTruthy();
+  });
+
+  it("closes an anchored select when the user clicks outside", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[{ value: "string", label: "String" }]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    const trigger = form.getByRole("button", { name: "Not selected" });
+    fireEvent.pointerDown(trigger, { button: 0 });
+    expect(form.getByRole("option", { name: "String" })).toBeTruthy();
+
+    fireEvent.mouseDown(document.body);
+
+    expect(form.queryByRole("option", { name: "String" })).toBeNull();
+    view.unmount();
+  });
+
+  it("loads dynamic options when opened from the keyboard", async () => {
+    const options = vi.spyOn(api, "options").mockResolvedValue({
+      options: [{ value: "cluster", label: "Cluster" }],
+    });
+    const view = render(
+      <SchemaForm
+        node={{
+          kind: "string",
+          xUi: { dynamic_options: "clusters" },
+        }}
+        value=""
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    const trigger = form.getByRole("button", { name: "Not selected" });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+
+    expect(options).toHaveBeenCalledWith("clusters");
+    expect(await form.findByRole("option", { name: "Cluster" })).toBeTruthy();
+    view.unmount();
+    options.mockRestore();
   });
 
   it("supports arrow navigation and Escape in dropdowns", async () => {
@@ -703,6 +831,9 @@ describe("schema form", () => {
     ).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Duplicate" })).toBeTruthy();
     expect(table.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(table.queryByRole("menu")).toBeNull();
+    fireEvent.click(table.getByRole("button", { name: "Column 1 actions" }));
     fireEvent.click(table.getByRole("menuitem", { name: "Column settings" }));
 
     expect(container.querySelectorAll(".table-details-row")).toHaveLength(1);
@@ -788,4 +919,58 @@ describe("schema form", () => {
       JSON.stringify({ columns: [], keys: [] }),
     );
   });
+
+  it("preserves the remaining column row identity after deleting a sibling", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "jsonpath"]),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+            },
+          },
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        columns: [
+          { column_name: "id", jsonpath: "$.id" },
+          { column_name: "value", jsonpath: "$.value" },
+        ],
+      });
+      return <SchemaForm node={node} value={value} onChange={setValue} />;
+    }
+    const view = render(<Harness />);
+    const form = within(view.container as HTMLElement);
+    const remainingInput = form.getByDisplayValue("value");
+    remainingInput.focus();
+    fireEvent.click(
+      form.getByRole("checkbox", { name: "Select output column 1" }),
+    );
+    fireEvent.click(
+      form.getByRole("button", { name: "Delete 1 selected column" }),
+    );
+
+    expect(form.getByDisplayValue("value")).toBe(remainingInput);
+    expect(document.activeElement).toBe(remainingInput);
+    view.unmount();
+  });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}

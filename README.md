@@ -66,7 +66,7 @@ source:
       trusted_plaintext: true
       auth:
         type: token_file
-        token_file: "${HOME}/path/to/token"
+        token_file: "/path/to/token"
     topics:
       - path: cdc/project/topic
         partitions: [0] # omit or leave empty to read every partition
@@ -110,7 +110,7 @@ source:
       trusted_plaintext: true
       auth:
         type: token_file
-        token_file: "${HOME}/path/to/token"
+        token_file: "/path/to/token"
     topics:
       - path: "/cdc/prod/events"
         partitions: [0]
@@ -159,8 +159,8 @@ sink:
     host: s3.example.net
     port: 443
     credentials:
-      access_key: "${S3_ACCESS_KEY}"
-      secret_key: "${S3_SECRET_KEY}"
+      access_key: "replace-me"
+      secret_key: "replace-me"
 
     partitioning:
       type: source
@@ -224,7 +224,11 @@ Run it with:
 transferia --config ./config.yaml --total-workers 1 --worker-index 0
 ```
 
-YAML supports environment expansion. Byte sizes accept `B`, `KiB`, `MiB`,
+YAML values are parsed literally and are never implicitly expanded from the
+process environment. This keeps the UI preview, validation, and worker startup
+semantically identical. Credential files may use the provider's documented path
+handling; explicit environment references can be added later as a typed config
+feature. Byte sizes accept `B`, `KiB`, `MiB`,
 and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
 
 ### YTsaurus static tables

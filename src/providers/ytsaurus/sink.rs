@@ -11,7 +11,6 @@ use arrow::datatypes::{DataType, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{YTsaurusSinkConfig, YTsaurusWriteFormat};
@@ -36,9 +35,7 @@ pub struct YTsaurusSinkProvider {
 }
 
 impl YTsaurusSinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let config: YTsaurusSinkConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse YTsaurus sink config: {error}"))?;
+    pub fn from_config(config: YTsaurusSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         let client = YTsaurusClient::new(&config.connection)?;
         Ok(Self {

@@ -15,10 +15,10 @@ fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
 }
 
 fn provider_with_topics(topics: &str, extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
-    let value = serde_yaml::from_str(&format!(
+    let config = serde_yaml::from_str(&format!(
         "host: localhost\nport: 2135\ntopics:\n{topics}consumer_name: consumer\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nallow_ttl_rewind: false\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
     ))?;
-    YdbDriverSourceProvider::from_config(value, Arc::new(MetricsRegistry::new()))
+    YdbDriverSourceProvider::from_config(config, Arc::new(MetricsRegistry::new()))
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn auth_is_exactly_one_explicit_variant() -> anyhow::Result<()> {
 
 #[test]
 fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<()> {
-    let value = serde_yaml::from_str(
+    let value: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [0] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: drop\n    unknown_fields: { action: drop }\n",
     )?;
     let provider = build_source_provider(value, Arc::new(MetricsRegistry::new()))?;
@@ -133,7 +133,7 @@ fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<(
         EndpointDescriptor::Logbroker(_)
     ));
 
-    let dynamic = serde_yaml::from_str(
+    let dynamic: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  benchmark_discard: {}\n",
     )?;
     let error = build_source_provider(dynamic, Arc::new(MetricsRegistry::new()))

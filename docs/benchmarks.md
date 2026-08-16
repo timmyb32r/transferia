@@ -29,6 +29,12 @@ Every endpoint and credential in the YAML files has an environment override:
 services; production credentials should be supplied only through the
 environment.
 
+These files are benchmark templates, not runtime configuration files. The
+benchmark runner explicitly expands their `${NAME}` and `${NAME:-default}`
+placeholders into a private temporary YAML file and deletes it after each run.
+Transferia itself parses YAML literally and never performs implicit environment
+expansion.
+
 Pinned ClickHouse, YDB Local, and LocalStack/S3 development services are
 declared in `docker-compose/docker-compose.yaml`; LocalStack creates the default
 benchmark bucket on startup. Start them with:

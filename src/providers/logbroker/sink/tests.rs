@@ -33,7 +33,7 @@ fn rejects_invalid_partition() -> anyhow::Result<()> {
 
 #[test]
 fn pqv1_requires_an_explicit_partition() -> anyhow::Result<()> {
-    let value = serde_yaml::from_str(
+    let value: LogbrokerSinkConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopic_path: /demo/events\nproducer_id: transferia\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\n",
     )?;
     let error = super::provider::build_sink_provider(value)

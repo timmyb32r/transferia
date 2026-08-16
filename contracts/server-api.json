@@ -1,0 +1,94 @@
+{
+  "delivery_record": {
+    "id": "delivery-1",
+    "name": "Example",
+    "description": "Contract fixture",
+    "config": {
+      "delivery_type": "stream"
+    },
+    "revision": 7,
+    "record_version": 11,
+    "validation": {
+      "state": "invalid",
+      "revision": 7,
+      "message": "invalid fixture"
+    },
+    "runtime": {
+      "state": "running",
+      "run_id": "run-7",
+      "pid": 42
+    },
+    "created_at_ms": 1000,
+    "updated_at_ms": 2000
+  },
+  "runtime_states": [
+    {
+      "state": "stopped"
+    },
+    {
+      "state": "starting",
+      "run_id": "run-1"
+    },
+    {
+      "state": "running",
+      "run_id": "run-2",
+      "pid": 42
+    },
+    {
+      "state": "stopping",
+      "run_id": "run-3"
+    },
+    {
+      "state": "failed",
+      "run_id": "run-4",
+      "message": "worker failed"
+    }
+  ],
+  "discovery_result": {
+    "source": "logbroker",
+    "sink": "clickhouse",
+    "datasets": [
+      {
+        "role": "Main",
+        "name": "events",
+        "columns": [
+          {
+            "name": "id",
+            "arrow_type": "Utf8",
+            "nullable": false,
+            "primary_key": true,
+            "low_cardinality": true,
+            "max_length": 64
+          },
+          {
+            "name": "created_at",
+            "arrow_type": "Timestamp(Millisecond, None)",
+            "nullable": true,
+            "primary_key": false,
+            "low_cardinality": false
+          }
+        ]
+      }
+    ],
+    "sink_limits": {
+      "sink": "clickhouse",
+      "dataset_name": {
+        "syntax": "ascii_identifier",
+        "max_utf8_bytes": 255
+      },
+      "column_name": null,
+      "supported_arrow_types": [
+        "utf8",
+        "signed_integer",
+        "timestamp"
+      ],
+      "object_key": null
+    }
+  },
+  "error_envelope": {
+    "error": {
+      "code": "not_found",
+      "message": "delivery 'missing' does not exist"
+    }
+  }
+}

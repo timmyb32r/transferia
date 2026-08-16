@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::BoxFuture;
 use futures_util::TryStreamExt as _;
 use object_store::path::Path;
-use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::config::S3SourceConfig;
@@ -29,9 +28,10 @@ pub struct S3SourceProvider {
 }
 
 impl S3SourceProvider {
-    pub fn from_config(value: Value, metrics: Arc<MetricsRegistry>) -> anyhow::Result<Self> {
-        let config: S3SourceConfig = serde_yaml::from_value(value)
-            .map_err(|error| anyhow::anyhow!("Failed to parse S3 source config: {error}"))?;
+    pub fn from_config(
+        config: S3SourceConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         let parser_plan = ParserPlan::from_config(&config.parser, &config.prefix)?;
         let store = config.build_store()?;

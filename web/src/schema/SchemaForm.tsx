@@ -2,7 +2,11 @@ import { createContext, Fragment, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import { api } from "../api";
+import { LatestJob } from "../effects";
 import type { JsonObject, JsonValue } from "../types";
+import { MultiSelectControl, SelectControl } from "../ui/SelectControl";
+import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
+export { SelectControl } from "../ui/SelectControl";
 import {
   branchMatches,
   createValue,
@@ -407,7 +411,7 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
       if (node.xUi.widget === "byte_size")
         return (
           <ByteSizeInput
-            value={typeof value === "number" ? value : 0}
+            value={typeof value === "number" ? value : null}
             disabled={isDisabled}
             onChange={onChange}
           />
@@ -421,7 +425,12 @@ function NodeEditor({ node, value, disabled, onChange }: SchemaFormProps) {
           step={node.integer ? 1 : "any"}
           disabled={isDisabled}
           onInput={(event) => {
-            const parsed = Number(event.currentTarget.value);
+            const raw = event.currentTarget.value;
+            if (raw === "") {
+              onChange(null);
+              return;
+            }
+            const parsed = Number(raw);
             if (Number.isFinite(parsed)) onChange(parsed);
           }}
         />
@@ -756,152 +765,6 @@ function controlWidthClass(name: string, node: CompiledNode): string {
   return "";
 }
 
-interface SelectControlProps {
-  value: string;
-  placeholder: string;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-  searchable?: boolean;
-  onOpen?: () => void;
-  onChange: (value: string) => void;
-}
-
-export function SelectControl({
-  value,
-  placeholder,
-  options,
-  disabled = false,
-  searchable = false,
-  onOpen,
-  onChange,
-}: SelectControlProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [, refreshMenuPosition] = useState(0);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const selected = options.find((option) => option.value === value);
-  const filtered = useMemo(
-    () =>
-      options.filter((option) =>
-        option.label.toLowerCase().includes(query.toLowerCase()),
-      ),
-    [options, query],
-  );
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", closeOutside);
-    const reposition = () => refreshMenuPosition((revision) => revision + 1);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      document.removeEventListener("mousedown", closeOutside);
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [open]);
-  const choose = (next: string) => {
-    onChange(next);
-    setOpen(false);
-    setQuery("");
-  };
-  return (
-    <div
-      ref={root}
-      class={`select ${open ? "open" : ""}`}
-      onKeyDown={(event) =>
-        handleSelectKeyDown(event, open, setOpen, setQuery, root, trigger)
-      }
-    >
-      <button
-        ref={trigger}
-        type="button"
-        class="select-trigger"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.preventDefault();
-          dismissActiveTextSelection();
-          trigger.current?.focus({ preventScroll: true });
-          setQuery("");
-          setOpen((current) => {
-            if (!current) onOpen?.();
-            return !current;
-          });
-        }}
-        onClick={(event) => {
-          if (event.detail !== 0) return;
-          setQuery("");
-          setOpen((current) => {
-            if (!current) onOpen?.();
-            return !current;
-          });
-        }}
-      >
-        <span class={selected === undefined ? "placeholder" : ""}>
-          {selected?.label ?? placeholder}
-        </span>
-        <svg
-          class="chevron"
-          viewBox="0 0 16 16"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="m3.5 6 4.5 4 4.5-4" />
-        </svg>
-      </button>
-      {open && (
-        <div
-          class="select-menu select-menu-floating"
-          style={floatingMenuStyle(trigger.current)}
-        >
-          {searchable && (
-            <input
-              class="select-search"
-              type="search"
-              placeholder="Search"
-              value={query}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
-          )}
-          <div role="listbox">
-            {filtered.map((option) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={option.value === value}
-                class="select-option"
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  dismissActiveTextSelection();
-                  choose(option.value);
-                }}
-                onClick={(event) => {
-                  if (event.detail === 0) choose(option.value);
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <div class="select-empty">No matches</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function DynamicSelectControl({
   source,
   value,
@@ -918,23 +781,35 @@ function DynamicSelectControl({
   >([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<string>();
-  const load = () => {
-    if (loaded || status === "Loading…") return;
+  const optionsJob = useRef(
+    new LatestJob<string, string, Awaited<ReturnType<typeof api.options>>>(),
+  ).current;
+  const load = (force = false) => {
+    if (!force && (loaded || status === "Loading…")) return;
     setStatus("Loading…");
-    void api
-      .options(source)
+    void optionsJob
+      .run(source, source, (key) => api.options(key))
       .then((result) => {
-        setOptions(result.options);
+        if (result === undefined) return;
+        setOptions(result.value.options);
         setLoaded(true);
-        setStatus(result.warning);
+        setStatus(result.value.warning);
       })
       .catch((error: unknown) =>
         setStatus(error instanceof Error ? error.message : String(error)),
       );
   };
   useEffect(() => {
+    optionsJob.cancel();
+    setOptions([]);
+    setLoaded(false);
+    setStatus(undefined);
+    if (value !== "") load(true);
+    return () => optionsJob.cancel();
+  }, [source]);
+  useEffect(() => {
     if (value !== "") load();
-  }, [source, value]);
+  }, [value]);
   return (
     <div class="dynamic-select">
       <SelectControl
@@ -951,225 +826,6 @@ function DynamicSelectControl({
       )}
     </div>
   );
-}
-
-function MultiSelectControl({
-  values,
-  placeholder,
-  options,
-  disabled,
-  onChange,
-}: {
-  values: string[];
-  placeholder: string;
-  options: Array<{ value: string; label: string }>;
-  disabled: boolean;
-  onChange: (values: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [, refreshMenuPosition] = useState(0);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", closeOutside);
-    const reposition = () => refreshMenuPosition((revision) => revision + 1);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      document.removeEventListener("mousedown", closeOutside);
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [open]);
-  const labels = values.map(
-    (value) => options.find((option) => option.value === value)?.label ?? value,
-  );
-  const filtered = options.filter((option) =>
-    option.label.toLowerCase().includes(query.toLowerCase()),
-  );
-  return (
-    <div
-      ref={root}
-      class={`select multi-select ${open ? "open" : ""}`}
-      onKeyDown={(event) =>
-        handleSelectKeyDown(event, open, setOpen, setQuery, root, trigger)
-      }
-    >
-      <button
-        ref={trigger}
-        type="button"
-        class="select-trigger"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return;
-          event.preventDefault();
-          dismissActiveTextSelection();
-          trigger.current?.focus({ preventScroll: true });
-          setQuery("");
-          setOpen((current) => !current);
-        }}
-        onClick={(event) => {
-          if (event.detail !== 0) return;
-          setQuery("");
-          setOpen((current) => !current);
-        }}
-      >
-        <span class={labels.length === 0 ? "placeholder" : ""}>
-          {labels.length === 0 ? placeholder : labels.join(", ")}
-        </span>
-        <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="m3.5 6 4.5 4 4.5-4" />
-        </svg>
-      </button>
-      {open && (
-        <div
-          class="select-menu select-menu-floating"
-          style={floatingMenuStyle(trigger.current)}
-          role="listbox"
-          aria-multiselectable="true"
-        >
-          <input
-            class="select-search"
-            type="search"
-            placeholder="Search"
-            value={query}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-          />
-          {filtered.map((option) => {
-            const selected = values.includes(option.value);
-            const choose = () =>
-              onChange(
-                selected
-                  ? values.filter((value) => value !== option.value)
-                  : [...values, option.value],
-              );
-            return (
-              <button
-                type="button"
-                role="option"
-                aria-selected={selected}
-                class="select-option multi-select-option"
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  dismissActiveTextSelection();
-                  choose();
-                }}
-                onClick={(event) => {
-                  if (event.detail === 0) choose();
-                }}
-              >
-                <span class={`multi-check ${selected ? "checked" : ""}`}>
-                  {selected ? "✓" : ""}
-                </span>
-                {option.label}
-              </button>
-            );
-          })}
-          {filtered.length === 0 && (
-            <div class="select-empty">
-              {options.length === 0 ? "Add output columns first" : "No matches"}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function floatingMenuStyle(trigger: HTMLButtonElement | null) {
-  if (trigger === null) return undefined;
-  const bounds = trigger.getBoundingClientRect();
-  const gap = 3;
-  const viewportPadding = 12;
-  const roomBelow = window.innerHeight - bounds.bottom - viewportPadding - gap;
-  const roomAbove = bounds.top - viewportPadding - gap;
-  const openUpward = roomBelow < 120 && roomAbove > roomBelow;
-  const maxHeight = Math.min(
-    320,
-    Math.max(80, openUpward ? roomAbove : roomBelow),
-  );
-  return {
-    top: openUpward ? "auto" : `${bounds.bottom + gap}px`,
-    bottom: openUpward ? `${window.innerHeight - bounds.top + gap}px` : "auto",
-    left: `${Math.max(viewportPadding, bounds.left)}px`,
-    width: `${Math.min(bounds.width, window.innerWidth - viewportPadding * 2)}px`,
-    maxHeight: `${maxHeight}px`,
-  };
-}
-
-function handleSelectKeyDown(
-  event: KeyboardEvent,
-  open: boolean,
-  setOpen: (open: boolean) => void,
-  setQuery: (query: string) => void,
-  root: { current: HTMLDivElement | null },
-  trigger: { current: HTMLButtonElement | null },
-): void {
-  if (event.key === "Escape" && open) {
-    event.preventDefault();
-    setOpen(false);
-    setQuery("");
-    trigger.current?.focus();
-    return;
-  }
-  if (
-    (event.key !== "ArrowDown" && event.key !== "ArrowUp") ||
-    !(event.target instanceof HTMLButtonElement)
-  )
-    return;
-  event.preventDefault();
-  if (!open) {
-    const direction = event.key;
-    setOpen(true);
-    queueMicrotask(() => {
-      const options = [
-        ...(root.current?.querySelectorAll<HTMLButtonElement>(
-          '[role="option"]',
-        ) ?? []),
-      ];
-      const target =
-        direction === "ArrowDown" ? options[0] : options[options.length - 1];
-      target?.focus();
-    });
-    return;
-  }
-  const options = [
-    ...(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
-      []),
-  ];
-  if (options.length === 0) return;
-  const current = options.indexOf(event.target);
-  const next =
-    event.key === "ArrowDown"
-      ? Math.min(current + 1, options.length - 1)
-      : current < 0
-        ? options.length - 1
-        : Math.max(current - 1, 0);
-  options[next]?.focus();
-}
-
-function dismissActiveTextSelection(): void {
-  const active = document.activeElement;
-  if (
-    active instanceof HTMLInputElement ||
-    active instanceof HTMLTextAreaElement
-  ) {
-    const caret = active.selectionEnd;
-    if (caret !== null) active.setSelectionRange(caret, caret);
-    active.blur();
-  }
-  window.getSelection()?.removeAllRanges();
 }
 
 function createColumnDragPreview(
@@ -1236,6 +892,7 @@ function ColumnMappingsEditor({
   const [draggedRow, setDraggedRow] = useState<number>();
   const [dragTargetSlot, setDragTargetSlot] = useState<number>();
   const dragPreview = useRef<HTMLTableElement | null>(null);
+  const rowIds = useStableRowIds(value.length);
   const removeDragPreview = () => {
     dragPreview.current?.remove();
     dragPreview.current = null;
@@ -1299,11 +956,13 @@ function ColumnMappingsEditor({
   const duplicateColumn = (index: number) => {
     const columns = [...value];
     columns.splice(index + 1, 0, structuredClone(value[index]!));
+    rowIds.insert(index + 1);
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
     onChange(columns, keys);
   };
   const deleteColumn = (index: number, name: string) => {
+    rowIds.remove(index);
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
     onChange(
@@ -1334,6 +993,7 @@ function ColumnMappingsEditor({
     );
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
+    rowIds.retain((_, index) => !selectedRows.has(index));
     onChange(
       value.filter((_, index) => !selectedRows.has(index)),
       keys.filter((key) => !deletedNames.has(key)),
@@ -1347,6 +1007,7 @@ function ColumnMappingsEditor({
     const columns = [...value];
     const [column] = columns.splice(from, 1);
     columns.splice(to, 0, column!);
+    rowIds.move(from, to);
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
     onChange(columns, keys);
@@ -1360,6 +1021,7 @@ function ColumnMappingsEditor({
     const columns = [...value];
     const [column] = columns.splice(from, 1);
     columns.splice(target, 0, column!);
+    rowIds.move(from, target);
     setExpandedSettings(new Set());
     setSelectedRows(new Set());
     onChange(columns, keys);
@@ -1419,7 +1081,10 @@ function ColumnMappingsEditor({
             class="add-row-button"
             type="button"
             disabled={disabled}
-            onClick={() => onChange([...value, createValue(node)], keys)}
+            onClick={() => {
+              rowIds.insert(value.length);
+              onChange([...value, createValue(node)], keys);
+            }}
           >
             + Add column
           </button>
@@ -1497,7 +1162,7 @@ function ColumnMappingsEditor({
               const settingsExpanded = expandedSettings.has(index);
               const selected = selectedRows.has(index);
               return (
-                <Fragment key={index}>
+                <Fragment key={rowIds.values[index]}>
                   <tr
                     class={`config-table-row ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
@@ -1783,26 +1448,13 @@ function ColumnActions({
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    const closeOnViewportChange = () => setOpen(false);
-    document.addEventListener("mousedown", closeOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("resize", closeOnViewportChange);
-    window.addEventListener("scroll", closeOnViewportChange, true);
-    return () => {
-      document.removeEventListener("mousedown", closeOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("resize", closeOnViewportChange);
-      window.removeEventListener("scroll", closeOnViewportChange, true);
-    };
-  }, [open]);
+  useAnchoredOverlay({
+    open,
+    root,
+    trigger,
+    onClose: () => setOpen(false),
+    closeOnViewportChange: true,
+  });
   const run = (action: () => void) => {
     setOpen(false);
     action();
@@ -1828,7 +1480,11 @@ function ColumnActions({
         <div
           class="row-actions-menu row-actions-menu-floating"
           role="menu"
-          style={floatingActionsMenuStyle(trigger.current)}
+          style={anchoredMenuStyle(trigger.current, {
+            width: 174,
+            estimatedHeight: 165,
+            align: "end",
+          })}
         >
           {hasSettings && (
             <button
@@ -1876,29 +1532,6 @@ function ColumnActions({
   );
 }
 
-function floatingActionsMenuStyle(trigger: HTMLButtonElement | null) {
-  if (trigger === null) return undefined;
-  const bounds = trigger.getBoundingClientRect();
-  const gap = 3;
-  const viewportPadding = 12;
-  const menuWidth = 174;
-  const estimatedMenuHeight = 165;
-  const roomBelow = window.innerHeight - bounds.bottom - viewportPadding - gap;
-  const roomAbove = bounds.top - viewportPadding - gap;
-  const openUpward = roomBelow < estimatedMenuHeight && roomAbove > roomBelow;
-  return {
-    top: openUpward ? "auto" : `${bounds.bottom + gap}px`,
-    bottom: openUpward ? `${window.innerHeight - bounds.top + gap}px` : "auto",
-    left: `${Math.max(
-      viewportPadding,
-      Math.min(
-        bounds.right - menuWidth,
-        window.innerWidth - menuWidth - viewportPadding,
-      ),
-    )}px`,
-  };
-}
-
 function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
   if (Object.is(left, right)) return true;
   if (Array.isArray(left) && Array.isArray(right))
@@ -1919,6 +1552,26 @@ function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
   return false;
 }
 
+function useStableRowIds(length: number) {
+  const sequence = useRef(0);
+  const values = useRef<string[]>([]);
+  const create = () => `row-${++sequence.current}`;
+  while (values.current.length < length) values.current.push(create());
+  if (values.current.length > length) values.current.length = length;
+  return {
+    values: values.current,
+    insert: (index: number) => values.current.splice(index, 0, create()),
+    remove: (index: number) => values.current.splice(index, 1),
+    retain: (keep: (id: string, index: number) => boolean) => {
+      values.current = values.current.filter(keep);
+    },
+    move: (from: number, to: number) => {
+      const [id] = values.current.splice(from, 1);
+      if (id !== undefined) values.current.splice(to, 0, id);
+    },
+  };
+}
+
 function CompactArrayEditor({
   name,
   node,
@@ -1934,6 +1587,7 @@ function CompactArrayEditor({
   showPartitionRanges: boolean;
   onChange: (value: JsonValue) => void;
 }) {
+  const rowIds = useStableRowIds(value.length);
   const fields =
     node.item.kind === "object"
       ? Object.entries(node.item.properties).filter(
@@ -1974,7 +1628,7 @@ function CompactArrayEditor({
             {value.map((item, index) => {
               const object = isObject(item) ? item : {};
               return (
-                <tr class="config-table-row" key={index}>
+                <tr class="config-table-row" key={rowIds.values[index]}>
                   <td class="row-number">{index + 1}</td>
                   {fields.length > 0 ? (
                     fields.map(([field, child]) => (
@@ -2006,11 +1660,12 @@ function CompactArrayEditor({
                       title={`Remove ${singular}`}
                       aria-label={`Remove ${singular} ${index + 1}`}
                       disabled={disabled}
-                      onClick={() =>
+                      onClick={() => {
+                        rowIds.remove(index);
                         onChange(
                           value.filter((_, itemIndex) => itemIndex !== index),
-                        )
-                      }
+                        );
+                      }}
                     >
                       <TrashIcon />
                     </button>
@@ -2025,7 +1680,10 @@ function CompactArrayEditor({
         class="add-row-button"
         type="button"
         disabled={disabled}
-        onClick={() => onChange([...value, createValue(node.item)])}
+        onClick={() => {
+          rowIds.insert(value.length);
+          onChange([...value, createValue(node.item)]);
+        }}
       >
         + Add {singular}
       </button>
@@ -2146,11 +1804,11 @@ function ByteSizeInput({
   disabled,
   onChange,
 }: {
-  value: number;
+  value: number | null;
   disabled: boolean;
   onChange: (value: JsonValue) => void;
 }) {
-  const [unitIndex, setUnitIndex] = useState(() => bestByteUnit(value));
+  const [unitIndex, setUnitIndex] = useState(() => bestByteUnit(value ?? 0));
   const unit = BYTE_UNITS[unitIndex]!;
   return (
     <div class="byte-size-input">
@@ -2158,10 +1816,15 @@ function ByteSizeInput({
         type="number"
         min={0}
         step="any"
-        value={value / unit.factor}
+        value={value === null ? "" : value / unit.factor}
         disabled={disabled}
         onInput={(event) => {
-          const bytes = Number(event.currentTarget.value) * unit.factor;
+          const raw = event.currentTarget.value;
+          if (raw === "") {
+            onChange(null);
+            return;
+          }
+          const bytes = Number(raw) * unit.factor;
           if (Number.isSafeInteger(bytes) && bytes >= 0) onChange(bytes);
         }}
       />

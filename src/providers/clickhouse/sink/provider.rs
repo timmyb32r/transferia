@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
-use serde_yaml::Value;
 
 use super::client::ReconnectingClient;
 use super::table::{prepare_tables, validate_table_schema};
@@ -21,8 +20,8 @@ pub struct ClickHouseSinkProvider {
 }
 
 impl ClickHouseSinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let config = ClickHouseSinkConfig::from_value(value)?;
+    pub fn from_config(config: ClickHouseSinkConfig) -> anyhow::Result<Self> {
+        config.validate()?;
         let client = Arc::new(ReconnectingClient::new(&config));
         Ok(Self { config, client })
     }

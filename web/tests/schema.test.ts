@@ -93,4 +93,74 @@ describe("schema compiler", () => {
     });
     expect(createValue(node)).toEqual(["first"]);
   });
+
+  it("preserves nullable type arrays", () => {
+    const node = compileSchema({ type: ["string", "null"] });
+    expect(isComplete(node, null)).toBe(true);
+    expect(isComplete(node, "value")).toBe(true);
+    expect(isComplete(node, 1)).toBe(false);
+  });
+
+  it("validates integer ranges", () => {
+    const node = compileSchema({
+      type: "integer",
+      minimum: 1,
+      maximum: 3,
+    });
+    expect(isComplete(node, 1)).toBe(true);
+    expect(isComplete(node, 1.5)).toBe(false);
+    expect(isComplete(node, 4)).toBe(false);
+  });
+
+  it("enforces additionalProperties false", () => {
+    const node = compileSchema({
+      type: "object",
+      properties: { known: { type: "string" } },
+      additionalProperties: false,
+    });
+    expect(isComplete(node, { known: "value" })).toBe(true);
+    expect(isComplete(node, { known: "value", typo: true })).toBe(false);
+  });
+
+  it("rejects schema features the form cannot honor", () => {
+    expect(() => compileSchema({ type: "string", format: "email" })).toThrow(
+      /unsupported JSON Schema format/,
+    );
+    expect(() =>
+      compileSchema({
+        type: "object",
+        additionalProperties: { type: "string" },
+      }),
+    ).toThrow(/schema-valued additionalProperties/);
+    expect(() => compileSchema({ type: "number", enum: [1, 2] })).toThrow(
+      /only string enum and const values/,
+    );
+  });
+
+  it("detects structural reference cycles", () => {
+    expect(() =>
+      compileSchema({
+        $defs: {
+          node: {
+            type: "object",
+            properties: { child: { $ref: "#/$defs/node" } },
+          },
+        },
+        $ref: "#/$defs/node",
+      }),
+    ).toThrow(/cyclic schema reference/);
+  });
+
+  it("rejects inconsistent structural contracts", () => {
+    expect(() =>
+      compileSchema({
+        type: "object",
+        properties: {},
+        required: ["missing"],
+      }),
+    ).toThrow(/missing from properties/);
+    expect(() =>
+      compileSchema({ type: "number", minimum: 2, maximum: 1 }),
+    ).toThrow(/minimum exceeds maximum/);
+  });
 });

@@ -28,6 +28,24 @@ pub struct DeliveryPlan {
     pub finite_source: bool,
 }
 
+pub struct ResolvedDeliveryConfig {
+    pub yaml: String,
+
+    pub composition_fingerprint: String,
+}
+
+impl DeliveryPlan {
+    pub fn resolved_config(
+        &self,
+        composition_fingerprint: &str,
+    ) -> anyhow::Result<ResolvedDeliveryConfig> {
+        Ok(ResolvedDeliveryConfig {
+            yaml: serde_yaml::to_string(&self.config)?,
+            composition_fingerprint: composition_fingerprint.to_owned(),
+        })
+    }
+}
+
 pub async fn build_delivery_plan(
     config: Config,
     cancellation: CancellationToken,
@@ -40,6 +58,23 @@ pub async fn build_delivery_plan_with(
     cancellation: CancellationToken,
     transferia: &Transferia,
 ) -> anyhow::Result<DeliveryPlan> {
+    build_delivery_plan_internal(config, cancellation, transferia, true).await
+}
+
+pub async fn build_resolved_delivery_plan_with(
+    config: Config,
+    cancellation: CancellationToken,
+    transferia: &Transferia,
+) -> anyhow::Result<DeliveryPlan> {
+    build_delivery_plan_internal(config, cancellation, transferia, false).await
+}
+
+async fn build_delivery_plan_internal(
+    mut config: Config,
+    cancellation: CancellationToken,
+    transferia: &Transferia,
+    resolve_installations: bool,
+) -> anyhow::Result<DeliveryPlan> {
     let durable = config.durable_storage.build(&config.delivery_id)?;
     anyhow::ensure!(
         config.pipeline_memory_limit_bytes > 0,
@@ -50,18 +85,32 @@ pub async fn build_delivery_plan_with(
     let catalog = build_provider_catalog_with(transferia, &metrics_registry)?;
     let source_kind = config.source.kind()?.to_owned();
     let sink_kind = config.sink.kind()?.to_owned();
-    let source_config = transferia
-        .registry()
-        .resolve(
-            &source_kind,
-            EndpointRole::Source,
-            config.source.raw()?.clone(),
-        )
-        .await?;
-    let sink_config = transferia
-        .registry()
-        .resolve(&sink_kind, EndpointRole::Sink, config.sink.raw()?.clone())
-        .await?;
+    let source_config = if resolve_installations {
+        transferia
+            .registry()
+            .resolve(
+                &source_kind,
+                EndpointRole::Source,
+                config.source.raw()?.clone(),
+            )
+            .await?
+    } else {
+        config.source.raw()?.clone()
+    };
+    let sink_config = if resolve_installations {
+        transferia
+            .registry()
+            .resolve(&sink_kind, EndpointRole::Sink, config.sink.raw()?.clone())
+            .await?
+    } else {
+        config.sink.raw()?.clone()
+    };
+    config
+        .source
+        .replace_raw(source_kind.clone(), source_config.clone());
+    config
+        .sink
+        .replace_raw(sink_kind.clone(), sink_config.clone());
     let source_provider: Arc<dyn SourceProvider> =
         Arc::from(catalog.build_source(&source_kind, source_config)?);
     let sink_provider: Arc<dyn SinkProvider> =

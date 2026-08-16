@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::ParserEntry;
@@ -43,7 +43,7 @@ pub struct BenchmarkDiscardParserSchema {
 #[derive(JsonSchema)]
 pub struct EmptyParserConfig {}
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
 pub struct ParserConfig {
     pub common: CommonParserConfig,
 
@@ -52,7 +52,7 @@ pub struct ParserConfig {
     pub parser: ParserEntry,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
     #[schemars(title = "Table name")]
@@ -63,7 +63,7 @@ pub struct CommonParserConfig {
     pub system_columns: SystemColumnsConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SystemColumnsConfig {
     #[serde(default)]
@@ -136,7 +136,7 @@ impl SystemColumnsConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TableNaming {
     #[schemars(title = "From config")]

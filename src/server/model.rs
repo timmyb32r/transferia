@@ -3,7 +3,11 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const STATE_VERSION: u32 = 2;
+pub const STATE_VERSION: u32 = 3;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct RunId(pub String);
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
@@ -17,16 +21,30 @@ pub enum ValidationState {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RuntimeState {
     Stopped,
-    Starting,
-    Running { pid: u32 },
-    Stopping,
-    Failed { message: String },
+    Starting { run_id: RunId },
+    Running { run_id: RunId, pid: u32 },
+    Stopping { run_id: RunId },
+    Failed { run_id: RunId, message: String },
 }
 
 impl RuntimeState {
     #[must_use]
     pub const fn is_running_or_transitioning(&self) -> bool {
-        matches!(self, Self::Starting | Self::Running { .. } | Self::Stopping)
+        matches!(
+            self,
+            Self::Starting { .. } | Self::Running { .. } | Self::Stopping { .. }
+        )
+    }
+
+    #[must_use]
+    pub const fn run_id(&self) -> Option<&RunId> {
+        match self {
+            Self::Stopped => None,
+            Self::Starting { run_id }
+            | Self::Running { run_id, .. }
+            | Self::Stopping { run_id }
+            | Self::Failed { run_id, .. } => Some(run_id),
+        }
     }
 }
 
@@ -37,7 +55,11 @@ pub struct DeliveryRecord {
     pub name: String,
     pub description: String,
     pub config: Value,
+
     pub revision: u64,
+
+    pub record_version: u64,
+
     pub validation: ValidationState,
     pub runtime: RuntimeState,
     pub created_at_ms: u64,
@@ -45,12 +67,16 @@ pub struct DeliveryRecord {
 }
 
 impl DeliveryRecord {
-    pub fn normalize_after_server_restart(&mut self) -> bool {
+    pub fn normalize_after_server_restart(&mut self) -> anyhow::Result<bool> {
         if self.runtime.is_running_or_transitioning() {
             self.runtime = RuntimeState::Stopped;
-            return true;
+            self.record_version = self
+                .record_version
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("delivery record version overflow"))?;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 }
 

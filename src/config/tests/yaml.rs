@@ -29,6 +29,33 @@ fn durable_identity_and_storage_are_required_and_validated_explicitly() {
 }
 
 #[test]
+fn yaml_values_are_not_silently_expanded_from_the_environment() -> anyhow::Result<()> {
+    let config = Config::from_yaml(
+        "delivery_id: '${TRANSFERIA_DELIVERY_ID}'\ndelivery_type: batch\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}}\nsink: {b: {}}\n",
+    )?;
+
+    assert_eq!(config.delivery_id, "${TRANSFERIA_DELIVERY_ID}");
+    Ok(())
+}
+
+#[test]
+fn resolved_endpoint_values_can_be_serialized_without_installation_metadata() -> anyhow::Result<()>
+{
+    let mut config = Config::from_yaml(
+        "delivery_id: test\ndelivery_type: batch\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: { a: { installation: { type: managed } } }\nsink: { b: {} }\n",
+    )?;
+    config.source.replace_raw(
+        "a".to_owned(),
+        serde_yaml::from_str("host: resolved.example\nport: 1234\n")?,
+    );
+
+    let yaml = serde_yaml::to_string(&config)?;
+    assert!(yaml.contains("resolved.example"));
+    assert!(!yaml.contains("installation"));
+    Ok(())
+}
+
+#[test]
 fn logbroker_pqv1_driver_to_s3_matches_registered_provider_shapes() -> anyhow::Result<()> {
     let config: Config = serde_yaml::from_str(
         r"

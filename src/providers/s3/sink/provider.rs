@@ -4,7 +4,6 @@ use arrow::datatypes::DataType;
 use chrono::TimeZone as _;
 use futures_util::future::BoxFuture;
 use object_store::path::PathPart;
-use serde_yaml::Value;
 
 use crate::delivery::{
     validate_stored_projection, ArrowTypeFamily, DatasetRole, DeliveryDiscovery, NameSyntax,
@@ -300,9 +299,7 @@ pub struct S3SinkProvider {
 }
 
 impl S3SinkProvider {
-    pub fn from_config(value: Value) -> anyhow::Result<Self> {
-        let cfg: S3SinkConfig = serde_yaml::from_value(value)
-            .map_err(|e| anyhow::anyhow!("Failed to parse S3 sink config: {e}"))?;
+    pub fn from_config(cfg: S3SinkConfig) -> anyhow::Result<Self> {
         cfg.validate()?;
         let uploader = Arc::new(S3Uploader::new(cfg.build_store()?, cfg.upload.clone()));
         Ok(Self { cfg, uploader })
