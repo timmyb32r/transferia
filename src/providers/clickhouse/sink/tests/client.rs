@@ -2,9 +2,76 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, PoisonError};
 
 use arrow::datatypes::{DataType, Field, Schema};
+use tokio::net::TcpListener;
 use tokio::sync::Notify;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 
 use super::*;
+
+const TEST_CA_FILE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/src/providers/clickhouse/sink/tests/fixtures/localhost-ca.pem"
+);
+
+fn tls_server_config() -> anyhow::Result<ServerConfig> {
+    drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
+    let mut certificates =
+        std::io::BufReader::new(include_bytes!("fixtures/localhost-server.pem").as_slice());
+    let certificates = rustls_pemfile::certs(&mut certificates).collect::<Result<Vec<_>, _>>()?;
+    let mut private_key =
+        std::io::BufReader::new(include_bytes!("fixtures/localhost-key.pem").as_slice());
+    let private_key = rustls_pemfile::private_key(&mut private_key)?
+        .ok_or_else(|| anyhow::anyhow!("TLS test fixture has no private key"))?;
+    Ok(ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certificates, private_key)?)
+}
+
+async fn spawn_tls_server(
+) -> anyhow::Result<(u16, tokio::task::JoinHandle<Result<(), std::io::Error>>)> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let acceptor = TlsAcceptor::from(Arc::new(tls_server_config()?));
+    let task = tokio::spawn(async move {
+        let (stream, _) = listener
+            .accept()
+            .await
+            .expect("TLS test listener must accept");
+        acceptor.accept(stream).await.map(|_| ())
+    });
+    Ok((port, task))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn custom_ca_is_verified_and_missing_ca_is_rejected() -> anyhow::Result<()> {
+    let (trusted_port, trusted_server) = spawn_tls_server().await?;
+    let trusted_connector = tokio_rustls::TlsConnector::from(Arc::new(
+        clickhouse_arrow::verified_tls_config(Some(std::path::Path::new(TEST_CA_FILE)))?,
+    ));
+    let trusted_client = trusted_connector.connect(
+        rustls::pki_types::ServerName::try_from("localhost".to_owned())?,
+        tokio::net::TcpStream::connect(("127.0.0.1", trusted_port)).await?,
+    );
+    let (trusted_result, trusted_server_result) = tokio::join!(trusted_client, trusted_server);
+    trusted_result?;
+    trusted_server_result??;
+
+    let (untrusted_port, untrusted_server) = spawn_tls_server().await?;
+    let untrusted_connector =
+        tokio_rustls::TlsConnector::from(Arc::new(clickhouse_arrow::verified_tls_config(None)?));
+    let untrusted_client = untrusted_connector.connect(
+        rustls::pki_types::ServerName::try_from("localhost".to_owned())?,
+        tokio::net::TcpStream::connect(("127.0.0.1", untrusted_port)).await?,
+    );
+    let (untrusted_result, untrusted_server_result) =
+        tokio::join!(untrusted_client, untrusted_server);
+    let untrusted_error = untrusted_result
+        .expect_err("private CA must not be trusted without the configured CA file");
+    assert!(format!("{untrusted_error:#}").contains("UnknownIssuer"));
+    assert!(untrusted_server_result?.is_err());
+    Ok(())
+}
 
 struct BlockingGate {
     open: Mutex<bool>,

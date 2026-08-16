@@ -751,8 +751,6 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 [[package]]
 name = "clickhouse-arrow"
 version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f331a1dd461a7693ecd55372c46c603a1660a238215869ae1a2e35e84ec17099"
 dependencies = [
  "arc-swap",
  "arrow",
@@ -770,6 +768,7 @@ dependencies = [
  "pin-project",
  "rustc-hash",
  "rustc_version",
+ "rustls-pemfile",
  "socket2",
  "strum",
  "thiserror",
@@ -4012,6 +4011,7 @@ dependencies = [
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
+ "tokio-rustls",
  "tokio-stream",
  "tokio-util",
  "tonic",

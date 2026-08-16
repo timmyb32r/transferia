@@ -1,6 +1,10 @@
 [workspace]
 members = [".", "crates/transferia-core"]
+exclude = ["vendor/clickhouse-arrow"]
 resolver = "2"
+
+[patch.crates-io]
+clickhouse-arrow = { path = "vendor/clickhouse-arrow" }
 
 [package]
 name = "transferia"
@@ -73,6 +77,7 @@ tonic-prost-build = "0.14"
 
 [dev-dependencies]
 testcontainers = { version = "0.27.3", features = ["http_wait_plain"] }
+tokio-rustls = "0.26"
 
 [lints.rust]
 unsafe_code = "deny"
