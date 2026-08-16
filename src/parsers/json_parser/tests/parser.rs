@@ -394,12 +394,19 @@ fn oversized_parser_working_set_fails_before_builder_allocation() -> anyhow::Res
 
 #[test]
 fn oversized_record_reports_its_exact_location_and_size() -> anyhow::Result<()> {
-    let parser = parser_for(vec![crate::parsers::json_parser::ColumnMapping::new(
-        "$.value".into(),
-        "value".into(),
-        "Utf8".into(),
-        false,
-    )])?;
+    let parser = JsonParser::new(
+        &parser_config(
+            vec![crate::parsers::json_parser::ColumnMapping::new(
+                "$.value".into(),
+                "value".into(),
+                "Utf8".into(),
+                false,
+            )],
+            JsonFramingMode::JsonLines,
+        ),
+        &crate::parsers::SystemColumnsConfig::default(),
+        "test".into(),
+    )?;
     let oversized_bytes = 4 * 1024 * 1024 + 1;
     let mut payload = b"{}\n".to_vec();
     payload.extend(core::iter::repeat_n(b'x', oversized_bytes));
