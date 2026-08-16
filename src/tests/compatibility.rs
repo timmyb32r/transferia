@@ -19,7 +19,7 @@ fn source_delivery_modes_are_explicit() {
 fn discovery() -> DeliveryDiscovery {
     DeliveryDiscovery {
         source_name: "topic".into(),
-        source_partitions: vec![0],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

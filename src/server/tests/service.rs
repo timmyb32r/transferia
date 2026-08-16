@@ -28,8 +28,7 @@ impl WorkerSupervisor for TestSupervisor {
         &self,
         _delivery_id: &str,
         _run_id: &RunId,
-        _config_yaml: &str,
-        _composition_fingerprint: &str,
+        _config: &transferia::application::delivery_plan::ResolvedDeliveryConfig,
     ) -> Result<super::super::supervisor::WorkerInfo, SupervisorError> {
         Err(SupervisorError::Startup("not configured".to_owned()))
     }
@@ -157,6 +156,48 @@ async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Res
     assert_eq!(updated.description, "description");
     assert_eq!(updated.validation, ValidationState::Draft);
     assert_eq!(updated.runtime, RuntimeState::Stopped);
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivery_names_are_never_silently_trimmed() -> anyhow::Result<()> {
+    let service = service();
+    for name in [" leading", "trailing ", "\tname", "name\n"] {
+        let error = service
+            .create_draft(name.to_owned(), String::new(), serde_json::json!({}))
+            .await
+            .expect_err("surrounding whitespace must be rejected");
+        assert!(
+            matches!(error, ServiceError::InvalidInput(message) if message.contains("leading or trailing whitespace"))
+        );
+    }
+    assert!(service.list().await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_validation_returns_the_committed_record_version() -> anyhow::Result<()> {
+    let service = service();
+    let created = service
+        .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
+        .await?;
+
+    let result = service
+        .validate_saved(
+            &created.id,
+            created.revision,
+            created.record_version,
+            CancellationToken::new(),
+        )
+        .await?;
+
+    assert!(result.discovery.is_none());
+    assert_eq!(result.delivery.record_version, created.record_version + 1);
+    assert!(matches!(
+        result.delivery.validation,
+        ValidationState::Invalid { revision: 1, .. }
+    ));
+    assert_eq!(service.get(&created.id).await?, result.delivery);
     Ok(())
 }
 

@@ -37,7 +37,7 @@ pub async fn run_with(
         supervisor,
         transferia.clone(),
     ));
-    control_plane.spawn_supervisor_monitor();
+    control_plane.spawn_supervisor_monitor()?;
     let catalog = ui_catalog::build_ui_catalog_with(&transferia)?;
     let listener = TcpListener::bind(bind).await?;
     let address = listener.local_addr()?;
@@ -45,9 +45,31 @@ pub async fn run_with(
 
     let shutdown = CancellationToken::new();
     spawn_shutdown_listener(shutdown.clone())?;
-    let result = http::serve(listener, Arc::clone(&control_plane), catalog, shutdown).await;
-    control_plane.shutdown().await?;
-    result
+    let serve = http::serve(
+        listener,
+        Arc::clone(&control_plane),
+        catalog,
+        shutdown.clone(),
+    );
+    tokio::pin!(serve);
+    let (http_result, worker_result) = tokio::select! {
+        result = &mut serve => {
+            shutdown.cancel();
+            (result, control_plane.shutdown().await)
+        }
+        () = shutdown.cancelled() => {
+            let (worker_result, http_result) = tokio::join!(control_plane.shutdown(), &mut serve);
+            (http_result, worker_result)
+        }
+    };
+    match (http_result, worker_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(http), Ok(())) => Err(http),
+        (Ok(()), Err(workers)) => Err(workers.into()),
+        (Err(http), Err(workers)) => Err(anyhow::anyhow!(
+            "HTTP server failed: {http:#}; worker shutdown failed: {workers}"
+        )),
+    }
 }
 
 #[cfg(test)]

@@ -417,7 +417,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
     };
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("topic-a"),
-        source_partitions: vec![3],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![3]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: [

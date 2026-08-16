@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use clap::Parser;
 use tokio::signal;
+use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -96,6 +97,7 @@ async fn run_partition_attempt(
     sink_counters: Arc<SinkCounters>,
     attempt_token: CancellationToken,
     progress: Arc<PipelineProgress>,
+    startup: &mut Option<oneshot::Sender<()>>,
 ) -> anyhow::Result<()> {
     let memory = PipelineMemory::new(deps.memory_limit);
     let source = deps
@@ -119,6 +121,9 @@ async fn run_partition_attempt(
         })
         .await
         .context("sink creation failed")?;
+    if let Some(startup) = startup.take() {
+        let _ignored = startup.send(());
+    }
     run_partition_pipeline_with_progress(
         source,
         Arc::clone(&deps.parser),
@@ -170,10 +175,12 @@ async fn run_partition_task(
     deps: PipelineDeps,
     parse_counters: Arc<ParseCounters>,
     sink_counters: Arc<SinkCounters>,
+    startup: oneshot::Sender<()>,
 ) -> anyhow::Result<()> {
     let mut restart_policy = PartitionRestartPolicy::new();
     let retry_seed = stable_retry_seed(&partition_id.to_le_bytes());
     let progress = Arc::new(PipelineProgress::new());
+    let mut startup = Some(startup);
 
     loop {
         if deps.cancellation.is_cancelled() {
@@ -188,6 +195,7 @@ async fn run_partition_task(
             Arc::clone(&sink_counters),
             attempt_token.clone(),
             Arc::clone(&progress),
+            &mut startup,
         )
         .await;
         // PQ background tasks are children of this token and must never
@@ -226,6 +234,21 @@ async fn run_partition_task(
             () = tokio::time::sleep(restart_delay) => {}
         }
     }
+}
+
+async fn wait_for_partition_startup(
+    receivers: Vec<(i64, oneshot::Receiver<()>)>,
+    cancellation: &CancellationToken,
+) -> anyhow::Result<()> {
+    for (partition_id, receiver) in receivers {
+        tokio::select! {
+            () = cancellation.cancelled() => anyhow::bail!("worker startup was cancelled"),
+            result = receiver => result.with_context(|| {
+                format!("partition {partition_id} stopped before constructing its source and sink")
+            })?,
+        }
+    }
+    Ok(())
 }
 
 fn classify_partition_completion(
@@ -336,9 +359,9 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
     let parses_rows = parser_plan.parses_rows();
     let parser = parser_plan.parser();
 
-    let partitions = source_provider
-        .partitions_for_worker(cli.total_workers, cli.worker_index)
-        .await?;
+    let partitions = discovery
+        .source_topology
+        .partitions_for_worker(cli.total_workers, cli.worker_index)?;
     if partitions.is_empty() {
         tracing::warn!("No source partitions assigned");
         return Ok(());
@@ -369,21 +392,32 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         durable,
     };
     let mut tasks = JoinSet::new();
+    let mut startup_receivers = Vec::new();
     for partition_id in partitions {
         let parse_counters = Arc::new(ParseCounters::new());
         let sink_counters = Arc::new(SinkCounters::new());
         metrics_registry.register_parse(partition_id, parses_rows, Arc::clone(&parse_counters));
         metrics_registry.register_sink(partition_id, Arc::clone(&sink_counters));
         metrics_registry.set_delivery_guarantee(partition_id, semantics.guarantee);
+        let (startup, startup_receiver) = oneshot::channel();
+        startup_receivers.push((partition_id, startup_receiver));
         tasks.spawn(run_partition_task(
             partition_id,
             deps.clone(),
             parse_counters,
             sink_counters,
+            startup,
         ));
     }
+    if let Err(error) = wait_for_partition_startup(startup_receivers, &cancellation).await {
+        stop_partition_tasks(&mut tasks, &cancellation).await;
+        return Err(error);
+    }
     if let Some(parent_control) = &parent_control {
-        parent_control.ready().await?;
+        if let Err(error) = parent_control.ready().await {
+            stop_partition_tasks(&mut tasks, &cancellation).await;
+            return Err(error).context("failed to report worker readiness");
+        }
     }
     while !tasks.is_empty() {
         let result = tokio::select! {

@@ -8,7 +8,7 @@ fn configured_discovery(
 ) -> anyhow::Result<DeliveryDiscovery> {
     DeliveryDiscovery::parser_projection(
         Arc::from("configured-source"),
-        vec![0],
+        crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         source.parser_plan(),
         DeliveryDiscoveryRequest {
             keep_system_columns,
@@ -32,6 +32,7 @@ async fn build_resolved_endpoints(
             source_kind,
             transferia::extension::EndpointRole::Source,
             config.source.raw()?.clone(),
+            CancellationToken::new(),
         )
         .await?;
     let sink_config = transferia
@@ -40,6 +41,7 @@ async fn build_resolved_endpoints(
             sink_kind,
             transferia::extension::EndpointRole::Sink,
             config.sink.raw()?.clone(),
+            CancellationToken::new(),
         )
         .await?;
     Ok((
@@ -76,7 +78,7 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
     };
     let discovery = DeliveryDiscovery {
         source_name: Arc::from("topic"),
-        source_partitions: vec![0],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: transferia::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
@@ -123,6 +125,33 @@ fn rejects_invalid_worker_assignment_before_partitioning() {
     assert!(validate_worker_assignment(&cli).is_err());
     cli.composition_fingerprint = Some("test-composition".to_owned());
     assert!(validate_worker_assignment(&cli).is_ok());
+}
+
+#[tokio::test]
+async fn startup_barrier_requires_every_partition_and_reports_early_exit() {
+    let cancellation = CancellationToken::new();
+    let (first, first_rx) = oneshot::channel();
+    let (second, second_rx) = oneshot::channel::<()>();
+    first.send(()).unwrap();
+    drop(second);
+
+    let error = wait_for_partition_startup(vec![(7, first_rx), (11, second_rx)], &cancellation)
+        .await
+        .expect_err("all assigned partitions must cross the construction barrier");
+    assert!(error.to_string().contains("partition 11"));
+    assert!(error.to_string().contains("source and sink"));
+}
+
+#[tokio::test]
+async fn startup_barrier_is_cancellable() {
+    let cancellation = CancellationToken::new();
+    let (_sender, receiver) = oneshot::channel();
+    cancellation.cancel();
+
+    let error = wait_for_partition_startup(vec![(3, receiver)], &cancellation)
+        .await
+        .expect_err("cancelled startup must stop waiting");
+    assert!(error.to_string().contains("cancelled"));
 }
 
 #[test]

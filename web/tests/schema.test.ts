@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  acceptsDraftSeed,
   compileSchema,
   createValue,
   isComplete,
@@ -162,5 +163,33 @@ describe("schema compiler", () => {
     expect(() =>
       compileSchema({ type: "number", minimum: 2, maximum: 1 }),
     ).toThrow(/minimum exceeds maximum/);
+  });
+
+  it("rejects unknown or malformed x-ui contracts", () => {
+    expect(() =>
+      compileSchema({ type: "string", "x-ui": { widget: "magic" } }),
+    ).toThrow(/unsupported x-ui widget/);
+    expect(() =>
+      compileSchema({ type: "array", items: { type: "string" }, "x-ui": { initial_items: -1 } }),
+    ).toThrow(/initial_items/);
+    expect(() =>
+      compileSchema({ type: "string", "x-ui": { surprise: true } }),
+    ).toThrow(/unsupported x-ui hints/);
+  });
+
+  it("validates draft seeds without requiring deliberately unselected fields", () => {
+    const node = compileSchema({
+      type: "object",
+      properties: {
+        required_choice: { type: "string", enum: ["one", "two"] },
+        count: { type: "integer", minimum: 1 },
+      },
+      required: ["required_choice", "count"],
+      additionalProperties: false,
+    });
+    expect(acceptsDraftSeed(node, {})).toBe(true);
+    expect(acceptsDraftSeed(node, { count: 2 })).toBe(true);
+    expect(acceptsDraftSeed(node, { count: 0 })).toBe(false);
+    expect(acceptsDraftSeed(node, { typo: true })).toBe(false);
   });
 });

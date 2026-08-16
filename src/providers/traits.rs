@@ -33,12 +33,6 @@ pub trait SourceProvider: Send + Sync {
         durable: DurableContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>>;
-
     fn parser_plan(&self) -> &ParserPlan;
 }
 

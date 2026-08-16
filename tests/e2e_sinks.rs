@@ -60,7 +60,7 @@ fn discovery(
 ) -> Arc<DeliveryDiscovery> {
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from(source_name),
-        source_partitions: vec![0],
+        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: vec![
@@ -114,7 +114,7 @@ async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::
     let provider = DiscardSinkProvider::new();
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("benchmark-source"),
-        source_partitions: vec![0],
+        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),

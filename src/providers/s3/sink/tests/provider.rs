@@ -48,7 +48,7 @@ fn discovered_dataset(
 fn discovery(value_type: DataType, value_nullable: bool) -> DeliveryDiscovery {
     DeliveryDiscovery {
         source_name: Arc::from("topic-a"),
-        source_partitions: vec![0],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![
@@ -196,7 +196,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
     let provider = S3SinkProvider::from_config(serde_yaml::from_str("bucket: test\n")?)?;
     let discovery = Arc::new(crate::delivery::DeliveryDiscovery {
         source_name: Arc::from("test"),
-        source_partitions: vec![1, 2],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![1, 2]),
         schema_origin: crate::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),

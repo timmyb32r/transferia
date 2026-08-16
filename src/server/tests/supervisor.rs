@@ -101,10 +101,9 @@ async fn shutdown_cancels_workers_that_are_still_starting() -> anyhow::Result<()
     supervisor.shutdown_all().await?;
 
     assert!(cancellation.is_cancelled());
+    let config = ResolvedDeliveryConfig::test_only("config", "composition");
     assert!(matches!(
-        supervisor
-            .start("other", &run_id, "config", "composition")
-            .await,
+        supervisor.start("other", &run_id, &config).await,
         Err(SupervisorError::ShuttingDown)
     ));
     Ok(())

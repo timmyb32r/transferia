@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compileSchema } from "../src/schema/compiler";
+import { acceptsDraftSeed, compileSchema, draftSeedError } from "../src/schema/compiler";
 import type { UiCatalog } from "../src/types";
 
 const catalogJson = (
@@ -15,16 +15,22 @@ describe("Rust catalog contract", () => {
   contractTest("compiles every schema emitted by the Rust catalog", () => {
     const catalog = JSON.parse(catalogJson!) as UiCatalog;
 
-    expect(() => compileSchema(catalog.common_schema)).not.toThrow();
+    const common = compileSchema(catalog.common_schema);
+    if (common.kind !== "object") throw new Error("common schema must be an object");
+    const commonInitial = Object.fromEntries(
+      Object.entries(catalog.initial).filter(([name]) => common.properties[name] !== undefined),
+    );
+    expect(acceptsDraftSeed(common, commonInitial)).toBe(true);
     let endpointCount = 0;
     for (const provider of catalog.providers) {
       for (const endpoint of [provider.source, provider.sink]) {
         if (endpoint === undefined) continue;
         endpointCount += 1;
+        const compiled = compileSchema(endpoint.schema);
         expect(
-          () => compileSchema(endpoint.schema),
-          `${provider.key} schema must satisfy the UI compiler contract`,
-        ).not.toThrow();
+          acceptsDraftSeed(compiled, endpoint.initial),
+          `${provider.key} initial value must be a valid partial schema value: ${draftSeedError(compiled, endpoint.initial)}`,
+        ).toBe(true);
       }
     }
     expect(endpointCount).toBeGreaterThan(0);

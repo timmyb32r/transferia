@@ -104,7 +104,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
     ]);
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_partitions: vec![0],
+        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

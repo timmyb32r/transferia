@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +15,7 @@ use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::model::RunId;
+use transferia::application::delivery_plan::ResolvedDeliveryConfig;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -68,8 +70,7 @@ pub trait WorkerSupervisor: Send + Sync {
         &self,
         delivery_id: &str,
         run_id: &RunId,
-        config_yaml: &str,
-        composition_fingerprint: &str,
+        config: &ResolvedDeliveryConfig,
     ) -> Result<WorkerInfo, SupervisorError>;
 
     async fn stop(&self, delivery_id: &str, run_id: &RunId) -> Result<(), SupervisorError>;
@@ -117,8 +118,7 @@ impl LocalWorkerSupervisor {
         &self,
         delivery_id: &str,
         run_id: &RunId,
-        config_yaml: &str,
-        composition_fingerprint: &str,
+        config: &ResolvedDeliveryConfig,
     ) -> anyhow::Result<(WorkerInfo, StartupWait)> {
         let runs_dir = self.state_dir.join("runs");
         tokio::fs::create_dir_all(&runs_dir).await?;
@@ -126,7 +126,7 @@ impl LocalWorkerSupervisor {
         let config_path = runs_dir.join(format!("{delivery_id}-{}.yaml", run_id.0));
         let log_path = runs_dir.join(format!("{delivery_id}.log"));
         let temporary_config = TemporaryConfig::new(config_path.clone());
-        secure_write(&config_path, config_yaml.as_bytes()).await?;
+        secure_write(&config_path, config.yaml().as_bytes()).await?;
         let log = secure_log_file(&log_path)?;
         let error_log = log.try_clone()?;
 
@@ -138,7 +138,7 @@ impl LocalWorkerSupervisor {
             .arg(&config_path)
             .arg("--resolved-config")
             .arg("--composition-fingerprint")
-            .arg(composition_fingerprint)
+            .arg(config.composition_fingerprint())
             .arg("--parent-control")
             .arg(control_address.to_string())
             .env(PARENT_TOKEN_ENV, &token)
@@ -215,8 +215,7 @@ impl WorkerSupervisor for LocalWorkerSupervisor {
         &self,
         delivery_id: &str,
         run_id: &RunId,
-        config_yaml: &str,
-        composition_fingerprint: &str,
+        config: &ResolvedDeliveryConfig,
     ) -> Result<WorkerInfo, SupervisorError> {
         let (worker, startup) = {
             let _start = self.start_lock.lock().await;
@@ -226,7 +225,7 @@ impl WorkerSupervisor for LocalWorkerSupervisor {
             if self.workers.lock().await.contains_key(delivery_id) {
                 return Err(SupervisorError::AlreadyRunning(delivery_id.to_owned()));
             }
-            self.spawn_worker(delivery_id, run_id, config_yaml, composition_fingerprint)
+            self.spawn_worker(delivery_id, run_id, config)
                 .await
                 .map_err(|error| SupervisorError::Startup(error.to_string()))?
         };
@@ -441,9 +440,14 @@ async fn run_worker_actor(mut actor: WorkerActor) {
             }
         }
         Some(Err(error)) => {
-            let message = error.to_string();
+            let mut message = error.to_string();
+            if let Err(kill_error) = actor.child.kill().await {
+                let _ = write!(
+                    message,
+                    "; terminating failed worker also failed: {kill_error}"
+                );
+            }
             let _ignored = actor.startup.send(StartupOutcome::Failed(message.clone()));
-            let _ignored = actor.child.kill().await;
             (
                 WorkerOutcome::Exited {
                     success: false,
@@ -454,8 +458,19 @@ async fn run_worker_actor(mut actor: WorkerActor) {
         }
         None => {
             let _ignored = actor.startup.send(StartupOutcome::Cancelled);
-            let _ignored = actor.child.kill().await;
-            (WorkerOutcome::Stopped, Ok(()))
+            match actor.child.kill().await {
+                Ok(()) => (WorkerOutcome::Stopped, Ok(())),
+                Err(error) => {
+                    let message = format!("failed to terminate cancelled worker: {error}");
+                    (
+                        WorkerOutcome::Exited {
+                            success: false,
+                            message: message.clone(),
+                        },
+                        Err(message),
+                    )
+                }
+            }
         }
     };
 

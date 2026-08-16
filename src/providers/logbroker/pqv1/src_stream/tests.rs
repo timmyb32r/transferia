@@ -234,7 +234,10 @@ fn configured_discovery_uses_the_parser_projection() -> anyhow::Result<()> {
         crate::delivery::SchemaOrigin::ParserProjection
     );
     assert_eq!(discovery.source_name.as_ref(), "topic");
-    assert_eq!(discovery.source_partitions, [0]);
+    assert_eq!(
+        discovery.source_topology,
+        crate::delivery::SourceTopology::StaticPartitions(vec![0])
+    );
     assert_eq!(discovery.datasets.len(), 2);
     assert_eq!(
         discovery
@@ -285,11 +288,19 @@ fn missing_partition_group_ids_fails_during_provider_construction() {
         .contains("missing field `partition_group_ids`"));
 }
 
-#[tokio::test]
-async fn static_partitions_are_split_without_truncating_ids() {
+#[test]
+fn static_partitions_are_split_without_truncating_ids() {
     let source = provider(&config("partition_group_ids: [0, 1, 4294967297]\n", "")).unwrap();
+    let discovery = source
+        .configured_delivery_discovery(DeliveryDiscoveryRequest {
+            keep_system_columns: false,
+        })
+        .unwrap();
     assert_eq!(
-        source.partitions_for_worker(2, 1).await.unwrap(),
+        discovery
+            .source_topology
+            .partitions_for_worker(2, 1)
+            .unwrap(),
         vec![1, 4_294_967_297]
     );
 }

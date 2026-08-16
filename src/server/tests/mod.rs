@@ -27,8 +27,7 @@ impl WorkerSupervisor for TestSupervisor {
         &self,
         _delivery_id: &str,
         _run_id: &RunId,
-        _config_yaml: &str,
-        _composition_fingerprint: &str,
+        _config: &transferia::application::delivery_plan::ResolvedDeliveryConfig,
     ) -> Result<WorkerInfo, SupervisorError> {
         Err(SupervisorError::Startup("not configured".to_owned()))
     }

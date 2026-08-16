@@ -78,7 +78,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     ]);
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_partitions: vec![0],
+        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

@@ -15,6 +15,7 @@ async fn on_premise_resolution_flattens_only_installation_fields() -> anyhow::Re
             serde_yaml::from_str(
                 "installation: { type: on_premise, host: localhost, port: 5432, trusted_plaintext: true }\ndatabase: postgres\nusername: user\npassword: secret\ntables: []\n",
             )?,
+            CancellationToken::new(),
         )
         .await?;
     assert_eq!(
@@ -40,6 +41,7 @@ async fn public_composition_rejects_plugin_only_installations() -> anyhow::Resul
             serde_yaml::from_str(
                 "installation: { type: plugin_only }\ndatabase: postgres\nusername: user\npassword: secret\ntables: []\n",
             )?,
+            CancellationToken::new(),
         )
         .await
         .expect_err("public composition must reject plugin-only installation types");
@@ -58,6 +60,7 @@ async fn resolution_rejects_unknown_provider_roles_before_using_raw_config() -> 
             "typo",
             EndpointRole::Source,
             Value::Mapping(Mapping::default()),
+            CancellationToken::new(),
         )
         .await
         .expect_err("unknown providers must not bypass installation resolution");
@@ -345,10 +348,80 @@ async fn resolver_must_satisfy_the_declared_output_contract() -> anyhow::Result<
             "postgres",
             EndpointRole::Source,
             serde_yaml::from_str("installation: { type: incomplete }\n")?,
+            CancellationToken::new(),
         )
         .await
         .expect_err("incomplete resolver output unexpectedly succeeded");
     assert!(error.to_string().contains("omitted required"));
+    Ok(())
+}
+
+struct BlockingResolverExtension;
+
+impl TransferiaExtension for BlockingResolverExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "test-blocking-resolver",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_installation(InstallationRegistration {
+            provider: "postgres",
+            role: EndpointRole::Source,
+            kind: "blocking",
+            title: "Blocking",
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "type": { "const": "blocking" } },
+                "required": ["type"],
+                "additionalProperties": false
+            }),
+            initial: serde_json::json!({ "type": "blocking" }),
+            preferred: true,
+            resolver: Arc::new(BlockingResolver),
+        })
+    }
+}
+
+struct BlockingResolver;
+
+#[async_trait]
+impl InstallationResolver for BlockingResolver {
+    async fn resolve(
+        &self,
+        _installation: Value,
+        context: ResolveContext,
+    ) -> anyhow::Result<Mapping> {
+        context.cancellation.cancelled().await;
+        anyhow::bail!("resolver observed cancellation")
+    }
+}
+
+#[tokio::test]
+async fn installation_resolution_is_cancellable() -> anyhow::Result<()> {
+    let transferia = TransferiaBuilder::new()
+        .with_extension(Arc::new(BlockingResolverExtension))
+        .build()?;
+    let cancellation = CancellationToken::new();
+    let trigger = cancellation.clone();
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        trigger.cancel();
+    });
+
+    let error = transferia
+        .registry()
+        .resolve(
+            "postgres",
+            EndpointRole::Source,
+            serde_yaml::from_str("installation: { type: blocking }\n")?,
+            cancellation,
+        )
+        .await
+        .expect_err("cancelled resolver unexpectedly succeeded");
+    assert!(error.to_string().contains("cancel"));
     Ok(())
 }
 

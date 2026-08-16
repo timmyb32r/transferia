@@ -16,6 +16,7 @@ use crate::compatibility::{
 };
 use crate::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
+    SourceTopology,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -157,9 +158,11 @@ impl SourceProvider for ClickHouseSourceProvider {
                 .collect();
             Ok(DeliveryDiscovery {
                 source_name: Arc::from("clickhouse"),
-                source_partitions: (0..tables.len())
-                    .map(i64::try_from)
-                    .collect::<Result<Vec<_>, _>>()?,
+                source_topology: SourceTopology::StaticPartitions(
+                    (0..tables.len())
+                        .map(i64::try_from)
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: request.keep_system_columns,
                 datasets,
@@ -195,23 +198,6 @@ impl SourceProvider for ClickHouseSourceProvider {
                 self.config.request_timeout(),
                 counters,
             )) as Box<dyn Source>)
-        })
-    }
-
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
-        Box::pin(async move {
-            anyhow::ensure!(
-                total_workers > 0 && worker_index < total_workers,
-                "invalid worker assignment"
-            );
-            Ok((0..self.config.tables.len())
-                .filter(|index| (*index as u32) % total_workers == worker_index)
-                .map(i64::try_from)
-                .collect::<Result<Vec<_>, _>>()?)
         })
     }
 

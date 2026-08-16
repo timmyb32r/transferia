@@ -10,7 +10,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
     ]);
     DeliveryDiscovery {
         source_name: Arc::from("source-topic"),
-        source_partitions: vec![0],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: vec![

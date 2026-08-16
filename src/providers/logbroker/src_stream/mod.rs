@@ -13,7 +13,7 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -86,7 +86,7 @@ impl YdbDriverSourceProvider {
     ) -> anyhow::Result<DeliveryDiscovery> {
         DeliveryDiscovery::parser_projection(
             Arc::from(self.cfg.topics[0].path.as_str()),
-            vec![0],
+            SourceTopology::DynamicWorkerLanes,
             &self.parser_plan,
             request,
         )
@@ -221,15 +221,6 @@ impl SourceProvider for PqV1DriverSourceProvider {
             .build_source(partition_id, cancellation, memory, durable)
     }
 
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
-        self.inner
-            .partitions_for_worker(total_workers, worker_index)
-    }
-
     fn parser_plan(&self) -> &ParserPlan {
         self.inner.parser_plan()
     }
@@ -353,18 +344,6 @@ impl SourceProvider for YdbDriverSourceProvider {
             )
             .await?;
             Ok(Box::new(source) as Box<dyn Source>)
-        })
-    }
-
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
-        Box::pin(async move {
-            anyhow::ensure!(total_workers > 0, "total_workers must be positive");
-            anyhow::ensure!(worker_index < total_workers, "worker_index out of range");
-            Ok(vec![i64::from(worker_index)])
         })
     }
 

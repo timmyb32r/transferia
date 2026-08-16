@@ -31,7 +31,7 @@ describe("editor state", () => {
         revision: 1,
         validation: { state: "draft" },
         runtime: { state: "stopped" },
-        record_version: 1,
+        record_version: "1",
         created_at_ms: 1,
         updated_at_ms: 1,
       },
@@ -95,7 +95,7 @@ describe("editor state", () => {
       savedLocalRevision: 0,
       id: "delivery-2",
       persistedRevision: 4,
-      recordVersion: 8,
+      recordVersion: "8",
       name: "current",
       description: "",
       config: {},
@@ -103,7 +103,7 @@ describe("editor state", () => {
       runtime: { state: "running" as const, run_id: "run-2", pid: 42 },
     };
     const stale = delivery("delivery-2", 4);
-    stale.record_version = 7;
+    stale.record_version = "7";
 
     const next = editorReducer(state, {
       type: "runtime",
@@ -149,7 +149,7 @@ function delivery(id: string, revision: number) {
     revision,
     validation: { state: "draft" as const },
     runtime: { state: "stopped" as const },
-    record_version: 1,
+    record_version: "1",
     created_at_ms: 1,
     updated_at_ms: 1,
   };

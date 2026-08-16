@@ -70,7 +70,7 @@ export interface DeliverySummary {
 }
 
 export interface DeliveryRecord extends DeliverySummary {
-  record_version: number;
+  record_version: string;
   config: JsonObject;
   created_at_ms: number;
 }
@@ -95,6 +95,11 @@ export interface DiscoveryResult {
   sink: string;
   datasets: DatasetView[];
   sink_limits: SinkLimitsDescription;
+}
+
+export interface ValidationCommandResult {
+  delivery: DeliveryRecord;
+  discovery?: DiscoveryResult;
 }
 
 export type NameSyntax =

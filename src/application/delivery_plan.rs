@@ -26,23 +26,42 @@ pub struct DeliveryPlan {
     pub middlewares: Vec<Box<dyn Middleware>>,
     pub semantics: DeliverySemanticsReport,
     pub finite_source: bool,
+
+    composition_fingerprint: String,
 }
 
 pub struct ResolvedDeliveryConfig {
-    pub yaml: String,
+    yaml: String,
 
-    pub composition_fingerprint: String,
+    composition_fingerprint: String,
 }
 
 impl DeliveryPlan {
-    pub fn resolved_config(
-        &self,
-        composition_fingerprint: &str,
-    ) -> anyhow::Result<ResolvedDeliveryConfig> {
+    pub fn resolved_config(&self) -> anyhow::Result<ResolvedDeliveryConfig> {
         Ok(ResolvedDeliveryConfig {
             yaml: serde_yaml::to_string(&self.config)?,
-            composition_fingerprint: composition_fingerprint.to_owned(),
+            composition_fingerprint: self.composition_fingerprint.clone(),
         })
+    }
+}
+
+impl ResolvedDeliveryConfig {
+    #[must_use]
+    pub fn yaml(&self) -> &str {
+        &self.yaml
+    }
+
+    #[must_use]
+    pub fn composition_fingerprint(&self) -> &str {
+        &self.composition_fingerprint
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_only(yaml: &str, composition_fingerprint: &str) -> Self {
+        Self {
+            yaml: yaml.to_owned(),
+            composition_fingerprint: composition_fingerprint.to_owned(),
+        }
     }
 }
 
@@ -85,25 +104,25 @@ async fn build_delivery_plan_internal(
     let catalog = build_provider_catalog_with(transferia, &metrics_registry)?;
     let source_kind = config.source.kind()?.to_owned();
     let sink_kind = config.sink.kind()?.to_owned();
-    let source_config = if resolve_installations {
-        transferia
-            .registry()
-            .resolve(
+    let source_raw = config.source.raw()?.clone();
+    let sink_raw = config.sink.raw()?.clone();
+    let (source_config, sink_config) = if resolve_installations {
+        tokio::try_join!(
+            transferia.registry().resolve(
                 &source_kind,
                 EndpointRole::Source,
-                config.source.raw()?.clone(),
-            )
-            .await?
+                source_raw,
+                cancellation.child_token(),
+            ),
+            transferia.registry().resolve(
+                &sink_kind,
+                EndpointRole::Sink,
+                sink_raw,
+                cancellation.child_token(),
+            ),
+        )?
     } else {
-        config.source.raw()?.clone()
-    };
-    let sink_config = if resolve_installations {
-        transferia
-            .registry()
-            .resolve(&sink_kind, EndpointRole::Sink, config.sink.raw()?.clone())
-            .await?
-    } else {
-        config.sink.raw()?.clone()
+        (source_raw, sink_raw)
     };
     config
         .source
@@ -164,6 +183,7 @@ async fn build_delivery_plan_internal(
         middlewares,
         semantics,
         finite_source,
+        composition_fingerprint: transferia.composition_fingerprint().to_owned(),
     })
 }
 
@@ -174,6 +194,10 @@ pub fn validate_discovered_pipeline(
     discovery: &DeliveryDiscovery,
     keep_system_columns: bool,
 ) -> anyhow::Result<DeliverySemanticsReport> {
+    discovery
+        .source_topology
+        .validate()
+        .context("source topology is invalid")?;
     anyhow::ensure!(
         discovery.keep_system_columns == keep_system_columns,
         "delivery discovery system-column policy differs from pipeline configuration"

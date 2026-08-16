@@ -11,7 +11,7 @@ use super::reader::S3Source;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -85,7 +85,7 @@ impl SourceProvider for S3SourceProvider {
             drop(self.snapshot(&cancellation).await?);
             DeliveryDiscovery::parser_projection(
                 Arc::from(self.config.prefix.as_str()),
-                vec![0],
+                SourceTopology::StaticPartitions(vec![0]),
                 &self.parser_plan,
                 request,
             )
@@ -112,23 +112,6 @@ impl SourceProvider for S3SourceProvider {
                 memory,
                 counters,
             )) as Box<dyn Source>)
-        })
-    }
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
-        Box::pin(async move {
-            anyhow::ensure!(
-                total_workers > 0 && worker_index < total_workers,
-                "invalid worker assignment"
-            );
-            Ok(if worker_index == 0 {
-                vec![0]
-            } else {
-                Vec::new()
-            })
         })
     }
     fn parser_plan(&self) -> &ParserPlan {

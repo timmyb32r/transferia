@@ -7,7 +7,7 @@
       "delivery_type": "stream"
     },
     "revision": 7,
-    "record_version": 11,
+    "record_version": "11",
     "validation": {
       "state": "invalid",
       "revision": 7,

@@ -78,10 +78,59 @@ impl PartialEq<SystemColumnKind> for DiscoveredSystemColumn {
 }
 
 /// Source metadata and every dataset produced by its parser.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceTopology {
+    StaticPartitions(Vec<i64>),
+    DynamicWorkerLanes,
+}
+
+impl SourceTopology {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        let Self::StaticPartitions(partitions) = self else {
+            return Ok(());
+        };
+        anyhow::ensure!(!partitions.is_empty(), "source topology has no partitions");
+        let mut unique = HashSet::with_capacity(partitions.len());
+        for partition in partitions {
+            anyhow::ensure!(
+                *partition >= 0,
+                "source partition must be nonnegative, got {partition}"
+            );
+            anyhow::ensure!(
+                unique.insert(*partition),
+                "source topology repeats partition {partition}"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn partitions_for_worker(
+        &self,
+        total_workers: u32,
+        worker_index: u32,
+    ) -> anyhow::Result<Vec<i64>> {
+        anyhow::ensure!(total_workers > 0, "total_workers must be positive");
+        anyhow::ensure!(worker_index < total_workers, "worker_index out of range");
+        self.validate()?;
+        Ok(match self {
+            Self::StaticPartitions(partitions) => partitions
+                .iter()
+                .copied()
+                .filter(|partition| {
+                    u64::try_from(*partition).is_ok_and(|partition| {
+                        partition % u64::from(total_workers) == u64::from(worker_index)
+                    })
+                })
+                .collect(),
+            Self::DynamicWorkerLanes => vec![i64::from(worker_index)],
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DeliveryDiscovery {
     pub source_name: Arc<str>,
-    pub source_partitions: Vec<i64>,
+    pub source_topology: SourceTopology,
     pub schema_origin: SchemaOrigin,
     pub keep_system_columns: bool,
     pub datasets: Vec<DiscoveredDataset>,
@@ -92,7 +141,7 @@ impl DeliveryDiscovery {
     /// logical rows are defined by a parser plan.
     pub fn parser_projection(
         source_name: Arc<str>,
-        source_partitions: Vec<i64>,
+        source_topology: SourceTopology,
         parser_plan: &ParserPlan,
         request: DeliveryDiscoveryRequest,
     ) -> anyhow::Result<Self> {
@@ -100,21 +149,7 @@ impl DeliveryDiscovery {
             !source_name.is_empty(),
             "discovered source name must not be empty"
         );
-        anyhow::ensure!(
-            !source_partitions.is_empty(),
-            "discovered source partitions must not be empty"
-        );
-        let mut unique_partitions = HashSet::with_capacity(source_partitions.len());
-        for partition in &source_partitions {
-            anyhow::ensure!(
-                *partition >= 0,
-                "discovered source partition must be nonnegative, got {partition}"
-            );
-            anyhow::ensure!(
-                unique_partitions.insert(*partition),
-                "discovered source contains duplicate partition {partition}"
-            );
-        }
+        source_topology.validate()?;
 
         let datasets = if parser_plan.parses_rows() {
             let system_columns = parser_plan.system_columns();
@@ -142,7 +177,7 @@ impl DeliveryDiscovery {
 
         Ok(Self {
             source_name,
-            source_partitions,
+            source_topology,
             schema_origin: SchemaOrigin::ParserProjection,
             keep_system_columns: request.keep_system_columns,
             datasets,

@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::compatibility::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
+use crate::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::pipeline::memory::PipelineMemory;
@@ -204,7 +204,7 @@ impl PqV1SourceProvider {
         // therefore remain the projection declared by the configured parser.
         DeliveryDiscovery::parser_projection(
             Arc::from(self.cfg.topic_path.as_str()),
-            self.cfg.partition_group_ids.clone(),
+            SourceTopology::StaticPartitions(self.cfg.partition_group_ids.clone()),
             &self.parser_plan,
             request,
         )
@@ -534,31 +534,6 @@ impl SourceProvider for PqV1SourceProvider {
                 partition_id,
                 Arc::from(cfg.topic_path),
             )) as Box<dyn Source>)
-        })
-    }
-
-    fn partitions_for_worker(
-        &self,
-        total_workers: u32,
-        worker_index: u32,
-    ) -> BoxFuture<'_, anyhow::Result<Vec<i64>>> {
-        let cfg = self.cfg.clone();
-
-        Box::pin(async move {
-            anyhow::ensure!(total_workers > 0, "total_workers must be positive");
-            anyhow::ensure!(
-                worker_index < total_workers,
-                "worker_index {worker_index} must be less than total_workers {total_workers}"
-            );
-            let total_workers = u64::from(total_workers);
-            let worker_index = u64::from(worker_index);
-            let parts = cfg
-                .partition_group_ids
-                .iter()
-                .filter(|&&id| u64::try_from(id).is_ok_and(|id| id % total_workers == worker_index))
-                .copied()
-                .collect();
-            Ok(parts)
         })
     }
 

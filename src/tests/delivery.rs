@@ -18,7 +18,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
     };
     DeliveryDiscovery {
         source_name: Arc::from("topic"),
-        source_partitions: vec![0],
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns,
         datasets: vec![DiscoveredDataset {
@@ -35,6 +35,33 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
 fn dataset_role_tracks_the_existing_batch_flag() {
     assert_eq!(DatasetRole::from_is_dlq(false), DatasetRole::Main);
     assert_eq!(DatasetRole::from_is_dlq(true), DatasetRole::DeadLetterQueue);
+}
+
+#[test]
+fn static_topology_validates_and_assigns_each_partition_once() -> anyhow::Result<()> {
+    let topology = SourceTopology::StaticPartitions(vec![0, 3, 4, 7]);
+    assert_eq!(topology.partitions_for_worker(3, 0)?, vec![0, 3]);
+    assert_eq!(topology.partitions_for_worker(3, 1)?, vec![4, 7]);
+    assert_eq!(topology.partitions_for_worker(3, 2)?, Vec::<i64>::new());
+
+    assert!(SourceTopology::StaticPartitions(vec![]).validate().is_err());
+    assert!(SourceTopology::StaticPartitions(vec![0, 0])
+        .validate()
+        .is_err());
+    assert!(SourceTopology::StaticPartitions(vec![-1])
+        .validate()
+        .is_err());
+    Ok(())
+}
+
+#[test]
+fn dynamic_topology_assigns_one_lane_per_worker() -> anyhow::Result<()> {
+    let topology = SourceTopology::DynamicWorkerLanes;
+    assert_eq!(topology.partitions_for_worker(3, 0)?, vec![0]);
+    assert_eq!(topology.partitions_for_worker(3, 1)?, vec![1]);
+    assert_eq!(topology.partitions_for_worker(3, 2)?, vec![2]);
+    assert!(topology.partitions_for_worker(3, 3).is_err());
+    Ok(())
 }
 
 #[test]

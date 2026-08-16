@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         metrics,
     )?);
     let cancellation = CancellationToken::new();
-    provider
+    let discovery = provider
         .delivery_discovery(
             DeliveryDiscoveryRequest {
                 keep_system_columns: true,
@@ -48,9 +48,9 @@ async fn main() -> anyhow::Result<()> {
             cancellation.clone(),
         )
         .await?;
-    let reader_lane = provider
-        .partitions_for_worker(1, 0)
-        .await?
+    let reader_lane = discovery
+        .source_topology
+        .partitions_for_worker(1, 0)?
         .into_iter()
         .next()
         .context("YDB Topic provider returned no reader lane")?;

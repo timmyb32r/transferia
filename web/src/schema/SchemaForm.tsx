@@ -17,6 +17,7 @@ import {
   closestArrowType,
   isStringArrowType,
   parsePartitionIds,
+  reconcileSystemColumnKeys,
 } from "./formLogic";
 
 interface SchemaFormProps {
@@ -622,7 +623,18 @@ function JsonParserEditor({
                 node: commonNode.properties.system_columns,
                 value: common.system_columns,
                 onChange: (next: JsonValue) =>
-                  updateCommon("system_columns", next),
+                  onChange({
+                    ...object,
+                    common: { ...common, system_columns: next },
+                    json_parser: {
+                      ...parser,
+                      keys: reconcileSystemColumnKeys(
+                        common.system_columns,
+                        next,
+                        stringArray(parser.keys),
+                      ),
+                    },
+                  }),
               },
             })}
         disabled={disabled}
@@ -810,13 +822,17 @@ function DynamicSelectControl({
   useEffect(() => {
     if (value !== "") load();
   }, [value]);
+  const visibleOptions =
+    value !== "" && !options.some((option) => option.value === value)
+      ? [{ value, label: `${value} (currently configured)` }, ...options]
+      : options;
   return (
     <div class="dynamic-select">
       <SelectControl
         value={value}
         disabled={disabled}
         placeholder={status ?? "Not selected"}
-        options={options}
+        options={visibleOptions}
         searchable
         onOpen={load}
         onChange={onChange}

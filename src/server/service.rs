@@ -92,6 +92,14 @@ pub struct DiscoveryResult {
 }
 
 #[derive(Clone, Debug, Serialize)]
+pub struct ValidationCommandResult {
+    pub delivery: DeliveryRecord,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discovery: Option<DiscoveryResult>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct DatasetView {
     pub role: DatasetRoleView,
     pub name: String,
@@ -129,6 +137,7 @@ pub struct ControlPlane {
     supervisor: Arc<dyn WorkerSupervisor>,
     transferia: Transferia,
     mutation: Mutex<()>,
+    shutdown: CancellationToken,
 }
 
 impl ControlPlane {
@@ -143,6 +152,7 @@ impl ControlPlane {
             supervisor,
             transferia,
             mutation: Mutex::new(()),
+            shutdown: CancellationToken::new(),
         }
     }
 
@@ -240,9 +250,14 @@ impl ControlPlane {
         let yaml = config_yaml_from_json(config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let plan = build_delivery_plan_with(parsed, cancellation, &self.transferia)
-            .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let plan = tokio::select! {
+            () = self.shutdown.cancelled() => {
+                return Err(ServiceError::Conflict("the control plane is shutting down".to_owned()));
+            }
+            result = build_delivery_plan_with(parsed, cancellation, &self.transferia) => {
+                result.map_err(|error| ServiceError::Validation(error.to_string()))?
+            }
+        };
         Ok(discovery_result(
             plan.source_kind,
             plan.sink_kind,
@@ -257,7 +272,7 @@ impl ControlPlane {
         expected_revision: u64,
         expected_record_version: u64,
         cancellation: CancellationToken,
-    ) -> Result<DiscoveryResult, ServiceError> {
+    ) -> Result<ValidationCommandResult, ServiceError> {
         let snapshot = self.store.get(id).await?;
         if snapshot.revision != expected_revision {
             return Err(ServiceError::Conflict(format!(
@@ -288,8 +303,13 @@ impl ControlPlane {
         let expected_record_version = current.record_version;
         current.record_version = next_version(current.record_version)?;
         current.updated_at_ms = now_ms();
-        self.store.replace(current, expected_record_version).await?;
-        result
+        self.store
+            .replace(current.clone(), expected_record_version)
+            .await?;
+        Ok(ValidationCommandResult {
+            delivery: current,
+            discovery: result.ok(),
+        })
     }
 
     pub async fn activate(
@@ -329,12 +349,17 @@ impl ControlPlane {
         let yaml = config_yaml_from_json(&snapshot.config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let plan = build_delivery_plan_with(parsed, CancellationToken::new(), &self.transferia)
-            .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let resolved = plan
-            .resolved_config(self.transferia.composition_fingerprint())
-            .map_err(ServiceError::Internal)?;
+        let plan = tokio::select! {
+            () = self.shutdown.cancelled() => {
+                return Err(ServiceError::Conflict("the control plane is shutting down".to_owned()));
+            }
+            result = build_delivery_plan_with(
+                parsed,
+                self.shutdown.child_token(),
+                &self.transferia,
+            ) => result.map_err(|error| ServiceError::Validation(error.to_string()))?,
+        };
+        let resolved = plan.resolved_config().map_err(ServiceError::Internal)?;
         let run_id = new_run_id()?;
 
         {
@@ -356,16 +381,7 @@ impl ControlPlane {
             self.store.replace(current, expected_record_version).await?;
         }
 
-        let worker = match self
-            .supervisor
-            .start(
-                id,
-                &run_id,
-                &resolved.yaml,
-                &resolved.composition_fingerprint,
-            )
-            .await
-        {
+        let worker = match self.supervisor.start(id, &run_id, &resolved).await {
             Ok(worker) => worker,
             Err(SupervisorError::StartupCancelled) => {
                 self.mark_stopped(id, &run_id).await?;
@@ -375,18 +391,27 @@ impl ControlPlane {
             }
             Err(error) => {
                 let error = ServiceError::from(error);
-                self.mark_failed(id, &run_id, &error.to_string()).await?;
+                if let Err(persist_error) = self.mark_failed(id, &run_id, &error.to_string()).await
+                {
+                    return Err(ServiceError::Internal(anyhow::anyhow!(
+                        "worker startup failed: {error}; persisting the failed state also failed: {persist_error}"
+                    )));
+                }
                 return Err(error);
             }
         };
 
-        let _mutation = self.mutation.lock().await;
+        let mutation = self.mutation.lock().await;
         let mut current = self.store.get(id).await?;
         if current.revision != expected_revision {
-            let _ignored = self.supervisor.stop(id, &run_id).await;
-            return Err(ServiceError::Conflict(format!(
+            let conflict = ServiceError::Conflict(format!(
                 "delivery '{id}' changed while activation was running"
-            )));
+            ));
+            drop(mutation);
+            return match self.supervisor.stop(id, &run_id).await {
+                Ok(()) => Err(conflict),
+                Err(cleanup) => Err(compound_activation_error(&conflict, &cleanup)),
+            };
         }
         if current.runtime
             != (RuntimeState::Starting {
@@ -409,8 +434,12 @@ impl ControlPlane {
             .replace(current.clone(), expected_record_version)
             .await
         {
-            let _ignored = self.supervisor.stop(id, &run_id).await;
-            return Err(error.into());
+            drop(mutation);
+            let persist_error = ServiceError::from(error);
+            return match self.supervisor.stop(id, &run_id).await {
+                Ok(()) => Err(persist_error),
+                Err(cleanup) => Err(compound_activation_error(&persist_error, &cleanup)),
+            };
         }
         Ok(current)
     }
@@ -479,11 +508,8 @@ impl ControlPlane {
         Ok(current)
     }
 
-    pub fn spawn_supervisor_monitor(self: &Arc<Self>) {
-        let Ok(mut events) = self.supervisor.take_events() else {
-            tracing::error!("worker supervisor monitor was started more than once");
-            return;
-        };
+    pub fn spawn_supervisor_monitor(self: &Arc<Self>) -> Result<(), ServiceError> {
+        let mut events = self.supervisor.take_events()?;
         let control_plane = Arc::downgrade(self);
         tokio::spawn(async move {
             loop {
@@ -498,9 +524,11 @@ impl ControlPlane {
                 }
             }
         });
+        Ok(())
     }
 
     pub async fn shutdown(&self) -> Result<(), ServiceError> {
+        self.shutdown.cancel();
         self.supervisor.shutdown_all().await?;
         let _mutation = self.mutation.lock().await;
         for mut record in self.store.list().await? {
@@ -646,12 +674,17 @@ fn validate_name(name: &str) -> Result<String, ServiceError> {
             "delivery name must not be empty".to_owned(),
         ));
     }
-    if trimmed.len() > 128 {
+    if name != trimmed {
+        return Err(ServiceError::InvalidInput(
+            "delivery name must not contain leading or trailing whitespace".to_owned(),
+        ));
+    }
+    if name.len() > 128 {
         return Err(ServiceError::InvalidInput(
             "delivery name must contain at most 128 bytes".to_owned(),
         ));
     }
-    Ok(trimmed.to_owned())
+    Ok(name.to_owned())
 }
 
 fn validate_draft_shape(config: &Value) -> Result<(), ServiceError> {
@@ -709,6 +742,12 @@ fn ensure_record_version(id: &str, actual: u64, expected: u64) -> Result<(), Ser
     Err(ServiceError::Conflict(format!(
         "delivery '{id}' changed: expected record version {expected}, current record version {actual}"
     )))
+}
+
+fn compound_activation_error(primary: &ServiceError, cleanup: &SupervisorError) -> ServiceError {
+    ServiceError::Internal(anyhow::anyhow!(
+        "activation failed: {primary}; stopping the spawned worker also failed: {cleanup}"
+    ))
 }
 
 fn now_ms() -> u64 {

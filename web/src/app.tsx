@@ -109,7 +109,7 @@ export function App() {
       EditorRequestContext,
       undefined,
       {
-        discovery: DiscoveryResult;
+        discovery?: DiscoveryResult;
         delivery: DeliveryRecord;
       }
     >(),
@@ -121,6 +121,7 @@ export function App() {
     new LatestJob<EditorRequestContext, string, { config: JsonObject }>(),
   ).current;
   const yamlEditing = useRef(false);
+  const yamlContext = useRef<EditorRequestContext>();
   const currentEditorContext = useRef<EditorRequestContext>({
     sessionId: editor.sessionId,
     localRevision: editor.localRevision,
@@ -266,6 +267,7 @@ export function App() {
         .then((result) => {
           if (result === undefined || !isCurrentContext(result.context)) return;
           setYaml(result.value.yaml);
+          yamlContext.current = result.context;
           if (!yamlEditing.current) setYamlDraft(result.value.yaml);
         })
         .catch((reason: unknown) => {
@@ -287,10 +289,12 @@ export function App() {
     [catalog, editor.config],
   );
   const structurallyComplete =
+    catalog !== undefined &&
     selection !== undefined &&
     selection.error === undefined &&
     selection.source !== undefined &&
     selection.sink !== undefined &&
+    isComplete(compiledSchema(catalog.common_schema), editor.config) &&
     isComplete(
       compiledSchema(selection.source.schema),
       endpointValue(editor.config, "source", selection.sourceKey),
@@ -375,10 +379,20 @@ export function App() {
     });
   };
   const refreshList = async () => {
-    const result = await listJob.run(undefined, undefined, () =>
-      api.deliveries(),
-    );
-    if (result !== undefined) setDeliveries(result.value);
+    const requestId = beginOperation("list");
+    try {
+      const result = await listJob.run(undefined, undefined, () =>
+        api.deliveries(),
+      );
+      if (result !== undefined) setDeliveries(result.value);
+      finishOperation("list", requestId);
+    } catch (reason) {
+      finishOperation(
+        "list",
+        requestId,
+        `Delivery list refresh failed: ${errorMessage(reason)}`,
+      );
+    }
   };
   const runAction = async (
     label: string,
@@ -455,8 +469,9 @@ export function App() {
     }
   };
   const validate = async () => {
-    const saved =
-      isDirty(editor) || editor.id === undefined ? await save() : undefined;
+    const mustSave = isDirty(editor) || editor.id === undefined;
+    const saved = mustSave ? await save() : undefined;
+    if (mustSave && saved === undefined) return;
     const id = saved?.id ?? editor.id;
     const revision = saved?.revision ?? editor.persistedRevision;
     const recordVersion = saved?.record_version ?? editor.recordVersion;
@@ -476,15 +491,16 @@ export function App() {
     };
     try {
       const result = await validateJob.run(context, undefined, async () => {
-        const nextDiscovery = await api.validate(id, revision, recordVersion);
-        const delivery = await api.delivery(id);
-        return { discovery: nextDiscovery, delivery };
+        return api.validate(id, revision, recordVersion);
       });
       if (result === undefined) {
         finishOperation("validate", requestId);
         return;
       }
-      if (isCurrentContext(result.context))
+      if (
+        result.value.discovery !== undefined &&
+        isCurrentContext(result.context)
+      )
         setDiscovery(result.value.discovery);
       dispatch({
         type: "runtime",
@@ -498,10 +514,37 @@ export function App() {
       finishOperation("validate", requestId, errorMessage(reason));
     }
   };
-  const showYaml = () => {
+  const showYaml = async () => {
     if (activeView === "yaml") return;
+    const context = {
+      sessionId: editor.sessionId,
+      localRevision: editor.localRevision,
+    };
+    let currentYaml = yaml;
+    if (
+      yamlContext.current?.sessionId !== context.sessionId ||
+      yamlContext.current.localRevision !== context.localRevision
+    ) {
+      const requestId = beginOperation("yaml", "Rendering current YAML…");
+      try {
+        const result = await yamlJob.run(context, editor.config, (config, signal) =>
+          api.yaml(config, signal),
+        );
+        if (result === undefined || !isCurrentContext(result.context)) {
+          finishOperation("yaml", requestId);
+          return;
+        }
+        currentYaml = result.value.yaml;
+        setYaml(currentYaml);
+        yamlContext.current = result.context;
+        finishOperation("yaml", requestId);
+      } catch (reason) {
+        finishOperation("yaml", requestId, errorMessage(reason));
+        return;
+      }
+    }
     yamlEditing.current = true;
-    setYamlDraft(yaml);
+    setYamlDraft(currentYaml);
     setActiveView("yaml");
     clearErrors();
   };
@@ -707,7 +750,7 @@ export function App() {
             aria-selected={activeView === "yaml"}
             class={activeView === "yaml" ? "active" : ""}
             disabled={blockingOperation}
-            onClick={showYaml}
+            onClick={() => void showYaml()}
           >
             YAML
           </button>
@@ -739,7 +782,11 @@ export function App() {
         )}
 
         {activeView === "ui" ? (
-          <div class="editor-view" role="tabpanel">
+          <div
+            class="editor-view"
+            role="tabpanel"
+            key={`editor-${editor.sessionId}`}
+          >
             <section class="card identity-card">
               <FieldLabel label="Delivery name" required>
                 <input

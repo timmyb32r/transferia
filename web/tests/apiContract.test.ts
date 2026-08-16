@@ -26,7 +26,7 @@ type ExpectedDeliveryRecord = {
   name: string;
   description: string;
   revision: number;
-  record_version: number;
+  record_version: string;
   validation:
     | { state: "draft" }
     | { state: "ready"; revision: number }

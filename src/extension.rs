@@ -6,6 +6,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value};
 use sha2::{Digest, Sha256};
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bump whenever core changes executable extension behavior without a public
+/// schema change that would otherwise alter the composition fingerprint.
+const CORE_EXTENSION_ABI_VERSION: u32 = 1;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +48,10 @@ pub struct ResolveContext {
     pub provider: String,
 
     pub role: EndpointRole,
+
+    pub cancellation: CancellationToken,
+
+    pub deadline: Instant,
 }
 
 #[async_trait]
@@ -223,6 +234,7 @@ impl ExtensionRegistry {
         provider: &str,
         role: EndpointRole,
         raw: Value,
+        cancellation: CancellationToken,
     ) -> anyhow::Result<Value> {
         anyhow::ensure!(
             crate::providers::catalog::provider_supports_role(provider, role),
@@ -259,16 +271,23 @@ impl ExtensionRegistry {
             .ok_or_else(|| {
                 anyhow::anyhow!("unknown {provider} installation type '{kind}' for {role:?}")
             })?;
-        let resolved = registration
-            .resolver
-            .resolve(
-                installation,
-                ResolveContext {
-                    provider: provider.to_owned(),
-                    role,
-                },
-            )
-            .await?;
+        let deadline = Instant::now() + RESOLVE_TIMEOUT;
+        let context = ResolveContext {
+            provider: provider.to_owned(),
+            role,
+            cancellation: cancellation.clone(),
+            deadline,
+        };
+        let resolved = tokio::select! {
+            () = cancellation.cancelled() => anyhow::bail!("{provider} installation resolution was cancelled"),
+            result = tokio::time::timeout_at(
+                deadline,
+                registration.resolver.resolve(installation, context),
+            ) => result.map_err(|_| anyhow::anyhow!(
+                "{provider} installation resolution exceeded {} seconds",
+                RESOLVE_TIMEOUT.as_secs()
+            ))??,
+        };
         let contract = crate::providers::catalog::installation_contract(provider, role)
             .ok_or_else(|| {
                 anyhow::anyhow!("provider '{provider}' does not support the {role:?} role")
@@ -448,6 +467,7 @@ fn composition_fingerprint(
         .collect::<Vec<_>>();
     let contract = serde_json::json!({
         "core_version": env!("CARGO_PKG_VERSION"),
+        "core_extension_abi": CORE_EXTENSION_ABI_VERSION,
         "extensions": identities,
         "provider_contracts": crate::providers::catalog::provider_contracts(),
         "providers": definitions,

@@ -5,8 +5,8 @@ use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE};
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
+use axum::http::{HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -55,6 +55,7 @@ struct CreateDraftRequest {
 #[serde(deny_unknown_fields)]
 struct UpdateDraftRequest {
     expected_revision: u64,
+    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
     expected_record_version: u64,
     name: String,
     #[serde(default)]
@@ -66,6 +67,7 @@ struct UpdateDraftRequest {
 #[serde(deny_unknown_fields)]
 struct RevisionRequest {
     expected_revision: u64,
+    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
     expected_record_version: u64,
 }
 
@@ -77,6 +79,7 @@ struct RevisionRequest {
 )]
 struct StopRequest {
     expected_revision: u64,
+    #[serde(deserialize_with = "super::model::decimal_u64::deserialize")]
     expected_record_version: u64,
     expected_run_id: String,
 }
@@ -250,7 +253,59 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/api/v1/deliveries/{id}/stop", post(stop))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(axum::middleware::from_fn(no_store))
+        .layer(axum::middleware::from_fn(enforce_loopback_origin))
         .with_state(state)
+}
+
+async fn enforce_loopback_origin(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    for (header, kind) in [(HOST, "Host"), (ORIGIN, "Origin")] {
+        let Some(value) = request.headers().get(header) else {
+            continue;
+        };
+        let Ok(value) = value.to_str() else {
+            return forbidden_boundary(kind);
+        };
+        if !is_loopback_authority(value, kind == "Origin") {
+            return forbidden_boundary(kind);
+        }
+    }
+    next.run(request).await
+}
+
+fn forbidden_boundary(kind: &str) -> Response {
+    error_response(
+        StatusCode::FORBIDDEN,
+        "invalid_request",
+        format!("{kind} must identify this loopback control plane"),
+    )
+}
+
+fn is_loopback_authority(value: &str, is_origin: bool) -> bool {
+    let authority = if is_origin {
+        let Ok(uri) = value.parse::<Uri>() else {
+            return false;
+        };
+        if uri.scheme_str() != Some("http") {
+            return false;
+        }
+        let Some(authority) = uri.authority() else {
+            return false;
+        };
+        authority.clone()
+    } else {
+        let Ok(authority) = value.parse() else {
+            return false;
+        };
+        authority
+    };
+    let host = authority.host().trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
@@ -457,7 +512,7 @@ fn asset(contents: &'static str, content_type: &'static str, html: bool) -> Resp
         response.headers_mut().insert(
             CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
-                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'",
+                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
             ),
         );
     }

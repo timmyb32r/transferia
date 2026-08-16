@@ -9,7 +9,7 @@ export interface EditorState {
   sessionId: EditorSessionId;
   id?: string;
   persistedRevision?: number;
-  recordVersion?: number;
+  recordVersion?: string;
   localRevision: number;
   savedLocalRevision?: number;
   name: string;
@@ -84,7 +84,7 @@ export function editorReducer(
         action.sessionId !== state.sessionId ||
         (state.id !== undefined && action.delivery.id !== state.id) ||
         (state.recordVersion !== undefined &&
-          action.delivery.record_version < state.recordVersion) ||
+          olderToken(action.delivery.record_version, state.recordVersion)) ||
         (state.persistedRevision !== undefined &&
           action.delivery.revision < state.persistedRevision)
       )
@@ -107,7 +107,7 @@ export function editorReducer(
         action.expectedLocalRevision !== state.localRevision ||
         action.delivery.id !== state.id ||
         (state.recordVersion !== undefined &&
-          action.delivery.record_version < state.recordVersion) ||
+          olderToken(action.delivery.record_version, state.recordVersion)) ||
         (state.persistedRevision !== undefined &&
           action.delivery.revision < state.persistedRevision)
       )
@@ -141,3 +141,7 @@ export const isReadOnly = (state: EditorState): boolean =>
   state.runtime.state === "running" ||
   state.runtime.state === "starting" ||
   state.runtime.state === "stopping";
+
+function olderToken(candidate: string, current: string): boolean {
+  return BigInt(candidate) < BigInt(current);
+}

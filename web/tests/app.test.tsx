@@ -167,7 +167,7 @@ describe("App request orchestration", () => {
     });
     vi.mocked(api.activate).mockResolvedValue({
       ...first,
-      record_version: 2,
+      record_version: "2",
       runtime: { state: "running", run_id: "run-1", pid: 42 },
     });
     fireEvent.click(app.getByRole("button", { name: "Activate" }));
@@ -217,6 +217,37 @@ describe("App request orchestration", () => {
       (app.getByLabelText("YAML configuration") as HTMLTextAreaElement).value,
     ).toBe("delivery_type: batch");
   });
+
+  it("validates the committed save even when sidebar refresh fails", async () => {
+    installApiMocks([]);
+    const created = delivery("created", "Created");
+    vi.mocked(api.create).mockResolvedValue(created);
+    vi.mocked(api.deliveries)
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("list unavailable"));
+    vi.mocked(api.validate).mockResolvedValue({
+      delivery: {
+        ...created,
+        record_version: "2",
+        validation: { state: "ready", revision: 1 },
+      },
+      discovery: discovery(),
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    fireEvent.input(app.getByLabelText("Delivery name"), {
+      target: { value: "Created" },
+    });
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await waitFor(() =>
+      expect(api.validate).toHaveBeenCalledWith("created", 1, "1"),
+    );
+    expect(api.delivery).not.toHaveBeenCalled();
+    expect(await app.findByText(/Delivery list refresh failed/)).toBeTruthy();
+  });
 });
 
 function installApiMocks(deliveries: DeliverySummary[]) {
@@ -228,7 +259,10 @@ function installApiMocks(deliveries: DeliverySummary[]) {
   vi.spyOn(api, "yaml").mockResolvedValue({ yaml: "{}" });
   vi.spyOn(api, "parseYaml").mockResolvedValue({ config: {} });
   vi.spyOn(api, "discover").mockResolvedValue(discovery());
-  vi.spyOn(api, "validate").mockResolvedValue(discovery());
+  vi.spyOn(api, "validate").mockResolvedValue({
+    delivery: delivery("validated", "Validated", true),
+    discovery: discovery(),
+  });
   vi.spyOn(api, "activate").mockRejectedValue(new Error("unexpected activate"));
   vi.spyOn(api, "stop").mockRejectedValue(new Error("unexpected stop"));
   vi.spyOn(api, "options").mockResolvedValue({ options: [] });
@@ -242,7 +276,7 @@ function delivery(id: string, name: string, ready = false): DeliveryRecord {
     revision: 1,
     validation: ready ? { state: "ready", revision: 1 } : { state: "draft" },
     runtime: { state: "stopped" },
-    record_version: 1,
+    record_version: "1",
     config: {
       delivery_id: id,
       delivery_type: null,

@@ -395,7 +395,10 @@ parser:
             cancellation.child_token(),
         )
         .await?;
-    assert_eq!(discovery.source_partitions, vec![0]);
+    assert_eq!(
+        discovery.source_topology,
+        transferia::delivery::SourceTopology::StaticPartitions(vec![0])
+    );
 
     let mut source = provider
         .build_source(

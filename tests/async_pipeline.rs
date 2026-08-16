@@ -284,7 +284,7 @@ json_parser:
     Arc::new(
         DeliveryDiscovery::parser_projection(
             Arc::from("topic"),
-            vec![0],
+            transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
             &plan,
             DeliveryDiscoveryRequest {
                 keep_system_columns: false,

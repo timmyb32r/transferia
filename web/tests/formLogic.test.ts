@@ -4,6 +4,7 @@ import {
   closestArrowType,
   isStringArrowType,
   parsePartitionIds,
+  reconcileSystemColumnKeys,
 } from "../src/schema/formLogic";
 
 describe("schema form logic", () => {
@@ -22,5 +23,15 @@ describe("schema form logic", () => {
     expect(closestArrowType("boolean")).toBe("Boolean");
     expect(isStringArrowType("Utf8")).toBe(true);
     expect(isStringArrowType("Int64")).toBe(false);
+  });
+
+  it("keeps parser keys referentially consistent with system columns", () => {
+    expect(
+      reconcileSystemColumnKeys(
+        { topic: "_system_topic", partition: "_system_partition" },
+        { topic: "topic_name", partition: null },
+        ["id", "_system_topic", "_system_partition"],
+      ),
+    ).toEqual(["id", "topic_name"]);
   });
 });

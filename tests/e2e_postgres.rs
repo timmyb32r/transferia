@@ -322,7 +322,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     ]);
     let copy_discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_partitions: vec![0],
+        source_topology: transferia::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {

@@ -202,6 +202,7 @@ function validateKeywords(schema: JsonSchema, path: string): void {
       `${path}: unsupported JSON Schema keywords: ${unsupported.join(", ")}`,
     );
   }
+  validateUiHints(schema["x-ui"], path);
   if (
     schema.format !== undefined &&
     !NUMERIC_FORMATS.has(schema.format)
@@ -258,6 +259,68 @@ function validateKeywords(schema: JsonSchema, path: string): void {
   }
 }
 
+const SUPPORTED_UI_HINTS = new Set([
+  "widget",
+  "section",
+  "initial_items",
+  "dynamic_options",
+  "labels",
+  "options",
+]);
+
+const SUPPORTED_WIDGETS = new Set([
+  "byte_size",
+  "column_keys",
+  "column_mappings",
+  "duration",
+  "hidden",
+  "parser",
+  "parser_common",
+  "partition_ranges",
+  "password",
+  "select",
+  "system_columns",
+]);
+
+function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
+  if (value === undefined) return;
+  const unknown = Object.keys(value).filter((key) => !SUPPORTED_UI_HINTS.has(key));
+  if (unknown.length > 0)
+    throw new SchemaContractError(
+      `${path}: unsupported x-ui hints: ${unknown.join(", ")}`,
+    );
+  if (
+    value.widget !== undefined &&
+    (typeof value.widget !== "string" || !SUPPORTED_WIDGETS.has(value.widget))
+  )
+    throw new SchemaContractError(`${path}: unsupported x-ui widget`);
+  if (
+    value.section !== undefined &&
+    value.section !== "advanced" &&
+    value.section !== "system_columns"
+  )
+    throw new SchemaContractError(`${path}: unsupported x-ui section`);
+  if (
+    value.initial_items !== undefined &&
+    (typeof value.initial_items !== "number" ||
+      !Number.isSafeInteger(value.initial_items) ||
+      value.initial_items < 0)
+  )
+    throw new SchemaContractError(`${path}: x-ui initial_items must be a non-negative integer`);
+  if (
+    value.dynamic_options !== undefined &&
+    typeof value.dynamic_options !== "string"
+  )
+    throw new SchemaContractError(`${path}: x-ui dynamic_options must be a string`);
+  if (
+    value.labels !== undefined &&
+    (typeof value.labels !== "object" || value.labels === null || Array.isArray(value.labels))
+  )
+    throw new SchemaContractError(`${path}: x-ui labels must be an object`);
+  if (value.options !== undefined && !Array.isArray(value.options))
+    throw new SchemaContractError(`${path}: x-ui options must be an array`);
+}
+
 export function createValue(node: CompiledNode): JsonValue {
   if (node.defaultValue !== undefined)
     return structuredClone(node.defaultValue);
@@ -285,6 +348,65 @@ export function createValue(node: CompiledNode): JsonValue {
       return node.minimum ?? 0;
     case "string":
       return node.enumValues?.[0] ?? "";
+  }
+}
+
+export function acceptsDraftSeed(node: CompiledNode, value: JsonValue): boolean {
+  return draftSeedError(node, value) === undefined;
+}
+
+export function draftSeedError(
+  node: CompiledNode,
+  value: JsonValue,
+  path = "#",
+): string | undefined {
+  if (value === null) return undefined;
+  switch (node.kind) {
+    case "nullable":
+      return draftSeedError(node.inner, value, path);
+    case "union":
+      return node.branches.some((branch) => draftSeedError(branch.node, value, path) === undefined)
+        ? undefined
+        : `${path}: value does not match any union branch`;
+    case "object": {
+      if (!isObject(value)) return `${path}: expected an object`;
+      if (
+        !node.additionalProperties &&
+        Object.keys(value).some((name) => node.properties[name] === undefined)
+      )
+        return `${path}: contains an unknown property`;
+      for (const [name, childValue] of Object.entries(value)) {
+        const child = node.properties[name];
+        if (child === undefined) continue;
+        const error = draftSeedError(child, childValue, `${path}/${name}`);
+        if (error !== undefined) return error;
+      }
+      return undefined;
+    }
+    case "array":
+      if (!Array.isArray(value)) return `${path}: expected an array`;
+      for (const [index, item] of value.entries()) {
+        const error = draftSeedError(node.item, item, `${path}/${index}`);
+        if (error !== undefined) return error;
+      }
+      return undefined;
+    case "boolean":
+      return typeof value === "boolean" ? undefined : `${path}: expected a boolean`;
+    case "number":
+      return typeof value === "number" &&
+        Number.isFinite(value) &&
+        (!node.integer || Number.isInteger(value)) &&
+        (node.minimum === undefined || value >= node.minimum) &&
+        (node.maximum === undefined || value <= node.maximum)
+        ? undefined
+        : `${path}: invalid numeric value`;
+    case "string":
+      return value === "" ||
+        (typeof value === "string" &&
+        (node.enumValues === undefined || node.enumValues.includes(value))
+        )
+        ? undefined
+        : `${path}: invalid string value`;
   }
 }
 

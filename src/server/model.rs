@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const STATE_VERSION: u32 = 3;
+pub const STATE_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -58,12 +58,36 @@ pub struct DeliveryRecord {
 
     pub revision: u64,
 
+    #[serde(with = "decimal_u64")]
     pub record_version: u64,
 
     pub validation: ValidationState,
     pub runtime: RuntimeState,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
+}
+
+pub mod decimal_u64 {
+    use serde::{Deserialize as _, Deserializer, Serializer};
+
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `with` module contract passes serialized fields by reference"
+    )]
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&value.to_string())
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 impl DeliveryRecord {

@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use axum::body::to_bytes;
 use axum::http::Request;
 use tower::ServiceExt as _;
@@ -155,6 +156,67 @@ async fn delivery_list_never_returns_config_or_secrets() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn create_rejects_surrounding_name_whitespace_without_persisting() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/deliveries")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":" draft ","config":{}}"#))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("leading or trailing whitespace")));
+
+    let list = app
+        .oneshot(Request::get("/api/v1/deliveries").body(Body::empty())?)
+        .await?;
+    let deliveries: serde_json::Value =
+        serde_json::from_slice(&to_bytes(list.into_body(), 4096).await?)?;
+    assert_eq!(deliveries, serde_json::json!([]));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn validate_returns_the_authoritative_committed_record() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/deliveries")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":"draft","config":{}}"#))?,
+        )
+        .await?;
+    let created: serde_json::Value =
+        serde_json::from_slice(&to_bytes(created.into_body(), 4096).await?)?;
+    let id = created["id"].as_str().context("created id is a string")?;
+    let response = app
+        .oneshot(
+            Request::post(format!("/api/v1/deliveries/{id}/validate"))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"expected_revision":1,"expected_record_version":"1"}"#,
+                ))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    assert_eq!(body["delivery"]["record_version"], "2");
+    assert_eq!(body["delivery"]["validation"]["state"], "invalid");
+    assert!(body.get("discovery").is_none());
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     for (path, content_type) in [
@@ -173,6 +235,52 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
         .oneshot(Request::get("/missing").body(Body::empty())?)
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn browser_boundary_rejects_hostile_host_and_origin() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    for request in [
+        Request::get("/api/v1/health")
+            .header(HOST, "attacker.example")
+            .body(Body::empty())?,
+        Request::get("/api/v1/health")
+            .header(HOST, "127.0.0.1:3000")
+            .header(ORIGIN, "https://attacker.example")
+            .body(Body::empty())?,
+    ] {
+        let response = app.clone().oneshot(request).await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    }
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v1/health")
+                .header(HOST, "[::1]:3000")
+                .header(ORIGIN, "http://localhost:3000")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let html = app
+        .oneshot(
+            Request::get("/")
+                .header(HOST, "localhost:3000")
+                .body(Body::empty())?,
+        )
+        .await?;
+    let csp = html.headers()[CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("CSP is ASCII");
+    assert!(csp.contains("frame-ancestors 'none'"));
+    assert!(csp.contains("base-uri 'none'"));
+    assert!(csp.contains("form-action 'none'"));
+
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

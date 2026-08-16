@@ -84,15 +84,34 @@ describe("control-plane API", () => {
       .mockResolvedValue(new Response(JSON.stringify(record), { status: 200 }));
     vi.stubGlobal("fetch", request);
 
-    await api.stop("delivery-1", 7, 11, "run-a");
+    await api.stop("delivery-1", 7, "11", "run-a");
 
     const [, init] = request.mock.calls[0]! as [string, RequestInit];
     expect(init.body).toBe(
       JSON.stringify({
         expected_revision: 7,
-        expected_record_version: 11,
+        expected_record_version: "11",
         expected_run_id: "run-a",
       }),
+    );
+  });
+
+  it("rejects malformed successful responses at the network boundary", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ...delivery("delivery-1", "Saved"),
+            record_version: 1,
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    await expect(api.delivery("delivery-1")).rejects.toThrow(
+      /record_version: expected a string/,
     );
   });
 });
@@ -105,7 +124,7 @@ function delivery(id: string, name: string) {
     revision: 1,
     validation: { state: "draft" as const },
     runtime: { state: "stopped" as const },
-    record_version: 1,
+    record_version: "1",
     config: {},
     created_at_ms: 1,
     updated_at_ms: 1,
