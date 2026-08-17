@@ -67,6 +67,21 @@ pub struct LogbrokerSourceConfig {
     pub pqv1_discard_before_decompression: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LogbrokerSourceConnectionConfig {
+    pub host: String,
+
+    pub port: u16,
+
+    pub topics: Vec<LogbrokerTopicConfig>,
+
+    pub auth: LogbrokerAuthConfig,
+
+    pub driver: LogbrokerDriver,
+
+    pub trusted_plaintext: bool,
+}
+
 pub(super) const fn default_read_buffer_bytes() -> usize {
     1_048_576
 }

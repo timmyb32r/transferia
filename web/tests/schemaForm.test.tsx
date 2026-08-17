@@ -804,11 +804,19 @@ describe("schema form", () => {
         node={node}
         value={value}
         parserSelectionOnly
+        connectionAction={<button>Check connection</button>}
         onChange={() => undefined}
       />,
     );
     expect(endpoint.container.textContent).toContain("JSON parser");
     expect(endpoint.container.textContent).not.toContain("Output columns");
+    const connectionAction = endpoint.getByRole("button", {
+      name: "Check connection",
+    });
+    const parserSelector = endpoint.container.querySelector(".union-editor")!;
+    expect(connectionAction.compareDocumentPosition(parserSelector)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
 
     const details = render(
       <ParserDetailsForm

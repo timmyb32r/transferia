@@ -217,7 +217,11 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
-            .source_checker::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _, _>(
+            .source_checker::<
+                crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig,
+                _,
+                _,
+            >(
                 |config| async move {
                     crate::providers::logbroker::check_connection(
                         &config,

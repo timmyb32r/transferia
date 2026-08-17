@@ -137,6 +137,33 @@ fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn logbroker_connection_check_does_not_require_a_parser_configuration() -> anyhow::Result<()>
+{
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let config = serde_yaml::to_value(serde_json::json!({
+        "host": "",
+        "port": 2135,
+        "topics": [{ "path": "cdc/prod/logs", "partitions": [] }],
+        "consumer_name": "consumer",
+        "auth": { "type": "token", "token": "test" },
+        "driver": "ydb",
+        "trusted_plaintext": true,
+        "allow_ttl_rewind": false,
+        "parser": {},
+        "read_buffer_bytes": 1_048_576
+    }))?;
+
+    let error = catalog
+        .check_connection("logbroker", crate::extension::EndpointRole::Source, config)
+        .await
+        .expect_err("the intentionally empty host must fail validation");
+    let message = error.to_string();
+    assert!(message.contains("logbroker.host"), "{message}");
+    assert!(!message.contains("missing field `common`"), "{message}");
+    Ok(())
+}
+
 #[test]
 fn provider_descriptors_are_the_authoritative_runtime_catalog() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;

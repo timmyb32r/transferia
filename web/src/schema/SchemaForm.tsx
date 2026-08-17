@@ -184,10 +184,16 @@ function NodeEditor({
       const connectionActionFollowsSecret = regular.some(
         ([, child]) => child.xUi.widget === "password",
       );
+      const connectionActionPrecedesParser =
+        !connectionActionFollowsSecret &&
+        regular.some(([, child]) => child.xUi.widget === "parser");
       return (
         <div class="schema-object">
           {regular.map(([name, child]) => (
             <Fragment key={name}>
+              {connectionActionPrecedesParser &&
+                child.xUi.widget === "parser" &&
+                connectionAction}
               <PropertyEditor
                 name={name}
                 node={child}
@@ -203,7 +209,9 @@ function NodeEditor({
               {child.xUi.widget === "password" && connectionAction}
             </Fragment>
           ))}
-          {!connectionActionFollowsSecret && connectionAction}
+          {!connectionActionFollowsSecret &&
+            !connectionActionPrecedesParser &&
+            connectionAction}
           {shardGroup.length > 0 && (
             <Disclosure label="Shard group" class="shard-group-settings">
               {shardGroup.map(([name, child]) => (

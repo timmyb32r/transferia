@@ -24,6 +24,7 @@ use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, Sourc
 #[cfg(test)]
 use crate::providers::logbroker::LogbrokerAuthConfig;
 use crate::providers::logbroker::LogbrokerDriver;
+pub(crate) use config::LogbrokerSourceConnectionConfig;
 pub use config::{LogbrokerSourceConfig, LogbrokerTopicConfig};
 use source::YdbTopicSource;
 
@@ -193,11 +194,11 @@ pub fn build_source_provider(
     }
 }
 
-pub async fn check_connection(
-    cfg: &LogbrokerSourceConfig,
+pub(crate) async fn check_connection(
+    cfg: &LogbrokerSourceConnectionConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
-    validate_config(cfg)?;
+    validate_connection_config(cfg)?;
     check_topic_connection(
         &cfg.host,
         cfg.port,
@@ -207,6 +208,21 @@ pub async fn check_connection(
         cancellation,
     )
     .await
+}
+
+fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::Result<()> {
+    crate::providers::address::validate_host("logbroker.host", &cfg.host)?;
+    crate::providers::address::validate_port("logbroker.port", cfg.port)?;
+    anyhow::ensure!(!cfg.topics.is_empty(), "logbroker.topics must not be empty");
+    anyhow::ensure!(
+        !cfg.topics[0].path.is_empty(),
+        "logbroker.topics[0].path must not be empty"
+    );
+    anyhow::ensure!(
+        cfg.trusted_plaintext,
+        "logbroker.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
+    );
+    cfg.auth.validate()
 }
 
 pub(crate) async fn check_topic_connection(
