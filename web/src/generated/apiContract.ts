@@ -191,10 +191,38 @@ export type MessagePreviewRequest = {
 };
 
 export type MessagePreviewResult = {
-  text: string;
+  text_preview: string;
+  payload_preview_base64: string;
   payload_base64: string;
   byte_length: number;
+  preview_bytes: number;
+  metadata: MessagePreviewMetadata;
   detections: Array<ParserDetection>;
+};
+
+export type MessagePreviewMetadata = {
+  topic: string;
+  partition: number;
+  partition_session_id: number;
+  offset: number;
+  sequence_number: number;
+  created_at_ms?: number | null;
+  written_at_ms?: number | null;
+  producer_id: string;
+  message_group_id?: string | null;
+  codec: string;
+  compressed_size: number;
+  declared_uncompressed_size?: number | null;
+  message_metadata: Array<MessagePreviewMetadataItem>;
+  write_session_metadata: {
+    [key: string]: string;
+  };
+};
+
+export type MessagePreviewMetadataItem = {
+  key: string;
+  value_base64: string;
+  value_text?: string | null;
 };
 
 export type ParserDetection = {

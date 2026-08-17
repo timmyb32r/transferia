@@ -104,7 +104,7 @@ export function EndpointCard(props: {
         {
           provider: props.selectedKey,
           config: isObject(value) ? value : {},
-          max_bytes: 16 * 1024 * 1024,
+          max_bytes: 32 * 1024 * 1024,
         },
         request.signal,
       );

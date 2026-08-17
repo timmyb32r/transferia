@@ -707,15 +707,6 @@ pub(super) async fn preview_message(
                     for partition in response.partition_data {
                         let (topic, partition_id) = sessions.get(&partition.partition_session_id)
                             .ok_or_else(|| anyhow!("YDB Topic preview received data for an unknown partition session"))?;
-                        let declared = partition.batches.iter().flat_map(|batch| &batch.message_data)
-                            .try_fold(0usize, |total, message| {
-                                let size = usize::try_from(message.uncompressed_size).ok()?;
-                                total.checked_add(size.max(message.data.len()))
-                            }).ok_or_else(|| anyhow!("YDB Topic preview response has invalid declared size"))?;
-                        anyhow::ensure!(
-                            declared <= max_bytes,
-                            "source message preview requires {declared} bytes, exceeding requested max_bytes={max_bytes}"
-                        );
                         for batch in partition.batches {
                             let codec = Codec::try_from(batch.codec)
                                 .map_err(|_| anyhow!("YDB Topic returned unknown codec {}", batch.codec))?;
@@ -727,6 +718,11 @@ pub(super) async fn preview_message(
                                     .ok()
                                     .filter(|size| *size > 0);
                                 let payload = decode_message(codec, message.data)?;
+                                anyhow::ensure!(
+                                    payload.len() <= max_bytes,
+                                    "source message preview payload is {} bytes, exceeding max_bytes={max_bytes}",
+                                    payload.len()
+                                );
                                 return Ok(PreviewMessage {
                                     payload,
                                     metadata: PreviewMessageMetadata {

@@ -28,7 +28,7 @@ pub use config::{LogbrokerSourceConfig, LogbrokerTopicConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
-const CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
+const CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";
 

@@ -823,7 +823,10 @@
     "MessagePreviewResult": {
       "type": "object",
       "properties": {
-        "text": {
+        "text_preview": {
+          "type": "string"
+        },
+        "payload_preview_base64": {
           "type": "string"
         },
         "payload_base64": {
@@ -834,6 +837,14 @@
           "format": "uint",
           "minimum": 0
         },
+        "preview_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "metadata": {
+          "$ref": "#/$defs/MessagePreviewMetadata"
+        },
         "detections": {
           "type": "array",
           "items": {
@@ -843,10 +854,123 @@
       },
       "additionalProperties": false,
       "required": [
-        "text",
+        "text_preview",
+        "payload_preview_base64",
         "payload_base64",
         "byte_length",
+        "preview_bytes",
+        "metadata",
         "detections"
+      ]
+    },
+    "MessagePreviewMetadata": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "partition": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "partition_session_id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "offset": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "sequence_number": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "created_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "written_at_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "producer_id": {
+          "type": "string"
+        },
+        "message_group_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "codec": {
+          "type": "string"
+        },
+        "compressed_size": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "declared_uncompressed_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "message_metadata": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MessagePreviewMetadataItem"
+          }
+        },
+        "write_session_metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "topic",
+        "partition",
+        "partition_session_id",
+        "offset",
+        "sequence_number",
+        "producer_id",
+        "codec",
+        "compressed_size",
+        "message_metadata",
+        "write_session_metadata"
+      ]
+    },
+    "MessagePreviewMetadataItem": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value_base64": {
+          "type": "string"
+        },
+        "value_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "value_base64"
       ]
     },
     "ParserDetection": {

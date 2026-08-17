@@ -33,7 +33,8 @@ export function MessagePreviewDialog({
     return () => document.removeEventListener("keydown", keydown);
   }, [onClose]);
   const previewBytes = useMemo(
-    () => (result ? decodeBase64(result.payload_preview_base64) : new Uint8Array()),
+    () =>
+      result ? decodeBase64(result.payload_preview_base64) : new Uint8Array(),
     [result],
   );
   const fullBytes = useMemo(
@@ -108,8 +109,11 @@ export function MessagePreviewDialog({
             {truncated && (
               <div class="message-preview-truncation" role="note">
                 <span>
-                  Showing {formatBytes(showFull ? result.byte_length : result.preview_bytes)} of{" "}
-                  {formatBytes(result.byte_length)}
+                  Showing{" "}
+                  {formatBytes(
+                    showFull ? result.byte_length : result.preview_bytes,
+                  )}{" "}
+                  of {formatBytes(result.byte_length)}
                 </span>
                 <Button onClick={() => setShowFull((current) => !current)}>
                   {showFull ? "Show 16 KiB preview" : "View full"}
@@ -176,13 +180,11 @@ function hexDump(bytes: Uint8Array): string {
   for (let offset = 0; offset < bytes.length; offset += 16) {
     const slice = bytes.slice(offset, offset + 16);
     const address = offset.toString(16).padStart(8, "0");
-    const hex = Array.from(slice, (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    )
+    const hex = Array.from(slice, (byte) => byte.toString(16).padStart(2, "0"))
       .join(" ")
       .padEnd(47, " ");
     const ascii = Array.from(slice, (byte) =>
-        byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : "·",
+      byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : "·",
     ).join("");
     rows.push(`${address}  ${hex}  ${ascii}`);
   }
@@ -205,7 +207,7 @@ function MessageMetadata({ result }: { result: MessagePreviewResult }) {
     ["Compressed size", formatBytes(metadata.compressed_size)],
     [
       "Declared uncompressed size",
-      metadata.declared_uncompressed_size === null
+      metadata.declared_uncompressed_size == null
         ? "Not provided"
         : formatBytes(metadata.declared_uncompressed_size),
     ],
@@ -262,8 +264,8 @@ function MetadataGroup({
   );
 }
 
-function formatTimestamp(value: number | null): string {
-  return value === null ? "Not provided" : new Date(value).toISOString();
+function formatTimestamp(value: number | null | undefined): string {
+  return value == null ? "Not provided" : new Date(value).toISOString();
 }
 
 function formatBytes(value: number): string {

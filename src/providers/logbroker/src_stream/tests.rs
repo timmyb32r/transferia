@@ -33,6 +33,11 @@ fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() 
 }
 
 #[test]
+fn control_plane_streams_accept_thirty_two_mebibyte_grpc_messages() {
+    assert_eq!(CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES, 32 * 1024 * 1024);
+}
+
+#[test]
 fn read_credit_is_withheld_until_every_read_batch_is_committed() {
     let mut credit = 8_243_154;
     assert_eq!(take_releasable_credit(&mut credit, 1), 0);

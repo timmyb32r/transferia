@@ -233,7 +233,7 @@ impl ControlPlane {
         max_bytes: usize,
         cancellation: CancellationToken,
     ) -> Result<MessagePreviewResult, ServiceError> {
-        const MAX_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024 * 1024;
+        const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
         if !(1..=MAX_MESSAGE_PREVIEW_BYTES).contains(&max_bytes) {
             return Err(ServiceError::Validation(format!(
                 "message preview max_bytes must be in 1..={MAX_MESSAGE_PREVIEW_BYTES}"
