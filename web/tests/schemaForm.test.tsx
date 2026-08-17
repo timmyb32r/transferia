@@ -103,8 +103,8 @@ describe("schema form", () => {
     const newRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
     const options = vi
       .spyOn(api, "options")
-      .mockImplementation((source) =>
-        source === "old-options" ? oldRequest.promise : newRequest.promise,
+      .mockImplementation(({ key }) =>
+        key === "old-options" ? oldRequest.promise : newRequest.promise,
       );
     const dynamicNode = (source: string): CompiledNode => ({
       kind: "string",
@@ -118,12 +118,11 @@ describe("schema form", () => {
       />,
     );
     await waitFor(() =>
-      expect(options).toHaveBeenCalledWith(
-        "old-options",
-        {},
-        false,
-        expect.anything(),
-      ),
+      expect(options).toHaveBeenCalledWith({
+        key: "old-options",
+        dependencies: {},
+        signal: expect.anything(),
+      }),
     );
 
     view.rerender(
@@ -134,12 +133,11 @@ describe("schema form", () => {
       />,
     );
     await waitFor(() =>
-      expect(options).toHaveBeenCalledWith(
-        "new-options",
-        {},
-        false,
-        expect.anything(),
-      ),
+      expect(options).toHaveBeenCalledWith({
+        key: "new-options",
+        dependencies: {},
+        signal: expect.anything(),
+      }),
     );
     newRequest.resolve({
       options: [{ value: "selected", label: "New option" }],
@@ -290,7 +288,11 @@ describe("schema form", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
 
-    expect(options).toHaveBeenCalledWith("clusters", {}, false, expect.anything());
+    expect(options).toHaveBeenCalledWith({
+      key: "clusters",
+      dependencies: {},
+      signal: expect.anything(),
+    });
     expect(await form.findByRole("option", { name: "Cluster" })).toBeTruthy();
     view.unmount();
     options.mockRestore();
@@ -334,12 +336,11 @@ describe("schema form", () => {
     const form = within(view.container as HTMLElement);
     fireEvent.pointerDown(form.getByRole("button", { name: "Database" }));
     await waitFor(() =>
-      expect(options).toHaveBeenCalledWith(
-        "databases",
-        { cluster_id: "mdb1" },
-        false,
-        expect.anything(),
-      ),
+      expect(options).toHaveBeenCalledWith({
+        key: "databases",
+        dependencies: { cluster_id: "mdb1" },
+        signal: expect.anything(),
+      }),
     );
 
     view.rerender(

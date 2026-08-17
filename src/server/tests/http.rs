@@ -309,6 +309,10 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
         javascript.contains("transferia-schema-dialect-dynamic-options-dependencies-v1"),
         "embedded UI bundle must declare support for dependency-aware catalog fields"
     );
+    assert!(
+        javascript.contains("transferia-options-post-v1"),
+        "embedded UI bundle must declare the POST options transport"
+    );
     let response = app
         .oneshot(Request::get("/missing").body(Body::empty())?)
         .await?;

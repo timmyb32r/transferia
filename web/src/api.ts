@@ -10,7 +10,16 @@ import type {
   UpdateDraftRequest,
   YamlRequest,
 } from "./generated/apiContract";
+
+export const OPTIONS_TRANSPORT_VERSION = "transferia-options-post-v1";
 import type { JsonObject } from "./json";
+
+export interface DynamicOptionsQuery {
+  key: string;
+  dependencies?: Record<string, string>;
+  refresh?: boolean;
+  signal?: AbortSignal;
+}
 
 async function request<Name extends ApiContractName>(
   path: string,
@@ -44,12 +53,12 @@ function json(value: object): string {
 
 export const api = {
   catalog: () => request("/api/v1/catalog", "catalog_response"),
-  options: (
-    key: string,
-    dependencies: Record<string, string> = {},
+  options: ({
+    key,
+    dependencies = {},
     refresh = false,
-    signal?: AbortSignal,
-  ) => {
+    signal,
+  }: DynamicOptionsQuery) => {
     const body: OptionsRequest = { refresh, dependencies };
     return request(
       `/api/v1/options/${encodeURIComponent(key)}`,

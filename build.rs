@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 }
 
 fn build_server_ui() -> Result<(), Box<dyn core::error::Error>> {
+    use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -34,8 +35,17 @@ fn build_server_ui() -> Result<(), Box<dyn core::error::Error>> {
         return Ok(());
     }
 
-    if !PathBuf::from("web/node_modules").is_dir() {
-        return Err("web dependencies are missing; run `npm ci --prefix web`".into());
+    let package_lock = fs::read("web/package-lock.json")?;
+    let dependency_stamp = PathBuf::from("web/node_modules/.transferia-package-lock.json");
+    if fs::read(&dependency_stamp).ok().as_deref() != Some(package_lock.as_slice()) {
+        let status = Command::new("npm")
+            .args(["ci", "--prefer-offline", "--no-audit", "--no-fund"])
+            .current_dir("web")
+            .status()?;
+        if !status.success() {
+            return Err(format!("server UI dependency installation failed: {status}").into());
+        }
+        fs::write(dependency_stamp, package_lock)?;
     }
     let output =
         PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?).join("server-ui");

@@ -83,7 +83,10 @@ describe("control-plane API", () => {
     );
     vi.stubGlobal("fetch", request);
 
-    await api.options("databases", { cluster_id: "mdb1" });
+    await api.options({
+      key: "databases",
+      dependencies: { cluster_id: "mdb1" },
+    });
 
     expect(request).toHaveBeenCalledWith(
       "/api/v1/options/databases",

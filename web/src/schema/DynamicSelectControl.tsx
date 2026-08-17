@@ -33,7 +33,7 @@ export function DynamicSelectControl({
     setStatus("Loading…");
     void optionsJob
       .run(`${source}:${dependencyKey}`, source, (key, signal) =>
-        api.options(key, dependencies, false, signal),
+        api.options({ key, dependencies, signal }),
       )
       .then((result) => {
         if (result === undefined) return;

@@ -8,7 +8,7 @@ import {
   useState,
 } from "preact/hooks";
 
-import { api } from "./api";
+import { api, OPTIONS_TRANSPORT_VERSION } from "./api";
 import { DeliveryConfiguration } from "./delivery/DeliveryConfiguration";
 import {
   DeliverySidebar,
@@ -444,4 +444,5 @@ export function App() {
 
 const appRoot = document.getElementById("app");
 document.documentElement.dataset.schemaDialect = SCHEMA_DIALECT_VERSION;
+document.documentElement.dataset.optionsTransport = OPTIONS_TRANSPORT_VERSION;
 if (appRoot !== null) render(<App />, appRoot);
