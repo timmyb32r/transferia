@@ -1,4 +1,4 @@
-import { createContext } from "preact";
+import { createContext, Fragment, type ComponentChildren } from "preact";
 import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
@@ -33,6 +33,7 @@ interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
+  connectionAction?: ComponentChildren;
 }
 
 const ParserSelectionContext = createContext(false);
@@ -47,6 +48,7 @@ export function SchemaForm({
   parserSelectionOnly = false,
   showRequiredErrors = false,
   optionOverrides = {},
+  connectionAction,
   onChange,
 }: SchemaFormProps) {
   return (
@@ -58,6 +60,7 @@ export function SchemaForm({
               node={node}
               value={value}
               disabled={disabled}
+              connectionAction={connectionAction}
               onChange={onChange}
               path="#"
             />
@@ -123,6 +126,7 @@ function NodeEditor({
   onChange,
   path = "#",
   controlId,
+  connectionAction,
 }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
@@ -177,51 +181,32 @@ function NodeEditor({
       const shardGroup = visible.filter(
         ([, child]) => child.xUi.section === "shard_group",
       );
+      const connectionActionFollowsSecret = regular.some(
+        ([, child]) => child.xUi.widget === "password",
+      );
       return (
         <div class="schema-object">
           {regular.map(([name, child]) => (
-            <PropertyEditor
-              key={name}
-              name={name}
-              node={child}
-              required={node.required.has(name)}
-              value={object[name]}
-              disabled={isDisabled}
-              showPartitionRanges={partitionRangesVisible}
-              parentValue={object}
-              onParentChange={onChange}
-              path={`${path}/${name}`}
-              onChange={(next) => onChange({ ...object, [name]: next })}
-            />
+            <Fragment key={name}>
+              <PropertyEditor
+                name={name}
+                node={child}
+                required={node.required.has(name)}
+                value={object[name]}
+                disabled={isDisabled}
+                showPartitionRanges={partitionRangesVisible}
+                parentValue={object}
+                onParentChange={onChange}
+                path={`${path}/${name}`}
+                onChange={(next) => onChange({ ...object, [name]: next })}
+              />
+              {child.xUi.widget === "password" && connectionAction}
+            </Fragment>
           ))}
-          {(advanced.length > 0 || partitionRanges !== undefined) && (
-            <Disclosure label="Advanced settings">
-              {partitionRanges !== undefined && (
-                <div class="form-row partition-mode-control">
-                  <span class="field-label">Specify partitions</span>
-                  <label class="toggle">
-                    <input
-                      type="checkbox"
-                      aria-label="Specify partitions"
-                      checked={partitionRangesVisible}
-                      disabled={isDisabled}
-                      onChange={(event) => {
-                        const visible = event.currentTarget.checked;
-                        setPartitionRangesVisible(visible);
-                        if (!visible) {
-                          onChange(
-                            clearConfiguredPartitionRanges(
-                              object,
-                              partitionRanges,
-                            ),
-                          );
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
-              {advanced.map(([name, child]) => (
+          {!connectionActionFollowsSecret && connectionAction}
+          {shardGroup.length > 0 && (
+            <Disclosure label="Shard group" class="shard-group-settings">
+              {shardGroup.map(([name, child]) => (
                 <PropertyEditor
                   key={name}
                   name={name}
@@ -251,9 +236,34 @@ function NodeEditor({
               ))}
             </Disclosure>
           )}
-          {shardGroup.length > 0 && (
-            <Disclosure label="Shard group" class="shard-group-settings">
-              {shardGroup.map(([name, child]) => (
+          {(advanced.length > 0 || partitionRanges !== undefined) && (
+            <Disclosure label="Advanced settings">
+              {partitionRanges !== undefined && (
+                <div class="form-row partition-mode-control">
+                  <span class="field-label">Specify partitions</span>
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      aria-label="Specify partitions"
+                      checked={partitionRangesVisible}
+                      disabled={isDisabled}
+                      onChange={(event) => {
+                        const visible = event.currentTarget.checked;
+                        setPartitionRangesVisible(visible);
+                        if (!visible) {
+                          onChange(
+                            clearConfiguredPartitionRanges(
+                              object,
+                              partitionRanges,
+                            ),
+                          );
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+              {advanced.map(([name, child]) => (
                 <PropertyEditor
                   key={name}
                   name={name}

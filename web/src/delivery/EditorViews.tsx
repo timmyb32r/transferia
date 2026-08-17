@@ -112,6 +112,37 @@ export function EndpointCard(props: {
             showRequiredErrors={props.showRequiredErrors}
             parserSelectionOnly={props.role === "source"}
             optionOverrides={check.options}
+            connectionAction={
+              props.endpoint.connection_check ? (
+                <div class="connection-check">
+                  <Button
+                    class="connection-check-button"
+                    disabled={check.state === "checking"}
+                    onClick={() => void checkConnection()}
+                  >
+                    {check.state === "checking" && (
+                      <span
+                        class="connection-check-spinner"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {check.state === "checking"
+                      ? "Checking connection…"
+                      : "Check connection"}
+                  </Button>
+                  <span
+                    class={`connection-check-result connection-check-${check.state}`}
+                    role={check.state === "error" ? "alert" : "status"}
+                  >
+                    {check.state === "success"
+                      ? "Connection successful"
+                      : check.state === "error"
+                        ? check.message
+                        : ""}
+                  </span>
+                </div>
+              ) : undefined
+            }
             onChange={(next) =>
               props.onConfig({
                 ...props.config,
@@ -119,32 +150,6 @@ export function EndpointCard(props: {
               })
             }
           />
-          {props.endpoint.connection_check && (
-            <div class="connection-check">
-              <Button
-                class="connection-check-button"
-                disabled={check.state === "checking"}
-                onClick={() => void checkConnection()}
-              >
-                {check.state === "checking" && (
-                  <span class="connection-check-spinner" aria-hidden="true" />
-                )}
-                {check.state === "checking"
-                  ? "Checking connection…"
-                  : "Check connection"}
-              </Button>
-              <span
-                class={`connection-check-result connection-check-${check.state}`}
-                role={check.state === "error" ? "alert" : "status"}
-              >
-                {check.state === "success"
-                  ? "Connection successful"
-                  : check.state === "error"
-                    ? check.message
-                    : ""}
-              </span>
-            </div>
-          )}
         </div>
       )}
     </article>

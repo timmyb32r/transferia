@@ -13,15 +13,25 @@ const endpoint: EndpointDefinition = {
     additionalProperties: false,
     properties: {
       host: { type: "string", title: "Host" },
+      password: {
+        type: "string",
+        title: "Password",
+        "x-ui": { widget: "password" },
+      },
       shard_group: {
         type: "string",
         title: "Shard group",
         "x-ui": { section: "shard_group" },
       },
+      timeout_ms: {
+        type: "integer",
+        title: "Timeout",
+        "x-ui": { section: "advanced" },
+      },
     },
     required: ["host"],
   },
-  initial: { host: "", shard_group: "" },
+  initial: { host: "", password: "", shard_group: "", timeout_ms: 1000 },
   delivery_modes: [],
   partitioned: false,
   connection_check: true,
@@ -41,7 +51,14 @@ describe("endpoint connection check", () => {
       }),
     );
     const config: JsonObject = {
-      sink: { clickhouse: { host: "db.example", shard_group: "" } },
+      sink: {
+        clickhouse: {
+          host: "db.example",
+          password: "secret",
+          shard_group: "",
+          timeout_ms: 1000,
+        },
+      },
     };
     const view = render(
       <EndpointCard
@@ -60,16 +77,37 @@ describe("endpoint connection check", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Check connection" }));
     expect(
-      (view.getByRole("button", {
-        name: "Checking connection…",
-      }) as HTMLButtonElement).disabled,
+      (
+        view.getByRole("button", {
+          name: "Checking connection…",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     resolve({ options: { "#/shard_group": ["default", "analytics"] } });
     await waitFor(() =>
       expect(view.getByText("Connection successful")).toBeTruthy(),
     );
 
-    fireEvent.click(view.container.querySelector("summary")!);
+    const password = view.container.querySelector("#field---password")!;
+    const connectionCheck = view.container.querySelector(".connection-check")!;
+    const summaries = [...view.container.querySelectorAll("summary")];
+    const shardGroup = summaries.find(
+      (summary) => summary.textContent === "Shard group",
+    )!;
+    const advanced = summaries.find(
+      (summary) => summary.textContent === "Advanced settings",
+    )!;
+    expect(password.compareDocumentPosition(connectionCheck)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(connectionCheck.compareDocumentPosition(shardGroup)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(shardGroup.compareDocumentPosition(advanced)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    fireEvent.click(shardGroup);
     fireEvent.click(view.container.querySelector("#field---shard_group")!);
     expect(view.getByText("analytics")).toBeTruthy();
     view.unmount();
