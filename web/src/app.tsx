@@ -36,7 +36,7 @@ import { useDeliveryPolling } from "./delivery/useDeliveryPolling";
 import { useDiscovery } from "./delivery/useDiscovery";
 import { useOperations } from "./delivery/useOperations";
 import { useYamlEditor } from "./delivery/useYamlEditor";
-import { isComplete } from "./schema/compiler";
+import { isComplete, SCHEMA_DIALECT_VERSION } from "./schema/compiler";
 import {
   editorReducer,
   isReadOnly,
@@ -443,4 +443,5 @@ export function App() {
 }
 
 const appRoot = document.getElementById("app");
+document.documentElement.dataset.schemaDialect = SCHEMA_DIALECT_VERSION;
 if (appRoot !== null) render(<App />, appRoot);

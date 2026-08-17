@@ -1,4 +1,5 @@
-import { mkdir, copyFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 
@@ -14,7 +15,17 @@ await build({
   sourcemap: process.env.PROFILE === "release" ? false : "inline",
   outfile: join(outputDirectory, "app.js"),
 });
+const [javascript, stylesheet, indexTemplate] = await Promise.all([
+  readFile(join(outputDirectory, "app.js")),
+  readFile("src/style.css"),
+  readFile("src/index.html", "utf8"),
+]);
+const digest = (contents) =>
+  createHash("sha256").update(contents).digest("hex").slice(0, 16);
+const index = indexTemplate
+  .replace("/app.js", `/app.js?v=${digest(javascript)}`)
+  .replace("/style.css", `/style.css?v=${digest(stylesheet)}`);
 await Promise.all([
-  copyFile("src/index.html", join(outputDirectory, "index.html")),
-  copyFile("src/style.css", join(outputDirectory, "style.css")),
+  writeFile(join(outputDirectory, "index.html"), index),
+  writeFile(join(outputDirectory, "style.css"), stylesheet),
 ]);

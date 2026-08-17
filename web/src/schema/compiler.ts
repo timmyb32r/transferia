@@ -1,4 +1,7 @@
 import type { JsonObject, JsonSchema, JsonValue } from "../types";
+
+export const SCHEMA_DIALECT_VERSION =
+  "transferia-schema-dialect-dynamic-options-dependencies-v1";
 import { isWidgetName, widgetSupportsKind } from "./widgetDefinitions";
 
 interface NodeBase {

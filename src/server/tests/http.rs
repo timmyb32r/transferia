@@ -277,6 +277,13 @@ async fn validate_returns_the_authoritative_committed_record() -> anyhow::Result
 #[tokio::test]
 async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
+    let response = app
+        .clone()
+        .oneshot(Request::get("/").body(Body::empty())?)
+        .await?;
+    let index = String::from_utf8(to_bytes(response.into_body(), 64 * 1024).await?.to_vec())?;
+    assert!(index.contains("/app.js?v="));
+    assert!(index.contains("/style.css?v="));
     for (path, content_type) in [
         ("/", "text/html; charset=utf-8"),
         ("/app.js", "text/javascript; charset=utf-8"),
@@ -299,8 +306,8 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
             .to_vec(),
     )?;
     assert!(
-        javascript.contains("dynamic_options_dependencies"),
-        "embedded UI bundle must support dependency-aware catalog fields"
+        javascript.contains("transferia-schema-dialect-dynamic-options-dependencies-v1"),
+        "embedded UI bundle must declare support for dependency-aware catalog fields"
     );
     let response = app
         .oneshot(Request::get("/missing").body(Body::empty())?)
