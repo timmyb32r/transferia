@@ -34,3 +34,22 @@ export function jsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
 export function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
+
+export function jsonPointer(value: JsonValue, pointer: string): JsonValue | undefined {
+  if (pointer === "") return value;
+  if (!pointer.startsWith("/")) return undefined;
+  let current: JsonValue | undefined = value;
+  for (const encoded of pointer.slice(1).split("/")) {
+    const segment = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isSafeInteger(index) || index < 0) return undefined;
+      current = current[index];
+    } else if (isObject(current)) {
+      current = current[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}

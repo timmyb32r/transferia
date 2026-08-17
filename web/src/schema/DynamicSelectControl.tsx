@@ -7,12 +7,14 @@ import { SelectControl } from "../ui/SelectControl";
 export function DynamicSelectControl({
   id,
   source,
+  dependencies,
   value,
   disabled,
   onChange,
 }: {
   id?: string | undefined;
   source: string;
+  dependencies: Record<string, string>;
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
@@ -25,11 +27,14 @@ export function DynamicSelectControl({
   const optionsJob = useRef(
     new LatestJob<string, string, Awaited<ReturnType<typeof api.options>>>(),
   ).current;
+  const dependencyKey = JSON.stringify(dependencies);
   const load = (force = false) => {
     if (!force && (loaded || status === "Loading…")) return;
     setStatus("Loading…");
     void optionsJob
-      .run(source, source, (key, signal) => api.options(key, false, signal))
+      .run(`${source}:${dependencyKey}`, source, (key, signal) =>
+        api.options(key, dependencies, false, signal),
+      )
       .then((result) => {
         if (result === undefined) return;
         setOptions(result.value.options);
@@ -47,7 +52,7 @@ export function DynamicSelectControl({
     setStatus(undefined);
     if (value !== "") load(true);
     return () => optionsJob.cancel();
-  }, [source]);
+  }, [source, dependencyKey]);
   useEffect(() => {
     if (value !== "") load();
   }, [value]);

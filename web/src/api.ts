@@ -4,6 +4,7 @@ import type {
   ApiContractName,
   ConfigRequest,
   CreateDraftRequest,
+  OptionsRequest,
   RevisionRequest,
   StopRequest,
   UpdateDraftRequest,
@@ -43,12 +44,23 @@ function json(value: object): string {
 
 export const api = {
   catalog: () => request("/api/v1/catalog", "catalog_response"),
-  options: (key: string, refresh = false, signal?: AbortSignal) =>
-    request(
-      `/api/v1/options/${encodeURIComponent(key)}?refresh=${String(refresh)}`,
+  options: (
+    key: string,
+    dependencies: Record<string, string> = {},
+    refresh = false,
+    signal?: AbortSignal,
+  ) => {
+    const body: OptionsRequest = { refresh, dependencies };
+    return request(
+      `/api/v1/options/${encodeURIComponent(key)}`,
       "dynamic_options_response",
-      signal === undefined ? undefined : { signal },
-    ),
+      {
+        method: "POST",
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
+  },
   deliveries: () => request("/api/v1/deliveries", "delivery_list_response"),
   delivery: (id: string) =>
     request(

@@ -250,6 +250,7 @@ const SUPPORTED_UI_HINTS = new Set([
   "section",
   "initial_items",
   "dynamic_options",
+  "dynamic_options_dependencies",
   "labels",
   "options",
   "control_width",
@@ -289,6 +290,19 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
     throw new SchemaContractError(
       `${path}: x-ui dynamic_options must be a string`,
     );
+  if (value.dynamic_options_dependencies !== undefined) {
+    if (
+      typeof value.dynamic_options_dependencies !== "object" ||
+      value.dynamic_options_dependencies === null ||
+      Array.isArray(value.dynamic_options_dependencies) ||
+      !Object.values(value.dynamic_options_dependencies).every(
+        (pointer) => typeof pointer === "string" && pointer.startsWith("/"),
+      )
+    )
+      throw new SchemaContractError(
+        `${path}: x-ui dynamic_options_dependencies must map names to absolute JSON pointers`,
+      );
+  }
   if (
     value.labels !== undefined &&
     (typeof value.labels !== "object" ||

@@ -120,6 +120,7 @@ describe("schema form", () => {
     await waitFor(() =>
       expect(options).toHaveBeenCalledWith(
         "old-options",
+        {},
         false,
         expect.anything(),
       ),
@@ -135,6 +136,7 @@ describe("schema form", () => {
     await waitFor(() =>
       expect(options).toHaveBeenCalledWith(
         "new-options",
+        {},
         false,
         expect.anything(),
       ),
@@ -288,10 +290,68 @@ describe("schema form", () => {
     trigger.focus();
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
 
-    expect(options).toHaveBeenCalledWith("clusters", false, expect.anything());
+    expect(options).toHaveBeenCalledWith("clusters", {}, false, expect.anything());
     expect(await form.findByRole("option", { name: "Cluster" })).toBeTruthy();
     view.unmount();
     options.mockRestore();
+  });
+
+  it("passes current field dependencies to dynamic options and falls back to text without them", async () => {
+    const options = vi.spyOn(api, "options").mockResolvedValue({
+      options: [{ value: "db1", label: "db1" }],
+    });
+    const node: CompiledNode = {
+      kind: "object",
+      required: new Set(["installation", "database"]),
+      xUi: {},
+      properties: {
+        installation: {
+          kind: "object",
+          required: new Set(["cluster_id"]),
+          xUi: {},
+          properties: {
+            cluster_id: { kind: "string", xUi: {} },
+          },
+        },
+        database: {
+          kind: "string",
+          xUi: {
+            dynamic_options: "databases",
+            dynamic_options_dependencies: {
+              cluster_id: "/installation/cluster_id",
+            },
+          },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ installation: { cluster_id: "mdb1" }, database: "" }}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Database" }));
+    await waitFor(() =>
+      expect(options).toHaveBeenCalledWith(
+        "databases",
+        { cluster_id: "mdb1" },
+        false,
+        expect.anything(),
+      ),
+    );
+
+    view.rerender(
+      <SchemaForm
+        node={node}
+        value={{ installation: { cluster_id: "" }, database: "manual" }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(form.getByDisplayValue("manual")).toBeTruthy();
+    options.mockRestore();
+    view.unmount();
   });
 
   it("shows progress while dynamic options are loading", async () => {

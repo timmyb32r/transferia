@@ -24,6 +24,9 @@
     "dynamic_options_response": {
       "$ref": "#/$defs/DynamicOptions"
     },
+    "dynamic_options_request": {
+      "$ref": "#/$defs/OptionsRequest"
+    },
     "yaml_response": {
       "$ref": "#/$defs/YamlResponse"
     },
@@ -62,6 +65,7 @@
     "discovery_response",
     "validation_response",
     "dynamic_options_response",
+    "dynamic_options_request",
     "yaml_response",
     "config_response",
     "health_response",
@@ -700,6 +704,30 @@
         "value",
         "label"
       ]
+    },
+    "OptionsRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "refresh": {
+          "type": "boolean",
+          "default": false
+        },
+        "dependencies": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
     },
     "YamlResponse": {
       "type": "object",

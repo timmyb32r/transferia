@@ -8,7 +8,7 @@ use super::service::{
 };
 use super::ui_catalog::UiCatalog;
 use transferia::core::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
-use transferia::extension::DynamicOptions;
+use transferia::extension::{DynamicOptions, OptionsRequest};
 use transferia::runtime::RunId;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
@@ -191,6 +191,8 @@ struct ServerApiContract {
     validation_response: ValidationCommandResult,
 
     dynamic_options_response: DynamicOptions,
+
+    dynamic_options_request: OptionsRequest,
 
     yaml_response: YamlResponse,
 

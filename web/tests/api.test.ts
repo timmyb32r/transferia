@@ -77,6 +77,26 @@ describe("control-plane API", () => {
     );
   });
 
+  it("sends dependent option context in the request body", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ options: [] }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await api.options("databases", { cluster_id: "mdb1" });
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/options/databases",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          refresh: false,
+          dependencies: { cluster_id: "mdb1" },
+        }),
+      }),
+    );
+  });
+
   it("binds stop to both the record and worker run", async () => {
     const record = delivery("delivery-1", "Saved");
     const request = vi

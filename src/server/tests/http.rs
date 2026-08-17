@@ -43,7 +43,14 @@ impl transferia::extension::DynamicOptionsProvider for TestOptions {
         Ok(transferia::extension::DynamicOptions {
             options: vec![transferia::extension::DynamicOption {
                 value: request.query.unwrap_or_default(),
-                label: if request.refresh { "fresh" } else { "cached" }.to_owned(),
+                label: format!(
+                    "{}:{}",
+                    if request.refresh { "fresh" } else { "cached" },
+                    request
+                        .dependencies
+                        .get("cluster_id")
+                        .map_or("", String::as_str)
+                ),
             }],
             warning: None,
         })
@@ -92,8 +99,11 @@ async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
     let (app, root) = test_router_with(transferia).await?;
     let response = app
         .oneshot(
-            Request::get("/api/v1/options/test.options?q=cluster&refresh=true")
-                .body(Body::empty())?,
+            Request::post("/api/v1/options/test.options")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"query":"cluster","refresh":true,"dependencies":{"cluster_id":"mdb1"}}"#,
+                ))?,
         )
         .await?;
 
@@ -101,19 +111,23 @@ async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
     let body: serde_json::Value =
         serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
     assert_eq!(body["options"][0]["value"], "cluster");
-    assert_eq!(body["options"][0]["label"], "fresh");
+    assert_eq!(body["options"][0]["label"], "fresh:mdb1");
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn dynamic_options_reject_unknown_query_fields_as_json() -> anyhow::Result<()> {
+async fn dynamic_options_reject_unknown_request_fields_as_json() -> anyhow::Result<()> {
     let transferia = transferia::extension::TransferiaBuilder::new()
         .with_extension(Arc::new(TestExtension))
         .build()?;
     let (app, root) = test_router_with(transferia).await?;
     let response = app
-        .oneshot(Request::get("/api/v1/options/test.options?unexpected=true").body(Body::empty())?)
+        .oneshot(
+            Request::post("/api/v1/options/test.options")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"unexpected":true}"#))?,
+        )
         .await?;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);

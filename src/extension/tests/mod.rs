@@ -455,6 +455,7 @@ async fn dynamic_options_are_cancellable() -> anyhow::Result<()> {
             OptionsRequest {
                 query: None,
                 refresh: false,
+                dependencies: BTreeMap::default(),
             },
             cancellation,
         )

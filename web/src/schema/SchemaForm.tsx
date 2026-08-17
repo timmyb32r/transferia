@@ -22,7 +22,7 @@ import {
   hasConfiguredPartitionRanges,
   partitionRangesProperty,
 } from "./partitionRanges";
-import { isObject } from "./value";
+import { isObject, jsonPointer } from "./value";
 import {
   isHiddenProperty,
   renderNodeWidget,
@@ -36,6 +36,7 @@ interface SchemaFormProps extends NodeEditorProps {
 
 const ParserSelectionContext = createContext(false);
 const RequiredErrorsContext = createContext(false);
+const RootValueContext = createContext<JsonValue>({});
 
 export function SchemaForm({
   node,
@@ -46,17 +47,19 @@ export function SchemaForm({
   onChange,
 }: SchemaFormProps) {
   return (
-    <RequiredErrorsContext.Provider value={showRequiredErrors}>
-      <ParserSelectionContext.Provider value={parserSelectionOnly}>
-        <NodeEditor
-          node={node}
-          value={value}
-          disabled={disabled}
-          onChange={onChange}
-          path="#"
-        />
-      </ParserSelectionContext.Provider>
-    </RequiredErrorsContext.Provider>
+    <RootValueContext.Provider value={value}>
+      <RequiredErrorsContext.Provider value={showRequiredErrors}>
+        <ParserSelectionContext.Provider value={parserSelectionOnly}>
+          <NodeEditor
+            node={node}
+            value={value}
+            disabled={disabled}
+            onChange={onChange}
+            path="#"
+          />
+        </ParserSelectionContext.Provider>
+      </RequiredErrorsContext.Provider>
+    </RootValueContext.Provider>
   );
 }
 
@@ -89,6 +92,7 @@ export function ParserDetailsForm({
   )
     return null;
   return (
+    <RootValueContext.Provider value={value}>
     <RequiredErrorsContext.Provider value={showRequiredErrors}>
       <div class="source-parser-bridge" aria-hidden="true" />
       <section class="parser-details-card">
@@ -103,6 +107,7 @@ export function ParserDetailsForm({
         />
       </section>
     </RequiredErrorsContext.Provider>
+    </RootValueContext.Provider>
   );
 }
 
@@ -116,6 +121,7 @@ function NodeEditor({
 }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
+  const rootValue = useContext(RootValueContext);
   const partitionRanges = partitionRangesProperty(node);
   const configuredPartitionRanges = hasConfiguredPartitionRanges(
     value,
@@ -387,10 +393,40 @@ function NodeEditor({
       );
     case "string":
       if (typeof node.xUi.dynamic_options === "string") {
+        const dependencyPointers = node.xUi.dynamic_options_dependencies;
+        const dependencies =
+          isObject(dependencyPointers) &&
+          Object.values(dependencyPointers).every(
+            (pointer) => typeof pointer === "string",
+          )
+            ? Object.fromEntries(
+                Object.entries(dependencyPointers).flatMap(([name, pointer]) => {
+                  const dependency = jsonPointer(rootValue, pointer as string);
+                  return typeof dependency === "string" && dependency !== ""
+                    ? [[name, dependency]]
+                    : [];
+                }),
+              )
+            : {};
+        if (
+          isObject(dependencyPointers) &&
+          Object.keys(dependencies).length !== Object.keys(dependencyPointers).length
+        ) {
+          return (
+            <input
+              id={controlId}
+              type="text"
+              value={typeof value === "string" ? value : ""}
+              disabled={isDisabled}
+              onInput={(event) => onChange(event.currentTarget.value)}
+            />
+          );
+        }
         return (
           <DynamicSelectControl
             id={controlId}
             source={node.xUi.dynamic_options}
+            dependencies={dependencies}
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
             onChange={onChange}

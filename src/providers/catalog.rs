@@ -60,6 +60,19 @@ pub(crate) fn validate_extension_registry(registry: &ExtensionRegistry) -> anyho
             "provider '{provider}' must declare exactly one preferred {role:?} installation when multiple variants exist"
         );
     }
+    for binding in registry.option_bindings() {
+        anyhow::ensure!(
+            provider_supports_role(binding.provider, binding.role),
+            "options binding targets unknown provider role '{}.{:?}'",
+            binding.provider,
+            binding.role
+        );
+        anyhow::ensure!(
+            registry.option_keys().any(|key| key == binding.source),
+            "options binding references unknown dynamic option source '{}'",
+            binding.source
+        );
+    }
     Ok(())
 }
 
@@ -114,7 +127,59 @@ pub(crate) fn compile_provider_definitions(
     let metrics = Arc::new(MetricsRegistry::new());
     let mut catalog = build_base_provider_catalog(&metrics, true)?;
     catalog.apply_installations(registry)?;
+    apply_dynamic_options_bindings(&mut catalog.definitions, registry)?;
     Ok(catalog.definitions)
+}
+
+fn apply_dynamic_options_bindings(
+    definitions: &mut [ProviderDefinition],
+    registry: &ExtensionRegistry,
+) -> anyhow::Result<()> {
+    for binding in registry.option_bindings() {
+        let definition = definitions
+            .iter_mut()
+            .find(|definition| definition.key == binding.provider)
+            .ok_or_else(|| anyhow::anyhow!("unknown provider '{}'", binding.provider))?;
+        let endpoint = match binding.role {
+            EndpointRole::Source => definition.source.as_mut(),
+            EndpointRole::Sink => definition.sink.as_mut(),
+        }
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "provider '{}' does not support {:?}",
+                binding.provider,
+                binding.role
+            )
+        })?;
+        let field_schema = endpoint
+            .schema
+            .pointer_mut(binding.schema_pointer)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "options binding '{}.{:?}{}' points to a missing schema node",
+                    binding.provider,
+                    binding.role,
+                    binding.schema_pointer
+                )
+            })?;
+        let object = field_schema
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("options binding schema node must be an object"))?;
+        let ui = object
+            .entry("x-ui")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("options binding x-ui must be an object"))?;
+        ui.insert(
+            "dynamic_options".to_owned(),
+            JsonValue::String(binding.source.to_owned()),
+        );
+        ui.insert(
+            "dynamic_options_dependencies".to_owned(),
+            serde_json::to_value(&binding.dependencies)?,
+        );
+    }
+    Ok(())
 }
 
 fn build_base_provider_catalog(

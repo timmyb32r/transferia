@@ -161,6 +161,14 @@ export type DynamicOption = {
   label: string;
 };
 
+export type OptionsRequest = {
+  query?: string | null;
+  refresh?: boolean;
+  dependencies?: {
+    [key: string]: string;
+  };
+};
+
 export type YamlResponse = {
   yaml: string;
 };
@@ -230,6 +238,7 @@ export interface ApiContract {
   discovery_response: DiscoveryResult;
   validation_response: ValidationCommandResult;
   dynamic_options_response: DynamicOptions;
+  dynamic_options_request: OptionsRequest;
   yaml_response: YamlResponse;
   config_response: ConfigResponse;
   health_response: HealthResponse;

@@ -3,15 +3,13 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::rejection::QueryRejection;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
 use axum::http::{HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use transferia::extension::OptionsRequest;
@@ -33,15 +31,6 @@ const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 struct AppState {
     control_plane: Arc<ControlPlane>,
     catalog: UiCatalog,
-}
-
-#[derive(Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OptionsQuery {
-    q: Option<String>,
-
-    #[serde(default)]
-    refresh: bool,
 }
 
 struct ApiError(ServiceError);
@@ -150,7 +139,7 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/style.css", get(style_css))
         .route("/api/v1/health", get(health))
         .route("/api/v1/catalog", get(get_catalog))
-        .route("/api/v1/options/{key}", get(dynamic_options))
+        .route("/api/v1/options/{key}", post(dynamic_options))
         .route("/api/v1/config/yaml", post(render_yaml))
         .route("/api/v1/config/from-yaml", post(parse_yaml))
         .route("/api/v1/discover", post(discover))
@@ -265,22 +254,13 @@ async fn get_catalog(State(state): State<AppState>) -> Json<UiCatalog> {
 async fn dynamic_options(
     State(state): State<AppState>,
     Path(key): Path<String>,
-    query: Result<Query<OptionsQuery>, QueryRejection>,
+    ApiJson(request): ApiJson<OptionsRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let Query(query) =
-        query.map_err(|error| ApiError(ServiceError::InvalidInput(error.body_text())))?;
     let cancellation = state.control_plane.request_cancellation();
     let _cancel_on_drop = CancelOnDrop(cancellation.clone());
     let result = state
         .control_plane
-        .dynamic_options(
-            &key,
-            OptionsRequest {
-                query: query.q,
-                refresh: query.refresh,
-            },
-            cancellation,
-        )
+        .dynamic_options(&key, request, cancellation)
         .await?;
     Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
 }

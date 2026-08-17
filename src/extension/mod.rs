@@ -41,11 +41,17 @@ pub struct DynamicOptions {
     pub warning: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OptionsRequest {
+    #[serde(default)]
     pub query: Option<String>,
 
+    #[serde(default)]
     pub refresh: bool,
+
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +98,19 @@ pub struct InstallationSpec<I> {
     pub initial: I,
 
     pub preferred: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub(crate) struct DynamicOptionsBinding {
+    pub provider: &'static str,
+
+    pub role: EndpointRole,
+
+    pub schema_pointer: &'static str,
+
+    pub source: &'static str,
+
+    pub dependencies: BTreeMap<&'static str, &'static str>,
 }
 
 #[async_trait]
@@ -189,6 +208,8 @@ pub struct ExtensionRegistry {
     installations: BTreeMap<(&'static str, EndpointRole, &'static str), InstallationRegistration>,
 
     option_sources: BTreeMap<&'static str, Arc<dyn DynamicOptionsProvider>>,
+
+    option_bindings: BTreeMap<(&'static str, EndpointRole, &'static str), DynamicOptionsBinding>,
 }
 
 impl ExtensionRegistry {
@@ -276,6 +297,48 @@ impl ExtensionRegistry {
         Ok(())
     }
 
+    pub fn register_options_binding(
+        &mut self,
+        provider: &'static str,
+        role: EndpointRole,
+        schema_pointer: &'static str,
+        source: &'static str,
+        dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !provider.is_empty(),
+            "options binding provider must not be empty"
+        );
+        anyhow::ensure!(
+            schema_pointer.starts_with("/properties/") || schema_pointer.starts_with("/$defs/"),
+            "options binding schema pointer must target an endpoint schema property"
+        );
+        anyhow::ensure!(
+            !source.is_empty(),
+            "options binding source must not be empty"
+        );
+        let dependencies = dependencies.into_iter().collect::<BTreeMap<_, _>>();
+        anyhow::ensure!(
+            dependencies
+                .iter()
+                .all(|(name, pointer)| !name.is_empty() && pointer.starts_with('/')),
+            "options binding dependencies must have non-empty names and absolute JSON pointers"
+        );
+        let binding = DynamicOptionsBinding {
+            provider,
+            role,
+            schema_pointer,
+            source,
+            dependencies,
+        };
+        let key = (provider, role, schema_pointer);
+        anyhow::ensure!(
+            self.option_bindings.insert(key, binding).is_none(),
+            "options binding '{provider}.{role:?}{schema_pointer}' is registered more than once"
+        );
+        Ok(())
+    }
+
     pub(crate) fn installations_for(
         &self,
         provider: &str,
@@ -301,6 +364,10 @@ impl ExtensionRegistry {
 
     pub(crate) fn option_keys(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.option_sources.keys().copied()
+    }
+
+    pub(crate) fn option_bindings(&self) -> impl Iterator<Item = &DynamicOptionsBinding> {
+        self.option_bindings.values()
     }
 
     pub async fn options(
