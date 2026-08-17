@@ -273,7 +273,10 @@ function formatBytes(value: number): string {
 }
 
 function downloadMessage(result: MessagePreviewResult) {
-  const blob = new Blob([decodeBase64(result.payload_base64)], {
+  const bytes = decodeBase64(result.payload_base64);
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const blob = new Blob([buffer], {
     type: "application/octet-stream",
   });
   const url = URL.createObjectURL(blob);
