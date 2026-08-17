@@ -214,15 +214,18 @@ impl YdbTopicSource {
                 let session = request.partition_session.ok_or_else(|| {
                     fatal(anyhow!("YDB Topic start request has no partition session"))
                 })?;
-                let configured =
-                    self.topic_filters
-                        .get(session.path.as_str())
-                        .ok_or_else(|| {
-                            fatal(anyhow!(
-                                "YDB Topic assigned unconfigured topic '{}'",
-                                session.path
-                            ))
-                        })?;
+                let configured = self
+                    .topic_filters
+                    .iter()
+                    .find_map(|(path, partitions)| {
+                        topic_paths_equal(path, &session.path).then_some(partitions)
+                    })
+                    .ok_or_else(|| {
+                        fatal(anyhow!(
+                            "YDB Topic assigned unconfigured topic '{}'",
+                            session.path
+                        ))
+                    })?;
                 if configured
                     .as_ref()
                     .is_some_and(|partitions| !partitions.contains(&session.partition_id))
@@ -689,7 +692,7 @@ pub(super) async fn preview_message(
                 Some(ServerMessage::StartPartitionSessionRequest(request)) => {
                     let session = request.partition_session.ok_or_else(|| anyhow!("YDB Topic preview assignment has no partition session"))?;
                     anyhow::ensure!(
-                        config.topics.iter().any(|topic| topic.path == session.path && (topic.partitions.is_empty() || topic.partitions.contains(&session.partition_id))),
+                        config.topics.iter().any(|topic| topic_paths_equal(&topic.path, &session.path) && (topic.partitions.is_empty() || topic.partitions.contains(&session.partition_id))),
                         "YDB Topic preview assigned unconfigured topic or partition '{}:{}'",
                         session.path,
                         session.partition_id
@@ -766,6 +769,18 @@ pub(super) async fn preview_message(
     }).await.map_err(|_| anyhow!("YDB Topic message preview timed out after {} ms", super::NETWORK_TIMEOUT.as_millis()))?
 }
 
+pub(super) fn canonical_topic_path(path: &str) -> &str {
+    path.strip_prefix('/').unwrap_or(path)
+}
+
+pub(super) fn topic_paths_equal(configured: &str, assigned: &str) -> bool {
+    canonical_topic_path(configured) == canonical_topic_path(assigned)
+}
+
+pub(super) fn wire_consumer_name(name: &str) -> String {
+    format!("/{}", name.strip_prefix('/').unwrap_or(name))
+}
+
 pub(super) fn connection_check_init_message(
     config: &LogbrokerSourceConnectionConfig,
 ) -> FromClient {
@@ -775,13 +790,13 @@ pub(super) fn connection_check_init_message(
                 .topics
                 .iter()
                 .map(|topic| TopicReadSettings {
-                    path: topic.path.clone(),
+                    path: canonical_topic_path(&topic.path).to_owned(),
                     partition_ids: topic.partitions.clone(),
                     max_lag: None,
                     read_from: None,
                 })
                 .collect(),
-            consumer: config.consumer_name.clone(),
+            consumer: wire_consumer_name(&config.consumer_name),
             reader_name: "transferia-connection-check".to_owned(),
             direct_read: false,
             auto_partitioning_support: true,
@@ -944,13 +959,13 @@ pub(super) fn init_message(config: &LogbrokerSourceConfig, reader_lane: i64) -> 
                 .topics
                 .iter()
                 .map(|topic| TopicReadSettings {
-                    path: topic.path.clone(),
+                    path: canonical_topic_path(&topic.path).to_owned(),
                     partition_ids: topic.partitions.clone(),
                     max_lag: None,
                     read_from: None,
                 })
                 .collect(),
-            consumer: config.consumer_name.clone(),
+            consumer: wire_consumer_name(&config.consumer_name),
             reader_name: format!("transferia-rust-{reader_lane}"),
             direct_read: false,
             auto_partitioning_support: true,

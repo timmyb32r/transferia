@@ -5,7 +5,6 @@ import { SchemaForm, SelectControl } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
-import { ScanIcon } from "../ui/icons";
 import type {
   DiscoveryResult,
   EndpointDefinition,
@@ -155,14 +154,13 @@ export function EndpointCard(props: {
             parserAction={
               props.role === "source" && props.selectedKey === "logbroker" ? (
                 <Button
-                  shape="icon"
                   class="parser-preview-button"
                   title="Preview one message"
                   aria-label="Preview one message"
                   disabled={preview.loading}
                   onClick={() => void previewMessage()}
                 >
-                  <ScanIcon />
+                  Scan
                 </Button>
               ) : undefined
             }

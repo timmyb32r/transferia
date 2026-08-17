@@ -390,7 +390,12 @@ fn validate_config(cfg: &LogbrokerSourceConfig) -> anyhow::Result<()> {
             "logbroker.topics[].path must not be empty"
         );
         anyhow::ensure!(
-            topic_paths.insert(topic.path.as_str()),
+            !topic.path.starts_with("//"),
+            "logbroker topic path '{}' must have at most one leading slash",
+            topic.path
+        );
+        anyhow::ensure!(
+            topic_paths.insert(source::canonical_topic_path(&topic.path)),
             "logbroker.topics contains duplicate path '{}'",
             topic.path
         );
@@ -411,6 +416,10 @@ fn validate_config(cfg: &LogbrokerSourceConfig) -> anyhow::Result<()> {
     anyhow::ensure!(
         !cfg.consumer_name.is_empty(),
         "logbroker.consumer_name must not be empty"
+    );
+    anyhow::ensure!(
+        !cfg.consumer_name.starts_with("//"),
+        "logbroker.consumer_name must have at most one leading slash"
     );
     anyhow::ensure!(
         cfg.trusted_plaintext,

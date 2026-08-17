@@ -43,28 +43,6 @@ export function EyeIcon() {
   );
 }
 
-export function ScanIcon() {
-  return (
-    <svg class="scan-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-      <path
-        d="M4.25 8h7.5"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-      />
-    </svg>
-  );
-}
-
 export function EyeOffIcon() {
   return (
     <svg class="eye-icon eye-off-icon" viewBox="0 0 16 16" aria-hidden="true">

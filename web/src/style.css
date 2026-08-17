@@ -12,13 +12,13 @@
 
 .parser-selector-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--control-height);
+  grid-template-columns: minmax(0, 1fr) calc(var(--control-height) * 2);
   gap: 8px;
   align-items: center;
 }
 
 .parser-preview-button {
-  width: var(--control-height);
+  width: calc(var(--control-height) * 2);
   height: var(--control-height);
   color: var(--icon-muted);
 }

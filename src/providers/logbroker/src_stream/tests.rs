@@ -6,7 +6,8 @@ use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 use super::source::{
     build_commit_request, coalesce_ranges, connection_check_init_message, continuous_commit_range,
     decode_message, init_message, releasable_session_ids, take_releasable_credit,
-    PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
+    topic_paths_equal, wire_consumer_name, PartitionCommitMarker, PartitionSessionState,
+    YdbTopicCommitMarker,
 };
 use super::*;
 use crate::core::source::CommitMarker;
@@ -30,6 +31,51 @@ fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() 
     assert_eq!(init.topics_read_settings[0].path, "cdc/prod/logs");
     assert_eq!(init.partition_max_in_flight_bytes, 1_048_576);
     Ok(())
+}
+
+#[test]
+fn ydb_assignment_accepts_the_protocols_canonical_topic_path() {
+    assert!(topic_paths_equal("/cdc/prod/logs", "cdc/prod/logs"));
+    assert!(topic_paths_equal("cdc/prod/logs", "/cdc/prod/logs"));
+    assert!(!topic_paths_equal("cdc/prod/logs", "cdc/prod/other"));
+}
+
+#[test]
+fn ydb_wire_paths_accept_both_user_facing_forms() -> anyhow::Result<()> {
+    assert_eq!(
+        wire_consumer_name("cdc/prod/consumer"),
+        "/cdc/prod/consumer"
+    );
+    assert_eq!(
+        wire_consumer_name("/cdc/prod/consumer"),
+        "/cdc/prod/consumer"
+    );
+
+    for topic in ["cdc/prod/logs", "/cdc/prod/logs"] {
+        for consumer in ["cdc/prod/consumer", "/cdc/prod/consumer"] {
+            let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(&format!(
+                "host: sas.logbroker.yandex.net\nport: 2135\ntopics: [{{ path: {topic}, partitions: [] }}]\nconsumer_name: {consumer}\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nparser: {{}}\nread_buffer_bytes: 1048576\n"
+            ))?;
+            let message = connection_check_init_message(&config);
+            let Some(ClientMessage::InitRequest(init)) = message.client_message else {
+                panic!("connection check must begin with StreamRead InitRequest");
+            };
+            assert_eq!(init.topics_read_settings[0].path, "cdc/prod/logs");
+            assert_eq!(init.consumer, "/cdc/prod/consumer");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn rejects_topic_paths_that_are_protocol_aliases() {
+    let Err(error) = provider_with_topics(
+        "  - path: /cdc/prod/logs\n    partitions: []\n  - path: cdc/prod/logs\n    partitions: []\n",
+        "",
+    ) else {
+        panic!("canonical topic aliases must be rejected");
+    };
+    assert!(error.to_string().contains("duplicate path"));
 }
 
 #[test]
