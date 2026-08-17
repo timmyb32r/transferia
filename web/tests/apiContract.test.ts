@@ -5,6 +5,11 @@ import { decodeApi } from "../src/api/contractDecoder";
 
 describe("generated Rust server API contract", () => {
   it("decodes the shared Rust serialization fixture", () => {
+    const catalog = decodeApi(
+      "catalog_response",
+      fixture.catalog,
+      "fixture.catalog",
+    );
     const delivery = decodeApi(
       "delivery_response",
       fixture.delivery_record,
@@ -21,6 +26,7 @@ describe("generated Rust server API contract", () => {
       "fixture.error_envelope",
     );
 
+    expect(catalog.providers[0]?.sink?.connection_check).toBe(true);
     expect(delivery.runtime).toEqual({
       state: "running",
       run_id: "run-7",

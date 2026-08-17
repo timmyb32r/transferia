@@ -1,4 +1,28 @@
 {
+  "catalog": {
+    "common_schema": {
+      "type": "object"
+    },
+    "initial": {},
+    "providers": [
+      {
+        "key": "clickhouse",
+        "title": "ClickHouse",
+        "sink": {
+          "schema": {
+            "type": "object"
+          },
+          "initial": {},
+          "delivery_modes": [
+            "batch",
+            "stream"
+          ],
+          "partitioned": false,
+          "connection_check": true
+        }
+      }
+    ]
+  },
   "delivery_record": {
     "id": "delivery-1",
     "name": "Example",

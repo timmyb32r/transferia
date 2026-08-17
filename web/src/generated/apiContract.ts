@@ -21,6 +21,7 @@ export type EndpointDefinition = {
   initial: JsonObject;
   delivery_modes: Array<DeliveryMode>;
   partitioned: boolean;
+  connection_check: boolean;
 };
 
 export type DeliveryMode = "batch" | "stream";

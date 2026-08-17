@@ -172,6 +172,9 @@
         },
         "partitioned": {
           "type": "boolean"
+        },
+        "connection_check": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -179,7 +182,8 @@
         "schema",
         "initial",
         "delivery_modes",
-        "partitioned"
+        "partitioned",
+        "connection_check"
       ]
     },
     "DeliveryMode": {

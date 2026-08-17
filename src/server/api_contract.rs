@@ -239,6 +239,25 @@ pub fn schema() -> anyhow::Result<Value> {
 }
 
 pub fn fixture() -> anyhow::Result<Value> {
+    let catalog = UiCatalog {
+        common_schema: serde_json::json!({ "type": "object" }),
+        initial: serde_json::json!({}),
+        providers: vec![transferia::providers::catalog::ProviderDefinition {
+            key: "clickhouse",
+            title: "ClickHouse",
+            source: None,
+            sink: Some(transferia::providers::catalog::EndpointDefinition {
+                schema: serde_json::json!({ "type": "object" }),
+                initial: serde_json::json!({}),
+                delivery_modes: vec![
+                    transferia::providers::catalog::DeliveryMode::Batch,
+                    transferia::providers::catalog::DeliveryMode::Stream,
+                ],
+                partitioned: false,
+                connection_check: true,
+            }),
+        }],
+    };
     let delivery = DeliveryRecord {
         id: "delivery-1".to_owned(),
         name: "Example".to_owned(),
@@ -323,6 +342,7 @@ pub fn fixture() -> anyhow::Result<Value> {
     };
 
     Ok(serde_json::json!({
+        "catalog": serde_json::to_value(catalog)?,
         "delivery_record": serde_json::to_value(delivery)?,
         "runtime_states": serde_json::to_value(runtime_states)?,
         "discovery_result": serde_json::to_value(discovery)?,
