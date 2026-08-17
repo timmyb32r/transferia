@@ -52,10 +52,16 @@ impl ClickHouseSinkProvider {
 }
 
 pub async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<String>> {
-    let batches = client
-        .query_all(SHARD_GROUPS_QUERY)
-        .await
-        .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+    let started = std::time::Instant::now();
+    let batches = client.query_all(SHARD_GROUPS_QUERY).await;
+    tracing::info!(
+        stage = "shard_groups_query",
+        elapsed_ms = started.elapsed().as_millis(),
+        success = batches.is_ok(),
+        "ClickHouse connection check stage completed"
+    );
+    let batches =
+        batches.map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
     let mut groups = Vec::new();
     for batch in batches {
         let column = batch

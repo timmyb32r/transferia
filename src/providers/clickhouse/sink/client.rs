@@ -211,6 +211,7 @@ impl ReconnectingClient {
         &self,
         spawn_connect: impl FnOnce() -> ConnectTask,
     ) -> ClickHouseResult<Client<ArrowFormat>> {
+        let connect_started = std::time::Instant::now();
         let client = {
             let mut connect_task = self.connect_task.lock().await;
             let result = {
@@ -224,9 +225,22 @@ impl ReconnectingClient {
             drop(connect_task);
             result.map_err(|error| connect_task_error(&error))??
         };
-        timeout(self.request_timeout, client.execute("SELECT 1", None))
+        tracing::info!(
+            stage = "native_tls_connect",
+            elapsed_ms = connect_started.elapsed().as_millis(),
+            "ClickHouse connection check stage completed"
+        );
+        let health_started = std::time::Instant::now();
+        let health = timeout(self.request_timeout, client.execute("SELECT 1", None))
             .await
-            .map_err(|_| self.request_timeout_error("ClickHouse health check"))??;
+            .map_err(|_| self.request_timeout_error("ClickHouse health check"))?;
+        tracing::info!(
+            stage = "select_1",
+            elapsed_ms = health_started.elapsed().as_millis(),
+            success = health.is_ok(),
+            "ClickHouse connection check stage completed"
+        );
+        health?;
         Ok(client)
     }
 
