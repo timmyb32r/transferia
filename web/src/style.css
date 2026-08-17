@@ -40,7 +40,7 @@
 
 .message-preview-dialog {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(240px, 1fr) auto auto auto;
   width: min(1120px, 94vw);
   height: min(720px, 88vh);
   overflow: hidden;
@@ -114,6 +114,76 @@
   white-space: nowrap;
 }
 
+.message-preview-truncation,
+.message-preview-download {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 48px;
+  padding: 7px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.message-preview-truncation > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-preview-metadata {
+  max-height: 190px;
+  padding: 0 18px 14px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.message-preview-metadata > summary {
+  position: sticky;
+  top: 0;
+  padding: 12px 0 9px;
+  color: var(--text-primary);
+  background: var(--panel);
+  cursor: pointer;
+  user-select: none;
+}
+
+.message-preview-metadata dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--line-inner);
+  border: 1px solid var(--line-inner);
+  border-radius: var(--radius-control);
+}
+
+.message-preview-metadata dl > div {
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--surface-soft);
+}
+
+.message-preview-metadata dt {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.message-preview-metadata dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font: 11px/1.45 var(--font-code);
+}
+
+.message-preview-metadata h4 {
+  margin: 12px 0 7px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .message-preview-dialog > footer {
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr);
@@ -175,6 +245,7 @@
   .message-preview-dialog {
     width: 100%;
     height: 94vh;
+    overflow: auto;
   }
   .message-preview-panes {
     grid-template-columns: 1fr;

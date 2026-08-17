@@ -22,6 +22,7 @@ use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::{
     connect_client, set_ydb_headers, LogbrokerSourceConfig, LogbrokerSourceConnectionConfig,
+    PreviewMessage, PreviewMessageMetadata, PreviewMetadataItem,
 };
 use crate::core::data::message::{Message, MessageMeta, SourceBatch};
 use crate::core::failure::DataPlaneFailure;
@@ -598,6 +599,7 @@ pub(super) async fn check_read_connection(
         &cancellation,
     )
     .await?;
+    client = client.max_decoding_message_size(super::CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES);
     let (outgoing, receiver) = mpsc::channel(1);
     let mut request = Request::new(ReceiverStream::new(receiver));
     set_ydb_headers(request.metadata_mut(), token)?;
@@ -641,7 +643,7 @@ pub(super) async fn preview_message(
     token: &str,
     max_bytes: usize,
     cancellation: CancellationToken,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<PreviewMessage> {
     anyhow::ensure!(max_bytes > 0, "message preview max_bytes must be positive");
     let credit =
         i64::try_from(max_bytes).map_err(|_| anyhow!("message preview max_bytes exceeds i64"))?;
@@ -652,6 +654,7 @@ pub(super) async fn preview_message(
         &cancellation,
     )
     .await?;
+    client = client.max_decoding_message_size(super::CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES);
     let (outgoing, receiver) = mpsc::channel(4);
     let mut request = Request::new(ReceiverStream::new(receiver));
     set_ydb_headers(request.metadata_mut(), token)?;
@@ -713,9 +716,41 @@ pub(super) async fn preview_message(
                             declared <= max_bytes,
                             "source message preview requires {declared} bytes, exceeding requested max_bytes={max_bytes}"
                         );
-                        let decoded = decode_batches(partition.batches, topic, *partition_id)?;
-                        if let Some(message) = decoded.messages.into_iter().next() {
-                            return Ok(message.value.to_vec());
+                        for batch in partition.batches {
+                            let codec = Codec::try_from(batch.codec)
+                                .map_err(|_| anyhow!("YDB Topic returned unknown codec {}", batch.codec))?;
+                            let written_at_ms = batch.written_at.map(timestamp_millis).transpose()?;
+                            for message in batch.message_data {
+                                anyhow::ensure!(message.offset >= 0, "YDB Topic returned negative offset");
+                                let compressed_size = message.data.len();
+                                let declared_uncompressed_size = usize::try_from(message.uncompressed_size)
+                                    .ok()
+                                    .filter(|size| *size > 0);
+                                let payload = decode_message(codec, message.data)?;
+                                return Ok(PreviewMessage {
+                                    payload,
+                                    metadata: PreviewMessageMetadata {
+                                        topic: topic.to_string(),
+                                        partition: *partition_id,
+                                        partition_session_id: partition.partition_session_id,
+                                        offset: message.offset,
+                                        sequence_number: message.seq_no,
+                                        created_at_ms: message.created_at.map(timestamp_millis).transpose()?,
+                                        written_at_ms,
+                                        producer_id: batch.producer_id,
+                                        message_group_id: (!message.message_group_id.is_empty())
+                                            .then_some(message.message_group_id),
+                                        codec: codec.as_str_name().to_ascii_lowercase(),
+                                        compressed_size,
+                                        declared_uncompressed_size,
+                                        message_metadata: message.metadata_items.into_iter().map(|item| PreviewMetadataItem {
+                                            key: item.key,
+                                            value: item.value,
+                                        }).collect(),
+                                        write_session_metadata: batch.write_session_meta.into_iter().collect(),
+                                    },
+                                });
+                            }
                         }
                     }
                 }

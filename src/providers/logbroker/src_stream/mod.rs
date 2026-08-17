@@ -2,7 +2,7 @@ mod config;
 mod source;
 
 use alloc::sync::Arc;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Mutex;
 
 use futures_util::future::BoxFuture;
@@ -28,6 +28,7 @@ pub use config::{LogbrokerSourceConfig, LogbrokerTopicConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
+const CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";
 
@@ -220,7 +221,7 @@ pub(crate) async fn preview_message(
     cfg: &LogbrokerSourceConnectionConfig,
     max_bytes: usize,
     cancellation: CancellationToken,
-) -> anyhow::Result<Vec<u8>> {
+) -> anyhow::Result<PreviewMessage> {
     validate_connection_config(cfg)?;
     anyhow::ensure!(
         cfg.driver == LogbrokerDriver::Ydb,
@@ -228,6 +229,48 @@ pub(crate) async fn preview_message(
     );
     let token = cfg.auth.load_token()?;
     source::preview_message(cfg, &token, max_bytes, cancellation).await
+}
+
+pub(crate) struct PreviewMessage {
+    pub payload: bytes::Bytes,
+
+    pub metadata: PreviewMessageMetadata,
+}
+
+pub(crate) struct PreviewMessageMetadata {
+    pub topic: String,
+
+    pub partition: i64,
+
+    pub partition_session_id: i64,
+
+    pub offset: i64,
+
+    pub sequence_number: i64,
+
+    pub created_at_ms: Option<i64>,
+
+    pub written_at_ms: Option<i64>,
+
+    pub producer_id: String,
+
+    pub message_group_id: Option<String>,
+
+    pub codec: String,
+
+    pub compressed_size: usize,
+
+    pub declared_uncompressed_size: Option<usize>,
+
+    pub message_metadata: Vec<PreviewMetadataItem>,
+
+    pub write_session_metadata: BTreeMap<String, String>,
+}
+
+pub(crate) struct PreviewMetadataItem {
+    pub key: String,
+
+    pub value: Vec<u8>,
 }
 
 fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::Result<()> {
