@@ -20,7 +20,9 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::{
 };
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
-use super::{connect_client, set_ydb_headers, LogbrokerSourceConfig};
+use super::{
+    connect_client, set_ydb_headers, LogbrokerSourceConfig, LogbrokerSourceConnectionConfig,
+};
 use crate::core::data::message::{Message, MessageMeta, SourceBatch};
 use crate::core::failure::DataPlaneFailure;
 use crate::core::memory::PipelineMemory;
@@ -581,6 +583,80 @@ impl YdbTopicSource {
             bytes_size: credit,
         }))
         .await
+    }
+}
+
+pub(super) async fn check_read_connection(
+    config: &LogbrokerSourceConnectionConfig,
+    token: &str,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    let (mut client, _) = connect_client(
+        &config.host,
+        config.port,
+        super::NETWORK_TIMEOUT,
+        &cancellation,
+    )
+    .await?;
+    let (outgoing, receiver) = mpsc::channel(1);
+    let mut request = Request::new(ReceiverStream::new(receiver));
+    set_ydb_headers(request.metadata_mut(), token)?;
+    outgoing
+        .send(connection_check_init_message(config))
+        .await
+        .map_err(|_| anyhow!("YDB Topic connection-check stream closed before init"))?;
+    let mut incoming = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("YDB Topic connection check cancelled"),
+        result = tokio::time::timeout(super::NETWORK_TIMEOUT, client.stream_read(request)) => {
+            result
+                .map_err(|_| anyhow!("YDB Topic StreamRead connection check timed out"))??
+                .into_inner()
+        }
+    };
+    let response = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("YDB Topic connection check cancelled"),
+        result = tokio::time::timeout(super::NETWORK_TIMEOUT, incoming.message()) => {
+            result
+                .map_err(|_| anyhow!("YDB Topic init response timed out during connection check"))??
+                .ok_or_else(|| anyhow!("YDB Topic closed the connection-check stream before init"))?
+        }
+    };
+    validate_status(&response)?;
+    match response.server_message {
+        Some(ServerMessage::InitResponse(response)) => anyhow::ensure!(
+            !response.session_id.is_empty(),
+            "YDB Topic returned an empty connection-check session id"
+        ),
+        Some(_) => anyhow::bail!("YDB Topic returned a non-init response during connection check"),
+        None => anyhow::bail!("YDB Topic connection-check response has no server message"),
+    }
+    drop(outgoing);
+    Ok(())
+}
+
+pub(super) fn connection_check_init_message(
+    config: &LogbrokerSourceConnectionConfig,
+) -> FromClient {
+    FromClient {
+        client_message: Some(ClientMessage::InitRequest(InitRequest {
+            topics_read_settings: config
+                .topics
+                .iter()
+                .map(|topic| TopicReadSettings {
+                    path: topic.path.clone(),
+                    partition_ids: topic.partitions.clone(),
+                    max_lag: None,
+                    read_from: None,
+                })
+                .collect(),
+            consumer: config.consumer_name.clone(),
+            reader_name: "transferia-connection-check".to_owned(),
+            direct_read: false,
+            auto_partitioning_support: true,
+            partition_max_in_flight_bytes: config.read_buffer_bytes as u64,
+        })),
     }
 }
 

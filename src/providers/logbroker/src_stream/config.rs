@@ -75,11 +75,16 @@ pub struct LogbrokerSourceConnectionConfig {
 
     pub topics: Vec<LogbrokerTopicConfig>,
 
+    pub consumer_name: String,
+
     pub auth: LogbrokerAuthConfig,
 
     pub driver: LogbrokerDriver,
 
     pub trusted_plaintext: bool,
+
+    #[serde(default = "default_read_buffer_bytes")]
+    pub read_buffer_bytes: usize,
 }
 
 pub(super) const fn default_read_buffer_bytes() -> usize {

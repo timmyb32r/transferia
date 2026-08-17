@@ -4,15 +4,32 @@ use ydb_grpc::ydb_proto::topic::stream_read_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::source::{
-    build_commit_request, coalesce_ranges, continuous_commit_range, decode_message, init_message,
-    releasable_session_ids, take_releasable_credit, PartitionCommitMarker, PartitionSessionState,
-    YdbTopicCommitMarker,
+    build_commit_request, coalesce_ranges, connection_check_init_message, continuous_commit_range,
+    decode_message, init_message, releasable_session_ids, take_releasable_credit,
+    PartitionCommitMarker, PartitionSessionState, YdbTopicCommitMarker,
 };
 use super::*;
 use crate::core::source::CommitMarker;
 
 fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
     provider_with_topics("  - path: topic\n    partitions: []\n", extra)
+}
+
+#[test]
+fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() -> anyhow::Result<()>
+{
+    let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(
+        "host: sas.logbroker.yandex.net\nport: 2135\ntopics: [{ path: cdc/prod/logs, partitions: [] }]\nconsumer_name: /cdc/prod/consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser: {}\nread_buffer_bytes: 1048576\n",
+    )?;
+    let message = connection_check_init_message(&config);
+    let Some(ClientMessage::InitRequest(init)) = message.client_message else {
+        panic!("connection check must begin with StreamRead InitRequest");
+    };
+    assert_eq!(init.consumer, "/cdc/prod/consumer");
+    assert_eq!(init.topics_read_settings.len(), 1);
+    assert_eq!(init.topics_read_settings[0].path, "cdc/prod/logs");
+    assert_eq!(init.partition_max_in_flight_bytes, 1_048_576);
+    Ok(())
 }
 
 #[test]

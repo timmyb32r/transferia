@@ -9,7 +9,6 @@ use futures_util::future::BoxFuture;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
-use ydb_grpc::ydb_proto::topic::DescribeTopicRequest;
 
 use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::core::source::Source;
@@ -199,15 +198,22 @@ pub(crate) async fn check_connection(
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {
     validate_connection_config(cfg)?;
-    check_topic_connection(
-        &cfg.host,
-        cfg.port,
-        &cfg.topics[0].path,
-        &cfg.auth,
-        cfg.driver,
-        cancellation,
-    )
-    .await
+    let token = cfg.auth.load_token()?;
+    match cfg.driver {
+        LogbrokerDriver::Ydb => source::check_read_connection(cfg, &token, cancellation).await,
+        LogbrokerDriver::Pqv1 => {
+            let endpoint = crate::providers::address::url("grpc", &cfg.host, cfg.port);
+            crate::providers::logbroker::pqv1::pq_v1::PqV1Client::describe_topic(
+                &endpoint,
+                &cfg.topics[0].path,
+                &token,
+                NETWORK_TIMEOUT,
+                &cancellation,
+            )
+            .await
+            .map(|_| ())
+        }
+    }
 }
 
 fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::Result<()> {
@@ -217,6 +223,10 @@ fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::
     anyhow::ensure!(
         !cfg.topics[0].path.is_empty(),
         "logbroker.topics[0].path must not be empty"
+    );
+    anyhow::ensure!(
+        !cfg.consumer_name.is_empty(),
+        "logbroker.consumer_name must not be empty"
     );
     anyhow::ensure!(
         cfg.trusted_plaintext,
@@ -238,12 +248,13 @@ pub(crate) async fn check_topic_connection(
         LogbrokerDriver::Ydb => {
             let (mut client, _) =
                 connect_client(host, port, NETWORK_TIMEOUT, &cancellation).await?;
-            let mut request = tonic::Request::new(DescribeTopicRequest {
-                operation_params: None,
-                path: topic_path.to_owned(),
-                include_stats: false,
-                include_location: false,
-            });
+            let mut request =
+                tonic::Request::new(ydb_grpc::ydb_proto::topic::DescribeTopicRequest {
+                    operation_params: None,
+                    path: topic_path.to_owned(),
+                    include_stats: false,
+                    include_location: false,
+                });
             set_ydb_headers(request.metadata_mut(), &token)?;
             let response = tokio::time::timeout(NETWORK_TIMEOUT, client.describe_topic(request))
                 .await
@@ -253,11 +264,21 @@ pub(crate) async fn check_topic_connection(
                 .operation
                 .ok_or_else(|| anyhow::anyhow!("YDB Topic DescribeTopic returned no operation"))?;
             anyhow::ensure!(operation.ready, "YDB Topic DescribeTopic did not complete");
-            anyhow::ensure!(
-                operation.status == ydb_grpc::ydb_proto::status_ids::StatusCode::Success as i32,
-                "YDB Topic rejected the connection or topic access with status {}",
-                operation.status
-            );
+            if operation.status != ydb_grpc::ydb_proto::status_ids::StatusCode::Success as i32 {
+                let status =
+                    ydb_grpc::ydb_proto::status_ids::StatusCode::try_from(operation.status).ok();
+                let status_name = status.map_or("UNKNOWN", |status| status.as_str_name());
+                let issues = operation
+                    .issues
+                    .iter()
+                    .map(|issue| issue.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                anyhow::bail!(
+                    "YDB Topic DescribeTopic failed: status={} ({status_name}), issues={issues}",
+                    operation.status
+                );
+            }
         }
         LogbrokerDriver::Pqv1 => {
             let endpoint = crate::providers::address::url("grpc", host, port);
