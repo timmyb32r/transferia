@@ -9,6 +9,25 @@ import {
 } from "../src/schema/compiler";
 
 describe("schema compiler", () => {
+  it("accepts dependency-aware dynamic options emitted for managed MDB fields", () => {
+    const node = compileSchema({
+      type: "string",
+      "x-ui": {
+        dynamic_options: "yandex.mdb.clickhouse.databases",
+        dynamic_options_dependencies: {
+          cluster_id: "/installation/cluster_id",
+        },
+      },
+    });
+
+    expect(node.xUi).toEqual({
+      dynamic_options: "yandex.mdb.clickhouse.databases",
+      dynamic_options_dependencies: {
+        cluster_id: "/installation/cluster_id",
+      },
+    });
+  });
+
   it("requires an explicit one-of selection", () => {
     const node = compileSchema({
       oneOf: [

@@ -290,6 +290,19 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
         assert_eq!(response.headers()[CONTENT_TYPE], content_type);
     }
     let response = app
+        .clone()
+        .oneshot(Request::get("/app.js").body(Body::empty())?)
+        .await?;
+    let javascript = String::from_utf8(
+        to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(
+        javascript.contains("dynamic_options_dependencies"),
+        "embedded UI bundle must support dependency-aware catalog fields"
+    );
+    let response = app
         .oneshot(Request::get("/missing").body(Body::empty())?)
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
