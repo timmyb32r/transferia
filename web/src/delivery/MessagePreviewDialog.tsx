@@ -23,6 +23,7 @@ export function MessagePreviewDialog({
 }) {
   const dialog = useRef<HTMLElement>(null);
   const [showFull, setShowFull] = useState(false);
+  const [activeTab, setActiveTab] = useState<PreviewTab>("text");
   useEffect(() => {
     dialog.current
       ?.querySelector<HTMLButtonElement>("[aria-label='Close message preview']")
@@ -37,6 +38,10 @@ export function MessagePreviewDialog({
       result ? decodeBase64(result.payload_preview_base64) : new Uint8Array(),
     [result],
   );
+  useEffect(() => {
+    setShowFull(false);
+    setActiveTab(isPrintableText(previewBytes) ? "text" : "binary");
+  }, [previewBytes]);
   const fullBytes = useMemo(
     () =>
       result && showFull
@@ -45,7 +50,7 @@ export function MessagePreviewDialog({
     [result, showFull],
   );
   const visibleBytes = showFull ? fullBytes : previewBytes;
-  const binary = useMemo(() => hexDump(visibleBytes), [visibleBytes]);
+  const binary = useMemo(() => hexColumns(visibleBytes), [visibleBytes]);
   const text = useMemo(
     () =>
       result && showFull
@@ -56,6 +61,7 @@ export function MessagePreviewDialog({
   const truncated = Boolean(
     result && result.preview_bytes < result.byte_length,
   );
+  const shownInFull = Boolean(result && (!truncated || showFull));
   return (
     <div class="message-preview-backdrop" onMouseDown={onClose}>
       <section
@@ -71,7 +77,7 @@ export function MessagePreviewDialog({
             <h2 id="message-preview-title">Message preview</h2>
             <span>
               {result
-                ? `${result.byte_length} bytes · not committed`
+                ? `${result.byte_length} bytes (${shownInFull ? "shown in full" : "partially shown"}) · not committed`
                 : "Read-only · no commit"}
             </span>
           </div>
@@ -96,15 +102,30 @@ export function MessagePreviewDialog({
         )}
         {result && (
           <>
-            <div class="message-preview-panes">
-              <section>
-                <h3>Text</h3>
-                <pre>{text}</pre>
-              </section>
-              <section>
-                <h3>Binary</h3>
-                <pre class="hex-editor">{binary}</pre>
-              </section>
+            <div class="message-preview-tabs" role="tablist">
+              {(["text", "binary", "metadata"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  class={activeTab === tab ? "is-active" : undefined}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab === "binary"
+                    ? "Binary"
+                    : tab === "metadata"
+                      ? "Metadata"
+                      : "Text"}
+                </button>
+              ))}
+            </div>
+            <div class="message-preview-content" role="tabpanel">
+              {activeTab === "text" && (
+                <pre class="message-preview-text">{text}</pre>
+              )}
+              {activeTab === "binary" && <HexEditor columns={binary} />}
+              {activeTab === "metadata" && <MessageMetadata result={result} />}
             </div>
             {truncated && (
               <div class="message-preview-truncation" role="note">
@@ -130,7 +151,6 @@ export function MessagePreviewDialog({
                 </Button>
               </div>
             )}
-            <MessageMetadata result={result} />
             <footer>
               <div>
                 <strong>Detected parsers</strong>
@@ -170,25 +190,64 @@ export function MessagePreviewDialog({
   );
 }
 
+type PreviewTab = "text" | "binary" | "metadata";
+
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function hexDump(bytes: Uint8Array): string {
-  const rows: string[] = [];
+function hexColumns(bytes: Uint8Array) {
+  const addresses: string[] = [];
+  const values: string[] = [];
+  const text: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += 16) {
     const slice = bytes.slice(offset, offset + 16);
-    const address = offset.toString(16).padStart(8, "0");
-    const hex = Array.from(slice, (byte) => byte.toString(16).padStart(2, "0"))
-      .join(" ")
-      .padEnd(47, " ");
+    addresses.push(offset.toString(16).padStart(8, "0"));
+    const hex = Array.from(slice, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join(" ");
     const ascii = Array.from(slice, (byte) =>
       byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : "·",
     ).join("");
-    rows.push(`${address}  ${hex}  ${ascii}`);
+    values.push(hex);
+    text.push(ascii);
   }
-  return rows.join("\n");
+  return { addresses, values, text };
+}
+
+function HexEditor({ columns }: { columns: ReturnType<typeof hexColumns> }) {
+  return (
+    <div class="hex-editor" aria-label="Binary message">
+      <pre class="hex-addresses" aria-label="Offsets">
+        {columns.addresses.join("\n")}
+      </pre>
+      <pre class="hex-values" aria-label="Hex values">
+        {columns.values.join("\n")}
+      </pre>
+      <pre class="hex-text" aria-label="ASCII text">
+        {columns.text.join("\n")}
+      </pre>
+    </div>
+  );
+}
+
+function isPrintableText(bytes: Uint8Array): boolean {
+  let value: string;
+  try {
+    value = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return false;
+  }
+  return Array.from(value).every((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return (
+      character === "\n" ||
+      character === "\r" ||
+      character === "\t" ||
+      (code >= 0x20 && code !== 0x7f)
+    );
+  });
 }
 
 function MessageMetadata({ result }: { result: MessagePreviewResult }) {
@@ -213,8 +272,7 @@ function MessageMetadata({ result }: { result: MessagePreviewResult }) {
     ],
   ];
   return (
-    <details class="message-preview-metadata" open>
-      <summary>Message metadata</summary>
+    <div class="message-preview-metadata">
       <dl>
         {rows.map(([label, value]) => (
           <div key={label}>
@@ -238,7 +296,7 @@ function MessageMetadata({ result }: { result: MessagePreviewResult }) {
           ])}
         />
       )}
-    </details>
+    </div>
   );
 }
 

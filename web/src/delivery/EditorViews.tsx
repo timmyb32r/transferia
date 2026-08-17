@@ -5,7 +5,7 @@ import { SchemaForm, SelectControl } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
-import { EyeIcon } from "../ui/icons";
+import { ScanIcon } from "../ui/icons";
 import type {
   DiscoveryResult,
   EndpointDefinition,
@@ -162,7 +162,7 @@ export function EndpointCard(props: {
                   disabled={preview.loading}
                   onClick={() => void previewMessage()}
                 >
-                  <EyeIcon />
+                  <ScanIcon />
                 </Button>
               ) : undefined
             }

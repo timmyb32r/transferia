@@ -8,7 +8,7 @@ import { MessagePreviewDialog } from "../src/delivery/MessagePreviewDialog";
 afterEach(cleanup);
 
 describe("message preview dialog", () => {
-  it("renders text and hex, applies detection, and closes with Escape", () => {
+  it("opens binary for non-printable content and closes with Escape", () => {
     const apply = vi.fn();
     const close = vi.fn();
     const view = render(
@@ -37,6 +37,10 @@ describe("message preview dialog", () => {
 
     expect(view.container.textContent).toContain("41 00 42");
     expect(view.container.textContent).toContain("A·B");
+    expect(
+      view.getByRole("tab", { name: "Binary" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(view.container.textContent).toContain("shown in full");
     fireEvent.click(view.getByRole("button", { name: "Use parser" }));
     expect(apply).toHaveBeenCalledWith(
       expect.objectContaining({ key: "json_parser" }),
@@ -65,9 +69,14 @@ describe("message preview dialog", () => {
     );
 
     expect(view.container.textContent).toContain("Showing 1 B of 2 B");
-    expect(view.container.textContent).not.toContain("41 42");
+    expect(
+      view.getByRole("tab", { name: "Text" }).getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(view.container.textContent).toContain("partially shown");
     fireEvent.click(view.getByRole("button", { name: "View full" }));
+    fireEvent.click(view.getByRole("tab", { name: "Binary" }));
     expect(view.container.textContent).toContain("41 42");
+    fireEvent.click(view.getByRole("tab", { name: "Metadata" }));
     expect(view.getByText("cdc/prod/logs")).toBeTruthy();
   });
 });
