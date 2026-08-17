@@ -165,6 +165,31 @@ async fn connection_check_uses_the_typed_endpoint_capability() -> anyhow::Result
 }
 
 #[tokio::test]
+async fn message_preview_rejects_sources_without_preview_capability() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/preview-message")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"provider":"postgres","config":{},"max_bytes":4194304}"#,
+                ))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "validation_failed");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("does not support message preview")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn delivery_list_never_returns_config_or_secrets() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let request = serde_json::json!({

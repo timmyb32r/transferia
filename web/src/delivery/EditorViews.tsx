@@ -5,6 +5,7 @@ import { SchemaForm, SelectControl } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
+import { EyeIcon } from "../ui/icons";
 import type {
   DiscoveryResult,
   EndpointDefinition,
@@ -13,6 +14,7 @@ import type {
   UiCatalog,
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
+import { MessagePreviewDialog } from "./MessagePreviewDialog";
 
 export function EndpointCard(props: {
   title: string;
@@ -37,6 +39,13 @@ export function EndpointCard(props: {
     | { state: "error"; message: string; options: Record<string, string[]> }
   >({ state: "idle", options: {} });
   const controller = useRef<AbortController>();
+  const previewController = useRef<AbortController>();
+  const [preview, setPreview] = useState<{
+    open: boolean;
+    loading: boolean;
+    result?: import("../generated/apiContract").MessagePreviewResult;
+    error?: string;
+  }>({ open: false, loading: false });
   const configFingerprint = JSON.stringify(value);
   const endpointFingerprint = `${props.role}:${props.selectedKey}:${configFingerprint}`;
   const previousEndpointFingerprint = useRef(endpointFingerprint);
@@ -44,12 +53,16 @@ export function EndpointCard(props: {
     if (previousEndpointFingerprint.current === endpointFingerprint) return;
     previousEndpointFingerprint.current = endpointFingerprint;
     controller.current?.abort();
+    previewController.current?.abort();
     controller.current = undefined;
+    previewController.current = undefined;
     setCheck({ state: "idle", options: {} });
+    setPreview({ open: false, loading: false });
   }, [endpointFingerprint]);
   useEffect(
     () => () => {
       controller.current?.abort();
+      previewController.current?.abort();
     },
     [],
   );
@@ -79,6 +92,33 @@ export function EndpointCard(props: {
       });
     } finally {
       if (controller.current === request) controller.current = undefined;
+    }
+  };
+  const previewMessage = async () => {
+    previewController.current?.abort();
+    const request = new AbortController();
+    previewController.current = request;
+    setPreview({ open: true, loading: true });
+    try {
+      const result = await api.previewMessage(
+        {
+          provider: props.selectedKey,
+          config: isObject(value) ? value : {},
+          max_bytes: 4 * 1024 * 1024,
+        },
+        request.signal,
+      );
+      if (previewController.current === request) {
+        setPreview({ open: true, loading: false, result });
+      }
+    } catch (error) {
+      if (!request.signal.aborted && previewController.current === request) {
+        setPreview({
+          open: true,
+          loading: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   };
   return (
@@ -112,6 +152,20 @@ export function EndpointCard(props: {
             showRequiredErrors={props.showRequiredErrors}
             parserSelectionOnly={props.role === "source"}
             optionOverrides={check.options}
+            parserAction={
+              props.role === "source" && props.selectedKey === "logbroker" ? (
+                <Button
+                  shape="icon"
+                  class="parser-preview-button"
+                  title="Preview one message"
+                  aria-label="Preview one message"
+                  disabled={preview.loading}
+                  onClick={() => void previewMessage()}
+                >
+                  <EyeIcon />
+                </Button>
+              ) : undefined
+            }
             connectionAction={
               props.endpoint.connection_check ? (
                 <div class="connection-check">
@@ -151,6 +205,31 @@ export function EndpointCard(props: {
             }
           />
         </div>
+      )}
+      {preview.open && (
+        <MessagePreviewDialog
+          result={preview.result}
+          error={preview.error}
+          loading={preview.loading}
+          allowApply={!props.readOnly}
+          onClose={() => {
+            previewController.current?.abort();
+            setPreview({ open: false, loading: false });
+          }}
+          onApply={(detection) => {
+            if (!isObject(detection.config)) return;
+            props.onConfig({
+              ...props.config,
+              [props.role]: {
+                [props.selectedKey]: {
+                  ...(isObject(value) ? value : {}),
+                  parser: detection.config,
+                },
+              },
+            });
+            setPreview({ open: false, loading: false });
+          }}
+        />
       )}
     </article>
   );

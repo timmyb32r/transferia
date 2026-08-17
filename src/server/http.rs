@@ -16,8 +16,9 @@ use transferia::extension::OptionsRequest;
 
 use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
-    ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse, RevisionRequest,
-    StopRequest, UpdateDraftRequest, YamlRequest, YamlResponse,
+    ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
+    MessagePreviewRequest, RevisionRequest, StopRequest, UpdateDraftRequest, YamlRequest,
+    YamlResponse,
 };
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::model::DeliveryRecord;
@@ -141,6 +142,7 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/api/v1/catalog", get(get_catalog))
         .route("/api/v1/options/{key}", post(dynamic_options))
         .route("/api/v1/check-connection", post(check_connection))
+        .route("/api/v1/preview-message", post(preview_message))
         .route("/api/v1/config/yaml", post(render_yaml))
         .route("/api/v1/config/from-yaml", post(parse_yaml))
         .route("/api/v1/discover", post(discover))
@@ -278,6 +280,24 @@ async fn check_connection(
             &request.provider,
             request.role,
             request.config,
+            cancellation,
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn preview_message(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<MessagePreviewRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .preview_message(
+            &request.provider,
+            request.config,
+            request.max_bytes,
             cancellation,
         )
         .await?;

@@ -1,5 +1,6 @@
 pub mod benchmark_discard;
 pub mod config;
+pub mod detection;
 pub mod json_parser;
 mod native_source;
 

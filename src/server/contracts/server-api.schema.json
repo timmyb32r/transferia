@@ -33,6 +33,12 @@
     "connection_check_response": {
       "$ref": "#/$defs/ConnectionCheckResult"
     },
+    "message_preview_request": {
+      "$ref": "#/$defs/MessagePreviewRequest"
+    },
+    "message_preview_response": {
+      "$ref": "#/$defs/MessagePreviewResult"
+    },
     "yaml_response": {
       "$ref": "#/$defs/YamlResponse"
     },
@@ -74,6 +80,8 @@
     "dynamic_options_request",
     "connection_check_request",
     "connection_check_response",
+    "message_preview_request",
+    "message_preview_response",
     "yaml_response",
     "config_response",
     "health_response",
@@ -786,6 +794,77 @@
       "additionalProperties": false,
       "required": [
         "options"
+      ]
+    },
+    "MessagePreviewRequest": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": true,
+          "x-typescript-type": "JsonObject"
+        },
+        "max_bytes": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "config",
+        "max_bytes"
+      ]
+    },
+    "MessagePreviewResult": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "payload_base64": {
+          "type": "string"
+        },
+        "byte_length": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "detections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParserDetection"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "payload_base64",
+        "byte_length",
+        "detections"
+      ]
+    },
+    "ParserDetection": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "config": true
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "config"
       ]
     },
     "YamlResponse": {

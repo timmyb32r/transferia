@@ -184,6 +184,25 @@ export type ConnectionCheckResult = {
   };
 };
 
+export type MessagePreviewRequest = {
+  provider: string;
+  config: JsonObject;
+  max_bytes: number;
+};
+
+export type MessagePreviewResult = {
+  text: string;
+  payload_base64: string;
+  byte_length: number;
+  detections: Array<ParserDetection>;
+};
+
+export type ParserDetection = {
+  key: string;
+  label: string;
+  config: JsonValue;
+};
+
 export type YamlResponse = {
   yaml: string;
 };
@@ -256,6 +275,8 @@ export interface ApiContract {
   dynamic_options_request: OptionsRequest;
   connection_check_request: ConnectionCheckRequest;
   connection_check_response: ConnectionCheckResult;
+  message_preview_request: MessagePreviewRequest;
+  message_preview_response: MessagePreviewResult;
   yaml_response: YamlResponse;
   config_response: ConfigResponse;
   health_response: HealthResponse;

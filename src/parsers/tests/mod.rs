@@ -1,5 +1,7 @@
 use super::*;
 
+mod detection;
+
 #[test]
 fn benchmark_discard_rejects_unknown_configuration() {
     let config: ParserConfig = serde_yaml::from_str(

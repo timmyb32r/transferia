@@ -47,9 +47,7 @@ describe("schema form", () => {
     fireEvent.click(view.container.querySelector("summary")!);
     const control = view.container.querySelector("#field---shard_group")!;
     expect(control.tagName).toBe("BUTTON");
-    expect(control.textContent).toContain(
-      "production",
-    );
+    expect(control.textContent).toContain("production");
     view.unmount();
   });
 
@@ -805,6 +803,7 @@ describe("schema form", () => {
         value={value}
         parserSelectionOnly
         connectionAction={<button>Check connection</button>}
+        parserAction={<button aria-label="Preview one message">eye</button>}
         onChange={() => undefined}
       />,
     );
@@ -817,6 +816,9 @@ describe("schema form", () => {
     expect(connectionAction.compareDocumentPosition(parserSelector)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(
+      endpoint.getByRole("button", { name: "Preview one message" }),
+    ).toBeTruthy();
 
     const details = render(
       <ParserDetailsForm

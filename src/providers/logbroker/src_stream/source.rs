@@ -636,6 +636,105 @@ pub(super) async fn check_read_connection(
     Ok(())
 }
 
+pub(super) async fn preview_message(
+    config: &LogbrokerSourceConnectionConfig,
+    token: &str,
+    max_bytes: usize,
+    cancellation: CancellationToken,
+) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(max_bytes > 0, "message preview max_bytes must be positive");
+    let credit =
+        i64::try_from(max_bytes).map_err(|_| anyhow!("message preview max_bytes exceeds i64"))?;
+    let (mut client, _) = connect_client(
+        &config.host,
+        config.port,
+        super::NETWORK_TIMEOUT,
+        &cancellation,
+    )
+    .await?;
+    let (outgoing, receiver) = mpsc::channel(4);
+    let mut request = Request::new(ReceiverStream::new(receiver));
+    set_ydb_headers(request.metadata_mut(), token)?;
+    outgoing
+        .send(connection_check_init_message(config))
+        .await
+        .map_err(|_| anyhow!("YDB Topic preview stream closed before init"))?;
+    let mut incoming = tokio::time::timeout(super::NETWORK_TIMEOUT, client.stream_read(request))
+        .await
+        .map_err(|_| anyhow!("YDB Topic StreamRead preview timed out"))??
+        .into_inner();
+    let mut sessions = HashMap::<i64, (Arc<str>, i64)>::new();
+    let mut initialized = false;
+    tokio::time::timeout(super::NETWORK_TIMEOUT, async {
+        loop {
+            let response = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => anyhow::bail!("YDB Topic message preview cancelled"),
+                response = incoming.message() => response?
+                    .ok_or_else(|| anyhow!("YDB Topic closed the preview stream"))?,
+            };
+            validate_status(&response)?;
+            match response.server_message {
+                Some(ServerMessage::InitResponse(response)) => {
+                    anyhow::ensure!(!response.session_id.is_empty(), "YDB Topic returned an empty preview session id");
+                    anyhow::ensure!(!initialized, "YDB Topic returned duplicate preview InitResponse");
+                    initialized = true;
+                    outgoing.send(FromClient {
+                        client_message: Some(ClientMessage::ReadRequest(ReadRequest { bytes_size: credit })),
+                    }).await.map_err(|_| anyhow!("YDB Topic preview stream closed before read request"))?;
+                }
+                Some(ServerMessage::StartPartitionSessionRequest(request)) => {
+                    let session = request.partition_session.ok_or_else(|| anyhow!("YDB Topic preview assignment has no partition session"))?;
+                    anyhow::ensure!(
+                        config.topics.iter().any(|topic| topic.path == session.path && (topic.partitions.is_empty() || topic.partitions.contains(&session.partition_id))),
+                        "YDB Topic preview assigned unconfigured topic or partition '{}:{}'",
+                        session.path,
+                        session.partition_id
+                    );
+                    sessions.insert(session.partition_session_id, (Arc::from(session.path), session.partition_id));
+                    outgoing.send(FromClient {
+                        client_message: Some(ClientMessage::StartPartitionSessionResponse(StartPartitionSessionResponse {
+                            partition_session_id: session.partition_session_id,
+                            read_offset: None,
+                            commit_offset: None,
+                        })),
+                    }).await.map_err(|_| anyhow!("YDB Topic preview stream closed during partition assignment"))?;
+                }
+                Some(ServerMessage::ReadResponse(response)) => {
+                    for partition in response.partition_data {
+                        let (topic, partition_id) = sessions.get(&partition.partition_session_id)
+                            .ok_or_else(|| anyhow!("YDB Topic preview received data for an unknown partition session"))?;
+                        let declared = partition.batches.iter().flat_map(|batch| &batch.message_data)
+                            .try_fold(0usize, |total, message| {
+                                let size = usize::try_from(message.uncompressed_size).ok()?;
+                                total.checked_add(size.max(message.data.len()))
+                            }).ok_or_else(|| anyhow!("YDB Topic preview response has invalid declared size"))?;
+                        anyhow::ensure!(
+                            declared <= max_bytes,
+                            "source message preview requires {declared} bytes, exceeding requested max_bytes={max_bytes}"
+                        );
+                        let decoded = decode_batches(partition.batches, topic, *partition_id)?;
+                        if let Some(message) = decoded.messages.into_iter().next() {
+                            return Ok(message.value.to_vec());
+                        }
+                    }
+                }
+                Some(ServerMessage::StopPartitionSessionRequest(request)) => {
+                    outgoing.send(FromClient {
+                        client_message: Some(ClientMessage::StopPartitionSessionResponse(StopPartitionSessionResponse {
+                            partition_session_id: request.partition_session_id,
+                            graceful: true,
+                        })),
+                    }).await.map_err(|_| anyhow!("YDB Topic preview stream closed during partition stop"))?;
+                    sessions.remove(&request.partition_session_id);
+                }
+                Some(_) => {}
+                None => anyhow::bail!("YDB Topic preview response has no server message"),
+            }
+        }
+    }).await.map_err(|_| anyhow!("YDB Topic message preview timed out after {} ms", super::NETWORK_TIMEOUT.as_millis()))?
+}
+
 pub(super) fn connection_check_init_message(
     config: &LogbrokerSourceConnectionConfig,
 ) -> FromClient {

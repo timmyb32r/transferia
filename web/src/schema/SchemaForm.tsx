@@ -34,12 +34,14 @@ interface SchemaFormProps extends NodeEditorProps {
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
+  parserAction?: ComponentChildren;
 }
 
 const ParserSelectionContext = createContext(false);
 const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
+const ParserActionContext = createContext<ComponentChildren>(undefined);
 
 export function SchemaForm({
   node,
@@ -49,22 +51,25 @@ export function SchemaForm({
   showRequiredErrors = false,
   optionOverrides = {},
   connectionAction,
+  parserAction,
   onChange,
 }: SchemaFormProps) {
   return (
     <RootValueContext.Provider value={value}>
       <OptionOverridesContext.Provider value={optionOverrides}>
         <RequiredErrorsContext.Provider value={showRequiredErrors}>
-          <ParserSelectionContext.Provider value={parserSelectionOnly}>
-            <NodeEditor
-              node={node}
-              value={value}
-              disabled={disabled}
-              connectionAction={connectionAction}
-              onChange={onChange}
-              path="#"
-            />
-          </ParserSelectionContext.Provider>
+          <ParserActionContext.Provider value={parserAction}>
+            <ParserSelectionContext.Provider value={parserSelectionOnly}>
+              <NodeEditor
+                node={node}
+                value={value}
+                disabled={disabled}
+                connectionAction={connectionAction}
+                onChange={onChange}
+                path="#"
+              />
+            </ParserSelectionContext.Provider>
+          </ParserActionContext.Provider>
         </RequiredErrorsContext.Provider>
       </OptionOverridesContext.Provider>
     </RootValueContext.Provider>
@@ -101,20 +106,20 @@ export function ParserDetailsForm({
     return null;
   return (
     <RootValueContext.Provider value={value}>
-    <RequiredErrorsContext.Provider value={showRequiredErrors}>
-      <div class="source-parser-bridge" aria-hidden="true" />
-      <section class="parser-details-card">
-        <div class="section-heading">
-          <h2>{selected.label} settings</h2>
-        </div>
-        <NodeEditor
-          node={selected.node}
-          value={parserValue ?? createValue(selected.node)}
-          disabled={disabled}
-          onChange={(next) => onChange({ ...object, [name]: next })}
-        />
-      </section>
-    </RequiredErrorsContext.Provider>
+      <RequiredErrorsContext.Provider value={showRequiredErrors}>
+        <div class="source-parser-bridge" aria-hidden="true" />
+        <section class="parser-details-card">
+          <div class="section-heading">
+            <h2>{selected.label} settings</h2>
+          </div>
+          <NodeEditor
+            node={selected.node}
+            value={parserValue ?? createValue(selected.node)}
+            disabled={disabled}
+            onChange={(next) => onChange({ ...object, [name]: next })}
+          />
+        </section>
+      </RequiredErrorsContext.Provider>
     </RootValueContext.Provider>
   );
 }
@@ -132,6 +137,7 @@ function NodeEditor({
   const parserSelectionOnly = useContext(ParserSelectionContext);
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
+  const parserAction = useContext(ParserActionContext);
   const partitionRanges = partitionRangesProperty(node);
   const configuredPartitionRanges = hasConfiguredPartitionRanges(
     value,
@@ -339,21 +345,30 @@ function NodeEditor({
       );
       return (
         <div class="union-editor">
-          <SelectControl
-            id={controlId}
-            value={selected < 0 ? "" : String(selected)}
-            disabled={isDisabled}
-            placeholder="Not selected"
-            options={node.branches.map((branch, index) => ({
-              value: String(index),
-              label: branch.label,
-            }))}
-            onChange={(raw) => {
-              const branch = node.branches[Number(raw)];
-              if (branch === undefined) return;
-              onChange(branch.constant ?? createValue(branch.node));
-            }}
-          />
+          <div
+            class={
+              node.xUi.widget === "parser" && parserAction
+                ? "parser-selector-row"
+                : undefined
+            }
+          >
+            <SelectControl
+              id={controlId}
+              value={selected < 0 ? "" : String(selected)}
+              disabled={isDisabled}
+              placeholder="Not selected"
+              options={node.branches.map((branch, index) => ({
+                value: String(index),
+                label: branch.label,
+              }))}
+              onChange={(raw) => {
+                const branch = node.branches[Number(raw)];
+                if (branch === undefined) return;
+                onChange(branch.constant ?? createValue(branch.node));
+              }}
+            />
+            {node.xUi.widget === "parser" && parserAction}
+          </div>
           {(!parserSelectionOnly || node.xUi.widget !== "parser") &&
             selected >= 0 &&
             node.branches[selected]!.constant === undefined &&
@@ -451,7 +466,10 @@ function NodeEditor({
             value={current}
             disabled={isDisabled}
             placeholder="Not selected"
-            options={options.map((option) => ({ value: option, label: option }))}
+            options={options.map((option) => ({
+              value: option,
+              label: option,
+            }))}
             onChange={onChange}
           />
         );
@@ -464,17 +482,23 @@ function NodeEditor({
             (pointer) => typeof pointer === "string",
           )
             ? Object.fromEntries(
-                Object.entries(dependencyPointers).flatMap(([name, pointer]) => {
-                  const dependency = jsonPointer(rootValue, pointer as string);
-                  return typeof dependency === "string" && dependency !== ""
-                    ? [[name, dependency]]
-                    : [];
-                }),
+                Object.entries(dependencyPointers).flatMap(
+                  ([name, pointer]) => {
+                    const dependency = jsonPointer(
+                      rootValue,
+                      pointer as string,
+                    );
+                    return typeof dependency === "string" && dependency !== ""
+                      ? [[name, dependency]]
+                      : [];
+                  },
+                ),
               )
             : {};
         if (
           isObject(dependencyPointers) &&
-          Object.keys(dependencies).length !== Object.keys(dependencyPointers).length
+          Object.keys(dependencies).length !==
+            Object.keys(dependencyPointers).length
         ) {
           return (
             <input

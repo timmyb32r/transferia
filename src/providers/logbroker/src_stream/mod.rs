@@ -216,6 +216,20 @@ pub(crate) async fn check_connection(
     }
 }
 
+pub(crate) async fn preview_message(
+    cfg: &LogbrokerSourceConnectionConfig,
+    max_bytes: usize,
+    cancellation: CancellationToken,
+) -> anyhow::Result<Vec<u8>> {
+    validate_connection_config(cfg)?;
+    anyhow::ensure!(
+        cfg.driver == LogbrokerDriver::Ydb,
+        "message preview currently requires logbroker.driver=ydb"
+    );
+    let token = cfg.auth.load_token()?;
+    source::preview_message(cfg, &token, max_bytes, cancellation).await
+}
+
 fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::Result<()> {
     crate::providers::address::validate_host("logbroker.host", &cfg.host)?;
     crate::providers::address::validate_port("logbroker.port", cfg.port)?;

@@ -5,6 +5,7 @@ import type {
   ConfigRequest,
   ConnectionCheckRequest,
   CreateDraftRequest,
+  MessagePreviewRequest,
   OptionsRequest,
   RevisionRequest,
   StopRequest,
@@ -73,6 +74,12 @@ export const api = {
   },
   checkConnection: (body: ConnectionCheckRequest, signal?: AbortSignal) =>
     request("/api/v1/check-connection", "connection_check_response", {
+      method: "POST",
+      body: json(body),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+  previewMessage: (body: MessagePreviewRequest, signal?: AbortSignal) =>
+    request("/api/v1/preview-message", "message_preview_response", {
       method: "POST",
       body: json(body),
       ...(signal === undefined ? {} : { signal }),

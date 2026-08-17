@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine as _;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -223,6 +224,53 @@ impl ControlPlane {
             "connection check completed"
         );
         result
+    }
+
+    pub async fn preview_message(
+        &self,
+        provider: &str,
+        config: Value,
+        max_bytes: usize,
+        cancellation: CancellationToken,
+    ) -> Result<MessagePreviewResult, ServiceError> {
+        const MAX_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024 * 1024;
+        if !(1..=MAX_MESSAGE_PREVIEW_BYTES).contains(&max_bytes) {
+            return Err(ServiceError::Validation(format!(
+                "message preview max_bytes must be in 1..={MAX_MESSAGE_PREVIEW_BYTES}"
+            )));
+        }
+        if provider != "logbroker" {
+            return Err(ServiceError::Validation(format!(
+                "{provider} source does not support message preview"
+            )));
+        }
+        let raw = serde_yaml::to_value(config)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let resolved = self
+            .transferia
+            .registry()
+            .resolve(
+                provider,
+                crate::extension::EndpointRole::Source,
+                raw,
+                cancellation.clone(),
+            )
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let config: crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig =
+            serde_yaml::from_value(resolved).map_err(|error| {
+                ServiceError::Validation(format!("invalid source configuration: {error}"))
+            })?;
+        let payload =
+            crate::providers::logbroker::preview_message(&config, max_bytes, cancellation)
+                .await
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        Ok(MessagePreviewResult {
+            text: String::from_utf8_lossy(&payload).into_owned(),
+            payload_base64: base64::engine::general_purpose::STANDARD.encode(&payload),
+            byte_length: payload.len(),
+            detections: crate::parsers::detection::detect(&payload),
+        })
     }
 
     #[must_use]
@@ -755,6 +803,18 @@ impl ControlPlane {
         self.store.replace(record, expected_record_version).await?;
         Ok(())
     }
+}
+
+#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MessagePreviewResult {
+    pub text: String,
+
+    pub payload_base64: String,
+
+    pub byte_length: usize,
+
+    pub detections: Vec<crate::parsers::detection::ParserDetection>,
 }
 
 fn validate_name(name: &str) -> Result<String, ServiceError> {

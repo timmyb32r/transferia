@@ -38,6 +38,20 @@ pub struct ConnectionCheckRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct MessagePreviewRequest {
+    pub provider: String,
+
+    #[schemars(
+        with = "std::collections::BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
+    pub config: Value,
+
+    pub max_bytes: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct YamlRequest {
     pub yaml: String,
 }
@@ -212,6 +226,10 @@ struct ServerApiContract {
     connection_check_request: ConnectionCheckRequest,
 
     connection_check_response: ConnectionCheckResult,
+
+    message_preview_request: MessagePreviewRequest,
+
+    message_preview_response: super::service::MessagePreviewResult,
 
     yaml_response: YamlResponse,
 
