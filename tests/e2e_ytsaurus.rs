@@ -233,9 +233,12 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .build()?;
     create_table(&client, &endpoint, "//tmp/input").await?;
 
-    let arrow_provider = YTsaurusSinkProvider::from_config(serde_yaml::from_str(&format!(
+    let arrow_config: transferia::providers::ytsaurus::YTsaurusSinkConfig =
+        serde_yaml::from_str(&format!(
         "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\ntables:\n  - dataset: events\n    path: //tmp/arrow_output\n"
-    ))?)?;
+    ))?;
+    transferia::providers::ytsaurus::check_connection(&arrow_config.connection).await?;
+    let arrow_provider = YTsaurusSinkProvider::from_config(arrow_config)?;
     let discovered = discovery();
     arrow_provider.limits().validate_discovery(&discovered)?;
     arrow_provider

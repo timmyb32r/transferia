@@ -100,6 +100,31 @@ describe("control-plane API", () => {
     );
   });
 
+  it("sends endpoint credentials only in the connection-check POST body", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ options: {} }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await api.checkConnection({
+      provider: "clickhouse",
+      role: "sink",
+      config: { username: "user", password: "secret" },
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/check-connection",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          provider: "clickhouse",
+          role: "sink",
+          config: { username: "user", password: "secret" },
+        }),
+      }),
+    );
+  });
+
   it("binds stop to both the record and worker run", async () => {
     const record = delivery("delivery-1", "Saved");
     const request = vi

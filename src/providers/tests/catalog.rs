@@ -98,6 +98,46 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
 }
 
 #[test]
+fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    for definition in catalog
+        .definitions()
+        .iter()
+        .filter(|definition| definition.key != "discard")
+    {
+        if let Some(source) = &definition.source {
+            assert!(
+                source.connection_check,
+                "{} source is missing its connection check",
+                definition.key
+            );
+        }
+        if let Some(sink) = &definition.sink {
+            assert!(
+                sink.connection_check,
+                "{} sink is missing its connection check",
+                definition.key
+            );
+        }
+    }
+
+    let clickhouse = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "clickhouse")
+        .and_then(|definition| definition.sink.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("missing ClickHouse sink"))?;
+    assert_eq!(clickhouse.initial["shard_group"], "");
+    assert_eq!(
+        clickhouse
+            .schema
+            .pointer("/properties/shard_group/x-ui/section"),
+        Some(&serde_json::json!("shard_group"))
+    );
+    Ok(())
+}
+
+#[test]
 fn provider_descriptors_are_the_authoritative_runtime_catalog() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     assert_eq!(catalog.definitions().len(), PROVIDERS.len());

@@ -496,6 +496,44 @@ h3 {
   margin-top: 16px;
   padding-top: 16px;
 }
+.connection-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  min-height: var(--button-height);
+}
+.connection-check-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+.connection-check-result {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.connection-check-success {
+  color: var(--success-text);
+}
+.connection-check-error {
+  color: var(--red);
+}
+.connection-check-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: connection-check-spin 0.7s linear infinite;
+}
+@keyframes connection-check-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .schema-object {
   display: grid;
   gap: 10px;

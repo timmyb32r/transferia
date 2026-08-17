@@ -79,6 +79,23 @@ impl ClickHouseSourceProvider {
         })
     }
 
+    pub async fn check_connection(
+        config: ClickHouseSourceConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Vec<String>> {
+        let selected = config.shard_group.clone();
+        let provider = Self::from_config(config, metrics)?;
+        let groups =
+            crate::providers::clickhouse::sink::query_shard_groups(provider.client.as_ref())
+                .await
+                .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+        crate::providers::clickhouse::sink::validate_selected_shard_group(
+            (!selected.is_empty()).then_some(selected.as_str()),
+            &groups,
+        )?;
+        Ok(groups)
+    }
+
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
         self.discovered
             .get_or_try_init(|| async {
@@ -86,6 +103,16 @@ impl ClickHouseSourceProvider {
                     .ensure_connected()
                     .await
                     .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
+                if !self.config.shard_group.is_empty() {
+                    let groups = crate::providers::clickhouse::sink::query_shard_groups(
+                        self.client.as_ref(),
+                    )
+                    .await?;
+                    crate::providers::clickhouse::sink::validate_selected_shard_group(
+                        Some(&self.config.shard_group),
+                        &groups,
+                    )?;
+                }
                 let mut tables = Vec::with_capacity(self.config.tables.len());
                 for table in &self.config.tables {
                     tables.push(discover_table(&self.client, table.clone()).await?);

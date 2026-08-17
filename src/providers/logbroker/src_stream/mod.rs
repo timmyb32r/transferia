@@ -9,6 +9,7 @@ use futures_util::future::BoxFuture;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
+use ydb_grpc::ydb_proto::topic::DescribeTopicRequest;
 
 use crate::core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use crate::core::source::Source;
@@ -190,6 +191,71 @@ pub fn build_source_provider(
             Ok(Box::new(PqV1DriverSourceProvider { inner, behavior }))
         }
     }
+}
+
+pub async fn check_connection(
+    cfg: &LogbrokerSourceConfig,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    validate_config(cfg)?;
+    check_topic_connection(
+        &cfg.host,
+        cfg.port,
+        &cfg.topics[0].path,
+        &cfg.auth,
+        cfg.driver,
+        cancellation,
+    )
+    .await
+}
+
+pub(crate) async fn check_topic_connection(
+    host: &str,
+    port: u16,
+    topic_path: &str,
+    auth: &crate::providers::logbroker::LogbrokerAuthConfig,
+    driver: LogbrokerDriver,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    let token = auth.load_token()?;
+    match driver {
+        LogbrokerDriver::Ydb => {
+            let (mut client, _) =
+                connect_client(host, port, NETWORK_TIMEOUT, &cancellation).await?;
+            let mut request = tonic::Request::new(DescribeTopicRequest {
+                operation_params: None,
+                path: topic_path.to_owned(),
+                include_stats: false,
+                include_location: false,
+            });
+            set_ydb_headers(request.metadata_mut(), &token)?;
+            let response = tokio::time::timeout(NETWORK_TIMEOUT, client.describe_topic(request))
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB Topic connection check timed out"))??
+                .into_inner();
+            let operation = response
+                .operation
+                .ok_or_else(|| anyhow::anyhow!("YDB Topic DescribeTopic returned no operation"))?;
+            anyhow::ensure!(operation.ready, "YDB Topic DescribeTopic did not complete");
+            anyhow::ensure!(
+                operation.status == ydb_grpc::ydb_proto::status_ids::StatusCode::Success as i32,
+                "YDB Topic rejected the connection or topic access with status {}",
+                operation.status
+            );
+        }
+        LogbrokerDriver::Pqv1 => {
+            let endpoint = crate::providers::address::url("grpc", host, port);
+            crate::providers::logbroker::pqv1::pq_v1::PqV1Client::describe_topic(
+                &endpoint,
+                topic_path,
+                &token,
+                NETWORK_TIMEOUT,
+                &cancellation,
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 impl SourceProvider for PqV1DriverSourceProvider {

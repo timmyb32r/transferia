@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use chrono::format::StrftimeItems;
 use chrono::TimeZone as _;
+use futures_util::TryStreamExt as _;
 use object_store::ObjectStore;
 use schemars::JsonSchema;
 use serde::de::Error as _;
@@ -259,6 +260,16 @@ fn parse_human_value(value: &str, suffixes: &[(&str, u64)]) -> anyhow::Result<u6
 }
 
 impl S3SinkConfig {
+    pub async fn check_connection(&self) -> anyhow::Result<()> {
+        self.validate()?;
+        let store = self.build_store()?;
+        let mut listed = store.list(None);
+        tokio::time::timeout(self.upload.operation_timeout.0, listed.try_next())
+            .await
+            .map_err(|_| anyhow::anyhow!("S3 connection check timed out"))??;
+        Ok(())
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
         anyhow::ensure!(

@@ -20,6 +20,39 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("keeps shard group compact and replaces it with checked options", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      required: new Set(),
+      additionalProperties: false,
+      xUi: {},
+      properties: {
+        shard_group: {
+          kind: "string",
+          title: "Shard group",
+          xUi: { section: "shard_group" },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ shard_group: "production" }}
+        optionOverrides={{ "#/shard_group": ["production", "analytics"] }}
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(view.container.querySelector("details")?.open).toBe(false);
+    fireEvent.click(view.container.querySelector("summary")!);
+    const control = view.container.querySelector("#field---shard_group")!;
+    expect(control.tagName).toBe("BUTTON");
+    expect(control.textContent).toContain(
+      "production",
+    );
+    view.unmount();
+  });
+
   it("associates schema labels with real controls using stable paths", () => {
     const node: CompiledNode = {
       kind: "object",

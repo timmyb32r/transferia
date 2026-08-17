@@ -35,6 +35,7 @@ impl YTsaurusConnectionConfig {
         Ok(())
     }
 
+    #[must_use]
     pub const fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
     }

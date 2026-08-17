@@ -274,7 +274,8 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
   if (
     value.section !== undefined &&
     value.section !== "advanced" &&
-    value.section !== "system_columns"
+    value.section !== "system_columns" &&
+    value.section !== "shard_group"
   )
     throw new SchemaContractError(`${path}: unsupported x-ui section`);
   if (

@@ -28,6 +28,10 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
 
+    #[serde(default)]
+    #[schemars(title = "Shard group", extend("x-ui" = { "section": "shard_group" }))]
+    pub shard_group: String,
+
     #[serde(default = "default_insert_rows")]
     #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub insert_target_rows: usize,
@@ -144,6 +148,7 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("database", &self.database)
             .field("username", &self.username)
             .field("password", &"<redacted>")
+            .field("shard_group", &self.shard_group)
             .field("insert_target_rows", &self.insert_target_rows)
             .field("insert_target_bytes", &self.insert_target_bytes)
             .field("flush_interval_ms", &self.flush_interval_ms)

@@ -32,11 +32,13 @@ import {
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
   showRequiredErrors?: boolean;
+  optionOverrides?: Record<string, string[]>;
 }
 
 const ParserSelectionContext = createContext(false);
 const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
+const OptionOverridesContext = createContext<Record<string, string[]>>({});
 
 export function SchemaForm({
   node,
@@ -44,21 +46,24 @@ export function SchemaForm({
   disabled = false,
   parserSelectionOnly = false,
   showRequiredErrors = false,
+  optionOverrides = {},
   onChange,
 }: SchemaFormProps) {
   return (
     <RootValueContext.Provider value={value}>
-      <RequiredErrorsContext.Provider value={showRequiredErrors}>
-        <ParserSelectionContext.Provider value={parserSelectionOnly}>
-          <NodeEditor
-            node={node}
-            value={value}
-            disabled={disabled}
-            onChange={onChange}
-            path="#"
-          />
-        </ParserSelectionContext.Provider>
-      </RequiredErrorsContext.Provider>
+      <OptionOverridesContext.Provider value={optionOverrides}>
+        <RequiredErrorsContext.Provider value={showRequiredErrors}>
+          <ParserSelectionContext.Provider value={parserSelectionOnly}>
+            <NodeEditor
+              node={node}
+              value={value}
+              disabled={disabled}
+              onChange={onChange}
+              path="#"
+            />
+          </ParserSelectionContext.Provider>
+        </RequiredErrorsContext.Provider>
+      </OptionOverridesContext.Provider>
     </RootValueContext.Provider>
   );
 }
@@ -122,6 +127,7 @@ function NodeEditor({
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
   const rootValue = useContext(RootValueContext);
+  const optionOverrides = useContext(OptionOverridesContext);
   const partitionRanges = partitionRangesProperty(node);
   const configuredPartitionRanges = hasConfiguredPartitionRanges(
     value,
@@ -159,13 +165,17 @@ function NodeEditor({
       const regular = visible.filter(
         ([, child]) =>
           child.xUi.section !== "advanced" &&
-          child.xUi.section !== "system_columns",
+          child.xUi.section !== "system_columns" &&
+          child.xUi.section !== "shard_group",
       );
       const advanced = visible.filter(
         ([, child]) => child.xUi.section === "advanced",
       );
       const systemColumns = visible.filter(
         ([, child]) => child.xUi.section === "system_columns",
+      );
+      const shardGroup = visible.filter(
+        ([, child]) => child.xUi.section === "shard_group",
       );
       return (
         <div class="schema-object">
@@ -228,6 +238,22 @@ function NodeEditor({
           {systemColumns.length > 0 && (
             <Disclosure label="Add system columns" class="system-columns">
               {systemColumns.map(([name, child]) => (
+                <PropertyEditor
+                  key={name}
+                  name={name}
+                  node={child}
+                  required={node.required.has(name)}
+                  value={object[name]}
+                  disabled={isDisabled}
+                  path={`${path}/${name}`}
+                  onChange={(next) => onChange({ ...object, [name]: next })}
+                />
+              ))}
+            </Disclosure>
+          )}
+          {shardGroup.length > 0 && (
+            <Disclosure label="Shard group" class="shard-group-settings">
+              {shardGroup.map(([name, child]) => (
                 <PropertyEditor
                   key={name}
                   name={name}
@@ -392,6 +418,26 @@ function NodeEditor({
         />
       );
     case "string":
+      if (optionOverrides[path] !== undefined) {
+        const current = typeof value === "string" ? value : "";
+        const choices = optionOverrides[path]!;
+        const options = choices.includes(current)
+          ? choices
+          : current === ""
+            ? choices
+            : [current, ...choices];
+        return (
+          <SelectControl
+            searchable
+            id={controlId}
+            value={current}
+            disabled={isDisabled}
+            placeholder="Not selected"
+            options={options.map((option) => ({ value: option, label: option }))}
+            onChange={onChange}
+          />
+        );
+      }
       if (typeof node.xUi.dynamic_options === "string") {
         const dependencyPointers = node.xUi.dynamic_options_dependencies;
         const dependencies =

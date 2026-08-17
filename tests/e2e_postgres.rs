@@ -172,6 +172,18 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     let pg_connection =
         format!("host={pg_host} port={pg_port} user=postgres password=test dbname=transferia");
     let pg = wait_for_postgres(&pg_connection).await?;
+    transferia::providers::postgres::check_connection(
+        &transferia::providers::postgres::PostgresConnectionConfig {
+            host: pg_host.clone(),
+            port: pg_port,
+            database: "transferia".to_owned(),
+            username: "postgres".to_owned(),
+            password: "test".to_owned(),
+            trusted_plaintext: true,
+            tls_ca_file: None,
+        },
+    )
+    .await?;
     pg.batch_execute(
         "CREATE TABLE events (id bigint NOT NULL, name text NULL, active boolean NOT NULL);\
          INSERT INTO events VALUES (1, 'one', true), (2, NULL, false);",

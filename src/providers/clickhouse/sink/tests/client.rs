@@ -271,6 +271,7 @@ fn pins_lossless_insert_settings() {
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
+        shard_group: String::new(),
         insert_target_rows: 1,
         insert_target_bytes: 1,
         flush_interval_ms: 1,

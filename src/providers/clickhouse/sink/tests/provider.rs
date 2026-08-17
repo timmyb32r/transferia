@@ -1,6 +1,27 @@
+use arrow::array::BinaryArray;
 use arrow::datatypes::DataType;
 
 use super::*;
+
+#[test]
+fn selected_shard_group_must_be_visible_to_the_user() {
+    let groups = vec!["analytics".to_owned(), "default".to_owned()];
+    assert!(validate_selected_shard_group(Some("analytics"), &groups).is_ok());
+    let error = validate_selected_shard_group(Some("private"), &groups).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("shard group 'private' is not available"));
+}
+
+#[test]
+fn shard_group_query_materializes_low_cardinality_names_as_plain_strings() {
+    assert!(SHARD_GROUPS_QUERY.contains("toString(cluster) AS cluster"));
+
+    let column = BinaryArray::from(vec![Some(b"default".as_slice()), Some(b"analytics")]);
+    let mut groups = Vec::new();
+    append_shard_groups(&column, &mut groups).unwrap();
+    assert_eq!(groups, ["default", "analytics"]);
+}
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
 

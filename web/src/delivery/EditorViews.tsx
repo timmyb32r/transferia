@@ -1,5 +1,9 @@
+import { useEffect, useRef, useState } from "preact/hooks";
+
+import { api } from "../api";
 import { SchemaForm, SelectControl } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
+import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import type {
   DiscoveryResult,
@@ -26,6 +30,57 @@ export function EndpointCard(props: {
     props.endpoint === undefined
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
+  const [check, setCheck] = useState<
+    | { state: "idle"; options: Record<string, string[]> }
+    | { state: "checking"; options: Record<string, string[]> }
+    | { state: "success"; options: Record<string, string[]> }
+    | { state: "error"; message: string; options: Record<string, string[]> }
+  >({ state: "idle", options: {} });
+  const controller = useRef<AbortController>();
+  const configFingerprint = JSON.stringify(value);
+  const endpointFingerprint = `${props.role}:${props.selectedKey}:${configFingerprint}`;
+  const previousEndpointFingerprint = useRef(endpointFingerprint);
+  useEffect(() => {
+    if (previousEndpointFingerprint.current === endpointFingerprint) return;
+    previousEndpointFingerprint.current = endpointFingerprint;
+    controller.current?.abort();
+    controller.current = undefined;
+    setCheck({ state: "idle", options: {} });
+  }, [endpointFingerprint]);
+  useEffect(
+    () => () => {
+      controller.current?.abort();
+    },
+    [],
+  );
+
+  const checkConnection = async () => {
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
+    setCheck((current) => ({ state: "checking", options: current.options }));
+    try {
+      const result = await api.checkConnection(
+        {
+          provider: props.selectedKey,
+          role: props.role,
+          config: isObject(value) ? value : {},
+        },
+        request.signal,
+      );
+      if (controller.current !== request) return;
+      setCheck({ state: "success", options: result.options });
+    } catch (error) {
+      if (request.signal.aborted || controller.current !== request) return;
+      setCheck({
+        state: "error",
+        message: error instanceof Error ? error.message : String(error),
+        options: {},
+      });
+    } finally {
+      if (controller.current === request) controller.current = undefined;
+    }
+  };
   return (
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <h2>{props.title}</h2>
@@ -56,6 +111,7 @@ export function EndpointCard(props: {
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
             parserSelectionOnly={props.role === "source"}
+            optionOverrides={check.options}
             onChange={(next) =>
               props.onConfig({
                 ...props.config,
@@ -63,6 +119,32 @@ export function EndpointCard(props: {
               })
             }
           />
+          {props.endpoint.connection_check && (
+            <div class="connection-check">
+              <Button
+                class="connection-check-button"
+                disabled={check.state === "checking"}
+                onClick={() => void checkConnection()}
+              >
+                {check.state === "checking" && (
+                  <span class="connection-check-spinner" aria-hidden="true" />
+                )}
+                {check.state === "checking"
+                  ? "Checking connection…"
+                  : "Check connection"}
+              </Button>
+              <span
+                class={`connection-check-result connection-check-${check.state}`}
+                role={check.state === "error" ? "alert" : "status"}
+              >
+                {check.state === "success"
+                  ? "Connection successful"
+                  : check.state === "error"
+                    ? check.message
+                    : ""}
+              </span>
+            </div>
+          )}
         </div>
       )}
     </article>

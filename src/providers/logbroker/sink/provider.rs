@@ -75,6 +75,22 @@ pub fn build_sink_provider(config: LogbrokerSinkConfig) -> anyhow::Result<Box<dy
     }
 }
 
+pub async fn check_connection(
+    config: &LogbrokerSinkConfig,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> anyhow::Result<()> {
+    config.validate()?;
+    crate::providers::logbroker::src_stream::check_topic_connection(
+        &config.host,
+        config.port,
+        &config.topic_path,
+        &config.auth,
+        config.driver,
+        cancellation,
+    )
+    .await
+}
+
 impl SinkLimits for LogbrokerSinkConfig {
     fn description(&self) -> SinkLimitsDescription {
         SinkLimitsDescription {

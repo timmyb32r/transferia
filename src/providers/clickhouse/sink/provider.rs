@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::array::StringArray;
+use arrow::array::{Array, BinaryArray, StringArray};
 use futures_util::future::BoxFuture;
 
 use super::client::ReconnectingClient;
@@ -14,6 +14,9 @@ use crate::core::delivery::{
 use crate::core::sink::Sink;
 use crate::delivery::semantics::EndpointDescriptor;
 use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
+
+const SHARD_GROUPS_QUERY: &str =
+    "SELECT DISTINCT toString(cluster) AS cluster FROM system.clusters ORDER BY cluster";
 
 pub struct ClickHouseSinkProvider {
     config: ClickHouseSinkConfig,
@@ -39,27 +42,68 @@ impl ClickHouseSinkProvider {
     pub async fn check_connection(config: ClickHouseSinkConfig) -> anyhow::Result<Vec<String>> {
         config.validate()?;
         let client = ReconnectingClient::new(&config);
-        let batches = client
-            .query_all("SELECT DISTINCT cluster FROM system.clusters ORDER BY cluster")
-            .await
-            .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
-        let mut groups = Vec::new();
-        for batch in batches {
-            let column = batch
-                .column_by_name("cluster")
-                .ok_or_else(|| anyhow::anyhow!("ClickHouse system.clusters omitted 'cluster'"))?;
-            let values = column
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .ok_or_else(|| {
-                    anyhow::anyhow!("ClickHouse system.clusters returned a non-string 'cluster'")
-                })?;
-            groups.extend(values.iter().flatten().map(str::to_owned));
-        }
-        groups.sort();
-        groups.dedup();
+        let groups = query_shard_groups(&client).await?;
+        validate_selected_shard_group(
+            (!config.shard_group.is_empty()).then_some(config.shard_group.as_str()),
+            &groups,
+        )?;
         Ok(groups)
     }
+}
+
+pub async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<String>> {
+    let batches = client
+        .query_all(SHARD_GROUPS_QUERY)
+        .await
+        .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+    let mut groups = Vec::new();
+    for batch in batches {
+        let column = batch
+            .column_by_name("cluster")
+            .ok_or_else(|| anyhow::anyhow!("ClickHouse system.clusters omitted 'cluster'"))?;
+        append_shard_groups(column.as_ref(), &mut groups)?;
+    }
+    groups.sort();
+    groups.dedup();
+    Ok(groups)
+}
+
+fn append_shard_groups(column: &dyn Array, groups: &mut Vec<String>) -> anyhow::Result<()> {
+    if let Some(values) = column.as_any().downcast_ref::<StringArray>() {
+        groups.extend(values.iter().flatten().map(str::to_owned));
+        return Ok(());
+    }
+    if let Some(values) = column.as_any().downcast_ref::<BinaryArray>() {
+        for value in values.iter().flatten() {
+            groups.push(
+                std::str::from_utf8(value)
+                    .map_err(|error| {
+                        anyhow::anyhow!(
+                            "ClickHouse system.clusters returned a non-UTF-8 shard group: {error}"
+                        )
+                    })?
+                    .to_owned(),
+            );
+        }
+        return Ok(());
+    }
+    anyhow::bail!(
+        "ClickHouse system.clusters returned unsupported Arrow type {:?} for 'cluster'",
+        column.data_type(),
+    )
+}
+
+pub fn validate_selected_shard_group(
+    selected: Option<&str>,
+    available: &[String],
+) -> anyhow::Result<()> {
+    if let Some(selected) = selected {
+        anyhow::ensure!(
+            available.iter().any(|candidate| candidate == selected),
+            "ClickHouse shard group '{selected}' is not available to this user"
+        );
+    }
+    Ok(())
 }
 
 impl SinkLimits for ClickHouseSinkConfig {
@@ -120,6 +164,10 @@ impl SinkProvider for ClickHouseSinkProvider {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let client = self.shared_client().await?;
+            if !self.config.shard_group.is_empty() {
+                let groups = query_shard_groups(client.as_ref()).await?;
+                validate_selected_shard_group(Some(&self.config.shard_group), &groups)?;
+            }
             prepare_tables(client.as_ref(), &self.config, &request).await
         })
     }

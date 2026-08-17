@@ -7,4 +7,4 @@ mod transport;
 
 pub use config::{LogbrokerAuthConfig, LogbrokerDriver};
 pub use sink::build_sink_provider;
-pub use src_stream::{build_source_provider, YdbDriverSourceProvider};
+pub use src_stream::{build_source_provider, check_connection, YdbDriverSourceProvider};

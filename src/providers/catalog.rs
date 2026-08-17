@@ -217,6 +217,16 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
+            .source_checker::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _, _>(
+                |config| async move {
+                    crate::providers::logbroker::check_connection(
+                        &config,
+                        tokio_util::sync::CancellationToken::new(),
+                    )
+                    .await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            )
             .sink::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -231,7 +241,17 @@ fn build_base_provider_catalog(
                     })
                 },
                 crate::providers::logbroker::build_sink_provider,
-            )?,
+            )?
+            .sink_checker::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
+                |config| async move {
+                    crate::providers::logbroker::sink::check_connection(
+                        &config,
+                        tokio_util::sync::CancellationToken::new(),
+                    )
+                    .await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            ),
     )?;
 
     catalog.register(
@@ -307,6 +327,7 @@ fn build_base_provider_catalog(
                         "trusted_plaintext": true,
                         "username": "",
                         "password": "",
+                        "shard_group": "",
                         "tables": [{
                             "database": "",
                             "name": "",
@@ -330,6 +351,23 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
+            .source_checker::<crate::providers::clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
+                {
+                    let metrics_registry = Arc::clone(metrics_registry);
+                    move |config| {
+                        let metrics_registry = Arc::clone(&metrics_registry);
+                        async move {
+                            let shard_groups = crate::providers::clickhouse::ClickHouseSourceProvider::check_connection(config, metrics_registry).await?;
+                            Ok(crate::providers::traits::ConnectionCheckResult {
+                                options: std::collections::BTreeMap::from([(
+                                    "#/shard_group".to_owned(),
+                                    shard_groups,
+                                )]),
+                            })
+                        }
+                    }
+                },
+            )
             .sink::<crate::providers::clickhouse::ClickHouseSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -339,6 +377,7 @@ fn build_base_provider_catalog(
                         "database": "",
                         "username": "",
                         "password": "",
+                        "shard_group": "",
                         "insert_target_rows": 100_000,
                         "insert_target_bytes": 67_108_864,
                         "flush_interval_ms": 100,
@@ -362,9 +401,10 @@ fn build_base_provider_catalog(
                         )
                         .await?;
                     Ok(crate::providers::traits::ConnectionCheckResult {
-                        options: [("shard_group".to_owned(), shard_groups)]
-                            .into_iter()
-                            .collect(),
+                        options: std::collections::BTreeMap::from([(
+                            "#/shard_group".to_owned(),
+                            shard_groups,
+                        )]),
                     })
                 },
             ),
@@ -398,6 +438,12 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
+            .source_checker::<crate::providers::s3::src_batch::S3SourceConfig, _, _>(
+                |config| async move {
+                    config.check_connection().await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            )
             .sink::<crate::providers::s3::sink::S3SinkConfig, _, _>(
                 || serde_json::json!({
                     "bucket": "",
@@ -418,7 +464,13 @@ fn build_base_provider_catalog(
                         crate::providers::s3::sink::S3SinkProvider::from_config(value)?,
                     ))
                 },
-            )?,
+            )?
+            .sink_checker::<crate::providers::s3::sink::S3SinkConfig, _, _>(
+                |config| async move {
+                    config.check_connection().await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            ),
     )?;
 
     catalog.register(
@@ -448,6 +500,12 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
+            .source_checker::<crate::providers::ytsaurus::YTsaurusSourceConfig, _, _>(
+                |config| async move {
+                    crate::providers::ytsaurus::check_connection(&config.connection).await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            )
             .sink::<crate::providers::ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -465,7 +523,13 @@ fn build_base_provider_catalog(
                         crate::providers::ytsaurus::YTsaurusSinkProvider::from_config(value)?,
                     ))
                 },
-            )?,
+            )?
+            .sink_checker::<crate::providers::ytsaurus::YTsaurusSinkConfig, _, _>(
+                |config| async move {
+                    crate::providers::ytsaurus::check_connection(&config.connection).await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            ),
     )?;
 
     catalog.register(

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures_util::TryStreamExt as _;
 use object_store::ObjectStore;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -41,6 +42,18 @@ pub struct S3SourceConfig {
 }
 
 impl S3SourceConfig {
+    pub async fn check_connection(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
+        anyhow::ensure!(self.timeout_ms > 0, "s3.timeout_ms must be positive");
+        self.validate_custom_address()?;
+        let store = self.build_store()?;
+        let mut listed = store.list(None);
+        tokio::time::timeout(self.timeout(), listed.try_next())
+            .await
+            .map_err(|_| anyhow::anyhow!("S3 connection check timed out"))??;
+        Ok(())
+    }
+
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
         if !self.prefix.is_empty() {

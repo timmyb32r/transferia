@@ -23,6 +23,7 @@ use transferia::core::delivery::DeliveryDiscoveryRequest;
 use transferia::core::memory::PipelineMemory;
 use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
+use transferia::providers::s3::src_batch::S3SourceConfig;
 use transferia::providers::s3::S3SourceProvider;
 use transferia::providers::traits::{
     SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
@@ -93,12 +94,11 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
         )
         .await?;
 
-    let provider = S3SourceProvider::from_config(
-        serde_yaml::from_str(&format!(
+    let config: S3SourceConfig = serde_yaml::from_str(&format!(
             "bucket: transferia-source-e2e\nprefix: snapshot\nregion: us-east-1\nhost: '{host}'\nport: {port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nparser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: '$.id', column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }}\n"
-        ))?,
-        Arc::new(MetricsRegistry::new()),
-    )?;
+        ))?;
+    config.check_connection().await?;
+    let provider = S3SourceProvider::from_config(config, Arc::new(MetricsRegistry::new()))?;
     provider
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {

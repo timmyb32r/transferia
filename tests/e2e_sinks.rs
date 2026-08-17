@@ -28,7 +28,7 @@ use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDatas
 use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
-use transferia::providers::clickhouse::ClickHouseSinkProvider;
+use transferia::providers::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkProvider};
 use transferia::providers::discard::provider::DiscardSinkProvider;
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
 use transferia::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider as _};
@@ -176,9 +176,12 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let http_port = container.get_host_port_ipv4(8123.tcp()).await?;
     wait_for_tcp(&host, native_port).await?;
 
-    let provider = ClickHouseSinkProvider::from_config(serde_yaml::from_str(&format!(
+    let config: ClickHouseSinkConfig = serde_yaml::from_str(&format!(
         "hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
-    ))?)?;
+    ))?;
+    let shard_groups = ClickHouseSinkProvider::check_connection(config.clone()).await?;
+    assert!(shard_groups.is_empty() || shard_groups.iter().all(|group| !group.is_empty()));
+    let provider = ClickHouseSinkProvider::from_config(config)?;
     let schema = dataset_schema(&[
         ("id", DataType::Int64, false),
         ("name", DataType::Utf8, false),
@@ -301,7 +304,9 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     let yaml = format!(
         "bucket: transferia-e2e\nobject_layout_version: 5\nprefix: e2e\nregion: us-east-1\nhost: '{host}'\nport: {port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
     );
-    let provider = S3SinkProvider::from_config(serde_yaml::from_str(&yaml)?)?;
+    let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
+    config.check_connection().await?;
+    let provider = S3SinkProvider::from_config(config)?;
     let system_kinds = vec![
         SystemColumnKind::Topic,
         SystemColumnKind::Partition,

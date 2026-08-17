@@ -114,6 +114,7 @@ fn config() -> ClickHouseSinkConfig {
         database: "default".into(),
         username: "default".into(),
         password: String::new(),
+        shard_group: String::new(),
         insert_target_rows: 1,
         insert_target_bytes: usize::MAX,
         flush_interval_ms: 100,

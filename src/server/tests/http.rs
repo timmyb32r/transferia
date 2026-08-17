@@ -140,6 +140,31 @@ async fn dynamic_options_reject_unknown_request_fields_as_json() -> anyhow::Resu
 }
 
 #[tokio::test]
+async fn connection_check_uses_the_typed_endpoint_capability() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/check-connection")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"provider":"discard","role":"sink","config":{}}"#,
+                ))?,
+        )
+        .await?;
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await?)?;
+    assert_eq!(body["error"]["code"], "validation_failed");
+    assert!(body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.contains("does not support connection checks")));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn delivery_list_never_returns_config_or_secrets() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
     let request = serde_json::json!({
