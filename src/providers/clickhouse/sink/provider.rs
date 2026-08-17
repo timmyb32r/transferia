@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use arrow::array::StringArray;
 use futures_util::future::BoxFuture;
 
 use super::client::ReconnectingClient;
@@ -33,6 +34,31 @@ impl ClickHouseSinkProvider {
             .await
             .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
         Ok(client)
+    }
+
+    pub async fn check_connection(config: ClickHouseSinkConfig) -> anyhow::Result<Vec<String>> {
+        config.validate()?;
+        let client = ReconnectingClient::new(&config);
+        let batches = client
+            .query_all("SELECT DISTINCT cluster FROM system.clusters ORDER BY cluster")
+            .await
+            .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+        let mut groups = Vec::new();
+        for batch in batches {
+            let column = batch
+                .column_by_name("cluster")
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse system.clusters omitted 'cluster'"))?;
+            let values = column
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("ClickHouse system.clusters returned a non-string 'cluster'")
+                })?;
+            groups.extend(values.iter().flatten().map(str::to_owned));
+        }
+        groups.sort();
+        groups.dedup();
+        Ok(groups)
     }
 }
 

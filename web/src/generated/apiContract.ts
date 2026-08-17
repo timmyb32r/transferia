@@ -169,6 +169,20 @@ export type OptionsRequest = {
   };
 };
 
+export type ConnectionCheckRequest = {
+  provider: string;
+  role: EndpointRole;
+  config: JsonObject;
+};
+
+export type EndpointRole = "source" | "sink";
+
+export type ConnectionCheckResult = {
+  options: {
+    [key: string]: Array<string>;
+  };
+};
+
 export type YamlResponse = {
   yaml: string;
 };
@@ -239,6 +253,8 @@ export interface ApiContract {
   validation_response: ValidationCommandResult;
   dynamic_options_response: DynamicOptions;
   dynamic_options_request: OptionsRequest;
+  connection_check_request: ConnectionCheckRequest;
+  connection_check_response: ConnectionCheckResult;
   yaml_response: YamlResponse;
   config_response: ConfigResponse;
   health_response: HealthResponse;

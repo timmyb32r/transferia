@@ -3,6 +3,7 @@ import type {
   ApiContract,
   ApiContractName,
   ConfigRequest,
+  ConnectionCheckRequest,
   CreateDraftRequest,
   OptionsRequest,
   RevisionRequest,
@@ -70,6 +71,12 @@ export const api = {
       },
     );
   },
+  checkConnection: (body: ConnectionCheckRequest, signal?: AbortSignal) =>
+    request("/api/v1/check-connection", "connection_check_response", {
+      method: "POST",
+      body: json(body),
+      ...(signal === undefined ? {} : { signal }),
+    }),
   deliveries: () => request("/api/v1/deliveries", "delivery_list_response"),
   delivery: (id: string) =>
     request(

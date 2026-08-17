@@ -27,6 +27,12 @@
     "dynamic_options_request": {
       "$ref": "#/$defs/OptionsRequest"
     },
+    "connection_check_request": {
+      "$ref": "#/$defs/ConnectionCheckRequest"
+    },
+    "connection_check_response": {
+      "$ref": "#/$defs/ConnectionCheckResult"
+    },
     "yaml_response": {
       "$ref": "#/$defs/YamlResponse"
     },
@@ -66,6 +72,8 @@
     "validation_response",
     "dynamic_options_response",
     "dynamic_options_request",
+    "connection_check_request",
+    "connection_check_response",
     "yaml_response",
     "config_response",
     "health_response",
@@ -728,6 +736,53 @@
         }
       },
       "additionalProperties": false
+    },
+    "ConnectionCheckRequest": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/EndpointRole"
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": true,
+          "x-typescript-type": "JsonObject"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "role",
+        "config"
+      ]
+    },
+    "EndpointRole": {
+      "type": "string",
+      "enum": [
+        "source",
+        "sink"
+      ]
+    },
+    "ConnectionCheckResult": {
+      "type": "object",
+      "properties": {
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "options"
+      ]
     },
     "YamlResponse": {
       "type": "object",

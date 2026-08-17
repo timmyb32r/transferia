@@ -29,6 +29,8 @@ pub struct EndpointDefinition {
     pub delivery_modes: Vec<DeliveryMode>,
 
     pub partitioned: bool,
+
+    pub connection_check: bool,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
@@ -63,6 +65,7 @@ impl EndpointSpec {
                 initial,
                 delivery_modes,
                 partitioned,
+                connection_check: false,
             },
         })
     }

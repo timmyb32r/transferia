@@ -263,6 +263,12 @@ fn build_base_provider_catalog(
                     }
                 },
             )?
+            .source_checker::<crate::providers::postgres::src_batch::PostgresSourceConfig, _, _>(
+                |config| async move {
+                    crate::providers::postgres::check_connection(&config.connection).await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            )
             .sink::<crate::providers::postgres::sink::PostgresSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -280,7 +286,13 @@ fn build_base_provider_catalog(
                         crate::providers::postgres::PostgresSinkProvider::from_config(value)?,
                     ))
                 },
-            )?,
+            )?
+            .sink_checker::<crate::providers::postgres::sink::PostgresSinkConfig, _, _>(
+                |config| async move {
+                    crate::providers::postgres::check_connection(&config.connection).await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            ),
     )?;
 
     catalog.register(
@@ -341,7 +353,21 @@ fn build_base_provider_catalog(
                         crate::providers::clickhouse::ClickHouseSinkProvider::from_config(value)?,
                     ))
                 },
-            )?,
+            )?
+            .sink_checker::<crate::providers::clickhouse::ClickHouseSinkConfig, _, _>(
+                |config| async move {
+                    let shard_groups =
+                        crate::providers::clickhouse::ClickHouseSinkProvider::check_connection(
+                            config,
+                        )
+                        .await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult {
+                        options: [("shard_group".to_owned(), shard_groups)]
+                            .into_iter()
+                            .collect(),
+                    })
+                },
+            ),
     )?;
 
     catalog.register(

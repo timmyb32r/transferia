@@ -8,12 +8,27 @@ use super::service::{
 };
 use super::ui_catalog::UiCatalog;
 use transferia::core::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
-use transferia::extension::{DynamicOptions, OptionsRequest};
+use transferia::extension::{DynamicOptions, EndpointRole, OptionsRequest};
+use transferia::providers::traits::ConnectionCheckResult;
 use transferia::runtime::RunId;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRequest {
+    #[schemars(
+        with = "std::collections::BTreeMap<String, Value>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
+    pub config: Value,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionCheckRequest {
+    pub provider: String,
+
+    pub role: EndpointRole,
+
     #[schemars(
         with = "std::collections::BTreeMap<String, Value>",
         extend("x-typescript-type" = "JsonObject")
@@ -193,6 +208,10 @@ struct ServerApiContract {
     dynamic_options_response: DynamicOptions,
 
     dynamic_options_request: OptionsRequest,
+
+    connection_check_request: ConnectionCheckRequest,
+
+    connection_check_response: ConnectionCheckResult,
 
     yaml_response: YamlResponse,
 

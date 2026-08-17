@@ -94,6 +94,13 @@ pub async fn connect(config: &PostgresConnectionConfig) -> anyhow::Result<tokio_
     Ok(client)
 }
 
+pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Result<()> {
+    config.validate()?;
+    let client = connect(config).await?;
+    client.simple_query("SELECT 1").await?;
+    Ok(())
+}
+
 pub fn validate_identifier(kind: &str, value: &str) -> anyhow::Result<()> {
     let mut bytes = value.bytes();
     let valid = bytes

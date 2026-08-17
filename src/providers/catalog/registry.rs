@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
@@ -9,7 +11,14 @@ use super::apply_endpoint_installations;
 use super::definition::{DeliveryMode, EndpointDefinition, EndpointSpec, ProviderDefinition};
 use super::descriptor::provider_descriptor;
 use crate::extension::{EndpointRole, ExtensionRegistry};
+use crate::providers::traits::ConnectionCheckResult;
 use crate::providers::traits::{SinkProvider, SourceProvider};
+
+type ConnectionChecker = Box<
+    dyn Fn(Value) -> Pin<Box<dyn Future<Output = anyhow::Result<ConnectionCheckResult>> + Send>>
+        + Send
+        + Sync,
+>;
 
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
@@ -30,6 +39,8 @@ pub(super) struct ProviderRegistration {
     source: Option<SourceRegistration>,
     sink: Option<SinkRegistration>,
     compile_definition: bool,
+    source_checker: Option<ConnectionChecker>,
+    sink_checker: Option<ConnectionChecker>,
 }
 
 impl ProviderRegistration {
@@ -42,7 +53,40 @@ impl ProviderRegistration {
             source: None,
             sink: None,
             compile_definition,
+            source_checker: None,
+            sink_checker: None,
         })
+    }
+
+    pub fn source_checker<C, F, Fut>(mut self, checker: F) -> Self
+    where
+        C: DeserializeOwned + Send + 'static,
+        F: Fn(C) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<ConnectionCheckResult>> + Send + 'static,
+    {
+        self.source_checker =
+            Some(Box::new(move |raw| match serde_yaml::from_value(raw) {
+                Ok(config) => Box::pin(checker(config)),
+                Err(error) => Box::pin(async move {
+                    Err(anyhow::anyhow!("invalid source configuration: {error}"))
+                }),
+            }));
+        self
+    }
+
+    pub fn sink_checker<C, F, Fut>(mut self, checker: F) -> Self
+    where
+        C: DeserializeOwned + Send + 'static,
+        F: Fn(C) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<ConnectionCheckResult>> + Send + 'static,
+    {
+        self.sink_checker = Some(Box::new(move |raw| match serde_yaml::from_value(raw) {
+            Ok(config) => Box::pin(checker(config)),
+            Err(error) => {
+                Box::pin(async move { Err(anyhow::anyhow!("invalid sink configuration: {error}")) })
+            }
+        }));
+        self
     }
 
     pub fn source<C, F, I>(
@@ -100,6 +144,8 @@ pub struct ProviderCatalog {
     pub(super) definitions: Vec<ProviderDefinition>,
     sources: BTreeMap<&'static str, SourceFactory>,
     sinks: BTreeMap<&'static str, SinkFactory>,
+    source_checkers: BTreeMap<&'static str, ConnectionChecker>,
+    sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
 }
 
 impl ProviderCatalog {
@@ -108,6 +154,8 @@ impl ProviderCatalog {
             definitions: Vec::new(),
             sources: BTreeMap::new(),
             sinks: BTreeMap::new(),
+            source_checkers: BTreeMap::new(),
+            sink_checkers: BTreeMap::new(),
         }
     }
 
@@ -135,13 +183,27 @@ impl ProviderCatalog {
             registration.key
         );
 
+        let source_has_checker = registration.source_checker.is_some();
+        let sink_has_checker = registration.sink_checker.is_some();
         let source = registration.source.and_then(|source| {
             self.sources.insert(registration.key, source.factory);
-            source.definition
+            source.definition.map(|mut definition| {
+                definition.connection_check = source_has_checker;
+                definition
+            })
         });
+        if let Some(checker) = registration.source_checker {
+            self.source_checkers.insert(registration.key, checker);
+        }
+        if let Some(checker) = registration.sink_checker {
+            self.sink_checkers.insert(registration.key, checker);
+        }
         let sink = registration.sink.and_then(|sink| {
             self.sinks.insert(registration.key, sink.factory);
-            sink.definition
+            sink.definition.map(|mut definition| {
+                definition.connection_check = sink_has_checker;
+                definition
+            })
         });
         if registration.compile_definition {
             self.definitions.push(ProviderDefinition {
@@ -152,6 +214,20 @@ impl ProviderCatalog {
             });
         }
         Ok(())
+    }
+
+    pub async fn check_connection(
+        &self,
+        kind: &str,
+        role: EndpointRole,
+        raw: Value,
+    ) -> anyhow::Result<ConnectionCheckResult> {
+        let checker = match role {
+            EndpointRole::Source => self.source_checkers.get(kind),
+            EndpointRole::Sink => self.sink_checkers.get(kind),
+        }
+        .ok_or_else(|| anyhow::anyhow!("{kind} {role:?} does not support connection checks"))?;
+        checker(raw).await
     }
 
     #[must_use]

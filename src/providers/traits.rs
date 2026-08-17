@@ -1,7 +1,14 @@
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
+
+#[derive(Clone, Debug, Default, serde::Serialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ConnectionCheckResult {
+    pub options: BTreeMap<String, Vec<String>>,
+}
 
 use crate::core::data::schema::DatasetSchema;
 use crate::core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};

@@ -16,7 +16,9 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// schema change that would otherwise alter the composition fingerprint.
 const CORE_EXTENSION_ABI_VERSION: u32 = 1;
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum EndpointRole {
     Source,

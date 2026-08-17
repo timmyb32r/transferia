@@ -176,6 +176,34 @@ impl ControlPlane {
             .map_err(|error| ServiceError::Validation(error.to_string()))
     }
 
+    pub async fn check_connection(
+        &self,
+        provider: &str,
+        role: crate::extension::EndpointRole,
+        config: Value,
+        cancellation: CancellationToken,
+    ) -> Result<crate::providers::traits::ConnectionCheckResult, ServiceError> {
+        let raw = serde_yaml::to_value(config)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let resolved = self
+            .transferia
+            .registry()
+            .resolve(provider, role, raw, cancellation.clone())
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let catalog = crate::providers::catalog::build_provider_catalog_with(
+            &self.transferia,
+            &Arc::new(crate::metrics::MetricsRegistry::new()),
+        )
+        .map_err(ServiceError::Internal)?;
+        tokio::select! {
+            () = cancellation.cancelled() => Err(ServiceError::Validation("connection check cancelled".to_owned())),
+            result = catalog.check_connection(provider, role, resolved) => {
+                result.map_err(|error| ServiceError::Validation(error.to_string()))
+            }
+        }
+    }
+
     #[must_use]
     pub fn request_cancellation(&self) -> CancellationToken {
         self.shutdown.child_token()
