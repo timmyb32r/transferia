@@ -17,6 +17,9 @@ use transferia::extension::{DynamicOptions, OptionsRequest, Transferia};
 use transferia::providers::traits::SinkProvider;
 use transferia::runtime::{RunId, SupervisorError, WorkerEvent, WorkerOutcome, WorkerSupervisor};
 
+const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
+const INLINE_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {
     #[error("{0}")]
@@ -233,7 +236,6 @@ impl ControlPlane {
         max_bytes: usize,
         cancellation: CancellationToken,
     ) -> Result<MessagePreviewResult, ServiceError> {
-        const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
         if !(1..=MAX_MESSAGE_PREVIEW_BYTES).contains(&max_bytes) {
             return Err(ServiceError::Validation(format!(
                 "message preview max_bytes must be in 1..={MAX_MESSAGE_PREVIEW_BYTES}"
@@ -265,8 +267,7 @@ impl ControlPlane {
             crate::providers::logbroker::preview_message(&config, max_bytes, cancellation)
                 .await
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        const INLINE_PREVIEW_BYTES: usize = 16 * 1024;
-        let preview_bytes = preview.payload.len().min(INLINE_PREVIEW_BYTES);
+        let preview_bytes = preview.payload.len().min(INLINE_MESSAGE_PREVIEW_BYTES);
         Ok(MessagePreviewResult {
             text_preview: String::from_utf8_lossy(&preview.payload[..preview_bytes]).into_owned(),
             payload_preview_base64: base64::engine::general_purpose::STANDARD

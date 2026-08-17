@@ -711,7 +711,7 @@ pub(super) async fn preview_message(
                             let codec = Codec::try_from(batch.codec)
                                 .map_err(|_| anyhow!("YDB Topic returned unknown codec {}", batch.codec))?;
                             let written_at_ms = batch.written_at.map(timestamp_millis).transpose()?;
-                            for message in batch.message_data {
+                            if let Some(message) = batch.message_data.into_iter().next() {
                                 anyhow::ensure!(message.offset >= 0, "YDB Topic returned negative offset");
                                 let compressed_size = message.data.len();
                                 let declared_uncompressed_size = usize::try_from(message.uncompressed_size)
