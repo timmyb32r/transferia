@@ -24,6 +24,7 @@ pub enum ParserSchema {
 pub struct SchemaRegistryParserSchema {
     #[schemars(
         title = "Parser settings",
+        default,
         extend("x-ui" = { "widget": "parser_common" })
     )]
     pub common: CommonParserConfig,
@@ -47,7 +48,7 @@ pub struct JsonParserSchema {
 
 #[derive(JsonSchema)]
 pub struct BenchmarkDiscardParserSchema {
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(default, extend("x-ui" = { "widget": "hidden" }))]
     pub common: CommonParserConfig,
 
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -66,7 +67,7 @@ pub struct ParserConfig {
     pub parser: ParserEntry,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommonParserConfig {
     #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
@@ -156,8 +157,14 @@ pub enum TableNaming {
     #[schemars(title = "From config")]
     FromConfig { name: String },
 
-    #[schemars(title = "From topic name")]
+    #[schemars(title = "From message")]
     FromTopicName,
+}
+
+impl Default for TableNaming {
+    fn default() -> Self {
+        Self::FromTopicName
+    }
 }
 
 impl ParserConfig {

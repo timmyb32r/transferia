@@ -21,6 +21,10 @@ fn benchmark_discard_schema_has_no_visible_settings() {
         value["properties"]["benchmark_discard"]["x-ui"]["widget"],
         "hidden"
     );
+    assert_eq!(
+        value["properties"]["common"]["default"]["table_naming"]["type"],
+        "from_topic_name"
+    );
 }
 
 #[test]

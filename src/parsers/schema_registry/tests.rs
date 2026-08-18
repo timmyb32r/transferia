@@ -26,6 +26,14 @@ fn schema_registry_config_is_visible_in_parser_schema() {
         .pointer("/$defs/SchemaRegistryParserConfig/properties/json_parser/x-ui/widget")
         .and_then(serde_json::Value::as_str);
     assert_eq!(projection, Some("hidden"));
+    assert_eq!(
+        json.pointer(
+            "/$defs/SchemaRegistryParserSchema/properties/common/default/table_naming/type"
+        )
+        .and_then(serde_json::Value::as_str),
+        Some("from_topic_name")
+    );
+    assert!(json.to_string().contains("From message"));
 }
 
 #[test]
