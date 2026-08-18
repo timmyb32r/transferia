@@ -1,0 +1,517 @@
+use std::convert::Infallible;
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::extract::rejection::JsonRejection;
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
+use axum::http::{HeaderValue, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::de::DeserializeOwned;
+use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+use transferia_providers::extension::OptionsRequest;
+
+use super::api_contract::{
+    ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
+    ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
+    MessagePreviewRequest, RevisionRequest, SqlPlaygroundRequest, StopRequest, UpdateDraftRequest,
+    WorkerLogReadQuery, YamlRequest, YamlResponse,
+};
+use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
+use super::service::{ControlPlane, ServiceError};
+use super::ui_catalog::UiCatalog;
+use transferia_runtime::RunId;
+use transferia_server_contracts::DeliveryRecord;
+
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+#[derive(Clone)]
+struct AppState {
+    control_plane: Arc<ControlPlane>,
+    catalog: UiCatalog,
+}
+
+struct ApiError(ServiceError);
+
+struct ApiJson<T>(T);
+
+struct ApiJsonRejection(JsonRejection);
+
+struct CancelOnDrop(CancellationToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
+impl<S, T> FromRequest<S> for ApiJson<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned,
+{
+    type Rejection = ApiJsonRejection;
+
+    async fn from_request(
+        request: axum::extract::Request,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Json::<T>::from_request(request, state)
+            .await
+            .map(|Json(value)| Self(value))
+            .map_err(ApiJsonRejection)
+    }
+}
+
+impl IntoResponse for ApiJsonRejection {
+    fn into_response(self) -> Response {
+        let (status, code) = if self.0.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            (StatusCode::PAYLOAD_TOO_LARGE, ApiErrorCode::PayloadTooLarge)
+        } else {
+            (StatusCode::BAD_REQUEST, ApiErrorCode::InvalidRequest)
+        };
+        error_response(status, code, self.0.body_text())
+    }
+}
+
+impl From<ServiceError> for ApiError {
+    fn from(error: ServiceError) -> Self {
+        Self(error)
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, code, message) = match self.0 {
+            ServiceError::InvalidInput(message) => (
+                StatusCode::BAD_REQUEST,
+                ApiErrorCode::InvalidRequest,
+                message,
+            ),
+            ServiceError::NotFound(message) => {
+                (StatusCode::NOT_FOUND, ApiErrorCode::NotFound, message)
+            }
+            ServiceError::Conflict(message) => {
+                (StatusCode::CONFLICT, ApiErrorCode::Conflict, message)
+            }
+            ServiceError::Validation(message) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                ApiErrorCode::ValidationFailed,
+                message,
+            ),
+            ServiceError::Internal(error) => {
+                tracing::error!(error = ?error, "control-plane request failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiErrorCode::InternalError,
+                    "the control plane could not complete the request".to_owned(),
+                )
+            }
+        };
+        error_response(status, code, message)
+    }
+}
+
+fn error_response(status: StatusCode, code: ApiErrorCode, message: String) -> Response {
+    let mut response = (
+        status,
+        Json(ApiErrorBody {
+            error: ApiErrorView { code, message },
+        }),
+    )
+        .into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router {
+    let state = AppState {
+        control_plane,
+        catalog: ui_catalog,
+    };
+    Router::new()
+        .route("/", get(index))
+        .route("/app.js", get(app_js))
+        .route("/style.css", get(style_css))
+        .route("/api/v1/health", get(health))
+        .route("/api/v1/catalog", get(get_catalog))
+        .route("/api/v1/options/{key}", post(dynamic_options))
+        .route("/api/v1/check-connection", post(check_connection))
+        .route("/api/v1/preview-message", post(preview_message))
+        .route("/api/v1/playground/sql", post(sql_playground))
+        .route("/api/v1/config/yaml", post(render_yaml))
+        .route("/api/v1/config/from-yaml", post(parse_yaml))
+        .route("/api/v1/discover", post(discover))
+        .route(
+            "/api/v1/deliveries",
+            get(list_deliveries).post(create_draft),
+        )
+        .route(
+            "/api/v1/deliveries/{id}",
+            get(get_delivery).put(update_draft).delete(delete_delivery),
+        )
+        .route("/api/v1/deliveries/{id}/validate", post(validate_saved))
+        .route("/api/v1/deliveries/{id}/activate", post(activate))
+        .route("/api/v1/deliveries/{id}/stop", post(stop))
+        .route("/api/v1/deliveries/{id}/logs", get(worker_logs))
+        .route("/api/v1/deliveries/{id}/logs/{worker_id}", get(worker_log))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(axum::middleware::from_fn(no_store))
+        .layer(axum::middleware::from_fn(enforce_loopback_origin))
+        .with_state(state)
+}
+
+async fn sql_playground(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<SqlPlaygroundRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let future = state
+        .control_plane
+        .sql_playground(request.sql, request.rows);
+    let result = future.await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn enforce_loopback_origin(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    for (header, kind) in [(HOST, "Host"), (ORIGIN, "Origin")] {
+        let Some(value) = request.headers().get(header) else {
+            continue;
+        };
+        let Ok(value) = value.to_str() else {
+            return forbidden_boundary(kind);
+        };
+        if !is_loopback_authority(value, kind == "Origin") {
+            return forbidden_boundary(kind);
+        }
+    }
+    next.run(request).await
+}
+
+fn forbidden_boundary(kind: &str) -> Response {
+    error_response(
+        StatusCode::FORBIDDEN,
+        ApiErrorCode::InvalidRequest,
+        format!("{kind} must identify this loopback control plane"),
+    )
+}
+
+fn is_loopback_authority(value: &str, is_origin: bool) -> bool {
+    let authority = if is_origin {
+        let Ok(uri) = value.parse::<Uri>() else {
+            return false;
+        };
+        if uri.scheme_str() != Some("http") {
+            return false;
+        }
+        let Some(authority) = uri.authority() else {
+            return false;
+        };
+        authority.clone()
+    } else {
+        let Ok(authority) = value.parse() else {
+            return false;
+        };
+        authority
+    };
+    let host = authority.host().trim_matches(['[', ']']);
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+pub async fn serve(
+    listener: TcpListener,
+    control_plane: Arc<ControlPlane>,
+    catalog: UiCatalog,
+    shutdown: CancellationToken,
+) -> anyhow::Result<()> {
+    axum::serve(listener, router(control_plane, catalog))
+        .with_graceful_shutdown(shutdown.cancelled_owned())
+        .await?;
+    Ok(())
+}
+
+async fn index() -> Response {
+    asset(INDEX_HTML, "text/html; charset=utf-8", true)
+}
+
+async fn app_js() -> Response {
+    asset(APP_JS, "text/javascript; charset=utf-8", false)
+}
+
+async fn style_css() -> Response {
+    asset(STYLE_CSS, "text/css; charset=utf-8", false)
+}
+
+async fn health() -> Json<HealthResponse> {
+    Json(HealthResponse { status: "ok" })
+}
+
+async fn get_catalog(State(state): State<AppState>) -> Json<UiCatalog> {
+    Json(state.catalog)
+}
+
+async fn dynamic_options(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    ApiJson(request): ApiJson<OptionsRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .dynamic_options(&key, request, cancellation)
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn check_connection(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<ConnectionCheckRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .check_connection(
+            &request.provider,
+            request.role,
+            request.config,
+            cancellation,
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn preview_message(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<MessagePreviewRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cancellation = state.control_plane.request_cancellation();
+    let _cancel_on_drop = CancelOnDrop(cancellation.clone());
+    let result = state
+        .control_plane
+        .preview_message(
+            &request.provider,
+            request.config,
+            request.max_bytes,
+            cancellation,
+        )
+        .await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(result)))
+}
+
+async fn render_yaml(
+    ApiJson(request): ApiJson<ConfigRequest>,
+) -> Result<Json<YamlResponse>, ApiError> {
+    Ok(Json(YamlResponse {
+        yaml: ControlPlane::render_yaml(&request.config)?,
+    }))
+}
+
+async fn parse_yaml(
+    ApiJson(request): ApiJson<YamlRequest>,
+) -> Result<Json<ConfigResponse>, ApiError> {
+    Ok(Json(ConfigResponse {
+        config: ControlPlane::parse_yaml(&request.yaml)?,
+    }))
+}
+
+async fn discover(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<ConfigRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .control_plane
+        .validate_preview(&request.config, CancellationToken::new())
+        .await?;
+    Ok(Json(result))
+}
+
+async fn list_deliveries(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DeliverySummary>>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .list()
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+    ))
+}
+
+async fn get_delivery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let delivery = state.control_plane.get(&id).await?;
+    Ok(([(CACHE_CONTROL, "no-store")], Json(delivery)))
+}
+
+async fn create_draft(
+    State(state): State<AppState>,
+    ApiJson(request): ApiJson<CreateDraftRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let delivery = state
+        .control_plane
+        .create_draft(request.name, request.description, request.config)
+        .await?;
+    Ok((StatusCode::CREATED, Json(delivery)))
+}
+
+async fn update_draft(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<UpdateDraftRequest>,
+) -> Result<Json<DeliveryRecord>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .update_draft(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+                request.name,
+                request.description,
+                request.config,
+            )
+            .await?,
+    ))
+}
+
+async fn delete_delivery(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<RevisionRequest>,
+) -> Result<Json<DeliveryRecord>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .delete(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+            )
+            .await?,
+    ))
+}
+
+async fn validate_saved(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<RevisionRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .control_plane
+        .validate_saved(
+            &id,
+            request.expected_revision,
+            request.expected_record_version,
+            CancellationToken::new(),
+        )
+        .await?;
+    Ok(Json(result))
+}
+
+async fn activate(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<RevisionRequest>,
+) -> Result<Json<DeliveryRecord>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .activate(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+            )
+            .await?,
+    ))
+}
+
+async fn stop(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<StopRequest>,
+) -> Result<Json<DeliveryRecord>, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .stop(
+                &id,
+                request.expected_revision,
+                request.expected_record_version,
+                &RunId(request.expected_run_id),
+            )
+            .await?,
+    ))
+}
+
+async fn worker_logs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(state.control_plane.worker_logs(&id).await?))
+}
+
+async fn worker_log(
+    State(state): State<AppState>,
+    Path((id, worker_id)): Path<(String, String)>,
+    Query(query): Query<WorkerLogReadQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .worker_log(&id, &worker_id, query.cursor, query.limit_bytes)
+            .await?,
+    ))
+}
+
+fn asset(contents: &'static str, content_type: &'static str, html: bool) -> Response {
+    let mut response = Response::new(Body::from(contents));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if html {
+        response.headers_mut().insert(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            ),
+        );
+    }
+    response
+}
+
+impl From<Infallible> for ApiError {
+    fn from(value: Infallible) -> Self {
+        match value {}
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/http.rs"]
+mod tests;

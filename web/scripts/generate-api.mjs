@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import prettier from "prettier";
 
 const schemaPath = new URL(
-  "../../src/server/contracts/server-api.schema.json",
+  "../../crates/transferia-server-contracts/contracts/server-api.schema.json",
   import.meta.url,
 );
 const outputPath = new URL("../src/generated/apiContract.ts", import.meta.url);

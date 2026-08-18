@@ -1,0 +1,15 @@
+[package]
+name = "transferia-server-contracts"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+transferia-runtime = { path = "../transferia-runtime" }
+
+[lints]
+workspace = true

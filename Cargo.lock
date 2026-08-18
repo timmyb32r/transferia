@@ -5096,27 +5096,172 @@ dependencies = [
  "anyhow",
  "apache-avro",
  "arrow",
+ "bytes",
+ "clap",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "object_store",
+ "prost",
+ "prost-types",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "testcontainers",
+ "tokio",
+ "tokio-postgres",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "transferia-composition",
+ "transferia-control-plane",
+ "transferia-core",
+ "transferia-delivery",
+ "transferia-providers",
+ "transferia-runtime",
+ "transferia-runtime-local",
+ "ydb-grpc",
+]
+
+[[package]]
+name = "transferia-composition"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "mimalloc",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing-subscriber",
+ "transferia-control-plane",
+ "transferia-delivery",
+ "transferia-providers",
+ "transferia-runtime-local",
+]
+
+[[package]]
+name = "transferia-control-plane"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "async-trait",
  "axum",
+ "base64 0.22.1",
+ "bytes",
+ "getrandom 0.3.4",
+ "http",
+ "http-body-util",
+ "hyper",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery",
+ "transferia-providers",
+ "transferia-runtime",
+ "transferia-server-contracts",
+]
+
+[[package]]
+name = "transferia-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bytes",
+ "futures-util",
+ "schemars 1.2.2",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "transferia-delivery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "datafusion",
+ "futures-util",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-pipeline",
+ "transferia-providers",
+]
+
+[[package]]
+name = "transferia-delivery-contracts"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "schemars 1.2.2",
+ "serde",
+ "tokio",
+ "tracing",
+ "transferia-core",
+]
+
+[[package]]
+name = "transferia-pipeline"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "bytes",
+ "futures-util",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+]
+
+[[package]]
+name = "transferia-providers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apache-avro",
+ "arrow",
+ "async-trait",
  "base64 0.22.1",
  "bigdecimal",
  "bytes",
  "chrono",
  "chrono-tz",
- "clap",
  "clickhouse-arrow",
- "datafusion",
  "flate2",
  "futures-util",
- "getrandom 0.3.4",
  "http",
- "http-body-util",
  "hyper",
  "hyper-util",
  "itoa",
  "jsonpath_lib",
  "jsonschema",
- "mimalloc",
  "object_store",
  "postgres-types",
  "prost",
@@ -5137,7 +5282,6 @@ dependencies = [
  "shellexpand",
  "simd-json",
  "testcontainers",
- "thiserror",
  "time",
  "tokio",
  "tokio-postgres",
@@ -5150,25 +5294,48 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
- "tracing-subscriber",
  "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-pipeline",
  "ydb-grpc",
  "zstd",
 ]
 
 [[package]]
-name = "transferia-core"
+name = "transferia-runtime"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow",
- "bytes",
- "futures-util",
+ "async-trait",
  "schemars 1.2.2",
  "serde",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "transferia-runtime-local"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "getrandom 0.3.4",
+ "serde_json",
  "tokio",
  "tokio-util",
  "tracing",
+ "transferia-runtime",
+]
+
+[[package]]
+name = "transferia-server-contracts"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "transferia-runtime",
 ]
 
 [[package]]

@@ -61,6 +61,7 @@ class Selection:
     full: bool = False
     reason: str = ""
     rust_modules: set[str] = field(default_factory=set)
+    rust_packages: set[str] = field(default_factory=set)
     integration_tests: set[str] = field(default_factory=set)
     web_paths: set[str] = field(default_factory=set)
     web_build: bool = False
@@ -115,8 +116,8 @@ def select(paths: list[str]) -> Selection:
             continue
 
         if path in {
-            "src/server/contracts/server-api.schema.json",
-            "src/server/contracts/server-api.fixture.json",
+            "crates/transferia-server-contracts/contracts/server-api.schema.json",
+            "crates/transferia-server-contracts/contracts/server-api.fixture.json",
         }:
             result.rust_modules.add("server")
             result.web_paths.add("src/generated/apiContract.ts")
@@ -128,6 +129,24 @@ def select(paths: list[str]) -> Selection:
             result.full = True
             result.reason = f"shared data-plane contract changed: {path}"
             return result
+
+        if path.startswith("crates/"):
+            parts = Path(path).parts
+            crate = parts[1] if len(parts) > 1 else ""
+            package = crate
+            if crate == "transferia-providers":
+                result.rust_packages.add(package)
+                if len(parts) > 4 and parts[2:4] == ("src", "providers"):
+                    provider = parts[4]
+                    if not provider.endswith(".rs") and touches_provider_runtime(parts[1:]):
+                        result.integration_tests.update(provider_e2e(provider, parts))
+            elif crate == "transferia-server-contracts":
+                result.rust_packages.update({package, "transferia-control-plane"})
+                result.web_paths.add("tests/apiContract.test.ts")
+                result.web_build = True
+            elif crate:
+                result.rust_packages.add(package)
+            continue
 
         if path.startswith("tests/support/"):
             result.integration_tests.update(p.stem for p in (ROOT / "tests").glob("*.rs"))
@@ -222,8 +241,14 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
         ], [])
 
     rust: list[list[str]] = []
+    packages = {package for package in selection.rust_packages if package}
     modules = {module for module in selection.rust_modules if module}
-    if len(modules) == 1:
+    if packages:
+        command = ["cargo", "test", "--all-features"]
+        for package in sorted(packages):
+            command.extend(["-p", package])
+        rust.append(command)
+    elif len(modules) == 1:
         module = next(iter(modules))
         rust.append(["cargo", "test", "--lib", "--all-features", f"{module}::"])
     elif modules:

@@ -14,12 +14,12 @@ fmt-check:
 
 # Regenerate the Rust-owned server API schema and its TypeScript projection
 api-contract:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run --bin generate-server-api
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-server-api
     cd web && npm run update:api
 
 # Verify generated API artifacts without modifying the working tree.
 api-contract-check:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run --bin generate-server-api -- --check
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-server-api -- --check
     cd web && npm run check:api
 
 # Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
@@ -29,6 +29,7 @@ check: fmt-check
 
 # Normal development/completion gate: formatting plus only affected tests.
 check-affected *args: fmt-check
+    python3 scripts/check_crate_boundaries.py
     python3 scripts/test_affected.py {{args}}
 
 # Full verification: check + MIRI UB detection
@@ -62,6 +63,10 @@ clippy: fmt-check
 
 # CI pipeline. Miri remains an explicit additional gate for unsafe changes.
 ci: check
+
+# Verify the compiler-enforced crate dependency direction without compiling.
+crate-boundaries:
+    python3 scripts/check_crate_boundaries.py
 
 # Sort Cargo.toml dependencies alphabetically
 cargo-sort:

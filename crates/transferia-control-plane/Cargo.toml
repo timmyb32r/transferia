@@ -1,0 +1,39 @@
+[package]
+name = "transferia-control-plane"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "generate-server-api"
+path = "src/bin/generate_server_api.rs"
+test = false
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+base64.workspace = true
+bytes.workspace = true
+getrandom.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower.workspace = true
+tracing.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery = { path = "../transferia-delivery" }
+transferia-providers = { path = "../transferia-providers" }
+transferia-runtime = { path = "../transferia-runtime" }
+transferia-server-contracts = { path = "../transferia-server-contracts" }
+
+[lints]
+workspace = true

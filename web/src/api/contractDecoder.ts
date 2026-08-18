@@ -1,4 +1,4 @@
-import contract from "../../../src/server/contracts/server-api.schema.json";
+import contract from "../../../crates/transferia-server-contracts/contracts/server-api.schema.json";
 
 import type { ApiContract, ApiContractName } from "../generated/apiContract";
 

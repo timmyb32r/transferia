@@ -1,0 +1,69 @@
+[package]
+name = "transferia-providers"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+apache-avro.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
+bigdecimal.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+clickhouse-arrow.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+http.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+itoa.workspace = true
+jsonpath_lib.workspace = true
+jsonschema.workspace = true
+object_store.workspace = true
+postgres-types.workspace = true
+prost.workspace = true
+prost-reflect.workspace = true
+prost-types.workspace = true
+protox.workspace = true
+rdkafka.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-pemfile.workspace = true
+ryu.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+shellexpand.workspace = true
+simd-json.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+tower.workspace = true
+tracing.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+ydb-grpc.workspace = true
+zstd.workspace = true
+
+[build-dependencies]
+tonic-prost-build.workspace = true
+
+[dev-dependencies]
+testcontainers.workspace = true
+tokio-rustls.workspace = true
+transferia-pipeline = { path = "../transferia-pipeline" }
+
+[lints]
+workspace = true

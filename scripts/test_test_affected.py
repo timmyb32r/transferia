@@ -23,36 +23,41 @@ class AffectedTestsTest(unittest.TestCase):
         self.assertEqual(web[1], ["npm", "run", "build"])
 
     def test_provider_change_selects_unit_and_owned_e2e_tests(self):
-        selection = test_affected.select(["src/providers/clickhouse/sink/client.rs"])
+        selection = test_affected.select([
+            "crates/transferia-providers/src/providers/clickhouse/sink/client.rs"
+        ])
         rust, web = test_affected.commands(selection)
 
         self.assertEqual(web, [])
         self.assertEqual(len(rust), 2)
-        self.assertIn("--lib", rust[0])
-        self.assertIn("providers::clickhouse::", rust[0])
+        self.assertIn("-p", rust[0])
+        self.assertIn("transferia-providers", rust[0])
         self.assertNotIn("e2e_clickhouse_source", rust[1])
         self.assertIn("e2e_sinks", rust[1])
 
     def test_catalog_change_does_not_start_provider_e2e_services(self):
-        selection = test_affected.select(["src/providers/catalog.rs"])
+        selection = test_affected.select([
+            "crates/transferia-providers/src/providers/catalog.rs"
+        ])
         rust, _ = test_affected.commands(selection)
 
         self.assertFalse(selection.full)
         self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(
-            rust,
-            [["cargo", "test", "--lib", "--all-features", "providers::"]],
-        )
+        self.assertEqual(rust, [["cargo", "test", "--all-features", "-p", "transferia-providers"]])
 
     def test_provider_config_change_stays_in_fast_unit_tests(self):
-        selection = test_affected.select(["src/providers/kafka/config.rs"])
+        selection = test_affected.select([
+            "crates/transferia-providers/src/providers/kafka/config.rs"
+        ])
         rust, _ = test_affected.commands(selection)
 
         self.assertEqual(selection.integration_tests, set())
         self.assertEqual(len(rust), 1)
 
     def test_provider_transport_change_selects_owned_e2e(self):
-        selection = test_affected.select(["src/providers/kafka/src_stream/source.rs"])
+        selection = test_affected.select([
+            "crates/transferia-providers/src/providers/kafka/src_stream/source.rs"
+        ])
 
         self.assertEqual(selection.integration_tests, {"e2e_kafka"})
 
@@ -69,18 +74,25 @@ class AffectedTestsTest(unittest.TestCase):
         selection = test_affected.select(["tests/removed_test.rs"])
         self.assertEqual(selection.integration_tests, set())
 
-    def test_top_level_parser_file_uses_a_real_module_filter(self):
-        selection = test_affected.select(["src/parsers/detection.rs"])
+    def test_parser_change_selects_only_provider_crate(self):
+        selection = test_affected.select([
+            "crates/transferia-providers/src/parsers/detection.rs"
+        ])
         rust, _ = test_affected.commands(selection)
 
-        self.assertIn("parsers::tests::detection::", rust[0])
+        self.assertIn("transferia-providers", rust[0])
         self.assertEqual(len(rust), 1)
 
-    def test_parser_config_uses_the_shared_parser_test_module(self):
-        selection = test_affected.select(["src/parsers/config.rs"])
+    def test_control_plane_change_selects_only_control_plane_crate(self):
+        selection = test_affected.select([
+            "crates/transferia-control-plane/src/server/http.rs"
+        ])
         rust, _ = test_affected.commands(selection)
 
-        self.assertIn("parsers::tests::", rust[0])
+        self.assertEqual(
+            rust,
+            [["cargo", "test", "--all-features", "-p", "transferia-control-plane"]],
+        )
 
     def test_unknown_build_input_falls_back_to_full_suite(self):
         selection = test_affected.select(["Cargo.toml"])

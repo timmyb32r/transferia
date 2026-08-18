@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import fixture from "../../src/server/contracts/server-api.fixture.json";
+import fixture from "../../crates/transferia-server-contracts/contracts/server-api.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
 import {
   acceptsDraftSeed,

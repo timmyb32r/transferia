@@ -111,17 +111,18 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   `transferia::core`; do not recreate core types or compatibility wrappers under
   `src/`. Export the most important contracts from the core crate root so callers
   do not need to discover their storage layout.
-- `src/delivery/` owns delivery orchestration. `delivery/config/` owns the
-  runnable configuration; `delivery/semantics.rs` owns cross-provider delivery
-  compatibility; `delivery/preparation/` owns configuration resolution,
-  discovery, validation, and construction of a resolved `DeliveryPlan`;
-  `delivery/execution/` owns partition execution, pipeline flow, retries,
-  middleware, and commit ordering.
-- `src/providers/traits.rs` defines configured provider factory boundaries. It
+- `crates/transferia-delivery/` owns delivery orchestration. `delivery/config/`
+  owns runnable configuration; `delivery/preparation/` owns resolution,
+  discovery, validation, and construction of a resolved `DeliveryPlan`; and
+  `delivery/execution/` owns delivery-level partition startup and restart.
+  Shared semantics, parser, middleware, retry, tracker, and metrics contracts
+  belong to `crates/transferia-delivery-contracts/`. The provider-neutral
+  read/parse/write/commit loop belongs to `crates/transferia-pipeline/`.
+- `crates/transferia-providers/src/providers/traits.rs` defines configured provider factory boundaries. It
   is intentionally not `core::Source`/`core::Sink`: factories assemble parser,
   metrics, durable-storage, and runtime-port implementations around those core
   data-plane ports.
-- `src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
+- `crates/transferia-providers/src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
   types, YDB Topic and PQv1 transports, protocol decoding, and source/sink
   behavior. Do not expose Logbroker/YDB transport details at crate root or in
   generic provider modules.
@@ -130,14 +131,17 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   transport in the provider root; each mode extends those common pieces with
   its own settings. Do not create empty mode modules before an implementation
   exists.
-- `src/runtime/` defines the worker-runtime boundary. Environment-specific
-  process ownership, readiness, shutdown, and parent-worker control belong in
-  `src/runtime/local/`; future Kubernetes or EC2 implementations must be sibling
-  runtime adapters. Delivery execution itself remains in `delivery/execution/`.
+- `crates/transferia-runtime/` defines the environment-neutral worker-runtime
+  boundary. `crates/transferia-runtime-local/` owns local process supervision.
+  Executable CLI/worker composition belongs to `crates/transferia-composition/`.
+  Future Kubernetes or EC2 implementations must be sibling runtime adapters.
+  Delivery execution itself remains in `crates/transferia-delivery/` and the
+  provider-neutral per-partition pipeline lives in `crates/transferia-pipeline/`.
   Name provider components after their responsibility, such as `reader`,
   `writer`, `client`, or `actor`; never use a generic `runtime` module for
   provider logic.
-- `src/providers/clickhouse/` and `src/providers/s3/` own all destination-specific
+- `crates/transferia-providers/src/providers/clickhouse/` and
+  `crates/transferia-providers/src/providers/s3/` own all destination-specific
   validation and runtime behavior.
 - `tests/` contains cross-component integration and end-to-end tests.
 

@@ -1,0 +1,18 @@
+[package]
+name = "transferia-delivery-contracts"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+schemars.workspace = true
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+transferia-core = { path = "../transferia-core" }
+
+[lints]
+workspace = true
