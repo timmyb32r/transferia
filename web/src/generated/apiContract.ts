@@ -92,6 +92,7 @@ export type DeliveryRecord = {
 export type DiscoveryResult = {
   source: string;
   sink: string;
+  pipeline_count: number;
   datasets: Array<DatasetView>;
   sink_limits: SinkLimitsDescription;
 };

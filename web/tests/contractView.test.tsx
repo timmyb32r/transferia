@@ -14,6 +14,7 @@ describe("data schema view", () => {
         result={{
           source: "logbroker",
           sink: "clickhouse",
+          pipeline_count: 1,
           datasets: [
             {
               role: "Main",

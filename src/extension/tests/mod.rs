@@ -359,14 +359,14 @@ struct IncompleteResolver;
 
 #[async_trait]
 impl InstallationResolver for IncompleteResolver {
-    async fn resolve(
+    async fn resolve_many(
         &self,
         _installation: Value,
         _context: ResolveContext,
-    ) -> anyhow::Result<serde_yaml::Mapping> {
+    ) -> anyhow::Result<Vec<serde_yaml::Mapping>> {
         let mut output = serde_yaml::Mapping::new();
         output.insert(Value::from("host"), Value::from("localhost"));
-        Ok(output)
+        Ok(vec![output])
     }
 }
 
@@ -422,11 +422,11 @@ struct BlockingResolver;
 
 #[async_trait]
 impl InstallationResolver for BlockingResolver {
-    async fn resolve(
+    async fn resolve_many(
         &self,
         _installation: Value,
         context: ResolveContext,
-    ) -> anyhow::Result<Mapping> {
+    ) -> anyhow::Result<Vec<Mapping>> {
         context.cancellation.cancelled().await;
         anyhow::bail!("resolver observed cancellation")
     }
@@ -589,6 +589,91 @@ async fn typed_installation_derives_schema_initial_and_runtime_codec() -> anyhow
         )
         .await?;
     assert_eq!(resolved["host"], "localhost");
+    Ok(())
+}
+
+struct TypedMultiTestResolver;
+
+#[async_trait]
+impl TypedMultiInstallationResolver<TypedTestInstallation, TypedTestOutput>
+    for TypedMultiTestResolver
+{
+    async fn resolve_many(
+        &self,
+        installation: TypedTestInstallation,
+        _context: ResolveContext,
+    ) -> anyhow::Result<Vec<TypedTestOutput>> {
+        Ok(["first.example", "second.example"]
+            .into_iter()
+            .map(|host| TypedTestOutput {
+                host: host.to_owned(),
+                port: installation.port,
+                trusted_plaintext: installation.trusted_plaintext,
+            })
+            .collect())
+    }
+}
+
+struct TypedMultiTestExtension;
+
+impl TransferiaExtension for TypedMultiTestExtension {
+    fn identity(&self) -> ExtensionIdentity {
+        ExtensionIdentity {
+            package: "typed-multi-test",
+            abi_version: 1,
+        }
+    }
+
+    fn register(&self, registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+        registry.register_multi_installation(
+            InstallationSpec {
+                provider: "postgres",
+                role: EndpointRole::Source,
+                kind: "multi",
+                title: "Multi",
+                initial: TypedTestInstallation {
+                    installation_type: "multi".to_owned(),
+                    host: String::new(),
+                    port: 5432,
+                    trusted_plaintext: false,
+                },
+                preferred: true,
+            },
+            TypedMultiTestResolver,
+        )
+    }
+}
+
+#[tokio::test]
+async fn multi_installation_expansion_is_explicit_and_cannot_be_used_as_one_endpoint(
+) -> anyhow::Result<()> {
+    let transferia = TransferiaBuilder::new()
+        .with_extension(Arc::new(TypedMultiTestExtension))
+        .build()?;
+    let raw: Value = serde_yaml::from_str(
+        "installation: { type: multi, host: ignored, port: 5432, trusted_plaintext: false }\ndatabase: db\nusername: user\npassword: secret\ntables: []\n",
+    )?;
+    let endpoints = transferia
+        .registry()
+        .resolve_many(
+            "postgres",
+            EndpointRole::Source,
+            raw.clone(),
+            CancellationToken::new(),
+        )
+        .await?;
+    assert_eq!(endpoints.len(), 2);
+    let error = transferia
+        .registry()
+        .resolve(
+            "postgres",
+            EndpointRole::Source,
+            raw,
+            CancellationToken::new(),
+        )
+        .await
+        .expect_err("single-endpoint callers must reject fan-out");
+    assert!(error.to_string().contains("expands to 2 pipelines"));
     Ok(())
 }
 

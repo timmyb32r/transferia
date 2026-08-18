@@ -92,8 +92,13 @@ impl From<SupervisorError> for ServiceError {
 #[serde(deny_unknown_fields)]
 pub struct DiscoveryResult {
     pub source: String,
+
     pub sink: String,
+
+    pub pipeline_count: usize,
+
     pub datasets: Vec<DatasetView>,
+
     pub sink_limits: SinkLimitsDescription,
 }
 
@@ -231,7 +236,7 @@ impl ControlPlane {
         let resolved = self
             .transferia
             .registry()
-            .resolve(provider, role, raw, cancellation.clone())
+            .resolve_many(provider, role, raw, cancellation.clone())
             .await;
         tracing::info!(
             provider,
@@ -248,12 +253,27 @@ impl ControlPlane {
         )
         .map_err(ServiceError::Internal)?;
         let check_started = std::time::Instant::now();
-        let result = tokio::select! {
-            () = cancellation.cancelled() => Err(ServiceError::Validation("connection check cancelled".to_owned())),
-            result = catalog.check_connection(provider, role, resolved) => {
-                result.map_err(|error| ServiceError::Validation(error.to_string()))
+        let result = async {
+            let mut combined = crate::providers::traits::ConnectionCheckResult::default();
+            for endpoint in resolved {
+                let checked = tokio::select! {
+                    () = cancellation.cancelled() => return Err(ServiceError::Validation("connection check cancelled".to_owned())),
+                    result = catalog.check_connection(provider, role, endpoint) => {
+                        result.map_err(|error| ServiceError::Validation(error.to_string()))?
+                    }
+                };
+                for (key, values) in checked.options {
+                    let combined_values = combined.options.entry(key).or_default();
+                    for value in values {
+                        if !combined_values.contains(&value) {
+                            combined_values.push(value);
+                        }
+                    }
+                }
             }
+            Ok(combined)
         };
+        let result = result.await;
         tracing::info!(
             provider,
             ?role,
@@ -440,11 +460,15 @@ impl ControlPlane {
                 result.map_err(|error| ServiceError::Validation(error.to_string()))?
             }
         };
+        let primary = plan
+            .primary()
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
         discovery_result(
-            plan.source_kind,
-            plan.sink_kind,
-            &plan.discovery,
-            plan.sink_provider.as_ref(),
+            primary.source_kind.clone(),
+            primary.sink_kind.clone(),
+            plan.pipelines.len(),
+            &primary.discovery,
+            primary.sink_provider.as_ref(),
         )
         .map_err(|error| ServiceError::Validation(error.to_string()))
     }
@@ -995,12 +1019,14 @@ fn config_yaml_from_json(config: &Value) -> Result<String, ServiceError> {
 fn discovery_result(
     source: String,
     sink: String,
+    pipeline_count: usize,
     discovery: &DeliveryDiscovery,
     sink_provider: &dyn SinkProvider,
 ) -> anyhow::Result<DiscoveryResult> {
     Ok(DiscoveryResult {
         source,
         sink,
+        pipeline_count,
         datasets: discovery
             .datasets
             .iter()

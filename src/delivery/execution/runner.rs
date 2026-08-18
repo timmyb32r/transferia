@@ -11,7 +11,7 @@ use super::{run_partition_pipeline_with_progress, PipelineProgress};
 use crate::core::delivery::DeliveryDiscovery;
 use crate::core::failure::{DataPlaneFailure, DataPlaneResult};
 use crate::core::memory::PipelineMemory;
-use crate::delivery::preparation::DeliveryPlan;
+use crate::delivery::preparation::{DeliveryPlan, PipelinePlan};
 use crate::durable::DurableContext;
 use crate::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
 use crate::parsers::ParserFactory;
@@ -33,13 +33,13 @@ struct PipelineDependencies {
     durable: DurableContext,
 }
 
-pub struct DeliveryExecution {
+struct PipelineExecution {
     tasks: JoinSet<DataPlaneResult<()>>,
     cancellation: CancellationToken,
     finite_source: bool,
 }
 
-impl DeliveryExecution {
+impl PipelineExecution {
     pub async fn wait(mut self) -> anyhow::Result<()> {
         while !self.tasks.is_empty() {
             let result = tokio::select! {
@@ -76,13 +76,79 @@ impl DeliveryExecution {
     }
 }
 
+pub struct DeliveryExecution {
+    pipelines: JoinSet<anyhow::Result<()>>,
+
+    cancellation: CancellationToken,
+}
+
+impl DeliveryExecution {
+    pub async fn wait(mut self) -> anyhow::Result<()> {
+        while let Some(result) = self.pipelines.join_next().await {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    self.shutdown().await;
+                    return Err(error).context("pipeline failed");
+                }
+                Err(error) => {
+                    self.shutdown().await;
+                    return Err(anyhow::Error::new(error)).context("pipeline task panicked");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn shutdown(&mut self) {
+        self.cancellation.cancel();
+        while self.pipelines.join_next().await.is_some() {}
+    }
+}
+
 pub async fn start_delivery(
     plan: DeliveryPlan,
     total_workers: u32,
     worker_index: u32,
     cancellation: CancellationToken,
 ) -> anyhow::Result<Option<DeliveryExecution>> {
-    let DeliveryPlan {
+    let mut pipelines = JoinSet::new();
+    for pipeline in plan.pipelines {
+        match start_pipeline(
+            pipeline,
+            total_workers,
+            worker_index,
+            cancellation.child_token(),
+        )
+        .await
+        {
+            Ok(Some(execution)) => {
+                pipelines.spawn(execution.wait());
+            }
+            Ok(None) => {}
+            Err(error) => {
+                cancellation.cancel();
+                while pipelines.join_next().await.is_some() {}
+                return Err(error);
+            }
+        }
+    }
+    if pipelines.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(DeliveryExecution {
+        pipelines,
+        cancellation,
+    }))
+}
+
+async fn start_pipeline(
+    plan: PipelinePlan,
+    total_workers: u32,
+    worker_index: u32,
+    cancellation: CancellationToken,
+) -> anyhow::Result<Option<PipelineExecution>> {
+    let PipelinePlan {
         config,
         durable,
         metrics_registry,
@@ -153,7 +219,7 @@ pub async fn start_delivery(
         stop_partition_tasks(&mut tasks, &cancellation).await;
         return Err(error);
     }
-    Ok(Some(DeliveryExecution {
+    Ok(Some(PipelineExecution {
         tasks,
         cancellation,
         finite_source,

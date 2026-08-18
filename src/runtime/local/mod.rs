@@ -5,7 +5,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::delivery::config::yaml::Config;
 use crate::delivery::execution::runner::start_delivery;
-use crate::delivery::preparation::{build_delivery_plan_with, build_resolved_delivery_plan_with};
+use crate::delivery::preparation::{
+    build_delivery_plan_with, build_resolved_delivery_document_with, ResolvedConfigDocument,
+};
 use crate::extension::Transferia;
 
 pub use supervisor::LocalWorkerSupervisor;
@@ -114,7 +116,6 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
     };
     spawn_shutdown_listener(cancellation.clone())?;
     let startup = async {
-        let config = Config::from_file(config_path)?;
         if let Some(expected) = &cli.composition_fingerprint {
             anyhow::ensure!(
                 expected == transferia.composition_fingerprint(),
@@ -122,8 +123,11 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
             );
         }
         let plan = if cli.resolved_config {
-            build_resolved_delivery_plan_with(config, cancellation.clone(), &transferia).await?
+            let document = ResolvedConfigDocument::from_file(config_path)?;
+            build_resolved_delivery_document_with(document, cancellation.clone(), &transferia)
+                .await?
         } else {
+            let config = Config::from_file(config_path)?;
             build_delivery_plan_with(config, cancellation.clone(), &transferia).await?
         };
         start_delivery(plan, cli.total_workers, cli.worker_index, cancellation).await

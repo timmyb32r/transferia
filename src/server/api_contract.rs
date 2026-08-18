@@ -328,6 +328,7 @@ pub fn fixture() -> anyhow::Result<Value> {
     let discovery = DiscoveryResult {
         source: "logbroker".to_owned(),
         sink: "clickhouse".to_owned(),
+        pipeline_count: 1,
         datasets: vec![DatasetView {
             role: DatasetRoleView::Main,
             name: "events".to_owned(),

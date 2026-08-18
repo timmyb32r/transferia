@@ -303,6 +303,7 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
         <h2>Data schema</h2>
         <span>
           {result.source} → {result.sink}
+          {result.pipeline_count > 1 && ` · ${result.pipeline_count} pipelines`}
         </span>
       </div>
       {result.datasets.map((dataset) => (

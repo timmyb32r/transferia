@@ -473,6 +473,11 @@
         "sink": {
           "type": "string"
         },
+        "pipeline_count": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
         "datasets": {
           "type": "array",
           "items": {
@@ -487,6 +492,7 @@
       "required": [
         "source",
         "sink",
+        "pipeline_count",
         "datasets",
         "sink_limits"
       ]

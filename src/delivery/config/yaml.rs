@@ -8,7 +8,7 @@ use crate::durable::DurableStorageConfig;
 use crate::metrics::MetricsConfig;
 use crate::middleware::MiddlewareEntry;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub delivery_id: String,
@@ -63,7 +63,7 @@ impl Config {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct SourceEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,
@@ -84,7 +84,7 @@ impl SourceEntry {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct SinkEntry {
     #[serde(flatten)]
     inner: HashMap<String, Value>,

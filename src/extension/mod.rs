@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Bump whenever core changes executable extension behavior without a public
 /// schema change that would otherwise alter the composition fingerprint.
-const CORE_EXTENSION_ABI_VERSION: u32 = 1;
+const CORE_EXTENSION_ABI_VERSION: u32 = 2;
 
 #[derive(
     Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Serialize,
@@ -88,6 +88,15 @@ pub trait TypedInstallationResolver<I, O>: Send + Sync {
     async fn resolve(&self, installation: I, context: ResolveContext) -> anyhow::Result<O>;
 }
 
+#[async_trait]
+pub trait TypedMultiInstallationResolver<I, O>: Send + Sync {
+    async fn resolve_many(
+        &self,
+        installation: I,
+        context: ResolveContext,
+    ) -> anyhow::Result<Vec<O>>;
+}
+
 pub struct InstallationSpec<I> {
     pub provider: &'static str,
 
@@ -128,11 +137,11 @@ pub(crate) struct ExternalLinkBinding {
 
 #[async_trait]
 pub(crate) trait InstallationResolver: Send + Sync {
-    async fn resolve(
+    async fn resolve_many(
         &self,
         installation: Value,
         context: ResolveContext,
-    ) -> anyhow::Result<Mapping>;
+    ) -> anyhow::Result<Vec<Mapping>>;
 }
 
 pub(crate) struct InstallationRegistration {
@@ -274,6 +283,56 @@ impl ExtensionRegistry {
             initial,
             preferred,
             resolver: Arc::new(TypedResolverAdapter::<I, O, R> {
+                resolver,
+                marker: std::marker::PhantomData,
+            }),
+        })
+    }
+
+    pub fn register_multi_installation<I, O, R>(
+        &mut self,
+        spec: InstallationSpec<I>,
+        resolver: R,
+    ) -> anyhow::Result<()>
+    where
+        I: DeserializeOwned + JsonSchema + Serialize + Send + Sync + 'static,
+        O: Serialize + Send + Sync + 'static,
+        R: TypedMultiInstallationResolver<I, O> + 'static,
+    {
+        let InstallationSpec {
+            provider,
+            role,
+            kind,
+            title,
+            initial,
+            preferred,
+        } = spec;
+        let generator = schemars::generate::SchemaSettings::draft2020_12()
+            .with(|settings| settings.inline_subschemas = true)
+            .into_generator();
+        let mut schema = serde_json::to_value(generator.into_root_schema_for::<I>())?;
+        let properties = schema
+            .get_mut("properties")
+            .and_then(JsonValue::as_object_mut)
+            .ok_or_else(|| anyhow::anyhow!("installation input schema must describe an object"))?;
+        anyhow::ensure!(
+            properties.contains_key("type"),
+            "installation input type must contain a 'type' discriminator"
+        );
+        properties.insert("type".to_owned(), serde_json::json!({ "const": kind }));
+        schema
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("installation input schema must be an object"))?
+            .insert("additionalProperties".to_owned(), JsonValue::Bool(false));
+        self.register_erased_installation(InstallationRegistration {
+            provider,
+            role,
+            kind,
+            title,
+            schema,
+            initial: serde_json::to_value(initial)?,
+            preferred,
+            resolver: Arc::new(TypedMultiResolverAdapter::<I, O, R> {
                 resolver,
                 marker: std::marker::PhantomData,
             }),
@@ -457,6 +516,24 @@ impl ExtensionRegistry {
         raw: Value,
         cancellation: CancellationToken,
     ) -> anyhow::Result<Value> {
+        let mut resolved = self.resolve_many(provider, role, raw, cancellation).await?;
+        anyhow::ensure!(
+            resolved.len() == 1,
+            "{provider} installation expands to {} pipelines where exactly one endpoint is required",
+            resolved.len()
+        );
+        resolved
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("{provider} installation resolved no endpoints"))
+    }
+
+    pub async fn resolve_many(
+        &self,
+        provider: &str,
+        role: EndpointRole,
+        raw: Value,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<Vec<Value>> {
         anyhow::ensure!(
             crate::providers::catalog::provider_supports_role(provider, role),
             "unknown {role:?} provider '{provider}'"
@@ -466,7 +543,7 @@ impl ExtensionRegistry {
             .values()
             .any(|registration| registration.provider == provider && registration.role == role)
         {
-            return Ok(raw);
+            return Ok(vec![raw]);
         }
         let mut config = raw
             .as_mapping()
@@ -499,45 +576,65 @@ impl ExtensionRegistry {
             cancellation: cancellation.clone(),
             deadline,
         };
-        let resolved = tokio::select! {
+        let resolved_variants = tokio::select! {
             () = cancellation.cancelled() => anyhow::bail!("{provider} installation resolution was cancelled"),
             result = tokio::time::timeout_at(
                 deadline,
-                registration.resolver.resolve(installation, context),
+                registration.resolver.resolve_many(installation, context),
             ) => result.map_err(|_| anyhow::anyhow!(
                 "{provider} installation resolution exceeded {} seconds",
                 RESOLVE_TIMEOUT.as_secs()
             ))??,
         };
+        anyhow::ensure!(
+            !resolved_variants.is_empty(),
+            "{provider} installation resolver returned no endpoints"
+        );
         let contract = crate::providers::catalog::installation_contract(provider, role)
             .ok_or_else(|| {
                 anyhow::anyhow!("provider '{provider}' does not support the {role:?} role")
             })?;
-        for key in resolved.keys() {
-            let field = key
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("resolved installation field must be a string"))?;
-            anyhow::ensure!(
-                contract.output_fields.contains(&field),
-                "installation resolver returned undeclared {provider}.{role:?} field '{field}'"
-            );
-        }
-        for field in contract.required_output_fields {
-            anyhow::ensure!(
-                resolved.contains_key(Value::String((*field).to_owned())),
-                "installation resolver omitted required {provider}.{role:?} field '{field}'"
-            );
-        }
-        for (key, value) in resolved {
-            anyhow::ensure!(
-                !config.contains_key(&key),
-                "resolved installation attempted to overwrite {provider} field {}",
-                key.as_str().unwrap_or("<non-string>")
-            );
-            config.insert(key, value);
-        }
-        Ok(Value::Mapping(config))
+        resolved_variants
+            .into_iter()
+            .map(|resolved| {
+                validate_resolved_fields(provider, role, &resolved, &contract)?;
+                let mut variant = config.clone();
+                for (key, value) in resolved {
+                    anyhow::ensure!(
+                        !variant.contains_key(&key),
+                        "resolved installation attempted to overwrite {provider} field {}",
+                        key.as_str().unwrap_or("<non-string>")
+                    );
+                    variant.insert(key, value);
+                }
+                Ok(Value::Mapping(variant))
+            })
+            .collect()
     }
+}
+
+fn validate_resolved_fields(
+    provider: &str,
+    role: EndpointRole,
+    resolved: &Mapping,
+    contract: &crate::providers::catalog::descriptor::InstallationContract,
+) -> anyhow::Result<()> {
+    for key in resolved.keys() {
+        let field = key
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("resolved installation field must be a string"))?;
+        anyhow::ensure!(
+            contract.output_fields.contains(&field),
+            "installation resolver returned undeclared {provider}.{role:?} field '{field}'"
+        );
+    }
+    for field in contract.required_output_fields {
+        anyhow::ensure!(
+            resolved.contains_key(Value::String((*field).to_owned())),
+            "installation resolver omitted required {provider}.{role:?} field '{field}'"
+        );
+    }
+    Ok(())
 }
 
 struct TypedResolverAdapter<I, O, R> {
@@ -552,17 +649,53 @@ where
     O: Serialize + Send + Sync + 'static,
     R: TypedInstallationResolver<I, O> + 'static,
 {
-    async fn resolve(
+    async fn resolve_many(
         &self,
         installation: Value,
         context: ResolveContext,
-    ) -> anyhow::Result<Mapping> {
+    ) -> anyhow::Result<Vec<Mapping>> {
         let input = serde_yaml::from_value(installation)?;
         let output = self.resolver.resolve(input, context).await?;
-        serde_yaml::to_value(output)?
+        Ok(vec![serde_yaml::to_value(output)?
             .as_mapping()
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("installation resolver output must be an object"))
+            .ok_or_else(|| {
+                anyhow::anyhow!("installation resolver output must be an object")
+            })?])
+    }
+}
+
+struct TypedMultiResolverAdapter<I, O, R> {
+    resolver: R,
+    marker: std::marker::PhantomData<fn(I) -> O>,
+}
+
+#[async_trait]
+impl<I, O, R> InstallationResolver for TypedMultiResolverAdapter<I, O, R>
+where
+    I: DeserializeOwned + Send + Sync + 'static,
+    O: Serialize + Send + Sync + 'static,
+    R: TypedMultiInstallationResolver<I, O> + 'static,
+{
+    async fn resolve_many(
+        &self,
+        installation: Value,
+        context: ResolveContext,
+    ) -> anyhow::Result<Vec<Mapping>> {
+        let input = serde_yaml::from_value(installation)?;
+        self.resolver
+            .resolve_many(input, context)
+            .await?
+            .into_iter()
+            .map(|output| {
+                serde_yaml::to_value(output)?
+                    .as_mapping()
+                    .cloned()
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("installation resolver output must be an object")
+                    })
+            })
+            .collect()
     }
 }
 
@@ -768,17 +901,17 @@ pub struct OnPremiseResolver;
 
 #[async_trait]
 impl InstallationResolver for OnPremiseResolver {
-    async fn resolve(
+    async fn resolve_many(
         &self,
         installation: Value,
         _context: ResolveContext,
-    ) -> anyhow::Result<Mapping> {
+    ) -> anyhow::Result<Vec<Mapping>> {
         let mut fields = installation
             .as_mapping()
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("on-premise installation must be an object"))?;
         fields.remove(Value::String("type".to_owned()));
-        Ok(fields)
+        Ok(vec![fields])
     }
 }
 

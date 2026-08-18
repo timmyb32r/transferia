@@ -340,6 +340,7 @@ function discovery(): DiscoveryResult {
   return {
     source: "source",
     sink: "sink",
+    pipeline_count: 1,
     datasets: [],
     sink_limits: {
       sink: "sink",
