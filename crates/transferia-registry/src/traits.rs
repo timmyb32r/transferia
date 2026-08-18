@@ -1,10 +1,24 @@
-use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::delivery::{
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits,
+};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::Sink;
+use transferia_core::source::Source;
+use transferia_delivery_contracts::metrics::SinkCounters;
+use transferia_delivery_contracts::parser::ParserFactory;
+use transferia_delivery_contracts::semantics::EndpointDescriptor;
 
-#[derive(Clone, Copy, Debug, Default, serde::Serialize, schemars::JsonSchema)]
+use crate::durable::DurableContext;
+
+#[derive(Clone, Copy, Debug, Default, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionCheckStatus {
     #[default]
@@ -13,7 +27,7 @@ pub enum ConnectionCheckStatus {
     NetworkReachable,
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, schemars::JsonSchema)]
+#[derive(Clone, Debug, Default, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionCheckResult {
     pub status: ConnectionCheckStatus,
@@ -36,24 +50,18 @@ impl ConnectionCheckResult {
     }
 }
 
-use crate::durable::DurableContext;
-use crate::metrics::SinkCounters;
-use crate::parsers::ParserPlan;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits,
-};
-use transferia_core::memory::PipelineMemory;
-use transferia_core::sink::Sink;
-use transferia_core::source::Source;
-use transferia_delivery_contracts::semantics::EndpointDescriptor;
-
-// ---------------------------------------------------------------------------
-// SourceProvider
-// ---------------------------------------------------------------------------
+#[derive(
+    Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointRole {
+    Source,
+    Sink,
+}
 
 pub trait SourceProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
+
     fn delivery_discovery(
         &self,
         context: SourceDiscoveryContext,
@@ -64,33 +72,36 @@ pub trait SourceProvider: Send + Sync {
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>>;
 
-    fn parser_plan(&self) -> &ParserPlan;
+    fn parser(&self) -> Arc<dyn ParserFactory>;
+
+    fn parses_rows(&self) -> bool;
 }
 
 pub struct SourceDiscoveryContext {
     pub request: DeliveryDiscoveryRequest,
+
     pub cancellation: CancellationToken,
 }
 
 pub struct SourceBuildContext {
     pub partition_id: i64,
+
     pub cancellation: CancellationToken,
+
     pub memory: PipelineMemory,
+
     pub durable: DurableContext,
 }
 
-// ---------------------------------------------------------------------------
-// SinkProvider
-// ---------------------------------------------------------------------------
-
 pub trait SinkProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
+
     fn limits(&self) -> &dyn SinkLimits;
+
     fn destination_type(&self, column: &SchemaColumn) -> anyhow::Result<String>;
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
-    /// Validate constraints that span the global pipeline and sink-specific
-    /// buffering configuration.
     fn validate_pipeline_memory_limit(&self, _limit_bytes: usize) -> anyhow::Result<()> {
         Ok(())
     }
@@ -101,9 +112,13 @@ pub trait SinkProvider: Send + Sync {
 
 pub struct SinkBuildContext {
     pub partition_id: i64,
+
     pub counters: Arc<SinkCounters>,
+
     pub keep_system_columns: bool,
+
     pub discovery: Arc<DeliveryDiscovery>,
+
     pub durable: DurableContext,
 }
 
@@ -113,7 +128,9 @@ pub struct SinkPrepare {
 
 pub struct DatasetPrepare {
     pub role: DatasetRole,
+
     pub table: Arc<str>,
+
     pub schema: DatasetSchema,
 }
 

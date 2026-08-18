@@ -16,7 +16,7 @@ use transferia_core::delivery::{
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::preparation::build_delivery_plan_with;
 use transferia_providers::extension::{DynamicOptions, OptionsRequest, Transferia};
-use transferia_providers::providers::traits::{SinkProvider, SourceDiscoveryContext};
+use transferia_registry::{SinkProvider, SourceDiscoveryContext};
 use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
 };
@@ -329,7 +329,7 @@ impl ControlPlane {
         role: transferia_providers::extension::EndpointRole,
         config: Value,
         cancellation: CancellationToken,
-    ) -> Result<transferia_providers::providers::traits::ConnectionCheckResult, ServiceError> {
+    ) -> Result<transferia_registry::ConnectionCheckResult, ServiceError> {
         let total_started = std::time::Instant::now();
         let raw = serde_yaml::to_value(config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
@@ -355,8 +355,7 @@ impl ControlPlane {
         .map_err(ServiceError::Internal)?;
         let check_started = std::time::Instant::now();
         let result = async {
-            let mut combined =
-                transferia_providers::providers::traits::ConnectionCheckResult::default();
+            let mut combined = transferia_registry::ConnectionCheckResult::default();
             for endpoint in resolved {
                 let checked = tokio::select! {
                     () = cancellation.cancelled() => return Err(ServiceError::Validation("connection check cancelled".to_owned())),
@@ -374,7 +373,7 @@ impl ControlPlane {
                 }
                 if matches!(
                     checked.status,
-                    transferia_providers::providers::traits::ConnectionCheckStatus::NetworkReachable
+                    transferia_registry::ConnectionCheckStatus::NetworkReachable
                 ) {
                     combined.status = checked.status;
                     combined.message = checked.message;

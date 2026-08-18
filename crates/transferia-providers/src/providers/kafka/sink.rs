@@ -6,11 +6,11 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 
 use super::KafkaSinkConfig;
 use crate::metrics::SinkCounters;
-use crate::providers::traits::SinkBuildContext;
 use crate::serializer::DeliverySerializer;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_registry::SinkBuildContext;
 
 pub(super) struct KafkaSink {
     config: Arc<KafkaSinkConfig>,

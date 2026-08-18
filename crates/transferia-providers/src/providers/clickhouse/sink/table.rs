@@ -10,8 +10,8 @@ use clickhouse_arrow::Type;
 use super::client::{quote_identifier, ReconnectingClient};
 use super::identifier::validate_identifier;
 use super::ClickHouseSinkConfig;
-use crate::providers::traits::SinkPrepare;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_registry::SinkPrepare;
 
 /// Validate the part of a discovered dataset that is materialized in
 /// `ClickHouse`. This is deliberately the same validation used by DDL

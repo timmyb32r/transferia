@@ -118,10 +118,13 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   Shared semantics, parser, middleware, retry, tracker, and metrics contracts
   belong to `crates/transferia-delivery-contracts/`. The provider-neutral
   read/parse/write/commit loop belongs to `crates/transferia-pipeline/`.
-- `crates/transferia-providers/src/providers/traits.rs` defines configured provider factory boundaries. It
-  is intentionally not `core::Source`/`core::Sink`: factories assemble parser,
-  metrics, durable-storage, and runtime-port implementations around those core
-  data-plane ports.
+- `crates/transferia-registry/` defines configured provider factory boundaries,
+  immutable component registration, provider UI definitions, and the
+  provider-neutral `Composition` port. It is intentionally not
+  `core::Source`/`core::Sink`: factories assemble parser, metrics,
+  durable-storage, and runtime-port implementations around those core data-plane
+  ports. Delivery orchestration depends on this neutral port and must never
+  depend on concrete provider crates.
 - `crates/transferia-providers/src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
   types, YDB Topic and PQv1 transports, protocol decoding, and source/sink
   behavior. Do not expose Logbroker/YDB transport details at crate root or in

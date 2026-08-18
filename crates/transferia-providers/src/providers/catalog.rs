@@ -15,17 +15,14 @@ use crate::extension::{EndpointRole, ExtensionRegistry, Transferia};
 use crate::extension::{InstallationRegistration, OnPremiseResolver};
 use crate::metrics::MetricsRegistry;
 
-mod definition;
 pub(crate) mod descriptor;
-mod registry;
-
-pub use definition::{DeliveryMode, EndpointDefinition, ProviderDefinition};
-pub use registry::ProviderCatalog;
+pub use transferia_registry::{DeliveryMode, EndpointDefinition, ProviderDefinition};
+pub type ProviderCatalog = transferia_registry::Registry;
 
 pub(crate) use descriptor::{
     installation_contract, provider_contracts, provider_roles, provider_supports_role,
 };
-use registry::ProviderRegistration;
+use transferia_registry::{ComponentRegistration, RegistryBuilder};
 
 #[cfg(test)]
 use descriptor::PROVIDERS;
@@ -122,8 +119,8 @@ pub fn build_provider_catalog_with(
     transferia: &Transferia,
     metrics_registry: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<ProviderCatalog> {
-    let mut catalog = build_base_provider_catalog(metrics_registry, false)?;
-    catalog.definitions = transferia.composition().provider_definitions().to_vec();
+    let mut catalog = build_base_provider_catalog(metrics_registry)?;
+    catalog.replace_definitions(transferia.composition().provider_definitions().to_vec())?;
     Ok(catalog)
 }
 
@@ -131,11 +128,31 @@ pub(crate) fn compile_provider_definitions(
     registry: &ExtensionRegistry,
 ) -> anyhow::Result<Vec<ProviderDefinition>> {
     let metrics = Arc::new(MetricsRegistry::new());
-    let mut catalog = build_base_provider_catalog(&metrics, true)?;
-    catalog.apply_installations(registry)?;
-    apply_dynamic_options_bindings(&mut catalog.definitions, registry)?;
-    apply_external_link_bindings(&mut catalog.definitions, registry)?;
-    Ok(catalog.definitions)
+    let mut catalog = build_base_provider_catalog(&metrics)?;
+    catalog.edit_definitions(|definitions| {
+        for definition in definitions.iter_mut() {
+            if let Some(endpoint) = &mut definition.source {
+                apply_endpoint_installations(
+                    definition.key,
+                    EndpointRole::Source,
+                    endpoint,
+                    registry,
+                )?;
+            }
+            if let Some(endpoint) = &mut definition.sink {
+                apply_endpoint_installations(
+                    definition.key,
+                    EndpointRole::Sink,
+                    endpoint,
+                    registry,
+                )?;
+            }
+        }
+        apply_dynamic_options_bindings(definitions, registry)?;
+        apply_external_link_bindings(definitions, registry)?;
+        Ok(())
+    })?;
+    Ok(catalog.definitions().to_vec())
 }
 
 fn apply_external_link_bindings(
@@ -237,14 +254,13 @@ fn apply_dynamic_options_bindings(
 
 fn build_base_provider_catalog(
     _metrics_registry: &Arc<MetricsRegistry>,
-    compile_definitions: bool,
 ) -> anyhow::Result<ProviderCatalog> {
-    let mut catalog = ProviderCatalog::new();
+    let mut catalog = RegistryBuilder::new();
 
     #[cfg(feature = "provider-logbroker")]
     catalog.register(
-        ProviderRegistration::new("logbroker", compile_definitions)?
-            .source::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _, _>(
+        component_registration("logbroker")?
+            .source_draft::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _, _>(
                 vec![DeliveryMode::Stream],
                 true,
                 || {
@@ -282,7 +298,7 @@ fn build_base_provider_catalog(
                         tokio_util::sync::CancellationToken::new(),
                     )
                     .await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             )
             .sink::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
@@ -307,15 +323,15 @@ fn build_base_provider_catalog(
                         tokio_util::sync::CancellationToken::new(),
                     )
                     .await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             ),
     )?;
 
     #[cfg(feature = "provider-kafka")]
     catalog.register(
-        ProviderRegistration::new("kafka", compile_definitions)?
-            .source::<crate::providers::kafka::KafkaSourceConfig, _, _>(
+        component_registration("kafka")?
+            .source_draft::<crate::providers::kafka::KafkaSourceConfig, _, _>(
                 vec![DeliveryMode::Stream],
                 true,
                 || {
@@ -346,7 +362,7 @@ fn build_base_provider_catalog(
             .source_checker::<crate::providers::kafka::KafkaSourceConfig, _, _>(
                 |config| async move {
                     crate::providers::kafka::check_source_connection(&config).await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             )
             .sink::<crate::providers::kafka::KafkaSinkConfig, _, _>(
@@ -369,13 +385,13 @@ fn build_base_provider_catalog(
             )?
             .sink_checker::<crate::providers::kafka::KafkaSinkConfig, _, _>(|config| async move {
                 crate::providers::kafka::check_sink_connection(&config).await?;
-                Ok(crate::providers::traits::ConnectionCheckResult::default())
+                Ok(transferia_registry::ConnectionCheckResult::default())
             }),
     )?;
 
     #[cfg(feature = "provider-postgres")]
     catalog.register(
-        ProviderRegistration::new("postgres", compile_definitions)?
+        component_registration("postgres")?
             .source::<crate::providers::postgres::src_batch::PostgresSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
                 false,
@@ -406,7 +422,7 @@ fn build_base_provider_catalog(
             .source_checker::<crate::providers::postgres::src_batch::PostgresSourceConfig, _, _>(
                 |config| async move {
                     crate::providers::postgres::check_connection(&config.connection).await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             )
             .sink::<crate::providers::postgres::sink::PostgresSinkConfig, _, _>(
@@ -430,14 +446,14 @@ fn build_base_provider_catalog(
             .sink_checker::<crate::providers::postgres::sink::PostgresSinkConfig, _, _>(
                 |config| async move {
                     crate::providers::postgres::check_connection(&config.connection).await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             ),
     )?;
 
     #[cfg(feature = "provider-clickhouse")]
     catalog.register(
-        ProviderRegistration::new("clickhouse", compile_definitions)?
+        component_registration("clickhouse")?
             .source::<crate::providers::clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
                 false,
@@ -523,8 +539,8 @@ fn build_base_provider_catalog(
 
     #[cfg(feature = "provider-s3")]
     catalog.register(
-        ProviderRegistration::new("s3", compile_definitions)?
-            .source::<crate::providers::s3::src_batch::S3SourceConfig, _, _>(
+        component_registration("s3")?
+            .source_draft::<crate::providers::s3::src_batch::S3SourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
                 false,
                 || serde_json::json!({
@@ -553,10 +569,10 @@ fn build_base_provider_catalog(
             .source_checker::<crate::providers::s3::src_batch::S3SourceConfig, _, _>(
                 |config| async move {
                     config.check_connection().await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             )
-            .sink::<crate::providers::s3::sink::S3SinkConfig, _, _>(
+            .sink_draft::<crate::providers::s3::sink::S3SinkConfig, _, _>(
                 || serde_json::json!({
                     "bucket": "",
                     "object_layout_version": 5,
@@ -580,14 +596,14 @@ fn build_base_provider_catalog(
             .sink_checker::<crate::providers::s3::sink::S3SinkConfig, _, _>(
                 |config| async move {
                     config.check_connection().await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             ),
     )?;
 
     #[cfg(feature = "provider-ytsaurus")]
     catalog.register(
-        ProviderRegistration::new("ytsaurus", compile_definitions)?
+        component_registration("ytsaurus")?
             .source::<crate::providers::ytsaurus::YTsaurusSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
                 false,
@@ -616,7 +632,7 @@ fn build_base_provider_catalog(
             .source_checker::<crate::providers::ytsaurus::YTsaurusSourceConfig, _, _>(
                 |config| async move {
                     crate::providers::ytsaurus::check_connection(&config.connection).await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             )
             .sink::<crate::providers::ytsaurus::YTsaurusSinkConfig, _, _>(
@@ -640,13 +656,13 @@ fn build_base_provider_catalog(
             .sink_checker::<crate::providers::ytsaurus::YTsaurusSinkConfig, _, _>(
                 |config| async move {
                     crate::providers::ytsaurus::check_connection(&config.connection).await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                    Ok(transferia_registry::ConnectionCheckResult::default())
                 },
             ),
     )?;
 
     catalog.register(
-        ProviderRegistration::new("discard", compile_definitions)?.sink::<EmptyConfig, _, _>(
+        component_registration("discard")?.sink::<EmptyConfig, _, _>(
             || serde_json::json!({}),
             |_config| {
                 Ok(Box::new(
@@ -656,22 +672,28 @@ fn build_base_provider_catalog(
         )?,
     )?;
 
-    Ok(catalog)
+    Ok(catalog.build())
+}
+
+fn component_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
+    let descriptor = descriptor::provider_descriptor(key)
+        .ok_or_else(|| anyhow::anyhow!("unknown provider descriptor '{key}'"))?;
+    Ok(ComponentRegistration::new(descriptor.key, descriptor.title))
 }
 
 #[cfg(feature = "provider-clickhouse")]
 fn clickhouse_connection_check_result(
     checked: crate::providers::clickhouse::sink::ClickHouseConnectionCheck,
-) -> crate::providers::traits::ConnectionCheckResult {
+) -> transferia_registry::ConnectionCheckResult {
     match checked {
         crate::providers::clickhouse::sink::ClickHouseConnectionCheck::Verified {
             shard_groups,
-        } => crate::providers::traits::ConnectionCheckResult {
+        } => transferia_registry::ConnectionCheckResult {
             options: std::collections::BTreeMap::from([("#/shard_group".to_owned(), shard_groups)]),
             ..Default::default()
         },
         crate::providers::clickhouse::sink::ClickHouseConnectionCheck::NetworkReachable => {
-            crate::providers::traits::ConnectionCheckResult::network_reachable()
+            transferia_registry::ConnectionCheckResult::network_reachable()
         }
     }
 }

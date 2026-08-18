@@ -10,12 +10,12 @@ use super::config::S3SourceConfig;
 use super::reader::S3Source;
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 use transferia_core::delivery::{DeliveryDiscovery, SourceTopology};
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 pub struct S3SourceProvider {
     config: S3SourceConfig,
@@ -118,7 +118,11 @@ impl SourceProvider for S3SourceProvider {
             )) as Box<dyn Source>)
         })
     }
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }

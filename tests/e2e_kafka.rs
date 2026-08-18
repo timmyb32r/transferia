@@ -29,7 +29,7 @@ use transferia::metrics::{MetricsRegistry, SinkCounters};
 use transferia::providers::kafka::{
     KafkaSinkConfig, KafkaSinkProvider, KafkaSourceConfig, KafkaSourceProvider,
 };
-use transferia::providers::traits::{
+use transferia::registry::{
     SinkBuildContext, SinkProvider as _, SourceBuildContext, SourceProvider as _,
 };
 

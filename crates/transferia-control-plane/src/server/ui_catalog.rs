@@ -5,7 +5,7 @@ use serde_json::Value;
 use transferia_delivery::delivery::config::yaml::DeliveryType;
 use transferia_providers::extension::Transferia;
 use transferia_providers::metrics::MetricsConfig;
-use transferia_providers::providers::catalog::ProviderDefinition;
+use transferia_registry::ProviderDefinition;
 
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]

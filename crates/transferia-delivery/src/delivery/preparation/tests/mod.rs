@@ -21,10 +21,15 @@ source:
 sink: { discard: {} }
 pipeline_memory_limit_bytes: 0
 ";
-    let error = build_delivery_plan(Config::from_yaml(yaml)?, CancellationToken::new())
-        .await
-        .err()
-        .context("zero memory limit must fail")?;
+    let composition = transferia_providers::extension::Transferia::public()?;
+    let error = build_delivery_plan_with(
+        Config::from_yaml(yaml)?,
+        CancellationToken::new(),
+        &composition,
+    )
+    .await
+    .err()
+    .context("zero memory limit must fail")?;
     assert!(error
         .to_string()
         .contains("pipeline_memory_limit_bytes must be positive"));

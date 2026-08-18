@@ -15,7 +15,6 @@ use super::config::{SourceTableConfig, YTsaurusSourceConfig};
 use super::schema::{parse_schema, schemas_equal};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -28,6 +27,7 @@ use transferia_core::source::{CommitMarker, Source};
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 type ResponseStream = Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>;
 
@@ -210,8 +210,12 @@ impl SourceProvider for YTsaurusSourceProvider {
         })
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }
 

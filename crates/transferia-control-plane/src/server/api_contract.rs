@@ -9,7 +9,7 @@ use super::service::{
 use super::ui_catalog::UiCatalog;
 use transferia_core::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
 use transferia_providers::extension::{DynamicOptions, EndpointRole, OptionsRequest};
-use transferia_providers::providers::traits::ConnectionCheckResult;
+use transferia_registry::ConnectionCheckResult;
 use transferia_runtime::RunId;
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
 
@@ -289,25 +289,21 @@ pub fn fixture() -> anyhow::Result<Value> {
     let catalog = UiCatalog {
         common_schema: serde_json::json!({ "type": "object" }),
         initial: serde_json::json!({}),
-        providers: vec![
-            transferia_providers::providers::catalog::ProviderDefinition {
-                key: "clickhouse",
-                title: "ClickHouse",
-                source: None,
-                sink: Some(
-                    transferia_providers::providers::catalog::EndpointDefinition {
-                        schema: serde_json::json!({ "type": "object" }),
-                        initial: serde_json::json!({}),
-                        delivery_modes: vec![
-                            transferia_providers::providers::catalog::DeliveryMode::Batch,
-                            transferia_providers::providers::catalog::DeliveryMode::Stream,
-                        ],
-                        partitioned: false,
-                        connection_check: true,
-                    },
-                ),
-            },
-        ],
+        providers: vec![transferia_registry::ProviderDefinition {
+            key: "clickhouse",
+            title: "ClickHouse",
+            source: None,
+            sink: Some(transferia_registry::EndpointDefinition {
+                schema: serde_json::json!({ "type": "object" }),
+                initial: serde_json::json!({}),
+                delivery_modes: vec![
+                    transferia_registry::DeliveryMode::Batch,
+                    transferia_registry::DeliveryMode::Stream,
+                ],
+                partitioned: false,
+                connection_check: true,
+            }),
+        }],
     };
     let delivery = DeliveryRecord {
         id: "delivery-1".to_owned(),

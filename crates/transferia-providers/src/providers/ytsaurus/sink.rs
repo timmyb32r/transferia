@@ -18,7 +18,6 @@ use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, validate_column_name, MAX_COLUMNS,
 };
 use crate::metrics::SinkCounters;
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
     DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
@@ -26,6 +25,7 @@ use transferia_core::delivery::{
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
 

@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
 use crate::middleware::MiddlewareEntry;
+use transferia_delivery_contracts::metrics::MetricsConfig;
 pub use transferia_delivery_contracts::DeliveryType;
-use transferia_providers::durable::DurableStorageConfig;
-use transferia_providers::metrics::MetricsConfig;
+use transferia_registry::durable::DurableStorageConfig;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

@@ -5,7 +5,6 @@ use chrono::TimeZone as _;
 use futures_util::future::BoxFuture;
 use object_store::path::PathPart;
 
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use transferia_core::data::schema::DatasetSchema;
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
@@ -13,6 +12,7 @@ use transferia_core::delivery::{
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3SinkConfig};

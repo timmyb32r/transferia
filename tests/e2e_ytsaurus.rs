@@ -29,11 +29,11 @@ use transferia::core::delivery::{
 use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::{MetricsRegistry, SinkCounters};
-use transferia::providers::traits::{
+use transferia::providers::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
+use transferia::registry::{
     SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
     SourceProvider as _,
 };
-use transferia::providers::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
 
 const IMAGE: &str = "ghcr.io/ytsaurus/local";
 const TAG: &str = "stable@sha256:6f0991f7c85b4824bebead742fa4d752c3508532c013ffcb778a1b14c0b50b22";

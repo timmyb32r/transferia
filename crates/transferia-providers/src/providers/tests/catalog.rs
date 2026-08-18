@@ -218,9 +218,9 @@ fn endpoint_factory_receives_the_schema_config_type() -> anyhow::Result<()> {
         marker: String,
     }
 
-    let mut catalog = ProviderCatalog::new();
-    catalog.register(
-        ProviderRegistration::new("discard", true)?.sink::<TypedConfig, _, _>(
+    let mut builder = RegistryBuilder::new();
+    builder.register(
+        ComponentRegistration::new("discard", "Discard").sink::<TypedConfig, _, _>(
             || serde_json::json!({ "marker": "initial" }),
             |config| {
                 anyhow::ensure!(config.marker == "typed", "typed config was not delivered");
@@ -230,6 +230,7 @@ fn endpoint_factory_receives_the_schema_config_type() -> anyhow::Result<()> {
             },
         )?,
     )?;
+    let catalog = builder.build();
     catalog.build_sink("discard", serde_yaml::from_str("marker: typed\n")?)?;
     Ok(())
 }

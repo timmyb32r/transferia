@@ -89,24 +89,3 @@ fn delivery_and_key_components_are_explicit_ascii_identifiers() {
     assert!(validate_component("delivery_id", "orders/eu").is_err());
     assert!(validate_component("delivery_id", "заказы").is_err());
 }
-
-#[tokio::test]
-async fn in_memory_test_storage_obeys_compare_exchange_contract() -> anyhow::Result<()> {
-    let context = super::test_support::context();
-    assert_eq!(context.delivery_id.as_ref(), "test-delivery");
-    assert!(matches!(
-        context
-            .storage
-            .compare_exchange("scope/key", None, b"one")
-            .await?,
-        CompareExchangeResult::Applied(DurableValue { revision: 0, .. })
-    ));
-    assert!(matches!(
-        context
-            .storage
-            .compare_exchange("scope/key", None, b"two")
-            .await?,
-        CompareExchangeResult::Conflict(Some(DurableValue { revision: 0, .. }))
-    ));
-    Ok(())
-}

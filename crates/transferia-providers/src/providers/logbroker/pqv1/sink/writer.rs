@@ -18,11 +18,11 @@ use crate::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
-use crate::providers::traits::SinkBuildContext;
 use crate::serializer::DeliverySerializer;
 use transferia_core::delivery::SinkLimits;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_registry::SinkBuildContext;
 
 const SUCCESS: i32 = 400_000;
 const UNSPECIFIED: i32 = 0;

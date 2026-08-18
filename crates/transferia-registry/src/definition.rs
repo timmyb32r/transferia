@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use schemars::{schema_for, JsonSchema};
+use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
@@ -47,26 +47,4 @@ pub struct ProviderDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(extend("x-omit-none" = true))]
     pub sink: Option<EndpointDefinition>,
-}
-
-pub(super) struct EndpointSpec {
-    pub definition: EndpointDefinition,
-}
-
-impl EndpointSpec {
-    pub fn new<C: JsonSchema>(
-        initial: JsonValue,
-        delivery_modes: Vec<DeliveryMode>,
-        partitioned: bool,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
-            definition: EndpointDefinition {
-                schema: serde_json::to_value(schema_for!(C))?,
-                initial,
-                delivery_modes,
-                partitioned,
-                connection_check: false,
-            },
-        })
-    }
 }

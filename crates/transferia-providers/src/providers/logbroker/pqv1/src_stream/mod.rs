@@ -11,13 +11,13 @@ use crate::parsers::ParserPlan;
 use crate::providers::logbroker::pqv1::credentials::load_access_token;
 use crate::providers::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
 use crate::providers::logbroker::proto::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
-use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);
@@ -542,8 +542,12 @@ impl SourceProvider for PqV1SourceProvider {
         })
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }
 

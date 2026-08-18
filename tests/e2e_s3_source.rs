@@ -25,9 +25,7 @@ use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::s3::src_batch::S3SourceConfig;
 use transferia::providers::s3::S3SourceProvider;
-use transferia::providers::traits::{
-    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
-};
+use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
 
 const IMAGE: &str = "localstack/localstack";
 const TAG: &str = "4.14.0";
@@ -116,10 +114,7 @@ async fn s3_source_snapshots_sorted_objects_and_parses_json() -> anyhow::Result<
             durable: support::durable_context(),
         })
         .await?;
-    let mut parser = provider
-        .parser_plan()
-        .parser()
-        .create_session(256 * 1024 * 1024);
+    let mut parser = provider.parser().create_session(256 * 1024 * 1024);
     let mut ids = Vec::new();
     for expected_key in ["snapshot/01.json", "snapshot/02.json"] {
         match source.read_batch().await? {

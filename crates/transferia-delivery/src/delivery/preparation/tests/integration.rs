@@ -2,23 +2,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::*;
 use transferia_core::delivery::SinkLimits;
+use transferia_providers::extension::Transferia;
 use transferia_providers::providers::catalog::build_provider_catalog;
 
 fn workspace_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn configured_discovery(
+async fn configured_discovery(
     source: &dyn SourceProvider,
     keep_system_columns: bool,
 ) -> anyhow::Result<DeliveryDiscovery> {
-    source.parser_plan().delivery_discovery(
-        Arc::from("configured-source"),
-        transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
-        DeliveryDiscoveryRequest {
-            keep_system_columns,
-        },
-    )
+    source
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns,
+            },
+            cancellation: CancellationToken::new(),
+        })
+        .await
 }
 
 async fn build_resolved_endpoints(
@@ -106,8 +108,9 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
     assert!(!limits.called.load(Ordering::SeqCst));
 }
 
-#[test]
-fn default_registry_builds_logbroker_pqv1_driver_to_clickhouse_pipeline() -> anyhow::Result<()> {
+#[tokio::test]
+async fn default_registry_builds_logbroker_pqv1_driver_to_clickhouse_pipeline() -> anyhow::Result<()>
+{
     let registry = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     let config: Config = serde_yaml::from_str(
         r"
@@ -146,7 +149,7 @@ sink:
         sink.compatibility(),
         transferia_delivery_contracts::semantics::EndpointDescriptor::ClickHouse
     ));
-    let discovery = configured_discovery(source.as_ref(), true)?;
+    let discovery = configured_discovery(source.as_ref(), true).await?;
     validate_discovered_pipeline(
         &source.compatibility(),
         &sink.compatibility(),
@@ -178,7 +181,7 @@ async fn every_benchmark_config_matches_registered_provider_shapes() -> anyhow::
             .with_context(|| format!("invalid endpoints in {relative_path}"))?;
         sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)
             .with_context(|| format!("invalid memory limits in {relative_path}"))?;
-        let discovery = configured_discovery(source.as_ref(), true)?;
+        let discovery = configured_discovery(source.as_ref(), true).await?;
         validate_discovered_pipeline(
             &source.compatibility(),
             &sink.compatibility(),
@@ -220,7 +223,7 @@ async fn root_example_config_matches_registered_provider_shapes() -> anyhow::Res
     let config: Config = serde_yaml::from_str(&raw)?;
     let (source, sink) = build_resolved_endpoints(&config).await?;
     sink.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
-    let discovery = configured_discovery(source.as_ref(), true)?;
+    let discovery = configured_discovery(source.as_ref(), true).await?;
     validate_discovered_pipeline(
         &source.compatibility(),
         &sink.compatibility(),

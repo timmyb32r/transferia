@@ -16,14 +16,7 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// schema change that would otherwise alter the composition fingerprint.
 const CORE_EXTENSION_ABI_VERSION: u32 = 2;
 
-#[derive(
-    Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord, Serialize,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum EndpointRole {
-    Source,
-    Sink,
-}
+pub use transferia_registry::EndpointRole;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -804,6 +797,39 @@ impl Transferia {
     #[must_use]
     pub fn composition_fingerprint(&self) -> &str {
         self.composition.fingerprint()
+    }
+}
+
+impl transferia_registry::Composition for Transferia {
+    fn fingerprint(&self) -> &str {
+        self.composition_fingerprint()
+    }
+
+    fn definitions(&self) -> &[transferia_registry::ProviderDefinition] {
+        self.composition.provider_definitions()
+    }
+
+    fn build_registry(
+        &self,
+        metrics: &Arc<crate::metrics::MetricsRegistry>,
+    ) -> anyhow::Result<transferia_registry::Registry> {
+        crate::providers::catalog::build_provider_catalog_with(self, metrics)
+    }
+
+    fn resolve_many(
+        &self,
+        provider: &str,
+        role: EndpointRole,
+        raw: Value,
+        cancellation: CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<Value>>> + Send + '_>>
+    {
+        let provider = provider.to_owned();
+        Box::pin(async move {
+            self.registry()
+                .resolve_many(&provider, role, raw, cancellation)
+                .await
+        })
     }
 }
 

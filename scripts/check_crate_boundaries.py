@@ -13,15 +13,20 @@ PRODUCTION_ALLOWED = {
     "transferia-core": set(),
     "transferia-delivery-contracts": {"transferia-core"},
     "transferia-pipeline": {"transferia-core", "transferia-delivery-contracts"},
+    "transferia-registry": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+    },
     "transferia-providers": {
         "transferia-core",
         "transferia-delivery-contracts",
+        "transferia-registry",
     },
     "transferia-delivery": {
         "transferia-core",
         "transferia-delivery-contracts",
         "transferia-pipeline",
-        "transferia-providers",
+        "transferia-registry",
     },
     "transferia-runtime": set(),
     "transferia-runtime-local": {"transferia-runtime"},
@@ -31,6 +36,7 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery",
         "transferia-providers",
+        "transferia-registry",
         "transferia-runtime",
         "transferia-server-contracts",
         "transferia-server-ui",
@@ -46,6 +52,7 @@ PRODUCTION_ALLOWED = {
 
 DEV_EXTRA = {
     "transferia-providers": {"transferia-pipeline"},
+    "transferia-delivery": {"transferia-providers"},
 }
 
 HEAVY_PROVIDER_DEPENDENCIES = {
@@ -79,7 +86,6 @@ def provider_feature_errors(manifests: dict[str, dict[str, object]]) -> list[str
             )
 
     expected_consumers = {
-        "transferia-delivery": set(),
         "transferia-control-plane": {"provider-logbroker"},
     }
     for crate, expected_features in expected_consumers.items():

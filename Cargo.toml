@@ -7,6 +7,7 @@ members = [
     "crates/transferia-delivery",
     "crates/transferia-delivery-contracts",
     "crates/transferia-providers",
+    "crates/transferia-registry",
     "crates/transferia-pipeline",
     "crates/transferia-runtime",
     "crates/transferia-runtime-local",
@@ -113,6 +114,7 @@ transferia-control-plane = { path = "crates/transferia-control-plane" }
 transferia-core = { path = "crates/transferia-core" }
 transferia-delivery = { path = "crates/transferia-delivery" }
 transferia-providers = { path = "crates/transferia-providers" }
+transferia-registry = { path = "crates/transferia-registry" }
 transferia-runtime = { path = "crates/transferia-runtime" }
 transferia-runtime-local = { path = "crates/transferia-runtime-local" }
 

@@ -5121,6 +5121,7 @@ dependencies = [
  "transferia-core",
  "transferia-delivery",
  "transferia-providers",
+ "transferia-registry",
  "transferia-runtime",
  "transferia-runtime-local",
  "ydb-grpc",
@@ -5168,6 +5169,7 @@ dependencies = [
  "transferia-core",
  "transferia-delivery",
  "transferia-providers",
+ "transferia-registry",
  "transferia-runtime",
  "transferia-server-contracts",
  "transferia-server-ui",
@@ -5210,6 +5212,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-pipeline",
  "transferia-providers",
+ "transferia-registry",
 ]
 
 [[package]]
@@ -5298,8 +5301,26 @@ dependencies = [
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-pipeline",
+ "transferia-registry",
  "ydb-grpc",
  "zstd",
+]
+
+[[package]]
+name = "transferia-registry"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
+ "transferia-core",
+ "transferia-delivery-contracts",
 ]
 
 [[package]]

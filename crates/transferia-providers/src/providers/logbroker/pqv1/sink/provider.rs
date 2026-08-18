@@ -4,7 +4,6 @@ use futures_util::future::BoxFuture;
 
 use super::writer::PqV1Sink;
 use crate::providers::logbroker::pqv1::config::PqV1SinkConfig;
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -12,6 +11,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct PqV1SinkProvider {
     config: Arc<PqV1SinkConfig>,

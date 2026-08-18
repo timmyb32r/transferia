@@ -36,7 +36,7 @@ use transferia::providers::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
-use transferia::providers::traits::{SinkBuildContext, SinkProvider as _};
+use transferia::registry::{SinkBuildContext, SinkProvider as _};
 
 const TOKEN: &str = "pq-sink-token";
 const TOPIC: &str = "/Root/output-topic";

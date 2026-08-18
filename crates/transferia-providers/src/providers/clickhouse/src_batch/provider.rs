@@ -16,7 +16,6 @@ use crate::providers::clickhouse::sink::client::probe_network;
 use crate::providers::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::providers::clickhouse::sink::identifier::validate_identifier;
 use crate::providers::clickhouse::sink::table::quote_string_literal;
-use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
@@ -26,6 +25,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 #[derive(Clone)]
 pub(super) struct DiscoveredTable {
@@ -261,8 +261,12 @@ impl SourceProvider for ClickHouseSourceProvider {
         })
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }
 

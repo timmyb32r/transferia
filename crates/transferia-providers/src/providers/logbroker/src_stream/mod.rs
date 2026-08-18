@@ -13,12 +13,12 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use crate::providers::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
-use crate::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 #[cfg(test)]
 use crate::providers::logbroker::LogbrokerAuthConfig;
@@ -401,8 +401,12 @@ impl SourceProvider for PqV1DriverSourceProvider {
         self.inner.build_source(context)
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        self.inner.parser_plan()
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.inner.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.inner.parses_rows()
     }
 }
 
@@ -542,8 +546,12 @@ impl SourceProvider for YdbDriverSourceProvider {
         })
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }
 

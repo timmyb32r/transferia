@@ -1,10 +1,10 @@
 use futures_util::future::BoxFuture;
 
 use crate::providers::discard::sink::DiscardSink;
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use transferia_core::delivery::{SinkLimits, NO_LIMITS};
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct DiscardSinkProvider;
 

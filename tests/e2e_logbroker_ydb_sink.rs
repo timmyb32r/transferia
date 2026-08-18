@@ -31,7 +31,7 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
 use transferia::providers::logbroker::build_sink_provider;
-use transferia::providers::traits::SinkBuildContext;
+use transferia::registry::SinkBuildContext;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_client::ClientMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::from_server::ServerMessage;
 use ydb_grpc::ydb_proto::topic::stream_write_message::write_response::write_ack;

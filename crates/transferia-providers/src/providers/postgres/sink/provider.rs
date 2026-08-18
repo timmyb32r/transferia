@@ -8,13 +8,13 @@ use super::writer::PostgresSink;
 use crate::providers::postgres::common::{
     arrow_to_postgres, connect, quote_identifier, validate_identifier, MAX_IDENTIFIER_BYTES,
 };
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct PostgresSinkProvider {
     config: Arc<PostgresSinkConfig>,

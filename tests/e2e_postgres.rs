@@ -35,7 +35,7 @@ use transferia::metrics::{MetricsRegistry, ParseCounters, SinkCounters};
 use transferia::providers::clickhouse::ClickHouseSinkProvider;
 use transferia::providers::postgres::{PostgresSinkProvider, PostgresSourceProvider};
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
-use transferia::providers::traits::{
+use transferia::registry::{
     SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
     SourceProvider as _,
 };
@@ -90,7 +90,7 @@ async fn wait_for_tcp(host: &str, port: u16) -> anyhow::Result<()> {
 
 async fn run_pipeline(
     source: &PostgresSourceProvider,
-    sink: &dyn transferia::providers::traits::SinkProvider,
+    sink: &dyn transferia::registry::SinkProvider,
     discovery: Arc<DeliveryDiscovery>,
 ) -> anyhow::Result<()> {
     sink.limits().validate_discovery(&discovery)?;
@@ -119,7 +119,7 @@ async fn run_pipeline(
         Duration::from_secs(30),
         run_partition_pipeline(
             source_actor,
-            source.parser_plan().parser(),
+            source.parser(),
             Arc::new(Vec::new()),
             sink_actor,
             memory,

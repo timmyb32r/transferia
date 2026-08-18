@@ -19,6 +19,5 @@ pub mod logbroker;
 pub mod postgres;
 #[cfg(feature = "provider-s3")]
 pub mod s3;
-pub mod traits;
 #[cfg(feature = "provider-ytsaurus")]
 pub mod ytsaurus;

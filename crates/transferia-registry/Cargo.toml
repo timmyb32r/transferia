@@ -1,0 +1,21 @@
+[package]
+name = "transferia-registry"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+
+[lints]
+workspace = true

@@ -7,16 +7,14 @@ use tokio_util::sync::CancellationToken;
 use crate::delivery::config::yaml::Config;
 use crate::middleware::build_middleware;
 use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
+use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 use transferia_delivery_contracts::semantics::{
     validate_pipeline, DeliverySemanticsReport, SourceBehavior,
 };
-use transferia_providers::durable::DurableContext;
-use transferia_providers::extension::{EndpointRole, Transferia};
-use transferia_providers::metrics::MetricsRegistry;
-use transferia_providers::providers::catalog::build_provider_catalog_with;
-use transferia_providers::providers::traits::{
-    SinkProvider, SourceDiscoveryContext, SourceProvider,
+use transferia_registry::durable::DurableContext;
+use transferia_registry::{
+    Composition, EndpointRole, SinkProvider, SourceDiscoveryContext, SourceProvider,
 };
 
 pub struct DeliveryPlan {
@@ -100,30 +98,23 @@ impl ResolvedDeliveryConfig {
     }
 }
 
-pub async fn build_delivery_plan(
-    config: Config,
-    cancellation: CancellationToken,
-) -> anyhow::Result<DeliveryPlan> {
-    build_delivery_plan_with(config, cancellation, &Transferia::public()?).await
-}
-
 pub async fn build_delivery_plan_with(
     config: Config,
     cancellation: CancellationToken,
-    transferia: &Transferia,
+    composition: &dyn Composition,
 ) -> anyhow::Result<DeliveryPlan> {
-    build_delivery_plan_internal(config, cancellation, transferia, true).await
+    build_delivery_plan_internal(config, cancellation, composition, true).await
 }
 
 pub async fn build_resolved_delivery_document_with(
     document: ResolvedConfigDocument,
     cancellation: CancellationToken,
-    transferia: &Transferia,
+    composition: &dyn Composition,
 ) -> anyhow::Result<DeliveryPlan> {
     let mut pipelines = Vec::new();
     for config in document.pipelines {
         let mut plan =
-            build_delivery_plan_internal(config, cancellation.child_token(), transferia, false)
+            build_delivery_plan_internal(config, cancellation.child_token(), composition, false)
                 .await?;
         pipelines.append(&mut plan.pipelines);
     }
@@ -133,14 +124,14 @@ pub async fn build_resolved_delivery_document_with(
     );
     Ok(DeliveryPlan {
         pipelines,
-        composition_fingerprint: transferia.composition_fingerprint().to_owned(),
+        composition_fingerprint: composition.fingerprint().to_owned(),
     })
 }
 
 async fn build_delivery_plan_internal(
     config: Config,
     cancellation: CancellationToken,
-    transferia: &Transferia,
+    composition: &dyn Composition,
     resolve_installations: bool,
 ) -> anyhow::Result<DeliveryPlan> {
     anyhow::ensure!(
@@ -154,13 +145,13 @@ async fn build_delivery_plan_internal(
     let sink_raw = config.sink.raw()?.clone();
     let (source_configs, sink_configs) = if resolve_installations {
         tokio::try_join!(
-            transferia.registry().resolve_many(
+            composition.resolve_many(
                 &source_kind,
                 EndpointRole::Source,
                 source_raw,
                 cancellation.child_token(),
             ),
-            transferia.registry().resolve_many(
+            composition.resolve_many(
                 &sink_kind,
                 EndpointRole::Sink,
                 sink_raw,
@@ -191,7 +182,7 @@ async fn build_delivery_plan_internal(
                     &source_kind,
                     &sink_kind,
                     cancellation.child_token(),
-                    transferia,
+                    composition,
                     pipeline_count,
                     pipelines.len(),
                 )
@@ -201,7 +192,7 @@ async fn build_delivery_plan_internal(
     }
     Ok(DeliveryPlan {
         pipelines,
-        composition_fingerprint: transferia.composition_fingerprint().to_owned(),
+        composition_fingerprint: composition.fingerprint().to_owned(),
     })
 }
 
@@ -210,7 +201,7 @@ async fn build_pipeline_plan(
     source_kind: &str,
     sink_kind: &str,
     cancellation: CancellationToken,
-    transferia: &Transferia,
+    composition: &dyn Composition,
     pipeline_count: usize,
     pipeline_index: usize,
 ) -> anyhow::Result<PipelinePlan> {
@@ -221,7 +212,7 @@ async fn build_pipeline_plan(
     };
     let durable = config.durable_storage.build(&durable_id)?;
     let metrics_registry = Arc::new(MetricsRegistry::new());
-    let catalog = build_provider_catalog_with(transferia, &metrics_registry)?;
+    let catalog = composition.build_registry(&metrics_registry)?;
     let source_config = config.source.raw()?.clone();
     let sink_config = config.sink.raw()?.clone();
     let source_provider: Arc<dyn SourceProvider> =

@@ -5,7 +5,6 @@ use futures_util::future::BoxFuture;
 use super::config::LogbrokerSinkConfig;
 use super::writer::YdbTopicSink;
 use crate::providers::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use crate::serializer::JsonBatchEncoder;
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -13,6 +12,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 pub struct YdbDriverSinkProvider {
     config: Arc<LogbrokerSinkConfig>,

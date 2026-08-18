@@ -31,7 +31,7 @@ use transferia::metrics::SinkCounters;
 use transferia::providers::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkProvider};
 use transferia::providers::discard::provider::DiscardSinkProvider;
 use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
-use transferia::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider as _};
+use transferia::registry::{SinkBuildContext, SinkPrepare, SinkProvider as _};
 
 const CLICKHOUSE_IMAGE: &str = "clickhouse/clickhouse-server";
 const CLICKHOUSE_TAG: &str = "25.8.28.1";

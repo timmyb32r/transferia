@@ -10,12 +10,12 @@ use crate::delivery::preparation::{DeliveryPlan, PipelinePlan};
 use transferia_core::delivery::DeliveryDiscovery;
 use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::PipelineMemory;
+use transferia_delivery_contracts::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
 use transferia_delivery_contracts::middleware::Middleware;
+use transferia_delivery_contracts::parser::ParserFactory;
 use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
-use transferia_providers::durable::DurableContext;
-use transferia_providers::metrics::{spawn_stats_reporter, ParseCounters, SinkCounters};
-use transferia_providers::parsers::ParserFactory;
-use transferia_providers::providers::traits::{
+use transferia_registry::durable::DurableContext;
+use transferia_registry::{
     SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext, SourceProvider,
 };
 
@@ -163,9 +163,8 @@ async fn start_pipeline(
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
     tracing::info!(limits = %serde_json::to_string(&sink_provider.limits().description())?, "sink limits validated against delivery discovery");
 
-    let parser_plan = source_provider.parser_plan();
-    let parses_rows = parser_plan.parses_rows();
-    let parser = parser_plan.parser();
+    let parses_rows = source_provider.parses_rows();
+    let parser = source_provider.parser();
     let partitions = discovery
         .source_topology
         .partitions_for_worker(total_workers, worker_index)?;

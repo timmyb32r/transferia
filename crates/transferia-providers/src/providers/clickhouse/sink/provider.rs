@@ -7,13 +7,13 @@ use super::client::{probe_network, ReconnectingClient};
 use super::table::{prepare_tables, validate_table_schema};
 use super::transport::NativeTransport;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
-use crate::providers::traits::{SinkBuildContext, SinkPrepare, SinkProvider};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::{SinkBuildContext, SinkPrepare, SinkProvider};
 
 const SHARD_GROUPS_QUERY: &str =
     "SELECT DISTINCT toString(cluster) AS cluster FROM system.clusters ORDER BY cluster";

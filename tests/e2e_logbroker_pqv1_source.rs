@@ -35,7 +35,7 @@ use transferia::providers::logbroker::proto::pers_queue::v1::{
     DescribeTopicResult, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
     Path, TopicSettings,
 };
-use transferia::providers::traits::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
+use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 const TOPIC: &str = "/Root/e2e-topic";
 const CONSUMER: &str = "e2e-consumer";

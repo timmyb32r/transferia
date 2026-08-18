@@ -10,9 +10,7 @@ use transferia::core::memory::PipelineMemory;
 use transferia::delivery::config::yaml::Config;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::logbroker::YdbDriverSourceProvider;
-use transferia::providers::traits::{
-    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
-};
+use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
 
 #[derive(Parser)]
 struct Args {

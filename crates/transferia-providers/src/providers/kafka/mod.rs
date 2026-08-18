@@ -14,10 +14,6 @@ use sink::KafkaSink;
 
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::providers::traits::{
-    SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext, SourceDiscoveryContext,
-    SourceProvider,
-};
 use crate::serializer::JsonBatchEncoder;
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -27,6 +23,10 @@ use transferia_core::sink::Sink;
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
+use transferia_registry::{
+    SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext, SourceDiscoveryContext,
+    SourceProvider,
 };
 
 pub struct KafkaSourceProvider {
@@ -124,8 +124,12 @@ impl SourceProvider for KafkaSourceProvider {
         })
     }
 
-    fn parser_plan(&self) -> &ParserPlan {
-        &self.parser_plan
+    fn parser(&self) -> Arc<dyn transferia_delivery_contracts::parser::ParserFactory> {
+        self.parser_plan.parser()
+    }
+
+    fn parses_rows(&self) -> bool {
+        self.parser_plan.parses_rows()
     }
 }
 

@@ -21,9 +21,7 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::source::Source as _;
 use transferia::metrics::MetricsRegistry;
 use transferia::providers::clickhouse::ClickHouseSourceProvider;
-use transferia::providers::traits::{
-    SourceBuildContext, SourceDiscoveryContext, SourceProvider as _,
-};
+use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
 
 const IMAGE: &str = "clickhouse/clickhouse-server";
 const TAG: &str = "25.8.28.1";
