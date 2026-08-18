@@ -178,6 +178,7 @@ export function EditorTabs({
   active,
   disabled,
   dataSchemaAvailable,
+  dataSchemaUnavailableReason,
   onUi,
   onYaml,
   onDataSchema,
@@ -185,6 +186,7 @@ export function EditorTabs({
   active: EditorView;
   disabled: boolean;
   dataSchemaAvailable: boolean;
+  dataSchemaUnavailableReason?: string | undefined;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
@@ -209,20 +211,25 @@ export function EditorTabs({
       >
         YAML
       </Button>
-      <Button
-        role="tab"
-        aria-selected={active === "data_schema"}
-        class={active === "data_schema" ? "active" : ""}
-        disabled={disabled || !dataSchemaAvailable}
+      <span
+        class="editor-tab-tooltip"
         title={
           dataSchemaAvailable
             ? "Open the discovered data schema"
-            : "Data schema becomes available after discovery has produced a table"
+            : (dataSchemaUnavailableReason ??
+              "Data schema becomes available after discovery has produced a table")
         }
-        onClick={onDataSchema}
       >
-        Data schema
-      </Button>
+        <Button
+          role="tab"
+          aria-selected={active === "data_schema"}
+          class={active === "data_schema" ? "active" : ""}
+          disabled={disabled || !dataSchemaAvailable}
+          onClick={onDataSchema}
+        >
+          Data schema
+        </Button>
+      </span>
     </div>
   );
 }

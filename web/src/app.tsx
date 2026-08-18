@@ -213,6 +213,22 @@ export function App() {
     isCurrentContext,
   });
   const dataSchemaAvailable = (discovery?.datasets.length ?? 0) > 0;
+  const dataSchemaUnavailableReason = (() => {
+    if (dataSchemaAvailable) return undefined;
+    if (operations.discovery?.label !== undefined)
+      return "Discovering the data schema…";
+    if (operations.discovery?.error !== undefined)
+      return `Data schema discovery failed: ${operations.discovery.error}`;
+    if (catalog === undefined) return "Loading the provider catalog…";
+    if (selection?.error !== undefined) return selection.error;
+    if (selection?.source === undefined || selection.sink === undefined)
+      return "Choose both a source and a destination first";
+    if (!structurallyComplete)
+      return "Complete the required source, parser, and destination settings";
+    if (discovery !== undefined)
+      return "Discovery completed, but the selected parser produced no tables";
+    return "Waiting for data schema discovery";
+  })();
   useEffect(() => {
     setSchemaInspectorVisible(dataSchemaAvailable);
   }, [dataSchemaAvailable]);
@@ -423,6 +439,7 @@ export function App() {
           active={activeView}
           disabled={blockingOperation}
           dataSchemaAvailable={dataSchemaAvailable}
+          dataSchemaUnavailableReason={dataSchemaUnavailableReason}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}

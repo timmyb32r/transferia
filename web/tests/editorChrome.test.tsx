@@ -52,6 +52,7 @@ describe("editor chrome", () => {
         active="ui"
         disabled={false}
         dataSchemaAvailable={false}
+        dataSchemaUnavailableReason="Complete the required parser settings"
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={() => undefined}
@@ -61,7 +62,9 @@ describe("editor chrome", () => {
       name: "Data schema",
     }) as HTMLButtonElement;
     expect(tab.disabled).toBe(true);
-    expect(tab.title).toContain("after discovery");
+    expect(tab.parentElement?.title).toBe(
+      "Complete the required parser settings",
+    );
   });
 
   it("passes the exact running generation to Stop", () => {

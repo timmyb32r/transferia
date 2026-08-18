@@ -703,6 +703,10 @@ h3 {
   width: fit-content;
   margin-bottom: -1px;
 }
+
+.editor-tab-tooltip {
+  display: inline-flex;
+}
 .editor-tabs button {
   min-width: 86px;
   height: 34px;
