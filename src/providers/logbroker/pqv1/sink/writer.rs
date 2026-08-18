@@ -30,6 +30,7 @@ pub const MAX_GRPC_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 
 pub(super) struct PqV1Sink {
     config: Arc<PqV1SinkConfig>,
+    message_group_id: Arc<str>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
     discovery: Arc<crate::core::delivery::DeliveryDiscovery>,
@@ -49,12 +50,14 @@ impl Stream for RequestStream {
 impl PqV1Sink {
     pub(super) fn new(
         config: Arc<PqV1SinkConfig>,
+        message_group_id: Arc<str>,
         token: Arc<str>,
         context: SinkBuildContext,
     ) -> Self {
         let limits: Arc<dyn SinkLimits> = Arc::clone(&config) as Arc<dyn SinkLimits>;
         Self {
             config,
+            message_group_id,
             token,
             counters: context.counters,
             discovery: context.discovery,
@@ -97,7 +100,7 @@ impl PqV1Sink {
         .await
         .map_err(|_| anyhow::anyhow!("PQv1 writer connect timed out"))??;
         request_tx
-            .send(init_message(&self.config))
+            .send(init_message(&self.config, &self.message_group_id))
             .await
             .map_err(|_| anyhow::anyhow!("PQv1 writer request stream closed before init"))?;
         let mut responses = response;
@@ -208,12 +211,12 @@ impl Sink for PqV1Sink {
     }
 }
 
-fn init_message(config: &PqV1SinkConfig) -> StreamingWriteClientMessage {
+fn init_message(config: &PqV1SinkConfig, message_group_id: &str) -> StreamingWriteClientMessage {
     StreamingWriteClientMessage {
         client_message: Some(streaming_write_client_message::ClientMessage::InitRequest(
             streaming_write_client_message::InitRequest {
                 topic: config.topic_path.clone(),
-                message_group_id: config.message_group_id.clone(),
+                message_group_id: message_group_id.to_owned(),
                 partition_group_id: config.partition_group_id,
                 max_supported_format_version: 0,
                 idle_timeout_ms: i64::try_from(config.network_timeout_ms).unwrap_or(i64::MAX),

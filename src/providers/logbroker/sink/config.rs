@@ -14,12 +14,6 @@ pub struct LogbrokerSinkConfig {
     #[schemars(title = "Topic path")]
     pub topic_path: String,
 
-    #[schemars(
-        title = "Producer ID",
-        description = "Stable producer identity used for ordering and deduplication"
-    )]
-    pub producer_id: String,
-
     #[serde(default)]
     #[schemars(
         title = "Partition ID",
@@ -46,10 +40,6 @@ impl LogbrokerSinkConfig {
         anyhow::ensure!(
             !self.topic_path.trim().is_empty(),
             "logbroker.topic_path must not be empty"
-        );
-        anyhow::ensure!(
-            !self.producer_id.is_empty() && self.producer_id.len() <= 2048,
-            "logbroker.producer_id must contain 1..=2048 UTF-8 bytes"
         );
         anyhow::ensure!(
             self.partition_id

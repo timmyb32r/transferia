@@ -62,7 +62,7 @@ pub fn build_sink_provider(config: LogbrokerSinkConfig) -> anyhow::Result<Box<dy
                 host: config.host,
                 port: config.port,
                 topic_path: config.topic_path,
-                message_group_id: config.producer_id,
+                message_group_id: None,
                 partition_group_id: partition_id,
                 auth,
                 serializer: config.serializer,
@@ -157,6 +157,13 @@ impl SinkLimits for LogbrokerSinkConfig {
                 ))
             })?;
         }
+        let producer_id = &discovery
+            .dataset(crate::core::delivery::DatasetRole::Main)?
+            .name;
+        anyhow::ensure!(
+            producer_id.len() <= 2048,
+            "Logbroker producer identity derived from table name must contain at most 2048 UTF-8 bytes"
+        );
         Ok(())
     }
 }
@@ -190,7 +197,7 @@ impl SinkProvider for YdbDriverSinkProvider {
                 Arc::clone(&self.config),
                 Arc::clone(&self.token),
                 context,
-            )) as Box<dyn Sink>)
+            )?) as Box<dyn Sink>)
         })
     }
 }

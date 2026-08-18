@@ -37,6 +37,7 @@ const WRITE_PAYLOAD_BUDGET: usize = MAX_GRPC_MESSAGE_SIZE / 2;
 
 pub(super) struct YdbTopicSink {
     config: Arc<LogbrokerSinkConfig>,
+    producer_id: Arc<str>,
     token: Arc<str>,
     counters: Arc<SinkCounters>,
     discovery: Arc<crate::core::delivery::DeliveryDiscovery>,
@@ -58,15 +59,22 @@ impl YdbTopicSink {
         config: Arc<LogbrokerSinkConfig>,
         token: Arc<str>,
         context: SinkBuildContext,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let limits: Arc<dyn SinkLimits> = Arc::clone(&config) as Arc<dyn SinkLimits>;
-        Self {
+        let producer_id = Arc::clone(
+            &context
+                .discovery
+                .dataset(crate::core::delivery::DatasetRole::Main)?
+                .name,
+        );
+        Ok(Self {
             config,
+            producer_id,
             token,
             counters: context.counters,
             discovery: context.discovery,
             limits,
-        }
+        })
     }
 
     async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
@@ -87,7 +95,7 @@ impl YdbTopicSink {
             .map_err(|_| anyhow::anyhow!("YDB Topic writer connect timed out"))??
             .into_inner();
         request_tx
-            .send(init_message(&self.config))
+            .send(init_message(&self.config, &self.producer_id))
             .await
             .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed before init"))?;
         let init = next_response(&mut responses).await?;
@@ -210,14 +218,14 @@ impl Sink for YdbTopicSink {
     }
 }
 
-fn init_message(config: &LogbrokerSinkConfig) -> FromClient {
+fn init_message(config: &LogbrokerSinkConfig, producer_id: &str) -> FromClient {
     FromClient {
         client_message: Some(ClientMessage::InitRequest(InitRequest {
             path: config.topic_path.clone(),
-            producer_id: config.producer_id.clone(),
+            producer_id: producer_id.to_owned(),
             get_last_seq_no: true,
             partitioning: Some(config.partition_id.map_or_else(
-                || Partitioning::MessageGroupId(config.producer_id.clone()),
+                || Partitioning::MessageGroupId(producer_id.to_owned()),
                 Partitioning::PartitionId,
             )),
             ..Default::default()

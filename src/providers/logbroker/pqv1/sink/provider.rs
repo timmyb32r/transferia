@@ -95,6 +95,13 @@ impl SinkLimits for PqV1SinkConfig {
                 ))
             })?;
         }
+        let message_group_id = &discovery
+            .dataset(crate::core::delivery::DatasetRole::Main)?
+            .name;
+        anyhow::ensure!(
+            message_group_id.len() <= 2048,
+            "PQv1 message group derived from table name must contain at most 2048 UTF-8 bytes"
+        );
         Ok(())
     }
 }
@@ -121,8 +128,17 @@ impl SinkProvider for PqV1SinkProvider {
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
+            let message_group_id = match &self.config.message_group_id {
+                Some(configured) => configured.clone(),
+                None => context
+                    .discovery
+                    .dataset(crate::core::delivery::DatasetRole::Main)?
+                    .name
+                    .to_string(),
+            };
             Ok(Box::new(PqV1Sink::new(
                 Arc::clone(&self.config),
+                Arc::from(message_group_id),
                 Arc::clone(&self.token),
                 context,
             )) as Box<dyn Sink>)

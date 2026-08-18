@@ -284,7 +284,6 @@ fn build_base_provider_catalog(
                         "host": "",
                         "port": 2135,
                         "topic_path": "",
-                        "producer_id": "",
                         "partition_id": null,
                         "auth": { "type": "token", "token": "" },
                         "serializer": { "type": "json" },

@@ -66,7 +66,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     });
 
     let provider = build_sink_provider(serde_yaml::from_str(&format!(
-        "host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nproducer_id: transferia-e2e\nauth: {{ type: token, token: {TOKEN} }}\nserializer: {{ type: json }}\ndriver: ydb\ntrusted_plaintext: true\n",
+        "host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nauth: {{ type: token, token: {TOKEN} }}\nserializer: {{ type: json }}\ndriver: ydb\ntrusted_plaintext: true\n",
         address.ip(),
         address.port()
     ))?)?;
@@ -188,7 +188,7 @@ async fn process_requests(
             match message.client_message {
                 Some(ClientMessage::InitRequest(init)) => {
                     assert_eq!(init.path, TOPIC);
-                    assert_eq!(init.producer_id, "transferia-e2e");
+                    assert_eq!(init.producer_id, "events");
                     send(
                         &response_tx,
                         &FromServer {
