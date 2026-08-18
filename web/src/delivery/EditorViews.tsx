@@ -45,19 +45,28 @@ export function EndpointCard(props: {
     result?: import("../generated/apiContract").MessagePreviewResult;
     error?: string;
   }>({ open: false, loading: false });
+  const endpointIdentity = `${props.role}:${props.selectedKey}`;
   const configFingerprint = JSON.stringify(value);
-  const endpointFingerprint = `${props.role}:${props.selectedKey}:${configFingerprint}`;
-  const previousEndpointFingerprint = useRef(endpointFingerprint);
+  const previousEndpointIdentity = useRef(endpointIdentity);
+  const previousConfigFingerprint = useRef(configFingerprint);
   useEffect(() => {
-    if (previousEndpointFingerprint.current === endpointFingerprint) return;
-    previousEndpointFingerprint.current = endpointFingerprint;
+    if (previousEndpointIdentity.current === endpointIdentity) return;
+    previousEndpointIdentity.current = endpointIdentity;
+    previousConfigFingerprint.current = configFingerprint;
     controller.current?.abort();
     previewController.current?.abort();
     controller.current = undefined;
     previewController.current = undefined;
     setCheck({ state: "idle", options: {} });
     setPreview({ open: false, loading: false });
-  }, [endpointFingerprint]);
+  }, [endpointIdentity]);
+  useEffect(() => {
+    if (previousConfigFingerprint.current === configFingerprint) return;
+    previousConfigFingerprint.current = configFingerprint;
+    controller.current?.abort();
+    controller.current = undefined;
+    setCheck({ state: "idle", options: {} });
+  }, [configFingerprint]);
   useEffect(
     () => () => {
       controller.current?.abort();
