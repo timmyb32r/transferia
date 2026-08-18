@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ContractView } from "../src/delivery/EditorViews";
+import {
+  ContractView,
+  DataSchemaWorkspace,
+} from "../src/delivery/EditorViews";
 
 afterEach(cleanup);
 
@@ -56,5 +59,42 @@ describe("data schema view", () => {
         .textContent,
     ).toContain("Nullable(LowCardinality(String))");
     expect(view.container.textContent).not.toContain("DISCOVERED CONTRACT");
+  });
+
+  it("offers a searchable, hideable final-schema inspector", () => {
+    const view = render(
+      <DataSchemaWorkspace
+        result={{
+          source: "logbroker",
+          sink: "clickhouse",
+          pipeline_count: 1,
+          datasets: [
+            {
+              role: "Main",
+              name: "events",
+              intermediate_columns: [],
+              final_columns: [
+                {
+                  name: "id",
+                  arrow_type: "Int64",
+                  destination_type: "Int64",
+                  nullable: false,
+                  primary_key: true,
+                  low_cardinality: false,
+                },
+              ],
+            },
+          ],
+          sink_limits: { sink: "clickhouse", supported_arrow_types: ["signed_integer"] },
+        }}
+      />,
+    );
+
+    expect(view.getByRole("table", { name: "Selected table schema" }).textContent)
+      .toContain("Int64");
+    fireEvent.click(view.getByRole("button", { name: "Hide schema inspector" }));
+    expect(view.queryByLabelText("Schema inspector")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Show schema inspector" }));
+    expect(view.getByLabelText("Schema inspector")).not.toBeNull();
   });
 });

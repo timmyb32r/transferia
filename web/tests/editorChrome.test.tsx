@@ -3,7 +3,11 @@
 import { cleanup, fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DeliverySidebar, EditorActions } from "../src/delivery/EditorChrome";
+import {
+  DeliverySidebar,
+  EditorActions,
+  EditorTabs,
+} from "../src/delivery/EditorChrome";
 import type { EditorState } from "../src/state";
 
 const editor = (runtime: EditorState["runtime"]): EditorState => ({
@@ -23,6 +27,23 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 
 describe("editor chrome", () => {
   afterEach(cleanup);
+
+  it("exposes Data schema as a peer configuration view", () => {
+    const onDataSchema = vi.fn();
+    const view = render(
+      <EditorTabs
+        active="ui"
+        disabled={false}
+        onUi={() => undefined}
+        onYaml={() => undefined}
+        onDataSchema={onDataSchema}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
+
+    expect(onDataSchema).toHaveBeenCalledOnce();
+  });
 
   it("passes the exact running generation to Stop", () => {
     const onStop = vi.fn();

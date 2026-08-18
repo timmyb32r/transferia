@@ -5,6 +5,7 @@ import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
 import type { Appearance } from "../ui/appearance";
 import { StatusPill } from "./EditorViews";
+import type { EditorView } from "./useYamlEditor";
 
 export type OperationKey =
   | "bootstrap"
@@ -178,11 +179,13 @@ export function EditorTabs({
   disabled,
   onUi,
   onYaml,
+  onDataSchema,
 }: {
-  active: "ui" | "yaml";
+  active: EditorView;
   disabled: boolean;
   onUi: () => void;
   onYaml: () => void;
+  onDataSchema: () => void;
 }) {
   return (
     <div class="editor-tabs" role="tablist" aria-label="Configuration view">
@@ -203,6 +206,15 @@ export function EditorTabs({
         onClick={onYaml}
       >
         YAML
+      </Button>
+      <Button
+        role="tab"
+        aria-selected={active === "data_schema"}
+        class={active === "data_schema" ? "active" : ""}
+        disabled={disabled}
+        onClick={onDataSchema}
+      >
+        Data schema
       </Button>
     </div>
   );

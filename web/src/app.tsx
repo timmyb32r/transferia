@@ -18,7 +18,7 @@ import {
   type OperationKey,
   type OperationState,
 } from "./delivery/EditorChrome";
-import { StatusPill } from "./delivery/EditorViews";
+import { DataSchemaWorkspace, StatusPill } from "./delivery/EditorViews";
 import { YamlEditorPanel } from "./delivery/YamlEditorPanel";
 import {
   compiledSchema,
@@ -256,8 +256,14 @@ export function App() {
     onDiscovery: setDiscovery,
     isCurrentContext,
   });
-  const { activeView, yamlDraft, editYaml, showYaml, applyYamlAndShowUi } =
-    yamlEditor;
+  const {
+    activeView,
+    yamlDraft,
+    editYaml,
+    showYaml,
+    applyYamlAndShowUi,
+    showDataSchema,
+  } = yamlEditor;
 
   if (catalog === undefined)
     return (
@@ -409,6 +415,7 @@ export function App() {
           disabled={blockingOperation}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
+          onDataSchema={() => void showDataSchema()}
         />
         <OperationNotices
           operations={operations}
@@ -420,7 +427,6 @@ export function App() {
             catalog={catalog}
             editor={editor}
             selection={selection}
-            discovery={discovery}
             readOnly={readOnly}
             showRequiredErrors={showRequiredErrors}
             onName={(name) => dispatchLocalChange({ type: "name", name })}
@@ -430,12 +436,14 @@ export function App() {
             onConfig={updateConfig}
             onChooseEndpoint={chooseEndpoint}
           />
-        ) : (
+        ) : activeView === "yaml" ? (
           <YamlEditorPanel
             value={yamlDraft}
             disabled={readOnly}
             onChange={editYaml}
           />
+        ) : (
+          <DataSchemaWorkspace result={discovery} />
         )}
       </main>
     </div>

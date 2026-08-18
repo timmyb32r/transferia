@@ -8,6 +8,7 @@ import type { useOperations } from "./useOperations";
 
 type DeliveryJobs = ReturnType<typeof useDeliveryJobs>;
 type Operations = ReturnType<typeof useOperations>;
+export type EditorView = "ui" | "yaml" | "data_schema";
 
 export function useYamlEditor({
   enabled,
@@ -31,7 +32,7 @@ export function useYamlEditor({
 }) {
   const [yaml, setYaml] = useState("");
   const [yamlDraft, setYamlDraft] = useState("");
-  const [activeView, setActiveView] = useState<"ui" | "yaml">("ui");
+  const [activeView, setActiveView] = useState<EditorView>("ui");
   const yamlEditing = useRef(false);
   const yamlContext = useRef<EditorRequestContext>();
 
@@ -105,11 +106,15 @@ export function useYamlEditor({
     operations.clearErrors();
   };
 
-  const applyYamlAndShowUi = async () => {
-    if (activeView === "ui") return;
+  const applyYamlAndShow = async (target: Exclude<EditorView, "yaml">) => {
+    if (activeView === target) return;
+    if (activeView !== "yaml") {
+      setActiveView(target);
+      return;
+    }
     if (!editable) {
       yamlEditing.current = false;
-      setActiveView("ui");
+      setActiveView(target);
       return;
     }
     const requestId = operations.beginOperation("parseYaml", "Applying YAML…");
@@ -127,7 +132,7 @@ export function useYamlEditor({
       }
       applyConfig(result.value.config);
       yamlEditing.current = false;
-      setActiveView("ui");
+      setActiveView(target);
       operations.finishOperation("parseYaml", requestId);
     } catch (reason) {
       operations.finishOperation("parseYaml", requestId, errorMessage(reason));
@@ -149,7 +154,8 @@ export function useYamlEditor({
     yamlDraft,
     editYaml,
     showYaml,
-    applyYamlAndShowUi,
+    applyYamlAndShowUi: () => applyYamlAndShow("ui"),
+    showDataSchema: () => applyYamlAndShow("data_schema"),
     reset,
   };
 }

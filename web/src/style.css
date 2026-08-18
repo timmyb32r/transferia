@@ -1475,6 +1475,96 @@ button::after {
 .contract {
   margin-top: 12px;
 }
+
+.data-schema-workspace {
+  position: relative;
+  min-height: 620px;
+}
+
+.data-schema-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.data-schema-toolbar h2,
+.data-schema-toolbar p {
+  margin: 0;
+}
+
+.data-schema-toolbar p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.data-schema-empty {
+  color: var(--text-secondary);
+}
+
+.schema-inspector {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 20;
+  width: min(760px, calc(100% - 48px));
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+}
+
+.schema-inspector-drag-handle {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: grab;
+  user-select: none;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.schema-inspector-drag-handle:active {
+  cursor: grabbing;
+}
+
+.schema-inspector-drag-handle span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.schema-inspector > .select-control {
+  margin: 12px;
+}
+
+.schema-inspector-table {
+  min-width: 680px;
+  padding: 0 12px 12px;
+}
+
+.schema-inspector-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1.4fr) minmax(110px, 1fr) 48px 72px;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.schema-inspector-head {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .pipeline-section {
   margin-top: 32px;
   padding: 24px 0 4px;
