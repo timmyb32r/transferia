@@ -5,7 +5,11 @@ import {
   stringValue,
 } from "./editorConfig";
 import { CommonSettings, ContractView, EndpointCard } from "./EditorViews";
-import { ParserDetailsForm, SelectControl } from "../schema/SchemaForm";
+import {
+  ParserDetailsForm,
+  SelectControl,
+  SerializerDetailsForm,
+} from "../schema/SchemaForm";
 import type { EditorState } from "../state";
 import type { DiscoveryResult, JsonObject, UiCatalog } from "../types";
 import { TopField } from "../ui/FormField";
@@ -129,6 +133,20 @@ export function DeliveryConfiguration({
               onConfig({
                 ...editor.config,
                 source: { [selection.sourceKey]: next },
+              })
+            }
+          />
+        )}
+        {selection?.error === undefined && selection?.sink && (
+          <SerializerDetailsForm
+            node={compiledSchema(selection.sink.schema)}
+            value={endpointValue(editor.config, "sink", selection.sinkKey)}
+            disabled={readOnly}
+            showRequiredErrors={showRequiredErrors}
+            onChange={(next) =>
+              onConfig({
+                ...editor.config,
+                sink: { [selection.sinkKey]: next },
               })
             }
           />

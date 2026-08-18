@@ -150,6 +150,7 @@ export function EndpointCard(props: {
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
             parserSelectionOnly={props.role === "source"}
+            serializerSelectionOnly={props.role === "sink"}
             optionOverrides={check.options}
             parserAction={
               props.role === "source" && props.selectedKey === "logbroker" ? (
@@ -362,7 +363,11 @@ function SchemaStage({
         <strong>{title}</strong>
         <span>{subtitle}</span>
       </header>
-      <div class="schema-stage-table" role="table" aria-label={`${title} schema`}>
+      <div
+        class="schema-stage-table"
+        role="table"
+        aria-label={`${title} schema`}
+      >
         <div class="schema-stage-row schema-stage-head" role="row">
           <span role="columnheader">Column</span>
           <span role="columnheader">Type</span>

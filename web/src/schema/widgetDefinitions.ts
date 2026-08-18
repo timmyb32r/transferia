@@ -29,6 +29,7 @@ export const WIDGET_DEFINITIONS = {
   partition_ranges: ["array"],
   password: ["string"],
   select: ["string"],
+  serializer: ["object", "union"],
   sql: ["string"],
   system_columns: ["object"],
 } as const satisfies Record<string, readonly SchemaNodeKind[]>;

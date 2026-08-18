@@ -99,6 +99,32 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
 }
 
 #[test]
+fn queue_sinks_expose_serializer_selection_to_the_ui() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+
+    for key in ["logbroker", "kafka"] {
+        let sink = catalog
+            .definitions()
+            .iter()
+            .find(|definition| definition.key == key)
+            .and_then(|definition| definition.sink.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("missing {key} sink"))?;
+        assert_eq!(
+            sink.schema.pointer("/properties/serializer/x-ui/widget"),
+            Some(&serde_json::json!("serializer")),
+            "{key} serializer must be an explicit UI selection"
+        );
+        let schema = serde_json::to_string(&sink.schema)?;
+        assert!(schema.contains("JSON"), "{key} is missing JSON serializer");
+        assert!(
+            schema.contains("Schema Registry"),
+            "{key} is missing Schema Registry serializer"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
     for definition in catalog

@@ -9,6 +9,7 @@ import {
   ParserDetailsForm,
   SchemaForm,
   SelectControl,
+  SerializerDetailsForm,
 } from "../src/schema/SchemaForm";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
@@ -867,6 +868,91 @@ describe("schema form", () => {
     expect(details.container.textContent).toContain("Output columns");
     expect(
       details.container.querySelector(".source-parser-bridge"),
+    ).not.toBeNull();
+  });
+
+  it("renders serializer selection and settings separately", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["serializer"]),
+      properties: {
+        serializer: {
+          kind: "union",
+          xUi: { widget: "serializer" },
+          branches: [
+            {
+              label: "JSON",
+              requiredKeys: ["type"],
+              discriminator: { key: "type", value: "json" },
+              node: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["type"]),
+                properties: {
+                  type: {
+                    kind: "string",
+                    xUi: {},
+                    enumValues: ["json"],
+                  },
+                },
+              },
+            },
+            {
+              label: "Schema Registry",
+              requiredKeys: ["type", "connection"],
+              discriminator: { key: "type", value: "schema_registry" },
+              node: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["type", "connection"]),
+                properties: {
+                  type: {
+                    kind: "string",
+                    xUi: {},
+                    enumValues: ["schema_registry"],
+                  },
+                  connection: stringNode("Registry URL"),
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+    const changes: JsonValue[] = [];
+    const endpoint = render(
+      <SchemaForm
+        node={node}
+        value={{ serializer: { type: "json" } }}
+        serializerSelectionOnly
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+    expect(endpoint.container.textContent).toContain("JSON");
+    expect(endpoint.container.textContent).not.toContain("Registry URL");
+    fireEvent.click(endpoint.container.querySelector(".select-trigger")!);
+    fireEvent.click(endpoint.getByRole("option", { name: "Schema Registry" }));
+    expect(changes.at(-1)).toEqual({
+      serializer: { type: "schema_registry", connection: "" },
+    });
+
+    const details = render(
+      <SerializerDetailsForm
+        node={node}
+        value={{
+          serializer: {
+            type: "schema_registry",
+            connection: "https://registry",
+          },
+        }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(details.container.textContent).toContain("Schema Registry settings");
+    expect(details.getByDisplayValue("https://registry")).toBeTruthy();
+    expect(
+      details.container.querySelector(".sink-serializer-bridge"),
     ).not.toBeNull();
   });
 

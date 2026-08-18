@@ -703,8 +703,9 @@ h3 {
   grid-template-columns: minmax(450px, 1fr) 34px minmax(450px, 1fr);
   grid-template-areas:
     "source arrow sink"
-    "bridge . ."
-    "parser parser parser";
+    "sourcebridge . sinkbridge"
+    "parser parser parser"
+    "serializer serializer serializer";
   align-items: start;
   margin-bottom: 0;
 }
@@ -719,22 +720,41 @@ h3 {
 }
 .route-composition > .endpoint-card-source,
 .route-composition > .source-parser-bridge,
-.route-composition > .parser-details-card {
+.route-composition > .parser-details-card,
+.route-composition > .endpoint-card-sink,
+.route-composition > .sink-serializer-bridge,
+.route-composition > .serializer-details-card {
   background: var(--panel);
 }
 .route-composition:has(> .parser-details-card) > .endpoint-card-source {
   border-bottom-color: transparent;
   border-radius: 4px 4px 0 0;
 }
+.route-composition:has(> .serializer-details-card) > .endpoint-card-sink {
+  border-bottom-color: transparent;
+  border-radius: 4px 4px 0 0;
+}
 .route-composition:has(> .parser-details-card) > .endpoint-card-source,
 .route-composition:has(> .parser-details-card) > .source-parser-bridge,
-.route-composition:has(> .parser-details-card) > .parser-details-card {
+.route-composition:has(> .parser-details-card) > .parser-details-card,
+.route-composition:has(> .serializer-details-card) > .endpoint-card-sink,
+.route-composition:has(> .serializer-details-card) > .sink-serializer-bridge,
+.route-composition:has(> .serializer-details-card) > .serializer-details-card {
   border-color: var(--route-line);
 }
 .source-parser-bridge {
   position: relative;
   z-index: 2;
-  grid-area: bridge;
+  grid-area: sourcebridge;
+  height: 24px;
+  margin-bottom: -1px;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+.sink-serializer-bridge {
+  position: relative;
+  z-index: 2;
+  grid-area: sinkbridge;
   height: 24px;
   margin-bottom: -1px;
   border-right: 1px solid var(--line);
@@ -1551,7 +1571,10 @@ button::after {
 }
 .schema-stage-row {
   display: grid;
-  grid-template-columns: minmax(90px, 0.8fr) minmax(130px, 1.2fr) minmax(100px, 1fr);
+  grid-template-columns: minmax(90px, 0.8fr) minmax(130px, 1.2fr) minmax(
+      100px,
+      1fr
+    );
   gap: 10px;
   align-items: center;
   min-width: 0;
@@ -1844,7 +1867,20 @@ button::after {
   border: 1px solid var(--route-line);
   border-radius: 0 4px 4px;
 }
+.serializer-details-card {
+  position: relative;
+  grid-area: serializer;
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--route-line);
+  border-radius: 4px 0 4px 4px;
+}
 .parser-details-card > * {
+  position: relative;
+  z-index: 1;
+}
+.serializer-details-card > * {
   position: relative;
   z-index: 1;
 }
@@ -2670,9 +2706,14 @@ svg.trash-icon {
       "source"
       "parser"
       "arrow"
-      "sink";
+      "sink"
+      "serializer";
   }
   .route-composition:has(> .parser-details-card) > .endpoint-card-source {
+    border-bottom-color: transparent;
+    border-radius: 4px 4px 0 0;
+  }
+  .route-composition:has(> .serializer-details-card) > .endpoint-card-sink {
     border-bottom-color: transparent;
     border-radius: 4px 4px 0 0;
   }
@@ -2683,6 +2724,14 @@ svg.trash-icon {
   }
   .source-parser-bridge {
     display: none;
+  }
+  .sink-serializer-bridge {
+    display: none;
+  }
+  .serializer-details-card {
+    grid-column: 1;
+    border-radius: 0 0 4px 4px;
+    border-top-color: var(--line-inner);
   }
   .route-arrow {
     height: 32px;

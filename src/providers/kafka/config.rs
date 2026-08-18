@@ -79,6 +79,7 @@ pub struct KafkaSinkConfig {
 
     pub security: KafkaSecurityConfig,
 
+    #[schemars(extend("x-ui" = { "widget": "serializer" }))]
     pub serializer: SerializerConfig,
 
     #[serde(default)]

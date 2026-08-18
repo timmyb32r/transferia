@@ -31,6 +31,7 @@ import {
 
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
+  serializerSelectionOnly?: boolean;
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
@@ -38,6 +39,7 @@ interface SchemaFormProps extends NodeEditorProps {
 }
 
 const ParserSelectionContext = createContext(false);
+const SerializerSelectionContext = createContext(false);
 const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
@@ -48,6 +50,7 @@ export function SchemaForm({
   value,
   disabled = false,
   parserSelectionOnly = false,
+  serializerSelectionOnly = false,
   showRequiredErrors = false,
   optionOverrides = {},
   connectionAction,
@@ -59,16 +62,20 @@ export function SchemaForm({
       <OptionOverridesContext.Provider value={optionOverrides}>
         <RequiredErrorsContext.Provider value={showRequiredErrors}>
           <ParserActionContext.Provider value={parserAction}>
-            <ParserSelectionContext.Provider value={parserSelectionOnly}>
-              <NodeEditor
-                node={node}
-                value={value}
-                disabled={disabled}
-                connectionAction={connectionAction}
-                onChange={onChange}
-                path="#"
-              />
-            </ParserSelectionContext.Provider>
+            <SerializerSelectionContext.Provider
+              value={serializerSelectionOnly}
+            >
+              <ParserSelectionContext.Provider value={parserSelectionOnly}>
+                <NodeEditor
+                  node={node}
+                  value={value}
+                  disabled={disabled}
+                  connectionAction={connectionAction}
+                  onChange={onChange}
+                  path="#"
+                />
+              </ParserSelectionContext.Provider>
+            </SerializerSelectionContext.Provider>
           </ParserActionContext.Provider>
         </RequiredErrorsContext.Provider>
       </OptionOverridesContext.Provider>
@@ -124,6 +131,54 @@ export function ParserDetailsForm({
   );
 }
 
+export function SerializerDetailsForm({
+  node,
+  value,
+  disabled = false,
+  showRequiredErrors = false,
+  onChange,
+}: SchemaFormProps) {
+  if (node.kind !== "object") return null;
+  const serializerEntry = Object.entries(node.properties).find(
+    ([, child]) => child.xUi.widget === "serializer",
+  );
+  if (serializerEntry === undefined) return null;
+  const [name, serializerNode] = serializerEntry;
+  if (serializerNode.kind !== "union") return null;
+  const object = isObject(value) ? value : {};
+  const serializerValue = object[name];
+  const selected =
+    serializerValue === undefined
+      ? undefined
+      : serializerNode.branches.find((branch) =>
+          branchMatches(branch, serializerValue),
+        );
+  if (
+    selected === undefined ||
+    selected.constant !== undefined ||
+    !nodeHasEditableContent(selected.node)
+  )
+    return null;
+  return (
+    <RootValueContext.Provider value={value}>
+      <RequiredErrorsContext.Provider value={showRequiredErrors}>
+        <div class="sink-serializer-bridge" aria-hidden="true" />
+        <section class="serializer-details-card">
+          <div class="section-heading">
+            <h2>{selected.label} settings</h2>
+          </div>
+          <NodeEditor
+            node={selected.node}
+            value={serializerValue ?? createValue(selected.node)}
+            disabled={disabled}
+            onChange={(next) => onChange({ ...object, [name]: next })}
+          />
+        </section>
+      </RequiredErrorsContext.Provider>
+    </RootValueContext.Provider>
+  );
+}
+
 function NodeEditor({
   node,
   value,
@@ -135,6 +190,7 @@ function NodeEditor({
 }: SchemaFormProps) {
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
+  const serializerSelectionOnly = useContext(SerializerSelectionContext);
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
   const parserAction = useContext(ParserActionContext);
@@ -370,6 +426,7 @@ function NodeEditor({
             {node.xUi.widget === "parser" && parserAction}
           </div>
           {(!parserSelectionOnly || node.xUi.widget !== "parser") &&
+            (!serializerSelectionOnly || node.xUi.widget !== "serializer") &&
             selected >= 0 &&
             node.branches[selected]!.constant === undefined &&
             nodeHasEditableContent(node.branches[selected]!.node) && (
@@ -459,7 +516,9 @@ function NodeEditor({
           : current === ""
             ? choices
             : [current, ...choices];
-        return withExternalLink(node, current, (
+        return withExternalLink(
+          node,
+          current,
           <SelectControl
             searchable
             id={controlId}
@@ -471,8 +530,8 @@ function NodeEditor({
               label: option,
             }))}
             onChange={onChange}
-          />
-        ));
+          />,
+        );
       }
       if (typeof node.xUi.dynamic_options === "string") {
         const dependencyPointers = node.xUi.dynamic_options_dependencies;
@@ -500,17 +559,21 @@ function NodeEditor({
           Object.keys(dependencies).length !==
             Object.keys(dependencyPointers).length
         ) {
-          return withExternalLink(node, typeof value === "string" ? value : "", (
+          return withExternalLink(
+            node,
+            typeof value === "string" ? value : "",
             <input
               id={controlId}
               type="text"
               value={typeof value === "string" ? value : ""}
               disabled={isDisabled}
               onInput={(event) => onChange(event.currentTarget.value)}
-            />
-          ));
+            />,
+          );
         }
-        return withExternalLink(node, typeof value === "string" ? value : "", (
+        return withExternalLink(
+          node,
+          typeof value === "string" ? value : "",
           <DynamicSelectControl
             id={controlId}
             source={node.xUi.dynamic_options}
@@ -518,11 +581,13 @@ function NodeEditor({
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
             onChange={onChange}
-          />
-        ));
+          />,
+        );
       }
       if (node.enumValues !== undefined) {
-        return withExternalLink(node, typeof value === "string" ? value : "", (
+        return withExternalLink(
+          node,
+          typeof value === "string" ? value : "",
           <SelectControl
             id={controlId}
             value={typeof value === "string" ? value : ""}
@@ -533,18 +598,20 @@ function NodeEditor({
               label: uiLabel(node, String(option)),
             }))}
             onChange={onChange}
-          />
-        ));
+          />,
+        );
       }
-      return withExternalLink(node, typeof value === "string" ? value : "", (
+      return withExternalLink(
+        node,
+        typeof value === "string" ? value : "",
         <input
           id={controlId}
           type="text"
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
           onInput={(event) => onChange(event.currentTarget.value)}
-        />
-      ));
+        />,
+      );
   }
 }
 
