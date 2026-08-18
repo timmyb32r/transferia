@@ -47,12 +47,10 @@ pub struct JsonParserSchema {
 
 #[derive(JsonSchema)]
 pub struct BenchmarkDiscardParserSchema {
-    #[schemars(
-        title = "Parser settings",
-        extend("x-ui" = { "widget": "parser_common" })
-    )]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub common: CommonParserConfig,
 
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub benchmark_discard: EmptyParserConfig,
 }
 

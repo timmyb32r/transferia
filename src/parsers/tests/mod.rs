@@ -12,6 +12,18 @@ fn benchmark_discard_rejects_unknown_configuration() {
 }
 
 #[test]
+fn benchmark_discard_schema_has_no_visible_settings() {
+    let schema = schemars::schema_for!(crate::parsers::config::BenchmarkDiscardParserSchema);
+    let value = serde_json::to_value(schema).expect("schema must serialize");
+
+    assert_eq!(value["properties"]["common"]["x-ui"]["widget"], "hidden");
+    assert_eq!(
+        value["properties"]["benchmark_discard"]["x-ui"]["widget"],
+        "hidden"
+    );
+}
+
+#[test]
 fn table_name_from_topic_has_an_explicit_config_value() -> anyhow::Result<()> {
     let common: CommonParserConfig =
         serde_yaml::from_str("table_naming: { type: from_topic_name }")?;
