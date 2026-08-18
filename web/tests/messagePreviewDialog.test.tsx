@@ -141,11 +141,14 @@ describe("message preview dialog", () => {
     fireEvent.click(view.getByRole("button", { name: "See parsed" }));
     expect(
       view
-        .getByRole("tab", { name: "Parsed preview" })
+        .getByRole("tab", { name: "Schema" })
         .getAttribute("aria-selected"),
     ).toBe("true");
     expect(view.getByText("3 messages · 3 rows")).toBeTruthy();
     expect(view.getByText("Int64")).toBeTruthy();
+    expect(
+      view.getAllByRole("tab").map((tab) => tab.textContent),
+    ).toEqual(["Text", "Binary", "Metadata", "Pretty print", "Schema"]);
     fireEvent.click(view.getAllByRole("button", { name: "Use parser" })[0]!);
     expect(apply).toHaveBeenCalledWith(
       expect.objectContaining({ key: "json_parser" }),

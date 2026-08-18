@@ -132,12 +132,12 @@ export function MessagePreviewDialog({
               {[
                 { key: "text", label: "Text" },
                 { key: "binary", label: "Binary" },
+                { key: "metadata", label: "Metadata" },
                 ...parserTabs.map((tab) => ({
                   key: `parser:${tab.key}`,
                   label: tab.label,
                 })),
-                { key: "metadata", label: "Metadata" },
-                { key: "parsed", label: "Parsed preview" },
+                { key: "parsed", label: "Schema" },
               ].map((tab) => (
                 <button
                   key={tab.key}
