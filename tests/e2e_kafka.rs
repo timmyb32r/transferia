@@ -107,12 +107,26 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
         Arc::new(MetricsRegistry::new()),
     )?;
     let mut restarted = restarted.build_source(source_context()).await?;
-    assert!(
-        tokio::time::timeout(Duration::from_secs(3), restarted.read_batch())
-            .await
-            .is_err()
-    );
+    assert_no_committed_replay(&mut restarted).await?;
     Ok(())
+}
+
+async fn assert_no_committed_replay(
+    source: &mut Box<dyn transferia::core::source::Source>,
+) -> anyhow::Result<()> {
+    let result = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match source.read_batch().await {
+                Ok(_) => anyhow::bail!("Kafka replayed a committed batch"),
+                Err(error) if error.is_retryable() => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(error.into_source()),
+            }
+        }
+    })
+    .await;
+    result.unwrap_or_else(|_| Ok(()))
 }
 
 async fn read_after_transient_broker_startup(

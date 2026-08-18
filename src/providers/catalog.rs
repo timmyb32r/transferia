@@ -128,7 +128,54 @@ pub(crate) fn compile_provider_definitions(
     let mut catalog = build_base_provider_catalog(&metrics, true)?;
     catalog.apply_installations(registry)?;
     apply_dynamic_options_bindings(&mut catalog.definitions, registry)?;
+    apply_external_link_bindings(&mut catalog.definitions, registry)?;
     Ok(catalog.definitions)
+}
+
+fn apply_external_link_bindings(
+    definitions: &mut [ProviderDefinition],
+    registry: &ExtensionRegistry,
+) -> anyhow::Result<()> {
+    for binding in registry.external_link_bindings() {
+        let definition = definitions
+            .iter_mut()
+            .find(|definition| definition.key == binding.provider)
+            .ok_or_else(|| anyhow::anyhow!("unknown provider '{}'", binding.provider))?;
+        let endpoint = match binding.role {
+            EndpointRole::Source => definition.source.as_mut(),
+            EndpointRole::Sink => definition.sink.as_mut(),
+        }
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "provider '{}' does not support {:?}",
+                binding.provider,
+                binding.role
+            )
+        })?;
+        let field_schema = endpoint
+            .schema
+            .pointer_mut(binding.schema_pointer)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "external link '{}.{:?}{}' points to a missing schema node",
+                    binding.provider,
+                    binding.role,
+                    binding.schema_pointer
+                )
+            })?;
+        let ui = field_schema
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("external link schema node must be an object"))?
+            .entry("x-ui")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("external link x-ui must be an object"))?;
+        ui.insert(
+            "external_link_template".to_owned(),
+            JsonValue::String(binding.url_template.to_owned()),
+        );
+    }
+    Ok(())
 }
 
 fn apply_dynamic_options_bindings(

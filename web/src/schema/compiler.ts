@@ -254,6 +254,7 @@ const SUPPORTED_UI_HINTS = new Set([
   "initial_items",
   "dynamic_options",
   "dynamic_options_dependencies",
+  "external_link_template",
   "labels",
   "options",
   "control_width",
@@ -307,6 +308,15 @@ function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
         `${path}: x-ui dynamic_options_dependencies must map names to absolute JSON pointers`,
       );
   }
+  if (
+    value.external_link_template !== undefined &&
+    (typeof value.external_link_template !== "string" ||
+      !value.external_link_template.startsWith("https://") ||
+      value.external_link_template.split("{value}").length !== 2)
+  )
+    throw new SchemaContractError(
+      `${path}: x-ui external_link_template must be an HTTPS URL containing exactly one {value} placeholder`,
+    );
   if (
     value.labels !== undefined &&
     (typeof value.labels !== "object" ||

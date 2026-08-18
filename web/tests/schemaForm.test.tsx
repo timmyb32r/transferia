@@ -20,6 +20,41 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("renders a separate safely encoded external-console link", () => {
+    const node: CompiledNode = {
+      kind: "string",
+      xUi: {
+        external_link_template: "https://console.example/topics/{value}",
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value="account/topic name"
+        onChange={() => undefined}
+      />,
+    );
+    const link = view.getByRole("link", { name: "Open in external console" });
+    expect(link.getAttribute("href")).toBe(
+      "https://console.example/topics/account%2Ftopic%20name",
+    );
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("does not render an external-console link for an empty value", () => {
+    const node: CompiledNode = {
+      kind: "string",
+      xUi: {
+        external_link_template: "https://console.example/items/{value}",
+      },
+    };
+    const view = render(
+      <SchemaForm node={node} value="" onChange={() => undefined} />,
+    );
+    expect(view.container.querySelector("a")).toBeNull();
+  });
+
   it("keeps shard group compact and replaces it with checked options", () => {
     const node: CompiledNode = {
       kind: "object",

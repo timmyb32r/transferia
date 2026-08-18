@@ -1284,6 +1284,40 @@ input[type="checkbox"]:disabled {
   stroke-linejoin: round;
   stroke-width: 1.25;
 }
+
+.linked-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.linked-control > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.external-link-button {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  border-radius: 4px;
+}
+
+.external-link-button:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.external-link-button svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
 button {
   height: var(--button-height);
   padding: 0 12px;

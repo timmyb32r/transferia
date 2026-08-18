@@ -459,7 +459,7 @@ function NodeEditor({
           : current === ""
             ? choices
             : [current, ...choices];
-        return (
+        return withExternalLink(node, current, (
           <SelectControl
             searchable
             id={controlId}
@@ -472,7 +472,7 @@ function NodeEditor({
             }))}
             onChange={onChange}
           />
-        );
+        ));
       }
       if (typeof node.xUi.dynamic_options === "string") {
         const dependencyPointers = node.xUi.dynamic_options_dependencies;
@@ -500,7 +500,7 @@ function NodeEditor({
           Object.keys(dependencies).length !==
             Object.keys(dependencyPointers).length
         ) {
-          return (
+          return withExternalLink(node, typeof value === "string" ? value : "", (
             <input
               id={controlId}
               type="text"
@@ -508,9 +508,9 @@ function NodeEditor({
               disabled={isDisabled}
               onInput={(event) => onChange(event.currentTarget.value)}
             />
-          );
+          ));
         }
-        return (
+        return withExternalLink(node, typeof value === "string" ? value : "", (
           <DynamicSelectControl
             id={controlId}
             source={node.xUi.dynamic_options}
@@ -519,10 +519,10 @@ function NodeEditor({
             disabled={isDisabled}
             onChange={onChange}
           />
-        );
+        ));
       }
       if (node.enumValues !== undefined) {
-        return (
+        return withExternalLink(node, typeof value === "string" ? value : "", (
           <SelectControl
             id={controlId}
             value={typeof value === "string" ? value : ""}
@@ -534,9 +534,9 @@ function NodeEditor({
             }))}
             onChange={onChange}
           />
-        );
+        ));
       }
-      return (
+      return withExternalLink(node, typeof value === "string" ? value : "", (
         <input
           id={controlId}
           type="text"
@@ -544,8 +544,35 @@ function NodeEditor({
           disabled={isDisabled}
           onInput={(event) => onChange(event.currentTarget.value)}
         />
-      );
+      ));
   }
+}
+
+function withExternalLink(
+  node: CompiledNode,
+  value: string,
+  control: ComponentChildren,
+): ComponentChildren {
+  const template = node.xUi.external_link_template;
+  if (typeof template !== "string" || value === "") return control;
+  const href = template.replace("{value}", encodeURIComponent(value));
+  return (
+    <div class="linked-control">
+      {control}
+      <a
+        class="external-link-button"
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Open in external console"
+        title="Open in external console"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M9.25 2a.75.75 0 0 1 .75-.75h3.25a1.5 1.5 0 0 1 1.5 1.5V6a.75.75 0 0 1-1.5 0V3.81L8.53 8.53a.75.75 0 0 1-1.06-1.06l4.72-4.72H10A.75.75 0 0 1 9.25 2ZM3.5 3.25h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 0-.75.75v7c0 .414.336.75.75.75h7a.75.75 0 0 0 .75-.75v-3a.75.75 0 0 1 1.5 0v3a2.25 2.25 0 0 1-2.25 2.25h-7a2.25 2.25 0 0 1-2.25-2.25v-7A2.25 2.25 0 0 1 3.5 3.25Z" />
+        </svg>
+      </a>
+    </div>
+  );
 }
 
 function PropertyEditor({

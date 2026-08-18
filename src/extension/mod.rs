@@ -115,6 +115,17 @@ pub(crate) struct DynamicOptionsBinding {
     pub dependencies: BTreeMap<&'static str, &'static str>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub(crate) struct ExternalLinkBinding {
+    pub provider: &'static str,
+
+    pub role: EndpointRole,
+
+    pub schema_pointer: &'static str,
+
+    pub url_template: &'static str,
+}
+
 #[async_trait]
 pub(crate) trait InstallationResolver: Send + Sync {
     async fn resolve(
@@ -212,6 +223,9 @@ pub struct ExtensionRegistry {
     option_sources: BTreeMap<&'static str, Arc<dyn DynamicOptionsProvider>>,
 
     option_bindings: BTreeMap<(&'static str, EndpointRole, &'static str), DynamicOptionsBinding>,
+
+    external_link_bindings:
+        BTreeMap<(&'static str, EndpointRole, &'static str), ExternalLinkBinding>,
 }
 
 impl ExtensionRegistry {
@@ -341,6 +355,40 @@ impl ExtensionRegistry {
         Ok(())
     }
 
+    pub fn register_external_link(
+        &mut self,
+        provider: &'static str,
+        role: EndpointRole,
+        schema_pointer: &'static str,
+        url_template: &'static str,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !provider.is_empty(),
+            "external link provider must not be empty"
+        );
+        anyhow::ensure!(
+            schema_pointer.starts_with("/properties/") || schema_pointer.starts_with("/$defs/"),
+            "external link schema pointer must target an endpoint schema property"
+        );
+        anyhow::ensure!(
+            url_template.starts_with("https://")
+                && url_template.matches("{value}").count() == 1,
+            "external link URL template must be HTTPS and contain exactly one '{{value}}' placeholder"
+        );
+        let binding = ExternalLinkBinding {
+            provider,
+            role,
+            schema_pointer,
+            url_template,
+        };
+        let key = (provider, role, schema_pointer);
+        anyhow::ensure!(
+            self.external_link_bindings.insert(key, binding).is_none(),
+            "external link '{provider}.{role:?}{schema_pointer}' is registered more than once"
+        );
+        Ok(())
+    }
+
     pub(crate) fn installations_for(
         &self,
         provider: &str,
@@ -370,6 +418,10 @@ impl ExtensionRegistry {
 
     pub(crate) fn option_bindings(&self) -> impl Iterator<Item = &DynamicOptionsBinding> {
         self.option_bindings.values()
+    }
+
+    pub(crate) fn external_link_bindings(&self) -> impl Iterator<Item = &ExternalLinkBinding> {
+        self.external_link_bindings.values()
     }
 
     pub async fn options(
@@ -668,6 +720,7 @@ fn composition_fingerprint(
         "providers": definitions,
         "installations": installations,
         "dynamic_option_keys": registry.option_keys().collect::<Vec<_>>(),
+        "external_links": registry.external_link_bindings().collect::<Vec<_>>(),
     });
     let mut bytes = Vec::new();
     write_canonical_json(&contract, &mut bytes)?;

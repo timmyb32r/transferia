@@ -9,6 +9,24 @@ import {
 } from "../src/schema/compiler";
 
 describe("schema compiler", () => {
+  it("accepts safe external-console links and rejects unsafe templates", () => {
+    const node = compileSchema({
+      type: "string",
+      "x-ui": {
+        external_link_template: "https://console.example/items/{value}",
+      },
+    });
+    expect(node.xUi.external_link_template).toBe(
+      "https://console.example/items/{value}",
+    );
+    expect(() =>
+      compileSchema({
+        type: "string",
+        "x-ui": { external_link_template: "javascript:{value}" },
+      }),
+    ).toThrow(/must be an HTTPS URL/);
+  });
+
   it("accepts dependency-aware dynamic options emitted for managed MDB fields", () => {
     const node = compileSchema({
       type: "string",

@@ -4,6 +4,35 @@ use serde_yaml::{Mapping, Value};
 
 use super::*;
 
+#[test]
+fn external_links_require_a_safe_unambiguous_template() -> anyhow::Result<()> {
+    let mut registry = ExtensionRegistry::default();
+    registry.register_external_link(
+        "logbroker",
+        EndpointRole::Source,
+        "/properties/consumer_name",
+        "https://console.example/consumers/{value}",
+    )?;
+    assert_eq!(registry.external_link_bindings().count(), 1);
+    assert!(registry
+        .register_external_link(
+            "logbroker",
+            EndpointRole::Source,
+            "/properties/consumer_name",
+            "https://console.example/duplicate/{value}",
+        )
+        .is_err());
+    assert!(registry
+        .register_external_link(
+            "logbroker",
+            EndpointRole::Sink,
+            "/properties/topic",
+            "javascript:{value}",
+        )
+        .is_err());
+    Ok(())
+}
+
 #[tokio::test]
 async fn on_premise_resolution_flattens_only_installation_fields() -> anyhow::Result<()> {
     let transferia = Transferia::public()?;
