@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import fixture from "../../src/server/contracts/server-api.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
 import {
   acceptsDraftSeed,
@@ -7,20 +8,11 @@ import {
   draftSeedError,
 } from "../src/schema/compiler";
 
-const catalogJson = (
-  globalThis as typeof globalThis & {
-    process?: { env?: Record<string, string | undefined> };
-  }
-).process?.env?.TRANSFERIA_CATALOG_CONTRACT;
-
-if (catalogJson === undefined)
-  throw new Error("Rust catalog contract payload is required");
-
 describe("Rust catalog contract", () => {
   it("compiles every schema emitted by the Rust catalog", () => {
     const catalog = decodeApi(
       "catalog_response",
-      JSON.parse(catalogJson),
+      fixture.full_catalog,
       "catalog",
     );
 

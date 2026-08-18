@@ -3,42 +3,31 @@ import type { ComponentChildren } from "preact";
 import type { JsonObject, JsonValue } from "../json";
 import { Disclosure } from "../ui/Disclosure";
 import { FormField } from "../ui/FormField";
-import { ColumnMappingsEditor } from "./ColumnMappingsEditor";
-import { CompactArrayEditor } from "./CompactArrayEditor";
-import type { CompiledNode } from "./compiler";
-import { humanize } from "./compiler";
+import { ColumnMappingsEditor } from "./jsonParser/ColumnMappingsEditor";
+import { CompactArrayEditor } from "../schema/CompactArrayEditor";
+import type { CompiledNode } from "../schema/compiler";
+import { humanize } from "../schema/compiler";
 import {
   ByteSizeInput,
-  PartitionRangesInput,
   PasswordInput,
   SystemColumnsEditor,
-} from "./controls";
+} from "../schema/controls";
+import { PartitionRangesInput } from "./topicPartitions/PartitionRangesInput";
 import type {
-  NodeEditorComponent,
-  NodeEditorProps,
-  PropertyEditorComponent,
-  PropertyEditorProps,
-} from "./editorTypes";
-import { JsonParserEditor } from "./JsonParserEditor";
-import { MiddlewareEditor } from "./MiddlewareEditor";
-import { isObject, stringArray } from "./value";
-import { isWidgetName, type WidgetName } from "./widgetDefinitions";
-
-interface EditorServices {
-  NodeEditor: NodeEditorComponent;
-  PropertyEditor: PropertyEditorComponent;
-}
-
-interface NodeWidgetContext extends NodeEditorProps {
-  disabled: boolean;
-}
-
-interface PropertyWidgetContext extends PropertyEditorProps {
-  effectiveValue: JsonValue;
-  controlId: string;
-  parentValue?: JsonObject | undefined;
-  onParentChange?: ((value: JsonObject) => void) | undefined;
-}
+  EditorServices,
+  NodeWidgetContext,
+  PropertyWidgetContext,
+  WidgetRegistry,
+} from "../schema/widgetRegistry";
+import { JsonParserEditor } from "./jsonParser/JsonParserEditor";
+import { MiddlewareEditor } from "./middleware/MiddlewareEditor";
+import { isObject, stringArray } from "../schema/value";
+import {
+  isWidgetName,
+  type WidgetName,
+  WIDGET_DEFINITIONS,
+  widgetUsesRenderer,
+} from "../schema/widgetDefinitions";
 
 type NodeWidgetRenderer = (
   context: NodeWidgetContext,
@@ -219,7 +208,11 @@ export function renderNodeWidget(
 ): ComponentChildren | undefined {
   const widget = context.node.xUi.widget;
   if (!isWidgetName(widget)) return undefined;
-  return NODE_RENDERERS[widget]?.(context, services);
+  if (!widgetUsesRenderer(widget, "node")) return undefined;
+  const renderer = NODE_RENDERERS[widget];
+  if (renderer === undefined)
+    throw new Error(`Widget ${widget} declares a missing node renderer`);
+  return renderer(context, services);
 }
 
 export function renderPropertyWidget(
@@ -228,7 +221,11 @@ export function renderPropertyWidget(
 ): ComponentChildren | undefined {
   const widget = context.node.xUi.widget;
   if (!isWidgetName(widget)) return undefined;
-  return PROPERTY_RENDERERS[widget]?.(context, services);
+  if (!widgetUsesRenderer(widget, "property")) return undefined;
+  const renderer = PROPERTY_RENDERERS[widget];
+  if (renderer === undefined)
+    throw new Error(`Widget ${widget} declares a missing property renderer`);
+  return renderer(context, services);
 }
 
 export function isHiddenProperty(node: CompiledNode): boolean {
@@ -237,4 +234,23 @@ export function isHiddenProperty(node: CompiledNode): boolean {
     node.xUi.widget === "column_keys" ||
     (node.kind === "string" && node.enumValues?.length === 1)
   );
+}
+
+export const productionWidgetRegistry: WidgetRegistry = {
+  renderNode: renderNodeWidget,
+  renderProperty: renderPropertyWidget,
+  isHidden: isHiddenProperty,
+};
+
+for (const widget of Object.keys(WIDGET_DEFINITIONS) as WidgetName[]) {
+  if (
+    widgetUsesRenderer(widget, "node") &&
+    NODE_RENDERERS[widget] === undefined
+  )
+    throw new Error(`Widget ${widget} declares a missing node renderer`);
+  if (
+    widgetUsesRenderer(widget, "property") &&
+    PROPERTY_RENDERERS[widget] === undefined
+  )
+    throw new Error(`Widget ${widget} declares a missing property renderer`);
 }

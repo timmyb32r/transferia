@@ -1,4 +1,8 @@
-import { decodeApi } from "./api/contractDecoder";
+import { decodeApi } from "../../api/contractDecoder";
+import type {
+  ControlPlanePort,
+  DynamicOptionsQuery,
+} from "../../application/ports/controlPlane";
 import type {
   ApiContract,
   ApiContractName,
@@ -12,17 +16,10 @@ import type {
   StopRequest,
   UpdateDraftRequest,
   YamlRequest,
-} from "./generated/apiContract";
+} from "../../generated/apiContract";
 
 export const OPTIONS_TRANSPORT_VERSION = "transferia-options-post-v1";
-import type { JsonObject } from "./json";
-
-export interface DynamicOptionsQuery {
-  key: string;
-  dependencies?: Record<string, string>;
-  refresh?: boolean;
-  signal?: AbortSignal;
-}
+import type { JsonObject } from "../../json";
 
 async function request<Name extends ApiContractName>(
   path: string,
@@ -54,8 +51,11 @@ function json(value: object): string {
   return JSON.stringify(value);
 }
 
-export const api = {
-  catalog: () => request("/api/v1/catalog", "catalog_response"),
+export const httpControlPlane: ControlPlanePort = {
+  catalog: (signal) =>
+    request("/api/v1/catalog", "catalog_response", {
+      ...(signal === undefined ? {} : { signal }),
+    }),
   options: ({
     key,
     dependencies = {},
@@ -91,30 +91,47 @@ export const api = {
       body: json(body),
       ...(signal === undefined ? {} : { signal }),
     }),
-  deliveries: () => request("/api/v1/deliveries", "delivery_list_response"),
-  delivery: (id: string) =>
+  deliveries: (signal) =>
+    request("/api/v1/deliveries", "delivery_list_response", {
+      ...(signal === undefined ? {} : { signal }),
+    }),
+  delivery: (id: string, signal?: AbortSignal) =>
     request(
       `/api/v1/deliveries/${encodeURIComponent(id)}`,
       "delivery_response",
+      { ...(signal === undefined ? {} : { signal }) },
     ),
-  deliveryLogs: (id: string) =>
+  deliveryLogs: (id: string, signal?: AbortSignal) =>
     request(
       `/api/v1/deliveries/${encodeURIComponent(id)}/logs`,
       "worker_logs_response",
+      { ...(signal === undefined ? {} : { signal }) },
     ),
-  deliveryLog: (id: string, workerId: string, cursor?: number) => {
+  deliveryLog: (
+    id: string,
+    workerId: string,
+    cursor?: number,
+    signal?: AbortSignal,
+  ) => {
     const query = new URLSearchParams({ limit_bytes: String(128 * 1024) });
     if (cursor !== undefined) query.set("cursor", String(cursor));
     return request(
       `/api/v1/deliveries/${encodeURIComponent(id)}/logs/${encodeURIComponent(workerId)}?${query}`,
       "worker_log_response",
+      { ...(signal === undefined ? {} : { signal }) },
     );
   },
-  create: (name: string, description: string, config: JsonObject) => {
+  create: (
+    name: string,
+    description: string,
+    config: JsonObject,
+    signal?: AbortSignal,
+  ) => {
     const body: CreateDraftRequest = { name, description, config };
     return request("/api/v1/deliveries", "delivery_response", {
       method: "POST",
       body: json(body),
+      ...(signal === undefined ? {} : { signal }),
     });
   },
   update: (
@@ -124,6 +141,7 @@ export const api = {
     name: string,
     description: string,
     config: JsonObject,
+    signal?: AbortSignal,
   ) => {
     const body: UpdateDraftRequest = {
       expected_revision: expectedRevision,
@@ -138,6 +156,7 @@ export const api = {
       {
         method: "PUT",
         body: json(body),
+        ...(signal === undefined ? {} : { signal }),
       },
     );
   },
@@ -145,6 +164,7 @@ export const api = {
     id: string,
     expectedRevision: number,
     expectedRecordVersion: string,
+    signal?: AbortSignal,
   ) => {
     const body: RevisionRequest = {
       expected_revision: expectedRevision,
@@ -153,7 +173,11 @@ export const api = {
     return request(
       `/api/v1/deliveries/${encodeURIComponent(id)}`,
       "delivery_response",
-      { method: "DELETE", body: json(body) },
+      {
+        method: "DELETE",
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
     );
   },
   yaml: (config: JsonObject, signal?: AbortSignal) => {
@@ -164,11 +188,12 @@ export const api = {
       ...(signal === undefined ? {} : { signal }),
     });
   },
-  parseYaml: (yaml: string) => {
+  parseYaml: (yaml: string, signal?: AbortSignal) => {
     const body: YamlRequest = { yaml };
     return request("/api/v1/config/from-yaml", "config_response", {
       method: "POST",
       body: json(body),
+      ...(signal === undefined ? {} : { signal }),
     });
   },
   discover: (config: JsonObject, signal?: AbortSignal) => {
@@ -183,6 +208,7 @@ export const api = {
     id: string,
     expectedRevision: number,
     expectedRecordVersion: string,
+    signal?: AbortSignal,
   ) => {
     const body: RevisionRequest = {
       expected_revision: expectedRevision,
@@ -191,13 +217,18 @@ export const api = {
     return request(
       `/api/v1/deliveries/${encodeURIComponent(id)}/validate`,
       "validation_response",
-      { method: "POST", body: json(body) },
+      {
+        method: "POST",
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
     );
   },
   activate: (
     id: string,
     expectedRevision: number,
     expectedRecordVersion: string,
+    signal?: AbortSignal,
   ) => {
     const body: RevisionRequest = {
       expected_revision: expectedRevision,
@@ -206,7 +237,11 @@ export const api = {
     return request(
       `/api/v1/deliveries/${encodeURIComponent(id)}/activate`,
       "delivery_response",
-      { method: "POST", body: json(body) },
+      {
+        method: "POST",
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
     );
   },
   stop: (
@@ -214,6 +249,7 @@ export const api = {
     expectedRevision: number,
     expectedRecordVersion: string,
     expectedRunId: string,
+    signal?: AbortSignal,
   ) => {
     const body: StopRequest = {
       expected_revision: expectedRevision,
@@ -223,7 +259,11 @@ export const api = {
     return request(
       `/api/v1/deliveries/${encodeURIComponent(id)}/stop`,
       "delivery_response",
-      { method: "POST", body: json(body) },
+      {
+        method: "POST",
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
     );
   },
 };

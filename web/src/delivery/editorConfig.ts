@@ -18,6 +18,14 @@ export function compiledSchema(
   return compiled;
 }
 
+export function validateCatalogSchemas(catalog: UiCatalog): void {
+  compiledSchema(catalog.common_schema);
+  for (const provider of catalog.providers) {
+    if (provider.source !== undefined) compiledSchema(provider.source.schema);
+    if (provider.sink !== undefined) compiledSchema(provider.sink.schema);
+  }
+}
+
 export function freshConfig(catalog: UiCatalog): JsonObject {
   const id = crypto.randomUUID();
   return {

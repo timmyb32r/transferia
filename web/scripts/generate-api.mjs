@@ -1,13 +1,20 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import prettier from "prettier";
 
-const schemaPath = new URL("../../src/server/contracts/server-api.schema.json", import.meta.url);
+const schemaPath = new URL(
+  "../../src/server/contracts/server-api.schema.json",
+  import.meta.url,
+);
 const outputPath = new URL("../src/generated/apiContract.ts", import.meta.url);
 const contract = JSON.parse(await readFile(schemaPath, "utf8"));
+const checkOnly = process.argv.includes("--check");
+
+assertSupportedContract(contract);
 
 function referenceName(reference) {
   const prefix = "#/$defs/";
-  if (!reference.startsWith(prefix)) throw new Error(`Unsupported $ref: ${reference}`);
+  if (!reference.startsWith(prefix))
+    throw new Error(`Unsupported $ref: ${reference}`);
   return reference.slice(prefix.length);
 }
 
@@ -46,7 +53,10 @@ function typeOf(schema, propertyName) {
         ([name, property]) =>
           `  ${JSON.stringify(name)}${required.has(name) ? "" : "?"}: ${typeOf(property, name)};`,
       );
-      if (schema.additionalProperties && schema.additionalProperties !== false) {
+      if (
+        schema.additionalProperties &&
+        schema.additionalProperties !== false
+      ) {
         properties.push(
           `  [key: string]: ${schema.additionalProperties === true ? "JsonValue" : typeOf(schema.additionalProperties)};`,
         );
@@ -84,4 +94,62 @@ const current = await readFile(outputPath, "utf8").catch((error) => {
   if (error.code === "ENOENT") return undefined;
   throw error;
 });
-if (current !== formatted) await writeFile(outputPath, formatted);
+if (current !== formatted) {
+  if (checkOnly)
+    throw new Error(
+      "Generated API types are stale. Run `npm run update:api` and commit the result.",
+    );
+  await writeFile(outputPath, formatted);
+}
+
+function assertSupportedContract(root) {
+  const supported = new Set([
+    "$ref",
+    "type",
+    "const",
+    "enum",
+    "oneOf",
+    "anyOf",
+    "properties",
+    "required",
+    "additionalProperties",
+    "items",
+    "pattern",
+    "minimum",
+    "maximum",
+    "format",
+    "default",
+    "title",
+    "description",
+    "x-omit-none",
+    "x-typescript-type",
+  ]);
+  const visit = (schema, path) => {
+    if (schema === true || schema === false) return;
+    if (schema === null || typeof schema !== "object" || Array.isArray(schema))
+      throw new Error(`${path}: expected a JSON Schema object`);
+    const unknown = Object.keys(schema).filter((key) => !supported.has(key));
+    if (unknown.length > 0)
+      throw new Error(
+        `${path}: API generator does not support keywords ${unknown.join(", ")}`,
+      );
+    if (schema.$ref !== undefined && Object.keys(schema).length !== 1)
+      throw new Error(`${path}: sibling keywords next to $ref are unsupported`);
+    for (const [name, child] of Object.entries(schema.properties ?? {}))
+      visit(child, `${path}/properties/${name}`);
+    for (const [index, child] of (schema.oneOf ?? []).entries())
+      visit(child, `${path}/oneOf/${index}`);
+    for (const [index, child] of (schema.anyOf ?? []).entries())
+      visit(child, `${path}/anyOf/${index}`);
+    if (schema.items !== undefined) visit(schema.items, `${path}/items`);
+    if (
+      schema.additionalProperties !== undefined &&
+      typeof schema.additionalProperties !== "boolean"
+    )
+      visit(schema.additionalProperties, `${path}/additionalProperties`);
+  };
+  for (const [name, schema] of Object.entries(root.$defs ?? {}))
+    visit(schema, `#/$defs/${name}`);
+  for (const [name, schema] of Object.entries(root.properties ?? {}))
+    visit(schema, `#/properties/${name}`);
+}

@@ -3,12 +3,13 @@ import type { JsonObject, JsonSchema, JsonValue } from "../types";
 export const SCHEMA_DIALECT_VERSION =
   "transferia-schema-dialect-dynamic-options-dependencies-v1";
 import { isWidgetName, widgetSupportsKind } from "./widgetDefinitions";
+import { decodeUiHints, type UiHints } from "./uiHints";
 
 interface NodeBase {
   title?: string;
   description?: string;
   defaultValue?: JsonValue;
-  xUi: Record<string, JsonValue>;
+  xUi: UiHints;
 }
 
 export type CompiledNode =
@@ -59,7 +60,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
     }
     const schema = input;
     validateKeywords(schema, path);
-    const base = baseNode(schema);
+    const base = baseNode(schema, path);
     if (Array.isArray(schema.type)) {
       const nonNull = schema.type.filter((type) => type !== "null");
       if (nonNull.length === 1 && nonNull.length !== schema.type.length) {
@@ -197,7 +198,6 @@ function validateKeywords(schema: JsonSchema, path: string): void {
       `${path}: unsupported JSON Schema keywords: ${unsupported.join(", ")}`,
     );
   }
-  validateUiHints(schema["x-ui"], path);
   if (schema.format !== undefined && !NUMERIC_FORMATS.has(schema.format)) {
     throw new SchemaContractError(
       `${path}: unsupported JSON Schema format: ${schema.format}`,
@@ -245,90 +245,6 @@ function validateKeywords(schema: JsonSchema, path: string): void {
           `${path}: required property ${JSON.stringify(required)} is missing from properties`,
         );
     }
-  }
-}
-
-const SUPPORTED_UI_HINTS = new Set([
-  "widget",
-  "section",
-  "initial_items",
-  "dynamic_options",
-  "dynamic_options_dependencies",
-  "external_link_template",
-  "labels",
-  "options",
-  "control_width",
-  "item_label",
-]);
-
-function validateUiHints(value: JsonSchema["x-ui"], path: string): void {
-  if (value === undefined) return;
-  const unknown = Object.keys(value).filter(
-    (key) => !SUPPORTED_UI_HINTS.has(key),
-  );
-  if (unknown.length > 0)
-    throw new SchemaContractError(
-      `${path}: unsupported x-ui hints: ${unknown.join(", ")}`,
-    );
-  if (value.widget !== undefined && !isWidgetName(value.widget))
-    throw new SchemaContractError(`${path}: unsupported x-ui widget`);
-  if (
-    value.section !== undefined &&
-    value.section !== "advanced" &&
-    value.section !== "system_columns" &&
-    value.section !== "shard_group"
-  )
-    throw new SchemaContractError(`${path}: unsupported x-ui section`);
-  if (
-    value.initial_items !== undefined &&
-    (typeof value.initial_items !== "number" ||
-      !Number.isSafeInteger(value.initial_items) ||
-      value.initial_items < 0)
-  )
-    throw new SchemaContractError(
-      `${path}: x-ui initial_items must be a non-negative integer`,
-    );
-  if (
-    value.dynamic_options !== undefined &&
-    typeof value.dynamic_options !== "string"
-  )
-    throw new SchemaContractError(
-      `${path}: x-ui dynamic_options must be a string`,
-    );
-  if (value.dynamic_options_dependencies !== undefined) {
-    if (
-      typeof value.dynamic_options_dependencies !== "object" ||
-      value.dynamic_options_dependencies === null ||
-      Array.isArray(value.dynamic_options_dependencies) ||
-      !Object.values(value.dynamic_options_dependencies).every(
-        (pointer) => typeof pointer === "string" && pointer.startsWith("/"),
-      )
-    )
-      throw new SchemaContractError(
-        `${path}: x-ui dynamic_options_dependencies must map names to absolute JSON pointers`,
-      );
-  }
-  if (
-    value.external_link_template !== undefined &&
-    (typeof value.external_link_template !== "string" ||
-      !value.external_link_template.startsWith("https://") ||
-      value.external_link_template.split("{value}").length !== 2)
-  )
-    throw new SchemaContractError(
-      `${path}: x-ui external_link_template must be an HTTPS URL containing exactly one {value} placeholder`,
-    );
-  if (
-    value.labels !== undefined &&
-    (typeof value.labels !== "object" ||
-      value.labels === null ||
-      Array.isArray(value.labels))
-  )
-    throw new SchemaContractError(`${path}: x-ui labels must be an object`);
-  if (value.options !== undefined && !Array.isArray(value.options))
-    throw new SchemaContractError(`${path}: x-ui options must be an array`);
-  for (const key of ["control_width", "item_label"] as const) {
-    if (value[key] !== undefined && typeof value[key] !== "string")
-      throw new SchemaContractError(`${path}: x-ui ${key} must be a string`);
   }
 }
 
@@ -486,6 +402,10 @@ export function isComplete(
         )
           return false;
       }
+      for (const [name, childValue] of Object.entries(value)) {
+        const child = node.properties[name];
+        if (child !== undefined && !isComplete(child, childValue)) return false;
+      }
       return true;
     }
     case "array":
@@ -629,15 +549,19 @@ function referenceTarget(root: JsonSchema, reference: string): JsonSchema {
   return target as JsonSchema;
 }
 
-function baseNode(schema: JsonSchema): NodeBase {
+function baseNode(schema: JsonSchema, path: string): NodeBase {
   return {
     ...(schema.title === undefined ? {} : { title: schema.title }),
     ...(schema.description === undefined
       ? {}
       : { description: schema.description }),
     ...(schema.default === undefined ? {} : { defaultValue: schema.default }),
-    xUi: schema["x-ui"] ?? {},
+    xUi: decodeUiHints(schema["x-ui"], path, failSchemaContract),
   };
+}
+
+function failSchemaContract(message: string): never {
+  throw new SchemaContractError(message);
 }
 
 function isNullSchema(schema: JsonSchema): boolean {

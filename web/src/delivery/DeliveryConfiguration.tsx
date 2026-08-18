@@ -6,16 +6,13 @@ import {
   stringValue,
 } from "./editorConfig";
 import { CommonSettings, EndpointCard } from "./EditorViews";
-import {
-  ParserDetailsForm,
-  SelectControl,
-  SerializerDetailsForm,
-} from "../schema/SchemaForm";
+import { ParserDetailsForm, SerializerDetailsForm } from "../schema/SchemaForm";
 import type { EditorState } from "../state";
 import type { JsonObject, UiCatalog } from "../types";
 import { TopField } from "../ui/FormField";
-import { api } from "../api";
-import { SourceSampleProvider } from "./SourceSampleContext";
+import { SelectControl } from "../ui/SelectControl";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
+import { SourceSampleProvider } from "../features/middleware/SourceSampleContext";
 
 type EndpointSelection = ReturnType<typeof selectedEndpoints>;
 
@@ -40,6 +37,7 @@ export function DeliveryConfiguration({
   onConfig: (config: JsonObject) => void;
   onChooseEndpoint: (role: "source" | "sink", key: string) => void;
 }) {
+  const api = useControlPlane();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
   const sourceProviders = catalog.providers.filter(
     (provider) => provider.source !== undefined,

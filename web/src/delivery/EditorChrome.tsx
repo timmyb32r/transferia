@@ -6,23 +6,7 @@ import { Button } from "../ui/Button";
 import type { Appearance } from "../ui/appearance";
 import { StatusPill } from "./EditorViews";
 import type { EditorView } from "./useYamlEditor";
-
-export type OperationKey =
-  | "bootstrap"
-  | "list"
-  | "open"
-  | "save"
-  | "validate"
-  | "action"
-  | "yaml"
-  | "parseYaml"
-  | "discovery";
-
-export interface OperationState {
-  requestId: number;
-  label?: string;
-  error?: string;
-}
+import type { OperationKey, OperationState } from "../application/operations";
 
 export function EditorActions({
   editor,

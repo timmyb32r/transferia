@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 
-import { api } from "../api";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { EditorState } from "../state";
 import type { DiscoveryResult } from "../types";
 import type { EditorRequestContext, useDeliveryJobs } from "./useDeliveryJobs";
@@ -25,6 +25,7 @@ export function useDiscovery({
   >;
   isCurrentContext: (context: EditorRequestContext) => boolean;
 }) {
+  const api = useControlPlane();
   const [discovery, setDiscovery] = useState<DiscoveryResult>();
 
   useEffect(() => setDiscovery(undefined), [editor.sessionId]);

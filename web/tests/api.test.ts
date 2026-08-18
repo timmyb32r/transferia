@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 
 describe("control-plane API", () => {
   afterEach(() => {

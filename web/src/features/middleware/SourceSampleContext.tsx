@@ -1,7 +1,7 @@
 import { createContext, type ComponentChildren } from "preact";
 import { useContext } from "preact/hooks";
 
-import type { JsonValue } from "../types";
+import type { JsonValue } from "../../types";
 
 export type SourceSampleLoader = () => Promise<JsonValue[]>;
 

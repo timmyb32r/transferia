@@ -1,21 +1,24 @@
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { JsonValue } from "../json";
-import { Button } from "../ui/Button";
-import { DragHandleIcon, TrashIcon } from "../ui/icons";
-import { MultiSelectControl } from "../ui/SelectControl";
+import type { JsonValue } from "../../json";
+import { Button } from "../../ui/Button";
+import { DragHandleIcon, TrashIcon } from "../../ui/icons";
+import { MultiSelectControl } from "../../ui/SelectControl";
 import { ColumnActions } from "./ColumnActions";
-import { createColumnDragPreview, insertionSlot } from "./columnDrag";
-import { createValue, type CompiledNode } from "./compiler";
-import { IndeterminateCheckbox } from "./controls";
+import {
+  createColumnDragPreview,
+  insertionSlot,
+} from "../../schema/columnDrag";
+import { createValue, type CompiledNode } from "../../schema/compiler";
+import { IndeterminateCheckbox } from "../../schema/controls";
 import type {
   NodeEditorComponent,
   PropertyEditorComponent,
-} from "./editorTypes";
-import { isStringArrowType } from "./formLogic";
+} from "../../schema/editorTypes";
+import { isStringArrowType } from "./model";
 import { useColumnMappings } from "./useColumnMappings";
-import { isObject, jsonValuesEqual, uniqueStrings } from "./value";
+import { isObject, jsonValuesEqual, uniqueStrings } from "../../schema/value";
 
 export function ColumnMappingsEditor({
   node,

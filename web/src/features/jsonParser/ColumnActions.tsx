@@ -1,7 +1,7 @@
 import { useRef, useState } from "preact/hooks";
 
-import { Button } from "../ui/Button";
-import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
+import { Button } from "../../ui/Button";
+import { anchoredMenuStyle, useAnchoredOverlay } from "../../ui/overlay";
 
 export function ColumnActions({
   row,
@@ -42,9 +42,10 @@ export function ColumnActions({
   };
   return (
     <div class={`row-actions ${open ? "open" : ""}`} ref={root}>
-      <button
-        ref={trigger}
+      <Button
+        buttonRef={trigger}
         class="row-action"
+        shape="row"
         type="button"
         aria-label={`Column ${row} actions`}
         aria-haspopup="menu"
@@ -56,7 +57,7 @@ export function ColumnActions({
         {hasCustomSettings && (
           <span class="custom-settings-dot" title="Custom column settings" />
         )}
-      </button>
+      </Button>
       {open && (
         <div
           class="row-actions-menu row-actions-menu-floating"

@@ -140,7 +140,7 @@ export function MessagePreviewDialog({
                 })),
                 { key: "parsed", label: "Schema" },
               ].map((tab) => (
-                <button
+                <Button
                   key={tab.key}
                   type="button"
                   role="tab"
@@ -149,7 +149,7 @@ export function MessagePreviewDialog({
                   onClick={() => setActiveTab(tab.key)}
                 >
                   {tab.label}
-                </button>
+                </Button>
               ))}
             </div>
             <div class="message-preview-content" role="tabpanel">

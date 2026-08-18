@@ -114,10 +114,13 @@ def select(paths: list[str]) -> Selection:
             result.web_build |= not path.startswith("web/tests/")
             continue
 
-        if path == "src/server/contracts/server-api.schema.json":
+        if path in {
+            "src/server/contracts/server-api.schema.json",
+            "src/server/contracts/server-api.fixture.json",
+        }:
             result.rust_modules.add("server")
-            result.integration_tests.add("web_ui")
             result.web_paths.add("src/generated/apiContract.ts")
+            result.web_paths.add("tests/catalogContract.test.ts")
             result.web_build = True
             continue
 
@@ -128,11 +131,11 @@ def select(paths: list[str]) -> Selection:
 
         if path.startswith("tests/support/"):
             result.integration_tests.update(p.stem for p in (ROOT / "tests").glob("*.rs"))
-            result.integration_tests.discard("web_ui")
             continue
 
         if path.startswith("tests/") and path.endswith(".rs"):
-            result.integration_tests.add(Path(path).stem)
+            if (ROOT / path).exists():
+                result.integration_tests.add(Path(path).stem)
             continue
 
         if path.startswith("src/") and path.endswith(".rs"):
@@ -167,7 +170,7 @@ def select(paths: list[str]) -> Selection:
                 result.integration_tests.add("json_roundtrip")
             elif module == "server":
                 result.rust_modules.add("server")
-                result.integration_tests.add("web_ui")
+                result.web_paths.add("tests/catalogContract.test.ts")
             else:
                 result.rust_modules.add(module)
             continue
@@ -196,7 +199,7 @@ def select(paths: list[str]) -> Selection:
 
 def changed_paths(base: str) -> list[str]:
     tracked = subprocess.run(
-        ["git", "diff", "--relative", "--name-only", "--diff-filter=ACMR", base],
+        ["git", "diff", "--relative", "--name-only", "--diff-filter=ACDMR", base],
         cwd=ROOT,
         check=True,
         text=True,

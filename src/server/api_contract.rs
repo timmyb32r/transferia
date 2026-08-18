@@ -402,6 +402,7 @@ pub fn fixture() -> anyhow::Result<Value> {
 
     Ok(serde_json::json!({
         "catalog": serde_json::to_value(catalog)?,
+        "full_catalog": serde_json::to_value(super::ui_catalog::build_ui_catalog()?)?,
         "delivery_record": serde_json::to_value(delivery)?,
         "runtime_states": serde_json::to_value(runtime_states)?,
         "discovery_result": serde_json::to_value(discovery)?,

@@ -1,4 +1,4 @@
-import { api } from "../api";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { isDirty, type EditorState } from "../state";
 import type {
   DeliveryRecord,
@@ -34,6 +34,7 @@ export function useDeliveryMutations({
   onDiscovery: (discovery: DiscoveryResult) => void;
   isCurrentContext: (context: EditorRequestContext) => boolean;
 }) {
+  const api = useControlPlane();
   const { beginOperation, finishOperation } = operations;
 
   const refreshList = async () => {

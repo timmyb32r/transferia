@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { DeliveryLogs } from "../src/delivery/DeliveryLogs";
+import { render } from "./support/render";
 
 describe("delivery logs", () => {
   afterEach(() => {
@@ -33,9 +34,8 @@ describe("delivery logs", () => {
       expect(read).toHaveBeenCalledWith("delivery-1", "active-run", undefined),
     );
     expect(view.getByText("ready", { exact: false })).toBeTruthy();
-    fireEvent.change(view.getByLabelText("Worker"), {
-      target: { value: "old-run" },
-    });
+    fireEvent.pointerDown(view.getByRole("button", { name: "Worker" }));
+    fireEvent.pointerDown(view.getByRole("option", { name: /old-run/ }));
     await waitFor(() =>
       expect(read).toHaveBeenCalledWith("delivery-1", "old-run", undefined),
     );

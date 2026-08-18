@@ -1,24 +1,19 @@
 // @vitest-environment jsdom
 
-import {
-  cleanup,
-  fireEvent,
-  render,
-  waitFor,
-  within,
-} from "@testing-library/preact";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
 import { useState } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import {
   ParserDetailsForm,
   SchemaForm,
-  SelectControl,
   SerializerDetailsForm,
 } from "../src/schema/SchemaForm";
+import { SelectControl } from "../src/ui/SelectControl";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
+import { render } from "./support/render";
 
 afterEach(cleanup);
 

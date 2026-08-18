@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate:api": "node scripts/generate-api.mjs",
-    "build": "npm run generate:api && tsc --noEmit && node scripts/build.mjs",
-    "pretest": "npm run generate:api",
+    "update:api": "node scripts/generate-api.mjs",
+    "check:api": "node scripts/generate-api.mjs --check",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "build": "npm run check:api && npm run check:architecture && tsc --noEmit && node scripts/build.mjs",
+    "pretest": "npm run check:api && npm run check:architecture",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 import { useEffect } from "preact/hooks";
 
-import { api } from "../api";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { LatestJob } from "../effects";
 import { isDirty, type EditorSessionId, type EditorState } from "../state";
 import type { DeliveryRecord, DeliverySummary } from "../types";
@@ -11,6 +11,7 @@ export function useDeliveryPolling({
   pollJob,
   onDeliveries,
   onRuntime,
+  onError,
 }: {
   editor: EditorState;
   listJob: LatestJob<void, undefined, DeliverySummary[]>;
@@ -21,28 +22,56 @@ export function useDeliveryPolling({
     expectedLocalRevision: number,
     delivery: DeliveryRecord,
   ) => void;
+  onError: (message: string | undefined) => void;
 }) {
+  const api = useControlPlane();
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      void listJob
-        .run(undefined, undefined, () => api.deliveries())
-        .then((result) => {
-          if (result !== undefined) onDeliveries(result.value);
-        })
-        .catch(() => undefined);
+    let cancelled = false;
+    let timer: number | undefined;
+    const tick = async () => {
+      let failed: unknown;
+      const reads: Promise<void>[] = [];
+      reads.push(
+        listJob
+          .run(undefined, undefined, () => api.deliveries())
+          .then((result) => {
+            if (result !== undefined) onDeliveries(result.value);
+          })
+          .catch((reason: unknown) => {
+            failed = reason;
+          }),
+      );
       if (editor.id !== undefined && !isDirty(editor)) {
         const sessionId = editor.sessionId;
         const expectedLocalRevision = editor.localRevision;
-        void pollJob
-          .run(sessionId, editor.id, (id) => api.delivery(id))
-          .then((result) => {
-            if (result !== undefined)
-              onRuntime(result.context, expectedLocalRevision, result.value);
-          })
-          .catch(() => undefined);
+        reads.push(
+          pollJob
+            .run(sessionId, editor.id, (id) => api.delivery(id))
+            .then((result) => {
+              if (result !== undefined)
+                onRuntime(result.context, expectedLocalRevision, result.value);
+            })
+            .catch((reason: unknown) => {
+              failed = reason;
+            }),
+        );
       }
-    }, 2000);
-    return () => window.clearInterval(timer);
+      await Promise.all(reads);
+      if (cancelled) return;
+      onError(
+        failed === undefined
+          ? undefined
+          : failed instanceof Error
+            ? failed.message
+            : String(failed),
+      );
+      timer = window.setTimeout(() => void tick(), 2000);
+    };
+    timer = window.setTimeout(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [
     editor.id,
     editor.sessionId,
@@ -52,5 +81,6 @@ export function useDeliveryPolling({
     pollJob,
     onDeliveries,
     onRuntime,
+    onError,
   ]);
 }

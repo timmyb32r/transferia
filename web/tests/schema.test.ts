@@ -7,8 +7,33 @@ import {
   isComplete,
   SchemaContractError,
 } from "../src/schema/compiler";
+import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 
 describe("schema compiler", () => {
+  it("validates every provider schema before the catalog becomes interactive", () => {
+    expect(() =>
+      validateCatalogSchemas({
+        common_schema: { type: "object" },
+        initial: {},
+        providers: [
+          {
+            key: "broken",
+            title: "Broken",
+            source: {
+              schema: {
+                type: "string",
+                "x-ui": { widget: "compact_array" },
+              },
+              initial: {},
+              delivery_modes: [],
+              partitioned: false,
+              connection_check: false,
+            },
+          },
+        ],
+      }),
+    ).toThrow(/compact_array.*does not support string/);
+  });
   it("accepts safe external-console links and rejects unsafe templates", () => {
     const node = compileSchema({
       type: "string",
@@ -158,6 +183,28 @@ describe("schema compiler", () => {
     });
     expect(isComplete(node, { known: "value" })).toBe(true);
     expect(isComplete(node, { known: "value", typo: true })).toBe(false);
+  });
+
+  it("rejects invalid optional properties when they are present", () => {
+    const node = compileSchema({
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        optional_port: { type: "integer", minimum: 1 },
+      },
+      required: ["name"],
+    });
+
+    expect(isComplete(node, { name: "delivery" })).toBe(true);
+    expect(isComplete(node, { name: "delivery", optional_port: 9440 })).toBe(
+      true,
+    );
+    expect(isComplete(node, { name: "delivery", optional_port: 0 })).toBe(
+      false,
+    );
+    expect(isComplete(node, { name: "delivery", optional_port: "9440" })).toBe(
+      false,
+    );
   });
 
   it("rejects schema features the form cannot honor", () => {

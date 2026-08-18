@@ -1,4 +1,4 @@
-import type { ComponentChildren, JSX } from "preact";
+import type { ComponentChildren, JSX, Ref } from "preact";
 
 type ButtonVariant = "default" | "primary" | "danger";
 type ButtonShape = "default" | "icon" | "row" | "add-row";
@@ -11,6 +11,7 @@ export interface ButtonProps extends Omit<
   class?: string | undefined;
   variant?: ButtonVariant;
   shape?: ButtonShape;
+  buttonRef?: Ref<HTMLButtonElement> | undefined;
 }
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
@@ -32,13 +33,19 @@ export function Button({
   variant = "default",
   shape = "default",
   type = "button",
+  buttonRef,
   ...props
 }: ButtonProps) {
   const classes = [VARIANT_CLASS[variant], SHAPE_CLASS[shape], className]
     .filter(Boolean)
     .join(" ");
   return (
-    <button type={type} class={classes || undefined} {...props}>
+    <button
+      {...(buttonRef === undefined ? {} : { ref: buttonRef })}
+      type={type}
+      class={classes || undefined}
+      {...props}
+    >
       {children}
     </button>
   );

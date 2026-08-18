@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   closestArrowType,
   isStringArrowType,
-  parsePartitionIds,
   reconcileSystemColumnKeys,
-} from "../src/schema/formLogic";
+} from "../src/features/jsonParser/model";
+import { parsePartitionIds } from "../src/features/topicPartitions/partitionIds";
 
 describe("schema form logic", () => {
   it("expands validated partition lists and inclusive ranges", () => {

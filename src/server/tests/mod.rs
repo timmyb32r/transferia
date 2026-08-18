@@ -5,8 +5,6 @@ use tokio::sync::mpsc;
 
 use crate::runtime::{RunId, SupervisorError, WorkerEvent, WorkerInfo, WorkerSupervisor};
 
-mod ui_catalog_contract;
-
 pub(super) struct TestSupervisor {
     events: Mutex<Option<mpsc::UnboundedReceiver<WorkerEvent>>>,
 }

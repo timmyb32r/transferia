@@ -5,7 +5,6 @@ import { Button } from "../ui/Button";
 import { EyeIcon, EyeOffIcon } from "../ui/icons";
 import { SelectControl } from "../ui/SelectControl";
 import { humanize, type CompiledNode } from "./compiler";
-import { parsePartitionIds } from "./formLogic";
 import { isObject } from "./value";
 
 export function IndeterminateCheckbox({
@@ -227,49 +226,4 @@ function bestByteUnit(value: number): number {
       return index;
   }
   return 0;
-}
-
-export function PartitionRangesInput({
-  id,
-  value,
-  disabled,
-  onChange,
-}: {
-  id?: string | undefined;
-  value: JsonValue;
-  disabled: boolean;
-  onChange: (value: JsonValue) => void;
-}) {
-  const canonical = formatPartitionIds(value);
-  const [raw, setRaw] = useState(canonical);
-  const [error, setError] = useState<string>();
-  useEffect(() => setRaw(canonical), [canonical]);
-  return (
-    <div class="validated-input">
-      <input
-        id={id}
-        type="text"
-        autoComplete="off"
-        inputMode="numeric"
-        placeholder="e.g. 1-5,7"
-        value={raw}
-        disabled={disabled}
-        aria-invalid={error !== undefined}
-        onInput={(event) => {
-          const next = event.currentTarget.value;
-          setRaw(next);
-          const parsed = parsePartitionIds(next);
-          setError(parsed.error);
-          if (parsed.value !== undefined) onChange(parsed.value);
-        }}
-      />
-      {error && <small class="validation-error">{error}</small>}
-    </div>
-  );
-}
-
-function formatPartitionIds(value: JsonValue): string {
-  return Array.isArray(value) && value.every((item) => typeof item === "number")
-    ? value.join(",")
-    : "";
 }

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { api } from "../api";
-import { SchemaForm, SelectControl } from "../schema/SchemaForm";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
+import { SchemaForm } from "../schema/SchemaForm";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
+import { SelectControl } from "../ui/SelectControl";
 import type {
   DiscoveryResult,
   EndpointDefinition,
@@ -27,6 +28,7 @@ export function EndpointCard(props: {
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
 }) {
+  const api = useControlPlane();
   const value =
     props.endpoint === undefined
       ? {}

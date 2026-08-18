@@ -15,7 +15,12 @@ fmt-check:
 # Regenerate the Rust-owned server API schema and its TypeScript projection
 api-contract:
     TRANSFERIA_SKIP_SERVER_UI=1 cargo run --bin generate-server-api
-    cd web && npm run generate:api
+    cd web && npm run update:api
+
+# Verify generated API artifacts without modifying the working tree.
+api-contract-check:
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run --bin generate-server-api -- --check
+    cd web && npm run check:api
 
 # Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
 check: fmt-check

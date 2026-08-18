@@ -1,7 +1,7 @@
 import { useMemo } from "preact/hooks";
 
-import { api } from "../api";
-import { LatestJob } from "../effects";
+import type { ValidationCommandResult } from "../generated/apiContract";
+import { TaskRegistry } from "../application/tasks";
 import type {
   DeliveryRecord,
   DeliverySummary,
@@ -17,40 +17,44 @@ export interface EditorRequestContext {
 
 export function useDeliveryJobs() {
   return useMemo(() => {
+    const tasks = new TaskRegistry();
     const jobs = {
-      yaml: new LatestJob<EditorRequestContext, JsonObject, { yaml: string }>(),
-      discovery: new LatestJob<
+      yaml: tasks.latest<EditorRequestContext, JsonObject, { yaml: string }>(
+        "revision",
+      ),
+      discovery: tasks.latest<
         EditorRequestContext,
         JsonObject,
         DiscoveryResult
-      >(),
-      list: new LatestJob<void, undefined, DeliverySummary[]>(),
-      poll: new LatestJob<EditorSessionId, string, DeliveryRecord>(),
-      open: new LatestJob<EditorSessionId, string, DeliveryRecord>(),
-      save: new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
-      validate: new LatestJob<
+      >("revision"),
+      list: tasks.latest<void, undefined, DeliverySummary[]>("global"),
+      poll: tasks.latest<EditorSessionId, string, DeliveryRecord>("revision"),
+      open: tasks.latest<EditorSessionId, string, DeliveryRecord>("session"),
+      save: tasks.latest<EditorRequestContext, undefined, DeliveryRecord>(
+        "session",
+      ),
+      validate: tasks.latest<
         EditorRequestContext,
         undefined,
-        Awaited<ReturnType<typeof api.validate>>
-      >(),
-      action: new LatestJob<EditorRequestContext, undefined, DeliveryRecord>(),
-      parseYaml: new LatestJob<
+        ValidationCommandResult
+      >("revision"),
+      action: tasks.latest<EditorRequestContext, undefined, DeliveryRecord>(
+        "revision",
+      ),
+      parseYaml: tasks.latest<
         EditorRequestContext,
         string,
         { config: JsonObject }
-      >(),
+      >("revision"),
     };
     return {
       ...jobs,
+      cancelRevisionJobs() {
+        tasks.cancel("revision");
+      },
       cancelEditorJobs() {
-        jobs.yaml.cancel();
-        jobs.discovery.cancel();
-        jobs.poll.cancel();
-        jobs.open.cancel();
-        jobs.save.cancel();
-        jobs.validate.cancel();
-        jobs.action.cancel();
-        jobs.parseYaml.cancel();
+        tasks.cancel("revision");
+        tasks.cancel("session");
       },
     };
   }, []);

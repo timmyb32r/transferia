@@ -10,7 +10,7 @@ import {
 } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { App } from "../src/app";
 import type {
   DeliveryRecord,
@@ -38,6 +38,18 @@ describe("App request orchestration", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.useRealTimers();
+  });
+
+  it("boots through an injected control-plane port without global transport mocks", async () => {
+    const catalog = vi.fn().mockResolvedValue(CATALOG);
+    const deliveries = vi.fn().mockResolvedValue([]);
+    const view = render(<App controlPlane={{ ...api, catalog, deliveries }} />);
+
+    await within(view.container as HTMLElement).findByRole("heading", {
+      name: "Untitled delivery",
+    });
+    expect(catalog).toHaveBeenCalledOnce();
+    expect(deliveries).toHaveBeenCalledOnce();
   });
 
   it("highlights missing required fields when inactive Activate is clicked", async () => {

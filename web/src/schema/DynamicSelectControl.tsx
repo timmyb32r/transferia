@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { api } from "../api";
 import { LatestJob } from "../effects";
+import type { DynamicOptions } from "../generated/apiContract";
 import { SelectControl } from "../ui/SelectControl";
+import { useFormEnvironment } from "./formEnvironment";
 
 export function DynamicSelectControl({
   id,
@@ -19,13 +20,14 @@ export function DynamicSelectControl({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { options: loadOptions } = useFormEnvironment();
   const [options, setOptions] = useState<
     Array<{ value: string; label: string }>
   >([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<string>();
   const optionsJob = useRef(
-    new LatestJob<string, string, Awaited<ReturnType<typeof api.options>>>(),
+    new LatestJob<string, string, DynamicOptions>(),
   ).current;
   const dependencyKey = JSON.stringify(dependencies);
   const load = (force = false) => {
@@ -33,7 +35,7 @@ export function DynamicSelectControl({
     setStatus("Loading…");
     void optionsJob
       .run(`${source}:${dependencyKey}`, source, (key, signal) =>
-        api.options({ key, dependencies, signal }),
+        loadOptions({ key, dependencies, signal }),
       )
       .then((result) => {
         if (result === undefined) return;

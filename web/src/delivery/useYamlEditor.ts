@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { api } from "../api";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { EditorState } from "../state";
 import type { JsonObject } from "../types";
 import type { EditorRequestContext, useDeliveryJobs } from "./useDeliveryJobs";
@@ -30,6 +30,7 @@ export function useYamlEditor({
   isCurrentContext: (context: EditorRequestContext) => boolean;
   applyConfig: (config: JsonObject) => void;
 }) {
+  const api = useControlPlane();
   const [yaml, setYaml] = useState("");
   const [yamlDraft, setYamlDraft] = useState("");
   const [activeView, setActiveView] = useState<EditorView>("ui");

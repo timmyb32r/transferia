@@ -1,9 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 
-import type { JsonObject, JsonValue } from "../json";
-import { useStableRowIds } from "./controls";
-import { closestArrowType, isStringArrowType } from "./formLogic";
-import { isObject } from "./value";
+import type { JsonObject, JsonValue } from "../../json";
+import { useStableRowIds } from "../../schema/controls";
+import { closestArrowType, isStringArrowType } from "./model";
+import { isObject } from "../../schema/value";
 
 export function useColumnMappings({
   value,

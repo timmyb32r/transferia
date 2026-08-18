@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { api } from "../api";
+import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { WorkerLogView } from "../types";
 import { Button } from "../ui/Button";
+import { SelectControl } from "../ui/SelectControl";
 
 const MAX_VIEWER_CHARACTERS = 1024 * 1024;
 
 export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
+  const api = useControlPlane();
   const [workers, setWorkers] = useState<WorkerLogView[]>([]);
   const [workerId, setWorkerId] = useState("");
   const [text, setText] = useState("");
@@ -91,19 +93,18 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
       <div class="delivery-logs-toolbar">
         <label>
           <span>Worker</span>
-          <select
+          <SelectControl
+            id="delivery-log-worker"
             value={workerId}
             disabled={workers.length === 0}
-            onChange={(event) => setWorkerId(event.currentTarget.value)}
-          >
-            {workers.length === 0 && <option value="">No worker logs</option>}
-            {workers.map((worker) => (
-              <option value={worker.worker_id}>
-                {worker.worker_id} · {formatBytes(worker.size_bytes)}
-                {worker.active ? " · running" : ""}
-              </option>
-            ))}
-          </select>
+            placeholder="No worker logs"
+            clearable={false}
+            options={workers.map((worker) => ({
+              value: worker.worker_id,
+              label: `${worker.worker_id} · ${formatBytes(worker.size_bytes)}${worker.active ? " · running" : ""}`,
+            }))}
+            onChange={setWorkerId}
+          />
         </label>
         <label class="delivery-logs-follow">
           <input

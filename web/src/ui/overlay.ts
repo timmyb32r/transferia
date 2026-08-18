@@ -1,5 +1,7 @@
 import type { RefObject } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+
+let activeOverlay: { owner: symbol; close: () => void } | undefined;
 
 export function useAnchoredOverlay({
   open,
@@ -15,18 +17,23 @@ export function useAnchoredOverlay({
   closeOnViewportChange?: boolean;
 }): void {
   const [, refreshPosition] = useState(0);
+  const owner = useRef(Symbol("overlay")).current;
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
+    if (activeOverlay?.owner !== owner) activeOverlay?.close();
+    activeOverlay = { owner, close: () => closeRef.current() };
     const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) onClose();
+      if (!root.current?.contains(event.target as Node)) closeRef.current();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      onClose();
+      closeRef.current();
       trigger.current?.focus();
     };
     const viewportChanged = () => {
-      if (closeOnViewportChange) onClose();
+      if (closeOnViewportChange) closeRef.current();
       else refreshPosition((revision) => revision + 1);
     };
     document.addEventListener("pointerdown", closeOutside);
@@ -34,12 +41,13 @@ export function useAnchoredOverlay({
     window.addEventListener("resize", viewportChanged);
     window.addEventListener("scroll", viewportChanged, true);
     return () => {
+      if (activeOverlay?.owner === owner) activeOverlay = undefined;
       document.removeEventListener("pointerdown", closeOutside);
       document.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("resize", viewportChanged);
       window.removeEventListener("scroll", viewportChanged, true);
     };
-  }, [open, closeOnViewportChange, onClose]);
+  }, [open, closeOnViewportChange, owner]);
 }
 
 export function anchoredMenuStyle(

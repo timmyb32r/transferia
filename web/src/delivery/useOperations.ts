@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "preact/hooks";
 
-import type { OperationKey, OperationState } from "./EditorChrome";
+import type { OperationKey, OperationState } from "../application/operations";
 
 export function useOperations() {
   const [operations, setOperations] = useState<

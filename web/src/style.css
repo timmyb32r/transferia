@@ -102,7 +102,7 @@
   left: 10px;
   height: 2px;
   content: "";
-  background: var(--accent);
+  background: var(--blue);
   border-radius: 2px 2px 0 0;
 }
 
@@ -582,7 +582,7 @@
 }
 body {
   margin: 0;
-  min-width: 960px;
+  min-width: 320px;
   background: var(--canvas);
   color: var(--text-primary);
   line-height: 1.35;
@@ -1176,9 +1176,8 @@ input[type="checkbox"]:disabled {
   font-size: 10px;
   cursor: help;
 }
-.help:hover::after,
-.help:focus::after {
-  content: attr(data-tooltip);
+.help-tooltip {
+  display: none;
   position: absolute;
   z-index: 20;
   left: 20px;
@@ -1195,6 +1194,11 @@ input[type="checkbox"]:disabled {
   text-align: left;
   letter-spacing: normal;
   text-transform: none;
+}
+.help:hover .help-tooltip,
+.help:focus .help-tooltip,
+.help:focus-within .help-tooltip {
+  display: block;
 }
 .select {
   position: relative;
@@ -1455,8 +1459,8 @@ input[type="checkbox"]:disabled {
 }
 
 .external-link-button:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
 }
 
 .external-link-button svg {
@@ -2011,7 +2015,7 @@ button::after {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
 }
@@ -2045,7 +2049,7 @@ button::after {
 }
 
 .sql-playground {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   padding-top: 12px;
 }
 
@@ -2076,7 +2080,7 @@ button::after {
 .sql-playground-output th,
 .sql-playground-output td {
   padding: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   text-align: left;
   white-space: nowrap;
 }

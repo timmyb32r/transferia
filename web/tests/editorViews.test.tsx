@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, waitFor } from "@testing-library/preact";
 import { useState } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { EndpointCard } from "../src/delivery/EditorViews";
 import type { EndpointDefinition, JsonObject } from "../src/types";
+import { render } from "./support/render";
 
 const endpoint: EndpointDefinition = {
   schema: {

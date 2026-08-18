@@ -52,7 +52,6 @@ pub struct UiCatalog {
     pub providers: Vec<ProviderDefinition>,
 }
 
-#[cfg(test)]
 pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {
     build_ui_catalog_with(&Transferia::public()?)
 }

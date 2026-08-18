@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MiddlewareEditor } from "../src/schema/MiddlewareEditor";
-import { SourceSampleProvider } from "../src/delivery/SourceSampleContext";
+import { MiddlewareEditor } from "../src/features/middleware/MiddlewareEditor";
+import { SourceSampleProvider } from "../src/features/middleware/SourceSampleContext";
+import { render } from "./support/render";
 
 afterEach(cleanup);
 

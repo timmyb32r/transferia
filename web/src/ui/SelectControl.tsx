@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 
 import {
   anchoredMenuStyle,
@@ -36,6 +36,8 @@ export function SelectControl({
   onOpen,
   onChange,
 }: SelectControlProps) {
+  const generatedId = useId();
+  const menuId = `${id ?? generatedId}-listbox`;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -102,6 +104,7 @@ export function SelectControl({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={menuId}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
@@ -140,7 +143,7 @@ export function SelectControl({
               onInput={(event) => setQuery(event.currentTarget.value)}
             />
           )}
-          <div role="listbox">
+          <div id={menuId} role="listbox" aria-label={placeholder}>
             {loading && (
               <div class="select-loading" role="status">
                 <span class="spinner" aria-hidden="true" /> Loading…
@@ -190,6 +193,7 @@ export function MultiSelectControl({
   disabled: boolean;
   onChange: (values: string[]) => void;
 }) {
+  const menuId = `${useId()}-listbox`;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -235,6 +239,7 @@ export function MultiSelectControl({
         disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={menuId}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
@@ -255,6 +260,7 @@ export function MultiSelectControl({
       </button>
       {open && (
         <div
+          id={menuId}
           class="select-menu select-menu-floating"
           style={anchoredMenuStyle(trigger.current)}
           role="listbox"
@@ -352,11 +358,7 @@ function handleSelectKeyDown(
     trigger.current?.focus();
     return;
   }
-  if (
-    (event.key !== "ArrowDown" && event.key !== "ArrowUp") ||
-    !(event.target instanceof HTMLButtonElement)
-  )
-    return;
+  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
   event.preventDefault();
   if (!open) {
     const direction = event.key;
@@ -367,8 +369,7 @@ function handleSelectKeyDown(
           '[role="option"]',
         ) ?? []),
       ];
-      const target =
-        direction === "ArrowDown" ? options[0] : options[options.length - 1];
+      const target = direction === "ArrowDown" ? options[0] : options.at(-1);
       target?.focus();
     });
     return;
@@ -377,8 +378,17 @@ function handleSelectKeyDown(
     ...(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
       []),
   ];
+  if (options.length === 0) return;
+  if (event.key === "Home" || event.key === "End") {
+    options[event.key === "Home" ? 0 : options.length - 1]?.focus();
+    return;
+  }
+  if (!(event.target instanceof HTMLButtonElement)) {
+    options[event.key === "ArrowDown" ? 0 : options.length - 1]?.focus();
+    return;
+  }
   const current = options.indexOf(event.target);
-  if (current < 0 || options.length === 0) return;
+  if (current < 0) return;
   const direction = event.key === "ArrowDown" ? 1 : -1;
   options[(current + direction + options.length) % options.length]?.focus();
 }

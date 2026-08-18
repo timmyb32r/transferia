@@ -1,12 +1,12 @@
-import type { JsonValue } from "../json";
+import type { JsonValue } from "../../json";
 import { ColumnMappingsEditor } from "./ColumnMappingsEditor";
-import type { CompiledNode } from "./compiler";
+import type { CompiledNode } from "../../schema/compiler";
 import type {
   NodeEditorComponent,
   PropertyEditorComponent,
-} from "./editorTypes";
-import { reconcileSystemColumnKeys } from "./formLogic";
-import { isObject, stringArray } from "./value";
+} from "../../schema/editorTypes";
+import { reconcileSystemColumnKeys } from "./model";
+import { isObject, stringArray } from "../../schema/value";
 
 export function JsonParserEditor({
   node,

@@ -1,4 +1,5 @@
 import type { ComponentChildren } from "preact";
+import { useId } from "preact/hooks";
 
 export function FormField({
   label,
@@ -15,6 +16,7 @@ export function FormField({
   class?: string | undefined;
   children: ComponentChildren;
 }) {
+  const tooltipId = useId();
   return (
     <div class={["form-row", className].filter(Boolean).join(" ")}>
       <label class="field-label" for={controlId}>
@@ -23,8 +25,11 @@ export function FormField({
           {optional && <small class="optional">(optional)</small>}
         </span>
         {description && (
-          <span class="help" tabindex={0} data-tooltip={description}>
-            ?
+          <span class="help" tabindex={0} aria-describedby={tooltipId}>
+            <span aria-hidden="true">?</span>
+            <span id={tooltipId} role="tooltip" class="help-tooltip">
+              {description}
+            </span>
           </span>
         )}
       </label>

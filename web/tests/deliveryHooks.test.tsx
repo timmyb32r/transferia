@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, renderHook } from "@testing-library/preact";
+import { act, cleanup } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../src/api";
+import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { useDeliveryJobs } from "../src/delivery/useDeliveryJobs";
 import { useDeliveryMutations } from "../src/delivery/useDeliveryMutations";
 import { useDeliveryPolling } from "../src/delivery/useDeliveryPolling";
@@ -17,6 +17,7 @@ import type {
   DeliverySummary,
   DiscoveryResult,
 } from "../src/types";
+import { renderHook } from "./support/render";
 
 afterEach(() => {
   cleanup();
@@ -101,6 +102,7 @@ describe("delivery controllers", () => {
         pollJob,
         onDeliveries,
         onRuntime,
+        onError: vi.fn(),
       }),
     );
 
@@ -110,6 +112,47 @@ describe("delivery controllers", () => {
 
     expect(onDeliveries).toHaveBeenCalledWith([summary]);
     expect(onRuntime).toHaveBeenCalledWith("session", 7, record);
+  });
+
+  it("waits for a slow polling cycle before scheduling the next one", async () => {
+    vi.useFakeTimers();
+    let finishList!: (value: DeliverySummary[]) => void;
+    const deliveries = vi.spyOn(api, "deliveries").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishList = resolve;
+        }),
+    );
+    const editor = newEditor();
+    const listJob = new LatestJob<void, undefined, DeliverySummary[]>();
+    const pollJob = new LatestJob<string, string, DeliveryRecord>();
+
+    renderHook(() =>
+      useDeliveryPolling({
+        editor,
+        listJob,
+        pollJob,
+        onDeliveries: vi.fn(),
+        onRuntime: vi.fn(),
+        onError: vi.fn(),
+      }),
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+    expect(deliveries).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      finishList([]);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(1_999);
+    });
+    expect(deliveries).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(deliveries).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a successful save authoritative when sidebar refresh fails", async () => {

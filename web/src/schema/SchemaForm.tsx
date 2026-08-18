@@ -6,7 +6,6 @@ import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
 import { FormField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
-export { SelectControl } from "../ui/SelectControl";
 import {
   branchMatches,
   createValue,
@@ -23,11 +22,7 @@ import {
   partitionRangesProperty,
 } from "./partitionRanges";
 import { isObject, jsonPointer } from "./value";
-import {
-  isHiddenProperty,
-  renderNodeWidget,
-  renderPropertyWidget,
-} from "./widgetRenderers";
+import { useWidgetRegistry, type WidgetRegistry } from "./widgetRegistry";
 
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
@@ -83,93 +78,75 @@ export function SchemaForm({
   );
 }
 
-export function ParserDetailsForm({
-  node,
-  value,
-  disabled = false,
-  showRequiredErrors = false,
-  onChange,
-}: SchemaFormProps) {
-  if (node.kind !== "object") return null;
-  const parserEntry = Object.entries(node.properties).find(
-    ([, child]) => child.xUi.widget === "parser",
-  );
-  if (parserEntry === undefined) return null;
-  const [name, parserNode] = parserEntry;
-  if (parserNode.kind !== "union") return null;
-  const object = isObject(value) ? value : {};
-  const parserValue = object[name];
-  const selected =
-    parserValue === undefined
-      ? undefined
-      : parserNode.branches.find((branch) =>
-          branchMatches(branch, parserValue),
-        );
-  if (
-    selected === undefined ||
-    selected.constant !== undefined ||
-    !nodeHasEditableContent(selected.node)
-  )
-    return null;
+export function ParserDetailsForm({ ...props }: SchemaFormProps) {
   return (
-    <RootValueContext.Provider value={value}>
-      <RequiredErrorsContext.Provider value={showRequiredErrors}>
-        <div class="source-parser-bridge" aria-hidden="true" />
-        <section class="parser-details-card" tabindex={-1}>
-          <div class="section-heading">
-            <h2>{selected.label} settings</h2>
-          </div>
-          <NodeEditor
-            node={selected.node}
-            value={parserValue ?? createValue(selected.node)}
-            disabled={disabled}
-            onChange={(next) => onChange({ ...object, [name]: next })}
-          />
-        </section>
-      </RequiredErrorsContext.Provider>
-    </RootValueContext.Provider>
+    <VariantDetailsForm
+      {...props}
+      widget="parser"
+      bridgeClass="source-parser-bridge"
+      cardClass="parser-details-card"
+    />
   );
 }
 
-export function SerializerDetailsForm({
+export function SerializerDetailsForm({ ...props }: SchemaFormProps) {
+  return (
+    <VariantDetailsForm
+      {...props}
+      widget="serializer"
+      bridgeClass="sink-serializer-bridge"
+      cardClass="serializer-details-card"
+    />
+  );
+}
+
+function VariantDetailsForm({
   node,
   value,
   disabled = false,
   showRequiredErrors = false,
   onChange,
-}: SchemaFormProps) {
+  widget,
+  bridgeClass,
+  cardClass,
+}: SchemaFormProps & {
+  widget: "parser" | "serializer";
+  bridgeClass: string;
+  cardClass: string;
+}) {
+  const widgets = useWidgetRegistry();
   if (node.kind !== "object") return null;
-  const serializerEntry = Object.entries(node.properties).find(
-    ([, child]) => child.xUi.widget === "serializer",
+  const variantEntry = Object.entries(node.properties).find(
+    ([, child]) => child.xUi.widget === widget,
   );
-  if (serializerEntry === undefined) return null;
-  const [name, serializerNode] = serializerEntry;
-  if (serializerNode.kind !== "union") return null;
+  if (variantEntry === undefined) return null;
+  const [name, variantNode] = variantEntry;
+  if (variantNode.kind !== "union") return null;
   const object = isObject(value) ? value : {};
-  const serializerValue = object[name];
+  const variantValue = object[name];
   const selected =
-    serializerValue === undefined
+    variantValue === undefined
       ? undefined
-      : serializerNode.branches.find((branch) =>
-          branchMatches(branch, serializerValue),
+      : variantNode.branches.find((branch) =>
+          branchMatches(branch, variantValue),
         );
   if (
     selected === undefined ||
     selected.constant !== undefined ||
-    !nodeHasEditableContent(selected.node)
+    !nodeHasEditableContent(selected.node, widgets)
   )
     return null;
   return (
     <RootValueContext.Provider value={value}>
       <RequiredErrorsContext.Provider value={showRequiredErrors}>
-        <div class="sink-serializer-bridge" aria-hidden="true" />
-        <section class="serializer-details-card" tabindex={-1}>
+        <div class={bridgeClass} aria-hidden="true" />
+        <section class={cardClass} tabindex={-1}>
           <div class="section-heading">
             <h2>{selected.label} settings</h2>
           </div>
           <NodeEditor
             node={selected.node}
-            value={serializerValue ?? createValue(selected.node)}
+            value={variantValue ?? createValue(selected.node)}
             disabled={disabled}
             onChange={(next) => onChange({ ...object, [name]: next })}
           />
@@ -207,6 +184,7 @@ function NodeEditor({
   controlId,
   connectionAction,
 }: SchemaFormProps) {
+  const widgets = useWidgetRegistry();
   const isDisabled = disabled ?? false;
   const parserSelectionOnly = useContext(ParserSelectionContext);
   const serializerSelectionOnly = useContext(SerializerSelectionContext);
@@ -236,7 +214,7 @@ function NodeEditor({
     partitionRanges?.arrayName,
     partitionRanges?.fieldName,
   ]);
-  const customWidget = renderNodeWidget(
+  const customWidget = widgets.renderNode(
     { node, value, disabled: isDisabled, onChange, path, controlId },
     { NodeEditor, PropertyEditor },
   );
@@ -245,7 +223,7 @@ function NodeEditor({
     case "object": {
       const object = isObject(value) ? value : {};
       const visible = Object.entries(node.properties).filter(
-        ([, child]) => !isHiddenProperty(child),
+        ([, child]) => !widgets.isHidden(child),
       );
       const regular = visible.filter(
         ([, child]) =>
@@ -456,7 +434,7 @@ function NodeEditor({
             (!serializerSelectionOnly || node.xUi.widget !== "serializer") &&
             selected >= 0 &&
             node.branches[selected]!.constant === undefined &&
-            nodeHasEditableContent(node.branches[selected]!.node) && (
+            nodeHasEditableContent(node.branches[selected]!.node, widgets) && (
               <div class="nested-section">
                 <NodeEditor
                   node={node.branches[selected]!.node}
@@ -694,13 +672,14 @@ function PropertyEditor({
   onChange,
   path = `#/${name}`,
 }: PropertyEditorProps) {
+  const widgets = useWidgetRegistry();
   const showRequiredErrors = useContext(RequiredErrorsContext);
   const missingRequired =
     showRequiredErrors && required && !isComplete(node, value);
   const effective = value ?? createValue(node);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
-  const customWidget = renderPropertyWidget(
+  const customWidget = widgets.renderProperty(
     {
       name,
       node,
@@ -764,10 +743,13 @@ function controlWidthClass(_name: string, node: CompiledNode): string {
   return "";
 }
 
-function nodeHasEditableContent(node: CompiledNode): boolean {
+function nodeHasEditableContent(
+  node: CompiledNode,
+  widgets: WidgetRegistry,
+): boolean {
   if (node.kind !== "object") return true;
   return Object.entries(node.properties).some(
-    ([, child]) => !isHiddenProperty(child),
+    ([, child]) => !widgets.isHidden(child),
   );
 }
 

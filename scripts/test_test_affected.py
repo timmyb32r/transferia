@@ -65,6 +65,10 @@ class AffectedTestsTest(unittest.TestCase):
             [["cargo", "test", "--all-features", "--test", "e2e_postgres"]],
         )
 
+    def test_deleted_integration_test_is_not_scheduled(self):
+        selection = test_affected.select(["tests/removed_test.rs"])
+        self.assertEqual(selection.integration_tests, set())
+
     def test_top_level_parser_file_uses_a_real_module_filter(self):
         selection = test_affected.select(["src/parsers/detection.rs"])
         rust, _ = test_affected.commands(selection)
@@ -99,7 +103,9 @@ class AffectedTestsTest(unittest.TestCase):
         subprocess.run(["node", generator], cwd=generator.parents[1], check=True)
         before = output.stat().st_mtime_ns
 
-        subprocess.run(["node", generator], cwd=generator.parents[1], check=True)
+        subprocess.run(
+            ["node", generator, "--check"], cwd=generator.parents[1], check=True
+        )
 
         self.assertEqual(output.stat().st_mtime_ns, before)
 

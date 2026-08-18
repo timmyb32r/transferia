@@ -1,11 +1,11 @@
 import { useState } from "preact/hooks";
 
-import { api } from "../api";
-import type { JsonObject, JsonValue } from "../types";
-import { Button } from "../ui/Button";
-import { SelectControl } from "../ui/SelectControl";
-import { useSourceSample } from "../delivery/SourceSampleContext";
-import { isObject } from "./value";
+import { useControlPlane } from "../../bootstrap/ApplicationServicesProvider";
+import { useSourceSample } from "./SourceSampleContext";
+import { isObject } from "../../schema/value";
+import type { JsonObject, JsonValue } from "../../types";
+import { Button } from "../../ui/Button";
+import { SelectControl } from "../../ui/SelectControl";
 
 interface PlaygroundState {
   sample: string;
@@ -25,6 +25,7 @@ export function MiddlewareEditor({
   disabled: boolean;
   onChange: (value: JsonValue) => void;
 }) {
+  const api = useControlPlane();
   const entries = Array.isArray(value) ? value : [];
   const loadSourceSample = useSourceSample();
   const [playgrounds, setPlaygrounds] = useState<
