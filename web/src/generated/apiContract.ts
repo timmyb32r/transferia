@@ -243,6 +243,7 @@ export type ParserDetection = {
   label: string;
   config: JsonValue;
   inferred_columns: Array<InferredColumn>;
+  sample_rows: Array<JsonValue>;
   preview_tabs: Array<ParserPreviewTab>;
   sampled_messages: number;
   sampled_rows: number;

@@ -15,6 +15,8 @@ pub struct ParserDetection {
 
     pub inferred_columns: Vec<InferredColumn>,
 
+    pub sample_rows: Vec<Value>,
+
     pub preview_tabs: Vec<ParserPreviewTab>,
 
     pub sampled_messages: usize,
@@ -157,6 +159,7 @@ impl ParserDetector for JsonDetector {
                 }
             }),
             inferred_columns,
+            sample_rows: records.clone(),
             preview_tabs,
             sampled_messages,
             sampled_rows: records.len(),

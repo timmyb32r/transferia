@@ -1,18 +1,21 @@
 import {
   compiledSchema,
   endpointValue,
+  isObject,
   selectedEndpoints,
   stringValue,
 } from "./editorConfig";
-import { CommonSettings, ContractView, EndpointCard } from "./EditorViews";
+import { CommonSettings, EndpointCard } from "./EditorViews";
 import {
   ParserDetailsForm,
   SelectControl,
   SerializerDetailsForm,
 } from "../schema/SchemaForm";
 import type { EditorState } from "../state";
-import type { DiscoveryResult, JsonObject, UiCatalog } from "../types";
+import type { JsonObject, UiCatalog } from "../types";
 import { TopField } from "../ui/FormField";
+import { api } from "../api";
+import { SourceSampleProvider } from "./SourceSampleContext";
 
 type EndpointSelection = ReturnType<typeof selectedEndpoints>;
 
@@ -20,7 +23,6 @@ export function DeliveryConfiguration({
   catalog,
   editor,
   selection,
-  discovery,
   readOnly,
   showRequiredErrors,
   onName,
@@ -31,7 +33,6 @@ export function DeliveryConfiguration({
   catalog: UiCatalog;
   editor: EditorState;
   selection: EndpointSelection | undefined;
-  discovery: DiscoveryResult | undefined;
   readOnly: boolean;
   showRequiredErrors: boolean;
   onName: (name: string) => void;
@@ -45,7 +46,29 @@ export function DeliveryConfiguration({
   const sinkProviders = catalog.providers.filter(
     (provider) => provider.sink !== undefined,
   );
+  const sourceSampleLoader =
+    selection?.error === undefined && selection?.source !== undefined
+      ? async () => {
+          const sourceConfig = endpointValue(
+            editor.config,
+            "source",
+            selection.sourceKey,
+          );
+          const result = await api.previewMessage({
+            provider: selection.sourceKey,
+            config: isObject(sourceConfig) ? sourceConfig : {},
+            max_bytes: 10 * 1024 * 1024,
+          });
+          const detection = result.detections.find(
+            (candidate) => candidate.sample_rows.length > 0,
+          );
+          if (detection === undefined)
+            throw new Error("No configured parser could produce sample rows");
+          return detection.sample_rows;
+        }
+      : undefined;
   return (
+    <SourceSampleProvider loader={sourceSampleLoader}>
     <div class="editor-view" role="tabpanel" key={`editor-${editor.sessionId}`}>
       <section class="card identity-card">
         <TopField
@@ -174,8 +197,7 @@ export function DeliveryConfiguration({
           onChange={onConfig}
         />
       </section>
-
-      {discovery && <ContractView result={discovery} />}
     </div>
+    </SourceSampleProvider>
   );
 }

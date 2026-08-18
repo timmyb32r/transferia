@@ -19,6 +19,7 @@ fn json_detection_infers_framing_and_lossless_primitive_columns() {
     assert_eq!(detected[0].preview_tabs[0].label, "Pretty print");
     assert_eq!(detected[0].sampled_messages, 1);
     assert_eq!(detected[0].sampled_rows, 2);
+    assert_eq!(detected[0].sample_rows.len(), 2);
 }
 
 #[test]

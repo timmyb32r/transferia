@@ -4,11 +4,13 @@ import { api } from "../api";
 import type { JsonObject, JsonValue } from "../types";
 import { Button } from "../ui/Button";
 import { SelectControl } from "../ui/SelectControl";
+import { useSourceSample } from "../delivery/SourceSampleContext";
 import { isObject } from "./value";
 
 interface PlaygroundState {
   sample: string;
   loading: boolean;
+  loadingSample?: boolean;
   error?: string;
   columns?: Array<{ name: string; arrow_type: string; nullable: boolean }>;
   rows?: JsonValue[];
@@ -24,6 +26,7 @@ export function MiddlewareEditor({
   onChange: (value: JsonValue) => void;
 }) {
   const entries = Array.isArray(value) ? value : [];
+  const loadSourceSample = useSourceSample();
   const [playgrounds, setPlaygrounds] = useState<Record<number, PlaygroundState>>(
     {},
   );
@@ -56,7 +59,7 @@ export function MiddlewareEditor({
         const kind = "datafusion" in object ? "datafusion" : "filter";
         const raw = isObject(object[kind]) ? object[kind] : {};
         const playground = playgrounds[index] ?? {
-          sample: '[{"id": 1, "name": "one"}, {"id": 2, "name": "two"}]',
+          sample: "",
           loading: false,
         };
         const setPlayground = (next: PlaygroundState) =>
@@ -137,11 +140,42 @@ export function MiddlewareEditor({
                     }
                   />
                 </label>
-                <details class="sql-playground">
+                <details
+                  class="sql-playground"
+                  onToggle={(event) => {
+                    if (
+                      !event.currentTarget.open ||
+                      playground.sample !== "" ||
+                      playground.loadingSample ||
+                      loadSourceSample === undefined
+                    )
+                      return;
+                    setPlayground({ ...playground, loadingSample: true });
+                    void loadSourceSample()
+                      .then((rows) =>
+                        setPlayground({
+                          ...playground,
+                          sample: JSON.stringify(rows, null, 2),
+                          loading: false,
+                          loadingSample: false,
+                        }),
+                      )
+                      .catch((error: unknown) =>
+                        setPlayground({
+                          ...playground,
+                          loading: false,
+                          loadingSample: false,
+                          error:
+                            error instanceof Error ? error.message : String(error),
+                        }),
+                      );
+                  }}
+                >
                   <summary>Playground</summary>
                   <div class="sql-playground-grid">
                     <label>
                       <span>Sample rows · JSON array</span>
+                      {playground.loadingSample && <small>Loading from source…</small>}
                       <textarea
                         spellcheck={false}
                         value={playground.sample}
@@ -184,7 +218,7 @@ export function MiddlewareEditor({
                   </div>
                   <Button
                     variant="primary"
-                    disabled={playground.loading}
+                    disabled={playground.loading || playground.sample === ""}
                     onClick={async () => {
                       const { error: _error, ...pending } = playground;
                       setPlayground({ ...pending, loading: true });

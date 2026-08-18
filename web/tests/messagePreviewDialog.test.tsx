@@ -28,6 +28,7 @@ describe("message preview dialog", () => {
               label: "JSON parser",
               config: { common: {}, json_parser: {} },
               inferred_columns: [],
+              sample_rows: [{}],
               preview_tabs: [],
               sampled_messages: 1,
               sampled_rows: 1,
@@ -116,6 +117,7 @@ describe("message preview dialog", () => {
                   nullable: false,
                 },
               ],
+              sample_rows: [{ id: 1 }],
               preview_tabs: [
                 {
                   key: "json_pretty_print",

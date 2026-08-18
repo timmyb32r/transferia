@@ -1052,6 +1052,10 @@
             "$ref": "#/$defs/InferredColumn"
           }
         },
+        "sample_rows": {
+          "type": "array",
+          "items": true
+        },
         "preview_tabs": {
           "type": "array",
           "items": {
@@ -1075,6 +1079,7 @@
         "label",
         "config",
         "inferred_columns",
+        "sample_rows",
         "preview_tabs",
         "sampled_messages",
         "sampled_rows"

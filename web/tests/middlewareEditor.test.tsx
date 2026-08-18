@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MiddlewareEditor } from "../src/schema/MiddlewareEditor";
+import { SourceSampleProvider } from "../src/delivery/SourceSampleContext";
 
 afterEach(cleanup);
 
@@ -33,5 +34,24 @@ describe("DataFusion middleware editor", () => {
     expect(view.getByText("SQL over table")).toBeTruthy();
     expect(view.getByText("Playground")).toBeTruthy();
     expect(view.getByDisplayValue("SELECT id FROM input")).toBeTruthy();
+  });
+
+  it("loads playground rows from the source instead of inventing sample data", async () => {
+    const load = vi.fn().mockResolvedValue([{ id: 17, name: "source" }]);
+    const view = render(
+      <SourceSampleProvider loader={load}>
+        <MiddlewareEditor
+          value={[{ datafusion: { sql: "SELECT * FROM input" } }]}
+          disabled={false}
+          onChange={() => undefined}
+        />
+      </SourceSampleProvider>,
+    );
+
+    fireEvent.click(view.getByText("Playground"));
+    await waitFor(() => expect(load).toHaveBeenCalledOnce());
+
+    expect((view.getByLabelText(/Sample rows/) as HTMLTextAreaElement).value)
+      .toContain('"id": 17');
   });
 });
