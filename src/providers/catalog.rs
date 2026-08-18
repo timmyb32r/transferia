@@ -722,6 +722,71 @@ pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyho
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
     )?;
+    for role in [EndpointRole::Source, EndpointRole::Sink] {
+        register_on_premise(
+            registry,
+            "kafka",
+            role,
+            serde_json::json!({
+                "brokers": {
+                    "type": "array",
+                    "title": "Brokers",
+                    "items": { "type": "string" },
+                    "x-ui": { "initial_items": 1 }
+                },
+                "security": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "title": "Plaintext",
+                            "properties": { "type": { "const": "plaintext" } },
+                            "required": ["type"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "title": "TLS",
+                            "properties": {
+                                "type": { "const": "tls" },
+                                "ca_file": {
+                                    "anyOf": [{ "type": "string" }, { "type": "null" }],
+                                    "title": "CA file"
+                                }
+                            },
+                            "required": ["type"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "title": "SASL over TLS",
+                            "properties": {
+                                "type": { "const": "sasl_tls" },
+                                "username": { "type": "string", "title": "Username" },
+                                "password": {
+                                    "type": "string",
+                                    "title": "Password",
+                                    "x-ui": { "widget": "password" }
+                                },
+                                "mechanism": {
+                                    "type": "string",
+                                    "title": "Mechanism",
+                                    "enum": ["scram_sha256", "scram_sha512"]
+                                },
+                                "ca_file": {
+                                    "anyOf": [{ "type": "string" }, { "type": "null" }],
+                                    "title": "CA file"
+                                }
+                            },
+                            "required": ["type", "username", "password", "mechanism"],
+                            "additionalProperties": false
+                        }
+                    ]
+                }
+            }),
+            &["brokers", "security"],
+            serde_json::json!({ "brokers": [""], "security": { "type": "plaintext" } }),
+        )?;
+    }
     register_on_premise(
         registry,
         "logbroker",

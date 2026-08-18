@@ -28,6 +28,13 @@ const LOGBROKER_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescript
     }),
 });
 
+const KAFKA_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["brokers", "security"],
+        required_output_fields: &["brokers", "security"],
+    }),
+});
+
 const POSTGRES_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["host", "port", "trusted_plaintext", "tls_ca_file"],
@@ -61,8 +68,8 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor {
         key: "kafka",
         title: "Kafka",
-        source: PLAIN,
-        sink: PLAIN,
+        source: KAFKA_ROLE,
+        sink: KAFKA_ROLE,
     },
     ProviderDescriptor {
         key: "postgres",

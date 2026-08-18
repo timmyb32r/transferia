@@ -9,7 +9,7 @@ use futures_util::future::BoxFuture;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::FutureProducer;
 
-pub use config::{KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig};
+pub use config::{KafkaSaslMechanism, KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig};
 use sink::KafkaSink;
 
 use crate::core::delivery::{

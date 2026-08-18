@@ -258,3 +258,30 @@ fn installation_is_the_first_field_of_every_connected_endpoint() -> anyhow::Resu
     }
     Ok(())
 }
+
+#[test]
+fn kafka_connection_fields_are_owned_by_its_installation() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let kafka = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "kafka")
+        .ok_or_else(|| anyhow::anyhow!("missing Kafka provider"))?;
+
+    for endpoint in [kafka.source.as_ref(), kafka.sink.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        assert_eq!(
+            endpoint.initial.pointer("/installation/type"),
+            Some(&serde_json::json!("on_premise"))
+        );
+        assert!(endpoint.schema.pointer("/properties/brokers").is_none());
+        assert!(endpoint.schema.pointer("/properties/security").is_none());
+        assert!(endpoint
+            .schema
+            .pointer("/properties/installation/oneOf/0/properties/brokers")
+            .is_some());
+    }
+    Ok(())
+}

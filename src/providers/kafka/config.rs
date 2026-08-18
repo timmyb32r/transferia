@@ -11,11 +11,70 @@ use crate::serializer::SerializerConfig;
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum KafkaSecurityConfig {
     Plaintext,
+
+    Tls {
+        #[serde(default)]
+        ca_file: Option<String>,
+    },
+
+    SaslTls {
+        username: String,
+
+        #[schemars(extend("x-ui" = { "widget": "password" }))]
+        password: String,
+
+        mechanism: KafkaSaslMechanism,
+
+        #[serde(default)]
+        ca_file: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum KafkaSaslMechanism {
+    ScramSha256,
+
+    ScramSha512,
+}
+
+impl KafkaSaslMechanism {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ScramSha256 => "SCRAM-SHA-256",
+            Self::ScramSha512 => "SCRAM-SHA-512",
+        }
+    }
 }
 
 impl KafkaSecurityConfig {
     pub(super) fn apply(&self, client: &mut ClientConfig) {
-        client.set("security.protocol", "plaintext");
+        match self {
+            Self::Plaintext => {
+                client.set("security.protocol", "plaintext");
+            }
+            Self::Tls { ca_file } => {
+                client.set("security.protocol", "ssl");
+                if let Some(ca_file) = ca_file {
+                    client.set("ssl.ca.location", ca_file);
+                }
+            }
+            Self::SaslTls {
+                username,
+                password,
+                mechanism,
+                ca_file,
+            } => {
+                client
+                    .set("security.protocol", "sasl_ssl")
+                    .set("sasl.mechanism", mechanism.as_str())
+                    .set("sasl.username", username)
+                    .set("sasl.password", password);
+                if let Some(ca_file) = ca_file {
+                    client.set("ssl.ca.location", ca_file);
+                }
+            }
+        }
     }
 }
 
