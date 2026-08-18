@@ -393,7 +393,7 @@ export function DataSchemaInspector({
   onHide: () => void;
 }) {
   const [selectedTable, setSelectedTable] = useState("");
-  const [position, setPosition] = useState({ x: 24, y: 24 });
+  const [position, setPosition] = useState({ x: 304, y: 144 });
   const drag = useRef<{ pointer: number; dx: number; dy: number }>();
   const datasets = result.datasets;
   const selected =
@@ -408,7 +408,7 @@ export function DataSchemaInspector({
     <aside
       class="schema-inspector"
       aria-label="Schema inspector"
-      style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+      style={{ left: `${position.x}px`, top: `${position.y}px` }}
     >
       <header
         class="schema-inspector-drag-handle"

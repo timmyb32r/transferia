@@ -1516,7 +1516,6 @@ button::after {
 
 .schema-inspector {
   position: fixed;
-  inset: 120px auto auto 280px;
   z-index: 60;
   width: min(380px, calc(100vw - 48px));
   max-height: 520px;

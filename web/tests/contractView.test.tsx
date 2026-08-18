@@ -112,4 +112,34 @@ describe("data schema view", () => {
     );
     expect(onShow).toHaveBeenCalledOnce();
   });
+
+  it("positions the draggable inspector without transforming dropdown coordinates", () => {
+    const result: DiscoveryResult = {
+      source: "logbroker",
+      sink: "clickhouse",
+      pipeline_count: 1,
+      datasets: [
+        {
+          role: "Main",
+          name: "events",
+          intermediate_columns: [],
+          final_columns: [],
+        },
+      ],
+      sink_limits: {
+        sink: "clickhouse",
+        supported_arrow_types: [],
+      },
+    };
+    const view = render(
+      <DataSchemaInspector result={result} onHide={() => undefined} />,
+    );
+    const inspector = view.getByRole("complementary", {
+      name: "Schema inspector",
+    });
+
+    expect(inspector.style.transform).toBe("");
+    expect(inspector.style.left).toBe("304px");
+    expect(inspector.style.top).toBe("144px");
+  });
 });
