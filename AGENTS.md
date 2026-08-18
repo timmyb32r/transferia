@@ -179,6 +179,14 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
 
 ## Mandatory completion gate
 
+During implementation, use `just test-affected` for fast feedback. It derives a
+conservative test set from the working-tree diff, runs Rust and frontend groups
+in parallel, uses Vitest's dependency graph for frontend selection, and falls
+back to the full suite for unknown or cross-cutting files. In CI or when changes
+are already committed, pass the comparison point explicitly, for example
+`just test-affected --base origin/main`. Use `just test-affected-dry` to inspect
+the selection. This development shortcut never replaces the completion gate.
+
 Before completing **every repository-changing task**, run all of the following
 from the repository root on the final, stable tree:
 

@@ -34,6 +34,19 @@ miri: fmt
 test: fmt-check
     cargo test --workspace --all-targets --all-features
 
+# Fast development loop: run only tests affected by changes since HEAD.
+# Unknown/cross-cutting inputs deliberately fall back to the complete suite.
+test-affected *args:
+    python3 scripts/test_affected.py {{args}}
+
+# Preview the affected-test decision without executing commands.
+test-affected-dry *args:
+    python3 scripts/test_affected.py --dry-run {{args}}
+
+# Verify the conservative affected-test selector itself.
+test-affected-self:
+    python3 -m unittest scripts/test_test_affected.py
+
 # Run clippy only (strict — warnings are errors)
 clippy: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
