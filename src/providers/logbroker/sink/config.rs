@@ -2,8 +2,9 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::providers::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
+use crate::serializer::SerializerConfig;
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LogbrokerSinkConfig {
     pub host: String,
@@ -28,6 +29,8 @@ pub struct LogbrokerSinkConfig {
 
     #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: LogbrokerAuthConfig,
+
+    pub serializer: SerializerConfig,
 
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
     pub driver: LogbrokerDriver,
@@ -57,6 +60,7 @@ impl LogbrokerSinkConfig {
             self.trusted_plaintext,
             "logbroker.trusted_plaintext must be true; use a verified TLS tunnel outside a trusted network"
         );
-        self.auth.validate()
+        self.auth.validate()?;
+        self.serializer.validate()
     }
 }

@@ -65,6 +65,7 @@ pub fn build_sink_provider(config: LogbrokerSinkConfig) -> anyhow::Result<Box<dy
                 message_group_id: config.producer_id,
                 partition_group_id: partition_id,
                 auth,
+                serializer: config.serializer,
                 trusted_plaintext: config.trusted_plaintext,
                 network_timeout_ms: 30_000,
             };

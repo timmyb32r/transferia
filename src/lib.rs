@@ -10,5 +10,6 @@ pub mod middleware;
 pub mod parsers;
 pub mod providers;
 pub mod runtime;
+pub mod schema_registry;
 pub mod serializer;
 pub mod server;

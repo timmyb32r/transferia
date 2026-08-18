@@ -22,7 +22,7 @@ use crate::providers::logbroker::proto::pers_queue::v1::{
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
 use crate::providers::traits::SinkBuildContext;
-use crate::serializer::JsonBatchEncoder;
+use crate::serializer::DeliverySerializer;
 
 const SUCCESS: i32 = 400_000;
 const UNSPECIFIED: i32 = 0;
@@ -125,12 +125,18 @@ impl PqV1Sink {
             .last_sequence_number
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
+        let mut serializer = DeliverySerializer::new(&self.config.serializer)?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();
-            let (payloads, rows) =
-                serialize_delivery(&delivery, &self.discovery, self.limits.as_ref())
-                    .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
+            let (payloads, rows) = serialize_delivery(
+                &mut serializer,
+                &delivery,
+                &self.discovery,
+                self.limits.as_ref(),
+            )
+            .await
+            .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
             if payloads.is_empty() {
                 io.events
                     .send(SinkEvent::CommittedThrough(delivery.id))
@@ -244,36 +250,15 @@ fn write_message(
     })
 }
 
-pub fn serialize_delivery(
+pub async fn serialize_delivery(
+    serializer: &mut DeliverySerializer,
     delivery: &Delivery,
     discovery: &crate::core::delivery::DeliveryDiscovery,
     limits: &dyn SinkLimits,
 ) -> anyhow::Result<(Vec<Vec<u8>>, u64)> {
-    let mut payloads = Vec::new();
-    let mut rows = 0_u64;
-    for batch in &delivery.outputs {
-        limits.validate_batch(discovery, batch)?;
-        let encoder = JsonBatchEncoder::new(&batch.batch, |index| {
-            !batch
-                .system_columns
-                .iter()
-                .any(|column| column.index == index)
-        })?;
-        for row in 0..batch.rows() {
-            let mut output = Vec::new();
-            encoder.write_row(row, &mut output);
-            anyhow::ensure!(
-                output.len() <= MAX_GRPC_MESSAGE_SIZE / 2,
-                "Logbroker serialized JSON message exceeds {} bytes",
-                MAX_GRPC_MESSAGE_SIZE / 2
-            );
-            payloads.push(output);
-        }
-        rows = rows
-            .checked_add(batch.rows() as u64)
-            .ok_or_else(|| anyhow::anyhow!("Logbroker sink row counter overflow"))?;
-    }
-    Ok((payloads, rows))
+    serializer
+        .serialize(delivery, discovery, limits, MAX_GRPC_MESSAGE_SIZE / 2)
+        .await
 }
 
 async fn next_response(

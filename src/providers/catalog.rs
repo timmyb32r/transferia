@@ -240,6 +240,7 @@ fn build_base_provider_catalog(
                         "producer_id": "",
                         "partition_id": null,
                         "auth": { "type": "token", "token": "" },
+                        "serializer": { "type": "json" },
                         "driver": "ydb",
                         "trusted_plaintext": true
                     })

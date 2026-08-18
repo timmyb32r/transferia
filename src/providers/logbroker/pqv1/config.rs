@@ -51,7 +51,7 @@ impl fmt::Debug for PqV1AuthConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PqV1SinkConfig {
     pub host: String,
@@ -65,6 +65,8 @@ pub struct PqV1SinkConfig {
     pub partition_group_id: i64,
 
     pub auth: PqV1AuthConfig,
+
+    pub serializer: crate::serializer::SerializerConfig,
 
     pub trusted_plaintext: bool,
 
@@ -93,7 +95,8 @@ impl PqV1SinkConfig {
             self.network_timeout_ms >= 100,
             "pqv1.network_timeout_ms must be at least 100ms"
         );
-        self.auth.validate()
+        self.auth.validate()?;
+        self.serializer.validate()
     }
 
     #[must_use]

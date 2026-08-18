@@ -3,6 +3,7 @@ pub mod config;
 pub mod detection;
 pub mod json_parser;
 mod native_source;
+pub mod schema_registry;
 
 use std::collections::HashMap;
 
@@ -147,6 +148,39 @@ impl ParserPlan {
                         Arc::from(parser_config.keys),
                     )
                 }
+                "schema_registry" => {
+                    let parser_config: schema_registry::SchemaRegistryParserConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    let schema = parser_config.json_parser.to_dataset_schema()?;
+                    let discovered_system_columns = config
+                        .common
+                        .system_columns
+                        .enabled()
+                        .map(|kind| DiscoveredSystemColumn {
+                            kind,
+                            name: Arc::from(config.common.system_columns.name(kind)),
+                        })
+                        .collect::<Vec<_>>();
+                    validate_primary_key(
+                        &parser_config.json_parser,
+                        &config.common.system_columns,
+                        &schema,
+                        &discovered_system_columns,
+                    )?;
+                    let primary_key = Arc::from(parser_config.json_parser.keys.clone());
+                    let parser = Arc::new(schema_registry::SchemaRegistryParser::new(
+                        &parser_config,
+                        &config.common.system_columns,
+                        Arc::clone(&table),
+                    )?) as Arc<dyn ParserFactory>;
+                    (
+                        parser,
+                        schema,
+                        true,
+                        discovered_system_columns,
+                        primary_key,
+                    )
+                }
                 "benchmark_discard" => {
                     let _: benchmark_discard::BenchmarkDiscardConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
@@ -162,7 +196,7 @@ impl ParserPlan {
                     )
                 }
                 other => anyhow::bail!(
-                    "unknown parser '{other}'; supported parsers: json_parser, benchmark_discard"
+                    "unknown parser '{other}'; supported parsers: json_parser, schema_registry, benchmark_discard"
                 ),
             };
         Ok(Self {
@@ -305,7 +339,7 @@ impl ParserEntry {
         match *keys.as_slice() {
             [single] => Ok(single),
             [] => anyhow::bail!(
-                "parser: no parser key found (expected 'json_parser' or 'benchmark_discard')"
+                "parser: no parser key found (expected 'json_parser', 'schema_registry', or 'benchmark_discard')"
             ),
             _ => anyhow::bail!("parser: expected exactly one parser key, got {keys:?}"),
         }

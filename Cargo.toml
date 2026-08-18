@@ -71,6 +71,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 transferia-core = { path = "crates/transferia-core" }
 ydb-grpc = "0.2.2"
 zstd = "0.13"
+apache-avro = "0.21"
+prost-reflect = { version = "0.16", features = ["serde"] }
+jsonschema = { version = "0.33.0", default-features = false }
+protox = "0.9"
 
 [build-dependencies]
 tonic-prost-build = "0.14"

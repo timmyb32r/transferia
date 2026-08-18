@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::data::system_columns::SystemColumnKind;
 use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::schema_registry::SchemaRegistryParserConfig;
 use crate::parsers::ParserEntry;
 
 /// Complete parser schema used by the control plane. Runtime dispatch remains
@@ -13,8 +14,22 @@ use crate::parsers::ParserEntry;
 pub enum ParserSchema {
     #[schemars(title = "JSON parser")]
     Json(JsonParserSchema),
+    #[schemars(title = "Schema Registry parser")]
+    SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Discard messages (benchmark)")]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
+}
+
+#[derive(JsonSchema)]
+pub struct SchemaRegistryParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
+    pub common: CommonParserConfig,
+
+    #[schemars(title = "Schema Registry parser")]
+    pub schema_registry: SchemaRegistryParserConfig,
 }
 
 #[derive(JsonSchema)]

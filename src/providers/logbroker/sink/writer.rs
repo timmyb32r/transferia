@@ -30,6 +30,7 @@ use crate::providers::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::providers::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
 use crate::providers::logbroker::transport::connect_http2_prior_knowledge;
 use crate::providers::traits::SinkBuildContext;
+use crate::serializer::DeliverySerializer;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
 const WRITE_PAYLOAD_BUDGET: usize = MAX_GRPC_MESSAGE_SIZE / 2;
@@ -103,12 +104,18 @@ impl YdbTopicSink {
             .last_seq_no
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("YDB Topic sequence overflow"))?;
+        let mut serializer = DeliverySerializer::new(&self.config.serializer)?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();
-            let (payloads, rows) =
-                serialize_delivery(&delivery, &self.discovery, self.limits.as_ref())
-                    .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
+            let (payloads, rows) = serialize_delivery(
+                &mut serializer,
+                &delivery,
+                &self.discovery,
+                self.limits.as_ref(),
+            )
+            .await
+            .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
             let mut payloads = payloads.into_iter().peekable();
             while payloads.peek().is_some() {
                 let mut request_payload_bytes = 0_usize;
