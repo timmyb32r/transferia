@@ -6,11 +6,13 @@ export type ColorTheme = "light" | "dark";
 export interface Appearance {
   design: InterfaceDesign;
   theme: ColorTheme;
+  autoShowSchemaWidget: boolean;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
   design: "yandex-cloud",
   theme: "dark",
+  autoShowSchemaWidget: true,
 };
 
 const isDesign = (value: unknown): value is InterfaceDesign =>
@@ -38,7 +40,15 @@ export function loadAppearance(storage: Pick<Storage, "getItem">): Appearance {
       isDesign(value.design) &&
       isTheme(value.theme)
     ) {
-      return { design: value.design, theme: value.theme };
+      return {
+        design: value.design,
+        theme: value.theme,
+        autoShowSchemaWidget:
+          "autoShowSchemaWidget" in value &&
+          typeof value.autoShowSchemaWidget === "boolean"
+            ? value.autoShowSchemaWidget
+            : true,
+      };
     }
   } catch {
     // A corrupt browser preference must not prevent the editor from opening.

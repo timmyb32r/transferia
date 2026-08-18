@@ -387,13 +387,19 @@ export function DataSchemaWorkspace({
 
 export function DataSchemaInspector({
   result,
+  loading,
   onHide,
 }: {
   result: DiscoveryResult;
+  loading?: boolean;
   onHide: () => void;
 }) {
   const [selectedTable, setSelectedTable] = useState("");
-  const [position, setPosition] = useState({ x: 304, y: 144 });
+  const [collapsed, setCollapsed] = useState(false);
+  const [position, setPosition] = useState(() => ({
+    x: Math.max(0, window.innerWidth - 404),
+    y: 24,
+  }));
   const drag = useRef<{ pointer: number; dx: number; dy: number }>();
   const datasets = result.datasets;
   const selected =
@@ -406,7 +412,7 @@ export function DataSchemaInspector({
 
   return (
     <aside
-      class="schema-inspector"
+      class={`schema-inspector ${collapsed ? "collapsed" : ""}`}
       aria-label="Schema inspector"
       style={{ left: `${position.x}px`, top: `${position.y}px` }}
     >
@@ -434,7 +440,17 @@ export function DataSchemaInspector({
         }}
       >
         <strong>Final schema</strong>
-        <span>Drag to move</span>
+        <span>{loading ? "Updating…" : "Drag to move"}</span>
+        <Button
+          shape="icon"
+          aria-label={
+            collapsed ? "Expand schema inspector" : "Collapse schema inspector"
+          }
+          title={collapsed ? "Expand" : "Collapse"}
+          onClick={() => setCollapsed((value) => !value)}
+        >
+          {collapsed ? "□" : "—"}
+        </Button>
         <Button
           shape="icon"
           aria-label="Hide schema inspector"
@@ -443,44 +459,53 @@ export function DataSchemaInspector({
           ×
         </Button>
       </header>
-      {datasets.length === 0 ? (
-        <p>No tables discovered.</p>
-      ) : (
-        <>
-          <SelectControl
-            searchable
-            value={selected?.name ?? ""}
-            placeholder="Select table"
-            options={datasets.map((dataset) => ({
-              value: dataset.name,
-              label: dataset.name,
-            }))}
-            onChange={setSelectedTable}
-          />
-          <div
-            class="schema-inspector-table"
-            role="table"
-            aria-label="Selected table schema"
-          >
-            <div class="schema-inspector-row schema-inspector-head" role="row">
-              <span>Column</span>
-              <span>Column type</span>
-              <span>Arrow type</span>
-              <span>PK</span>
-              <span>Not null</span>
-            </div>
-            {selected?.final_columns.map((column) => (
-              <div class="schema-inspector-row" role="row" key={column.name}>
-                <strong>{column.name}</strong>
-                <code>{column.destination_type}</code>
-                <code>{column.arrow_type}</code>
-                <span>{column.primary_key ? "Yes" : "—"}</span>
-                <span>{column.nullable ? "—" : "Yes"}</span>
-              </div>
-            ))}
-          </div>
-        </>
+      {!collapsed && loading && (
+        <div class="schema-inspector-loading" role="status">
+          <span class="spinner" aria-hidden="true" /> Updating schema…
+        </div>
       )}
+      {!collapsed &&
+        (datasets.length === 0 ? (
+          <p>No tables discovered.</p>
+        ) : (
+          <>
+            <SelectControl
+              searchable
+              value={selected?.name ?? ""}
+              placeholder="Select table"
+              options={datasets.map((dataset) => ({
+                value: dataset.name,
+                label: dataset.name,
+              }))}
+              onChange={setSelectedTable}
+            />
+            <div
+              class="schema-inspector-table"
+              role="table"
+              aria-label="Selected table schema"
+            >
+              <div
+                class="schema-inspector-row schema-inspector-head"
+                role="row"
+              >
+                <span>Column</span>
+                <span>Column type</span>
+                <span>Arrow type</span>
+                <span>PK</span>
+                <span>Not null</span>
+              </div>
+              {selected?.final_columns.map((column) => (
+                <div class="schema-inspector-row" role="row" key={column.name}>
+                  <strong>{column.name}</strong>
+                  <code>{column.destination_type}</code>
+                  <code>{column.arrow_type}</code>
+                  <span>{column.primary_key ? "Yes" : "—"}</span>
+                  <span>{column.nullable ? "—" : "Yes"}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ))}
     </aside>
   );
 }

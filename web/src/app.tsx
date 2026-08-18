@@ -188,26 +188,30 @@ export function App() {
         : selectedEndpoints(catalog, editor.config),
     [catalog, editor.config],
   );
-  const structurallyComplete =
+  const commonConfigComplete =
     catalog !== undefined &&
     selection !== undefined &&
     selection.error === undefined &&
-    selection.source !== undefined &&
-    selection.sink !== undefined &&
-    isComplete(compiledSchema(catalog.common_schema), editor.config) &&
+    isComplete(compiledSchema(catalog.common_schema), editor.config);
+  const sourceSchemaComplete =
+    commonConfigComplete &&
+    selection?.source !== undefined &&
     isComplete(
-      compiledSchema(selection.source.schema),
-      endpointValue(editor.config, "source", selection.sourceKey),
-    ) &&
+      compiledSchema(selection.source!.schema),
+      endpointValue(editor.config, "source", selection!.sourceKey),
+    );
+  const structurallyComplete =
+    sourceSchemaComplete &&
+    selection?.sink !== undefined &&
     isComplete(
-      compiledSchema(selection.sink.schema),
-      endpointValue(editor.config, "sink", selection.sinkKey),
+      compiledSchema(selection.sink!.schema),
+      endpointValue(editor.config, "sink", selection!.sinkKey),
     );
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";
   const { discovery, setDiscovery } = useDiscovery({
     editor,
-    structurallyComplete,
+    structurallyComplete: sourceSchemaComplete,
     job: discoveryJob,
     operations: { beginOperation, finishOperation, clearOperation },
     isCurrentContext,
@@ -221,17 +225,17 @@ export function App() {
       return `Data schema discovery failed: ${operations.discovery.error}`;
     if (catalog === undefined) return "Loading the provider catalog…";
     if (selection?.error !== undefined) return selection.error;
-    if (selection?.source === undefined || selection.sink === undefined)
-      return "Choose both a source and a destination first";
-    if (!structurallyComplete)
-      return "Complete the required source, parser, and destination settings";
+    if (selection?.source === undefined) return "Choose a source first";
+    if (!sourceSchemaComplete)
+      return "Complete the required source and parser settings";
     if (discovery !== undefined)
       return "Discovery completed, but the selected parser produced no tables";
     return "Waiting for data schema discovery";
   })();
   useEffect(() => {
-    setSchemaInspectorVisible(dataSchemaAvailable);
-  }, [dataSchemaAvailable]);
+    if (dataSchemaAvailable && appearance.autoShowSchemaWidget)
+      setSchemaInspectorVisible(true);
+  }, [dataSchemaAvailable, appearance.autoShowSchemaWidget]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
     editable: !isReadOnly(editor),
@@ -440,9 +444,13 @@ export function App() {
           disabled={blockingOperation}
           dataSchemaAvailable={dataSchemaAvailable}
           dataSchemaUnavailableReason={dataSchemaUnavailableReason}
+          schemaInspectorVisible={schemaInspectorVisible}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
+          onToggleSchemaInspector={() =>
+            setSchemaInspectorVisible((visible) => !visible)
+          }
         />
         <OperationNotices
           operations={operations}
@@ -478,6 +486,7 @@ export function App() {
         {schemaInspectorVisible && discovery !== undefined && (
           <DataSchemaInspector
             result={discovery}
+            loading={operations.discovery?.label !== undefined}
             onHide={() => setSchemaInspectorVisible(false)}
           />
         )}

@@ -562,6 +562,23 @@
 }
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--line-strong) var(--surface-soft);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--surface-soft);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--surface-soft);
+  border-radius: 8px;
+  background: var(--line-strong);
 }
 body {
   margin: 0;
@@ -798,8 +815,13 @@ h3 {
   margin-bottom: 0;
 }
 @keyframes route-selection-flash {
-  0%, 100% { filter: none; }
-  35% { filter: drop-shadow(0 0 10px rgb(62 142 255 / 55%)); }
+  0%,
+  100% {
+    filter: none;
+  }
+  35% {
+    filter: drop-shadow(0 0 10px rgb(62 142 255 / 55%));
+  }
 }
 .route-composition.route-selection-flash {
   animation: route-selection-flash 1s ease-out;
@@ -1518,8 +1540,13 @@ button::after {
   position: fixed;
   z-index: 60;
   width: min(380px, calc(100vw - 48px));
-  max-height: 520px;
-  overflow: auto;
+  min-width: 300px;
+  min-height: 120px;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: scroll;
+  resize: both;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--panel);
@@ -1531,7 +1558,7 @@ button::after {
   top: 0;
   z-index: 1;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -1539,6 +1566,27 @@ button::after {
   user-select: none;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+
+.schema-inspector.collapsed {
+  min-height: 0;
+  height: auto !important;
+  overflow: hidden;
+  resize: none;
+}
+
+.schema-inspector-loading {
+  position: sticky;
+  top: 53px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .schema-inspector-drag-handle:active {
@@ -1561,7 +1609,10 @@ button::after {
 
 .schema-inspector-row {
   display: grid;
-  grid-template-columns: minmax(72px, 1.2fr) minmax(64px, 1fr) minmax(58px, 0.9fr) 24px 38px;
+  grid-template-columns: minmax(72px, 1.2fr) minmax(64px, 1fr) minmax(
+      58px,
+      0.9fr
+    ) 24px 38px;
   align-items: center;
   gap: 6px;
   min-height: 38px;
@@ -2753,6 +2804,19 @@ svg.trash-icon {
   border-radius: 50%;
   background: var(--panel);
   content: "";
+}
+
+.behavior-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.behavior-options input {
+  margin: 0;
 }
 
 /* Airy (adopted): the same editor with the prototype's open rhythm and quiet teal. */

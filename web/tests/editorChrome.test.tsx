@@ -30,20 +30,25 @@ describe("editor chrome", () => {
 
   it("exposes Data schema as a peer configuration view", () => {
     const onDataSchema = vi.fn();
+    const onToggleSchemaInspector = vi.fn();
     const view = render(
       <EditorTabs
         active="ui"
         disabled={false}
         dataSchemaAvailable
+        schemaInspectorVisible={false}
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
+        onToggleSchemaInspector={onToggleSchemaInspector}
       />,
     );
 
     fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
 
     expect(onDataSchema).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("button", { name: "Schema widget" }));
+    expect(onToggleSchemaInspector).toHaveBeenCalledOnce();
   });
 
   it("disables Data schema until discovery produces a table", () => {
@@ -219,7 +224,11 @@ describe("editor chrome", () => {
           },
         ]}
         selectedId={undefined}
-        appearance={{ design: "yandex-cloud", theme: "dark" }}
+        appearance={{
+          design: "yandex-cloud",
+          theme: "dark",
+          autoShowSchemaWidget: true,
+        }}
         onAppearance={() => undefined}
         onNew={onNew}
         onOpen={onOpen}

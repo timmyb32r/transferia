@@ -10,11 +10,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::store::{DeliveryStore, StoreError};
-use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, SinkLimitsDescription};
+use transferia::core::delivery::{
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimitsDescription,
+};
 use transferia::delivery::config::yaml::Config;
 use transferia::delivery::preparation::build_delivery_plan_with;
 use transferia::extension::{DynamicOptions, OptionsRequest, Transferia};
-use transferia::providers::traits::SinkProvider;
+use transferia::providers::traits::{SinkProvider, SourceDiscoveryContext};
 use transferia::runtime::{RunId, SupervisorError, WorkerEvent, WorkerOutcome, WorkerSupervisor};
 
 const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
@@ -454,6 +456,14 @@ impl ControlPlane {
         config: &Value,
         cancellation: CancellationToken,
     ) -> Result<DiscoveryResult, ServiceError> {
+        if config
+            .get("sink")
+            .is_none_or(|sink| sink.as_object().is_some_and(serde_json::Map::is_empty))
+        {
+            return self
+                .validate_source_schema_preview(config, cancellation)
+                .await;
+        }
         let yaml = config_yaml_from_json(config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
@@ -476,6 +486,65 @@ impl ControlPlane {
             primary.sink_provider.as_ref(),
         )
         .map_err(|error| ServiceError::Validation(error.to_string()))
+    }
+
+    async fn validate_source_schema_preview(
+        &self,
+        config: &Value,
+        cancellation: CancellationToken,
+    ) -> Result<DiscoveryResult, ServiceError> {
+        validate_draft_shape(config)?;
+        let sources = config
+            .get("source")
+            .and_then(Value::as_object)
+            .ok_or_else(|| ServiceError::Validation("choose a source first".to_owned()))?;
+        if sources.len() != 1 {
+            return Err(ServiceError::Validation(
+                "source schema discovery requires exactly one source".to_owned(),
+            ));
+        }
+        let (source_kind, source_config) = sources.iter().next().ok_or_else(|| {
+            ServiceError::Validation("source schema discovery requires a source".to_owned())
+        })?;
+        let raw = serde_yaml::to_value(source_config)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let resolved = self
+            .transferia
+            .registry()
+            .resolve_many(
+                source_kind,
+                crate::extension::EndpointRole::Source,
+                raw,
+                cancellation.child_token(),
+            )
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let pipeline_count = resolved.len();
+        let source_config = resolved.into_iter().next().ok_or_else(|| {
+            ServiceError::Validation("source installation resolved no endpoints".to_owned())
+        })?;
+        let catalog = crate::providers::catalog::build_provider_catalog_with(
+            &self.transferia,
+            &Arc::new(crate::metrics::MetricsRegistry::new()),
+        )
+        .map_err(ServiceError::Internal)?;
+        let source_provider = catalog
+            .build_source(source_kind, source_config)
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let discovery = source_provider
+            .delivery_discovery(SourceDiscoveryContext {
+                request: DeliveryDiscoveryRequest {
+                    keep_system_columns: true,
+                },
+                cancellation,
+            })
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        Ok(source_discovery_result(
+            source_kind.clone(),
+            pipeline_count,
+            &discovery,
+        ))
     }
 
     pub async fn validate_saved(
@@ -1061,6 +1130,51 @@ fn discovery_result(
             .collect::<anyhow::Result<Vec<_>>>()?,
         sink_limits: sink_provider.limits().description(),
     })
+}
+
+fn source_discovery_result(
+    source: String,
+    pipeline_count: usize,
+    discovery: &DeliveryDiscovery,
+) -> DiscoveryResult {
+    DiscoveryResult {
+        source,
+        sink: "unselected".to_owned(),
+        pipeline_count,
+        datasets: discovery
+            .datasets
+            .iter()
+            .map(|dataset| {
+                let intermediate_columns = dataset
+                    .stored_schema
+                    .columns
+                    .iter()
+                    .map(column_view)
+                    .collect::<Vec<_>>();
+                let final_columns = intermediate_columns
+                    .iter()
+                    .cloned()
+                    .map(|column| DestinationColumnView {
+                        destination_type: column.arrow_type.clone(),
+                        column,
+                    })
+                    .collect();
+                DatasetView {
+                    role: dataset.role.into(),
+                    name: dataset.name.to_string(),
+                    intermediate_columns,
+                    final_columns,
+                }
+            })
+            .collect(),
+        sink_limits: SinkLimitsDescription {
+            sink: "unselected",
+            dataset_name: None,
+            column_name: None,
+            supported_arrow_types: Vec::new(),
+            object_key: None,
+        },
+    }
 }
 
 fn column_view(column: &crate::core::data::schema::SchemaColumn) -> ColumnView {

@@ -27,11 +27,15 @@ export function useDiscovery({
 }) {
   const [discovery, setDiscovery] = useState<DiscoveryResult>();
 
+  useEffect(() => setDiscovery(undefined), [editor.sessionId]);
+
   useEffect(() => {
     job.cancel();
     operations.clearOperation("discovery");
-    setDiscovery(undefined);
-    if (!structurallyComplete) return;
+    if (!structurallyComplete) {
+      setDiscovery(undefined);
+      return;
+    }
     const context = {
       sessionId: editor.sessionId,
       localRevision: editor.localRevision,

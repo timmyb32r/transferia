@@ -179,17 +179,21 @@ export function EditorTabs({
   disabled,
   dataSchemaAvailable,
   dataSchemaUnavailableReason,
+  schemaInspectorVisible = false,
   onUi,
   onYaml,
   onDataSchema,
+  onToggleSchemaInspector,
 }: {
   active: EditorView;
   disabled: boolean;
   dataSchemaAvailable: boolean;
   dataSchemaUnavailableReason?: string | undefined;
+  schemaInspectorVisible?: boolean;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
+  onToggleSchemaInspector?: () => void;
 }) {
   return (
     <div class="editor-tabs" role="tablist" aria-label="Configuration view">
@@ -228,6 +232,24 @@ export function EditorTabs({
           onClick={onDataSchema}
         >
           Data schema
+        </Button>
+      </span>
+      <span
+        class="editor-tab-tooltip"
+        title={
+          dataSchemaAvailable
+            ? schemaInspectorVisible
+              ? "Hide the schema widget"
+              : "Show the schema widget"
+            : (dataSchemaUnavailableReason ?? "No data schema is available")
+        }
+      >
+        <Button
+          aria-pressed={schemaInspectorVisible}
+          disabled={disabled || !dataSchemaAvailable}
+          onClick={onToggleSchemaInspector}
+        >
+          Schema widget
         </Button>
       </span>
     </div>

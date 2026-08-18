@@ -31,6 +31,7 @@ describe("appearance preferences", () => {
     expect(loadAppearance(storage)).toEqual({
       design: "yandex-cloud",
       theme: "dark",
+      autoShowSchemaWidget: true,
     });
   });
 
@@ -39,6 +40,7 @@ describe("appearance preferences", () => {
     expect(loadAppearance(storage)).toEqual({
       design: "yandex-cloud",
       theme: "dark",
+      autoShowSchemaWidget: true,
     });
 
     storage.setItem(
@@ -48,11 +50,16 @@ describe("appearance preferences", () => {
     expect(loadAppearance(storage)).toEqual({
       design: "yandex-cloud",
       theme: "dark",
+      autoShowSchemaWidget: true,
     });
   });
 
   it("persists and applies both independent dimensions", () => {
-    const appearance: Appearance = { design: "airy-v0", theme: "light" };
+    const appearance: Appearance = {
+      design: "airy-v0",
+      theme: "light",
+      autoShowSchemaWidget: false,
+    };
     saveAppearance(storage, appearance);
     applyAppearance(document.documentElement, appearance);
 
@@ -66,7 +73,11 @@ describe("appearance preferences", () => {
     const onChange = vi.fn();
     const view = render(
       <AppearanceSettings
-        value={{ design: "yandex-cloud", theme: "dark" }}
+        value={{
+          design: "yandex-cloud",
+          theme: "dark",
+          autoShowSchemaWidget: true,
+        }}
         onChange={onChange}
       />,
     );
@@ -82,12 +93,25 @@ describe("appearance preferences", () => {
     expect(onChange).toHaveBeenCalledWith({
       design: "airy-v0",
       theme: "dark",
+      autoShowSchemaWidget: true,
     });
 
     fireEvent.click(view.getByRole("radio", { name: "Light" }));
     expect(onChange).toHaveBeenCalledWith({
       design: "yandex-cloud",
       theme: "light",
+      autoShowSchemaWidget: true,
+    });
+
+    fireEvent.click(
+      view.getByRole("checkbox", {
+        name: "Automatically open schema widget",
+      }),
+    );
+    expect(onChange).toHaveBeenCalledWith({
+      design: "yandex-cloud",
+      theme: "dark",
+      autoShowSchemaWidget: false,
     });
   });
 });

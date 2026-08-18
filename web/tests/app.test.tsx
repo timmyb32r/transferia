@@ -60,10 +60,8 @@ describe("App request orchestration", () => {
         .closest("label")
         ?.classList.contains("required-missing"),
     ).toBe(true);
-    for (const title of ["Source", "Destination"]) {
-      const card = app.getByRole("heading", { name: title }).closest("article");
-      expect(card?.querySelector(".required-missing")).not.toBeNull();
-    }
+    expect(app.queryByRole("heading", { name: "Source" })).toBeNull();
+    expect(app.queryByRole("heading", { name: "Destination" })).toBeNull();
     expect(api.activate).not.toHaveBeenCalled();
   });
 

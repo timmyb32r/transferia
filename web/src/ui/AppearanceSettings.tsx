@@ -120,6 +120,23 @@ export function AppearanceSettings({
               ))}
             </div>
           </fieldset>
+
+          <fieldset class="behavior-options">
+            <legend>Behavior</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={value.autoShowSchemaWidget}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    autoShowSchemaWidget: event.currentTarget.checked,
+                  })
+                }
+              />
+              Automatically open schema widget
+            </label>
+          </fieldset>
         </div>
       )}
 

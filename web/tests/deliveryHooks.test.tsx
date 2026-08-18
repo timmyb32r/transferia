@@ -12,7 +12,11 @@ import { useOperations } from "../src/delivery/useOperations";
 import { useYamlEditor } from "../src/delivery/useYamlEditor";
 import { LatestJob } from "../src/effects";
 import type { EditorState } from "../src/state";
-import type { DeliveryRecord, DeliverySummary } from "../src/types";
+import type {
+  DeliveryRecord,
+  DeliverySummary,
+  DiscoveryResult,
+} from "../src/types";
 
 afterEach(() => {
   cleanup();
@@ -170,6 +174,70 @@ describe("delivery controllers", () => {
     });
 
     expect(result.current.discovery).toEqual(discovered);
+  });
+
+  it("keeps the previous schema visible while refreshed discovery is pending", async () => {
+    vi.useFakeTimers();
+    const previous: DiscoveryResult = {
+      source: "source",
+      sink: "sink",
+      pipeline_count: 1,
+      datasets: [],
+      sink_limits: { sink: "sink", supported_arrow_types: [] },
+    };
+    let resolveRefresh!: (value: DiscoveryResult) => void;
+    const refresh = new Promise<DiscoveryResult>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    vi.spyOn(api, "discover")
+      .mockResolvedValueOnce(previous)
+      .mockReturnValueOnce(refresh);
+    const initial = newEditor();
+    const { result, rerender } = renderHook(
+      ({
+        editor,
+        structurallyComplete,
+      }: {
+        editor: EditorState;
+        structurallyComplete: boolean;
+      }) => {
+        const jobs = useDeliveryJobs();
+        const operations = useOperations();
+        return useDiscovery({
+          editor,
+          structurallyComplete,
+          job: jobs.discovery,
+          operations,
+          isCurrentContext: () => true,
+        });
+      },
+      { initialProps: { editor: initial, structurallyComplete: true } },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+    });
+    expect(result.current.discovery).toEqual(previous);
+
+    rerender({
+      editor: { ...initial, localRevision: 2 },
+      structurallyComplete: true,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(450);
+    });
+    expect(result.current.discovery).toEqual(previous);
+
+    await act(async () => {
+      resolveRefresh({ ...previous, source: "updated" });
+      await refresh;
+    });
+    expect(result.current.discovery?.source).toBe("updated");
+
+    rerender({
+      editor: { ...initial, localRevision: 3 },
+      structurallyComplete: false,
+    });
+    expect(result.current.discovery).toBeUndefined();
   });
 
   it("round-trips the current YAML draft through its controller", async () => {

@@ -139,7 +139,69 @@ describe("data schema view", () => {
     });
 
     expect(inspector.style.transform).toBe("");
-    expect(inspector.style.left).toBe("304px");
-    expect(inspector.style.top).toBe("144px");
+    expect(inspector.style.left).toBe(`${window.innerWidth - 404}px`);
+    expect(inspector.style.top).toBe("24px");
+  });
+
+  it("collapses to its header and expands without losing the widget", () => {
+    const result: DiscoveryResult = {
+      source: "source",
+      sink: "unselected",
+      pipeline_count: 1,
+      datasets: [
+        {
+          role: "Main",
+          name: "events",
+          intermediate_columns: [],
+          final_columns: [],
+        },
+      ],
+      sink_limits: { sink: "unselected", supported_arrow_types: [] },
+    };
+    const view = render(
+      <DataSchemaInspector result={result} loading onHide={() => undefined} />,
+    );
+
+    expect(view.getByRole("status").textContent).toContain("Updating schema");
+    fireEvent.click(
+      view.getByRole("button", { name: "Collapse schema inspector" }),
+    );
+    expect(view.queryByRole("table")).toBeNull();
+    fireEvent.click(
+      view.getByRole("button", { name: "Expand schema inspector" }),
+    );
+    expect(
+      view.getByRole("table", { name: "Selected table schema" }),
+    ).toBeTruthy();
+  });
+
+  it("can be dragged all the way to the viewport origin", () => {
+    const result: DiscoveryResult = {
+      source: "source",
+      sink: "unselected",
+      pipeline_count: 1,
+      datasets: [],
+      sink_limits: { sink: "unselected", supported_arrow_types: [] },
+    };
+    const view = render(
+      <DataSchemaInspector result={result} onHide={() => undefined} />,
+    );
+    const inspector = view.getByRole("complementary", {
+      name: "Schema inspector",
+    });
+    const handle = inspector.querySelector<HTMLElement>(
+      ".schema-inspector-drag-handle",
+    )!;
+    handle.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(handle, {
+      pointerId: 1,
+      clientX: window.innerWidth - 394,
+      clientY: 34,
+    });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 0, clientY: 0 });
+
+    expect(inspector.style.left).toBe("0px");
+    expect(inspector.style.top).toBe("0px");
   });
 });

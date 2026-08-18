@@ -77,6 +77,55 @@ fn service() -> ControlPlane {
     )
 }
 
+#[tokio::test]
+async fn source_schema_preview_does_not_require_a_sink() -> anyhow::Result<()> {
+    let result = service()
+        .validate_preview(
+            &serde_json::json!({
+                "delivery_type": "stream",
+                "source": {
+                    "kafka": {
+                        "installation": {
+                            "type": "on_premise",
+                            "brokers": ["localhost:9092"],
+                            "security": { "type": "plaintext" }
+                        },
+                        "topics": ["events"],
+                        "consumer_group": "consumer",
+                        "offset_reset": "earliest",
+                        "parser": {
+                            "common": {
+                                "table_naming": { "type": "from_config", "name": "events" }
+                            },
+                            "json_parser": {
+                                "columns": [{
+                                    "jsonpath": "$.id",
+                                    "column_name": "id",
+                                    "json_data_type": "number",
+                                    "arrow_type": "Int64",
+                                    "nullable": false
+                                }],
+                                "conversion_error": "drop",
+                                "unknown_fields": { "action": "drop" }
+                            }
+                        },
+                        "batch_max_messages": 1000,
+                        "batch_max_bytes": 16777216,
+                        "request_timeout_ms": 30000
+                    }
+                },
+                "sink": {}
+            }),
+            CancellationToken::new(),
+        )
+        .await?;
+
+    assert_eq!(result.source, "kafka");
+    assert_eq!(result.sink, "unselected");
+    assert_eq!(result.datasets[0].name, "events");
+    Ok(())
+}
+
 #[derive(Default)]
 struct MemoryStore {
     deliveries: Mutex<BTreeMap<String, DeliveryRecord>>,
