@@ -115,7 +115,7 @@ export function ParserDetailsForm({
     <RootValueContext.Provider value={value}>
       <RequiredErrorsContext.Provider value={showRequiredErrors}>
         <div class="source-parser-bridge" aria-hidden="true" />
-        <section class="parser-details-card">
+        <section class="parser-details-card" tabindex={-1}>
           <div class="section-heading">
             <h2>{selected.label} settings</h2>
           </div>

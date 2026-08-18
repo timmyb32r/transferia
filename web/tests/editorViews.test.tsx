@@ -138,4 +138,124 @@ describe("endpoint connection check", () => {
     );
     view.unmount();
   });
+
+  it("preserves endpoint credentials when applying a parser and focuses its settings", async () => {
+    const parserEndpoint: EndpointDefinition = {
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          token_file: { type: "string", title: "Token file" },
+          parser: {
+            oneOf: [
+              {
+                title: "JSON parser",
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  common: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {},
+                  },
+                  json_parser: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {},
+                  },
+                },
+                required: ["common", "json_parser"],
+              },
+            ],
+            "x-ui": { widget: "parser" },
+          },
+        },
+        required: ["token_file", "parser"],
+      },
+      initial: { token_file: "", parser: {} },
+      delivery_modes: [],
+      partitioned: true,
+      connection_check: false,
+    };
+    vi.spyOn(api, "previewMessage").mockResolvedValue({
+      text_preview: "{}",
+      payload_preview_base64: "e30=",
+      payload_base64: "e30=",
+      byte_length: 2,
+      preview_bytes: 2,
+      metadata: {
+        topic: "topic",
+        partition: 0,
+        partition_session_id: 1,
+        offset: 1,
+        sequence_number: 1,
+        created_at_ms: null,
+        written_at_ms: null,
+        producer_id: "",
+        message_group_id: "",
+        codec: "raw",
+        compressed_size: 2,
+        declared_uncompressed_size: 2,
+        message_metadata: [],
+        write_session_metadata: {},
+      },
+      detections: [
+        {
+          key: "json_parser",
+          label: "JSON parser",
+          config: { common: {}, json_parser: {} },
+          inferred_columns: [],
+          sample_rows: [{}],
+          preview_tabs: [],
+          sampled_messages: 1,
+          sampled_rows: 1,
+        },
+      ],
+    });
+    const onConfig = vi.fn();
+    const scrollIntoView = vi.fn();
+    const parserSettings = document.createElement("section");
+    parserSettings.className = "parser-details-card";
+    parserSettings.tabIndex = -1;
+    Object.defineProperty(parserSettings, "scrollIntoView", {
+      value: scrollIntoView,
+    });
+    document.body.append(parserSettings);
+    const config = {
+      source: {
+        logbroker: {
+          token_file: "~/.logbroker/token",
+          parser: { common: {}, json_parser: {} },
+        },
+      },
+    };
+    const view = render(
+      <EndpointCard
+        title="Source"
+        role="source"
+        selectedKey="logbroker"
+        providers={[{ key: "logbroker", title: "Logbroker", source: parserEndpoint }]}
+        endpoint={parserEndpoint}
+        config={config}
+        readOnly={false}
+        showRequiredErrors={false}
+        onChoose={() => undefined}
+        onConfig={onConfig}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Preview one message" }));
+    await view.findByRole("dialog");
+    fireEvent.click(view.getByRole("button", { name: "Use parser" }));
+    expect(onConfig).toHaveBeenCalledWith(config);
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+    expect(document.activeElement).toBe(parserSettings);
+    parserSettings.remove();
+  });
 });

@@ -236,6 +236,15 @@ export function EndpointCard(props: {
               },
             });
             setPreview({ open: false, loading: false });
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const parser = document.querySelector<HTMLElement>(
+                  ".parser-details-card",
+                );
+                parser?.scrollIntoView({ behavior: "smooth", block: "start" });
+                parser?.focus({ preventScroll: true });
+              }),
+            );
           }}
         />
       )}
