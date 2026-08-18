@@ -21,9 +21,20 @@ pub enum SerializerConfig {
 
     #[schemars(title = "Schema Registry")]
     SchemaRegistry {
+        #[schemars(title = "Connection")]
         connection: SchemaRegistryConnection,
 
+        #[schemars(title = "Subject")]
+        subject: String,
+
+        #[schemars(title = "Format")]
+        format: SchemaFormat,
+
         #[serde(default = "default_message_indexes")]
+        #[schemars(
+            title = "Protobuf message indexes",
+            extend("x-ui" = { "section": "advanced" })
+        )]
         protobuf_message_indexes: Vec<i32>,
     },
 }
@@ -38,12 +49,17 @@ impl SerializerConfig {
             Self::Json => Ok(()),
             Self::SchemaRegistry {
                 connection,
+                subject,
+                format,
                 protobuf_message_indexes,
             } => {
                 connection.validate()?;
                 anyhow::ensure!(
-                    connection.format != SchemaFormat::Protobuf
-                        || !protobuf_message_indexes.is_empty(),
+                    subject.trim() == subject && !subject.is_empty(),
+                    "schema_registry.subject must be nonempty and must not contain leading or trailing whitespace"
+                );
+                anyhow::ensure!(
+                    *format != SchemaFormat::Protobuf || !protobuf_message_indexes.is_empty(),
                     "schema_registry protobuf_message_indexes must not be empty"
                 );
                 anyhow::ensure!(
@@ -61,14 +77,16 @@ impl SerializerConfig {
     ) -> anyhow::Result<String> {
         match self {
             Self::Json => Ok(format!("JSON {}", json_type_name(data_type)?)),
-            Self::SchemaRegistry { connection, .. } => Ok(format!(
+            Self::SchemaRegistry {
+                subject, format, ..
+            } => Ok(format!(
                 "{} ({})",
-                match connection.format {
+                match format {
                     SchemaFormat::Avro => "Avro",
                     SchemaFormat::JsonSchema => "JSON Schema",
                     SchemaFormat::Protobuf => "Protobuf",
                 },
-                connection.subject
+                subject
             )),
         }
     }
@@ -106,6 +124,8 @@ enum SerializerKind {
     Json,
     SchemaRegistry {
         registry: RegistryClient,
+        subject: String,
+        format: SchemaFormat,
         message_indexes: Vec<i32>,
         schema: Box<Option<CompiledWriterSchema>>,
     },
@@ -133,9 +153,13 @@ impl DeliverySerializer {
             SerializerConfig::Json => SerializerKind::Json,
             SerializerConfig::SchemaRegistry {
                 connection,
+                subject,
+                format,
                 protobuf_message_indexes,
             } => SerializerKind::SchemaRegistry {
                 registry: RegistryClient::new(connection)?,
+                subject: subject.clone(),
+                format: *format,
                 message_indexes: protobuf_message_indexes.clone(),
                 schema: Box::new(None),
             },
@@ -152,13 +176,15 @@ impl DeliverySerializer {
     ) -> anyhow::Result<(Vec<Vec<u8>>, u64)> {
         if let SerializerKind::SchemaRegistry {
             registry,
+            subject,
+            format,
             message_indexes,
             schema,
         } = &mut self.kind
         {
             if schema.is_none() {
                 **schema = Some(compile_writer_schema(
-                    &registry.latest_schema().await?,
+                    &registry.latest_schema(subject, *format).await?,
                     message_indexes,
                 )?);
             }

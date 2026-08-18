@@ -27,11 +27,23 @@ fn protobuf_message_indexes_cover_optimized_and_nested_forms() -> anyhow::Result
 fn registry_configuration_rejects_ambiguous_or_credential_bearing_urls() {
     for url in ["ftp://registry", "https://user:secret@registry"] {
         let config = SchemaRegistryConnection {
-            urls: vec![url.to_owned()],
-            subject: "topic-value".to_owned(),
-            format: SchemaFormat::Avro,
+            url: url.to_owned(),
             request_timeout_ms: 1_000,
             auth: SchemaRegistryAuth::None,
+            ca_certificate: None,
+        };
+        assert!(config.validate().is_err());
+    }
+}
+
+#[test]
+fn registry_configuration_rejects_empty_or_padded_url() {
+    for url in ["", " http://registry", "http://registry "] {
+        let config = SchemaRegistryConnection {
+            url: url.to_owned(),
+            request_timeout_ms: 1_000,
+            auth: SchemaRegistryAuth::None,
+            ca_certificate: None,
         };
         assert!(config.validate().is_err());
     }

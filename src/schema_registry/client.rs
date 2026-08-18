@@ -11,8 +11,6 @@ use super::{SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection};
 pub struct RegistryClient {
     client: Client,
     urls: Arc<[Url]>,
-    subject: String,
-    format: SchemaFormat,
     auth: SchemaRegistryAuth,
     schemas: Arc<RwLock<HashMap<i32, RegistrySchema>>>,
 }
@@ -35,20 +33,19 @@ struct RegistryResponse {
 impl RegistryClient {
     pub fn new(config: &SchemaRegistryConnection) -> anyhow::Result<Self> {
         config.validate()?;
-        let urls = config
-            .urls
-            .iter()
-            .map(|url| Url::parse(url))
-            .collect::<Result<Vec<_>, _>>()?;
-        let client = Client::builder()
-            .timeout(Duration::from_millis(config.request_timeout_ms))
+        let urls = vec![Url::parse(&config.url)?];
+        let mut client =
+            Client::builder().timeout(Duration::from_millis(config.request_timeout_ms));
+        if let Some(certificate) = &config.ca_certificate {
+            client = client
+                .add_root_certificate(reqwest::Certificate::from_pem(certificate.as_bytes())?);
+        }
+        let client = client
             .build()
             .context("failed to build Schema Registry HTTP client")?;
         Ok(Self {
             client,
             urls: urls.into(),
-            subject: config.subject.clone(),
-            format: config.format,
             auth: config.auth.clone(),
             schemas: Arc::new(RwLock::new(HashMap::new())),
         })
@@ -60,46 +57,57 @@ impl RegistryClient {
         if let Some(schema) = cached {
             return Ok(schema);
         }
-        let response = self
-            .get(&["schemas", "ids", &id.to_string()], true)
+        let mut response = self
+            .get(&["schemas", "ids", &id.to_string()], &[])
             .await
-            .with_context(|| {
-                format!(
-                    "failed to fetch Schema Registry schema id {id} from subject '{}'",
-                    self.subject
+            .with_context(|| format!("failed to fetch Schema Registry schema id {id}"))?;
+        let format = response_format(response.schema_type.as_deref())?;
+        if format == SchemaFormat::Protobuf {
+            response = self
+                .get(
+                    &["schemas", "ids", &id.to_string()],
+                    &[("format", "serialized")],
                 )
-            })?;
-        validate_format(self.format, response.schema_type.as_deref())?;
+                .await
+                .with_context(|| {
+                    format!("failed to fetch serialized Schema Registry protobuf schema id {id}")
+                })?;
+            validate_format(format, response.schema_type.as_deref())?;
+        }
         let schema = RegistrySchema {
             id,
             definition: response.schema,
-            format: self.format,
+            format,
         };
         self.schemas.write().await.insert(id, schema.clone());
         Ok(schema)
     }
 
-    pub async fn latest_schema(&self) -> anyhow::Result<RegistrySchema> {
+    pub async fn latest_schema(
+        &self,
+        subject: &str,
+        format: SchemaFormat,
+    ) -> anyhow::Result<RegistrySchema> {
         let response = self
-            .get(&["subjects", &self.subject, "versions", "latest"], false)
+            .get(&["subjects", subject, "versions", "latest"], &[])
             .await
             .with_context(|| {
                 format!(
                     "failed to fetch latest Schema Registry schema for subject '{}'",
-                    self.subject
+                    subject
                 )
             })?;
-        validate_format(self.format, response.schema_type.as_deref())?;
+        validate_format(format, response.schema_type.as_deref())?;
         Ok(RegistrySchema {
             id: response
                 .id
                 .ok_or_else(|| anyhow::anyhow!("Schema Registry response has no schema id"))?,
             definition: response.schema,
-            format: self.format,
+            format,
         })
     }
 
-    async fn get(&self, path: &[&str], include_subject: bool) -> anyhow::Result<RegistryResponse> {
+    async fn get(&self, path: &[&str], query: &[(&str, &str)]) -> anyhow::Result<RegistryResponse> {
         let mut failures = Vec::with_capacity(self.urls.len());
         for base_url in self.urls.iter() {
             let mut url = base_url.clone();
@@ -112,11 +120,8 @@ impl RegistryClient {
                     segments.push(segment);
                 }
             }
-            if include_subject {
-                url.query_pairs_mut().append_pair("subject", &self.subject);
-            }
-            if self.format == SchemaFormat::Protobuf {
-                url.query_pairs_mut().append_pair("format", "serialized");
+            for (key, value) in query {
+                url.query_pairs_mut().append_pair(key, value);
             }
             match self.send(self.client.get(url)).await {
                 Ok(response) => return Ok(response),
@@ -157,4 +162,13 @@ fn validate_format(expected: SchemaFormat, actual: Option<&str>) -> anyhow::Resu
         expected.registry_name()
     );
     Ok(())
+}
+
+fn response_format(actual: Option<&str>) -> anyhow::Result<SchemaFormat> {
+    match actual.unwrap_or("AVRO").to_ascii_uppercase().as_str() {
+        "AVRO" => Ok(SchemaFormat::Avro),
+        "JSON" | "JSONSCHEMA" => Ok(SchemaFormat::JsonSchema),
+        "PROTOBUF" => Ok(SchemaFormat::Protobuf),
+        actual => anyhow::bail!("Schema Registry returned unsupported schema type {actual}"),
+    }
 }

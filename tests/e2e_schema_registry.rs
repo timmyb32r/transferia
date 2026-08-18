@@ -98,7 +98,7 @@ async fn schema_registry_round_trips_all_confluent_formats() -> anyhow::Result<(
         let subject = format!("events-{index}-value");
         let id = register(&client, &base_url, &subject, registry_format, definition).await?;
         let raw = encode_source(format, id, definition)?;
-        let parser = parser_config(&base_url, &subject, format)?;
+        let parser = parser_config(&base_url)?;
         let plan = ParserPlan::from_config(&parser, "events")?;
         let (table, dlq) = parse_one(&plan, raw).await?;
         assert!(dlq.is_none());
@@ -126,7 +126,9 @@ async fn schema_registry_round_trips_all_confluent_formats() -> anyhow::Result<(
             meta: DeliveryMeta { source_messages: 1 },
         };
         let mut serializer = DeliverySerializer::new(&SerializerConfig::SchemaRegistry {
-            connection: connection(&base_url, &subject, format),
+            connection: connection(&base_url),
+            subject: subject.clone(),
+            format,
             protobuf_message_indexes: vec![0],
         })?;
         let (payloads, rows) = serializer
@@ -171,21 +173,16 @@ async fn register(
     Ok(response.id)
 }
 
-fn connection(base_url: &str, subject: &str, format: SchemaFormat) -> SchemaRegistryConnection {
+fn connection(base_url: &str) -> SchemaRegistryConnection {
     SchemaRegistryConnection {
-        urls: vec![base_url.to_owned()],
-        subject: subject.to_owned(),
-        format,
+        url: base_url.to_owned(),
         request_timeout_ms: 30_000,
         auth: SchemaRegistryAuth::None,
+        ca_certificate: None,
     }
 }
 
-fn parser_config(
-    base_url: &str,
-    subject: &str,
-    format: SchemaFormat,
-) -> anyhow::Result<ParserConfig> {
+fn parser_config(base_url: &str) -> anyhow::Result<ParserConfig> {
     Ok(serde_yaml::from_value(serde_yaml::to_value(
         serde_json::json!({
             "common": {
@@ -193,7 +190,7 @@ fn parser_config(
                 "system_columns": {}
             },
             "schema_registry": {
-                "connection": connection(base_url, subject, format),
+                "connection": connection(base_url),
                 "json_parser": {
                     "json_framing": "single_document",
                     "columns": [

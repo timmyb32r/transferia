@@ -10,6 +10,18 @@ fn schema_registry_config_is_visible_in_parser_schema() {
     let schema = schemars::schema_for!(crate::parsers::config::ParserSchema);
     let json = serde_json::to_value(schema).expect("schema serializes");
     assert!(json.to_string().contains("schema_registry"));
+    let connection = json
+        .pointer("/$defs/SchemaRegistryConnection/properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("parser schema contains Schema Registry connection properties");
+    for field in ["url", "auth", "ca_certificate"] {
+        assert!(
+            connection.contains_key(field),
+            "parser schema is missing {field}"
+        );
+    }
+    assert!(!connection.contains_key("subject"));
+    assert!(!connection.contains_key("format"));
 }
 
 #[test]

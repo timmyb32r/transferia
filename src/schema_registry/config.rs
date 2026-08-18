@@ -26,8 +26,10 @@ impl SchemaFormat {
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SchemaRegistryAuth {
+    #[schemars(title = "No authentication")]
     None,
 
+    #[schemars(title = "Username and password")]
     Basic {
         username: String,
 
@@ -35,6 +37,7 @@ pub enum SchemaRegistryAuth {
         password: String,
     },
 
+    #[schemars(title = "Bearer token")]
     Bearer {
         #[schemars(extend("x-ui" = { "widget": "password" }))]
         token: String,
@@ -44,17 +47,19 @@ pub enum SchemaRegistryAuth {
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryConnection {
-    #[schemars(title = "Registry URLs", extend("x-ui" = { "initial_items": 1 }))]
-    pub urls: Vec<String>,
+    #[schemars(title = "Registry URL")]
+    pub url: String,
 
-    pub subject: String,
-
-    pub format: SchemaFormat,
-
+    #[schemars(title = "Request timeout (ms)", extend("x-ui" = { "section": "advanced" }))]
     pub request_timeout_ms: u64,
 
     #[serde(default = "default_auth")]
+    #[schemars(title = "Authentication")]
     pub auth: SchemaRegistryAuth,
+
+    #[serde(default)]
+    #[schemars(title = "CA certificate (PEM)", extend("x-ui" = { "section": "advanced" }))]
+    pub ca_certificate: Option<String>,
 }
 
 const fn default_auth() -> SchemaRegistryAuth {
@@ -64,24 +69,20 @@ const fn default_auth() -> SchemaRegistryAuth {
 impl SchemaRegistryConnection {
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            !self.urls.is_empty(),
-            "schema_registry.urls must not be empty"
+            self.url.trim() == self.url && !self.url.is_empty(),
+            "schema_registry.url must be nonempty and must not contain leading or trailing whitespace"
         );
-        for url in &self.urls {
-            let parsed = reqwest::Url::parse(url)
-                .map_err(|error| anyhow::anyhow!("invalid Schema Registry URL '{url}': {error}"))?;
-            anyhow::ensure!(
-                matches!(parsed.scheme(), "http" | "https"),
-                "Schema Registry URL '{url}' must use http or https"
-            );
-            anyhow::ensure!(
-                parsed.username().is_empty() && parsed.password().is_none(),
-                "Schema Registry URL must not contain credentials; use schema_registry.auth"
-            );
-        }
+        let parsed = reqwest::Url::parse(&self.url).map_err(|error| {
+            anyhow::anyhow!("invalid Schema Registry URL '{}': {error}", self.url)
+        })?;
         anyhow::ensure!(
-            !self.subject.is_empty(),
-            "schema_registry.subject must not be empty"
+            matches!(parsed.scheme(), "http" | "https"),
+            "Schema Registry URL '{}' must use http or https",
+            self.url
+        );
+        anyhow::ensure!(
+            parsed.username().is_empty() && parsed.password().is_none(),
+            "Schema Registry URL must not contain credentials; use schema_registry.auth"
         );
         anyhow::ensure!(
             self.request_timeout_ms > 0,
@@ -103,6 +104,15 @@ impl SchemaRegistryConnection {
                 !token.is_empty(),
                 "schema_registry.auth.token must not be empty"
             ),
+        }
+        if let Some(certificate) = &self.ca_certificate {
+            anyhow::ensure!(
+                !certificate.is_empty(),
+                "schema_registry.ca_certificate must not be empty when configured"
+            );
+            reqwest::Certificate::from_pem(certificate.as_bytes()).map_err(|error| {
+                anyhow::anyhow!("invalid Schema Registry CA certificate: {error}")
+            })?;
         }
         Ok(())
     }
