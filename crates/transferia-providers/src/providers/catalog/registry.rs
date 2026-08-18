@@ -8,7 +8,16 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 
 use super::apply_endpoint_installations;
-use super::definition::{DeliveryMode, EndpointDefinition, EndpointSpec, ProviderDefinition};
+#[cfg(any(
+    feature = "provider-clickhouse",
+    feature = "provider-kafka",
+    feature = "provider-logbroker",
+    feature = "provider-postgres",
+    feature = "provider-s3",
+    feature = "provider-ytsaurus"
+))]
+use super::definition::DeliveryMode;
+use super::definition::{EndpointDefinition, EndpointSpec, ProviderDefinition};
 use super::descriptor::provider_descriptor;
 use crate::extension::{EndpointRole, ExtensionRegistry};
 use crate::providers::traits::ConnectionCheckResult;
@@ -58,6 +67,14 @@ impl ProviderRegistration {
         })
     }
 
+    #[cfg(any(
+        feature = "provider-clickhouse",
+        feature = "provider-kafka",
+        feature = "provider-logbroker",
+        feature = "provider-postgres",
+        feature = "provider-s3",
+        feature = "provider-ytsaurus"
+    ))]
     pub fn source_checker<C, F, Fut>(mut self, checker: F) -> Self
     where
         C: DeserializeOwned + Send + 'static,
@@ -74,6 +91,14 @@ impl ProviderRegistration {
         self
     }
 
+    #[cfg(any(
+        feature = "provider-clickhouse",
+        feature = "provider-kafka",
+        feature = "provider-logbroker",
+        feature = "provider-postgres",
+        feature = "provider-s3",
+        feature = "provider-ytsaurus"
+    ))]
     pub fn sink_checker<C, F, Fut>(mut self, checker: F) -> Self
     where
         C: DeserializeOwned + Send + 'static,
@@ -89,6 +114,14 @@ impl ProviderRegistration {
         self
     }
 
+    #[cfg(any(
+        feature = "provider-clickhouse",
+        feature = "provider-kafka",
+        feature = "provider-logbroker",
+        feature = "provider-postgres",
+        feature = "provider-s3",
+        feature = "provider-ytsaurus"
+    ))]
     pub fn source<C, F, I>(
         mut self,
         delivery_modes: Vec<DeliveryMode>,

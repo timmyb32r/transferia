@@ -21,6 +21,7 @@ pub(super) struct ProviderDescriptor {
     pub sink: Option<ProviderRoleDescriptor>,
 }
 
+#[cfg(feature = "provider-logbroker")]
 const LOGBROKER_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["host", "port", "trusted_plaintext"],
@@ -28,6 +29,7 @@ const LOGBROKER_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescript
     }),
 });
 
+#[cfg(feature = "provider-kafka")]
 const KAFKA_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["brokers", "security"],
@@ -35,6 +37,7 @@ const KAFKA_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     }),
 });
 
+#[cfg(feature = "provider-postgres")]
 const POSTGRES_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["host", "port", "trusted_plaintext", "tls_ca_file"],
@@ -42,6 +45,7 @@ const POSTGRES_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescripto
     }),
 });
 
+#[cfg(feature = "provider-clickhouse")]
 const CLICKHOUSE_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
@@ -49,6 +53,7 @@ const CLICKHOUSE_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescrip
     }),
 });
 
+#[cfg(feature = "provider-ytsaurus")]
 const YTSAURUS_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["host", "port", "token", "trusted_plaintext"],
@@ -59,36 +64,42 @@ const YTSAURUS_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescripto
 const PLAIN: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor { installation: None });
 
 pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
+    #[cfg(feature = "provider-logbroker")]
     ProviderDescriptor {
         key: "logbroker",
         title: "Logbroker",
         source: LOGBROKER_ROLE,
         sink: LOGBROKER_ROLE,
     },
+    #[cfg(feature = "provider-kafka")]
     ProviderDescriptor {
         key: "kafka",
         title: "Kafka",
         source: KAFKA_ROLE,
         sink: KAFKA_ROLE,
     },
+    #[cfg(feature = "provider-postgres")]
     ProviderDescriptor {
         key: "postgres",
         title: "PostgreSQL",
         source: POSTGRES_ROLE,
         sink: POSTGRES_ROLE,
     },
+    #[cfg(feature = "provider-clickhouse")]
     ProviderDescriptor {
         key: "clickhouse",
         title: "ClickHouse",
         source: CLICKHOUSE_ROLE,
         sink: CLICKHOUSE_ROLE,
     },
+    #[cfg(feature = "provider-s3")]
     ProviderDescriptor {
         key: "s3",
         title: "S3",
         source: PLAIN,
         sink: PLAIN,
     },
+    #[cfg(feature = "provider-ytsaurus")]
     ProviderDescriptor {
         key: "ytsaurus",
         title: "YTsaurus",

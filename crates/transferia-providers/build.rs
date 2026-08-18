@@ -1,3 +1,4 @@
+#[cfg(feature = "provider-logbroker")]
 fn main() -> Result<(), Box<dyn core::error::Error>> {
     println!("cargo:rerun-if-changed=../../proto");
     tonic_prost_build::configure()
@@ -12,3 +13,6 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         )?;
     Ok(())
 }
+
+#[cfg(not(feature = "provider-logbroker"))]
+fn main() {}

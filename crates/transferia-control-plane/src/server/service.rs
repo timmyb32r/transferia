@@ -210,7 +210,7 @@ impl ControlPlane {
     ) -> Result<SqlPlaygroundResult, ServiceError> {
         #[cfg(not(feature = "datafusion"))]
         {
-            let _ = (sql, rows);
+            drop((sql, rows));
             return Err(ServiceError::Validation(
                 "SQL playground is not available in this build".to_owned(),
             ));

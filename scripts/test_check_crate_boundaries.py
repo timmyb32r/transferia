@@ -35,6 +35,38 @@ class CrateBoundariesTest(unittest.TestCase):
             set(),
         )
 
+    def test_heavy_provider_dependencies_and_consumers_are_feature_gated(self):
+        providers = {
+            "dependencies": {
+                dependency: {"optional": True}
+                for dependency in boundaries.HEAVY_PROVIDER_DEPENDENCIES
+            }
+        }
+        manifests = {
+            "transferia-providers": providers,
+            "transferia-delivery": {
+                "dependencies": {
+                    "transferia-providers": {"default-features": False}
+                }
+            },
+            "transferia-control-plane": {
+                "dependencies": {
+                    "transferia-providers": {
+                        "default-features": False,
+                        "features": ["provider-logbroker"],
+                    }
+                }
+            },
+        }
+
+        self.assertEqual(boundaries.provider_feature_errors(manifests), [])
+
+        providers["dependencies"]["rdkafka"]["optional"] = False
+        self.assertIn(
+            "transferia-providers: heavy dependency 'rdkafka' must be optional",
+            boundaries.provider_feature_errors(manifests),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

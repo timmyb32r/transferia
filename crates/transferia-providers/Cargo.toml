@@ -4,6 +4,23 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+default = ["all-providers"]
+all-providers = [
+    "provider-clickhouse",
+    "provider-kafka",
+    "provider-logbroker",
+    "provider-postgres",
+    "provider-s3",
+    "provider-ytsaurus",
+]
+provider-clickhouse = ["dep:clickhouse-arrow"]
+provider-kafka = ["dep:rdkafka"]
+provider-logbroker = ["dep:tonic-prost-build", "dep:ydb-grpc"]
+provider-postgres = ["dep:postgres-types", "dep:tokio-postgres", "dep:tokio-postgres-rustls"]
+provider-s3 = ["dep:object_store"]
+provider-ytsaurus = []
+
 [dependencies]
 anyhow.workspace = true
 apache-avro.workspace = true
@@ -14,7 +31,7 @@ bigdecimal.workspace = true
 bytes.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
-clickhouse-arrow.workspace = true
+clickhouse-arrow = { workspace = true, optional = true }
 flate2.workspace = true
 futures-util.workspace = true
 http.workspace = true
@@ -23,13 +40,13 @@ hyper-util.workspace = true
 itoa.workspace = true
 jsonpath_lib.workspace = true
 jsonschema.workspace = true
-object_store.workspace = true
-postgres-types.workspace = true
+object_store = { workspace = true, optional = true }
+postgres-types = { workspace = true, optional = true }
 prost.workspace = true
 prost-reflect.workspace = true
 prost-types.workspace = true
 protox.workspace = true
-rdkafka.workspace = true
+rdkafka = { workspace = true, optional = true }
 reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
@@ -44,8 +61,8 @@ shellexpand.workspace = true
 simd-json.workspace = true
 time.workspace = true
 tokio.workspace = true
-tokio-postgres.workspace = true
-tokio-postgres-rustls.workspace = true
+tokio-postgres = { workspace = true, optional = true }
+tokio-postgres-rustls = { workspace = true, optional = true }
 tokio-stream.workspace = true
 tokio-util.workspace = true
 tonic.workspace = true
@@ -54,11 +71,11 @@ tower.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-ydb-grpc.workspace = true
+ydb-grpc = { workspace = true, optional = true }
 zstd.workspace = true
 
 [build-dependencies]
-tonic-prost-build.workspace = true
+tonic-prost-build = { workspace = true, optional = true }
 
 [dev-dependencies]
 testcontainers.workspace = true

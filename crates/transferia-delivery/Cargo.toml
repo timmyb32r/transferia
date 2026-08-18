@@ -25,8 +25,11 @@ tokio-util.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-transferia-providers = { path = "../transferia-providers" }
+transferia-providers = { path = "../transferia-providers", default-features = false }
 transferia-pipeline = { path = "../transferia-pipeline" }
+
+[dev-dependencies]
+transferia-providers = { path = "../transferia-providers", features = ["all-providers"] }
 
 [lints]
 workspace = true

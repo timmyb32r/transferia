@@ -48,6 +48,16 @@ DEV_EXTRA = {
     "transferia-providers": {"transferia-pipeline"},
 }
 
+HEAVY_PROVIDER_DEPENDENCIES = {
+    "clickhouse-arrow",
+    "object_store",
+    "postgres-types",
+    "rdkafka",
+    "tokio-postgres",
+    "tokio-postgres-rustls",
+    "ydb-grpc",
+}
+
 
 def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]:
     dependencies = manifest.get(section, {})
@@ -56,9 +66,43 @@ def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]
     return {name for name in dependencies if name.startswith("transferia-")}
 
 
+def provider_feature_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
+    errors: list[str] = []
+    providers = manifests["transferia-providers"]
+    dependencies = providers.get("dependencies", {})
+    assert isinstance(dependencies, dict)
+    for dependency in sorted(HEAVY_PROVIDER_DEPENDENCIES):
+        declaration = dependencies.get(dependency)
+        if not isinstance(declaration, dict) or declaration.get("optional") is not True:
+            errors.append(
+                f"transferia-providers: heavy dependency '{dependency}' must be optional"
+            )
+
+    expected_consumers = {
+        "transferia-delivery": set(),
+        "transferia-control-plane": {"provider-logbroker"},
+    }
+    for crate, expected_features in expected_consumers.items():
+        crate_dependencies = manifests[crate].get("dependencies", {})
+        assert isinstance(crate_dependencies, dict)
+        declaration = crate_dependencies.get("transferia-providers")
+        if not isinstance(declaration, dict):
+            errors.append(f"{crate}: transferia-providers dependency must be explicit")
+            continue
+        if declaration.get("default-features") is not False:
+            errors.append(f"{crate}: transferia-providers default features must be disabled")
+        actual_features = set(declaration.get("features", []))
+        if actual_features != expected_features:
+            errors.append(
+                f"{crate}: expected provider features {sorted(expected_features)}, got {sorted(actual_features)}"
+            )
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     discovered: set[str] = set()
+    manifests: dict[str, dict[str, object]] = {}
     for manifest_path in sorted((ROOT / "crates").glob("*/Cargo.toml")):
         with manifest_path.open("rb") as source:
             manifest = tomllib.load(source)
@@ -68,6 +112,7 @@ def main() -> int:
             errors.append(f"{manifest_path}: missing package.name")
             continue
         discovered.add(name)
+        manifests[name] = manifest
         if name not in PRODUCTION_ALLOWED:
             errors.append(f"{manifest_path}: crate is absent from the architecture allowlist")
             continue
@@ -87,6 +132,8 @@ def main() -> int:
         errors.append(f"architecture allowlist entries have no crate: {', '.join(sorted(missing))}")
     if list((ROOT / "src").glob("**/*.rs")) != [ROOT / "src/lib.rs"]:
         errors.append("root transferia facade must contain only src/lib.rs")
+    if not (PRODUCTION_ALLOWED.keys() - discovered):
+        errors.extend(provider_feature_errors(manifests))
 
     if errors:
         print("\n".join(errors), file=sys.stderr)
