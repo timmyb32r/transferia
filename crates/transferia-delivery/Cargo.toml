@@ -4,13 +4,17 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+default = ["datafusion"]
+datafusion = ["dep:datafusion"]
+
 [dependencies]
 anyhow.workspace = true
 arrow.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 chrono.workspace = true
-datafusion.workspace = true
+datafusion = { workspace = true, optional = true }
 futures-util.workspace = true
 schemars.workspace = true
 serde.workspace = true

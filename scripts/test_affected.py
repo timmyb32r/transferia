@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMINGS_PATH = ROOT / "target/affected-tests-timings.json"
+TIMINGS_HISTORY_PATH = ROOT / "target/affected-tests-timings.jsonl"
 TIMINGS_LOCK = threading.Lock()
 COMMAND_TIMINGS: list[dict[str, object]] = []
 
@@ -267,7 +268,7 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
     packages = {package for package in selection.rust_packages if package}
     modules = {module for module in selection.rust_modules if module}
     if packages:
-        command = ["cargo", "test", "--all-features", "--lib"]
+        command = ["cargo", "test", "--lib"]
         for package in sorted(packages):
             command.extend(["-p", package])
         rust.append(command)
@@ -279,9 +280,9 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
             rust.append(command)
     elif len(modules) == 1:
         module = next(iter(modules))
-        rust.append(["cargo", "test", "--lib", "--all-features", f"{module}::"])
+        rust.append(["cargo", "test", "--lib", f"{module}::"])
     elif modules:
-        rust.append(["cargo", "test", "--lib", "--all-features"])
+        rust.append(["cargo", "test", "--lib"])
 
     if selection.integration_tests:
         command = ["cargo", "test", "--all-features"]
@@ -394,18 +395,17 @@ def main() -> int:
 
     def finish(status: int) -> int:
         TIMINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TIMINGS_PATH.write_text(
-            json.dumps(
-                {
-                    "changed_files": paths,
-                    "duration_seconds": round(time.monotonic() - total_started, 3),
-                    "status": status,
-                    "commands": COMMAND_TIMINGS,
-                },
-                indent=2,
-            )
-            + "\n"
-        )
+        report = {
+            "schema_version": 1,
+            "recorded_at_unix_seconds": int(time.time()),
+            "changed_files": paths,
+            "duration_seconds": round(time.monotonic() - total_started, 3),
+            "status": status,
+            "commands": COMMAND_TIMINGS,
+        }
+        TIMINGS_PATH.write_text(json.dumps(report, indent=2) + "\n")
+        with TIMINGS_HISTORY_PATH.open("a") as history:
+            history.write(json.dumps(report, separators=(",", ":")) + "\n")
         print(f"Timing report: {TIMINGS_PATH.relative_to(ROOT)}", flush=True)
         return status
 

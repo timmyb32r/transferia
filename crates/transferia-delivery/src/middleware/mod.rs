@@ -35,8 +35,13 @@ impl MiddlewareEntry {
 pub fn build_middleware(name: &str, raw: Value) -> anyhow::Result<Box<dyn Middleware>> {
     match name {
         "datafusion" => {
-            let config: datafusion::DataFusionConfig = serde_yaml::from_value(raw)?;
-            Ok(Box::new(datafusion::DataFusionMiddleware::new(config.sql)?))
+            #[cfg(feature = "datafusion")]
+            {
+                let config: datafusion::DataFusionConfig = serde_yaml::from_value(raw)?;
+                return Ok(Box::new(datafusion::DataFusionMiddleware::new(config.sql)?));
+            }
+            #[cfg(not(feature = "datafusion"))]
+            anyhow::bail!("DataFusion middleware is not available in this build")
         }
         "filter" => {
             let config: filter::FilterConfig = serde_yaml::from_value(raw)?;

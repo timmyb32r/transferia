@@ -1,21 +1,35 @@
-use std::sync::Arc;
-
-use anyhow::Context;
-use arrow::array::new_empty_array;
-use arrow::compute::concat_batches;
-use arrow::datatypes::{Field, Schema};
-use arrow::record_batch::RecordBatch;
-use async_trait::async_trait;
-use datafusion::execution::context::{SQLOptions, SessionContext};
 use schemars::JsonSchema;
 use serde::Deserialize;
+#[cfg(feature = "datafusion")]
+use std::sync::Arc;
+
+#[cfg(feature = "datafusion")]
+use anyhow::Context;
+#[cfg(feature = "datafusion")]
+use arrow::array::new_empty_array;
+#[cfg(feature = "datafusion")]
+use arrow::compute::concat_batches;
+#[cfg(feature = "datafusion")]
+use arrow::datatypes::{Field, Schema};
+#[cfg(feature = "datafusion")]
+use arrow::record_batch::RecordBatch;
+#[cfg(feature = "datafusion")]
+use async_trait::async_trait;
+#[cfg(feature = "datafusion")]
+use datafusion::execution::context::{SQLOptions, SessionContext};
+#[cfg(feature = "datafusion")]
 use serde_json::Value;
 
+#[cfg(feature = "datafusion")]
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+#[cfg(feature = "datafusion")]
 use transferia_core::data::system_columns::{SystemColumn, SystemColumns};
+#[cfg(feature = "datafusion")]
 use transferia_core::data::table_data::TableData;
+#[cfg(feature = "datafusion")]
 use transferia_delivery_contracts::middleware::Middleware;
 
+#[cfg(feature = "datafusion")]
 const INPUT_TABLE: &str = "input";
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -29,10 +43,12 @@ pub struct DataFusionConfig {
     pub sql: String,
 }
 
+#[cfg(feature = "datafusion")]
 pub struct DataFusionMiddleware {
     sql: String,
 }
 
+#[cfg(feature = "datafusion")]
 impl DataFusionMiddleware {
     pub fn new(sql: String) -> anyhow::Result<Self> {
         anyhow::ensure!(!sql.trim().is_empty(), "DataFusion SQL must not be empty");
@@ -96,6 +112,7 @@ impl DataFusionMiddleware {
     }
 }
 
+#[cfg(feature = "datafusion")]
 #[async_trait]
 impl Middleware for DataFusionMiddleware {
     async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {

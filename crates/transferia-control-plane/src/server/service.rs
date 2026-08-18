@@ -208,27 +208,37 @@ impl ControlPlane {
         sql: String,
         rows: Vec<serde_json::Value>,
     ) -> Result<SqlPlaygroundResult, ServiceError> {
-        let middleware =
-            transferia_delivery::middleware::datafusion::DataFusionMiddleware::new(sql)
+        #[cfg(not(feature = "datafusion"))]
+        {
+            let _ = (sql, rows);
+            return Err(ServiceError::Validation(
+                "SQL playground is not available in this build".to_owned(),
+            ));
+        }
+        #[cfg(feature = "datafusion")]
+        {
+            let middleware =
+                transferia_delivery::middleware::datafusion::DataFusionMiddleware::new(sql)
+                    .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let (batch, rows) = middleware
+                .execute_json_rows(&rows)
+                .await
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let (batch, rows) = middleware
-            .execute_json_rows(&rows)
-            .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let columns = batch
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| ColumnView {
-                name: field.name().clone(),
-                arrow_type: format!("{:?}", field.data_type()),
-                nullable: field.is_nullable(),
-                primary_key: false,
-                low_cardinality: false,
-                max_length: None,
-            })
-            .collect();
-        Ok(SqlPlaygroundResult { columns, rows })
+            let columns = batch
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| ColumnView {
+                    name: field.name().clone(),
+                    arrow_type: format!("{:?}", field.data_type()),
+                    nullable: field.is_nullable(),
+                    primary_key: false,
+                    low_cardinality: false,
+                    max_length: None,
+                })
+                .collect();
+            Ok(SqlPlaygroundResult { columns, rows })
+        }
     }
 
     #[must_use]

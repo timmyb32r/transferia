@@ -47,7 +47,7 @@ class AffectedTestsTest(unittest.TestCase):
         self.assertEqual(selection.integration_tests, set())
         self.assertEqual(
             rust,
-            [["cargo", "test", "--all-features", "--lib", "-p", "transferia-providers"]],
+            [["cargo", "test", "--lib", "-p", "transferia-providers"]],
         )
 
     def test_provider_config_change_stays_in_fast_unit_tests(self):
@@ -96,7 +96,7 @@ class AffectedTestsTest(unittest.TestCase):
 
         self.assertEqual(
             rust,
-            [["cargo", "test", "--all-features", "--lib", "-p", "transferia-control-plane"]],
+            [["cargo", "test", "--lib", "-p", "transferia-control-plane"]],
         )
 
     def test_public_crate_surface_checks_transitive_dependents(self):
@@ -119,7 +119,6 @@ class AffectedTestsTest(unittest.TestCase):
             [
                 "cargo",
                 "test",
-                "--all-features",
                 "--lib",
                 "-p",
                 "transferia-delivery-contracts",

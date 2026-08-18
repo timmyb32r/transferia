@@ -90,6 +90,7 @@ async fn health_has_a_stable_json_contract() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "datafusion")]
 #[tokio::test]
 async fn sql_playground_executes_the_runtime_datafusion_transform() -> anyhow::Result<()> {
     let (app, root) = test_router().await?;
@@ -108,6 +109,30 @@ async fn sql_playground_executes_the_runtime_datafusion_transform() -> anyhow::R
     assert_eq!(body["columns"][0]["name"], "id");
     assert_eq!(body["columns"][0]["arrow_type"], "Int64");
     assert_eq!(body["rows"], serde_json::json!([{ "id": 6 }]));
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[cfg(not(feature = "datafusion"))]
+#[tokio::test]
+async fn sql_playground_reports_an_unavailable_optional_capability() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let response = app
+        .oneshot(
+            Request::post("/api/v1/playground/sql")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"sql":"SELECT * FROM input","rows":[{"id":1}]}"#,
+                ))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await?)?;
+    assert_eq!(
+        body["error"]["message"],
+        "SQL playground is not available in this build"
+    );
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

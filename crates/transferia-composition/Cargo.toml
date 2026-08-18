@@ -16,7 +16,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
-transferia-control-plane = { path = "../transferia-control-plane" }
+transferia-control-plane = { path = "../transferia-control-plane", features = ["datafusion"] }
 transferia-delivery = { path = "../transferia-delivery" }
 transferia-providers = { path = "../transferia-providers" }
 transferia-runtime-local = { path = "../transferia-runtime-local" }
