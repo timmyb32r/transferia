@@ -72,6 +72,12 @@ class AffectedTestsTest(unittest.TestCase):
         self.assertIn("parsers::tests::detection::", rust[0])
         self.assertEqual(len(rust), 1)
 
+    def test_parser_config_uses_the_shared_parser_test_module(self):
+        selection = test_affected.select(["src/parsers/config.rs"])
+        rust, _ = test_affected.commands(selection)
+
+        self.assertIn("parsers::tests::", rust[0])
+
     def test_unknown_build_input_falls_back_to_full_suite(self):
         selection = test_affected.select(["Cargo.toml"])
         rust, _ = test_affected.commands(selection)

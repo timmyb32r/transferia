@@ -155,7 +155,8 @@ def select(paths: list[str]) -> Selection:
                 if parser == "mod.rs":
                     parser = ""
                 elif parser.endswith(".rs"):
-                    parser = f"tests::{Path(parser).stem}"
+                    stem = Path(parser).stem
+                    parser = "tests::detection" if stem == "detection" else "tests"
                 result.rust_modules.add(f"parsers::{parser}" if parser else "parsers")
                 if "schema_registry" in parts:
                     result.integration_tests.add("e2e_schema_registry")
