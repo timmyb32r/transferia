@@ -177,18 +177,25 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
   backend. Frontend validation is immediate UX feedback, never a trust or
   correctness boundary.
 
-## Mandatory completion gate
+## Verification gates
 
-During implementation, use `just test-affected` for fast feedback. It derives a
-conservative test set from the working-tree diff, runs Rust and frontend groups
-in parallel, uses Vitest's dependency graph for frontend selection, and falls
-back to the full suite for unknown or cross-cutting files. In CI or when changes
-are already committed, pass the comparison point explicitly, for example
-`just test-affected --base origin/main`. Use `just test-affected-dry` to inspect
-the selection. This development shortcut never replaces the completion gate.
+During implementation and before completing an ordinary repository change, run
+`just check-affected`. It derives the smallest useful test set from the
+working-tree diff, runs independent Rust and frontend groups concurrently, uses
+Vitest's dependency graph for frontend selection, and starts provider E2E
+services only when that provider's external data path changed. Inspect the plan
+with `just test-affected-dry`. When the relevant changes are already committed,
+pass their comparison point explicitly, for example
+`just check-affected --base HEAD~1` or `--base origin/main`.
 
-Before completing **every repository-changing task**, run all of the following
-from the repository root on the final, stable tree:
+Do not run unrelated E2E suites, full-workspace Clippy, or the complete test
+suite merely because a task changed the repository. A green affected gate is
+the normal completion evidence. Run focused stress, replay, benchmark, or E2E
+checks only when the changed behavior makes them relevant.
+
+Run the complete gate before merging or releasing, after changes to shared core
+contracts/build configuration/dependency resolution, or when the affected-test
+selector explicitly falls back to it:
 
 ```sh
 cargo fmt --all -- --check
@@ -196,11 +203,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 ```
 
-The test command must include and pass all sink E2E/testcontainers tests. Also run
-focused stress, replay, or benchmark checks proportional to the risk of the
-change. Do not reuse results from before the last edit, do not dismiss failures
-as unrelated, and do not report completion while any required gate is red or was
-not executed.
+The complete test command includes all sink E2E/testcontainers tests. Do not
+claim that the complete gate passed when only the affected gate ran. Never reuse
+results from before the last relevant edit, dismiss selected failures as
+unrelated, or report completion while the applicable gate is red.
 
 ## Performance log contract
 
