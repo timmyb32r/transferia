@@ -186,6 +186,7 @@ pub enum ArrowTypeFamily {
     SignedInteger,
     UnsignedInteger,
     FloatingPoint,
+    Decimal,
     Boolean,
     Date32,
     Date64,

@@ -350,6 +350,9 @@ fn target_data_type(clickhouse_type: &Type) -> Option<DataType> {
         Type::UInt64 => DataType::UInt64,
         Type::Float32 => DataType::Float32,
         Type::Float64 => DataType::Float64,
+        Type::Decimal32(scale) => DataType::Decimal128(9, i8::try_from(*scale).ok()?),
+        Type::Decimal64(scale) => DataType::Decimal128(18, i8::try_from(*scale).ok()?),
+        Type::Decimal128(scale) => DataType::Decimal128(38, i8::try_from(*scale).ok()?),
         Type::String => DataType::Utf8,
         // `Date` has a narrower range than Arrow `Date32`; accepting it could
         // make a previously valid input fail only after the pipeline starts.
@@ -432,6 +435,10 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
     match (expected, target_data_type) {
         (DataType::Utf8 | DataType::LargeUtf8, DataType::Utf8)
         | (DataType::Boolean, DataType::UInt8) => true,
+        (
+            DataType::Decimal128(expected_precision, expected_scale),
+            DataType::Decimal128(target_precision, target_scale),
+        ) => expected_scale == target_scale && expected_precision <= target_precision,
         (DataType::Timestamp(expected_unit, expected_timezone), DataType::Timestamp(unit, _)) => {
             let expected_precision = match expected_unit {
                 TimeUnit::Second => 0,
@@ -509,6 +516,13 @@ fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
         DataType::UInt64 => "UInt64".into(),
         DataType::Float32 => "Float32".into(),
         DataType::Float64 => "Float64".into(),
+        DataType::Decimal128(precision, scale) => {
+            anyhow::ensure!(
+                *scale >= 0 && scale.unsigned_abs() <= *precision,
+                "ClickHouse Decimal scale must be between 0 and precision {precision}, got {scale}"
+            );
+            format!("Decimal({precision}, {scale})")
+        }
         DataType::Boolean => "Bool".into(),
         DataType::Date32 => anyhow::bail!(
             "Arrow Date32 is unavailable for ClickHouse: clickhouse-arrow 0.2 shifts values by 25,567 days"

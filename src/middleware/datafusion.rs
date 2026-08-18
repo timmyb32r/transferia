@@ -131,11 +131,15 @@ impl Middleware for DataFusionMiddleware {
                     if let Some(input) = schema.columns.iter().find(|input| {
                         input.name.as_str() == field.name() && input.data_type == *field.data_type()
                     }) {
-                        column.with_constraints(
+                        let mut column = column.with_constraints(
                             input.primary_key,
                             input.low_cardinality,
                             input.max_length,
-                        )
+                        );
+                        if let Some(extension_name) = input.arrow_extension_name {
+                            column = column.with_arrow_extension(extension_name);
+                        }
+                        column
                     } else {
                         column
                     }

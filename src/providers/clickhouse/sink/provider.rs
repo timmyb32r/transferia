@@ -127,6 +127,7 @@ impl SinkLimits for ClickHouseSinkConfig {
                 ArrowTypeFamily::SignedInteger,
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
+                ArrowTypeFamily::Decimal,
                 ArrowTypeFamily::Boolean,
                 ArrowTypeFamily::Timestamp,
             ],

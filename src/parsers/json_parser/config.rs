@@ -4,7 +4,7 @@ use arrow::datatypes::{DataType, TimeUnit};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::core::data::schema::{DatasetSchema, SchemaColumn};
+use crate::core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
 /// JSON parser configuration deserialized from the `json_parser:` block.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -163,6 +163,12 @@ pub enum JsonDataType {
 
     #[schemars(title = "Boolean")]
     Boolean,
+
+    #[schemars(title = "JSON")]
+    Json,
+
+    #[schemars(title = "Decimal (exact string)")]
+    Decimal,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -203,7 +209,7 @@ pub struct ColumnMapping {
         "options": [
             "Utf8", "LargeUtf8", "Int64", "Int32", "Int16", "Int8",
             "UInt64", "UInt32", "UInt16", "UInt8", "Float64", "Float32",
-            "Boolean", "Date32", "Date64", "Timestamp(Second)",
+            "Boolean", "Json", "Decimal128", "Date32", "Date64", "Timestamp(Second)",
             "Timestamp(Millisecond)", "Timestamp(Microsecond)",
             "Timestamp(Nanosecond)", "Timestamp(Second, UTC)",
             "Timestamp(Millisecond, UTC)", "Timestamp(Microsecond, UTC)",
@@ -211,6 +217,14 @@ pub struct ColumnMapping {
         ]
     }))]
     pub arrow_type: String,
+
+    #[serde(default)]
+    #[schemars(title = "Decimal precision", extend("x-ui" = { "section": "advanced" }))]
+    pub decimal_precision: Option<u8>,
+
+    #[serde(default)]
+    #[schemars(title = "Decimal scale", extend("x-ui" = { "section": "advanced" }))]
+    pub decimal_scale: Option<i8>,
 
     #[serde(default)]
     pub nullable: bool,
@@ -239,6 +253,8 @@ impl ColumnMapping {
             column_name,
             json_data_type,
             arrow_type,
+            decimal_precision: None,
+            decimal_scale: None,
             nullable,
             time_conversion: None,
             low_cardinality: false,
@@ -247,12 +263,48 @@ impl ColumnMapping {
     }
 
     pub fn to_schema_column(&self, primary_key: bool) -> anyhow::Result<SchemaColumn> {
-        let arrow_type = parse_arrow_type(&self.arrow_type)?;
+        let arrow_type = self.data_type()?;
         validate_conversion(self, &arrow_type)?;
-        Ok(
-            SchemaColumn::new(self.column_name.clone(), arrow_type, self.nullable)
-                .with_constraints(primary_key, self.low_cardinality, self.max_length),
-        )
+        let mut column = SchemaColumn::new(self.column_name.clone(), arrow_type, self.nullable)
+            .with_constraints(primary_key, self.low_cardinality, self.max_length);
+        if self.arrow_type == "Json" {
+            column = column.with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
+        }
+        Ok(column)
+    }
+
+    pub fn data_type(&self) -> anyhow::Result<DataType> {
+        if self.arrow_type == "Decimal128" {
+            let precision = self.decimal_precision.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "column '{}': Decimal128 requires decimal_precision",
+                    self.column_name
+                )
+            })?;
+            let scale = self.decimal_scale.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "column '{}': Decimal128 requires decimal_scale",
+                    self.column_name
+                )
+            })?;
+            anyhow::ensure!(
+                (1..=38).contains(&precision),
+                "column '{}': decimal_precision must be between 1 and 38",
+                self.column_name
+            );
+            anyhow::ensure!(
+                scale.unsigned_abs() <= precision,
+                "column '{}': absolute decimal_scale must not exceed decimal_precision",
+                self.column_name
+            );
+            return Ok(DataType::Decimal128(precision, scale));
+        }
+        anyhow::ensure!(
+            self.decimal_precision.is_none() && self.decimal_scale.is_none(),
+            "column '{}': decimal_precision and decimal_scale are valid only for Decimal128",
+            self.column_name
+        );
+        parse_arrow_type(&self.arrow_type)
     }
 }
 
@@ -261,6 +313,8 @@ const fn json_type_for_arrow_literal(arrow_type: &str) -> JsonDataType {
     match arrow_type.as_bytes() {
         b"Utf8" | b"LargeUtf8" => JsonDataType::String,
         b"Boolean" => JsonDataType::Boolean,
+        b"Json" => JsonDataType::Json,
+        b"Decimal128" => JsonDataType::Decimal,
         _ => JsonDataType::Number,
     }
 }
@@ -276,6 +330,7 @@ fn validate_conversion(column: &ColumnMapping, arrow_type: &DataType) -> anyhow:
         DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64
     );
     let is_float = matches!(arrow_type, DataType::Float32 | DataType::Float64);
+    let is_decimal = matches!(arrow_type, DataType::Decimal128(..));
     let is_temporal = matches!(
         arrow_type,
         DataType::Date32 | DataType::Date64 | DataType::Timestamp(..)
@@ -284,6 +339,8 @@ fn validate_conversion(column: &ColumnMapping, arrow_type: &DataType) -> anyhow:
         JsonDataType::String => is_string || is_temporal,
         JsonDataType::Number => is_signed || is_unsigned || is_float || is_temporal,
         JsonDataType::Boolean => *arrow_type == DataType::Boolean,
+        JsonDataType::Json => column.arrow_type == "Json",
+        JsonDataType::Decimal => is_decimal,
     };
     anyhow::ensure!(
         allowed,
@@ -338,7 +395,7 @@ fn validate_conversion(column: &ColumnMapping, arrow_type: &DataType) -> anyhow:
 /// Parse the JSON parser's human-readable Arrow type syntax.
 pub fn parse_arrow_type(value: &str) -> anyhow::Result<DataType> {
     match value {
-        "Utf8" => Ok(DataType::Utf8),
+        "Utf8" | "Json" => Ok(DataType::Utf8),
         "LargeUtf8" => Ok(DataType::LargeUtf8),
         "Int64" => Ok(DataType::Int64),
         "Int32" => Ok(DataType::Int32),

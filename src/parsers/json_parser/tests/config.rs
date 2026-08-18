@@ -57,6 +57,40 @@ fn produces_sink_neutral_schema() -> anyhow::Result<()> {
 }
 
 #[test]
+fn decimal_and_json_types_have_explicit_arrow_contracts() -> anyhow::Result<()> {
+    let config: JsonParserConfig = serde_yaml::from_str(
+        "columns:\n  - jsonpath: $.price\n    column_name: price\n    json_data_type: decimal\n    arrow_type: Decimal128\n    decimal_precision: 12\n    decimal_scale: 4\n    nullable: false\n  - jsonpath: $.document\n    column_name: document\n    json_data_type: json\n    arrow_type: Json\n    nullable: false\nconversion_error: fail\nunknown_fields: { action: fail }\n",
+    )?;
+    let schema = config.to_dataset_schema()?;
+    assert_eq!(schema.columns[0].data_type, DataType::Decimal128(12, 4));
+    assert_eq!(schema.columns[1].data_type, DataType::Utf8);
+    assert_eq!(
+        schema.columns[1].arrow_extension_name,
+        Some(ARROW_JSON_EXTENSION_NAME)
+    );
+    Ok(())
+}
+
+#[test]
+fn decimal_requires_valid_explicit_precision_and_scale() {
+    for (precision, scale) in [(None, Some(2)), (Some(0), Some(0)), (Some(4), Some(5))] {
+        let mapping = ColumnMapping {
+            jsonpath: "$.value".into(),
+            column_name: "value".into(),
+            json_data_type: JsonDataType::Decimal,
+            arrow_type: "Decimal128".into(),
+            decimal_precision: precision,
+            decimal_scale: scale,
+            nullable: false,
+            time_conversion: None,
+            low_cardinality: false,
+            max_length: None,
+        };
+        assert!(mapping.to_schema_column(false).is_err());
+    }
+}
+
+#[test]
 fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Result<()> {
     let config: JsonParserConfig = serde_yaml::from_str(
         "columns:\n  - jsonpath: $.id\n    column_name: id\n    json_data_type: number\n    arrow_type: UInt64\n    nullable: false\nconversion_error: dlq\n",

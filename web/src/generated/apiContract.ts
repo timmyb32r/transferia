@@ -148,6 +148,7 @@ export type ArrowTypeFamily =
   | "signed_integer"
   | "unsigned_integer"
   | "floating_point"
+  | "decimal"
   | "boolean"
   | "date32"
   | "date64"

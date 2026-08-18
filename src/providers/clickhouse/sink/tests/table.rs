@@ -22,6 +22,16 @@ fn destination_type_matches_the_physical_clickhouse_ddl_type() -> anyhow::Result
 }
 
 #[test]
+fn destination_type_preserves_decimal_precision_and_scale() -> anyhow::Result<()> {
+    let column = SchemaColumn::new("amount".into(), DataType::Decimal128(20, 6), false);
+    assert_eq!(destination_type(&column)?, "Decimal(20, 6)");
+
+    let unsupported = SchemaColumn::new("amount".into(), DataType::Decimal128(20, -1), false);
+    assert!(destination_type(&unsupported).is_err());
+    Ok(())
+}
+
+#[test]
 fn ddl_preserves_timestamp_timezone_and_quotes_it() -> anyhow::Result<()> {
     let schema = schema(vec![SchemaColumn::new(
         "created_at".into(),

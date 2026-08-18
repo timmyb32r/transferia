@@ -1035,7 +1035,9 @@ fn discovery_result(
 fn column_view(column: &crate::core::data::schema::SchemaColumn) -> ColumnView {
     ColumnView {
         name: column.name.clone(),
-        arrow_type: format!("{:?}", column.data_type),
+        arrow_type: column
+            .arrow_extension_name
+            .map_or_else(|| format!("{:?}", column.data_type), str::to_owned),
         nullable: column.nullable,
         primary_key: column.primary_key,
         low_cardinality: column.low_cardinality,

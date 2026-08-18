@@ -33,6 +33,8 @@ export function closestArrowType(jsonType: string): string {
       string: "Utf8",
       number: "Float64",
       boolean: "Boolean",
+      json: "Json",
+      decimal: "Decimal128",
     }[jsonType] ?? "Utf8"
   );
 }

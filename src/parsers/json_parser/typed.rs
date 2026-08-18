@@ -152,6 +152,11 @@ impl<'de> de::DeserializeSeed<'de> for TypedValueWriter<'_> {
                 };
                 *self.target = TypedScratch::I64(value);
             }
+            ColumnKind::Json | ColumnKind::Decimal128(..) => {
+                return Err(de::Error::custom(
+                    "JSON and Decimal128 columns use the exact general parser",
+                ));
+            }
         }
         Ok(true)
     }

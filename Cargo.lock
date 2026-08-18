@@ -5099,6 +5099,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "bigdecimal",
  "bytes",
  "chrono",
  "chrono-tz",

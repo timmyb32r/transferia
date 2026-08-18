@@ -643,6 +643,8 @@ fn newline_json_framing() -> anyhow::Result<()> {
                 jsonpath: "$.id".into(),
                 column_name: "id".into(),
                 arrow_type: "Utf8".into(),
+                decimal_precision: None,
+                decimal_scale: None,
                 nullable: false,
                 json_data_type: JsonDataType::String,
                 time_conversion: None,
@@ -653,6 +655,8 @@ fn newline_json_framing() -> anyhow::Result<()> {
                 jsonpath: "$.val".into(),
                 column_name: "val".into(),
                 arrow_type: "Int64".into(),
+                decimal_precision: None,
+                decimal_scale: None,
                 nullable: true,
                 json_data_type: JsonDataType::Number,
                 time_conversion: None,
@@ -767,6 +771,8 @@ fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
             jsonpath: "$.id".into(),
             column_name: "id".into(),
             arrow_type: "Utf8".into(),
+            decimal_precision: None,
+            decimal_scale: None,
             nullable: false,
             json_data_type: JsonDataType::String,
             time_conversion: None,
@@ -848,6 +854,8 @@ fn null_in_non_nullable_partition_candidate_goes_to_dlq() -> anyhow::Result<()> 
             jsonpath: "$.tenant".into(),
             column_name: "tenant".into(),
             arrow_type: "Utf8".into(),
+            decimal_precision: None,
+            decimal_scale: None,
             nullable: false,
             json_data_type: JsonDataType::String,
             time_conversion: None,
@@ -899,6 +907,8 @@ fn invalid_types_and_ranges_go_to_dlq_in_root_and_mixed_modes() -> anyhow::Resul
                     jsonpath: jsonpath.into(),
                     column_name: "value".into(),
                     arrow_type: arrow_type.into(),
+                    decimal_precision: None,
+                    decimal_scale: None,
                     nullable: false,
                     json_data_type: match arrow_type {
                         "Boolean" => JsonDataType::Boolean,
@@ -957,6 +967,8 @@ fn nullable_root_and_mixed_values_accept_null_but_not_wrong_type() -> anyhow::Re
                 jsonpath: jsonpath.into(),
                 column_name: "value".into(),
                 arrow_type: "Int32".into(),
+                decimal_precision: None,
+                decimal_scale: None,
                 nullable: true,
                 json_data_type: JsonDataType::Number,
                 time_conversion: None,
@@ -997,6 +1009,8 @@ fn timestamp_timezone_is_preserved_in_record_batch() -> anyhow::Result<()> {
             jsonpath: "$.ts".into(),
             column_name: "ts".into(),
             arrow_type: "Timestamp(Millisecond, UTC)".into(),
+            decimal_precision: None,
+            decimal_scale: None,
             nullable: false,
             json_data_type: JsonDataType::Number,
             time_conversion: Some(TimeConversion::Epoch {
@@ -1042,4 +1056,61 @@ fn int64_col(batch: &RecordBatch, idx: usize) -> anyhow::Result<&arrow::array::I
         .as_any()
         .downcast_ref::<arrow::array::Int64Array>()
         .ok_or_else(|| anyhow::anyhow!("column {idx} is not Int64Array"))
+}
+
+#[test]
+fn materializes_arrow_json_and_exact_decimal() -> anyhow::Result<()> {
+    use crate::core::data::schema::{ARROW_JSON_EXTENSION_NAME, META_ARROW_EXTENSION_NAME};
+
+    let config: JsonParserConfig = serde_yaml::from_str(
+        "columns:\n  - jsonpath: $.document\n    column_name: document\n    json_data_type: json\n    arrow_type: Json\n    nullable: false\n  - jsonpath: $.price\n    column_name: price\n    json_data_type: decimal\n    arrow_type: Decimal128\n    decimal_precision: 12\n    decimal_scale: 4\n    nullable: false\nconversion_error: fail\nunknown_fields: { action: fail }\n",
+    )?;
+    let (main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        br#"{"document":{"items":[true,2],"name":"demo"},"price":"12345678.9012"}"#,
+    )?;
+    assert!(dlq.is_none());
+    assert_eq!(
+        string_col(&main.batch, 0)?.value(0),
+        r#"{"items":[true,2],"name":"demo"}"#
+    );
+    assert_eq!(
+        main.batch
+            .schema()
+            .field(0)
+            .metadata()
+            .get(META_ARROW_EXTENSION_NAME),
+        Some(&ARROW_JSON_EXTENSION_NAME.to_owned())
+    );
+    let decimals = main
+        .batch
+        .column(1)
+        .as_primitive::<arrow::datatypes::Decimal128Type>();
+    assert_eq!(decimals.value(0), 123_456_789_012);
+    assert_eq!(decimals.data_type(), &DataType::Decimal128(12, 4));
+    Ok(())
+}
+
+#[test]
+fn decimal_never_rounds_or_overflows_silently() -> anyhow::Result<()> {
+    let config: JsonParserConfig = serde_yaml::from_str(
+        "columns:\n  - jsonpath: $.value\n    column_name: value\n    json_data_type: decimal\n    arrow_type: Decimal128\n    decimal_precision: 5\n    decimal_scale: 2\n    nullable: false\nconversion_error: fail\nunknown_fields: { action: fail }\n",
+    )?;
+    for payload in [
+        br#"{"value":"1.234"}"#.as_slice(),
+        br#"{"value":"1234.56"}"#.as_slice(),
+    ] {
+        let error = parse_with_config(
+            &config,
+            &crate::parsers::SystemColumnsConfig::default(),
+            payload,
+        )
+        .expect_err("decimal precision loss must fail the delivery");
+        assert!(
+            error.to_string().contains("cannot be represented exactly"),
+            "{error:#}"
+        );
+    }
+    Ok(())
 }

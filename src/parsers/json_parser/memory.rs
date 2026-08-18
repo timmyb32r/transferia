@@ -24,7 +24,7 @@ pub(super) fn output_memory_bound(
     let mut main_bytes = 0_usize;
     for kind in kinds {
         main_bytes = main_bytes.saturating_add(match kind {
-            ColumnKind::Utf8 => {
+            ColumnKind::Utf8 | ColumnKind::Json => {
                 input_bytes.saturating_add(rows.saturating_add(1).saturating_mul(4))
             }
             ColumnKind::LargeUtf8 => {

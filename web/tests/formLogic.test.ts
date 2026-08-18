@@ -21,6 +21,8 @@ describe("schema form logic", () => {
     expect(closestArrowType("string")).toBe("Utf8");
     expect(closestArrowType("number")).toBe("Float64");
     expect(closestArrowType("boolean")).toBe("Boolean");
+    expect(closestArrowType("json")).toBe("Json");
+    expect(closestArrowType("decimal")).toBe("Decimal128");
     expect(isStringArrowType("Utf8")).toBe(true);
     expect(isStringArrowType("Int64")).toBe(false);
   });

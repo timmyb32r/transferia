@@ -1,15 +1,19 @@
 use alloc::sync::Arc;
 use arrow::array::{
-    ArrayRef, BooleanBuilder, Date32Builder, Date64Builder, Float32Builder, Float64Builder,
-    Int16Builder, Int32Builder, Int64Builder, Int8Builder, LargeStringBuilder, StringBuilder,
-    TimestampMicrosecondBuilder, TimestampMillisecondBuilder, TimestampNanosecondBuilder,
-    TimestampSecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
+    ArrayRef, BooleanBuilder, Date32Builder, Date64Builder, Decimal128Builder, Float32Builder,
+    Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder, LargeStringBuilder,
+    StringBuilder, TimestampMicrosecondBuilder, TimestampMillisecondBuilder,
+    TimestampNanosecondBuilder, TimestampSecondBuilder, UInt16Builder, UInt32Builder,
+    UInt64Builder, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use serde::Deserializer as _;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::str::FromStr;
+
+use bigdecimal::BigDecimal;
 
 use super::dlq::{append_base64, dlq_record, subslice_range, DlqReason, DlqRecord};
 use super::extraction::{
@@ -26,8 +30,8 @@ use crate::core::data::schema::SchemaColumn;
 use crate::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use crate::core::data::table_data::{dlq_name, TableData};
 use crate::parsers::json_parser::config::{
-    parse_arrow_type, ConversionErrorPolicy, EpochUnit, JsonDataType, JsonFramingMode,
-    JsonParserConfig, TimeConversion, UnknownFieldPolicy,
+    ConversionErrorPolicy, EpochUnit, JsonDataType, JsonFramingMode, JsonParserConfig,
+    TimeConversion, UnknownFieldPolicy,
 };
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 
@@ -89,6 +93,8 @@ pub(super) enum AnyBuilder {
     Float32(Float32Builder),
     Float64(Float64Builder),
     Boolean(BooleanBuilder),
+    Json(StringBuilder),
+    Decimal128(Decimal128Builder, u8, i8),
     Date32(Date32Builder),
     Date64(Date64Builder),
     TimestampSecond(TimestampSecondBuilder),
@@ -97,7 +103,7 @@ pub(super) enum AnyBuilder {
     TimestampNanosecond(TimestampNanosecondBuilder),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ColumnKind {
     Utf8,
     LargeUtf8,
@@ -112,6 +118,8 @@ pub(super) enum ColumnKind {
     Float32,
     Float64,
     Boolean,
+    Json,
+    Decimal128(u8, i8),
     Date32,
     Date64,
     TimestampSecond,
@@ -136,6 +144,7 @@ impl ColumnKind {
             DataType::Float32 => Self::Float32,
             DataType::Float64 => Self::Float64,
             DataType::Boolean => Self::Boolean,
+            DataType::Decimal128(precision, scale) => Self::Decimal128(*precision, *scale),
             DataType::Date32 => Self::Date32,
             DataType::Date64 => Self::Date64,
             DataType::Timestamp(TimeUnit::Second, _) => Self::TimestampSecond,
@@ -163,7 +172,6 @@ impl ColumnKind {
             | DataType::Dictionary(..)
             | DataType::Decimal32(..)
             | DataType::Decimal64(..)
-            | DataType::Decimal128(..)
             | DataType::Decimal256(..)
             | DataType::Map(..)
             | DataType::RunEndEncoded(..) => return None,
@@ -172,7 +180,7 @@ impl ColumnKind {
 
     pub(super) const fn fixed_width_bytes(self) -> Option<usize> {
         match self {
-            Self::Utf8 | Self::LargeUtf8 => None,
+            Self::Utf8 | Self::LargeUtf8 | Self::Json => None,
             Self::Int8 | Self::UInt8 => Some(1),
             Self::Int16 | Self::UInt16 => Some(2),
             Self::Int32 | Self::UInt32 | Self::Float32 | Self::Date32 => Some(4),
@@ -185,6 +193,7 @@ impl ColumnKind {
             | Self::TimestampMicrosecond
             | Self::TimestampNanosecond => Some(8),
             Self::Boolean => Some(0),
+            Self::Decimal128(..) => Some(16),
         }
     }
 }
@@ -220,6 +229,13 @@ fn make_builder(
         ColumnKind::Float64 => AnyBuilder::Float64(Float64Builder::with_capacity(n)),
         ColumnKind::Float32 => AnyBuilder::Float32(Float32Builder::with_capacity(n)),
         ColumnKind::Boolean => AnyBuilder::Boolean(BooleanBuilder::with_capacity(n)),
+        ColumnKind::Json => AnyBuilder::Json(StringBuilder::with_capacity(n, string_bytes)),
+        ColumnKind::Decimal128(precision, scale) => AnyBuilder::Decimal128(
+            Decimal128Builder::with_capacity(n)
+                .with_data_type(DataType::Decimal128(precision, scale)),
+            precision,
+            scale,
+        ),
         ColumnKind::Date32 => AnyBuilder::Date32(Date32Builder::with_capacity(n)),
         ColumnKind::Date64 => AnyBuilder::Date64(Date64Builder::with_capacity(n)),
         ColumnKind::TimestampMillisecond => AnyBuilder::TimestampMillisecond(
@@ -252,7 +268,7 @@ impl AnyBuilder {
     #[inline]
     fn finish(&mut self) -> ArrayRef {
         match self {
-            Self::Utf8(b) => Arc::new(b.finish()),
+            Self::Utf8(b) | Self::Json(b) => Arc::new(b.finish()),
             Self::LargeUtf8(b) => Arc::new(b.finish()),
             Self::Int8(b) => Arc::new(b.finish()),
             Self::Int16(b) => Arc::new(b.finish()),
@@ -265,6 +281,7 @@ impl AnyBuilder {
             Self::Float32(b) => Arc::new(b.finish()),
             Self::Float64(b) => Arc::new(b.finish()),
             Self::Boolean(b) => Arc::new(b.finish()),
+            Self::Decimal128(b, ..) => Arc::new(b.finish()),
             Self::Date32(b) => Arc::new(b.finish()),
             Self::Date64(b) => Arc::new(b.finish()),
             Self::TimestampSecond(b) => Arc::new(b.finish()),
@@ -285,7 +302,7 @@ fn value_matches_kind(kind: ColumnKind, val: &Value) -> bool {
         return true;
     }
     match kind {
-        ColumnKind::Utf8 | ColumnKind::LargeUtf8 => val.as_str().is_some(),
+        ColumnKind::Utf8 | ColumnKind::LargeUtf8 | ColumnKind::Json => val.as_str().is_some(),
         ColumnKind::Int64
         | ColumnKind::Date64
         | ColumnKind::TimestampSecond
@@ -316,16 +333,35 @@ fn value_matches_kind(kind: ColumnKind, val: &Value) -> bool {
             value.is_finite() && value >= f64::from(f32::MIN) && value <= f64::from(f32::MAX)
         }),
         ColumnKind::Boolean => val.as_bool().is_some(),
+        ColumnKind::Decimal128(precision, scale) => {
+            decimal_unscaled(val, precision, scale).is_some()
+        }
     }
 }
 
 fn json_value_matches(kind: JsonDataType, value: &Value) -> bool {
     value.is_null()
         || match kind {
-            JsonDataType::String => value.is_string(),
+            JsonDataType::String | JsonDataType::Decimal => value.is_string(),
             JsonDataType::Number => value.as_f64().is_some_and(f64::is_finite),
             JsonDataType::Boolean => value.is_boolean(),
+            JsonDataType::Json => true,
         }
+}
+
+fn decimal_unscaled(value: &Value, precision: u8, scale: i8) -> Option<i128> {
+    let decimal = BigDecimal::from_str(value.as_str()?).ok()?;
+    let scaled = decimal.with_scale(i64::from(scale));
+    if scaled != decimal {
+        return None;
+    }
+    let (integer, actual_scale) = scaled.into_bigint_and_scale();
+    if actual_scale != i64::from(scale) {
+        return None;
+    }
+    let unscaled = i128::try_from(integer).ok()?;
+    let digits = unscaled.unsigned_abs().to_string().len();
+    (digits <= usize::from(precision)).then_some(unscaled)
 }
 
 fn convert_time_value(
@@ -433,6 +469,12 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) -> bool {
             |value| b.append_value(value),
         ),
         AnyBuilder::Boolean(b) => append_if_some(val.as_bool(), |value| b.append_value(value)),
+        AnyBuilder::Json(b) => append_if_some(val.as_str(), |value| b.append_value(value)),
+        AnyBuilder::Decimal128(b, precision, scale) => {
+            append_if_some(decimal_unscaled(val, *precision, *scale), |value| {
+                b.append_value(value);
+            })
+        }
         AnyBuilder::TimestampMillisecond(b) => {
             append_if_some(val.as_i64(), |value| b.append_value(value))
         }
@@ -468,7 +510,7 @@ fn append_if_some<T>(value: Option<T>, append: impl FnOnce(T)) -> bool {
 #[inline]
 fn append_null(b: &mut AnyBuilder) {
     match b {
-        AnyBuilder::Utf8(x) => x.append_null(),
+        AnyBuilder::Utf8(x) | AnyBuilder::Json(x) => x.append_null(),
         AnyBuilder::LargeUtf8(x) => x.append_null(),
         AnyBuilder::Int64(x) => x.append_null(),
         AnyBuilder::Int32(x) => x.append_null(),
@@ -481,6 +523,7 @@ fn append_null(b: &mut AnyBuilder) {
         AnyBuilder::Float64(x) => x.append_null(),
         AnyBuilder::Float32(x) => x.append_null(),
         AnyBuilder::Boolean(x) => x.append_null(),
+        AnyBuilder::Decimal128(x, ..) => x.append_null(),
         AnyBuilder::Date32(x) => x.append_null(),
         AnyBuilder::Date64(x) => x.append_null(),
         AnyBuilder::TimestampSecond(x) => x.append_null(),
@@ -513,6 +556,8 @@ fn append_typed(
                 | AnyBuilder::Float32(_)
                 | AnyBuilder::Float64(_)
                 | AnyBuilder::Boolean(_)
+                | AnyBuilder::Json(_)
+                | AnyBuilder::Decimal128(..)
                 | AnyBuilder::Date32(_)
                 | AnyBuilder::Date64(_)
                 | AnyBuilder::TimestampSecond(_)
@@ -540,7 +585,9 @@ fn append_typed(
             | AnyBuilder::UInt64(_)
             | AnyBuilder::Float32(_)
             | AnyBuilder::Float64(_)
-            | AnyBuilder::Boolean(_) => append_null(builder),
+            | AnyBuilder::Boolean(_)
+            | AnyBuilder::Json(_)
+            | AnyBuilder::Decimal128(..) => append_null(builder),
         },
         TypedScratch::U64(n) => match builder {
             AnyBuilder::UInt64(b) => b.append_value(*n),
@@ -556,6 +603,8 @@ fn append_typed(
             | AnyBuilder::Float32(_)
             | AnyBuilder::Float64(_)
             | AnyBuilder::Boolean(_)
+            | AnyBuilder::Json(_)
+            | AnyBuilder::Decimal128(..)
             | AnyBuilder::Date32(_)
             | AnyBuilder::Date64(_)
             | AnyBuilder::TimestampSecond(_)
@@ -577,6 +626,8 @@ fn append_typed(
             | AnyBuilder::UInt32(_)
             | AnyBuilder::UInt64(_)
             | AnyBuilder::Boolean(_)
+            | AnyBuilder::Json(_)
+            | AnyBuilder::Decimal128(..)
             | AnyBuilder::Date32(_)
             | AnyBuilder::Date64(_)
             | AnyBuilder::TimestampSecond(_)
@@ -598,6 +649,8 @@ fn append_typed(
             | AnyBuilder::UInt64(_)
             | AnyBuilder::Float32(_)
             | AnyBuilder::Float64(_)
+            | AnyBuilder::Json(_)
+            | AnyBuilder::Decimal128(..)
             | AnyBuilder::Date32(_)
             | AnyBuilder::Date64(_)
             | AnyBuilder::TimestampSecond(_)
@@ -709,14 +762,18 @@ impl JsonParser {
                 "duplicate parser column name '{}'",
                 col.column_name
             );
-            let arrow_type = parse_arrow_type(&col.arrow_type)?;
-            let kind = ColumnKind::from_data_type(&arrow_type).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Column '{}': unsupported Arrow type {:?}",
-                    col.column_name,
-                    arrow_type
-                )
-            })?;
+            let arrow_type = col.data_type()?;
+            let kind = if col.arrow_type == "Json" {
+                ColumnKind::Json
+            } else {
+                ColumnKind::from_data_type(&arrow_type).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Column '{}': unsupported Arrow type {:?}",
+                        col.column_name,
+                        arrow_type
+                    )
+                })?
+            };
             let path = compile_path(&col.jsonpath).map_err(|error| {
                 error.context(format!("column '{}': invalid JSONPath", col.column_name))
             })?;
@@ -761,6 +818,9 @@ impl JsonParser {
                 .columns
                 .iter()
                 .all(|column| column.time_conversion.is_none() && column.max_length.is_none())
+            && kinds
+                .iter()
+                .all(|kind| !matches!(kind, ColumnKind::Json | ColumnKind::Decimal128(..)))
         {
             let pairs: Vec<(String, usize)> = mappings
                 .iter()
@@ -1213,8 +1273,21 @@ impl JsonParser {
                     "JSON value does not satisfy the declared conversion".into(),
                 ));
             }
+            if kind == ColumnKind::Json && !value.is_null() {
+                value = Value::String(
+                    serde_json::to_string(&value)
+                        .map_err(|error| RowConversionError(error.to_string()))?,
+                );
+            }
             if let Some(conversion) = &mapping.time_conversion {
                 value = convert_time_value(&value, conversion, kind)?;
+            }
+            if let ColumnKind::Decimal128(precision, scale) = kind {
+                if !value.is_null() && decimal_unscaled(&value, precision, scale).is_none() {
+                    return Err(RowConversionError(format!(
+                        "decimal value exceeds precision {precision} or cannot be represented exactly at scale {scale}"
+                    )));
+                }
             }
             if !value_matches_kind(kind, &value) {
                 return Err(RowConversionError(
