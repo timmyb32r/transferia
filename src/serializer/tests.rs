@@ -2,15 +2,29 @@ use super::*;
 use base64::Engine as _;
 
 #[test]
+fn schema_registry_serializer_exposes_connection_subject_and_format() {
+    let schema = schemars::schema_for!(SerializerConfig);
+    let json = serde_json::to_value(schema).expect("schema serializes");
+    let schema = json.to_string();
+    for field in ["url", "auth", "ca_certificate", "subject", "format"] {
+        assert!(
+            schema.contains(field),
+            "serializer schema is missing {field}"
+        );
+    }
+}
+
+#[test]
 fn protobuf_serializer_rejects_empty_message_path() {
     let config = SerializerConfig::SchemaRegistry {
         connection: crate::schema_registry::SchemaRegistryConnection {
-            urls: vec!["http://registry".to_owned()],
-            subject: "topic-value".to_owned(),
-            format: crate::schema_registry::SchemaFormat::Protobuf,
+            url: "http://registry".to_owned(),
             request_timeout_ms: 1_000,
             auth: crate::schema_registry::SchemaRegistryAuth::None,
+            ca_certificate: None,
         },
+        subject: "topic-value".to_owned(),
+        format: crate::schema_registry::SchemaFormat::Protobuf,
         protobuf_message_indexes: Vec::new(),
     };
     assert!(config.validate().is_err());

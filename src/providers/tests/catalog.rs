@@ -120,6 +120,12 @@ fn queue_sinks_expose_serializer_selection_to_the_ui() -> anyhow::Result<()> {
             schema.contains("Schema Registry"),
             "{key} is missing Schema Registry serializer"
         );
+        for field in ["url", "auth", "ca_certificate", "subject", "format"] {
+            assert!(
+                schema.contains(field),
+                "{key} Schema Registry serializer is missing {field}"
+            );
+        }
     }
     Ok(())
 }
