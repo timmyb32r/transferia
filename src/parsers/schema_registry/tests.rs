@@ -22,6 +22,10 @@ fn schema_registry_config_is_visible_in_parser_schema() {
     }
     assert!(!connection.contains_key("subject"));
     assert!(!connection.contains_key("format"));
+    let projection = json
+        .pointer("/$defs/SchemaRegistryParserConfig/properties/json_parser/x-ui/widget")
+        .and_then(serde_json::Value::as_str);
+    assert_eq!(projection, Some("hidden"));
 }
 
 #[test]

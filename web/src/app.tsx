@@ -18,7 +18,11 @@ import {
   type OperationKey,
   type OperationState,
 } from "./delivery/EditorChrome";
-import { DataSchemaWorkspace, StatusPill } from "./delivery/EditorViews";
+import {
+  DataSchemaInspector,
+  DataSchemaWorkspace,
+  StatusPill,
+} from "./delivery/EditorViews";
 import { YamlEditorPanel } from "./delivery/YamlEditorPanel";
 import {
   compiledSchema,
@@ -74,6 +78,7 @@ export function App() {
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
   const [showRequiredErrors, setShowRequiredErrors] = useState(false);
+  const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
     operations,
@@ -207,6 +212,10 @@ export function App() {
     operations: { beginOperation, finishOperation, clearOperation },
     isCurrentContext,
   });
+  const dataSchemaAvailable = (discovery?.datasets.length ?? 0) > 0;
+  useEffect(() => {
+    setSchemaInspectorVisible(dataSchemaAvailable);
+  }, [dataSchemaAvailable]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
     editable: !isReadOnly(editor),
@@ -413,6 +422,7 @@ export function App() {
         <EditorTabs
           active={activeView}
           disabled={blockingOperation}
+          dataSchemaAvailable={dataSchemaAvailable}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
@@ -442,8 +452,17 @@ export function App() {
             disabled={readOnly}
             onChange={editYaml}
           />
-        ) : (
-          <DataSchemaWorkspace result={discovery} />
+        ) : discovery !== undefined ? (
+          <DataSchemaWorkspace
+            result={discovery}
+            onShowInspector={() => setSchemaInspectorVisible(true)}
+          />
+        ) : null}
+        {schemaInspectorVisible && discovery !== undefined && (
+          <DataSchemaInspector
+            result={discovery}
+            onHide={() => setSchemaInspectorVisible(false)}
+          />
         )}
       </main>
     </div>

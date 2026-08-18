@@ -163,7 +163,7 @@ export function SerializerDetailsForm({
     <RootValueContext.Provider value={value}>
       <RequiredErrorsContext.Provider value={showRequiredErrors}>
         <div class="sink-serializer-bridge" aria-hidden="true" />
-        <section class="serializer-details-card">
+        <section class="serializer-details-card" tabindex={-1}>
           <div class="section-heading">
             <h2>{selected.label} settings</h2>
           </div>
@@ -176,6 +176,25 @@ export function SerializerDetailsForm({
         </section>
       </RequiredErrorsContext.Provider>
     </RootValueContext.Provider>
+  );
+}
+
+function revealDetails(selector: string): void {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const details = document.querySelector<HTMLElement>(selector);
+      if (details === null) return;
+      details.scrollIntoView({ behavior: "smooth", block: "start" });
+      details.focus({ preventScroll: true });
+      const route = details.closest<HTMLElement>(".route-composition");
+      route?.classList.remove("route-selection-flash");
+      void route?.offsetWidth;
+      route?.classList.add("route-selection-flash");
+      window.setTimeout(
+        () => route?.classList.remove("route-selection-flash"),
+        1000,
+      );
+    }),
   );
 }
 
@@ -421,6 +440,10 @@ function NodeEditor({
                 const branch = node.branches[Number(raw)];
                 if (branch === undefined) return;
                 onChange(branch.constant ?? createValue(branch.node));
+                if (node.xUi.widget === "parser")
+                  revealDetails(".parser-details-card");
+                if (node.xUi.widget === "serializer")
+                  revealDetails(".serializer-details-card");
               }}
             />
             {node.xUi.widget === "parser" && parserAction}
@@ -628,7 +651,12 @@ function withExternalLink(
 ): ComponentChildren {
   const template = node.xUi.external_link_template;
   if (typeof template !== "string" || value === "") return control;
-  const href = template.replace("{value}", encodeURIComponent(value));
+  const encodedValue = value
+    .replace(/^\/+/, "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const href = template.replace("{value}", encodedValue);
   return (
     <div class="linked-control">
       {control}

@@ -234,7 +234,9 @@ describe("endpoint connection check", () => {
         title="Source"
         role="source"
         selectedKey="logbroker"
-        providers={[{ key: "logbroker", title: "Logbroker", source: parserEndpoint }]}
+        providers={[
+          { key: "logbroker", title: "Logbroker", source: parserEndpoint },
+        ]}
         endpoint={parserEndpoint}
         config={config}
         readOnly={false}
@@ -256,6 +258,30 @@ describe("endpoint connection check", () => {
       block: "start",
     });
     expect(document.activeElement).toBe(parserSettings);
+    view.unmount();
+    const readOnlyView = render(
+      <EndpointCard
+        title="Source"
+        role="source"
+        selectedKey="logbroker"
+        providers={[
+          { key: "logbroker", title: "Logbroker", source: parserEndpoint },
+        ]}
+        endpoint={parserEndpoint}
+        config={config}
+        readOnly
+        showRequiredErrors={false}
+        onChoose={() => undefined}
+        onConfig={() => undefined}
+      />,
+    );
+    expect(
+      (
+        readOnlyView.getByRole("button", {
+          name: "Preview one message",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
     parserSettings.remove();
   });
 });

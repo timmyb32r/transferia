@@ -34,6 +34,7 @@ describe("editor chrome", () => {
       <EditorTabs
         active="ui"
         disabled={false}
+        dataSchemaAvailable
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
@@ -43,6 +44,24 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
 
     expect(onDataSchema).toHaveBeenCalledOnce();
+  });
+
+  it("disables Data schema until discovery produces a table", () => {
+    const view = render(
+      <EditorTabs
+        active="ui"
+        disabled={false}
+        dataSchemaAvailable={false}
+        onUi={() => undefined}
+        onYaml={() => undefined}
+        onDataSchema={() => undefined}
+      />,
+    );
+    const tab = view.getByRole("tab", {
+      name: "Data schema",
+    }) as HTMLButtonElement;
+    expect(tab.disabled).toBe(true);
+    expect(tab.title).toContain("after discovery");
   });
 
   it("passes the exact running generation to Stop", () => {

@@ -43,9 +43,8 @@ describe("schema form", () => {
     const consumer = view.container.querySelector<HTMLInputElement>(
       "#field---consumer_name",
     )!;
-    const token = view.container.querySelector<HTMLInputElement>(
-      "#field---token",
-    )!;
+    const token =
+      view.container.querySelector<HTMLInputElement>("#field---token")!;
     expect(consumer.autocomplete).toBe("off");
     expect(consumer.name).toContain("consumer_name");
     expect(token.autocomplete).toBe("new-password");
@@ -68,7 +67,7 @@ describe("schema form", () => {
     );
     const link = view.getByRole("link", { name: "Open in external console" });
     expect(link.getAttribute("href")).toBe(
-      "https://console.example/topics/account%2Ftopic%20name",
+      "https://console.example/topics/account/topic%20name",
     );
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
@@ -925,7 +924,7 @@ describe("schema form", () => {
     ).not.toBeNull();
   });
 
-  it("renders serializer selection and settings separately", () => {
+  it("renders serializer selection and settings separately", async () => {
     const node: CompiledNode = {
       kind: "object",
       xUi: {},
@@ -985,11 +984,31 @@ describe("schema form", () => {
     );
     expect(endpoint.container.textContent).toContain("JSON");
     expect(endpoint.container.textContent).not.toContain("Registry URL");
+    const route = document.createElement("section");
+    route.className = "route-composition";
+    const serializerSettings = document.createElement("section");
+    serializerSettings.className = "serializer-details-card";
+    serializerSettings.tabIndex = -1;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(serializerSettings, "scrollIntoView", {
+      value: scrollIntoView,
+    });
+    route.append(serializerSettings);
+    document.body.append(route);
     fireEvent.click(endpoint.container.querySelector(".select-trigger")!);
     fireEvent.click(endpoint.getByRole("option", { name: "Schema Registry" }));
     expect(changes.at(-1)).toEqual({
       serializer: { type: "schema_registry", connection: "" },
     });
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "start",
+    });
+    expect(route.classList.contains("route-selection-flash")).toBe(true);
+    route.remove();
 
     const details = render(
       <SerializerDetailsForm

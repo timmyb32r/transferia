@@ -177,12 +177,14 @@ export function DeliverySidebar({
 export function EditorTabs({
   active,
   disabled,
+  dataSchemaAvailable,
   onUi,
   onYaml,
   onDataSchema,
 }: {
   active: EditorView;
   disabled: boolean;
+  dataSchemaAvailable: boolean;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
@@ -211,7 +213,12 @@ export function EditorTabs({
         role="tab"
         aria-selected={active === "data_schema"}
         class={active === "data_schema" ? "active" : ""}
-        disabled={disabled}
+        disabled={disabled || !dataSchemaAvailable}
+        title={
+          dataSchemaAvailable
+            ? "Open the discovered data schema"
+            : "Data schema becomes available after discovery has produced a table"
+        }
         onClick={onDataSchema}
       >
         Data schema

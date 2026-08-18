@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render } from "@testing-library/preact";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ContractView,
+  DataSchemaInspector,
   DataSchemaWorkspace,
 } from "../src/delivery/EditorViews";
+import type { DiscoveryResult } from "../src/types";
 
 afterEach(cleanup);
 
@@ -62,39 +64,52 @@ describe("data schema view", () => {
   });
 
   it("offers a searchable, hideable final-schema inspector", () => {
-    const view = render(
-      <DataSchemaWorkspace
-        result={{
-          source: "logbroker",
-          sink: "clickhouse",
-          pipeline_count: 1,
-          datasets: [
+    const onHide = vi.fn();
+    const result: DiscoveryResult = {
+      source: "logbroker",
+      sink: "clickhouse",
+      pipeline_count: 1,
+      datasets: [
+        {
+          role: "Main",
+          name: "events",
+          intermediate_columns: [],
+          final_columns: [
             {
-              role: "Main",
-              name: "events",
-              intermediate_columns: [],
-              final_columns: [
-                {
-                  name: "id",
-                  arrow_type: "Int64",
-                  destination_type: "Int64",
-                  nullable: false,
-                  primary_key: true,
-                  low_cardinality: false,
-                },
-              ],
+              name: "id",
+              arrow_type: "Int64",
+              destination_type: "Int64",
+              nullable: false,
+              primary_key: true,
+              low_cardinality: false,
             },
           ],
-          sink_limits: { sink: "clickhouse", supported_arrow_types: ["signed_integer"] },
-        }}
-      />,
+        },
+      ],
+      sink_limits: {
+        sink: "clickhouse",
+        supported_arrow_types: ["signed_integer"],
+      },
+    };
+    const view = render(
+      <DataSchemaInspector result={result} onHide={onHide} />,
     );
 
-    expect(view.getByRole("table", { name: "Selected table schema" }).textContent)
-      .toContain("Int64");
-    fireEvent.click(view.getByRole("button", { name: "Hide schema inspector" }));
-    expect(view.queryByLabelText("Schema inspector")).toBeNull();
-    fireEvent.click(view.getByRole("button", { name: "Show schema inspector" }));
-    expect(view.getByLabelText("Schema inspector")).not.toBeNull();
+    expect(
+      view.getByRole("table", { name: "Selected table schema" }).textContent,
+    ).toContain("Int64");
+    fireEvent.click(
+      view.getByRole("button", { name: "Hide schema inspector" }),
+    );
+    expect(onHide).toHaveBeenCalledOnce();
+
+    const onShow = vi.fn();
+    const workspace = render(
+      <DataSchemaWorkspace result={result} onShowInspector={onShow} />,
+    );
+    fireEvent.click(
+      workspace.getByRole("button", { name: "Show schema inspector" }),
+    );
+    expect(onShow).toHaveBeenCalledOnce();
   });
 });

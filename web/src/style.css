@@ -793,6 +793,13 @@ h3 {
   align-items: start;
   margin-bottom: 0;
 }
+@keyframes route-selection-flash {
+  0%, 100% { filter: none; }
+  35% { filter: drop-shadow(0 0 10px rgb(62 142 255 / 55%)); }
+}
+.route-composition.route-selection-flash {
+  animation: route-selection-flash 1s ease-out;
+}
 .endpoint-card-source {
   grid-area: source;
 }
@@ -1504,10 +1511,10 @@ button::after {
 }
 
 .schema-inspector {
-  position: absolute;
-  inset: 0 auto auto 0;
-  z-index: 20;
-  width: min(760px, calc(100% - 48px));
+  position: fixed;
+  inset: 120px auto auto 280px;
+  z-index: 60;
+  width: min(380px, calc(100vw - 48px));
   max-height: 520px;
   overflow: auto;
   border: 1px solid var(--line-strong);
@@ -1545,18 +1552,18 @@ button::after {
 }
 
 .schema-inspector-table {
-  min-width: 680px;
+  min-width: 0;
   padding: 0 12px 12px;
 }
 
 .schema-inspector-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1.4fr) minmax(110px, 1fr) 48px 72px;
+  grid-template-columns: minmax(72px, 1.2fr) minmax(64px, 1fr) minmax(58px, 0.9fr) 24px 38px;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   min-height: 38px;
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .schema-inspector-head {

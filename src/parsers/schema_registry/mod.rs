@@ -19,7 +19,7 @@ use decoder::SchemaDecoder;
 pub struct SchemaRegistryParserConfig {
     pub connection: SchemaRegistryConnection,
 
-    #[schemars(title = "JSON projection")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub json_parser: JsonParserConfig,
 }
 

@@ -167,7 +167,7 @@ export function EndpointCard(props: {
                   class="parser-preview-button"
                   title="Preview one message"
                   aria-label="Preview one message"
-                  disabled={preview.loading}
+                  disabled={props.readOnly || preview.loading}
                   onClick={() => void previewMessage()}
                 >
                   Scan
@@ -363,14 +363,39 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
 
 export function DataSchemaWorkspace({
   result,
+  onShowInspector,
 }: {
-  result: DiscoveryResult | undefined;
+  result: DiscoveryResult;
+  onShowInspector: () => void;
 }) {
-  const [inspectorVisible, setInspectorVisible] = useState(true);
+  return (
+    <section class="data-schema-workspace" role="tabpanel">
+      <header class="data-schema-toolbar">
+        <div>
+          <h2>Data schema</h2>
+          <p>
+            Final discovered table schemas update with the delivery
+            configuration.
+          </p>
+        </div>
+        <Button onClick={onShowInspector}>Show schema inspector</Button>
+      </header>
+      <ContractView result={result} />
+    </section>
+  );
+}
+
+export function DataSchemaInspector({
+  result,
+  onHide,
+}: {
+  result: DiscoveryResult;
+  onHide: () => void;
+}) {
   const [selectedTable, setSelectedTable] = useState("");
   const [position, setPosition] = useState({ x: 24, y: 24 });
   const drag = useRef<{ pointer: number; dx: number; dy: number }>();
-  const datasets = result?.datasets ?? [];
+  const datasets = result.datasets;
   const selected =
     datasets.find((dataset) => dataset.name === selectedTable) ?? datasets[0];
 
@@ -380,98 +405,83 @@ export function DataSchemaWorkspace({
   }, [selected?.name, selectedTable]);
 
   return (
-    <section class="data-schema-workspace" role="tabpanel">
-      <header class="data-schema-toolbar">
-        <div>
-          <h2>Data schema</h2>
-          <p>Final discovered table schemas update with the delivery configuration.</p>
-        </div>
-        {!inspectorVisible && (
-          <Button onClick={() => setInspectorVisible(true)}>Show schema inspector</Button>
-        )}
-      </header>
-      {result === undefined ? (
-        <div class="card data-schema-empty">
-          Complete the route configuration to discover its final schema.
-        </div>
-      ) : (
-        <ContractView result={result} />
-      )}
-      {inspectorVisible && (
-        <aside
-          class="schema-inspector"
-          aria-label="Schema inspector"
-          style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+    <aside
+      class="schema-inspector"
+      aria-label="Schema inspector"
+      style={{ transform: `translate(${position.x}px, ${position.y}px)` }}
+    >
+      <header
+        class="schema-inspector-drag-handle"
+        onPointerDown={(event) => {
+          if ((event.target as HTMLElement).closest("button")) return;
+          drag.current = {
+            pointer: event.pointerId,
+            dx: event.clientX - position.x,
+            dy: event.clientY - position.y,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (drag.current?.pointer !== event.pointerId) return;
+          setPosition({
+            x: Math.max(0, event.clientX - drag.current.dx),
+            y: Math.max(0, event.clientY - drag.current.dy),
+          });
+        }}
+        onPointerUp={(event) => {
+          if (drag.current?.pointer === event.pointerId)
+            drag.current = undefined;
+        }}
+      >
+        <strong>Final schema</strong>
+        <span>Drag to move</span>
+        <Button
+          shape="icon"
+          aria-label="Hide schema inspector"
+          onClick={onHide}
         >
-          <header
-            class="schema-inspector-drag-handle"
-            onPointerDown={(event) => {
-              if ((event.target as HTMLElement).closest("button")) return;
-              drag.current = {
-                pointer: event.pointerId,
-                dx: event.clientX - position.x,
-                dy: event.clientY - position.y,
-              };
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              if (drag.current?.pointer !== event.pointerId) return;
-              setPosition({
-                x: Math.max(0, event.clientX - drag.current.dx),
-                y: Math.max(0, event.clientY - drag.current.dy),
-              });
-            }}
-            onPointerUp={(event) => {
-              if (drag.current?.pointer === event.pointerId) drag.current = undefined;
-            }}
+          ×
+        </Button>
+      </header>
+      {datasets.length === 0 ? (
+        <p>No tables discovered.</p>
+      ) : (
+        <>
+          <SelectControl
+            searchable
+            value={selected?.name ?? ""}
+            placeholder="Select table"
+            options={datasets.map((dataset) => ({
+              value: dataset.name,
+              label: dataset.name,
+            }))}
+            onChange={setSelectedTable}
+          />
+          <div
+            class="schema-inspector-table"
+            role="table"
+            aria-label="Selected table schema"
           >
-            <strong>Final schema</strong>
-            <span>Drag to move</span>
-            <Button
-              shape="icon"
-              aria-label="Hide schema inspector"
-              onClick={() => setInspectorVisible(false)}
-            >
-              ×
-            </Button>
-          </header>
-          {datasets.length === 0 ? (
-            <p>No tables discovered.</p>
-          ) : (
-            <>
-              <SelectControl
-                searchable
-                value={selected?.name ?? ""}
-                placeholder="Select table"
-                options={datasets.map((dataset) => ({
-                  value: dataset.name,
-                  label: dataset.name,
-                }))}
-                onChange={setSelectedTable}
-              />
-              <div class="schema-inspector-table" role="table" aria-label="Selected table schema">
-                <div class="schema-inspector-row schema-inspector-head" role="row">
-                  <span>Column</span>
-                  <span>Column type</span>
-                  <span>Arrow type</span>
-                  <span>PK</span>
-                  <span>Not null</span>
-                </div>
-                {selected?.final_columns.map((column) => (
-                  <div class="schema-inspector-row" role="row" key={column.name}>
-                    <strong>{column.name}</strong>
-                    <code>{column.destination_type}</code>
-                    <code>{column.arrow_type}</code>
-                    <span>{column.primary_key ? "Yes" : "—"}</span>
-                    <span>{column.nullable ? "—" : "Yes"}</span>
-                  </div>
-                ))}
+            <div class="schema-inspector-row schema-inspector-head" role="row">
+              <span>Column</span>
+              <span>Column type</span>
+              <span>Arrow type</span>
+              <span>PK</span>
+              <span>Not null</span>
+            </div>
+            {selected?.final_columns.map((column) => (
+              <div class="schema-inspector-row" role="row" key={column.name}>
+                <strong>{column.name}</strong>
+                <code>{column.destination_type}</code>
+                <code>{column.arrow_type}</code>
+                <span>{column.primary_key ? "Yes" : "—"}</span>
+                <span>{column.nullable ? "—" : "Yes"}</span>
               </div>
-            </>
-          )}
-        </aside>
+            ))}
+          </div>
+        </>
       )}
-    </section>
+    </aside>
   );
 }
 
