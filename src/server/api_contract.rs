@@ -53,6 +53,14 @@ pub struct MessagePreviewRequest {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct SqlPlaygroundRequest {
+    pub sql: String,
+
+    pub rows: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct YamlRequest {
     pub yaml: String,
 }
@@ -231,6 +239,10 @@ struct ServerApiContract {
     message_preview_request: MessagePreviewRequest,
 
     message_preview_response: super::service::MessagePreviewResult,
+
+    sql_playground_request: SqlPlaygroundRequest,
+
+    sql_playground_response: super::service::SqlPlaygroundResult,
 
     yaml_response: YamlResponse,
 

@@ -162,7 +162,7 @@ async fn build_delivery_plan_internal(
         .iter()
         .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    validate_middlewares(&middlewares, &discovery)?;
+    let discovery = validate_middlewares(&middlewares, discovery).await?;
     let semantics = validate_discovered_pipeline(
         &source_descriptor,
         &sink_provider.compatibility(),
@@ -210,22 +210,25 @@ pub fn validate_discovered_pipeline(
     Ok(semantics)
 }
 
-fn validate_middlewares(
+async fn validate_middlewares(
     middlewares: &[Box<dyn Middleware>],
-    discovery: &DeliveryDiscovery,
-) -> anyhow::Result<()> {
+    mut discovery: DeliveryDiscovery,
+) -> anyhow::Result<DeliveryDiscovery> {
     if middlewares.is_empty() {
-        return Ok(());
+        return Ok(discovery);
     }
     let main = discovery
-        .dataset(DatasetRole::Main)
+        .datasets
+        .iter_mut()
+        .find(|dataset| dataset.role == DatasetRole::Main)
         .context("middlewares require a discovered main dataset")?;
     for (index, middleware) in middlewares.iter().enumerate() {
-        middleware
-            .validate_schema(&main.incoming_schema)
+        main.stored_schema = middleware
+            .output_schema(&main.stored_schema)
+            .await
             .with_context(|| format!("middleware {index} is incompatible with delivery schema"))?;
     }
-    Ok(())
+    Ok(discovery)
 }
 
 #[cfg(test)]

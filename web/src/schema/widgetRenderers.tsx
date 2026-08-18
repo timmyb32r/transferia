@@ -20,6 +20,7 @@ import type {
   PropertyEditorProps,
 } from "./editorTypes";
 import { JsonParserEditor } from "./JsonParserEditor";
+import { MiddlewareEditor } from "./MiddlewareEditor";
 import { isObject, stringArray } from "./value";
 import { isWidgetName, type WidgetName } from "./widgetDefinitions";
 
@@ -61,6 +62,13 @@ const NODE_RENDERERS: Partial<Record<WidgetName, NodeWidgetRenderer>> = {
       />
     );
   },
+  middlewares: (context) => (
+    <MiddlewareEditor
+      value={context.value}
+      disabled={context.disabled}
+      onChange={context.onChange}
+    />
+  ),
   system_columns: (context) => {
     if (context.node.kind !== "object") return null;
     return (
@@ -112,6 +120,19 @@ const NODE_RENDERERS: Partial<Record<WidgetName, NodeWidgetRenderer>> = {
         value={typeof context.value === "string" ? context.value : ""}
         disabled={context.disabled}
         onChange={context.onChange}
+      />
+    );
+  },
+  sql: (context) => {
+    if (context.node.kind !== "string") return null;
+    return (
+      <textarea
+        id={context.controlId}
+        class="sql-input"
+        spellcheck={false}
+        value={typeof context.value === "string" ? context.value : ""}
+        disabled={context.disabled}
+        onInput={(event) => context.onChange(event.currentTarget.value)}
       />
     );
   },

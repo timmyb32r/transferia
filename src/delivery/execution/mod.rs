@@ -87,7 +87,7 @@ const fn delivery_meta(source_messages: u64) -> DeliveryMeta {
     DeliveryMeta { source_messages }
 }
 
-fn apply_middlewares(
+async fn apply_middlewares(
     mut data: TableData,
     middlewares: &[Box<dyn Middleware>],
 ) -> anyhow::Result<TableData> {
@@ -95,7 +95,7 @@ fn apply_middlewares(
         return Ok(data);
     }
     for middleware in middlewares {
-        data = middleware.process(data)?;
+        data = middleware.process(data).await?;
     }
     Ok(data)
 }
@@ -158,7 +158,7 @@ async fn parser_loop(
             let mut output_bytes = 0_usize;
             let mut output_rows = 0_u64;
             for table in tables {
-                let table = apply_middlewares(table, middlewares.as_slice())?;
+                let table = apply_middlewares(table, middlewares.as_slice()).await?;
                 let bytes = arrow_batch_bytes(&table.batch);
                 output_bytes = output_bytes.saturating_add(bytes);
                 output_rows = output_rows.saturating_add(table.batch.num_rows() as u64);
@@ -249,34 +249,31 @@ async fn parser_loop(
         if !messages.is_empty() && parse_memory.is_none() {
             return Ok(());
         }
-        let middlewares = Arc::clone(&middlewares);
         let parse_task = tokio::task::spawn_blocking(move || {
             let mut parser = active_parser;
             let started = std::time::Instant::now();
             let parsed = parser
                 .parse_into(messages)
+                .map(|(valid, dlq)| (valid, dlq, started.elapsed()))
                 .map_err(|error| {
                     anyhow::anyhow!("parser failed for delivery {}: {error}", id.get())
-                })
-                .and_then(|(valid, dlq)| {
-                    // Parsing materializes owned Arrow arrays, so the source
-                    // buffers can be released before middleware allocates any
-                    // additional output.
-                    drop(source_memory);
-                    apply_middlewares(valid, middlewares.as_slice())
-                        .map(|valid| (valid, dlq, started.elapsed()))
-                        .map_err(|error| {
-                            anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
-                        })
                 });
             // Keep admission live with detached blocking work if pipeline
             // shutdown times out and aborts only the async supervisor task.
-            (parser, parse_memory, parsed)
+            (parser, parse_memory, source_memory, parsed)
         });
-        let (active_parser, parse_memory, parsed) =
+        let (active_parser, parse_memory, source_memory, parsed) =
             parser_worker_result("parse", parse_task.await)?;
         parser = Some(active_parser);
         let (valid, dlq, parse_busy) = parsed?;
+        // Parsing materializes owned Arrow arrays, so the source buffers can be
+        // released before middleware allocates any additional output.
+        drop(source_memory);
+        let valid = apply_middlewares(valid, middlewares.as_slice())
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("middleware failed for delivery {}: {error}", id.get())
+            })?;
         counters.add_parse_busy(parse_busy);
         counters.add_rows(valid.batch.num_rows() as u64);
         let valid_bytes = arrow_batch_bytes(&valid.batch);

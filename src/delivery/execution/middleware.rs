@@ -1,5 +1,7 @@
 use alloc::sync::Arc;
 
+use async_trait::async_trait;
+
 use crate::core::data::schema::DatasetSchema;
 use crate::core::data::table_data::TableData;
 
@@ -16,46 +18,50 @@ use crate::core::data::table_data::TableData;
 ///
 /// This trait is **synchronous** — implementations are CPU-bound (filtering,
 /// column manipulation). No heap-allocated future per call.
+#[async_trait]
 pub trait Middleware: Send + Sync {
     /// Validate this transform against the discovered main-dataset schema.
     /// Current middleware preserves schema; a future schema-changing transform
     /// must extend this contract to return its projected schema.
-    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()>;
+    async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema>;
 
     /// Transform a batch into a (possibly filtered/transformed) batch.
-    fn process(&self, data: TableData) -> anyhow::Result<TableData>;
+    async fn process(&self, data: TableData) -> anyhow::Result<TableData>;
 }
 
 // ---------------------------------------------------------------------------
 // Blanket impls
 // ---------------------------------------------------------------------------
 
+#[async_trait]
 impl<T: Middleware + ?Sized> Middleware for &T {
-    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()> {
-        (**self).validate_schema(schema)
+    async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {
+        (**self).output_schema(schema).await
     }
 
-    fn process(&self, data: TableData) -> anyhow::Result<TableData> {
-        (**self).process(data)
+    async fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+        (**self).process(data).await
     }
 }
 
+#[async_trait]
 impl<T: Middleware + Send + Sync + ?Sized> Middleware for Box<T> {
-    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()> {
-        (**self).validate_schema(schema)
+    async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {
+        (**self).output_schema(schema).await
     }
 
-    fn process(&self, data: TableData) -> anyhow::Result<TableData> {
-        (**self).process(data)
+    async fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+        (**self).process(data).await
     }
 }
 
+#[async_trait]
 impl<T: Middleware + ?Sized> Middleware for Arc<T> {
-    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()> {
-        (**self).validate_schema(schema)
+    async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {
+        (**self).output_schema(schema).await
     }
 
-    fn process(&self, data: TableData) -> anyhow::Result<TableData> {
-        (**self).process(data)
+    async fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+        (**self).process(data).await
     }
 }

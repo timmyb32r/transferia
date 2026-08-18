@@ -15,3 +15,4 @@ fn rejects_unknown_middleware() -> anyhow::Result<()> {
     anyhow::ensure!(build_middleware(entry.kind()?, entry.raw()?.clone()).is_err());
     Ok(())
 }
+mod datafusion;

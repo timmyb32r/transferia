@@ -23,11 +23,13 @@ export const WIDGET_DEFINITIONS = {
     "nullable",
   ],
   json_parser: ["object"],
+  middlewares: ["array"],
   parser: ["object", "union"],
   parser_common: ["object"],
   partition_ranges: ["array"],
   password: ["string"],
   select: ["string"],
+  sql: ["string"],
   system_columns: ["object"],
 } as const satisfies Record<string, readonly SchemaNodeKind[]>;
 

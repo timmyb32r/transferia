@@ -8,6 +8,7 @@ import type {
   MessagePreviewRequest,
   OptionsRequest,
   RevisionRequest,
+  SqlPlaygroundRequest,
   StopRequest,
   UpdateDraftRequest,
   YamlRequest,
@@ -80,6 +81,12 @@ export const api = {
     }),
   previewMessage: (body: MessagePreviewRequest, signal?: AbortSignal) =>
     request("/api/v1/preview-message", "message_preview_response", {
+      method: "POST",
+      body: json(body),
+      ...(signal === undefined ? {} : { signal }),
+    }),
+  sqlPlayground: (body: SqlPlaygroundRequest, signal?: AbortSignal) =>
+    request("/api/v1/playground/sql", "sql_playground_response", {
       method: "POST",
       body: json(body),
       ...(signal === undefined ? {} : { signal }),

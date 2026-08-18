@@ -39,6 +39,12 @@
     "message_preview_response": {
       "$ref": "#/$defs/MessagePreviewResult"
     },
+    "sql_playground_request": {
+      "$ref": "#/$defs/SqlPlaygroundRequest"
+    },
+    "sql_playground_response": {
+      "$ref": "#/$defs/SqlPlaygroundResult"
+    },
     "yaml_response": {
       "$ref": "#/$defs/YamlResponse"
     },
@@ -82,6 +88,8 @@
     "connection_check_response",
     "message_preview_request",
     "message_preview_response",
+    "sql_playground_request",
+    "sql_playground_response",
     "yaml_response",
     "config_response",
     "health_response",
@@ -1037,6 +1045,43 @@
         "key",
         "label",
         "config"
+      ]
+    },
+    "SqlPlaygroundRequest": {
+      "type": "object",
+      "properties": {
+        "sql": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sql",
+        "rows"
+      ]
+    },
+    "SqlPlaygroundResult": {
+      "type": "object",
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ColumnView"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "rows"
       ]
     },
     "YamlResponse": {

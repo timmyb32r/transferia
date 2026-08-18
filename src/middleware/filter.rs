@@ -4,6 +4,7 @@ use arrow::array::Scalar;
 use arrow::compute;
 use arrow::compute::kernels::cmp::eq;
 use arrow::datatypes::DataType;
+use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -49,8 +50,9 @@ impl FilterMiddleware {
     }
 }
 
+#[async_trait]
 impl Middleware for FilterMiddleware {
-    fn validate_schema(&self, schema: &DatasetSchema) -> anyhow::Result<()> {
+    async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {
         let column = schema
             .columns
             .iter()
@@ -67,10 +69,10 @@ impl Middleware for FilterMiddleware {
             self.field,
             column.data_type
         );
-        Ok(())
+        Ok(schema.clone())
     }
 
-    fn process(&self, data: TableData) -> anyhow::Result<TableData> {
+    async fn process(&self, data: TableData) -> anyhow::Result<TableData> {
         let schema = data.batch.schema();
         let col_idx = match self.col_idx.get() {
             Some(&i) => i,

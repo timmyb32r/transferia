@@ -1564,6 +1564,110 @@ button::after {
   color: var(--blue);
   font-style: normal;
 }
+
+.middleware-editor {
+  display: grid;
+  gap: 14px;
+}
+
+.middleware-heading,
+.middleware-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.middleware-heading h3,
+.middleware-heading p {
+  margin: 0;
+}
+
+.middleware-heading p,
+.middleware-empty {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.middleware-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.middleware-card-heading .select-control {
+  width: min(320px, 55%);
+  margin-left: auto;
+}
+
+.middleware-filter-fields,
+.sql-playground-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.middleware-filter-fields label,
+.middleware-sql-field,
+.sql-playground label {
+  display: grid;
+  gap: 7px;
+}
+
+.middleware-sql-field textarea,
+.sql-playground textarea,
+.sql-input {
+  min-height: 116px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.5;
+}
+
+.sql-playground {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.sql-playground summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sql-playground-grid {
+  margin: 14px 0;
+}
+
+.sql-playground-output {
+  min-width: 0;
+  overflow: auto;
+}
+
+.sql-playground-output > span {
+  display: block;
+  margin-bottom: 7px;
+}
+
+.sql-playground-output table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sql-playground-output th,
+.sql-playground-output td {
+  padding: 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.sql-playground-output th small {
+  display: block;
+  color: var(--muted);
+  font-weight: 400;
+}
 .actions {
   display: flex;
   justify-content: flex-end;

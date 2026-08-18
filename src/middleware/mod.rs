@@ -1,3 +1,4 @@
+pub mod datafusion;
 pub mod filter;
 
 use std::collections::HashMap;
@@ -33,6 +34,10 @@ impl MiddlewareEntry {
 
 pub fn build_middleware(name: &str, raw: Value) -> anyhow::Result<Box<dyn Middleware>> {
     match name {
+        "datafusion" => {
+            let config: datafusion::DataFusionConfig = serde_yaml::from_value(raw)?;
+            Ok(Box::new(datafusion::DataFusionMiddleware::new(config.sql)?))
+        }
         "filter" => {
             let config: filter::FilterConfig = serde_yaml::from_value(raw)?;
             Ok(Box::new(filter::FilterMiddleware::new(
@@ -40,7 +45,9 @@ pub fn build_middleware(name: &str, raw: Value) -> anyhow::Result<Box<dyn Middle
                 config.value,
             )?))
         }
-        other => anyhow::bail!("unknown middleware '{other}'; supported middleware: filter"),
+        other => {
+            anyhow::bail!("unknown middleware '{other}'; supported middleware: datafusion, filter")
+        }
     }
 }
 

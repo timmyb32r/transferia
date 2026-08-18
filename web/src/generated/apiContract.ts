@@ -242,6 +242,16 @@ export type ParserDetection = {
   config: JsonValue;
 };
 
+export type SqlPlaygroundRequest = {
+  sql: string;
+  rows: Array<JsonValue>;
+};
+
+export type SqlPlaygroundResult = {
+  columns: Array<ColumnView>;
+  rows: Array<JsonValue>;
+};
+
 export type YamlResponse = {
   yaml: string;
 };
@@ -316,6 +326,8 @@ export interface ApiContract {
   connection_check_response: ConnectionCheckResult;
   message_preview_request: MessagePreviewRequest;
   message_preview_response: MessagePreviewResult;
+  sql_playground_request: SqlPlaygroundRequest;
+  sql_playground_response: SqlPlaygroundResult;
   yaml_response: YamlResponse;
   config_response: ConfigResponse;
   health_response: HealthResponse;

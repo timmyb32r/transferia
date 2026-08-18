@@ -85,7 +85,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
         Arc::new(MetricsRegistry::new()),
     )?;
     let mut source = source_provider.build_source(source_context()).await?;
-    let batch = tokio::time::timeout(Duration::from_secs(30), source.read_batch()).await??;
+    let batch = read_after_transient_broker_startup(&mut source).await?;
     let transferia::core::data::message::SourceBatch::Raw {
         messages,
         commit_marker,
@@ -113,6 +113,23 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
             .is_err()
     );
     Ok(())
+}
+
+async fn read_after_transient_broker_startup(
+    source: &mut Box<dyn transferia::core::source::Source>,
+) -> anyhow::Result<transferia::core::data::message::SourceBatch> {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            match source.read_batch().await {
+                Ok(batch) => return Ok(batch),
+                Err(error) if error.is_retryable() => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(error.into_source()),
+            }
+        }
+    })
+    .await?
 }
 
 fn source_context() -> SourceBuildContext {

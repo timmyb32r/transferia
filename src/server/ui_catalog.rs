@@ -13,6 +13,10 @@ struct CommonConfigSchema {
     #[schemars(title = "Delivery type")]
     delivery_type: DeliveryType,
 
+    #[schemars(
+        title = "Transforms",
+        extend("x-ui" = { "widget": "middlewares" })
+    )]
     middlewares: Vec<MiddlewareSchema>,
 
     #[schemars(title = "Pipeline memory limit", extend("x-ui" = { "widget": "byte_size" }))]
@@ -25,6 +29,8 @@ struct CommonConfigSchema {
 #[serde(rename_all = "lowercase")]
 #[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
 enum MiddlewareSchema {
+    Datafusion(transferia::middleware::datafusion::DataFusionConfig),
+
     Filter(transferia::middleware::filter::FilterConfig),
 }
 

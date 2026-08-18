@@ -100,6 +100,38 @@ describe("control-plane API", () => {
     );
   });
 
+  it("runs SQL playground samples through the typed API contract", async () => {
+    const request = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          columns: [
+            {
+              name: "id",
+              arrow_type: "Int64",
+              nullable: false,
+              primary_key: false,
+              low_cardinality: false,
+            },
+          ],
+          rows: [{ id: 6 }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", request);
+
+    await expect(
+      api.sqlPlayground({
+        sql: "SELECT id * 2 AS id FROM input",
+        rows: [{ id: 3 }],
+      }),
+    ).resolves.toMatchObject({ rows: [{ id: 6 }] });
+    expect(request).toHaveBeenCalledWith(
+      "/api/v1/playground/sql",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("sends endpoint credentials only in the connection-check POST body", async () => {
     const request = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ options: {} }), { status: 200 }),
