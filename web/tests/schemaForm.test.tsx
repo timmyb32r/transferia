@@ -290,6 +290,29 @@ describe("schema form", () => {
     expect(form.getByRole("option", { name: "Integer" })).toBeTruthy();
   });
 
+  it("makes every select searchable by default", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Arrow type"
+        options={[
+          { value: "Utf8", label: "Utf8" },
+          { value: "Int64", label: "Int64" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "Arrow type" }), {
+      button: 0,
+    });
+    const search = view.getByRole("searchbox") as HTMLInputElement;
+    expect(search.autocomplete).toBe("off");
+    fireEvent.input(search, { target: { value: "int" } });
+    expect(view.queryByRole("option", { name: "Utf8" })).toBeNull();
+    expect(view.getByRole("option", { name: "Int64" })).toBeTruthy();
+  });
+
   it("closes an anchored select when the user clicks outside", () => {
     const view = render(
       <SelectControl

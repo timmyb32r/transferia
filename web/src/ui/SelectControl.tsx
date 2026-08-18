@@ -30,7 +30,7 @@ export function SelectControl({
   options,
   disabled = false,
   loading = false,
-  searchable = false,
+  searchable = true,
   onOpen,
   onChange,
 }: SelectControlProps) {
@@ -125,6 +125,7 @@ export function SelectControl({
             <input
               class="select-search"
               type="search"
+              autoComplete="off"
               placeholder="Search"
               value={query}
               onInput={(event) => setQuery(event.currentTarget.value)}
@@ -253,6 +254,7 @@ export function MultiSelectControl({
           <input
             class="select-search"
             type="search"
+            autoComplete="off"
             placeholder="Search"
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}
