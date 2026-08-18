@@ -343,6 +343,27 @@ describe("schema form", () => {
     expect(view.getByRole("option", { name: "Int64" })).toBeTruthy();
   });
 
+  it("lets a selected dropdown return to Not selected", () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SelectControl
+        value="json"
+        placeholder="Not selected"
+        options={[{ value: "json", label: "JSON" }]}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.pointerDown(view.getByRole("button", { name: "JSON" }), {
+      button: 0,
+    });
+    const options = view.getAllByRole("option");
+    expect(options[0]!.textContent).toBe("Not selected");
+    fireEvent.pointerDown(options[0]!, { button: 0 });
+
+    expect(onChange).toHaveBeenCalledWith("");
+  });
+
   it("closes an anchored select when the user clicks outside", () => {
     const view = render(
       <SelectControl
@@ -537,11 +558,11 @@ describe("schema form", () => {
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
     await Promise.resolve();
     expect(document.activeElement).toBe(
-      form.getByRole("option", { name: "String" }),
+      form.getByRole("option", { name: "Not selected" }),
     );
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(
-      form.getByRole("option", { name: "Integer" }),
+      form.getByRole("option", { name: "String" }),
     );
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(document.activeElement).toBe(trigger);
@@ -922,6 +943,55 @@ describe("schema form", () => {
     expect(
       details.container.querySelector(".source-parser-bridge"),
     ).not.toBeNull();
+  });
+
+  it("removes parser configuration when parser selection is cleared", () => {
+    const onChange = vi.fn();
+    const parser: CompiledNode = {
+      kind: "union",
+      xUi: { widget: "parser" },
+      branches: [
+        {
+          label: "JSON parser",
+          requiredKeys: ["json_parser"],
+          node: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["json_parser"]),
+            properties: {
+              json_parser: {
+                kind: "object",
+                xUi: {},
+                required: new Set(),
+                properties: {},
+              },
+            },
+          },
+        },
+      ],
+    };
+    const view = render(
+      <SchemaForm
+        node={{
+          kind: "object",
+          xUi: {},
+          required: new Set(["parser"]),
+          properties: { parser },
+        }}
+        value={{ parser: { json_parser: {} } }}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.pointerDown(
+      view.getByRole("button", { name: "JSON parser" }),
+      { button: 0 },
+    );
+    fireEvent.pointerDown(view.getByRole("option", { name: "Not selected" }), {
+      button: 0,
+    });
+
+    expect(onChange).toHaveBeenCalledWith({ parser: null });
   });
 
   it("renders serializer selection and settings separately", async () => {

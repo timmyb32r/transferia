@@ -19,6 +19,7 @@ interface SelectControlProps {
   disabled?: boolean;
   loading?: boolean;
   searchable?: boolean;
+  clearable?: boolean;
   onOpen?: () => void;
   onChange: (value: string) => void;
 }
@@ -31,6 +32,7 @@ export function SelectControl({
   disabled = false,
   loading = false,
   searchable = true,
+  clearable = true,
   onOpen,
   onChange,
 }: SelectControlProps) {
@@ -39,12 +41,19 @@ export function SelectControl({
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const selected = options.find((option) => option.value === value);
+  const menuOptions = useMemo(
+    () =>
+      clearable && !options.some((option) => option.value === "")
+        ? [{ value: "", label: placeholder }, ...options]
+        : options,
+    [clearable, options, placeholder],
+  );
   const filtered = useMemo(
     () =>
-      options.filter((option) =>
+      menuOptions.filter((option) =>
         option.label.toLowerCase().includes(query.toLowerCase()),
       ),
-    [options, query],
+    [menuOptions, query],
   );
   const close = () => {
     setOpen(false);
@@ -259,6 +268,29 @@ export function MultiSelectControl({
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
+          {placeholder.toLowerCase().includes(query.toLowerCase()) && (
+            <button
+              type="button"
+              disabled={disabled}
+              role="option"
+              aria-selected={values.length === 0}
+              class="select-option multi-select-option"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                dismissActiveTextSelection();
+                onChange([]);
+              }}
+              onClick={(event) => {
+                if (event.detail === 0) onChange([]);
+              }}
+            >
+              <span class={`multi-check ${values.length === 0 ? "checked" : ""}`}>
+                {values.length === 0 ? "✓" : ""}
+              </span>
+              {placeholder}
+            </button>
+          )}
           {filtered.map((option) => {
             const selected = values.includes(option.value);
             const choose = () =>

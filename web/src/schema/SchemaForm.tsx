@@ -437,6 +437,10 @@ function NodeEditor({
                 label: branch.label,
               }))}
               onChange={(raw) => {
+                if (raw === "") {
+                  onChange(null);
+                  return;
+                }
                 const branch = node.branches[Number(raw)];
                 if (branch === undefined) return;
                 onChange(branch.constant ?? createValue(branch.node));

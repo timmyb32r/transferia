@@ -206,6 +206,7 @@ export function ByteSizeInput({
       <SelectControl
         value={String(unitIndex)}
         placeholder="Unit"
+        clearable={false}
         disabled={disabled}
         options={BYTE_UNITS.map((candidate, index) => ({
           value: String(index),
