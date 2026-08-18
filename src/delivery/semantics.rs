@@ -12,6 +12,7 @@ use crate::delivery::config::yaml::DeliveryType;
 #[derive(Debug, Clone)]
 pub enum EndpointDescriptor {
     Logbroker(SourceDescriptor),
+    Kafka(SourceDescriptor),
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
@@ -19,6 +20,7 @@ pub enum EndpointDescriptor {
     PostgresSink,
     YTsaurusSink,
     LogbrokerSink,
+    KafkaSink,
     ClickHouse,
     S3(S3Descriptor),
     /// Benchmark-only sink which durably stores nothing.
@@ -30,6 +32,7 @@ impl EndpointDescriptor {
     pub const fn source_behavior(&self) -> Option<SourceBehavior> {
         match self {
             Self::Logbroker(source)
+            | Self::Kafka(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
@@ -37,6 +40,7 @@ impl EndpointDescriptor {
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
+            | Self::KafkaSink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::Discard => None,
@@ -47,6 +51,7 @@ impl EndpointDescriptor {
     pub const fn supports_delivery_type(&self, delivery_type: DeliveryType) -> bool {
         match self {
             Self::Logbroker(source)
+            | Self::Kafka(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
@@ -54,6 +59,7 @@ impl EndpointDescriptor {
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
+            | Self::KafkaSink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::Discard => false,

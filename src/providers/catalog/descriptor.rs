@@ -59,6 +59,12 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
         sink: LOGBROKER_ROLE,
     },
     ProviderDescriptor {
+        key: "kafka",
+        title: "Kafka",
+        source: PLAIN,
+        sink: PLAIN,
+    },
+    ProviderDescriptor {
         key: "postgres",
         title: "PostgreSQL",
         source: POSTGRES_ROLE,

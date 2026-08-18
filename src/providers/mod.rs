@@ -2,6 +2,7 @@ pub(crate) mod address;
 pub mod catalog;
 pub mod clickhouse;
 pub mod discard;
+pub mod kafka;
 pub mod logbroker;
 pub mod postgres;
 pub mod s3;

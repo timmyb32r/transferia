@@ -260,6 +260,66 @@ fn build_base_provider_catalog(
     )?;
 
     catalog.register(
+        ProviderRegistration::new("kafka", compile_definitions)?
+            .source::<crate::providers::kafka::KafkaSourceConfig, _, _>(
+                vec![DeliveryMode::Stream],
+                true,
+                || {
+                    serde_json::json!({
+                        "brokers": [""],
+                        "topics": [""],
+                        "consumer_group": "",
+                        "security": { "type": "plaintext" },
+                        "offset_reset": "earliest",
+                        "parser": {},
+                        "batch_max_messages": 1_000,
+                        "batch_max_bytes": 16_777_216,
+                        "request_timeout_ms": 30_000
+                    })
+                },
+                {
+                    let metrics_registry = Arc::clone(metrics_registry);
+                    move |config| {
+                        Ok(Box::new(
+                            crate::providers::kafka::KafkaSourceProvider::from_config(
+                                config,
+                                Arc::clone(&metrics_registry),
+                            )?,
+                        ))
+                    }
+                },
+            )?
+            .source_checker::<crate::providers::kafka::KafkaSourceConfig, _, _>(
+                |config| async move {
+                    crate::providers::kafka::check_source_connection(&config).await?;
+                    Ok(crate::providers::traits::ConnectionCheckResult::default())
+                },
+            )
+            .sink::<crate::providers::kafka::KafkaSinkConfig, _, _>(
+                || {
+                    serde_json::json!({
+                        "brokers": [""],
+                        "topic": "",
+                        "security": { "type": "plaintext" },
+                        "serializer": { "type": "json" },
+                        "partition": null,
+                        "request_timeout_ms": 30_000,
+                        "max_in_flight": 16
+                    })
+                },
+                |config| {
+                    Ok(Box::new(
+                        crate::providers::kafka::KafkaSinkProvider::from_config(config)?,
+                    ))
+                },
+            )?
+            .sink_checker::<crate::providers::kafka::KafkaSinkConfig, _, _>(|config| async move {
+                crate::providers::kafka::check_sink_connection(&config).await?;
+                Ok(crate::providers::traits::ConnectionCheckResult::default())
+            }),
+    )?;
+
+    catalog.register(
         ProviderRegistration::new("postgres", compile_definitions)?
             .source::<crate::providers::postgres::src_batch::PostgresSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],
