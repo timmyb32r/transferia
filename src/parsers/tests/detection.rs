@@ -1,4 +1,4 @@
-use crate::parsers::detection::detect;
+use crate::parsers::detection::{detect, detect_samples};
 
 #[test]
 fn json_detection_infers_framing_and_lossless_primitive_columns() {
@@ -16,6 +16,32 @@ fn json_detection_infers_framing_and_lossless_primitive_columns() {
         config["json_parser"]["unknown_fields"]["action"],
         "send_to_column"
     );
+    assert_eq!(detected[0].preview_tabs[0].label, "Pretty print");
+    assert_eq!(detected[0].sampled_messages, 1);
+    assert_eq!(detected[0].sampled_rows, 2);
+}
+
+#[test]
+fn json_detection_aggregates_messages_until_the_explicit_row_limit() {
+    let detected = detect_samples(
+        &[
+            br#"{"id":1,"sometimes":"present"}"#,
+            br#"{"id":2}"#,
+            br#"{"id":3,"ignored":"past-limit"}"#,
+        ],
+        2,
+    );
+
+    assert_eq!(detected.len(), 1);
+    assert_eq!(detected[0].sampled_messages, 2);
+    assert_eq!(detected[0].sampled_rows, 2);
+    assert_eq!(detected[0].inferred_columns[0].name, "id");
+    assert_eq!(detected[0].inferred_columns[1].name, "sometimes");
+    assert!(detected[0].inferred_columns[1].nullable);
+    assert!(!detected[0]
+        .inferred_columns
+        .iter()
+        .any(|column| column.name == "ignored"));
 }
 
 #[test]

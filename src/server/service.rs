@@ -325,6 +325,11 @@ impl ControlPlane {
                 .await
                 .map_err(|error| ServiceError::Validation(error.to_string()))?;
         let preview_bytes = preview.payload.len().min(INLINE_MESSAGE_PREVIEW_BYTES);
+        let detection_payloads = preview
+            .detection_payloads
+            .iter()
+            .map(bytes::Bytes::as_ref)
+            .collect::<Vec<_>>();
         Ok(MessagePreviewResult {
             text_preview: String::from_utf8_lossy(&preview.payload[..preview_bytes]).into_owned(),
             payload_preview_base64: base64::engine::general_purpose::STANDARD
@@ -333,7 +338,7 @@ impl ControlPlane {
             byte_length: preview.payload.len(),
             preview_bytes,
             metadata: MessagePreviewMetadata::from(preview.metadata),
-            detections: crate::parsers::detection::detect(&preview.payload),
+            detections: crate::parsers::detection::detect_samples(&detection_payloads, 1_000),
         })
     }
 

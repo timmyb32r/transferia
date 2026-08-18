@@ -242,6 +242,24 @@ export type ParserDetection = {
   key: string;
   label: string;
   config: JsonValue;
+  inferred_columns: Array<InferredColumn>;
+  preview_tabs: Array<ParserPreviewTab>;
+  sampled_messages: number;
+  sampled_rows: number;
+};
+
+export type InferredColumn = {
+  name: string;
+  source_type: string;
+  arrow_type: string;
+  nullable: boolean;
+};
+
+export type ParserPreviewTab = {
+  key: string;
+  label: string;
+  content: string;
+  truncated: boolean;
 };
 
 export type SqlPlaygroundRequest = {

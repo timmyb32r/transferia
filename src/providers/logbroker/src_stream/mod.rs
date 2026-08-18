@@ -235,6 +235,8 @@ pub(crate) struct PreviewMessage {
     pub payload: bytes::Bytes,
 
     pub metadata: PreviewMessageMetadata,
+
+    pub detection_payloads: Vec<bytes::Bytes>,
 }
 
 pub(crate) struct PreviewMessageMetadata {

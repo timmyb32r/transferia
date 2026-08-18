@@ -647,6 +647,7 @@ pub(super) async fn preview_message(
     max_bytes: usize,
     cancellation: CancellationToken,
 ) -> anyhow::Result<PreviewMessage> {
+    const DETECTION_SAMPLE_BYTES: usize = 10 * 1024 * 1024;
     anyhow::ensure!(max_bytes > 0, "message preview max_bytes must be positive");
     let credit =
         i64::try_from(max_bytes).map_err(|_| anyhow!("message preview max_bytes exceeds i64"))?;
@@ -714,21 +715,28 @@ pub(super) async fn preview_message(
                             let codec = Codec::try_from(batch.codec)
                                 .map_err(|_| anyhow!("YDB Topic returned unknown codec {}", batch.codec))?;
                             let written_at_ms = batch.written_at.map(timestamp_millis).transpose()?;
-                            if let Some(message) = batch.message_data.into_iter().next() {
+                            let producer_id = batch.producer_id;
+                            let write_session_metadata = batch
+                                .write_session_meta
+                                .into_iter()
+                                .collect::<std::collections::BTreeMap<_, _>>();
+                            let mut primary = None;
+                            let mut detection_payloads = Vec::new();
+                            let mut detection_bytes = 0_usize;
+                            for message in batch.message_data {
                                 anyhow::ensure!(message.offset >= 0, "YDB Topic returned negative offset");
                                 let compressed_size = message.data.len();
                                 let declared_uncompressed_size = usize::try_from(message.uncompressed_size)
                                     .ok()
                                     .filter(|size| *size > 0);
                                 let payload = decode_message(codec, message.data)?;
-                                anyhow::ensure!(
-                                    payload.len() <= max_bytes,
-                                    "source message preview payload is {} bytes, exceeding max_bytes={max_bytes}",
-                                    payload.len()
-                                );
-                                return Ok(PreviewMessage {
-                                    payload,
-                                    metadata: PreviewMessageMetadata {
+                                if primary.is_none() {
+                                    anyhow::ensure!(
+                                        payload.len() <= max_bytes,
+                                        "source message preview payload is {} bytes, exceeding max_bytes={max_bytes}",
+                                        payload.len()
+                                    );
+                                    primary = Some((payload.clone(), PreviewMessageMetadata {
                                         topic: topic.to_string(),
                                         partition: *partition_id,
                                         partition_session_id: partition.partition_session_id,
@@ -736,7 +744,7 @@ pub(super) async fn preview_message(
                                         sequence_number: message.seq_no,
                                         created_at_ms: message.created_at.map(timestamp_millis).transpose()?,
                                         written_at_ms,
-                                        producer_id: batch.producer_id,
+                                        producer_id: producer_id.clone(),
                                         message_group_id: (!message.message_group_id.is_empty())
                                             .then_some(message.message_group_id),
                                         codec: codec.as_str_name().to_ascii_lowercase(),
@@ -746,8 +754,19 @@ pub(super) async fn preview_message(
                                             key: item.key,
                                             value: item.value,
                                         }).collect(),
-                                        write_session_metadata: batch.write_session_meta.into_iter().collect(),
-                                    },
+                                        write_session_metadata: write_session_metadata.clone(),
+                                    }));
+                                }
+                                if detection_bytes.saturating_add(payload.len()) <= DETECTION_SAMPLE_BYTES {
+                                    detection_bytes += payload.len();
+                                    detection_payloads.push(payload);
+                                }
+                            }
+                            if let Some((payload, metadata)) = primary {
+                                return Ok(PreviewMessage {
+                                    payload,
+                                    metadata,
+                                    detection_payloads,
                                 });
                             }
                         }

@@ -1045,13 +1045,87 @@
         "label": {
           "type": "string"
         },
-        "config": true
+        "config": true,
+        "inferred_columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InferredColumn"
+          }
+        },
+        "preview_tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ParserPreviewTab"
+          }
+        },
+        "sampled_messages": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "sampled_rows": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
       },
       "additionalProperties": false,
       "required": [
         "key",
         "label",
-        "config"
+        "config",
+        "inferred_columns",
+        "preview_tabs",
+        "sampled_messages",
+        "sampled_rows"
+      ]
+    },
+    "InferredColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "source_type": {
+          "type": "string"
+        },
+        "arrow_type": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "source_type",
+        "arrow_type",
+        "nullable"
+      ]
+    },
+    "ParserPreviewTab": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "label",
+        "content",
+        "truncated"
       ]
     },
     "SqlPlaygroundRequest": {

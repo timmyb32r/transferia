@@ -5,6 +5,7 @@ import type {
   ParserDetection,
 } from "../generated/apiContract";
 import { Button } from "../ui/Button";
+import { SelectControl } from "../ui/SelectControl";
 
 export function MessagePreviewDialog({
   result,
@@ -23,7 +24,11 @@ export function MessagePreviewDialog({
 }) {
   const dialog = useRef<HTMLElement>(null);
   const [showFull, setShowFull] = useState(false);
-  const [activeTab, setActiveTab] = useState<PreviewTab>("text");
+  const [activeTab, setActiveTab] = useState("text");
+  const [selectedParser, setSelectedParser] = useState("");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
+    "idle",
+  );
   useEffect(() => {
     dialog.current
       ?.querySelector<HTMLButtonElement>("[aria-label='Close message preview']")
@@ -41,7 +46,9 @@ export function MessagePreviewDialog({
   useEffect(() => {
     setShowFull(false);
     setActiveTab(isPrintableText(previewBytes) ? "text" : "binary");
-  }, [previewBytes]);
+    setSelectedParser(result?.detections[0]?.key ?? "");
+    setCopyState("idle");
+  }, [previewBytes, result]);
   const fullBytes = useMemo(
     () =>
       result && showFull
@@ -62,6 +69,25 @@ export function MessagePreviewDialog({
     result && result.preview_bytes < result.byte_length,
   );
   const shownInFull = Boolean(result && (!truncated || showFull));
+  const selectedDetection = result?.detections.find(
+    (detection) => detection.key === selectedParser,
+  );
+  const parserTabs = selectedDetection?.preview_tabs ?? [];
+  const selectParsed = (detection: ParserDetection) => {
+    setSelectedParser(detection.key);
+    setActiveTab("parsed");
+  };
+  const copyMessage = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(
+        bytesToHex(decodeBase64(result.payload_base64)),
+      );
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
   return (
     <div class="message-preview-backdrop" onMouseDown={onClose}>
       <section
@@ -103,20 +129,25 @@ export function MessagePreviewDialog({
         {result && (
           <>
             <div class="message-preview-tabs" role="tablist">
-              {(["text", "binary", "metadata"] as const).map((tab) => (
+              {[
+                { key: "text", label: "Text" },
+                { key: "binary", label: "Binary" },
+                ...parserTabs.map((tab) => ({
+                  key: `parser:${tab.key}`,
+                  label: tab.label,
+                })),
+                { key: "metadata", label: "Metadata" },
+                { key: "parsed", label: "Parsed preview" },
+              ].map((tab) => (
                 <button
-                  key={tab}
+                  key={tab.key}
                   type="button"
                   role="tab"
-                  aria-selected={activeTab === tab}
-                  class={activeTab === tab ? "is-active" : undefined}
-                  onClick={() => setActiveTab(tab)}
+                  aria-selected={activeTab === tab.key}
+                  class={activeTab === tab.key ? "is-active" : undefined}
+                  onClick={() => setActiveTab(tab.key)}
                 >
-                  {tab === "binary"
-                    ? "Binary"
-                    : tab === "metadata"
-                      ? "Metadata"
-                      : "Text"}
+                  {tab.label}
                 </button>
               ))}
             </div>
@@ -125,7 +156,23 @@ export function MessagePreviewDialog({
                 <pre class="message-preview-text">{text}</pre>
               )}
               {activeTab === "binary" && <HexEditor columns={binary} />}
+              {activeTab.startsWith("parser:") && (
+                <ParserPreview
+                  tab={parserTabs.find(
+                    (tab) => `parser:${tab.key}` === activeTab,
+                  )}
+                />
+              )}
               {activeTab === "metadata" && <MessageMetadata result={result} />}
+              {activeTab === "parsed" && (
+                <ParsedPreview
+                  detections={result.detections}
+                  selectedKey={selectedParser}
+                  allowApply={allowApply}
+                  onSelect={setSelectedParser}
+                  onApply={onApply}
+                />
+              )}
             </div>
             {truncated && (
               <div class="message-preview-truncation" role="note">
@@ -139,6 +186,7 @@ export function MessagePreviewDialog({
                 <Button onClick={() => setShowFull((current) => !current)}>
                   {showFull ? "Show 16 KiB preview" : "View full"}
                 </Button>
+                <Button onClick={() => void copyMessage()}>Copy message</Button>
                 <Button onClick={() => downloadMessage(result)}>
                   Download full message
                 </Button>
@@ -146,9 +194,20 @@ export function MessagePreviewDialog({
             )}
             {!truncated && (
               <div class="message-preview-download">
+                <Button onClick={() => void copyMessage()}>Copy message</Button>
                 <Button onClick={() => downloadMessage(result)}>
                   Download message
                 </Button>
+              </div>
+            )}
+            {copyState !== "idle" && (
+              <div
+                class={`message-preview-copy-state ${copyState}`}
+                role={copyState === "error" ? "alert" : "status"}
+              >
+                {copyState === "copied"
+                  ? "Message copied as hexadecimal bytes"
+                  : "Could not copy the message"}
               </div>
             )}
             <footer>
@@ -162,6 +221,9 @@ export function MessagePreviewDialog({
                 {result.detections.map((detection) => (
                   <div class="detected-parser" key={detection.key}>
                     <span>{detection.label}</span>
+                    <Button onClick={() => selectParsed(detection)}>
+                      See parsed
+                    </Button>
                     <Button
                       variant="primary"
                       disabled={!allowApply}
@@ -190,11 +252,105 @@ export function MessagePreviewDialog({
   );
 }
 
-type PreviewTab = "text" | "binary" | "metadata";
-
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    " ",
+  );
+}
+
+function ParserPreview({
+  tab,
+}: {
+  tab: ParserDetection["preview_tabs"][number] | undefined;
+}) {
+  if (!tab) return <div class="message-preview-state">Preview unavailable</div>;
+  return (
+    <div class="parser-preview-tab">
+      <pre>{tab.content}</pre>
+      {tab.truncated && (
+        <span class="muted">Parser preview truncated to 64 KiB</span>
+      )}
+    </div>
+  );
+}
+
+function ParsedPreview({
+  detections,
+  selectedKey,
+  allowApply,
+  onSelect,
+  onApply,
+}: {
+  detections: ParserDetection[];
+  selectedKey: string;
+  allowApply: boolean;
+  onSelect: (key: string) => void;
+  onApply: (detection: ParserDetection) => void;
+}) {
+  const selected = detections.find(
+    (detection) => detection.key === selectedKey,
+  );
+  if (detections.length === 0)
+    return (
+      <div class="message-preview-state">No parser recognized this sample</div>
+    );
+  return (
+    <div class="parsed-preview">
+      <div class="parsed-preview-toolbar">
+        <SelectControl
+          value={selectedKey}
+          placeholder="Not selected"
+          options={detections.map((detection) => ({
+            value: detection.key,
+            label: detection.label,
+          }))}
+          onChange={onSelect}
+        />
+        {selected && (
+          <>
+            <span class="muted">
+              {selected.sampled_messages} messages · {selected.sampled_rows}{" "}
+              rows
+            </span>
+            <Button
+              variant="primary"
+              disabled={!allowApply}
+              onClick={() => onApply(selected)}
+            >
+              Use parser
+            </Button>
+          </>
+        )}
+      </div>
+      {selected && (
+        <table class="parsed-preview-table">
+          <thead>
+            <tr>
+              <th>Column</th>
+              <th>Source type</th>
+              <th>Arrow type</th>
+              <th>Nullable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {selected.inferred_columns.map((column) => (
+              <tr key={column.name}>
+                <td>{column.name}</td>
+                <td>{column.source_type}</td>
+                <td>{column.arrow_type}</td>
+                <td>{column.nullable ? "Yes" : "No"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }
 
 function hexColumns(bytes: Uint8Array) {

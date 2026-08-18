@@ -27,6 +27,10 @@ describe("message preview dialog", () => {
               key: "json_parser",
               label: "JSON parser",
               config: { common: {}, json_parser: {} },
+              inferred_columns: [],
+              preview_tabs: [],
+              sampled_messages: 1,
+              sampled_rows: 1,
             },
           ],
         }}
@@ -78,6 +82,74 @@ describe("message preview dialog", () => {
     expect(view.container.textContent).toContain("41 42");
     fireEvent.click(view.getByRole("tab", { name: "Metadata" }));
     expect(view.getByText("cdc/prod/logs")).toBeTruthy();
+  });
+
+  it("copies hexadecimal bytes and exposes parser-owned and parsed previews", async () => {
+    const copy = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: copy },
+    });
+    const apply = vi.fn();
+    const payload = btoa('{"id":1}');
+    const view = render(
+      <MessagePreviewDialog
+        loading={false}
+        allowApply
+        result={{
+          text_preview: '{"id":1}',
+          payload_preview_base64: payload,
+          payload_base64: payload,
+          byte_length: 8,
+          preview_bytes: 8,
+          metadata: metadata(),
+          detections: [
+            {
+              key: "json_parser",
+              label: "JSON parser",
+              config: { common: {}, json_parser: {} },
+              inferred_columns: [
+                {
+                  name: "id",
+                  source_type: "number",
+                  arrow_type: "Int64",
+                  nullable: false,
+                },
+              ],
+              preview_tabs: [
+                {
+                  key: "json_pretty_print",
+                  label: "Pretty print",
+                  content: '{\n  "id": 1\n}',
+                  truncated: false,
+                },
+              ],
+              sampled_messages: 3,
+              sampled_rows: 3,
+            },
+          ],
+        }}
+        onApply={apply}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Copy message" }));
+    expect(copy).toHaveBeenCalledWith("7b 22 69 64 22 3a 31 7d");
+    fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
+    expect(view.getByText(/"id": 1/)).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "See parsed" }));
+    expect(
+      view
+        .getByRole("tab", { name: "Parsed preview" })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(view.getByText("3 messages · 3 rows")).toBeTruthy();
+    expect(view.getByText("Int64")).toBeTruthy();
+    fireEvent.click(view.getAllByRole("button", { name: "Use parser" })[0]!);
+    expect(apply).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "json_parser" }),
+    );
   });
 });
 

@@ -89,6 +89,10 @@ export function ColumnMappingsEditor({
   const allRowsSelected =
     value.length > 0 && selectedRows.size === value.length;
   const someRowsSelected = selectedRows.size > 0;
+  const notNullCount = value.filter(
+    (raw) => isObject(raw) && raw.nullable !== true,
+  ).length;
+  const allNotNull = value.length > 0 && notNullCount === value.length;
   return (
     <div class="column-editor">
       <div class="column-editor-heading">
@@ -176,7 +180,25 @@ export function ColumnMappingsEditor({
               <th>JSON path</th>
               <th>JSON type</th>
               <th>Arrow type</th>
-              <th class="flag-column">Not null</th>
+              <th class="flag-column bulk-flag-column">
+                <span>Not null</span>
+                <IndeterminateCheckbox
+                  ariaLabel="Set not null for all output columns"
+                  checked={allNotNull}
+                  indeterminate={notNullCount > 0 && !allNotNull}
+                  disabled={disabled || value.length === 0}
+                  onChange={() => {
+                    const nullable = allNotNull;
+                    onChange(
+                      value.map((raw) => ({
+                        ...(isObject(raw) ? raw : {}),
+                        nullable,
+                      })),
+                      keys,
+                    );
+                  }}
+                />
+              </th>
               {showLowCardinality && (
                 <th class="flag-column">Low cardinality</th>
               )}

@@ -1278,6 +1278,64 @@ describe("schema form", () => {
     );
   });
 
+  it("sets and clears not null for every output column from the header", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(["column_name", "nullable"]),
+            properties: {
+              column_name: stringNode(),
+              nullable: { kind: "boolean", xUi: {} },
+            },
+          },
+        },
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>({
+        columns: [
+          { column_name: "id", nullable: false },
+          { column_name: "value", nullable: true },
+        ],
+      });
+      return (
+        <>
+          <SchemaForm node={node} value={value} onChange={setValue} />
+          <output data-testid="config-value">{JSON.stringify(value)}</output>
+        </>
+      );
+    }
+    const view = render(<Harness />);
+    const form = within(view.container as HTMLElement);
+    const toggle = form.getByRole("checkbox", {
+      name: "Set not null for all output columns",
+    }) as HTMLInputElement;
+    expect(toggle.indeterminate).toBe(true);
+    fireEvent.click(toggle);
+    expect(form.getByTestId("config-value").textContent).toContain(
+      '"nullable":false',
+    );
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(form.getByTestId("config-value").textContent).toBe(
+      JSON.stringify({
+        columns: [
+          { column_name: "id", nullable: true },
+          { column_name: "value", nullable: true },
+        ],
+        keys: [],
+      }),
+    );
+  });
+
   it("preserves the remaining column row identity after deleting a sibling", () => {
     const node: CompiledNode = {
       kind: "object",
