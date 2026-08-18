@@ -14,13 +14,14 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
     println!("cargo:rerun-if-changed=../../web/package.json");
     println!("cargo:rerun-if-changed=../../web/package-lock.json");
     println!("cargo:rerun-if-env-changed=TRANSFERIA_SKIP_SERVER_UI");
+
+    let output =
+        PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?).join("server-ui");
+    fs::create_dir_all(&output)?;
     if std::env::var_os("TRANSFERIA_SKIP_SERVER_UI").is_some() {
-        let output = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?)
-            .join("server-ui");
-        fs::create_dir_all(&output)?;
-        fs::write(output.join("index.html"), "")?;
-        fs::write(output.join("app.js"), "")?;
-        fs::write(output.join("style.css"), "")?;
+        for asset in ["index.html", "app.js", "style.css"] {
+            fs::write(output.join(asset), "")?;
+        }
         return Ok(());
     }
 
@@ -36,8 +37,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         }
         fs::write(dependency_stamp, package_lock)?;
     }
-    let output =
-        PathBuf::from(std::env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?).join("server-ui");
+
     let status = Command::new("npm")
         .args(["run", "build"])
         .current_dir(&web)

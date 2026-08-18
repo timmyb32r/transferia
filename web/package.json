@@ -6,8 +6,11 @@
     "update:api": "node scripts/generate-api.mjs",
     "check:api": "node scripts/generate-api.mjs --check",
     "check:architecture": "node scripts/check-architecture.mjs",
-    "build": "npm run check:api && npm run check:architecture && tsc --noEmit && node scripts/build.mjs",
-    "pretest": "npm run check:api && npm run check:architecture",
+    "check:source": "npm run check:api && npm run check:architecture",
+    "typecheck": "tsc --noEmit",
+    "bundle": "node scripts/build.mjs",
+    "build": "npm run check:source && npm run typecheck && npm run bundle",
+    "pretest": "npm run check:source",
     "test": "vitest run"
   },
   "dependencies": {

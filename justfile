@@ -55,7 +55,7 @@ test-affected-dry *args:
 
 # Verify the conservative affected-test selector itself.
 test-affected-self:
-    python3 -m unittest scripts/test_test_affected.py
+    python3 -m unittest scripts/test_test_affected.py scripts/test_check_crate_boundaries.py
 
 # Run clippy only (strict — warnings are errors)
 clippy: fmt-check

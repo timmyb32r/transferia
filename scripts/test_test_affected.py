@@ -19,8 +19,10 @@ class AffectedTestsTest(unittest.TestCase):
         rust, web = test_affected.commands(selection)
 
         self.assertEqual(rust, [])
-        self.assertEqual(web[0][:4], ["npx", "--no-install", "vitest", "related"])
-        self.assertEqual(web[1], ["npm", "run", "build"])
+        self.assertEqual(web[0], ["npm", "run", "check:source"])
+        self.assertEqual(web[1], ["npm", "run", "typecheck"])
+        self.assertEqual(web[2][:4], ["npx", "--no-install", "vitest", "related"])
+        self.assertEqual(web[3], ["npm", "run", "bundle"])
 
     def test_provider_change_selects_unit_and_owned_e2e_tests(self):
         selection = test_affected.select([
@@ -32,8 +34,8 @@ class AffectedTestsTest(unittest.TestCase):
         self.assertEqual(len(rust), 2)
         self.assertIn("-p", rust[0])
         self.assertIn("transferia-providers", rust[0])
-        self.assertNotIn("e2e_clickhouse_source", rust[1])
-        self.assertIn("e2e_sinks", rust[1])
+        self.assertNotIn("e2e_clickhouse_source", rust[-1])
+        self.assertIn("e2e_sinks", rust[-1])
 
     def test_catalog_change_does_not_start_provider_e2e_services(self):
         selection = test_affected.select([
@@ -43,7 +45,10 @@ class AffectedTestsTest(unittest.TestCase):
 
         self.assertFalse(selection.full)
         self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(rust, [["cargo", "test", "--all-features", "-p", "transferia-providers"]])
+        self.assertEqual(
+            rust,
+            [["cargo", "test", "--all-features", "--lib", "-p", "transferia-providers"]],
+        )
 
     def test_provider_config_change_stays_in_fast_unit_tests(self):
         selection = test_affected.select([
@@ -91,8 +96,38 @@ class AffectedTestsTest(unittest.TestCase):
 
         self.assertEqual(
             rust,
-            [["cargo", "test", "--all-features", "-p", "transferia-control-plane"]],
+            [["cargo", "test", "--all-features", "--lib", "-p", "transferia-control-plane"]],
         )
+
+    def test_public_crate_surface_checks_transitive_dependents(self):
+        selection = test_affected.select([
+            "crates/transferia-providers/src/lib.rs"
+        ])
+        rust, _ = test_affected.commands(selection)
+
+        self.assertIn("transferia-delivery", rust[1])
+        self.assertIn("transferia-composition", rust[1])
+
+    def test_contract_change_tests_owner_and_checks_transitive_dependents(self):
+        selection = test_affected.select([
+            "crates/transferia-delivery-contracts/src/lib.rs"
+        ])
+        rust, _ = test_affected.commands(selection)
+
+        self.assertEqual(
+            rust[0],
+            [
+                "cargo",
+                "test",
+                "--all-features",
+                "--lib",
+                "-p",
+                "transferia-delivery-contracts",
+            ],
+        )
+        self.assertIn("transferia-pipeline", rust[1])
+        self.assertIn("transferia-providers", rust[1])
+        self.assertIn("transferia-composition", rust[1])
 
     def test_unknown_build_input_falls_back_to_full_suite(self):
         selection = test_affected.select(["Cargo.toml"])

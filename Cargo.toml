@@ -11,6 +11,7 @@ members = [
     "crates/transferia-runtime",
     "crates/transferia-runtime-local",
     "crates/transferia-server-contracts",
+    "crates/transferia-server-ui",
 ]
 exclude = ["vendor/clickhouse-arrow"]
 resolver = "2"

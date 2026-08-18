@@ -34,6 +34,7 @@ transferia-delivery = { path = "../transferia-delivery" }
 transferia-providers = { path = "../transferia-providers" }
 transferia-runtime = { path = "../transferia-runtime" }
 transferia-server-contracts = { path = "../transferia-server-contracts" }
+transferia-server-ui = { path = "../transferia-server-ui" }
 
 [lints]
 workspace = true

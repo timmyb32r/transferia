@@ -5170,6 +5170,7 @@ dependencies = [
  "transferia-providers",
  "transferia-runtime",
  "transferia-server-contracts",
+ "transferia-server-ui",
 ]
 
 [[package]]
@@ -5337,6 +5338,10 @@ dependencies = [
  "serde_json",
  "transferia-runtime",
 ]
+
+[[package]]
+name = "transferia-server-ui"
+version = "0.1.0"
 
 [[package]]
 name = "try-lock"

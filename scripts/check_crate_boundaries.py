@@ -9,14 +9,13 @@ import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED = {
+PRODUCTION_ALLOWED = {
     "transferia-core": set(),
     "transferia-delivery-contracts": {"transferia-core"},
     "transferia-pipeline": {"transferia-core", "transferia-delivery-contracts"},
     "transferia-providers": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-pipeline",
     },
     "transferia-delivery": {
         "transferia-core",
@@ -27,12 +26,14 @@ ALLOWED = {
     "transferia-runtime": set(),
     "transferia-runtime-local": {"transferia-runtime"},
     "transferia-server-contracts": {"transferia-runtime"},
+    "transferia-server-ui": set(),
     "transferia-control-plane": {
         "transferia-core",
         "transferia-delivery",
         "transferia-providers",
         "transferia-runtime",
         "transferia-server-contracts",
+        "transferia-server-ui",
     },
     "transferia-composition": {
         "transferia-control-plane",
@@ -43,14 +44,16 @@ ALLOWED = {
     },
 }
 
+DEV_EXTRA = {
+    "transferia-providers": {"transferia-pipeline"},
+}
 
-def internal_dependencies(manifest: dict[str, object]) -> set[str]:
-    result: set[str] = set()
-    for section in ("dependencies", "dev-dependencies", "build-dependencies"):
-        dependencies = manifest.get(section, {})
-        if isinstance(dependencies, dict):
-            result.update(name for name in dependencies if name.startswith("transferia-"))
-    return result
+
+def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]:
+    dependencies = manifest.get(section, {})
+    if not isinstance(dependencies, dict):
+        return set()
+    return {name for name in dependencies if name.startswith("transferia-")}
 
 
 def main() -> int:
@@ -65,14 +68,21 @@ def main() -> int:
             errors.append(f"{manifest_path}: missing package.name")
             continue
         discovered.add(name)
-        if name not in ALLOWED:
+        if name not in PRODUCTION_ALLOWED:
             errors.append(f"{manifest_path}: crate is absent from the architecture allowlist")
             continue
-        forbidden = internal_dependencies(manifest) - ALLOWED[name]
-        if forbidden:
-            errors.append(f"{name}: forbidden internal dependencies: {', '.join(sorted(forbidden))}")
+        for section, allowed in (
+            ("dependencies", PRODUCTION_ALLOWED[name]),
+            ("build-dependencies", PRODUCTION_ALLOWED[name]),
+            ("dev-dependencies", PRODUCTION_ALLOWED[name] | DEV_EXTRA.get(name, set())),
+        ):
+            forbidden = internal_dependencies(manifest, section) - allowed
+            if forbidden:
+                errors.append(
+                    f"{name}: forbidden {section}: {', '.join(sorted(forbidden))}"
+                )
 
-    missing = ALLOWED.keys() - discovered
+    missing = PRODUCTION_ALLOWED.keys() - discovered
     if missing:
         errors.append(f"architecture allowlist entries have no crate: {', '.join(sorted(missing))}")
     if list((ROOT / "src").glob("**/*.rs")) != [ROOT / "src/lib.rs"]:

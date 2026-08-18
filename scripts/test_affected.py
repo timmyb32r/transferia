@@ -9,16 +9,22 @@ files deliberately fall back to the full suite.
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TIMINGS_PATH = ROOT / "target/affected-tests-timings.json"
+TIMINGS_LOCK = threading.Lock()
+COMMAND_TIMINGS: list[dict[str, object]] = []
 
 
 PROVIDER_E2E = {
@@ -62,10 +68,45 @@ class Selection:
     reason: str = ""
     rust_modules: set[str] = field(default_factory=set)
     rust_packages: set[str] = field(default_factory=set)
+    downstream_check_packages: set[str] = field(default_factory=set)
     integration_tests: set[str] = field(default_factory=set)
     web_paths: set[str] = field(default_factory=set)
     web_build: bool = False
     selector_self_test: bool = False
+
+
+@lru_cache(maxsize=1)
+def workspace_reverse_dependencies() -> dict[str, set[str]]:
+    """Return the workspace's reverse dependency graph from Cargo metadata."""
+    metadata = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    packages = json.loads(metadata.stdout)["packages"]
+    workspace_names = {package["name"] for package in packages}
+    reverse = {name: set() for name in workspace_names}
+    for package in packages:
+        for dependency in package["dependencies"]:
+            dependency_name = dependency["name"]
+            if dependency_name in workspace_names:
+                reverse[dependency_name].add(package["name"])
+    return reverse
+
+
+def transitive_dependents(packages: set[str]) -> set[str]:
+    reverse = workspace_reverse_dependencies()
+    discovered: set[str] = set()
+    pending = list(packages)
+    while pending:
+        package = pending.pop()
+        for dependent in reverse.get(package, set()):
+            if dependent not in packages and dependent not in discovered:
+                discovered.add(dependent)
+                pending.append(dependent)
+    return discovered
 
 
 def provider_e2e(provider: str, parts: tuple[str, ...]) -> set[str]:
@@ -146,6 +187,17 @@ def select(paths: list[str]) -> Selection:
                 result.web_build = True
             elif crate:
                 result.rust_packages.add(package)
+            if (
+                path.endswith(("/src/lib.rs", "/Cargo.toml"))
+                or crate
+                in {
+                    "transferia-core",
+                    "transferia-delivery-contracts",
+                    "transferia-runtime",
+                    "transferia-server-contracts",
+                }
+            ):
+                result.downstream_check_packages.add(package)
             continue
 
         if path.startswith("tests/support/"):
@@ -158,43 +210,14 @@ def select(paths: list[str]) -> Selection:
             continue
 
         if path.startswith("src/") and path.endswith(".rs"):
-            parts = Path(path).parts
-            module = parts[1] if len(parts) > 1 else ""
-            if len(parts) == 2:
-                result.full = True
-                result.reason = f"crate-wide Rust entry point changed: {path}"
-                return result
-            if len(parts) > 2 and module == "providers":
-                provider = parts[2]
-                if provider.endswith(".rs"):
-                    result.rust_modules.add("providers")
-                else:
-                    result.rust_modules.add(f"providers::{provider}")
-                    if touches_provider_runtime(parts):
-                        result.integration_tests.update(provider_e2e(provider, parts))
-            elif module == "parsers":
-                parser = parts[2] if len(parts) > 2 else ""
-                if parser == "mod.rs":
-                    parser = ""
-                elif parser.endswith(".rs"):
-                    stem = Path(parser).stem
-                    parser = "tests::detection" if stem == "detection" else "tests"
-                result.rust_modules.add(f"parsers::{parser}" if parser else "parsers")
-                if "schema_registry" in parts:
-                    result.integration_tests.add("e2e_schema_registry")
-                elif "json_parser" in parts or not parser:
-                    result.integration_tests.add("json_roundtrip")
-            elif module == "serializer":
-                result.rust_modules.add("serializer")
-                result.integration_tests.add("json_roundtrip")
-            elif module == "server":
-                result.rust_modules.add("server")
-                result.web_paths.add("tests/catalogContract.test.ts")
-            else:
-                result.rust_modules.add(module)
-            continue
+            result.full = True
+            result.reason = f"public facade changed: {path}"
+            return result
 
-        if path == "justfile" or path == "scripts/test_test_affected.py":
+        if path == "justfile" or path in {
+            "scripts/test_test_affected.py",
+            "scripts/test_check_crate_boundaries.py",
+        }:
             result.selector_self_test = True
             continue
 
@@ -244,10 +267,16 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
     packages = {package for package in selection.rust_packages if package}
     modules = {module for module in selection.rust_modules if module}
     if packages:
-        command = ["cargo", "test", "--all-features"]
+        command = ["cargo", "test", "--all-features", "--lib"]
         for package in sorted(packages):
             command.extend(["-p", package])
         rust.append(command)
+        dependents = transitive_dependents(selection.downstream_check_packages)
+        if dependents:
+            command = ["cargo", "check", "--all-features", "--lib", "--bins"]
+            for package in sorted(dependents):
+                command.extend(["-p", package])
+            rust.append(command)
     elif len(modules) == 1:
         module = next(iter(modules))
         rust.append(["cargo", "test", "--lib", "--all-features", f"{module}::"])
@@ -261,10 +290,20 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
         rust.append(command)
 
     if selection.selector_self_test:
-        rust.append([sys.executable, "-m", "unittest", "scripts/test_test_affected.py"])
+        rust.append(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "scripts/test_test_affected.py",
+                "scripts/test_check_crate_boundaries.py",
+            ]
+        )
 
     web: list[list[str]] = []
     if selection.web_paths:
+        web.append(["npm", "run", "check:source"])
+        web.append(["npm", "run", "typecheck"])
         web.append(
             [
                 "npx",
@@ -277,7 +316,7 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
             ]
         )
         if selection.web_build:
-            web.append(["npm", "run", "build"])
+            web.append(["npm", "run", "bundle"])
     return rust, web
 
 
@@ -292,6 +331,15 @@ def run_group(group: list[list[str]], cwd: Path) -> int:
         print(f"+ {display(command, cwd)}", flush=True)
         completed = subprocess.run(command, cwd=cwd, env=os.environ.copy(), check=False)
         elapsed = time.monotonic() - started
+        with TIMINGS_LOCK:
+            COMMAND_TIMINGS.append(
+                {
+                    "command": command,
+                    "cwd": str(cwd.relative_to(ROOT) or "."),
+                    "duration_seconds": round(elapsed, 3),
+                    "status": completed.returncode,
+                }
+            )
         print(
             f"[{elapsed:.2f}s] {'PASS' if completed.returncode == 0 else 'FAIL'}: "
             f"{display(command, cwd)}",
@@ -313,6 +361,7 @@ def run_parallel_group(group: list[list[str]], cwd: Path) -> int:
 
 
 def main() -> int:
+    total_started = time.monotonic()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="HEAD", help="git diff base (default: HEAD)")
     parser.add_argument("--dry-run", action="store_true")
@@ -343,19 +392,34 @@ def main() -> int:
             print(f"+ {display(command, ROOT / 'web')}")
         return 0
 
-    if rust and web:
-        rust_process = subprocess.Popen(
-            [sys.executable, __file__, "--run-group", "rust", *paths], cwd=ROOT
+    def finish(status: int) -> int:
+        TIMINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        TIMINGS_PATH.write_text(
+            json.dumps(
+                {
+                    "changed_files": paths,
+                    "duration_seconds": round(time.monotonic() - total_started, 3),
+                    "status": status,
+                    "commands": COMMAND_TIMINGS,
+                },
+                indent=2,
+            )
+            + "\n"
         )
-        web_status = run_parallel_group(web, ROOT / "web")
-        rust_status = rust_process.wait()
-        return web_status or rust_status
-    return run_group(rust, ROOT) if rust else run_parallel_group(web, ROOT / "web")
+        print(f"Timing report: {TIMINGS_PATH.relative_to(ROOT)}", flush=True)
+        return status
+
+    if rust and web:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            rust_future = executor.submit(run_group, rust, ROOT)
+            web_future = executor.submit(run_parallel_group, web, ROOT / "web")
+            rust_status = rust_future.result()
+            web_status = web_future.result()
+            status = rust_status or web_status
+        return finish(status)
+    status = run_group(rust, ROOT) if rust else run_parallel_group(web, ROOT / "web")
+    return finish(status)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv[1:3] == ["--run-group", "rust"]:
-        selected = select(sys.argv[3:])
-        rust_commands, _ = commands(selected)
-        raise SystemExit(run_group(rust_commands, ROOT))
     raise SystemExit(main())
