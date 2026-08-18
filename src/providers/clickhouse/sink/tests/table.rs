@@ -11,6 +11,17 @@ fn schema(columns: Vec<SchemaColumn>) -> DatasetSchema {
 }
 
 #[test]
+fn destination_type_matches_the_physical_clickhouse_ddl_type() -> anyhow::Result<()> {
+    let mut column = SchemaColumn::new("name".into(), DataType::Utf8, true);
+    column.low_cardinality = true;
+    assert_eq!(
+        destination_type(&column)?,
+        "Nullable(LowCardinality(String))"
+    );
+    Ok(())
+}
+
+#[test]
 fn ddl_preserves_timestamp_timezone_and_quotes_it() -> anyhow::Result<()> {
     let schema = schema(vec![SchemaColumn::new(
         "created_at".into(),

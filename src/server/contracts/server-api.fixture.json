@@ -78,7 +78,7 @@
       {
         "role": "Main",
         "name": "events",
-        "columns": [
+        "intermediate_columns": [
           {
             "name": "id",
             "arrow_type": "Utf8",
@@ -93,6 +93,17 @@
             "nullable": true,
             "primary_key": false,
             "low_cardinality": false
+          }
+        ],
+        "final_columns": [
+          {
+            "name": "id",
+            "arrow_type": "Utf8",
+            "nullable": false,
+            "primary_key": true,
+            "low_cardinality": true,
+            "max_length": 64,
+            "destination_type": "LowCardinality(String)"
           }
         ]
       }

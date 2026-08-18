@@ -10,7 +10,7 @@ pub struct ConnectionCheckResult {
     pub options: BTreeMap<String, Vec<String>>,
 }
 
-use crate::core::data::schema::DatasetSchema;
+use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimits};
 use crate::core::memory::PipelineMemory;
 use crate::core::sink::Sink;
@@ -58,6 +58,7 @@ pub struct SourceBuildContext {
 pub trait SinkProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
     fn limits(&self) -> &dyn SinkLimits;
+    fn destination_type(&self, column: &SchemaColumn) -> anyhow::Result<String>;
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>>;
 
     /// Validate constraints that span the global pipeline and sink-specific

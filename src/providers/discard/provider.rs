@@ -30,6 +30,13 @@ impl SinkProvider for DiscardSinkProvider {
         &NO_LIMITS
     }
 
+    fn destination_type(
+        &self,
+        _column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        Ok("discarded".to_owned())
+    }
+
     fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async { Ok(()) })
     }

@@ -1481,32 +1481,87 @@ button::after {
     Menlo,
     monospace;
 }
-.columns {
+.schema-flow {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
 }
-.column {
-  display: flex;
-  gap: 7px;
-  align-items: center;
+.schema-flow-arrow {
+  display: grid;
+  place-items: center;
+  min-height: 70px;
+  color: var(--muted);
+  font-size: 18px;
+}
+.schema-stage {
   min-width: 0;
-  padding: 9px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-}
-.column strong {
   overflow: hidden;
-  text-overflow: ellipsis;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-soft);
 }
-.column span {
+.schema-stage > header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.schema-stage > header > span {
   color: var(--muted);
   font-size: 11px;
 }
-.column em {
-  color: var(--blue);
+.schema-stage-table {
+  display: grid;
+}
+.schema-stage-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(130px, 1.2fr) minmax(100px, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-inner);
+}
+.schema-stage-row:first-child {
+  border-top: 0;
+}
+.schema-stage-head {
+  color: var(--muted);
   font-size: 10px;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+.schema-stage-row > strong,
+.schema-stage-type code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schema-stage-type {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.schema-stage-type code {
+  color: var(--text-primary);
+  font: 11px/1.35 var(--font-code);
+}
+.schema-stage-type small,
+.schema-stage-constraints {
+  color: var(--muted);
+  font-size: 10px;
+}
+.schema-stage-constraints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.schema-stage-constraints em {
+  color: var(--blue);
   font-style: normal;
 }
 .actions {

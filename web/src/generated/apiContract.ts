@@ -99,7 +99,8 @@ export type DiscoveryResult = {
 export type DatasetView = {
   role: DatasetRoleView;
   name: string;
-  columns: Array<ColumnView>;
+  intermediate_columns: Array<ColumnView>;
+  final_columns: Array<DestinationColumnView>;
 };
 
 export type DatasetRoleView = "Main" | "DeadLetterQueue";
@@ -111,6 +112,16 @@ export type ColumnView = {
   primary_key: boolean;
   low_cardinality: boolean;
   max_length?: number;
+};
+
+export type DestinationColumnView = {
+  name: string;
+  arrow_type: string;
+  nullable: boolean;
+  primary_key: boolean;
+  low_cardinality: boolean;
+  max_length?: number;
+  destination_type: string;
 };
 
 export type SinkLimitsDescription = {

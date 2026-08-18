@@ -135,6 +135,18 @@ impl SinkProvider for YTsaurusSinkProvider {
         self.config.as_ref()
     }
 
+    fn destination_type(
+        &self,
+        column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        let data_type = arrow_to_yt(&column.data_type)?;
+        Ok(if column.nullable {
+            format!("optional<{data_type}>")
+        } else {
+            data_type.to_owned()
+        })
+    }
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             for dataset in request.datasets {

@@ -4,7 +4,8 @@ use serde_json::Value;
 
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::service::{
-    ColumnView, DatasetRoleView, DatasetView, DiscoveryResult, ValidationCommandResult,
+    ColumnView, DatasetRoleView, DatasetView, DestinationColumnView, DiscoveryResult,
+    ValidationCommandResult,
 };
 use super::ui_catalog::UiCatalog;
 use transferia::core::delivery::{ArrowTypeFamily, NameSyntax, SinkLimitsDescription, TextLimit};
@@ -318,7 +319,7 @@ pub fn fixture() -> anyhow::Result<Value> {
         datasets: vec![DatasetView {
             role: DatasetRoleView::Main,
             name: "events".to_owned(),
-            columns: vec![
+            intermediate_columns: vec![
                 ColumnView {
                     name: "id".to_owned(),
                     arrow_type: "Utf8".to_owned(),
@@ -336,6 +337,17 @@ pub fn fixture() -> anyhow::Result<Value> {
                     max_length: None,
                 },
             ],
+            final_columns: vec![DestinationColumnView {
+                column: ColumnView {
+                    name: "id".to_owned(),
+                    arrow_type: "Utf8".to_owned(),
+                    nullable: false,
+                    primary_key: true,
+                    low_cardinality: true,
+                    max_length: Some(64),
+                },
+                destination_type: "LowCardinality(String)".to_owned(),
+            }],
         }],
         sink_limits: SinkLimitsDescription {
             sink: "clickhouse",

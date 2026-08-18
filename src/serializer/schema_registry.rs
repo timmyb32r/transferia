@@ -54,6 +54,48 @@ impl SerializerConfig {
             }
         }
     }
+
+    pub fn destination_type(
+        &self,
+        data_type: &arrow::datatypes::DataType,
+    ) -> anyhow::Result<String> {
+        match self {
+            Self::Json => Ok(format!("JSON {}", json_type_name(data_type)?)),
+            Self::SchemaRegistry { connection, .. } => Ok(format!(
+                "{} ({})",
+                match connection.format {
+                    SchemaFormat::Avro => "Avro",
+                    SchemaFormat::JsonSchema => "JSON Schema",
+                    SchemaFormat::Protobuf => "Protobuf",
+                },
+                connection.subject
+            )),
+        }
+    }
+}
+
+fn json_type_name(data_type: &arrow::datatypes::DataType) -> anyhow::Result<&'static str> {
+    use arrow::datatypes::DataType;
+    Ok(match data_type {
+        DataType::Utf8
+        | DataType::LargeUtf8
+        | DataType::Date32
+        | DataType::Date64
+        | DataType::Timestamp(_, _) => "string",
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Float16
+        | DataType::Float32
+        | DataType::Float64 => "number",
+        DataType::Boolean => "boolean",
+        other => anyhow::bail!("Arrow type {other:?} has no JSON serializer representation"),
+    })
 }
 
 pub struct DeliverySerializer {

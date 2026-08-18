@@ -300,35 +300,90 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
   return (
     <section class="card contract">
       <div class="card-heading">
-        <div>
-          <small>DISCOVERED CONTRACT</small>
-          <h2>Data schema</h2>
-        </div>
+        <h2>Data schema</h2>
         <span>
           {result.source} → {result.sink}
         </span>
       </div>
       {result.datasets.map((dataset) => (
-        <div class="dataset">
+        <div class="dataset" key={`${dataset.role}:${dataset.name}`}>
           <h3>
             {dataset.name} <small>{dataset.role}</small>
           </h3>
-          <div class="columns">
-            {dataset.columns.map((column) => (
-              <div class="column">
-                <strong>{column.name}</strong>
-                <span>{column.arrow_type}</span>
-                <span>{column.nullable ? "nullable" : "not null"}</span>
-                {column.primary_key && <em>key</em>}
-                {column.low_cardinality && <em>low cardinality</em>}
-              </div>
-            ))}
+          <div class="schema-flow">
+            <SchemaStage
+              title="Intermediate"
+              subtitle="Arrow data after parsing and transforms"
+              columns={dataset.intermediate_columns.map((column) => ({
+                ...column,
+                displayedType: column.arrow_type,
+              }))}
+            />
+            <div class="schema-flow-arrow" aria-hidden="true">
+              →
+            </div>
+            <SchemaStage
+              title={`Final · ${result.sink}`}
+              subtitle="Physical representation written by the destination"
+              columns={dataset.final_columns.map((column) => ({
+                ...column,
+                displayedType: column.destination_type,
+                secondaryType: column.arrow_type,
+              }))}
+            />
           </div>
         </div>
       ))}
       <Disclosure label="Destination limits" class="sink-limits">
         <pre>{JSON.stringify(result.sink_limits, null, 2)}</pre>
       </Disclosure>
+    </section>
+  );
+}
+
+function SchemaStage({
+  title,
+  subtitle,
+  columns,
+}: {
+  title: string;
+  subtitle: string;
+  columns: Array<
+    DiscoveryResult["datasets"][number]["intermediate_columns"][number] & {
+      displayedType: string;
+      secondaryType?: string;
+    }
+  >;
+}) {
+  return (
+    <section class="schema-stage">
+      <header>
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+      </header>
+      <div class="schema-stage-table" role="table" aria-label={`${title} schema`}>
+        <div class="schema-stage-row schema-stage-head" role="row">
+          <span role="columnheader">Column</span>
+          <span role="columnheader">Type</span>
+          <span role="columnheader">Constraints</span>
+        </div>
+        {columns.map((column) => (
+          <div class="schema-stage-row" role="row" key={column.name}>
+            <strong role="cell">{column.name}</strong>
+            <span role="cell" class="schema-stage-type">
+              <code>{column.displayedType}</code>
+              {column.secondaryType && (
+                <small>from {column.secondaryType}</small>
+              )}
+            </span>
+            <span role="cell" class="schema-stage-constraints">
+              <span>{column.nullable ? "nullable" : "not null"}</span>
+              {column.primary_key && <em>key</em>}
+              {column.low_cardinality && <em>low cardinality</em>}
+            </span>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

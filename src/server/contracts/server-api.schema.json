@@ -492,10 +492,16 @@
         "name": {
           "type": "string"
         },
-        "columns": {
+        "intermediate_columns": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/ColumnView"
+          }
+        },
+        "final_columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DestinationColumnView"
           }
         }
       },
@@ -503,7 +509,8 @@
       "required": [
         "role",
         "name",
-        "columns"
+        "intermediate_columns",
+        "final_columns"
       ]
     },
     "DatasetRoleView": {
@@ -548,6 +555,47 @@
         "nullable",
         "primary_key",
         "low_cardinality"
+      ]
+    },
+    "DestinationColumnView": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "arrow_type": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "primary_key": {
+          "type": "boolean"
+        },
+        "low_cardinality": {
+          "type": "boolean"
+        },
+        "max_length": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "x-omit-none": true
+        },
+        "destination_type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "arrow_type",
+        "nullable",
+        "primary_key",
+        "low_cardinality",
+        "destination_type"
       ]
     },
     "SinkLimitsDescription": {

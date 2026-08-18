@@ -112,7 +112,8 @@ pub struct ValidationCommandResult {
 pub struct DatasetView {
     pub role: DatasetRoleView,
     pub name: String,
-    pub columns: Vec<ColumnView>,
+    pub intermediate_columns: Vec<ColumnView>,
+    pub final_columns: Vec<DestinationColumnView>,
 }
 
 #[derive(Clone, Copy, Debug, JsonSchema, Serialize)]
@@ -141,6 +142,15 @@ pub struct ColumnView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(extend("x-omit-none" = true))]
     pub max_length: Option<usize>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DestinationColumnView {
+    #[serde(flatten)]
+    pub column: ColumnView,
+
+    pub destination_type: String,
 }
 
 pub struct ControlPlane {
@@ -403,12 +413,13 @@ impl ControlPlane {
                 result.map_err(|error| ServiceError::Validation(error.to_string()))?
             }
         };
-        Ok(discovery_result(
+        discovery_result(
             plan.source_kind,
             plan.sink_kind,
             &plan.discovery,
             plan.sink_provider.as_ref(),
-        ))
+        )
+        .map_err(|error| ServiceError::Validation(error.to_string()))
     }
 
     pub async fn validate_saved(
@@ -951,32 +962,49 @@ fn discovery_result(
     sink: String,
     discovery: &DeliveryDiscovery,
     sink_provider: &dyn SinkProvider,
-) -> DiscoveryResult {
-    DiscoveryResult {
+) -> anyhow::Result<DiscoveryResult> {
+    Ok(DiscoveryResult {
         source,
         sink,
         datasets: discovery
             .datasets
             .iter()
-            .map(|dataset| DatasetView {
-                role: dataset.role.into(),
-                name: dataset.name.to_string(),
-                columns: dataset
-                    .stored_schema
-                    .columns
-                    .iter()
-                    .map(|column| ColumnView {
-                        name: column.name.clone(),
-                        arrow_type: format!("{:?}", column.data_type),
-                        nullable: column.nullable,
-                        primary_key: column.primary_key,
-                        low_cardinality: column.low_cardinality,
-                        max_length: column.max_length,
-                    })
-                    .collect(),
+            .map(|dataset| {
+                Ok(DatasetView {
+                    role: dataset.role.into(),
+                    name: dataset.name.to_string(),
+                    intermediate_columns: dataset
+                        .incoming_schema
+                        .columns
+                        .iter()
+                        .map(column_view)
+                        .collect(),
+                    final_columns: dataset
+                        .stored_schema
+                        .columns
+                        .iter()
+                        .map(|column| {
+                            Ok(DestinationColumnView {
+                                column: column_view(column),
+                                destination_type: sink_provider.destination_type(column)?,
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?,
+                })
             })
-            .collect(),
+            .collect::<anyhow::Result<Vec<_>>>()?,
         sink_limits: sink_provider.limits().description(),
+    })
+}
+
+fn column_view(column: &crate::core::data::schema::SchemaColumn) -> ColumnView {
+    ColumnView {
+        name: column.name.clone(),
+        arrow_type: format!("{:?}", column.data_type),
+        nullable: column.nullable,
+        primary_key: column.primary_key,
+        low_cardinality: column.low_cardinality,
+        max_length: column.max_length,
     }
 }
 

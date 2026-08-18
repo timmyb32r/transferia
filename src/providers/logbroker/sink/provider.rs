@@ -170,6 +170,13 @@ impl SinkProvider for YdbDriverSinkProvider {
         self.config.as_ref()
     }
 
+    fn destination_type(
+        &self,
+        column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        self.config.serializer.destination_type(&column.data_type)
+    }
+
     fn prepare(&self, _request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async { Ok(()) })
     }

@@ -473,6 +473,25 @@ fn column_definition(column: &SchemaColumn) -> anyhow::Result<String> {
     Ok(format!("{} {data_type}", quote_identifier(&column.name)))
 }
 
+pub(super) fn destination_type(column: &SchemaColumn) -> anyhow::Result<String> {
+    let data_type = clickhouse_type(&column.data_type)?;
+    let data_type = if column.low_cardinality {
+        anyhow::ensure!(
+            matches!(column.data_type, DataType::Utf8 | DataType::LargeUtf8),
+            "ClickHouse LowCardinality is supported only for string column '{}'",
+            column.name
+        );
+        format!("LowCardinality({data_type})")
+    } else {
+        data_type
+    };
+    Ok(if column.nullable {
+        format!("Nullable({data_type})")
+    } else {
+        data_type
+    })
+}
+
 #[expect(
     clippy::unreachable,
     reason = "every Arrow TimeUnit variant maps to a fixed ClickHouse precision"

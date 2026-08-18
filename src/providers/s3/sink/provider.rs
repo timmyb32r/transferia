@@ -327,6 +327,13 @@ impl SinkProvider for S3SinkProvider {
         &self.cfg
     }
 
+    fn destination_type(
+        &self,
+        column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        crate::serializer::SerializerConfig::Json.destination_type(&column.data_type)
+    }
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         let prefix = self.cfg.prefix.clone();
         Box::pin(async move {

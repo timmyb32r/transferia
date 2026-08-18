@@ -32,7 +32,9 @@ describe("generated Rust server API contract", () => {
       run_id: "run-7",
       pid: 42,
     });
-    expect(discovery.datasets[0]?.columns[1]).not.toHaveProperty("max_length");
+    expect(discovery.datasets[0]?.intermediate_columns[1]).not.toHaveProperty(
+      "max_length",
+    );
     expect(error.error.code).toBe("not_found");
   });
 

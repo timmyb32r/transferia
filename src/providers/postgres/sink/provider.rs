@@ -86,6 +86,17 @@ impl SinkProvider for PostgresSinkProvider {
     fn limits(&self) -> &dyn SinkLimits {
         self.config.as_ref()
     }
+
+    fn destination_type(
+        &self,
+        column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        let data_type = postgres_sql_type(&column.data_type)?;
+        Ok(format!(
+            "{data_type} {}",
+            if column.nullable { "NULL" } else { "NOT NULL" }
+        ))
+    }
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             if !self.config.create_tables {

@@ -167,6 +167,13 @@ impl SinkProvider for ClickHouseSinkProvider {
         &self.config
     }
 
+    fn destination_type(
+        &self,
+        column: &crate::core::data::schema::SchemaColumn,
+    ) -> anyhow::Result<String> {
+        super::table::destination_type(column)
+    }
+
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let client = self.shared_client().await?;
