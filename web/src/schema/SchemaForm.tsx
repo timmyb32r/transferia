@@ -491,6 +491,8 @@ function NodeEditor({
         <input
           id={controlId}
           type="number"
+          name={`transferia-${controlId ?? path}`}
+          autoComplete="off"
           value={typeof value === "number" ? value : ""}
           min={node.minimum}
           max={node.maximum}
@@ -565,6 +567,8 @@ function NodeEditor({
             <input
               id={controlId}
               type="text"
+              name={`transferia-${controlId ?? path}`}
+              autoComplete="off"
               value={typeof value === "string" ? value : ""}
               disabled={isDisabled}
               onInput={(event) => onChange(event.currentTarget.value)}
@@ -607,6 +611,8 @@ function NodeEditor({
         <input
           id={controlId}
           type="text"
+          name={`transferia-${controlId ?? path}`}
+          autoComplete="off"
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
           onInput={(event) => onChange(event.currentTarget.value)}

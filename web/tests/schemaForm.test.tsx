@@ -21,6 +21,37 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("disables implicit browser autofill for ordinary and secret fields", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      required: new Set(),
+      additionalProperties: false,
+      xUi: {},
+      properties: {
+        consumer_name: { kind: "string", xUi: {} },
+        token: { kind: "string", xUi: { widget: "password" } },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ consumer_name: "consumer", token: "secret" }}
+        onChange={() => undefined}
+      />,
+    );
+
+    const consumer = view.container.querySelector<HTMLInputElement>(
+      "#field---consumer_name",
+    )!;
+    const token = view.container.querySelector<HTMLInputElement>(
+      "#field---token",
+    )!;
+    expect(consumer.autocomplete).toBe("off");
+    expect(consumer.name).toContain("consumer_name");
+    expect(token.autocomplete).toBe("new-password");
+    expect(token.name).toContain("transferia-secret");
+  });
+
   it("renders a separate safely encoded external-console link", () => {
     const node: CompiledNode = {
       kind: "string",

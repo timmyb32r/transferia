@@ -74,6 +74,8 @@ export function PasswordInput({
       <input
         id={id}
         type={visible ? "text" : "password"}
+        name={`transferia-secret-${id ?? "field"}`}
+        autoComplete="new-password"
         value={value}
         disabled={disabled}
         onInput={(event) => onChange(event.currentTarget.value)}
@@ -146,6 +148,7 @@ export function SystemColumnsEditor({
             />
             <input
               type="text"
+              autoComplete="off"
               value={columnName}
               disabled={disabled || !configured}
               aria-label={`${humanize(name)} column name`}
@@ -185,6 +188,7 @@ export function ByteSizeInput({
       <input
         id={id}
         type="number"
+        autoComplete="off"
         min={0}
         step="any"
         value={value === null ? "" : value / unit.factor}
@@ -244,6 +248,7 @@ export function PartitionRangesInput({
       <input
         id={id}
         type="text"
+        autoComplete="off"
         inputMode="numeric"
         placeholder="e.g. 1-5,7"
         value={raw}

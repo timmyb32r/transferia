@@ -97,6 +97,7 @@ export function MiddlewareEditor({
                 <label>
                   <span>Column</span>
                   <input
+                    autoComplete="off"
                     value={typeof raw.field === "string" ? raw.field : ""}
                     disabled={disabled}
                     onInput={(event) =>
@@ -109,6 +110,7 @@ export function MiddlewareEditor({
                 <label>
                   <span>Equals</span>
                   <input
+                    autoComplete="off"
                     value={typeof raw.value === "string" ? raw.value : ""}
                     disabled={disabled}
                     onInput={(event) =>
@@ -124,6 +126,7 @@ export function MiddlewareEditor({
                 <label class="middleware-sql-field">
                   <span>SQL over table <code>input</code></span>
                   <textarea
+                    autoComplete="off"
                     spellcheck={false}
                     value={typeof raw.sql === "string" ? raw.sql : ""}
                     disabled={disabled}

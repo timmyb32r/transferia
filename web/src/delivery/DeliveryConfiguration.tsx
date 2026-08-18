@@ -55,6 +55,8 @@ export function DeliveryConfiguration({
         >
           <input
             type="text"
+            name="transferia-delivery-name"
+            autoComplete="off"
             value={editor.name}
             disabled={readOnly}
             placeholder="e.g. Events to ClickHouse"
@@ -64,6 +66,8 @@ export function DeliveryConfiguration({
         <TopField label="Description">
           <input
             type="text"
+            name="transferia-delivery-description"
+            autoComplete="off"
             value={editor.description}
             disabled={readOnly}
             onInput={(event) => onDescription(event.currentTarget.value)}

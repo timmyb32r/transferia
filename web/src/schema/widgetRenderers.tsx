@@ -97,6 +97,7 @@ const NODE_RENDERERS: Partial<Record<WidgetName, NodeWidgetRenderer>> = {
         <input
           id={context.controlId}
           type="text"
+          autoComplete="off"
           value={typeof context.value === "string" ? context.value : ""}
           disabled={context.disabled}
           onInput={(event) => context.onChange(event.currentTarget.value)}
@@ -128,6 +129,7 @@ const NODE_RENDERERS: Partial<Record<WidgetName, NodeWidgetRenderer>> = {
     return (
       <textarea
         id={context.controlId}
+        autoComplete="off"
         class="sql-input"
         spellcheck={false}
         value={typeof context.value === "string" ? context.value : ""}
