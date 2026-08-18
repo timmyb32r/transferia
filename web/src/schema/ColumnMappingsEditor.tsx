@@ -136,7 +136,20 @@ export function ColumnMappingsEditor({
             disabled={disabled}
             onClick={() => {
               rowIds.insert(value.length);
-              onChange([...value, createValue(node)], keys);
+              const created = createValue(node);
+              onChange(
+                [
+                  ...value,
+                  isObject(created)
+                    ? {
+                        ...created,
+                        json_data_type: "string",
+                        arrow_type: "Utf8",
+                      }
+                    : created,
+                ],
+                keys,
+              );
             }}
           >
             + Add column

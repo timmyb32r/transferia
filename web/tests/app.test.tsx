@@ -262,6 +262,9 @@ describe("App request orchestration", () => {
     expect(
       (app.getByLabelText("YAML configuration") as HTMLTextAreaElement).value,
     ).toBe("delivery_type: batch");
+    expect(view.container.querySelector(".syntax-key")?.textContent).toContain(
+      "delivery_type",
+    );
   });
 
   it("validates the committed save even when sidebar refresh fails", async () => {

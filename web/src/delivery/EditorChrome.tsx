@@ -183,6 +183,7 @@ export function EditorTabs({
   onUi,
   onYaml,
   onDataSchema,
+  onLogs,
   onToggleSchemaInspector,
 }: {
   active: EditorView;
@@ -193,6 +194,7 @@ export function EditorTabs({
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
+  onLogs?: () => void;
   onToggleSchemaInspector?: () => void;
 }) {
   return (
@@ -234,8 +236,17 @@ export function EditorTabs({
           Data schema
         </Button>
       </span>
+      <Button
+        role="tab"
+        aria-selected={active === "logs"}
+        class={active === "logs" ? "active" : ""}
+        disabled={disabled}
+        onClick={onLogs}
+      >
+        Logs
+      </Button>
       <span
-        class="editor-tab-tooltip"
+        class="editor-tab-tooltip schema-widget-toggle"
         title={
           dataSchemaAvailable
             ? schemaInspectorVisible
@@ -245,6 +256,7 @@ export function EditorTabs({
         }
       >
         <Button
+          class="schema-widget-button"
           aria-pressed={schemaInspectorVisible}
           disabled={disabled || !dataSchemaAvailable}
           onClick={onToggleSchemaInspector}

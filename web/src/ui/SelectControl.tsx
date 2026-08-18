@@ -285,7 +285,9 @@ export function MultiSelectControl({
                 if (event.detail === 0) onChange([]);
               }}
             >
-              <span class={`multi-check ${values.length === 0 ? "checked" : ""}`}>
+              <span
+                class={`multi-check ${values.length === 0 ? "checked" : ""}`}
+              >
                 {values.length === 0 ? "✓" : ""}
               </span>
               {placeholder}

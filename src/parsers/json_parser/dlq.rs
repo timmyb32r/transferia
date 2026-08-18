@@ -65,14 +65,14 @@ pub(super) fn dlq_record(
 
 pub(super) enum DlqReason {
     JsonParse,
-    ExtractionFailed,
+    ExtractionFailed(String),
 }
 
 impl DlqReason {
-    pub const fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::JsonParse => "JSON parse error",
-            Self::ExtractionFailed => "JSONPath extraction failed for one or more columns",
+            Self::ExtractionFailed(detail) => detail,
         }
     }
 }

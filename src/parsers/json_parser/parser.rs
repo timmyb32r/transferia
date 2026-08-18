@@ -720,6 +720,7 @@ pub struct JsonParser {
 }
 
 struct ColumnMappingExt {
+    column_name: Arc<str>,
     path: CompiledPath,
     /// `true` when the column is non-nullable (a missing value routes the row to DLQ).
     required: bool,
@@ -797,6 +798,7 @@ impl JsonParser {
             kinds.push(kind);
             data_types.push(arrow_type);
             mappings.push(ColumnMappingExt {
+                column_name: Arc::from(col.column_name.as_str()),
                 path,
                 required: !col.nullable,
                 json_data_type: col.json_data_type,
@@ -872,10 +874,17 @@ impl JsonParser {
                 all_root,
                 "unknown_fields.action=send_to_column currently requires only simple top-level JSONPaths"
             );
-            fields.push(Field::new(column_name, DataType::Utf8, false));
+            fields.push(
+                Field::new(column_name, DataType::Utf8, false).with_metadata(
+                    SchemaColumn::new(column_name.clone(), DataType::Utf8, false)
+                        .with_arrow_extension(crate::core::data::schema::ARROW_JSON_EXTENSION_NAME)
+                        .arrow_metadata(),
+                ),
+            );
             data_types.push(DataType::Utf8);
             kinds.push(ColumnKind::Utf8);
             mappings.push(ColumnMappingExt {
+                column_name: Arc::from(column_name.as_str()),
                 path: CompiledPath::Rest,
                 required: true,
                 json_data_type: JsonDataType::String,
@@ -990,6 +999,39 @@ impl JsonParser {
                 Ok(duplicate)
             })
             .unwrap_or(false)
+    }
+
+    fn root_extraction_failure(&self, scratch: &[TypedScratch]) -> DlqReason {
+        let failed = self
+            .mappings
+            .iter()
+            .zip(scratch)
+            .filter(|(mapping, value)| mapping.required && matches!(value, TypedScratch::Empty))
+            .map(|(mapping, _)| format!("'{}'", mapping.column_name))
+            .collect::<Vec<_>>();
+        let columns = if failed.is_empty() {
+            self.mappings
+                .iter()
+                .map(|mapping| format!("'{}'", mapping.column_name))
+                .collect::<Vec<_>>()
+        } else {
+            failed
+        };
+        DlqReason::ExtractionFailed(format!(
+            "JSONPath extraction failed for columns: {}",
+            columns.join(", ")
+        ))
+    }
+
+    fn duplicate_mapped_field_failure(&self) -> DlqReason {
+        DlqReason::ExtractionFailed(format!(
+            "JSONPath extraction failed for mapped columns: {}; JSON object repeats a mapped field",
+            self.mappings
+                .iter()
+                .map(|mapping| format!("'{}'", mapping.column_name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
     }
 
     fn build_dlq_batch(
@@ -1177,7 +1219,7 @@ impl JsonParser {
                     Ok(false) => dlq_records.push(dlq_record(
                         source_message,
                         subslice_range(&msg.value, line),
-                        DlqReason::ExtractionFailed,
+                        self.root_extraction_failure(typed_scratch),
                         record_index as u64,
                     )),
                     Err(_error) => dlq_records.push(dlq_record(
@@ -1224,7 +1266,7 @@ impl JsonParser {
                 Ok(false) => dlq_records.push(dlq_record(
                     source_message,
                     0..msg.value.len(),
-                    DlqReason::ExtractionFailed,
+                    self.root_extraction_failure(typed_scratch),
                     0,
                 )),
                 Err(_error) => dlq_records.push(dlq_record(
@@ -1255,42 +1297,47 @@ impl JsonParser {
         }
         row.clear();
         for (mapping, kind) in self.mappings.iter().zip(self.kinds.iter().copied()) {
+            let failed = |detail: String| {
+                RowConversionError(format!(
+                    "JSONPath extraction failed for column '{}': {detail}",
+                    mapping.column_name
+                ))
+            };
             let mut value = match self.extract_value(json, mapping) {
                 Some(value) => value,
                 None if !mapping.required => Value::Null,
-                None => return Err(RowConversionError("required JSONPath is missing".into())),
+                None => return Err(failed("required JSONPath is missing".into())),
             };
             if matches!(mapping.path, CompiledPath::Rest) {
                 value = Value::String(
-                    serde_json::to_string(&value)
-                        .map_err(|error| RowConversionError(error.to_string()))?,
+                    serde_json::to_string(&value).map_err(|error| failed(error.to_string()))?,
                 );
             }
             if (value.is_null() && mapping.required)
                 || !json_value_matches(mapping.json_data_type, &value)
             {
-                return Err(RowConversionError(
+                return Err(failed(
                     "JSON value does not satisfy the declared conversion".into(),
                 ));
             }
             if kind == ColumnKind::Json && !value.is_null() {
                 value = Value::String(
-                    serde_json::to_string(&value)
-                        .map_err(|error| RowConversionError(error.to_string()))?,
+                    serde_json::to_string(&value).map_err(|error| failed(error.to_string()))?,
                 );
             }
             if let Some(conversion) = &mapping.time_conversion {
-                value = convert_time_value(&value, conversion, kind)?;
+                value = convert_time_value(&value, conversion, kind)
+                    .map_err(|error| failed(error.to_string()))?;
             }
             if let ColumnKind::Decimal128(precision, scale) = kind {
                 if !value.is_null() && decimal_unscaled(&value, precision, scale).is_none() {
-                    return Err(RowConversionError(format!(
+                    return Err(failed(format!(
                         "decimal value exceeds precision {precision} or cannot be represented exactly at scale {scale}"
                     )));
                 }
             }
             if !value_matches_kind(kind, &value) {
-                return Err(RowConversionError(
+                return Err(failed(
                     "converted value is outside the declared Arrow type".into(),
                 ));
             }
@@ -1299,9 +1346,7 @@ impl JsonParser {
                     .as_str()
                     .is_some_and(|text| text.chars().count() > limit)
             }) {
-                return Err(RowConversionError(
-                    "string exceeds configured max_length".into(),
-                ));
+                return Err(failed("string exceeds configured max_length".into()));
             }
             row.push(value);
         }
@@ -1353,7 +1398,7 @@ impl JsonParser {
                         dlq_record(
                             source_message,
                             subslice_range(&msg.value, line),
-                            DlqReason::ExtractionFailed,
+                            self.duplicate_mapped_field_failure(),
                             message_index,
                         ),
                         "JSON object repeats a mapped field",
@@ -1368,7 +1413,7 @@ impl JsonParser {
                                 dlq_record(
                                     source_message,
                                     subslice_range(&msg.value, line),
-                                    DlqReason::ExtractionFailed,
+                                    DlqReason::ExtractionFailed(error.to_string()),
                                     message_index,
                                 ),
                                 &error.to_string(),
@@ -1417,7 +1462,7 @@ impl JsonParser {
                     dlq_record(
                         source_message,
                         0..msg.value.len(),
-                        DlqReason::ExtractionFailed,
+                        self.duplicate_mapped_field_failure(),
                         0,
                     ),
                     "JSON object repeats a mapped field",
@@ -1432,7 +1477,7 @@ impl JsonParser {
                             dlq_record(
                                 source_message,
                                 0..msg.value.len(),
-                                DlqReason::ExtractionFailed,
+                                DlqReason::ExtractionFailed(error.to_string()),
                                 0,
                             ),
                             &error.to_string(),

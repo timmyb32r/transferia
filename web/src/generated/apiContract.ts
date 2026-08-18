@@ -192,10 +192,14 @@ export type ConnectionCheckRequest = {
 export type EndpointRole = "source" | "sink";
 
 export type ConnectionCheckResult = {
+  status: ConnectionCheckStatus;
+  message?: string | null;
   options: {
     [key: string]: Array<string>;
   };
 };
+
+export type ConnectionCheckStatus = "verified" | "network_reachable";
 
 export type MessagePreviewRequest = {
   provider: string;
@@ -335,6 +339,29 @@ export type StopRequest = {
   expected_run_id: string;
 };
 
+export type WorkerLogsResult = {
+  workers: Array<WorkerLogView>;
+};
+
+export type WorkerLogView = {
+  worker_id: string;
+  size_bytes: number;
+  active: boolean;
+};
+
+export type WorkerLogChunkView = {
+  text: string;
+  start_offset: number;
+  next_offset: number;
+  end_offset: number;
+  truncated_before: boolean;
+};
+
+export type WorkerLogReadQuery = {
+  cursor?: number | null;
+  limit_bytes?: number | null;
+};
+
 export interface ApiContract {
   catalog_response: UiCatalog;
   delivery_list_response: Array<DeliverySummary>;
@@ -359,6 +386,9 @@ export interface ApiContract {
   update_draft_request: UpdateDraftRequest;
   revision_request: RevisionRequest;
   stop_request: StopRequest;
+  worker_logs_response: WorkerLogsResult;
+  worker_log_response: WorkerLogChunkView;
+  worker_log_read_query: WorkerLogReadQuery;
 }
 
 export type ApiContractName = keyof ApiContract;

@@ -1,4 +1,4 @@
-# PQv1 -> discard sink: measures download + decompression + JSON parsing.
+# PQv1 -> discard sink: measures download + decompression without row materialization.
 # Replace the endpoint/topic/consumer/token values before running.
 # cargo run --release -- --config benchmarks/config_bench_pqv1_json_parser_to_discard.yaml
 
@@ -25,15 +25,7 @@ source:
         table_naming:
           type: from_config
           name: "events"
-      json_parser:
-        conversion_error: dlq
-        unknown_fields: { action: fail }
-        json_framing: "json_lines"
-        columns:
-          - { jsonpath: "$.id", column_name: "id", json_data_type: string, arrow_type: "Utf8", nullable: false }
-          - { jsonpath: "$.ts", column_name: "ts", json_data_type: string, arrow_type: "Utf8", nullable: false }
-          - { jsonpath: "$.level", column_name: "level", json_data_type: string, arrow_type: "Utf8", nullable: true }
-          - { jsonpath: "$.msg", column_name: "msg", json_data_type: string, arrow_type: "Utf8", nullable: true }
+      benchmark_discard: {}
 
 middlewares: []
 pipeline_memory_limit_bytes: 268435456

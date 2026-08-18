@@ -57,19 +57,7 @@ pub struct TableConfig {
 
 impl ClickHouseSourceConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
-        let mut hosts = HashSet::with_capacity(self.hosts.len());
-        for host in &self.hosts {
-            crate::providers::address::validate_host("clickhouse.hosts", host)?;
-            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
-        }
-        crate::providers::clickhouse::sink::config::validate_native_port(self.port)?;
-        if let Some(path) = &self.tls_ca_file {
-            anyhow::ensure!(
-                !path.trim().is_empty(),
-                "clickhouse.tls_ca_file must not be empty"
-            );
-        }
+        self.validate_connection()?;
         anyhow::ensure!(
             !self.username.is_empty(),
             "clickhouse.username must not be empty"
@@ -81,14 +69,6 @@ impl ClickHouseSourceConfig {
         anyhow::ensure!(
             self.batch_rows > 0,
             "clickhouse.batch_rows must be positive"
-        );
-        anyhow::ensure!(
-            self.connect_timeout_ms > 0,
-            "clickhouse.connect_timeout_ms must be positive"
-        );
-        anyhow::ensure!(
-            self.request_timeout_ms > 0,
-            "clickhouse.request_timeout_ms must be positive"
         );
         let mut outputs = HashSet::with_capacity(self.tables.len());
         let mut identities = HashSet::with_capacity(self.tables.len());
@@ -123,6 +103,31 @@ impl ClickHouseSourceConfig {
                 table.output_name
             );
         }
+        Ok(())
+    }
+
+    pub(super) fn validate_connection(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
+        let mut hosts = HashSet::with_capacity(self.hosts.len());
+        for host in &self.hosts {
+            crate::providers::address::validate_host("clickhouse.hosts", host)?;
+            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
+        }
+        crate::providers::clickhouse::sink::config::validate_native_port(self.port)?;
+        if let Some(path) = &self.tls_ca_file {
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "clickhouse.tls_ca_file must not be empty"
+            );
+        }
+        anyhow::ensure!(
+            self.connect_timeout_ms > 0,
+            "clickhouse.connect_timeout_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.request_timeout_ms > 0,
+            "clickhouse.request_timeout_ms must be positive"
+        );
         Ok(())
     }
 

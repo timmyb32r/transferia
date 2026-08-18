@@ -111,6 +111,30 @@ fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Resu
         schema.pointer("/properties/unknown_fields/default/column_name"),
         Some(&serde_json::json!("additional_properties"))
     );
+    let dataset = config.to_dataset_schema()?;
+    assert_eq!(
+        dataset.columns[1].arrow_extension_name,
+        Some(ARROW_JSON_EXTENSION_NAME)
+    );
+    Ok(())
+}
+
+#[test]
+fn column_mapping_defaults_to_string_utf8() -> anyhow::Result<()> {
+    let mapping: ColumnMapping =
+        serde_yaml::from_str("jsonpath: $.value\ncolumn_name: value\nnullable: false\n")?;
+    assert_eq!(mapping.json_data_type, JsonDataType::String);
+    assert_eq!(mapping.arrow_type, "Utf8");
+
+    let schema = serde_json::to_value(schemars::schema_for!(ColumnMapping))?;
+    assert_eq!(
+        schema.pointer("/properties/json_data_type/default"),
+        Some(&serde_json::json!("string"))
+    );
+    assert_eq!(
+        schema.pointer("/properties/arrow_type/default"),
+        Some(&serde_json::json!("Utf8"))
+    );
     Ok(())
 }
 

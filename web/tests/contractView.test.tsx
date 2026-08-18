@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { act, cleanup, fireEvent, render } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -98,6 +98,7 @@ describe("data schema view", () => {
     expect(
       view.getByRole("table", { name: "Selected table schema" }).textContent,
     ).toContain("Int64");
+    expect(view.container.textContent).not.toContain("Column type");
     fireEvent.click(
       view.getByRole("button", { name: "Hide schema inspector" }),
     );
@@ -162,7 +163,7 @@ describe("data schema view", () => {
       <DataSchemaInspector result={result} loading onHide={() => undefined} />,
     );
 
-    expect(view.getByRole("status").textContent).toContain("Updating schema");
+    expect(view.getByRole("status", { name: "Updating schema" })).toBeTruthy();
     fireEvent.click(
       view.getByRole("button", { name: "Collapse schema inspector" }),
     );
@@ -173,6 +174,61 @@ describe("data schema view", () => {
     expect(
       view.getByRole("table", { name: "Selected table schema" }),
     ).toBeTruthy();
+  });
+
+  it("highlights only changed rows after a schema refresh", () => {
+    vi.useFakeTimers();
+    const result: DiscoveryResult = {
+      source: "source",
+      sink: "unselected",
+      pipeline_count: 1,
+      datasets: [
+        {
+          role: "Main",
+          name: "events",
+          intermediate_columns: [],
+          final_columns: [
+            {
+              name: "id",
+              arrow_type: "Utf8",
+              destination_type: "Utf8",
+              nullable: false,
+              primary_key: true,
+              low_cardinality: false,
+            },
+          ],
+        },
+      ],
+      sink_limits: { sink: "unselected", supported_arrow_types: [] },
+    };
+    const view = render(
+      <DataSchemaInspector result={result} onHide={() => undefined} />,
+    );
+    expect(view.container.querySelector(".schema-row-updated")).toBeNull();
+
+    view.rerender(
+      <DataSchemaInspector
+        result={{
+          ...result,
+          datasets: [
+            {
+              ...result.datasets[0]!,
+              final_columns: [
+                { ...result.datasets[0]!.final_columns[0]!, nullable: true },
+              ],
+            },
+          ],
+        }}
+        onHide={() => undefined}
+      />,
+    );
+
+    expect(view.container.querySelector(".schema-row-updated")).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(view.container.querySelector(".schema-row-updated")).toBeNull();
+    vi.useRealTimers();
   });
 
   it("can be dragged all the way to the viewport origin", () => {

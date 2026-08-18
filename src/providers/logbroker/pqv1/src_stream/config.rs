@@ -38,6 +38,9 @@ pub struct PqV1SourceConfig {
 
     #[serde(default)]
     pub benchmark_discard_before_decompression: bool,
+
+    #[serde(default)]
+    pub allow_ttl_rewind: bool,
 }
 
 impl PqV1SourceConfig {

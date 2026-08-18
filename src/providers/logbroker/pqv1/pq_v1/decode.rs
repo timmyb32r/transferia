@@ -76,8 +76,9 @@ pub(super) struct PendingDataBatch {
 
 pub(super) fn prepare_data_batch(
     batch: migration_streaming_read_server_message::DataBatch,
-    active_assignments: &HashMap<i64, ActiveAssignment>,
+    active_assignments: &mut HashMap<i64, ActiveAssignment>,
     discard_payload: bool,
+    allow_ttl_rewind: bool,
 ) -> Result<(PendingDataKind, u64, u64), SessionFailure> {
     let result = (|| {
         let mut compressed_bytes = 0_u64;
@@ -87,8 +88,12 @@ pub(super) fn prepare_data_batch(
             for partition in batch.partition_data {
                 let (pid, cookie) = validate_data_partition(&partition, active_assignments)
                     .map_err(|failure| failure.error)?;
+                let assignment = active_assignments
+                    .get_mut(&pid)
+                    .ok_or_else(|| anyhow!("PQv1 discarded data for inactive partition {pid}"))?;
                 for message_batch in partition.batches {
                     for message in message_batch.message_data {
+                        super::observe_offset(assignment, pid, message.offset, allow_ttl_rewind)?;
                         compressed_bytes = compressed_bytes
                             .checked_add(u64::try_from(message.data.len())?)
                             .ok_or_else(|| anyhow!("PQv1 compressed byte count overflow"))?;
@@ -111,10 +116,14 @@ pub(super) fn prepare_data_batch(
         for partition in batch.partition_data {
             let (pid, cookie) = validate_data_partition(&partition, active_assignments)
                 .map_err(|failure| failure.error)?;
+            let assignment = active_assignments
+                .get_mut(&pid)
+                .ok_or_else(|| anyhow!("PQv1 data for inactive partition {pid}"))?;
             let mut messages = Vec::new();
             for message_batch in partition.batches {
                 let write_timestamp_ms = message_batch.write_timestamp_ms;
                 for message in message_batch.message_data {
+                    super::observe_offset(assignment, pid, message.offset, allow_ttl_rewind)?;
                     compressed_bytes = compressed_bytes
                         .checked_add(u64::try_from(message.data.len())?)
                         .ok_or_else(|| anyhow!("PQv1 compressed byte count overflow"))?;

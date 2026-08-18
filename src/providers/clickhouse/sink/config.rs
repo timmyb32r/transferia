@@ -67,19 +67,7 @@ pub struct ClickHouseSinkConfig {
 
 impl ClickHouseSinkConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
-        let mut hosts = std::collections::HashSet::with_capacity(self.hosts.len());
-        for host in &self.hosts {
-            crate::providers::address::validate_host("clickhouse.hosts", host)?;
-            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
-        }
-        validate_native_port(self.port)?;
-        if let Some(path) = &self.tls_ca_file {
-            anyhow::ensure!(
-                !path.trim().is_empty(),
-                "clickhouse.tls_ca_file must not be empty"
-            );
-        }
+        self.validate_connection()?;
         anyhow::ensure!(
             !self.database.is_empty(),
             "clickhouse.database must not be empty"
@@ -112,6 +100,23 @@ impl ClickHouseSinkConfig {
             self.retry_max_attempts != Some(0),
             "clickhouse.retry_max_attempts must be positive"
         );
+        Ok(())
+    }
+
+    pub(super) fn validate_connection(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.hosts.is_empty(), "clickhouse.hosts must not be empty");
+        let mut hosts = std::collections::HashSet::with_capacity(self.hosts.len());
+        for host in &self.hosts {
+            crate::providers::address::validate_host("clickhouse.hosts", host)?;
+            anyhow::ensure!(hosts.insert(host), "clickhouse.hosts repeats host '{host}'");
+        }
+        validate_native_port(self.port)?;
+        if let Some(path) = &self.tls_ca_file {
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "clickhouse.tls_ca_file must not be empty"
+            );
+        }
         anyhow::ensure!(
             self.connect_timeout_ms > 0,
             "clickhouse.connect_timeout_ms must be positive"

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
+import { useState } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../src/api";
@@ -44,7 +45,9 @@ afterEach(() => {
 
 describe("endpoint connection check", () => {
   it("shows progress, success, and checked ClickHouse shard groups", async () => {
-    let resolve!: (value: { options: Record<string, string[]> }) => void;
+    let resolve!: (
+      value: import("../src/generated/apiContract").ConnectionCheckResult,
+    ) => void;
     vi.spyOn(api, "checkConnection").mockReturnValue(
       new Promise((done) => {
         resolve = done;
@@ -60,20 +63,26 @@ describe("endpoint connection check", () => {
         },
       },
     };
-    const view = render(
-      <EndpointCard
-        title="Destination"
-        role="sink"
-        selectedKey="clickhouse"
-        providers={[{ key: "clickhouse", title: "ClickHouse", sink: endpoint }]}
-        endpoint={endpoint}
-        config={config}
-        readOnly={false}
-        showRequiredErrors={false}
-        onChoose={() => undefined}
-        onConfig={() => undefined}
-      />,
-    );
+    function Harness() {
+      const [current, setCurrent] = useState(config);
+      return (
+        <EndpointCard
+          title="Destination"
+          role="sink"
+          selectedKey="clickhouse"
+          providers={[
+            { key: "clickhouse", title: "ClickHouse", sink: endpoint },
+          ]}
+          endpoint={endpoint}
+          config={current}
+          readOnly={false}
+          showRequiredErrors={false}
+          onChoose={() => undefined}
+          onConfig={setCurrent}
+        />
+      );
+    }
+    const view = render(<Harness />);
 
     fireEvent.click(view.getByRole("button", { name: "Check connection" }));
     expect(
@@ -83,7 +92,11 @@ describe("endpoint connection check", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
-    resolve({ options: { "#/shard_group": ["default", "analytics"] } });
+    resolve({
+      status: "verified",
+      message: null,
+      options: { "#/shard_group": ["default", "analytics"] },
+    });
     await waitFor(() =>
       expect(view.getByText("Connection successful")).toBeTruthy(),
     );
@@ -109,7 +122,40 @@ describe("endpoint connection check", () => {
 
     fireEvent.click(shardGroup);
     fireEvent.click(view.container.querySelector("#field---shard_group")!);
-    expect(view.getByText("analytics")).toBeTruthy();
+    fireEvent.click(view.getByText("analytics"));
+    fireEvent.click(view.container.querySelector("#field---shard_group")!);
+    expect(view.getByText("default")).toBeTruthy();
+    expect(view.getAllByText("analytics")).toHaveLength(2);
+    view.unmount();
+  });
+
+  it("explains when only network reachability was checked", async () => {
+    vi.spyOn(api, "checkConnection").mockResolvedValue({
+      status: "network_reachable",
+      message:
+        "Network connection is available, but authentication was not checked.",
+      options: {},
+    });
+    const view = render(
+      <EndpointCard
+        title="Destination"
+        role="sink"
+        selectedKey="clickhouse"
+        providers={[{ key: "clickhouse", title: "ClickHouse", sink: endpoint }]}
+        endpoint={endpoint}
+        config={{ sink: { clickhouse: { host: "db.example" } } }}
+        readOnly={false}
+        showRequiredErrors={false}
+        onChoose={() => undefined}
+        onConfig={() => undefined}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+
+    expect(
+      await view.findByText(/authentication was not checked/),
+    ).toBeTruthy();
     view.unmount();
   });
 

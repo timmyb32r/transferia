@@ -287,6 +287,48 @@ impl ReconnectingClient {
     }
 }
 
+pub(crate) async fn probe_network(
+    hosts: &[String],
+    port: u16,
+    connect_timeout: Duration,
+) -> anyhow::Result<()> {
+    let mut probes = futures_util::stream::FuturesUnordered::new();
+    for host in hosts {
+        probes.push(async move {
+            let address = crate::providers::address::host_port(host, port);
+            let result = timeout(connect_timeout, tokio::net::TcpStream::connect(&address)).await;
+            (host, result)
+        });
+    }
+
+    let started = std::time::Instant::now();
+    let mut errors = Vec::with_capacity(hosts.len());
+    while let Some((host, result)) = probes.next().await {
+        match result {
+            Ok(Ok(_)) => {
+                tracing::info!(
+                    %host,
+                    port,
+                    stage = "native_tcp_connect",
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "ClickHouse network connection check completed"
+                );
+                return Ok(());
+            }
+            Ok(Err(error)) => errors.push(format!("{host}: {error}")),
+            Err(_) => errors.push(format!(
+                "{host}: connect timed out after {} ms",
+                connect_timeout.as_millis()
+            )),
+        }
+    }
+
+    anyhow::bail!(
+        "ClickHouse network connection failed for every configured host on native port {port}: {}",
+        errors.join("; ")
+    )
+}
+
 async fn connect_first_available(
     builders: Vec<ClientBuilder>,
     connect_timeout: Duration,

@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::Read as _;
 use std::time::Instant;
 
@@ -515,9 +515,10 @@ impl YdbTopicSource {
             .add_compressed_bytes(u64::try_from(compressed_bytes).unwrap_or(u64::MAX));
         self.counters
             .add_decompressed_bytes(u64::try_from(decompressed_bytes).unwrap_or(u64::MAX));
-        let mut messages = Vec::new();
-        let mut partitions = Vec::new();
+        let mut topic_batches =
+            BTreeMap::<Arc<str>, (Vec<Message>, Vec<PartitionCommitMarker>)>::new();
         for (session_id, topic_path, partition_id, decoded) in decoded {
+            let topic_batch = topic_batches.entry(Arc::clone(&topic_path)).or_default();
             if !decoded.ranges.is_empty() {
                 let read_through = decoded
                     .ranges
@@ -544,28 +545,47 @@ impl YdbTopicSource {
                         )
                     })?;
                 state.read_through = state.read_through.max(read_through);
-                partitions.push(PartitionCommitMarker {
+                topic_batch.1.push(PartitionCommitMarker {
                     topic_path,
                     partition_id,
                     partition_session_id: session_id,
                     ranges: vec![commit_range],
                 });
             }
-            messages.extend(decoded.messages);
+            topic_batch.0.extend(decoded.messages);
         }
-        let commit_marker = (!partitions.is_empty())
-            .then(|| CommitMarker::new(YdbTopicCommitMarker { partitions }));
-        if commit_marker.is_some() {
-            self.uncommitted_batches = self
-                .uncommitted_batches
-                .checked_add(1)
-                .ok_or_else(|| fatal(anyhow!("YDB Topic uncommitted batch count overflow")))?;
-        }
-        Ok(SessionEvent::Batch(SourceBatch::Raw {
-            messages,
-            commit_marker,
-            memory: vec![reservation],
-        }))
+        let mut batches = topic_batches
+            .into_values()
+            .map(|(messages, partitions)| SourceBatch::Raw {
+                messages,
+                commit_marker: (!partitions.is_empty())
+                    .then(|| CommitMarker::new(YdbTopicCommitMarker { partitions })),
+                memory: vec![reservation.clone()],
+            })
+            .collect::<VecDeque<_>>();
+        let committed_batches = batches
+            .iter()
+            .filter(|batch| {
+                matches!(
+                    batch,
+                    SourceBatch::Raw {
+                        commit_marker: Some(_),
+                        ..
+                    }
+                )
+            })
+            .count();
+        self.uncommitted_batches = self
+            .uncommitted_batches
+            .checked_add(committed_batches)
+            .ok_or_else(|| fatal(anyhow!("YDB Topic uncommitted batch count overflow")))?;
+        let first = batches.pop_front().ok_or_else(|| {
+            fatal(anyhow!(
+                "YDB Topic decoded response contains no topic batch"
+            ))
+        })?;
+        self.buffered_batches.extend(batches);
+        Ok(SessionEvent::Batch(first))
     }
 
     async fn receive_event(&mut self) -> anyhow::Result<SessionEvent> {

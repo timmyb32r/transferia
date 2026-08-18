@@ -74,6 +74,15 @@
     },
     "stop_request": {
       "$ref": "#/$defs/StopRequest"
+    },
+    "worker_logs_response": {
+      "$ref": "#/$defs/WorkerLogsResult"
+    },
+    "worker_log_response": {
+      "$ref": "#/$defs/WorkerLogChunkView"
+    },
+    "worker_log_read_query": {
+      "$ref": "#/$defs/WorkerLogReadQuery"
     }
   },
   "required": [
@@ -99,7 +108,10 @@
     "create_draft_request",
     "update_draft_request",
     "revision_request",
-    "stop_request"
+    "stop_request",
+    "worker_logs_response",
+    "worker_log_response",
+    "worker_log_read_query"
   ],
   "$defs": {
     "UiCatalog": {
@@ -844,6 +856,15 @@
     "ConnectionCheckResult": {
       "type": "object",
       "properties": {
+        "status": {
+          "$ref": "#/$defs/ConnectionCheckStatus"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "options": {
           "type": "object",
           "additionalProperties": {
@@ -856,7 +877,15 @@
       },
       "additionalProperties": false,
       "required": [
+        "status",
         "options"
+      ]
+    },
+    "ConnectionCheckStatus": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "network_reachable"
       ]
     },
     "MessagePreviewRequest": {
@@ -1369,6 +1398,101 @@
         "expected_record_version",
         "expected_run_id"
       ]
+    },
+    "WorkerLogsResult": {
+      "type": "object",
+      "properties": {
+        "workers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WorkerLogView"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "workers"
+      ]
+    },
+    "WorkerLogView": {
+      "type": "object",
+      "properties": {
+        "worker_id": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "active": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "worker_id",
+        "size_bytes",
+        "active"
+      ]
+    },
+    "WorkerLogChunkView": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "start_offset": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "next_offset": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "end_offset": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "truncated_before": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "start_offset",
+        "next_offset",
+        "end_offset",
+        "truncated_before"
+      ]
+    },
+    "WorkerLogReadQuery": {
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        },
+        "limit_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

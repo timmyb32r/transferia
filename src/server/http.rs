@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::rejection::JsonRejection;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, HOST, ORIGIN};
 use axum::http::{HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
@@ -18,7 +18,7 @@ use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
     ConnectionCheckRequest, CreateDraftRequest, DeliverySummary, HealthResponse,
     MessagePreviewRequest, RevisionRequest, SqlPlaygroundRequest, StopRequest, UpdateDraftRequest,
-    YamlRequest, YamlResponse,
+    WorkerLogReadQuery, YamlRequest, YamlResponse,
 };
 use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::model::DeliveryRecord;
@@ -158,6 +158,8 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/api/v1/deliveries/{id}/validate", post(validate_saved))
         .route("/api/v1/deliveries/{id}/activate", post(activate))
         .route("/api/v1/deliveries/{id}/stop", post(stop))
+        .route("/api/v1/deliveries/{id}/logs", get(worker_logs))
+        .route("/api/v1/deliveries/{id}/logs/{worker_id}", get(worker_log))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(axum::middleware::from_fn(no_store))
         .layer(axum::middleware::from_fn(enforce_loopback_origin))
@@ -461,6 +463,26 @@ async fn stop(
                 request.expected_record_version,
                 &RunId(request.expected_run_id),
             )
+            .await?,
+    ))
+}
+
+async fn worker_logs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(state.control_plane.worker_logs(&id).await?))
+}
+
+async fn worker_log(
+    State(state): State<AppState>,
+    Path((id, worker_id)): Path<(String, String)>,
+    Query(query): Query<WorkerLogReadQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(
+        state
+            .control_plane
+            .worker_log(&id, &worker_id, query.cursor, query.limit_bytes)
             .await?,
     ))
 }

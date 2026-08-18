@@ -26,6 +26,11 @@ fn schema_registry_config_is_visible_in_parser_schema() {
         .pointer("/$defs/SchemaRegistryParserConfig/properties/json_parser/x-ui/widget")
         .and_then(serde_json::Value::as_str);
     assert_eq!(projection, Some("hidden"));
+    let system_columns = json
+        .pointer("/$defs/SchemaRegistrySystemColumnsConfig/properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("schema contains Schema Registry system columns");
+    assert!(!system_columns.contains_key("message_index"));
     assert_eq!(
         json.pointer(
             "/$defs/SchemaRegistryParserSchema/properties/common/default/table_naming/type"

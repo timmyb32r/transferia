@@ -9,6 +9,7 @@ use transferia::extension::Transferia;
 pub mod api_contract;
 mod assets;
 mod http;
+mod logs;
 mod model;
 mod service;
 mod store;
@@ -32,11 +33,10 @@ pub async fn run_with(
         std::env::current_exe()?,
         state_dir.clone(),
     ));
-    let control_plane = Arc::new(service::ControlPlane::new(
-        store,
-        supervisor,
-        transferia.clone(),
-    ));
+    let control_plane = Arc::new(
+        service::ControlPlane::new(store, supervisor, transferia.clone())
+            .with_worker_logs(logs::WorkerLogReader::new(&state_dir)),
+    );
     control_plane.spawn_supervisor_monitor()?;
     let catalog = ui_catalog::build_ui_catalog_with(&transferia)?;
     let listener = TcpListener::bind(bind).await?;

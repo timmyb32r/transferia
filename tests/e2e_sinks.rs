@@ -179,7 +179,12 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let config: ClickHouseSinkConfig = serde_yaml::from_str(&format!(
         "hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
     ))?;
-    let shard_groups = ClickHouseSinkProvider::check_connection(config.clone()).await?;
+    let checked = ClickHouseSinkProvider::check_connection(config.clone()).await?;
+    let transferia::providers::clickhouse::ClickHouseConnectionCheck::Verified { shard_groups } =
+        checked
+    else {
+        anyhow::bail!("complete ClickHouse credentials must be fully verified")
+    };
     assert!(shard_groups.is_empty() || shard_groups.iter().all(|group| !group.is_empty()));
     let provider = ClickHouseSinkProvider::from_config(config)?;
     let schema = dataset_schema(&[

@@ -141,6 +141,32 @@ struct ActiveAssignment {
     topic: String,
     cluster: String,
     assign_id: u64,
+    expected_next_offset: u64,
+}
+
+fn observe_offset(
+    assignment: &mut ActiveAssignment,
+    partition: i64,
+    offset: u64,
+    allow_ttl_rewind: bool,
+) -> anyhow::Result<()> {
+    if offset != assignment.expected_next_offset {
+        anyhow::ensure!(
+            allow_ttl_rewind,
+            "PQv1 offset discontinuity for partition {partition}: expected {}, received {offset}; set allow_ttl_rewind=true only if continuing after retained data expires is acceptable",
+            assignment.expected_next_offset
+        );
+        tracing::warn!(
+            partition,
+            expected_offset = assignment.expected_next_offset,
+            received_offset = offset,
+            "PQv1 offset discontinuity accepted because allow_ttl_rewind=true"
+        );
+    }
+    assignment.expected_next_offset = offset
+        .checked_add(1)
+        .ok_or_else(|| anyhow!("PQv1 offset overflow for partition {partition}"))?;
+    Ok(())
 }
 
 fn required_topic_path<'a>(
@@ -210,6 +236,7 @@ fn register_assignment(
                 topic: topic.to_string(),
                 cluster: assigned.cluster.clone(),
                 assign_id: assigned.assign_id,
+                expected_next_offset: assigned.read_offset,
             },
         ))
     })()
@@ -832,6 +859,7 @@ struct ResponseLoopContext {
     read_credit_tx: mpsc::Sender<()>,
     data_tx: mpsc::Sender<PendingDataBatch>,
     benchmark_discard_before_decompression: bool,
+    allow_ttl_rewind: bool,
     release_handed_off: Arc<Notify>,
     network_timeout: core::time::Duration,
 }
@@ -850,6 +878,7 @@ where
         read_credit_tx,
         data_tx,
         benchmark_discard_before_decompression,
+        allow_ttl_rewind,
         release_handed_off,
         network_timeout,
     } = context;
@@ -962,8 +991,9 @@ where
                 }
                 let (kind, compressed_bytes, message_count) = match prepare_data_batch(
                     batch,
-                    &active_assignments,
+                    &mut active_assignments,
                     benchmark_discard_before_decompression,
+                    allow_ttl_rewind,
                 ) {
                     Ok(prepared) => prepared,
                     Err(failure) => {
@@ -1088,6 +1118,7 @@ impl PqV1Client {
         source_counters: Arc<SourceCounters>,
         cancel_token: CancellationToken,
         benchmark_discard_before_decompression: bool,
+        allow_ttl_rewind: bool,
         memory: PipelineMemory,
         network_timeout: core::time::Duration,
         decompress_slots: Arc<tokio::sync::Semaphore>,
@@ -1374,6 +1405,7 @@ impl PqV1Client {
             read_credit_tx,
             data_tx,
             benchmark_discard_before_decompression,
+            allow_ttl_rewind,
             release_handed_off,
             network_timeout,
         };

@@ -10,6 +10,7 @@ use super::source::{
     YdbTopicCommitMarker,
 };
 use super::*;
+use crate::core::data::message::{Message, MessageMeta};
 use crate::core::source::CommitMarker;
 
 fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
@@ -216,9 +217,10 @@ fn auth_is_exactly_one_explicit_variant() -> anyhow::Result<()> {
 
 #[test]
 fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<()> {
-    let value: LogbrokerSourceConfig = serde_yaml::from_str(
+    let mut value: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [0] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: drop\n    unknown_fields: { action: drop }\n",
     )?;
+    value.allow_ttl_rewind = true;
     let provider = build_source_provider(value, Arc::new(MetricsRegistry::new()))?;
     assert!(matches!(
         provider.compatibility(),
@@ -232,6 +234,57 @@ fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<(
         .err()
         .ok_or_else(|| anyhow::anyhow!("PQv1 without explicit partitions must fail"))?;
     assert!(error.to_string().contains("explicit topic partitions"));
+    Ok(())
+}
+
+#[test]
+fn ydb_driver_supports_benchmark_discard_without_a_schema() -> anyhow::Result<()> {
+    let config: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  benchmark_discard: {}\n",
+    )?;
+    let provider = YdbDriverSourceProvider::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    assert_eq!(provider.behavior, SourceBehavior::BenchmarkDiscard);
+    let discovery = provider.configured_delivery_discovery(DeliveryDiscoveryRequest {
+        keep_system_columns: true,
+    })?;
+    assert!(discovery.datasets.is_empty());
+    Ok(())
+}
+
+#[test]
+fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Result<()> {
+    let config: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: /account/first, partitions: [] }, { path: account/second, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: fail\n    unknown_fields: { action: fail }\n",
+    )?;
+    let provider = YdbDriverSourceProvider::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    let discovery = provider.configured_delivery_discovery(DeliveryDiscoveryRequest {
+        keep_system_columns: false,
+    })?;
+    assert_eq!(
+        discovery
+            .datasets
+            .iter()
+            .map(|dataset| dataset.name.as_ref())
+            .collect::<Vec<_>>(),
+        [
+            "account/first",
+            "account/first_dlq",
+            "account/second",
+            "account/second_dlq"
+        ]
+    );
+
+    let mut session = provider.parser_plan.parser().create_session(1024 * 1024);
+    let message = Message {
+        value: bytes::Bytes::from_static(b"{\"id\":1}"),
+        meta: MessageMeta {
+            topic: Some(Arc::from("account/second")),
+            ..MessageMeta::default()
+        },
+    };
+    let (main, dlq) = session.parse_into(vec![message])?;
+    assert_eq!(main.table.as_ref(), "account/second");
+    assert!(dlq.is_none());
     Ok(())
 }
 

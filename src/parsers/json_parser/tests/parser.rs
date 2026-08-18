@@ -91,6 +91,24 @@ fn parse_errors_can_be_dropped_without_dlq_output() -> anyhow::Result<()> {
 }
 
 #[test]
+fn dlq_extraction_error_names_the_failed_column() -> anyhow::Result<()> {
+    let config = parser_config(
+        vec![mapping("$.required_id", "id", "Int64", false)],
+        JsonFramingMode::SingleDocument,
+    );
+    let (_main, dlq) = parse_with_config(
+        &config,
+        &crate::parsers::SystemColumnsConfig::default(),
+        b"{}",
+    )?;
+    let dlq = dlq.expect("missing required column must reach DLQ");
+    let error = string_col(&dlq.batch, 1)?.value(0);
+    assert!(error.contains("JSONPath extraction failed"), "{error}");
+    assert!(error.contains("'id'"), "{error}");
+    Ok(())
+}
+
+#[test]
 fn unknown_fields_can_be_rejected_or_sent_to_a_column() -> anyhow::Result<()> {
     let id_mapping = mapping("$.id", "id", "Int64", false);
     let fail = parser_config(vec![id_mapping.clone()], JsonFramingMode::SingleDocument);
@@ -308,7 +326,10 @@ fn dense_invalid_newline_rows_use_compact_dlq_descriptors() -> anyhow::Result<()
     use crate::parsers::json_parser::ColumnMapping;
 
     const ROWS: usize = 1_048_577;
-    assert!(core::mem::size_of::<DlqRecord>() <= 20);
+    // Extraction failures retain a precise, user-visible column diagnostic.
+    // Keep the descriptor bounded even though the enum therefore carries an
+    // owned error string in its uncommon variant.
+    assert!(core::mem::size_of::<DlqRecord>() <= 40);
     let parser = JsonParser::new(
         &JsonParserConfig {
             columns: vec![ColumnMapping::new(

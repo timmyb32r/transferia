@@ -56,26 +56,25 @@ impl YdbDriverSourceProvider {
             cfg.driver == LogbrokerDriver::Ydb,
             "YdbDriverSourceProvider requires driver=ydb"
         );
-        let parser_kind = cfg.parser.parser.kind()?;
-        anyhow::ensure!(
-            parser_kind != "benchmark_discard",
-            "logbroker does not support the benchmark_discard parser"
+        let benchmark_discard = cfg.parser.parser.kind()? == "benchmark_discard";
+        let from_topic_name = matches!(
+            cfg.parser.common.table_naming,
+            crate::parsers::TableNaming::FromTopicName
         );
-        let primary_topic = &cfg.topics[0].path;
-        if cfg.topics.len() > 1
-            && matches!(
-                cfg.parser.common.table_naming,
-                crate::parsers::TableNaming::FromTopicName
-            )
-        {
-            anyhow::bail!("logbroker with multiple topics requires table_naming.type=from_config");
+        let primary_topic = source::canonical_topic_path(&cfg.topics[0].path);
+        let mut parser_plan = ParserPlan::from_config(&cfg.parser, primary_topic)?;
+        if from_topic_name {
+            parser_plan = parser_plan.route_by_message_topic();
         }
-        let parser_plan = ParserPlan::from_config(&cfg.parser, primary_topic)?;
         Ok(Self {
             cfg,
             parser_plan,
             metrics_registry,
-            behavior: SourceBehavior::ProducesRows,
+            behavior: if benchmark_discard {
+                SourceBehavior::BenchmarkDiscard
+            } else {
+                SourceBehavior::ProducesRows
+            },
             source_counters: Mutex::new(HashMap::new()),
             token: OnceCell::new(),
         })
@@ -85,11 +84,40 @@ impl YdbDriverSourceProvider {
         &self,
         request: DeliveryDiscoveryRequest,
     ) -> anyhow::Result<DeliveryDiscovery> {
-        self.parser_plan.delivery_discovery(
-            Arc::from(self.cfg.topics[0].path.as_str()),
+        let primary: Arc<str> = Arc::from(source::canonical_topic_path(&self.cfg.topics[0].path));
+        if !matches!(
+            self.cfg.parser.common.table_naming,
+            crate::parsers::TableNaming::FromTopicName
+        ) {
+            return self.parser_plan.delivery_discovery(
+                primary,
+                SourceTopology::DynamicWorkerLanes,
+                request,
+            );
+        }
+
+        let mut discovery = self.parser_plan.delivery_discovery(
+            Arc::clone(&primary),
             SourceTopology::DynamicWorkerLanes,
             request,
-        )
+        )?;
+        for topic in self.cfg.topics.iter().skip(1) {
+            let table: Arc<str> = Arc::from(source::canonical_topic_path(&topic.path));
+            let mut topic_discovery = self.parser_plan.delivery_discovery(
+                Arc::clone(&table),
+                SourceTopology::DynamicWorkerLanes,
+                request,
+            )?;
+            for dataset in &mut topic_discovery.datasets {
+                dataset.name = if dataset.role == crate::core::delivery::DatasetRole::Main {
+                    Arc::clone(&table)
+                } else {
+                    crate::core::data::table_data::dlq_name(&table).into()
+                };
+            }
+            discovery.datasets.extend(topic_discovery.datasets);
+        }
+        Ok(discovery)
     }
 
     fn counters_for_partition(&self, partition_id: i64) -> Arc<SourceCounters> {
@@ -140,10 +168,6 @@ pub fn build_source_provider(
                 "logbroker.driver=pqv1 requires explicit topic partitions"
             );
             anyhow::ensure!(
-                !cfg.allow_ttl_rewind,
-                "logbroker.allow_ttl_rewind is not supported by the PQv1 driver"
-            );
-            anyhow::ensure!(
                 cfg.read_buffer_bytes == config::default_read_buffer_bytes(),
                 "logbroker.read_buffer_bytes is supported only by driver=ydb"
             );
@@ -179,6 +203,7 @@ pub fn build_source_provider(
                 network_timeout_ms: 30_000,
                 decompression_concurrency: cfg.pqv1_decompression_concurrency,
                 benchmark_discard_before_decompression: cfg.pqv1_discard_before_decompression,
+                allow_ttl_rewind: cfg.allow_ttl_rewind,
             };
             let inner =
                 crate::providers::logbroker::pqv1::src_stream::PqV1SourceProvider::from_config(

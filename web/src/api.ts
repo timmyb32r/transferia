@@ -97,6 +97,19 @@ export const api = {
       `/api/v1/deliveries/${encodeURIComponent(id)}`,
       "delivery_response",
     ),
+  deliveryLogs: (id: string) =>
+    request(
+      `/api/v1/deliveries/${encodeURIComponent(id)}/logs`,
+      "worker_logs_response",
+    ),
+  deliveryLog: (id: string, workerId: string, cursor?: number) => {
+    const query = new URLSearchParams({ limit_bytes: String(128 * 1024) });
+    if (cursor !== undefined) query.set("cursor", String(cursor));
+    return request(
+      `/api/v1/deliveries/${encodeURIComponent(id)}/logs/${encodeURIComponent(workerId)}?${query}`,
+      "worker_log_response",
+    );
+  },
   create: (name: string, description: string, config: JsonObject) => {
     const body: CreateDraftRequest = { name, description, config };
     return request("/api/v1/deliveries", "delivery_response", {

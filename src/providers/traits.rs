@@ -4,10 +4,35 @@ use alloc::sync::Arc;
 use futures_util::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionCheckStatus {
+    #[default]
+    Verified,
+
+    NetworkReachable,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionCheckResult {
+    pub status: ConnectionCheckStatus,
+
+    pub message: Option<String>,
+
     pub options: BTreeMap<String, Vec<String>>,
+}
+
+impl ConnectionCheckResult {
+    pub fn network_reachable() -> Self {
+        Self {
+            status: ConnectionCheckStatus::NetworkReachable,
+            message: Some(
+                "Network connection is available, but authentication was not checked.".to_owned(),
+            ),
+            options: BTreeMap::new(),
+        }
+    }
 }
 
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};

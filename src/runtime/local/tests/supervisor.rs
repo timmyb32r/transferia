@@ -55,11 +55,16 @@ fn startup_removes_only_stale_resolved_configs() -> anyhow::Result<()> {
     std::fs::create_dir_all(&runs)?;
     std::fs::write(runs.join("stale.yaml"), "secret")?;
     std::fs::write(runs.join("worker.log"), "diagnostics")?;
+    std::fs::create_dir(runs.join("delivery"))?;
+    std::fs::write(runs.join("delivery/run.yaml"), "secret")?;
+    std::fs::write(runs.join("delivery/run.log"), "diagnostics")?;
 
     cleanup_stale_worker_configs(&root)?;
 
     assert!(!runs.join("stale.yaml").exists());
     assert!(runs.join("worker.log").exists());
+    assert!(!runs.join("delivery/run.yaml").exists());
+    assert!(runs.join("delivery/run.log").exists());
     std::fs::remove_dir_all(root)?;
     Ok(())
 }

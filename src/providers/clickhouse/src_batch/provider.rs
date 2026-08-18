@@ -21,6 +21,7 @@ use crate::delivery::semantics::{
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
+use crate::providers::clickhouse::sink::client::probe_network;
 use crate::providers::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::providers::clickhouse::sink::identifier::validate_identifier;
 use crate::providers::clickhouse::sink::table::quote_string_literal;
@@ -82,18 +83,48 @@ impl ClickHouseSourceProvider {
     pub async fn check_connection(
         config: ClickHouseSourceConfig,
         metrics: Arc<MetricsRegistry>,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<crate::providers::clickhouse::sink::ClickHouseConnectionCheck> {
+        config.validate_connection()?;
+        if config.username.is_empty() {
+            probe_network(&config.hosts, config.port, config.connect_timeout()).await?;
+            return Ok(
+                crate::providers::clickhouse::sink::ClickHouseConnectionCheck::NetworkReachable,
+            );
+        }
         let selected = config.shard_group.clone();
-        let provider = Self::from_config(config, metrics)?;
-        let groups =
-            crate::providers::clickhouse::sink::query_shard_groups(provider.client.as_ref())
-                .await
-                .map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+        drop(metrics);
+        let builders = config
+            .hosts
+            .iter()
+            .map(|host| {
+                let builder = ClientBuilder::new()
+                    .with_destination(crate::providers::address::host_port(host, config.port))
+                    .with_database("default")
+                    .with_username(config.username.as_str())
+                    .with_password(config.password.as_str())
+                    .with_tls(!config.trusted_plaintext);
+                if let Some(path) = &config.tls_ca_file {
+                    builder.with_cafile(path)
+                } else {
+                    builder
+                }
+            })
+            .collect();
+        let client = ReconnectingClient::from_connections(
+            builders,
+            config.connect_timeout(),
+            config.request_timeout(),
+        );
+        let groups = crate::providers::clickhouse::sink::query_shard_groups(&client).await?;
         crate::providers::clickhouse::sink::validate_selected_shard_group(
             (!selected.is_empty()).then_some(selected.as_str()),
             &groups,
         )?;
-        Ok(groups)
+        Ok(
+            crate::providers::clickhouse::sink::ClickHouseConnectionCheck::Verified {
+                shard_groups: groups,
+            },
+        )
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {

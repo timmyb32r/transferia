@@ -23,11 +23,10 @@ async fn test_router_with(
         TEST_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let store = Arc::new(JsonDeliveryStore::open(root.clone()).await?);
-    let control_plane = Arc::new(ControlPlane::new(
-        store,
-        Arc::new(TestSupervisor::new()),
-        transferia,
-    ));
+    let control_plane = Arc::new(
+        ControlPlane::new(store, Arc::new(TestSupervisor::new()), transferia)
+            .with_worker_logs(crate::server::logs::WorkerLogReader::new(&root)),
+    );
     Ok((router(control_plane, build_ui_catalog()?), root))
 }
 
@@ -533,6 +532,74 @@ async fn yaml_can_round_trip_to_an_editable_json_config() -> anyhow::Result<()> 
         .await?;
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 
+    tokio::fs::remove_dir_all(root).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn delivery_logs_are_bounded_scoped_and_never_cached() -> anyhow::Result<()> {
+    let (app, root) = test_router().await?;
+    let created = app
+        .clone()
+        .oneshot(
+            Request::post("/api/v1/deliveries")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"name":"logs","description":"","config":{}}"#,
+                ))?,
+        )
+        .await?;
+    let created: serde_json::Value =
+        serde_json::from_slice(&to_bytes(created.into_body(), 16 * 1024).await?)?;
+    let delivery_id = created["id"].as_str().context("delivery id")?;
+    let runs = root.join("runs");
+    tokio::fs::create_dir_all(runs.join(delivery_id)).await?;
+    tokio::fs::write(
+        runs.join(delivery_id).join("worker-1.log"),
+        "first\npassword=do-not-return\nlast\n",
+    )
+    .await?;
+
+    let list = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/v1/deliveries/{delivery_id}/logs")).body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(list.status(), StatusCode::OK);
+    assert_eq!(list.headers()[CACHE_CONTROL], "no-store");
+    let list: serde_json::Value =
+        serde_json::from_slice(&to_bytes(list.into_body(), 16 * 1024).await?)?;
+    assert_eq!(list["workers"][0]["worker_id"], "worker-1");
+
+    let log = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/deliveries/{delivery_id}/logs/worker-1?cursor=0&limit_bytes=12"
+            ))
+            .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(log.status(), StatusCode::OK);
+    assert_eq!(log.headers()[CACHE_CONTROL], "no-store");
+    let log: serde_json::Value =
+        serde_json::from_slice(&to_bytes(log.into_body(), 16 * 1024).await?)?;
+    assert_eq!(log["start_offset"], 0);
+    assert!(log["text"].as_str().is_some_and(|text| text.len() <= 12));
+
+    let traversal = app
+        .oneshot(
+            Request::get(format!(
+                "/api/v1/deliveries/{delivery_id}/logs/%2E%2E%2Fstate"
+            ))
+            .body(Body::empty())?,
+        )
+        .await?;
+    assert!(matches!(
+        traversal.status(),
+        StatusCode::BAD_REQUEST | StatusCode::NOT_FOUND
+    ));
     tokio::fs::remove_dir_all(root).await?;
     Ok(())
 }

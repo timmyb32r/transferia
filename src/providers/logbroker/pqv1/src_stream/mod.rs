@@ -498,6 +498,7 @@ impl SourceProvider for PqV1SourceProvider {
                     Arc::clone(&source_counters),
                     cancel_token.clone(),
                     cfg.benchmark_discard_before_decompression,
+                    cfg.allow_ttl_rewind,
                     memory.clone(),
                     network_timeout,
                     Arc::clone(&decompression_slots),

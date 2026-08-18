@@ -19,5 +19,8 @@ export type {
   UiCatalog,
   ValidationCommandResult,
   ValidationState,
+  WorkerLogChunkView,
+  WorkerLogsResult,
+  WorkerLogView,
 } from "./generated/apiContract";
 export type { JsonObject, JsonPrimitive, JsonSchema, JsonValue } from "./json";

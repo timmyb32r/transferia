@@ -67,8 +67,14 @@ impl LocalWorkerSupervisor {
         let runs_dir = self.state_dir.join("runs");
         tokio::fs::create_dir_all(&runs_dir).await?;
         secure_directory(&runs_dir).await?;
-        let config_path = runs_dir.join(format!("{delivery_id}-{}.yaml", run_id.0));
-        let log_path = runs_dir.join(format!("{delivery_id}.log"));
+        let delivery_runs_dir = runs_dir.join(delivery_id);
+        tokio::fs::create_dir_all(&delivery_runs_dir).await?;
+        secure_directory(&delivery_runs_dir).await?;
+        let config_path = delivery_runs_dir.join(format!("{}.yaml", run_id.0));
+        // A run owns its log for its entire lifetime. Keeping runs separate makes
+        // concurrent/future workers independently observable and prevents a new
+        // activation from truncating the diagnostics of the previous run.
+        let log_path = delivery_runs_dir.join(format!("{}.log", run_id.0));
         let temporary_config = TemporaryConfig::new(config_path.clone());
         secure_write(&config_path, config.yaml().as_bytes()).await?;
         let log = secure_log_file(&log_path)?;
@@ -245,14 +251,27 @@ fn cleanup_stale_worker_configs(state_dir: &Path) -> std::io::Result<()> {
     };
     for entry in entries {
         let entry = entry?;
-        if entry.file_type()?.is_file()
-            && entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "yaml")
-        {
-            std::fs::remove_file(entry.path())?;
+        if entry.file_type()?.is_dir() {
+            for run_entry in std::fs::read_dir(entry.path())? {
+                remove_stale_worker_config(&run_entry?)?;
+            }
+        } else {
+            // Remove legacy root-level resolved configs as well. Logs remain
+            // untouched and are never migrated or silently merged.
+            remove_stale_worker_config(&entry)?;
         }
+    }
+    Ok(())
+}
+
+fn remove_stale_worker_config(entry: &std::fs::DirEntry) -> std::io::Result<()> {
+    if entry.file_type()?.is_file()
+        && entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension == "yaml")
+    {
+        std::fs::remove_file(entry.path())?;
     }
     Ok(())
 }

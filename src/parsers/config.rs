@@ -27,10 +27,31 @@ pub struct SchemaRegistryParserSchema {
         default,
         extend("x-ui" = { "widget": "parser_common" })
     )]
-    pub common: CommonParserConfig,
+    pub common: SchemaRegistryCommonParserConfig,
 
     #[schemars(title = "Schema Registry parser")]
     pub schema_registry: SchemaRegistryParserConfig,
+}
+
+#[derive(Default, JsonSchema, Serialize)]
+pub struct SchemaRegistryCommonParserConfig {
+    #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
+    pub table_naming: TableNaming,
+
+    #[schemars(extend("x-ui" = { "widget": "system_columns" }))]
+    pub system_columns: SchemaRegistrySystemColumnsConfig,
+}
+
+#[derive(Default, JsonSchema, Serialize)]
+pub struct SchemaRegistrySystemColumnsConfig {
+    pub topic: Option<String>,
+
+    pub partition: Option<String>,
+
+    pub offset: Option<String>,
+
+    #[schemars(description = "Source-reported message write time as Unix epoch milliseconds")]
+    pub write_timestamp_ms: Option<String>,
 }
 
 #[derive(JsonSchema)]

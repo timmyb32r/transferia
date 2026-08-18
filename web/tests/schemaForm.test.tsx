@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, waitFor, within } from "@testing-library/preact";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/preact";
 import { useState } from "preact/hooks";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../src/api";
 import {
@@ -13,6 +19,8 @@ import {
 } from "../src/schema/SchemaForm";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
+
+afterEach(cleanup);
 
 const stringNode = (title?: string): CompiledNode => ({
   kind: "string",
@@ -84,6 +92,29 @@ describe("schema form", () => {
       <SchemaForm node={node} value="" onChange={() => undefined} />,
     );
     expect(view.container.querySelector("a")).toBeNull();
+  });
+
+  it("keeps focus when an external-console link appears after typing", () => {
+    const node: CompiledNode = {
+      kind: "string",
+      xUi: {
+        external_link_template: "https://console.example/topics/{value}",
+      },
+    };
+    function Harness() {
+      const [value, setValue] = useState<JsonValue>("");
+      return <SchemaForm node={node} value={value} onChange={setValue} />;
+    }
+    const view = render(<Harness />);
+    const input = view.getByRole("textbox") as HTMLInputElement;
+    input.focus();
+
+    fireEvent.input(input, { target: { value: "c" } });
+
+    expect(document.activeElement).toBe(input);
+    expect(
+      view.getByRole("link", { name: "Open in external console" }),
+    ).toBeTruthy();
   });
 
   it("keeps shard group compact and replaces it with checked options", () => {
@@ -983,10 +1014,9 @@ describe("schema form", () => {
       />,
     );
 
-    fireEvent.pointerDown(
-      view.getByRole("button", { name: "JSON parser" }),
-      { button: 0 },
-    );
+    fireEvent.pointerDown(view.getByRole("button", { name: "Parser" }), {
+      button: 0,
+    });
     fireEvent.pointerDown(view.getByRole("option", { name: "Not selected" }), {
       button: 0,
     });
@@ -1350,6 +1380,53 @@ describe("schema form", () => {
     fireEvent.click(table.getByRole("button", { name: "Column 2 actions" }));
     fireEvent.click(table.getByRole("menuitem", { name: "Delete" }));
     expect(container.querySelectorAll(".config-table-row")).toHaveLength(1);
+  });
+
+  it("adds output columns with explicit string and Utf8 defaults", () => {
+    const onChange = vi.fn();
+    const stringEnum = (values: string[]): CompiledNode => ({
+      kind: "string",
+      enumValues: values,
+      xUi: {},
+    });
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["columns"]),
+      properties: {
+        columns: {
+          kind: "array",
+          xUi: { widget: "column_mappings" },
+          item: {
+            kind: "object",
+            xUi: {},
+            required: new Set(),
+            properties: {
+              column_name: stringNode(),
+              jsonpath: stringNode(),
+              json_data_type: stringEnum(["string", "number", "boolean"]),
+              arrow_type: stringEnum(["Utf8", "Int64", "Boolean"]),
+            },
+          },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm node={node} value={{ columns: [] }} onChange={onChange} />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "+ Add column" }));
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        columns: [
+          expect.objectContaining({
+            json_data_type: "string",
+            arrow_type: "Utf8",
+          }),
+        ],
+      }),
+    );
   });
 
   it("selects output columns and deletes them as one bulk action", () => {

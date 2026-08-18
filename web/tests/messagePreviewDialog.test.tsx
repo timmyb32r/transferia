@@ -139,18 +139,28 @@ describe("message preview dialog", () => {
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
     expect(copy).toHaveBeenCalledWith("7b 22 69 64 22 3a 31 7d");
     fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
-    expect(view.getByText(/"id": 1/)).toBeTruthy();
+    expect(view.container.querySelector(".syntax-code")?.textContent).toContain(
+      '"id": 1',
+    );
+    expect(view.container.querySelector(".syntax-key")?.textContent).toBe(
+      '"id":',
+    );
+    expect(view.container.querySelector(".syntax-number")?.textContent).toBe(
+      "1",
+    );
     fireEvent.click(view.getByRole("button", { name: "See parsed" }));
     expect(
-      view
-        .getByRole("tab", { name: "Schema" })
-        .getAttribute("aria-selected"),
+      view.getByRole("tab", { name: "Schema" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(view.getByText("3 messages · 3 rows")).toBeTruthy();
     expect(view.getByText("Int64")).toBeTruthy();
-    expect(
-      view.getAllByRole("tab").map((tab) => tab.textContent),
-    ).toEqual(["Text", "Binary", "Metadata", "Pretty print", "Schema"]);
+    expect(view.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Text",
+      "Binary",
+      "Metadata",
+      "Pretty print",
+      "Schema",
+    ]);
     fireEvent.click(view.getAllByRole("button", { name: "Use parser" })[0]!);
     expect(apply).toHaveBeenCalledWith(
       expect.objectContaining({ key: "json_parser" }),

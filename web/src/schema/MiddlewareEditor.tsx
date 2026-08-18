@@ -27,11 +27,13 @@ export function MiddlewareEditor({
 }) {
   const entries = Array.isArray(value) ? value : [];
   const loadSourceSample = useSourceSample();
-  const [playgrounds, setPlaygrounds] = useState<Record<number, PlaygroundState>>(
-    {},
-  );
+  const [playgrounds, setPlaygrounds] = useState<
+    Record<number, PlaygroundState>
+  >({});
   const replace = (index: number, entry: JsonValue) =>
-    onChange(entries.map((current, offset) => (offset === index ? entry : current)));
+    onChange(
+      entries.map((current, offset) => (offset === index ? entry : current)),
+    );
   return (
     <section class="middleware-editor">
       <header class="middleware-heading">
@@ -52,7 +54,9 @@ export function MiddlewareEditor({
         </Button>
       </header>
       {entries.length === 0 && (
-        <p class="middleware-empty">No transforms. Rows pass through unchanged.</p>
+        <p class="middleware-empty">
+          No transforms. Rows pass through unchanged.
+        </p>
       )}
       {entries.map((entry, index) => {
         const object = isObject(entry) ? entry : {};
@@ -90,7 +94,9 @@ export function MiddlewareEditor({
                 variant="danger"
                 disabled={disabled}
                 aria-label={`Delete transform ${index + 1}`}
-                onClick={() => onChange(entries.filter((_, offset) => offset !== index))}
+                onClick={() =>
+                  onChange(entries.filter((_, offset) => offset !== index))
+                }
               >
                 ×
               </Button>
@@ -127,7 +133,9 @@ export function MiddlewareEditor({
             ) : (
               <>
                 <label class="middleware-sql-field">
-                  <span>SQL over table <code>input</code></span>
+                  <span>
+                    SQL over table <code>input</code>
+                  </span>
                   <textarea
                     autoComplete="off"
                     spellcheck={false}
@@ -166,7 +174,9 @@ export function MiddlewareEditor({
                           loading: false,
                           loadingSample: false,
                           error:
-                            error instanceof Error ? error.message : String(error),
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
                         }),
                       );
                   }}
@@ -175,7 +185,9 @@ export function MiddlewareEditor({
                   <div class="sql-playground-grid">
                     <label>
                       <span>Sample rows · JSON array</span>
-                      {playground.loadingSample && <small>Loading from source…</small>}
+                      {playground.loadingSample && (
+                        <small>Loading from source…</small>
+                      )}
                       <textarea
                         spellcheck={false}
                         value={playground.sample}
@@ -189,14 +201,17 @@ export function MiddlewareEditor({
                     </label>
                     <div class="sql-playground-output">
                       <span>Result</span>
-                      {playground.error && <p role="alert">{playground.error}</p>}
+                      {playground.error && (
+                        <p role="alert">{playground.error}</p>
+                      )}
                       {playground.columns && (
                         <table>
                           <thead>
                             <tr>
                               {playground.columns.map((column) => (
                                 <th key={column.name}>
-                                  {column.name}<small>{column.arrow_type}</small>
+                                  {column.name}
+                                  <small>{column.arrow_type}</small>
                                 </th>
                               ))}
                             </tr>
@@ -206,7 +221,9 @@ export function MiddlewareEditor({
                               <tr key={rowIndex}>
                                 {playground.columns?.map((column) => (
                                   <td key={column.name}>
-                                    {JSON.stringify(isObject(row) ? row[column.name] : null)}
+                                    {JSON.stringify(
+                                      isObject(row) ? row[column.name] : null,
+                                    )}
                                   </td>
                                 ))}
                               </tr>
@@ -224,17 +241,25 @@ export function MiddlewareEditor({
                       setPlayground({ ...pending, loading: true });
                       try {
                         const rows = JSON.parse(playground.sample) as unknown;
-                        if (!Array.isArray(rows)) throw new Error("Sample must be a JSON array");
+                        if (!Array.isArray(rows))
+                          throw new Error("Sample must be a JSON array");
                         const result = await api.sqlPlayground({
                           sql: typeof raw.sql === "string" ? raw.sql : "",
                           rows,
                         });
-                        setPlayground({ ...playground, loading: false, ...result });
+                        setPlayground({
+                          ...playground,
+                          loading: false,
+                          ...result,
+                        });
                       } catch (error) {
                         setPlayground({
                           ...playground,
                           loading: false,
-                          error: error instanceof Error ? error.message : String(error),
+                          error:
+                            error instanceof Error
+                              ? error.message
+                              : String(error),
                         });
                       }
                     }}

@@ -75,11 +75,10 @@ impl JsonParserConfig {
                     "unknown_fields.send_to_column column_name must be non-empty and unique"
                 );
                 names.insert(column_name);
-                columns.push(SchemaColumn::new(
-                    column_name.clone(),
-                    DataType::Utf8,
-                    false,
-                ));
+                columns.push(
+                    SchemaColumn::new(column_name.clone(), DataType::Utf8, false)
+                        .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
+                );
             }
         }
         Ok(DatasetSchema::new(columns))
@@ -87,7 +86,7 @@ impl JsonParserConfig {
 }
 
 /// Record framing policy owned by the JSON parser.
-#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JsonFramingMode {
     #[default]
@@ -152,10 +151,11 @@ fn default_additional_properties_column() -> String {
     "additional_properties".to_owned()
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JsonDataType {
     #[schemars(title = "String")]
+    #[default]
     String,
 
     #[schemars(title = "Number")]
@@ -195,7 +195,8 @@ pub struct ColumnMapping {
 
     pub column_name: String,
 
-    #[schemars(extend("x-ui" = {
+    #[serde(default)]
+    #[schemars(default = "default_json_data_type", extend("x-ui" = {
         "labels": {
             "string": "String",
             "number": "Number",
@@ -204,7 +205,8 @@ pub struct ColumnMapping {
     }))]
     pub json_data_type: JsonDataType,
 
-    #[schemars(extend("x-ui" = {
+    #[serde(default = "default_arrow_type")]
+    #[schemars(default = "default_arrow_type", extend("x-ui" = {
         "widget": "select",
         "options": [
             "Utf8", "LargeUtf8", "Int64", "Int32", "Int16", "Int8",
@@ -237,6 +239,14 @@ pub struct ColumnMapping {
 
     #[serde(default)]
     pub max_length: Option<usize>,
+}
+
+fn default_arrow_type() -> String {
+    "Utf8".to_owned()
+}
+
+fn default_json_data_type() -> JsonDataType {
+    JsonDataType::String
 }
 
 impl ColumnMapping {

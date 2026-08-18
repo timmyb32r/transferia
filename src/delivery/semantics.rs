@@ -202,14 +202,24 @@ pub fn validate_pipeline(
     keep_system_columns: bool,
 ) -> DeliverySemanticsReport {
     if matches!(sink, EndpointDescriptor::Discard) {
+        let benchmark_source = source.source_behavior() == Some(SourceBehavior::BenchmarkDiscard);
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::NoDurability,
-            diagnostics: vec![SemanticsDiagnostic {
-                code: DiagnosticCode::BenchmarkDiscard,
-                severity: DiagnosticSeverity::Info,
-                config_paths: vec!["sink.discard".into()],
-                explanation: "the discard sink acknowledges and drops every delivery; it is intended only for throughput benchmarks".into(),
-                remediation: Some("use clickhouse or s3 for a durable transfer".into()),
+            diagnostics: vec![if benchmark_source {
+                SemanticsDiagnostic {
+                    code: DiagnosticCode::BenchmarkDiscard,
+                    severity: DiagnosticSeverity::Info,
+                    config_paths: vec!["source.parser.benchmark_discard".into(), "sink.discard".into()],
+                    explanation: "the benchmark parser and discard sink intentionally acknowledge messages without producing or storing rows".into(),
+                    remediation: Some("configure a row-producing parser and durable sink for a real delivery".into()),
+                }
+            } else {
+                error(
+                    DiagnosticCode::BenchmarkDiscard,
+                    &["source.parser", "sink.discard"],
+                    "the discard sink is compatible only with the benchmark_discard parser",
+                    Some("select the benchmark_discard parser, or choose a durable sink"),
+                )
             }],
         };
     }

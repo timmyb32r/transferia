@@ -10,6 +10,7 @@ import {
 
 import { api, OPTIONS_TRANSPORT_VERSION } from "./api";
 import { DeliveryConfiguration } from "./delivery/DeliveryConfiguration";
+import { DeliveryLogs } from "./delivery/DeliveryLogs";
 import {
   DeliverySidebar,
   EditorActions,
@@ -233,8 +234,11 @@ export function App() {
     return "Waiting for data schema discovery";
   })();
   useEffect(() => {
-    if (dataSchemaAvailable && appearance.autoShowSchemaWidget)
+    if (!dataSchemaAvailable) {
+      setSchemaInspectorVisible(false);
+    } else if (appearance.autoShowSchemaWidget) {
       setSchemaInspectorVisible(true);
+    }
   }, [dataSchemaAvailable, appearance.autoShowSchemaWidget]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
@@ -292,6 +296,7 @@ export function App() {
     showYaml,
     applyYamlAndShowUi,
     showDataSchema,
+    showLogs,
   } = yamlEditor;
 
   if (catalog === undefined)
@@ -448,6 +453,7 @@ export function App() {
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
+          onLogs={() => void showLogs()}
           onToggleSchemaInspector={() =>
             setSchemaInspectorVisible((visible) => !visible)
           }
@@ -477,11 +483,19 @@ export function App() {
             disabled={readOnly}
             onChange={editYaml}
           />
-        ) : discovery !== undefined ? (
+        ) : activeView === "data_schema" && discovery !== undefined ? (
           <DataSchemaWorkspace
             result={discovery}
             onShowInspector={() => setSchemaInspectorVisible(true)}
           />
+        ) : activeView === "logs" ? (
+          editor.id === undefined ? (
+            <p class="data-schema-empty">
+              Save the delivery to view worker logs.
+            </p>
+          ) : (
+            <DeliveryLogs deliveryId={editor.id} />
+          )
         ) : null}
         {schemaInspectorVisible && discovery !== undefined && (
           <DataSchemaInspector

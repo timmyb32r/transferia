@@ -51,7 +51,8 @@ describe("DataFusion middleware editor", () => {
     fireEvent.click(view.getByText("Playground"));
     await waitFor(() => expect(load).toHaveBeenCalledOnce());
 
-    expect((view.getByLabelText(/Sample rows/) as HTMLTextAreaElement).value)
-      .toContain('"id": 17');
+    expect(
+      (view.getByLabelText(/Sample rows/) as HTMLTextAreaElement).value,
+    ).toContain('"id": 17');
   });
 });

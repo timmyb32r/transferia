@@ -22,6 +22,36 @@ fn shard_group_query_materializes_low_cardinality_names_as_plain_strings() {
     append_shard_groups(&column, &mut groups).unwrap();
     assert_eq!(groups, ["default", "analytics"]);
 }
+
+#[tokio::test]
+async fn incomplete_credentials_still_verify_network_reachability() -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let config: ClickHouseSinkConfig = serde_yaml::from_str(&format!(
+        "hosts: [127.0.0.1]\nport: {port}\ntrusted_plaintext: true\ndatabase: ''\nusername: ''\nconnect_timeout_ms: 1000\n"
+    ))?;
+
+    let checked = ClickHouseSinkProvider::check_connection(config).await?;
+
+    assert!(matches!(
+        checked,
+        ClickHouseConnectionCheck::NetworkReachable
+    ));
+    drop(listener);
+    Ok(())
+}
+
+#[test]
+fn authentication_failure_does_not_expose_server_details() {
+    let error = clickhouse_arrow::Error::Client(
+        "Exception(ServerError { error: AUTHENTICATION_FAILED, stack_trace: secret })".to_owned(),
+    );
+
+    assert_eq!(
+        connection_check_error(error).to_string(),
+        "Authentication failed: password is incorrect, or there is no user with such name."
+    );
+}
 use crate::core::data::schema::{DatasetSchema, SchemaColumn};
 use crate::core::delivery::{DatasetRole, DiscoveredDataset, SchemaOrigin};
 

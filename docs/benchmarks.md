@@ -59,7 +59,9 @@ python3 scripts/run_single_partition_benchmark.py \
   --output-dir benchmark-results/baseline
 ```
 
-The runner builds the release binary once, always launches worker `0/1`, keeps
+This profile measures PQv1 download and decompression with the explicit
+`benchmark_discard` parser; it does not measure JSON row materialization. The
+runner builds the release binary once, always launches worker `0/1`, keeps
 the complete process log for every repetition, and writes `result.json` with the
 git revision, dirty flag, binary and configuration hashes, Rust version, OS,
 non-secret endpoint overrides, raw sample count, median, MAD, p10, and p90. A run is

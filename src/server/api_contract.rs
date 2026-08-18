@@ -136,6 +136,16 @@ pub struct StopRequest {
     pub expected_run_id: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerLogReadQuery {
+    #[serde(default)]
+    pub cursor: Option<u64>,
+
+    #[serde(default)]
+    pub limit_bytes: Option<usize>,
+}
+
 #[derive(Clone, Debug, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct YamlResponse {
@@ -263,6 +273,12 @@ struct ServerApiContract {
     revision_request: RevisionRequest,
 
     stop_request: StopRequest,
+
+    worker_logs_response: super::service::WorkerLogsResult,
+
+    worker_log_response: super::service::WorkerLogChunkView,
+
+    worker_log_read_query: WorkerLogReadQuery,
 }
 
 pub fn schema() -> anyhow::Result<Value> {

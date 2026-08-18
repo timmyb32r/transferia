@@ -118,6 +118,20 @@ fn active_assignment() -> HashMap<i64, ActiveAssignment> {
     active
 }
 
+#[test]
+fn ttl_rewind_policy_is_applied_to_pqv1_offsets() {
+    let mut assignments = active_assignment();
+    let assignment = assignments.get_mut(&7).expect("active assignment");
+    observe_offset(assignment, 7, 3, false).unwrap();
+    let error = observe_offset(assignment, 7, 5, false).unwrap_err();
+    assert!(
+        error.to_string().contains("offset discontinuity"),
+        "{error:#}"
+    );
+    observe_offset(assignment, 7, 5, true).unwrap();
+    observe_offset(assignment, 7, 6, false).unwrap();
+}
+
 fn partition_data(
     topic: &str,
     cluster: &str,
@@ -136,11 +150,14 @@ fn data_batch_with_empty_messages(
 ) -> migration_streaming_read_server_message::DataBatch {
     let mut partition = partition_data("topic", "cluster");
     partition.batches = vec![migration_streaming_read_server_message::data_batch::Batch {
-        message_data: vec![
-            migration_streaming_read_server_message::data_batch::MessageData::default(
-            );
-            message_count
-        ],
+        message_data: (0..message_count)
+            .map(
+                |index| migration_streaming_read_server_message::data_batch::MessageData {
+                    offset: 3 + u64::try_from(index).expect("test message index fits in u64"),
+                    ..Default::default()
+                },
+            )
+            .collect(),
         ..Default::default()
     }];
     migration_streaming_read_server_message::DataBatch {
@@ -252,6 +269,7 @@ async fn committed_response_is_processed_while_partition_dispatch_is_blocked() {
             read_credit_tx,
             data_tx,
             benchmark_discard_before_decompression: false,
+            allow_ttl_rewind: false,
             release_handed_off: Arc::new(Notify::new()),
             network_timeout: core::time::Duration::from_secs(1),
         },
@@ -331,6 +349,7 @@ async fn graceful_release_is_handed_off_while_partition_dispatch_is_blocked() {
             read_credit_tx,
             data_tx,
             benchmark_discard_before_decompression: false,
+            allow_ttl_rewind: false,
             release_handed_off,
             network_timeout: core::time::Duration::from_secs(1),
         },
@@ -789,7 +808,8 @@ fn raw_batch_memory_includes_fixed_message_and_partition_metadata() {
     assert!(retained >= fixed_messages);
     assert!(retained > prost::Message::encoded_len(&batch));
 
-    let (kind, _, _) = prepare_data_batch(batch, &active_assignment(), false).unwrap();
+    let mut active = active_assignment();
+    let (kind, _, _) = prepare_data_batch(batch, &mut active, false, true).unwrap();
     let pending = pending_raw_bytes(&kind).unwrap();
     assert!(pending >= message_count * core::mem::size_of::<RawMsg>());
     assert!(pending <= retained);

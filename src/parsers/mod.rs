@@ -149,6 +149,10 @@ impl ParserPlan {
                     )
                 }
                 "schema_registry" => {
+                    anyhow::ensure!(
+                        config.common.system_columns.message_index.is_none(),
+                        "schema_registry parser does not support the message_index system column because one source message always produces one row"
+                    );
                     let parser_config: schema_registry::SchemaRegistryParserConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
                     let schema = parser_config.json_parser.to_dataset_schema()?;
@@ -207,6 +211,16 @@ impl ParserPlan {
             discovered_system_columns,
             primary_key,
         })
+    }
+
+    /// Route each parsed batch to the source topic carried by its messages.
+    /// The source must keep one parser delivery topic-homogeneous.
+    #[must_use]
+    pub fn route_by_message_topic(mut self) -> Self {
+        self.parser = Arc::new(TopicTableParserFactory {
+            inner: Arc::clone(&self.parser),
+        });
+        self
     }
 
     #[must_use]
@@ -279,6 +293,51 @@ impl ParserPlan {
             }));
         }
         DatasetSchema::new(columns)
+    }
+}
+
+struct TopicTableParserFactory {
+    inner: Arc<dyn ParserFactory>,
+}
+
+impl ParserFactory for TopicTableParserFactory {
+    fn create_session(self: Arc<Self>, memory_limit_bytes: usize) -> Box<dyn ParserSession> {
+        Box::new(TopicTableParserSession {
+            inner: Arc::clone(&self.inner).create_session(memory_limit_bytes),
+        })
+    }
+}
+
+struct TopicTableParserSession {
+    inner: Box<dyn ParserSession>,
+}
+
+impl ParserSession for TopicTableParserSession {
+    fn output_memory_bound(&self, messages: &[Message]) -> usize {
+        self.inner.output_memory_bound(messages)
+    }
+
+    fn parse_into(
+        &mut self,
+        messages: Vec<Message>,
+    ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let table = messages
+            .first()
+            .and_then(|message| message.meta.topic.as_deref())
+            .ok_or_else(|| anyhow::anyhow!("from_topic_name requires source topic metadata"))?;
+        anyhow::ensure!(
+            messages
+                .iter()
+                .all(|message| message.meta.topic.as_deref() == Some(table)),
+            "from_topic_name parser delivery mixes messages from multiple topics"
+        );
+        let table: Arc<str> = Arc::from(table);
+        let (mut main, mut dlq) = self.inner.parse_into(messages)?;
+        main.table = Arc::clone(&table);
+        if let Some(dlq) = &mut dlq {
+            dlq.table = dlq_name(&table).into();
+        }
+        Ok((main, dlq))
     }
 }
 

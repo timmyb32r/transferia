@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::array::{Array, BinaryArray, StringArray};
 use futures_util::future::BoxFuture;
 
-use super::client::ReconnectingClient;
+use super::client::{probe_network, ReconnectingClient};
 use super::table::{prepare_tables, validate_table_schema};
 use super::transport::NativeTransport;
 use super::{ClickHouseSink, ClickHouseSinkConfig};
@@ -23,6 +23,11 @@ pub struct ClickHouseSinkProvider {
     client: Arc<ReconnectingClient>,
 }
 
+pub enum ClickHouseConnectionCheck {
+    Verified { shard_groups: Vec<String> },
+    NetworkReachable,
+}
+
 impl ClickHouseSinkProvider {
     pub fn from_config(config: ClickHouseSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
@@ -39,7 +44,14 @@ impl ClickHouseSinkProvider {
         Ok(client)
     }
 
-    pub async fn check_connection(config: ClickHouseSinkConfig) -> anyhow::Result<Vec<String>> {
+    pub async fn check_connection(
+        config: ClickHouseSinkConfig,
+    ) -> anyhow::Result<ClickHouseConnectionCheck> {
+        config.validate_connection()?;
+        if config.database.is_empty() || config.username.is_empty() {
+            probe_network(&config.hosts, config.port, config.connect_timeout()).await?;
+            return Ok(ClickHouseConnectionCheck::NetworkReachable);
+        }
         config.validate()?;
         let client = ReconnectingClient::new(&config);
         let groups = query_shard_groups(&client).await?;
@@ -47,7 +59,9 @@ impl ClickHouseSinkProvider {
             (!config.shard_group.is_empty()).then_some(config.shard_group.as_str()),
             &groups,
         )?;
-        Ok(groups)
+        Ok(ClickHouseConnectionCheck::Verified {
+            shard_groups: groups,
+        })
     }
 }
 
@@ -60,8 +74,7 @@ pub async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<V
         success = batches.is_ok(),
         "ClickHouse connection check stage completed"
     );
-    let batches =
-        batches.map_err(|error| anyhow::anyhow!("ClickHouse connection check failed: {error}"))?;
+    let batches = batches.map_err(connection_check_error)?;
     let mut groups = Vec::new();
     for batch in batches {
         let column = batch
@@ -72,6 +85,17 @@ pub async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<V
     groups.sort();
     groups.dedup();
     Ok(groups)
+}
+
+fn connection_check_error(error: clickhouse_arrow::Error) -> anyhow::Error {
+    let rendered = error.to_string();
+    if rendered.contains("AUTHENTICATION_FAILED") || rendered.contains("Authentication failed") {
+        anyhow::anyhow!(
+            "Authentication failed: password is incorrect, or there is no user with such name."
+        )
+    } else {
+        anyhow::anyhow!("ClickHouse connection check failed: {rendered}")
+    }
 }
 
 fn append_shard_groups(column: &dyn Array, groups: &mut Vec<String>) -> anyhow::Result<()> {

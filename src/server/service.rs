@@ -8,6 +8,7 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use super::logs::WorkerLogReader;
 use super::model::{DeliveryRecord, RuntimeState, ValidationState};
 use super::store::{DeliveryStore, StoreError};
 use transferia::core::delivery::{
@@ -160,10 +161,41 @@ pub struct DestinationColumnView {
     pub destination_type: String,
 }
 
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerLogsResult {
+    pub workers: Vec<WorkerLogView>,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerLogView {
+    pub worker_id: String,
+
+    pub size_bytes: u64,
+
+    pub active: bool,
+}
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkerLogChunkView {
+    pub text: String,
+
+    pub start_offset: u64,
+
+    pub next_offset: u64,
+
+    pub end_offset: u64,
+
+    pub truncated_before: bool,
+}
+
 pub struct ControlPlane {
     store: Arc<dyn DeliveryStore>,
     supervisor: Arc<dyn WorkerSupervisor>,
     transferia: Transferia,
+    worker_logs: Option<WorkerLogReader>,
     mutation: Mutex<()>,
     shutdown: CancellationToken,
 }
@@ -206,9 +238,63 @@ impl ControlPlane {
             store,
             supervisor,
             transferia,
+            worker_logs: None,
             mutation: Mutex::new(()),
             shutdown: CancellationToken::new(),
         }
+    }
+
+    #[must_use]
+    pub fn with_worker_logs(mut self, worker_logs: WorkerLogReader) -> Self {
+        self.worker_logs = Some(worker_logs);
+        self
+    }
+
+    pub async fn worker_logs(&self, delivery_id: &str) -> Result<WorkerLogsResult, ServiceError> {
+        let delivery = self.store.get(delivery_id).await?;
+        let active_run = match &delivery.runtime {
+            RuntimeState::Starting { run_id }
+            | RuntimeState::Running { run_id, .. }
+            | RuntimeState::Stopping { run_id } => Some(run_id.0.as_str()),
+            RuntimeState::Created | RuntimeState::Stopped | RuntimeState::Failed { .. } => None,
+        };
+        let reader = self.worker_logs.as_ref().ok_or_else(|| {
+            ServiceError::Internal(anyhow::anyhow!("worker log storage is unavailable"))
+        })?;
+        let workers = reader
+            .list(delivery_id)
+            .await?
+            .into_iter()
+            .map(|entry| WorkerLogView {
+                active: active_run == Some(entry.worker_id.as_str()),
+                worker_id: entry.worker_id,
+                size_bytes: entry.size_bytes,
+            })
+            .collect();
+        Ok(WorkerLogsResult { workers })
+    }
+
+    pub async fn worker_log(
+        &self,
+        delivery_id: &str,
+        worker_id: &str,
+        cursor: Option<u64>,
+        limit_bytes: Option<usize>,
+    ) -> Result<WorkerLogChunkView, ServiceError> {
+        self.store.get(delivery_id).await?;
+        let reader = self.worker_logs.as_ref().ok_or_else(|| {
+            ServiceError::Internal(anyhow::anyhow!("worker log storage is unavailable"))
+        })?;
+        let chunk = reader
+            .read(delivery_id, worker_id, cursor, limit_bytes)
+            .await?;
+        Ok(WorkerLogChunkView {
+            text: chunk.text,
+            start_offset: chunk.start_offset,
+            next_offset: chunk.next_offset,
+            end_offset: chunk.end_offset,
+            truncated_before: chunk.truncated_before,
+        })
     }
 
     pub async fn dynamic_options(
@@ -271,6 +357,13 @@ impl ControlPlane {
                             combined_values.push(value);
                         }
                     }
+                }
+                if matches!(
+                    checked.status,
+                    crate::providers::traits::ConnectionCheckStatus::NetworkReachable
+                ) {
+                    combined.status = checked.status;
+                    combined.message = checked.message;
                 }
             }
             Ok(combined)

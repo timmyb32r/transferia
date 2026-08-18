@@ -34,7 +34,12 @@ export function EndpointCard(props: {
   const [check, setCheck] = useState<
     | { state: "idle"; options: Record<string, string[]> }
     | { state: "checking"; options: Record<string, string[]> }
-    | { state: "success"; options: Record<string, string[]> }
+    | {
+        state: "success";
+        message?: string;
+        status: import("../generated/apiContract").ConnectionCheckStatus;
+        options: Record<string, string[]>;
+      }
     | { state: "error"; message: string; options: Record<string, string[]> }
   >({ state: "idle", options: {} });
   const controller = useRef<AbortController>();
@@ -65,7 +70,7 @@ export function EndpointCard(props: {
     previousConfigFingerprint.current = configFingerprint;
     controller.current?.abort();
     controller.current = undefined;
-    setCheck({ state: "idle", options: {} });
+    setCheck((current) => ({ state: "idle", options: current.options }));
   }, [configFingerprint]);
   useEffect(
     () => () => {
@@ -90,7 +95,14 @@ export function EndpointCard(props: {
         request.signal,
       );
       if (controller.current !== request) return;
-      setCheck({ state: "success", options: result.options });
+      setCheck({
+        state: "success",
+        ...(result.message === null || result.message === undefined
+          ? {}
+          : { message: result.message }),
+        status: result.status,
+        options: result.options,
+      });
     } catch (error) {
       if (request.signal.aborted || controller.current !== request) return;
       setCheck({
@@ -193,11 +205,13 @@ export function EndpointCard(props: {
                       : "Check connection"}
                   </Button>
                   <span
-                    class={`connection-check-result connection-check-${check.state}`}
+                    class={`connection-check-result connection-check-${
+                      check.state === "success" ? check.status : check.state
+                    }`}
                     role={check.state === "error" ? "alert" : "status"}
                   >
                     {check.state === "success"
-                      ? "Connection successful"
+                      ? (check.message ?? "Connection successful")
                       : check.state === "error"
                         ? check.message
                         : ""}
@@ -396,11 +410,16 @@ export function DataSchemaInspector({
 }) {
   const [selectedTable, setSelectedTable] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [changedColumns, setChangedColumns] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [position, setPosition] = useState(() => ({
     x: Math.max(0, window.innerWidth - 404),
     y: 24,
   }));
   const drag = useRef<{ pointer: number; dx: number; dy: number }>();
+  const previousColumns = useRef(columnFingerprints(result));
+  const highlightTimer = useRef<number>();
   const datasets = result.datasets;
   const selected =
     datasets.find((dataset) => dataset.name === selectedTable) ?? datasets[0];
@@ -409,6 +428,24 @@ export function DataSchemaInspector({
     if (selected !== undefined && selected.name !== selectedTable)
       setSelectedTable(selected.name);
   }, [selected?.name, selectedTable]);
+  useEffect(() => {
+    const next = columnFingerprints(result);
+    const changed = new Set(
+      [...next].flatMap(([key, fingerprint]) =>
+        previousColumns.current.get(key) === fingerprint ? [] : [key],
+      ),
+    );
+    previousColumns.current = next;
+    window.clearTimeout(highlightTimer.current);
+    setChangedColumns(changed);
+    if (changed.size > 0) {
+      highlightTimer.current = window.setTimeout(
+        () => setChangedColumns(new Set()),
+        1000,
+      );
+    }
+    return () => window.clearTimeout(highlightTimer.current);
+  }, [result]);
 
   return (
     <aside
@@ -440,7 +477,14 @@ export function DataSchemaInspector({
         }}
       >
         <strong>Final schema</strong>
-        <span>{loading ? "Updating…" : "Drag to move"}</span>
+        <span>Drag to move</span>
+        {loading && (
+          <span
+            class="schema-inspector-progress spinner"
+            role="status"
+            aria-label="Updating schema"
+          />
+        )}
         <Button
           shape="icon"
           aria-label={
@@ -459,11 +503,6 @@ export function DataSchemaInspector({
           ×
         </Button>
       </header>
-      {!collapsed && loading && (
-        <div class="schema-inspector-loading" role="status">
-          <span class="spinner" aria-hidden="true" /> Updating schema…
-        </div>
-      )}
       {!collapsed &&
         (datasets.length === 0 ? (
           <p>No tables discovered.</p>
@@ -489,24 +528,47 @@ export function DataSchemaInspector({
                 role="row"
               >
                 <span>Column</span>
-                <span>Column type</span>
                 <span>Arrow type</span>
                 <span>PK</span>
                 <span>Not null</span>
               </div>
-              {selected?.final_columns.map((column) => (
-                <div class="schema-inspector-row" role="row" key={column.name}>
-                  <strong>{column.name}</strong>
-                  <code>{column.destination_type}</code>
-                  <code>{column.arrow_type}</code>
-                  <span>{column.primary_key ? "Yes" : "—"}</span>
-                  <span>{column.nullable ? "—" : "Yes"}</span>
-                </div>
-              ))}
+              {selected?.final_columns.map((column) => {
+                const key = columnKey(selected, column.name);
+                return (
+                  <div
+                    class={`schema-inspector-row ${changedColumns.has(key) ? "schema-row-updated" : ""}`}
+                    role="row"
+                    key={column.name}
+                  >
+                    <strong>{column.name}</strong>
+                    <code>{column.arrow_type}</code>
+                    <span>{column.primary_key ? "Yes" : "—"}</span>
+                    <span>{column.nullable ? "—" : "Yes"}</span>
+                  </div>
+                );
+              })}
             </div>
           </>
         ))}
     </aside>
+  );
+}
+
+function columnKey(
+  dataset: DiscoveryResult["datasets"][number],
+  column: string,
+): string {
+  return `${dataset.role}:${dataset.name}:${column}`;
+}
+
+function columnFingerprints(result: DiscoveryResult): Map<string, string> {
+  return new Map(
+    result.datasets.flatMap((dataset) =>
+      dataset.final_columns.map((column) => [
+        columnKey(dataset, column.name),
+        JSON.stringify(column),
+      ]),
+    ),
   );
 }
 

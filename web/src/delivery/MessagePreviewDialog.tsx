@@ -6,6 +6,7 @@ import type {
 } from "../generated/apiContract";
 import { Button } from "../ui/Button";
 import { SelectControl } from "../ui/SelectControl";
+import { SyntaxHighlight } from "../ui/SyntaxHighlight";
 
 export function MessagePreviewDialog({
   result,
@@ -269,9 +270,16 @@ function ParserPreview({
   tab: ParserDetection["preview_tabs"][number] | undefined;
 }) {
   if (!tab) return <div class="message-preview-state">Preview unavailable</div>;
+  const json = tab.key.toLowerCase().includes("json");
   return (
     <div class="parser-preview-tab">
-      <pre>{tab.content}</pre>
+      <pre>
+        {json ? (
+          <SyntaxHighlight value={tab.content} language="json" />
+        ) : (
+          tab.content
+        )}
+      </pre>
       {tab.truncated && (
         <span class="muted">Parser preview truncated to 64 KiB</span>
       )}

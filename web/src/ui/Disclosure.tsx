@@ -13,6 +13,10 @@ export function Disclosure({
     <details class={["foldout", className].filter(Boolean).join(" ")}>
       <summary
         onClick={(event) => {
+          event.preventDefault();
+          const details = event.currentTarget.parentElement;
+          if (details instanceof HTMLDetailsElement)
+            details.open = !details.open;
           if (event.detail > 0) {
             const summary = event.currentTarget;
             queueMicrotask(() => summary.blur());

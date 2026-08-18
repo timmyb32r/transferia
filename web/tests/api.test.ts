@@ -78,9 +78,11 @@ describe("control-plane API", () => {
   });
 
   it("sends dependent option context in the request body", async () => {
-    const request = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ options: [] }), { status: 200 }),
-    );
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ options: [] }), { status: 200 }),
+      );
     vi.stubGlobal("fetch", request);
 
     await api.options({
@@ -133,9 +135,14 @@ describe("control-plane API", () => {
   });
 
   it("sends endpoint credentials only in the connection-check POST body", async () => {
-    const request = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ options: {} }), { status: 200 }),
-    );
+    const request = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ status: "verified", message: null, options: {} }),
+          { status: 200 },
+        ),
+      );
     vi.stubGlobal("fetch", request);
 
     await api.checkConnection({

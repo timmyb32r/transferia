@@ -468,13 +468,8 @@ fn build_base_provider_catalog(
                     move |config| {
                         let metrics_registry = Arc::clone(&metrics_registry);
                         async move {
-                            let shard_groups = crate::providers::clickhouse::ClickHouseSourceProvider::check_connection(config, metrics_registry).await?;
-                            Ok(crate::providers::traits::ConnectionCheckResult {
-                                options: std::collections::BTreeMap::from([(
-                                    "#/shard_group".to_owned(),
-                                    shard_groups,
-                                )]),
-                            })
+                            let checked = crate::providers::clickhouse::ClickHouseSourceProvider::check_connection(config, metrics_registry).await?;
+                            Ok(clickhouse_connection_check_result(checked))
                         }
                     }
                 },
@@ -506,17 +501,12 @@ fn build_base_provider_catalog(
             )?
             .sink_checker::<crate::providers::clickhouse::ClickHouseSinkConfig, _, _>(
                 |config| async move {
-                    let shard_groups =
+                    let checked =
                         crate::providers::clickhouse::ClickHouseSinkProvider::check_connection(
                             config,
                         )
                         .await?;
-                    Ok(crate::providers::traits::ConnectionCheckResult {
-                        options: std::collections::BTreeMap::from([(
-                            "#/shard_group".to_owned(),
-                            shard_groups,
-                        )]),
-                    })
+                    Ok(clickhouse_connection_check_result(checked))
                 },
             ),
     )?;
@@ -655,6 +645,22 @@ fn build_base_provider_catalog(
     )?;
 
     Ok(catalog)
+}
+
+fn clickhouse_connection_check_result(
+    checked: crate::providers::clickhouse::sink::ClickHouseConnectionCheck,
+) -> crate::providers::traits::ConnectionCheckResult {
+    match checked {
+        crate::providers::clickhouse::sink::ClickHouseConnectionCheck::Verified {
+            shard_groups,
+        } => crate::providers::traits::ConnectionCheckResult {
+            options: std::collections::BTreeMap::from([("#/shard_group".to_owned(), shard_groups)]),
+            ..Default::default()
+        },
+        crate::providers::clickhouse::sink::ClickHouseConnectionCheck::NetworkReachable => {
+            crate::providers::traits::ConnectionCheckResult::network_reachable()
+        }
+    }
 }
 
 pub fn register_builtin_installations(registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
