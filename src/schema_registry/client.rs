@@ -92,10 +92,7 @@ impl RegistryClient {
             .get(&["subjects", subject, "versions", "latest"], &[])
             .await
             .with_context(|| {
-                format!(
-                    "failed to fetch latest Schema Registry schema for subject '{}'",
-                    subject
-                )
+                format!("failed to fetch latest Schema Registry schema for subject '{subject}'")
             })?;
         validate_format(format, response.schema_type.as_deref())?;
         Ok(RegistrySchema {
