@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run the smallest conservative test set for the current change.
+"""Run the smallest useful test set for the current change.
 
-This is a development accelerator, not a replacement for the mandatory full
-gate. Unknown or cross-cutting files deliberately fall back to the full suite.
+The selector distinguishes contract/configuration edits from data-plane edits:
+only the latter start external E2E services. Unknown or truly cross-cutting
+files deliberately fall back to the full suite.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 
@@ -39,6 +42,19 @@ CROSS_CUTTING = {
     ".cargo/config.toml",
 }
 
+PROVIDER_RUNTIME_PARTS = {
+    "actor.rs",
+    "client.rs",
+    "reader.rs",
+    "source.rs",
+    "transport.rs",
+    "writer.rs",
+    "sink.rs",
+    "src_batch",
+    "src_stream",
+    "src_dblog",
+}
+
 
 @dataclass
 class Selection:
@@ -64,6 +80,13 @@ def provider_e2e(provider: str, parts: tuple[str, ...]) -> set[str]:
         elif "src_batch" in parts:
             tests.discard("e2e_sinks")
     return tests
+
+
+def touches_provider_runtime(parts: tuple[str, ...]) -> bool:
+    """Return true only when a provider's external data path changed."""
+    if "tests" in parts or any(part.startswith("tests.") for part in parts):
+        return False
+    return bool(PROVIDER_RUNTIME_PARTS.intersection(parts[3:]))
 
 
 def normalize(path: str) -> str:
@@ -123,11 +146,10 @@ def select(paths: list[str]) -> Selection:
                 provider = parts[2]
                 if provider.endswith(".rs"):
                     result.rust_modules.add("providers")
-                    for tests in PROVIDER_E2E.values():
-                        result.integration_tests.update(tests)
                 else:
                     result.rust_modules.add(f"providers::{provider}")
-                    result.integration_tests.update(provider_e2e(provider, parts))
+                    if touches_provider_runtime(parts):
+                        result.integration_tests.update(provider_e2e(provider, parts))
             elif module == "parsers":
                 parser = parts[2] if len(parts) > 2 else ""
                 if parser == "mod.rs":
@@ -235,12 +257,30 @@ def display(command: list[str], cwd: Path) -> str:
 
 
 def run_group(group: list[list[str]], cwd: Path) -> int:
+    group_started = time.monotonic()
     for command in group:
+        started = time.monotonic()
         print(f"+ {display(command, cwd)}", flush=True)
         completed = subprocess.run(command, cwd=cwd, env=os.environ.copy(), check=False)
+        elapsed = time.monotonic() - started
+        print(
+            f"[{elapsed:.2f}s] {'PASS' if completed.returncode == 0 else 'FAIL'}: "
+            f"{display(command, cwd)}",
+            flush=True,
+        )
         if completed.returncode:
             return completed.returncode
+    print(f"[{time.monotonic() - group_started:.2f}s] group completed", flush=True)
     return 0
+
+
+def run_parallel_group(group: list[list[str]], cwd: Path) -> int:
+    """Run independent commands concurrently and retain complete diagnostics."""
+    if len(group) < 2:
+        return run_group(group, cwd)
+    with ThreadPoolExecutor(max_workers=len(group)) as executor:
+        statuses = list(executor.map(lambda command: run_group([command], cwd), group))
+    return next((status for status in statuses if status), 0)
 
 
 def main() -> int:
@@ -278,10 +318,10 @@ def main() -> int:
         rust_process = subprocess.Popen(
             [sys.executable, __file__, "--run-group", "rust", *paths], cwd=ROOT
         )
-        web_status = run_group(web, ROOT / "web")
+        web_status = run_parallel_group(web, ROOT / "web")
         rust_status = rust_process.wait()
         return web_status or rust_status
-    return run_group(rust, ROOT) if rust else run_group(web, ROOT / "web")
+    return run_group(rust, ROOT) if rust else run_parallel_group(web, ROOT / "web")
 
 
 if __name__ == "__main__":

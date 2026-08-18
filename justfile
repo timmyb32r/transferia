@@ -22,6 +22,10 @@ check: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace --all-targets --all-features
 
+# Normal development/completion gate: formatting plus only affected tests.
+check-affected *args: fmt-check
+    python3 scripts/test_affected.py {{args}}
+
 # Full verification: check + MIRI UB detection
 verify: check
     cargo miri test -- --test-threads=1

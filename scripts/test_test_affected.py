@@ -33,6 +33,29 @@ class AffectedTestsTest(unittest.TestCase):
         self.assertNotIn("e2e_clickhouse_source", rust[1])
         self.assertIn("e2e_sinks", rust[1])
 
+    def test_catalog_change_does_not_start_provider_e2e_services(self):
+        selection = test_affected.select(["src/providers/catalog.rs"])
+        rust, _ = test_affected.commands(selection)
+
+        self.assertFalse(selection.full)
+        self.assertEqual(selection.integration_tests, set())
+        self.assertEqual(
+            rust,
+            [["cargo", "test", "--lib", "--all-features", "providers::"]],
+        )
+
+    def test_provider_config_change_stays_in_fast_unit_tests(self):
+        selection = test_affected.select(["src/providers/kafka/config.rs"])
+        rust, _ = test_affected.commands(selection)
+
+        self.assertEqual(selection.integration_tests, set())
+        self.assertEqual(len(rust), 1)
+
+    def test_provider_transport_change_selects_owned_e2e(self):
+        selection = test_affected.select(["src/providers/kafka/src_stream/source.rs"])
+
+        self.assertEqual(selection.integration_tests, {"e2e_kafka"})
+
     def test_changed_integration_test_runs_only_that_target(self):
         selection = test_affected.select(["tests/e2e_postgres.rs"])
         rust, _ = test_affected.commands(selection)
