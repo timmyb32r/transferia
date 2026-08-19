@@ -1290,6 +1290,34 @@ input[type="checkbox"]:disabled {
   padding: 10px;
   color: var(--muted);
 }
+.dynamic-path,
+.dynamic-path-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+.dynamic-path-input-wrap input {
+  width: 100%;
+  padding-right: 34px;
+}
+.dynamic-path-spinner {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+}
+.dynamic-path-option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+}
+.dynamic-path-kind {
+  color: var(--muted);
+  text-align: center;
+}
+.dynamic-path-menu {
+  min-height: 42px;
+}
 .password-control {
   position: relative;
 }

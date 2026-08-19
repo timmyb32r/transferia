@@ -58,11 +58,16 @@ export const httpControlPlane: ControlPlanePort = {
     }),
   options: ({
     key,
+    query,
     dependencies = {},
     refresh = false,
     signal,
   }: DynamicOptionsQuery) => {
-    const body: OptionsRequest = { refresh, dependencies };
+    const body: OptionsRequest = {
+      refresh,
+      dependencies,
+      ...(query === undefined ? {} : { query }),
+    };
     return request(
       `/api/v1/options/${encodeURIComponent(key)}`,
       "dynamic_options_response",

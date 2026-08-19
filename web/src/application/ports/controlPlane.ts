@@ -18,6 +18,7 @@ import type { UiCatalog } from "../../types";
 
 export interface DynamicOptionsQuery {
   key: string;
+  query?: string;
   dependencies?: Record<string, string>;
   refresh?: boolean;
   signal?: AbortSignal;

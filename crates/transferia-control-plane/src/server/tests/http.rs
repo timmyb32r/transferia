@@ -377,7 +377,7 @@ async fn assets_and_missing_routes_have_correct_http_contracts() -> anyhow::Resu
             .to_vec(),
     )?;
     assert!(
-        javascript.contains("transferia-schema-dialect-dynamic-options-dependencies-v1"),
+        javascript.contains("transferia-schema-dialect-path-options-v2"),
         "embedded UI bundle must declare support for dependency-aware catalog fields"
     );
     assert!(

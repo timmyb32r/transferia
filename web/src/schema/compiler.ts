@@ -1,7 +1,7 @@
 import type { JsonObject, JsonSchema, JsonValue } from "../types";
 
 export const SCHEMA_DIALECT_VERSION =
-  "transferia-schema-dialect-dynamic-options-dependencies-v1";
+  "transferia-schema-dialect-path-options-v2";
 import {
   NO_WIDGETS,
   type WidgetContracts,

@@ -21,15 +21,15 @@ fn provider(extra: &str) -> anyhow::Result<YdbDriverSourceProvider> {
 fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() -> anyhow::Result<()>
 {
     let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(
-        "host: sas.logbroker.yandex.net\nport: 2135\ntopics: [{ path: cdc/prod/logs, partitions: [] }]\nconsumer_name: /cdc/prod/consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser: {}\nread_buffer_bytes: 1048576\n",
+        "host: lb.example.test\nport: 2135\ntopics: [{ path: account/topic, partitions: [] }]\nconsumer_name: /account/consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser: {}\nread_buffer_bytes: 1048576\n",
     )?;
     let message = connection_check_init_message(&config);
     let Some(ClientMessage::InitRequest(init)) = message.client_message else {
         panic!("connection check must begin with StreamRead InitRequest");
     };
-    assert_eq!(init.consumer, "/cdc/prod/consumer");
+    assert_eq!(init.consumer, "/account/consumer");
     assert_eq!(init.topics_read_settings.len(), 1);
-    assert_eq!(init.topics_read_settings[0].path, "cdc/prod/logs");
+    assert_eq!(init.topics_read_settings[0].path, "account/topic");
     assert_eq!(init.partition_max_in_flight_bytes, 1_048_576);
     Ok(())
 }
@@ -55,7 +55,7 @@ fn ydb_wire_paths_accept_both_user_facing_forms() -> anyhow::Result<()> {
     for topic in ["cdc/prod/logs", "/cdc/prod/logs"] {
         for consumer in ["cdc/prod/consumer", "/cdc/prod/consumer"] {
             let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(&format!(
-                "host: sas.logbroker.yandex.net\nport: 2135\ntopics: [{{ path: {topic}, partitions: [] }}]\nconsumer_name: {consumer}\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nparser: {{}}\nread_buffer_bytes: 1048576\n"
+                "host: lb.example.test\nport: 2135\ntopics: [{{ path: {topic}, partitions: [] }}]\nconsumer_name: {consumer}\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nparser: {{}}\nread_buffer_bytes: 1048576\n"
             ))?;
             let message = connection_check_init_message(&config);
             let Some(ClientMessage::InitRequest(init)) = message.client_message else {

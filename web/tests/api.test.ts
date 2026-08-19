@@ -87,19 +87,19 @@ describe("control-plane API", () => {
 
     await api.options({
       key: "databases",
+      query: "cdc/pro",
       dependencies: { cluster_id: "mdb1" },
     });
 
-    expect(request).toHaveBeenCalledWith(
-      "/api/v1/options/databases",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          refresh: false,
-          dependencies: { cluster_id: "mdb1" },
-        }),
-      }),
-    );
+    expect(request).toHaveBeenCalledOnce();
+    const [path, init] = request.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/v1/options/databases");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({
+      refresh: false,
+      query: "cdc/pro",
+      dependencies: { cluster_id: "mdb1" },
+    });
   });
 
   it("runs SQL playground samples through the typed API contract", async () => {

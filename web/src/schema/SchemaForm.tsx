@@ -12,6 +12,7 @@ import {
 } from "./compiler";
 import { ArrayNodeEditor } from "./ArrayNodeEditor";
 import { DynamicSelectControl } from "./DynamicSelectControl";
+import { DynamicPathControl } from "./DynamicPathControl";
 import { draftValue } from "./draft";
 import { UnionNodeEditor } from "./UnionNodeEditor";
 import { VariantDetailsCard } from "./VariantDetailsCard";
@@ -289,7 +290,12 @@ function NodeEditor({
         );
       }
       if (typeof node.xUi.dynamic_options === "string") {
+        const DynamicControl =
+          node.xUi.dynamic_options_control === "path"
+            ? DynamicPathControl
+            : DynamicSelectControl;
         const dependencyPointers = node.xUi.dynamic_options_dependencies;
+        const pathControl = node.xUi.dynamic_options_control === "path";
         const dependencies =
           isObject(dependencyPointers) &&
           Object.values(dependencyPointers).every(
@@ -302,14 +308,15 @@ function NodeEditor({
                       rootValue,
                       pointer as string,
                     );
-                    return typeof dependency === "string" && dependency !== ""
-                      ? [[name, dependency]]
-                      : [];
+                    if (typeof dependency === "string" && dependency !== "")
+                      return [[name, dependency]];
+                    return pathControl ? [[name, ""]] : [];
                   },
                 ),
               )
             : {};
         if (
+          !pathControl &&
           isObject(dependencyPointers) &&
           Object.keys(dependencies).length !==
             Object.keys(dependencyPointers).length
@@ -331,7 +338,7 @@ function NodeEditor({
         return withExternalLink(
           node,
           typeof value === "string" ? value : "",
-          <DynamicSelectControl
+          <DynamicControl
             id={controlId}
             source={node.xUi.dynamic_options}
             dependencies={dependencies}

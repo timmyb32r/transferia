@@ -250,6 +250,12 @@ fn apply_dynamic_options_bindings(
             "dynamic_options_dependencies".to_owned(),
             serde_json::to_value(&binding.dependencies)?,
         );
+        if binding.control == crate::extension::DynamicOptionsControl::Path {
+            ui.insert(
+                "dynamic_options_control".to_owned(),
+                JsonValue::String("path".to_owned()),
+            );
+        }
     }
     Ok(())
 }

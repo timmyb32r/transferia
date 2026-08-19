@@ -77,6 +77,26 @@ describe("schema compiler", () => {
     });
   });
 
+  it("compiles hierarchical dynamic options as an explicit path control", () => {
+    const node = compileSchema({
+      type: "string",
+      "x-ui": {
+        dynamic_options: "endpoint.paths",
+        dynamic_options_control: "path",
+      },
+    });
+    expect(node.xUi.dynamic_options_control).toBe("path");
+    expect(() =>
+      compileSchema({
+        type: "string",
+        "x-ui": {
+          dynamic_options: "broken",
+          dynamic_options_control: "tree",
+        },
+      }),
+    ).toThrow(/dynamic_options_control must be path/);
+  });
+
   it("requires an explicit one-of selection", () => {
     const node = compileSchema({
       oneOf: [

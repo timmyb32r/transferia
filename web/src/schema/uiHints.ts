@@ -9,6 +9,7 @@ export interface UiHints {
   initial_items?: number;
   dynamic_options?: string;
   dynamic_options_dependencies?: Readonly<Record<string, string>>;
+  dynamic_options_control?: "path";
   external_link_template?: string;
   labels?: Readonly<Record<string, string>>;
   options?: readonly JsonValue[];
@@ -22,6 +23,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "initial_items",
   "dynamic_options",
   "dynamic_options_dependencies",
+  "dynamic_options_control",
   "external_link_template",
   "labels",
   "options",
@@ -76,6 +78,12 @@ export function decodeUiHints(
     `${path}: x-ui dynamic_options_dependencies must map names to absolute JSON pointers`,
     fail,
   );
+  const dynamicOptionsControl = value.dynamic_options_control;
+  if (
+    dynamicOptionsControl !== undefined &&
+    dynamicOptionsControl !== "path"
+  )
+    fail(`${path}: x-ui dynamic_options_control must be path`);
   if (
     dependencies !== undefined &&
     !Object.values(dependencies).every((pointer) => pointer.startsWith("/"))
@@ -125,6 +133,9 @@ export function decodeUiHints(
     ...(dependencies === undefined
       ? {}
       : { dynamic_options_dependencies: dependencies }),
+    ...(dynamicOptionsControl === undefined
+      ? {}
+      : { dynamic_options_control: dynamicOptionsControl }),
     ...(linkTemplate === undefined
       ? {}
       : { external_link_template: linkTemplate }),

@@ -115,6 +115,17 @@ pub(crate) struct DynamicOptionsBinding {
     pub source: &'static str,
 
     pub dependencies: BTreeMap<&'static str, &'static str>,
+
+    pub control: DynamicOptionsControl,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DynamicOptionsControl {
+    #[default]
+    Select,
+
+    Path,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -373,6 +384,43 @@ impl ExtensionRegistry {
         source: &'static str,
         dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
     ) -> anyhow::Result<()> {
+        self.register_options_binding_with_control(
+            provider,
+            role,
+            schema_pointer,
+            source,
+            dependencies,
+            DynamicOptionsControl::Select,
+        )
+    }
+
+    pub fn register_path_options_binding(
+        &mut self,
+        provider: &'static str,
+        role: EndpointRole,
+        schema_pointer: &'static str,
+        source: &'static str,
+        dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) -> anyhow::Result<()> {
+        self.register_options_binding_with_control(
+            provider,
+            role,
+            schema_pointer,
+            source,
+            dependencies,
+            DynamicOptionsControl::Path,
+        )
+    }
+
+    fn register_options_binding_with_control(
+        &mut self,
+        provider: &'static str,
+        role: EndpointRole,
+        schema_pointer: &'static str,
+        source: &'static str,
+        dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
+        control: DynamicOptionsControl,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !provider.is_empty(),
             "options binding provider must not be empty"
@@ -398,6 +446,7 @@ impl ExtensionRegistry {
             schema_pointer,
             source,
             dependencies,
+            control,
         };
         let key = (provider, role, schema_pointer);
         anyhow::ensure!(
