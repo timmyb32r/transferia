@@ -126,6 +126,26 @@ async fn source_schema_preview_does_not_require_a_sink() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn message_preview_race_returns_the_first_successful_endpoint() -> anyhow::Result<()> {
+    let mut attempts = tokio::task::JoinSet::new();
+    attempts.spawn(async {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        Ok::<_, anyhow::Error>("slow")
+    });
+    attempts.spawn(async { Ok::<_, anyhow::Error>("fast") });
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        first_successful_preview(&mut attempts, &CancellationToken::new()),
+    )
+    .await??;
+
+    assert_eq!(result, "fast");
+    attempts.abort_all();
+    Ok(())
+}
+
 #[derive(Default)]
 struct MemoryStore {
     deliveries: Mutex<BTreeMap<String, DeliveryRecord>>,

@@ -323,7 +323,7 @@ impl ControlPlane {
         let resolved = self
             .transferia
             .registry()
-            .resolve(
+            .resolve_many(
                 provider,
                 transferia_providers::extension::EndpointRole::Source,
                 raw,
@@ -331,17 +331,26 @@ impl ControlPlane {
             )
             .await
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let config: transferia_providers::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig =
-            serde_yaml::from_value(resolved).map_err(|error| {
-                ServiceError::Validation(format!("invalid source configuration: {error}"))
-            })?;
-        let preview = transferia_providers::providers::logbroker::preview_message(
-            &config,
-            max_bytes,
-            cancellation,
-        )
-        .await
-        .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let attempts_cancellation = cancellation.child_token();
+        let mut attempts = tokio::task::JoinSet::new();
+        for endpoint in resolved {
+            let config: transferia_providers::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig =
+                serde_yaml::from_value(endpoint).map_err(|error| {
+                    ServiceError::Validation(format!("invalid source configuration: {error}"))
+                })?;
+            let endpoint_cancellation = attempts_cancellation.clone();
+            attempts.spawn(async move {
+                transferia_providers::providers::logbroker::preview_message(
+                    &config,
+                    max_bytes,
+                    endpoint_cancellation,
+                )
+                .await
+            });
+        }
+        let preview = first_successful_preview(&mut attempts, &cancellation).await?;
+        attempts_cancellation.cancel();
+        attempts.abort_all();
         let preview_bytes = preview.payload.len().min(INLINE_MESSAGE_PREVIEW_BYTES);
         let detection_payloads = preview
             .detection_payloads
@@ -968,6 +977,32 @@ impl ControlPlane {
         record.updated_at_ms = now_ms();
         self.store.replace(record, expected_record_version).await?;
         Ok(())
+    }
+}
+
+async fn first_successful_preview<T: Send + 'static>(
+    attempts: &mut tokio::task::JoinSet<anyhow::Result<T>>,
+    cancellation: &CancellationToken,
+) -> Result<T, ServiceError> {
+    let mut failures = Vec::new();
+    loop {
+        let next = tokio::select! {
+            () = cancellation.cancelled() => {
+                return Err(ServiceError::Validation("message preview cancelled".to_owned()));
+            }
+            next = attempts.join_next() => next,
+        };
+        let Some(result) = next else {
+            return Err(ServiceError::Validation(format!(
+                "message preview failed on every resolved endpoint: {}",
+                failures.join("; ")
+            )));
+        };
+        match result {
+            Ok(Ok(preview)) => return Ok(preview),
+            Ok(Err(error)) => failures.push(error.to_string()),
+            Err(error) => failures.push(format!("preview task failed: {error}")),
+        }
     }
 }
 
