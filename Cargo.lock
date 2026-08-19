@@ -5120,6 +5120,8 @@ dependencies = [
  "transferia-control-plane",
  "transferia-core",
  "transferia-delivery",
+ "transferia-middleware-datafusion",
+ "transferia-middleware-filter",
  "transferia-providers",
  "transferia-registry",
  "transferia-runtime",
@@ -5195,13 +5197,9 @@ name = "transferia-delivery"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow",
- "async-trait",
  "bytes",
  "chrono",
- "datafusion",
  "futures-util",
- "schemars 1.2.2",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -5226,6 +5224,41 @@ dependencies = [
  "tokio",
  "tracing",
  "transferia-core",
+]
+
+[[package]]
+name = "transferia-middleware-datafusion"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "datafusion",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-middleware-filter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
 ]
 
 [[package]]
@@ -5475,6 +5508,8 @@ dependencies = [
  "tokio-util",
  "transferia-core",
  "transferia-delivery-contracts",
+ "transferia-middleware-datafusion",
+ "transferia-middleware-filter",
  "transferia-pipeline",
  "transferia-provider-clickhouse",
  "transferia-provider-kafka",

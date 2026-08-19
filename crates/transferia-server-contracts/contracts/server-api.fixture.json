@@ -37,7 +37,63 @@
           "title": "Transforms",
           "type": "array",
           "items": {
-            "$ref": "#/$defs/MiddlewareSchema"
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "filter": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "FilterConfig",
+                    "type": "object",
+                    "properties": {
+                      "field": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "field",
+                      "value"
+                    ]
+                  }
+                },
+                "required": [
+                  "filter"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "datafusion": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": "DataFusionConfig",
+                    "type": "object",
+                    "properties": {
+                      "sql": {
+                        "title": "SQL",
+                        "description": "One SELECT query over the input table",
+                        "type": "string",
+                        "x-ui": {
+                          "widget": "sql"
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "sql"
+                    ]
+                  }
+                },
+                "required": [
+                  "datafusion"
+                ],
+                "additionalProperties": false
+              }
+            ]
           },
           "x-ui": {
             "widget": "middlewares"
@@ -75,67 +131,6 @@
             "batch",
             "stream",
             "batch_and_stream"
-          ]
-        },
-        "MiddlewareSchema": {
-          "oneOf": [
-            {
-              "type": "object",
-              "properties": {
-                "datafusion": {
-                  "$ref": "#/$defs/DataFusionConfig"
-                }
-              },
-              "required": [
-                "datafusion"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "properties": {
-                "filter": {
-                  "$ref": "#/$defs/FilterConfig"
-                }
-              },
-              "required": [
-                "filter"
-              ],
-              "additionalProperties": false
-            }
-          ]
-        },
-        "DataFusionConfig": {
-          "type": "object",
-          "properties": {
-            "sql": {
-              "title": "SQL",
-              "description": "One SELECT query over the input table",
-              "type": "string",
-              "x-ui": {
-                "widget": "sql"
-              }
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "sql"
-          ]
-        },
-        "FilterConfig": {
-          "type": "object",
-          "properties": {
-            "field": {
-              "type": "string"
-            },
-            "value": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "field",
-            "value"
           ]
         },
         "MetricsConfig": {

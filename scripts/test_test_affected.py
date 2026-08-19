@@ -102,6 +102,23 @@ class AffectedTestsTest(unittest.TestCase):
             "cargo", "test", "--lib", "-p", "transferia-control-plane"
         ])
 
+    def test_middleware_change_stays_in_its_crate_without_provider_e2e(self):
+        selection = test_affected.select([
+            "crates/transferia-middleware-datafusion/src/lib.rs"
+        ])
+        rust, web = test_affected.commands(selection)
+
+        self.assertEqual(web, [])
+        self.assertFalse(selection.full)
+        self.assertEqual(selection.integration_tests, set())
+        self.assertEqual(selection.rust_packages, {"transferia-middleware-datafusion"})
+        self.assertEqual(
+            rust[-1],
+            ["cargo", "test", "--lib", "-p", "transferia-middleware-datafusion"],
+        )
+        self.assertIn("transferia-providers", rust[2])
+        self.assertNotIn("transferia-delivery", rust[2])
+
     def test_public_crate_surface_checks_transitive_dependents(self):
         selection = test_affected.select([
             "crates/transferia-providers/src/lib.rs"

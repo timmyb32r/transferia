@@ -6,6 +6,8 @@ members = [
     "crates/transferia-core",
     "crates/transferia-delivery",
     "crates/transferia-delivery-contracts",
+    "crates/transferia-middleware-datafusion",
+    "crates/transferia-middleware-filter",
     "crates/transferia-provider-clickhouse",
     "crates/transferia-provider-kafka",
     "crates/transferia-provider-logbroker",
@@ -120,6 +122,8 @@ transferia-composition = { path = "crates/transferia-composition" }
 transferia-control-plane = { path = "crates/transferia-control-plane" }
 transferia-core = { path = "crates/transferia-core" }
 transferia-delivery = { path = "crates/transferia-delivery" }
+transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
+transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
 transferia-providers = { path = "crates/transferia-providers" }
 transferia-registry = { path = "crates/transferia-registry" }
 transferia-runtime = { path = "crates/transferia-runtime" }

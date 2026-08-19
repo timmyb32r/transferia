@@ -5,7 +5,7 @@ use serde_json::Value;
 use transferia_delivery::delivery::config::yaml::DeliveryType;
 use transferia_providers::extension::Transferia;
 use transferia_providers::metrics::MetricsConfig;
-use transferia_registry::ProviderDefinition;
+use transferia_registry::{Composition, MiddlewareDefinition, ProviderDefinition};
 
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
@@ -17,21 +17,12 @@ struct CommonConfigSchema {
         title = "Transforms",
         extend("x-ui" = { "widget": "middlewares" })
     )]
-    middlewares: Vec<MiddlewareSchema>,
+    middlewares: Vec<Value>,
 
     #[schemars(title = "Pipeline memory limit", extend("x-ui" = { "widget": "byte_size" }))]
     pipeline_memory_limit_bytes: usize,
 
     metrics: Option<MetricsConfig>,
-}
-
-#[derive(JsonSchema)]
-#[serde(rename_all = "lowercase")]
-#[expect(dead_code, reason = "variants are consumed by the JsonSchema derive")]
-enum MiddlewareSchema {
-    Datafusion(transferia_delivery::middleware::datafusion::DataFusionConfig),
-
-    Filter(transferia_delivery::middleware::filter::FilterConfig),
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
@@ -57,8 +48,14 @@ pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {
 }
 
 pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalog> {
+    let registry = transferia.build_registry(&std::sync::Arc::new(
+        transferia_providers::metrics::MetricsRegistry::new(),
+    ))?;
+    let mut common_schema = serde_json::to_value(schema_for!(CommonConfigSchema))?;
+    common_schema["properties"]["middlewares"]["items"] =
+        middleware_schema(registry.middleware_definitions());
     Ok(UiCatalog {
-        common_schema: serde_json::to_value(schema_for!(CommonConfigSchema))?,
+        common_schema,
         initial: serde_json::json!({
             "delivery_id": "demo-delivery",
             "durable_storage": { "type": "local_file", "path": ".transferia-state" },
@@ -72,3 +69,21 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
         providers: transferia.composition().provider_definitions().to_vec(),
     })
 }
+
+fn middleware_schema(definitions: &[MiddlewareDefinition]) -> Value {
+    serde_json::json!({
+        "oneOf": definitions
+            .iter()
+            .map(|definition| serde_json::json!({
+                "type": "object",
+                "properties": { definition.key: definition.schema },
+                "required": [definition.key],
+                "additionalProperties": false
+            }))
+            .collect::<Vec<_>>()
+    })
+}
+
+#[cfg(test)]
+#[path = "tests/ui_catalog.rs"]
+mod tests;

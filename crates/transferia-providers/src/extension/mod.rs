@@ -745,8 +745,13 @@ impl TransferiaBuilder {
         crate::providers::catalog::validate_extension_registry(&registry)?;
         identities.sort_unstable();
         let definitions = crate::providers::catalog::compile_provider_definitions(&registry)?;
-        let composition_fingerprint =
-            composition_fingerprint(&registry, &identities, &definitions)?;
+        let middleware_definitions = crate::providers::catalog::compile_middleware_definitions()?;
+        let composition_fingerprint = composition_fingerprint(
+            &registry,
+            &identities,
+            &definitions,
+            &middleware_definitions,
+        )?;
         Ok(Transferia {
             composition: Arc::new(CompiledComposition {
                 registry,
@@ -854,6 +859,7 @@ fn composition_fingerprint(
     registry: &ExtensionRegistry,
     identities: &[ExtensionIdentity],
     definitions: &[crate::providers::catalog::ProviderDefinition],
+    middleware_definitions: &[transferia_registry::MiddlewareDefinition],
 ) -> anyhow::Result<String> {
     const HEX: &[u8; 16] = b"0123456789abcdef";
 
@@ -877,6 +883,7 @@ fn composition_fingerprint(
         "extensions": identities,
         "provider_contracts": crate::providers::catalog::provider_contracts(),
         "providers": definitions,
+        "middlewares": middleware_definitions,
         "installations": installations,
         "dynamic_option_keys": registry.option_keys().collect::<Vec<_>>(),
         "external_links": registry.external_link_bindings().collect::<Vec<_>>(),

@@ -9,6 +9,12 @@ struct TestSourceConfig {
     enabled: bool,
 }
 
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TestMiddlewareConfig {
+    label: String,
+}
+
 fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistration> {
     ComponentRegistration::new(key, "Test source").source::<TestSourceConfig, _, _>(
         vec![DeliveryMode::Stream],
@@ -19,6 +25,76 @@ fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistratio
             anyhow::bail!("test factory intentionally has no runtime provider")
         },
     )
+}
+
+fn middleware_registration(key: &'static str) -> anyhow::Result<MiddlewareRegistration> {
+    MiddlewareRegistration::new::<TestMiddlewareConfig, _, _>(
+        key,
+        "Test middleware",
+        || serde_json::json!({ "label": "initial" }),
+        |_config| anyhow::bail!("test factory intentionally has no middleware"),
+    )
+}
+
+#[tokio::test]
+async fn middleware_registration_owns_schema_decoder_and_preview_capability() -> anyhow::Result<()>
+{
+    let mut builder = RegistryBuilder::new();
+    builder.register_middleware(MiddlewareRegistration::new_with_preview::<
+        TestMiddlewareConfig,
+        _,
+        _,
+        _,
+        _,
+    >(
+        "transform",
+        "Test middleware",
+        || serde_json::json!({ "label": "initial" }),
+        |_config| anyhow::bail!("test factory intentionally has no middleware"),
+        |config, rows| async move {
+            Ok(MiddlewarePreview {
+                columns: vec![MiddlewarePreviewColumn {
+                    name: config.label,
+                    arrow_type: "Utf8".to_owned(),
+                    nullable: false,
+                }],
+                rows,
+            })
+        },
+    )?)?;
+    let registry = builder.build();
+
+    assert_eq!(registry.middleware_definitions()[0].key, "transform");
+    assert!(registry.middleware_definitions()[0].playground);
+    assert!(registry.middleware_definitions()[0]
+        .schema
+        .pointer("/properties/label")
+        .is_some());
+    let preview = registry
+        .preview_middleware(
+            "transform",
+            serde_yaml::from_str("label: projected\n")?,
+            vec![serde_json::json!({ "id": 1 })],
+        )
+        .await?;
+    assert_eq!(preview.columns[0].name, "projected");
+    assert_eq!(preview.rows, vec![serde_json::json!({ "id": 1 })]);
+    assert!(registry
+        .build_middleware("transform", serde_yaml::from_str("unknown: true\n")?)
+        .is_err());
+    Ok(())
+}
+
+#[test]
+fn registry_rejects_duplicate_middleware_keys() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register_middleware(middleware_registration("transform")?)?;
+    let error = builder
+        .register_middleware(middleware_registration("transform")?)
+        .err()
+        .expect("duplicate middleware must fail");
+    assert!(error.to_string().contains("registered more than once"));
+    Ok(())
 }
 
 #[test]

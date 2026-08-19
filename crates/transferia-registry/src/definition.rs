@@ -48,3 +48,25 @@ pub struct ProviderDefinition {
     #[schemars(extend("x-omit-none" = true))]
     pub sink: Option<EndpointDefinition>,
 }
+
+#[derive(Clone, Debug, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MiddlewareDefinition {
+    pub key: &'static str,
+
+    pub title: &'static str,
+
+    #[schemars(
+        with = "BTreeMap<String, JsonValue>",
+        extend("x-typescript-type" = "JsonSchema")
+    )]
+    pub schema: JsonValue,
+
+    #[schemars(
+        with = "BTreeMap<String, JsonValue>",
+        extend("x-typescript-type" = "JsonObject")
+    )]
+    pub initial: JsonValue,
+
+    pub playground: bool,
+}

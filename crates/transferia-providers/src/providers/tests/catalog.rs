@@ -99,6 +99,29 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
 }
 
 #[test]
+fn middleware_catalog_registers_light_and_heavy_components_once() -> anyhow::Result<()> {
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let definitions = catalog.middleware_definitions();
+    assert_eq!(
+        definitions
+            .iter()
+            .map(|definition| definition.key)
+            .collect::<Vec<_>>(),
+        ["filter", "datafusion"]
+    );
+    assert!(!definitions[0].playground);
+    assert!(definitions[1].playground);
+    assert!(definitions[1].schema.pointer("/properties/sql").is_some());
+    assert!(catalog
+        .build_middleware(
+            "unknown",
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::default()),
+        )
+        .is_err());
+    Ok(())
+}
+
+#[test]
 fn queue_sinks_expose_serializer_selection_to_the_ui() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
 

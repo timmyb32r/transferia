@@ -4,10 +4,6 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
-[features]
-default = []
-datafusion = ["transferia-delivery/datafusion"]
-
 [[bin]]
 name = "generate-server-api"
 path = "src/bin/generate_server_api.rs"
@@ -34,7 +30,7 @@ tokio-util.workspace = true
 tower.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
-transferia-delivery = { path = "../transferia-delivery", default-features = false }
+transferia-delivery = { path = "../transferia-delivery" }
 transferia-providers = { path = "../transferia-providers" }
 transferia-registry = { path = "../transferia-registry" }
 transferia-runtime = { path = "../transferia-runtime" }

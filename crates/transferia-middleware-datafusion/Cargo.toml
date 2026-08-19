@@ -1,24 +1,23 @@
 [package]
-name = "transferia-delivery"
+name = "transferia-middleware-datafusion"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-bytes.workspace = true
-chrono.workspace = true
-futures-util.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+datafusion.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-transferia-pipeline = { path = "../transferia-pipeline" }
 transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+tokio.workspace = true
 
 [lints]
 workspace = true

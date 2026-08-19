@@ -148,6 +148,15 @@ pub(crate) fn compile_provider_definitions(
     Ok(catalog.definitions().to_vec())
 }
 
+pub(crate) fn compile_middleware_definitions(
+) -> anyhow::Result<Vec<transferia_registry::MiddlewareDefinition>> {
+    Ok(
+        build_base_provider_catalog(&Arc::new(MetricsRegistry::new()))?
+            .middleware_definitions()
+            .to_vec(),
+    )
+}
+
 fn apply_external_link_bindings(
     definitions: &mut [ProviderDefinition],
     registry: &ExtensionRegistry,
@@ -249,6 +258,8 @@ fn build_base_provider_catalog(
     _metrics_registry: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<ProviderCatalog> {
     let mut catalog = RegistryBuilder::new();
+    transferia_middleware_filter::register(&mut catalog)?;
+    transferia_middleware_datafusion::register(&mut catalog)?;
 
     catalog.register(
         component_registration("logbroker")?

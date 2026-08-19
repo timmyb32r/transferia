@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::delivery::config::yaml::Config;
-use crate::middleware::build_middleware;
 use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
@@ -245,7 +244,7 @@ async fn build_pipeline_plan(
     let middlewares = config
         .middlewares
         .iter()
-        .map(|middleware| build_middleware(middleware.kind()?, middleware.raw()?.clone()))
+        .map(|middleware| catalog.build_middleware(middleware.kind()?, middleware.raw()?.clone()))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let discovery = validate_middlewares(&middlewares, discovery).await?;
     let semantics = validate_discovered_pipeline(

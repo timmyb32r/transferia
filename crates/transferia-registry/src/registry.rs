@@ -9,10 +9,11 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_delivery_contracts::middleware::Middleware;
 
 use crate::{
-    ConnectionCheckResult, DeliveryMode, EndpointDefinition, EndpointRole, ProviderDefinition,
-    SinkProvider, SourceProvider,
+    ConnectionCheckResult, DeliveryMode, EndpointDefinition, EndpointRole, MiddlewareDefinition,
+    ProviderDefinition, SinkProvider, SourceProvider,
 };
 
 type ConnectionChecker = Box<
@@ -22,6 +23,31 @@ type ConnectionChecker = Box<
 >;
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
+type MiddlewareFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync>;
+type MiddlewarePreviewer = Box<
+    dyn Fn(
+            Value,
+            Vec<JsonValue>,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<MiddlewarePreview>> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MiddlewarePreviewColumn {
+    pub name: String,
+
+    pub arrow_type: String,
+
+    pub nullable: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MiddlewarePreview {
+    pub columns: Vec<MiddlewarePreviewColumn>,
+
+    pub rows: Vec<JsonValue>,
+}
 
 /// Complete executable composition consumed by delivery preparation.
 ///
@@ -50,6 +76,82 @@ pub struct ComponentRegistration {
     sink: Option<(EndpointDefinition, SinkFactory)>,
     source_checker: Option<ConnectionChecker>,
     sink_checker: Option<ConnectionChecker>,
+}
+
+pub struct MiddlewareRegistration {
+    key: &'static str,
+    definition: MiddlewareDefinition,
+    factory: MiddlewareFactory,
+    previewer: Option<MiddlewarePreviewer>,
+}
+
+impl MiddlewareRegistration {
+    pub fn new<C, F, I>(
+        key: &'static str,
+        title: &'static str,
+        initial: I,
+        factory: F,
+    ) -> anyhow::Result<Self>
+    where
+        C: DeserializeOwned + JsonSchema + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync + 'static,
+        I: FnOnce() -> JsonValue,
+    {
+        anyhow::ensure!(!key.is_empty(), "middleware key must not be empty");
+        anyhow::ensure!(
+            !title.trim().is_empty(),
+            "middleware '{key}' title must not be empty"
+        );
+        let initial = initial();
+        serde_json::from_value::<C>(initial.clone()).map_err(|error| {
+            anyhow::anyhow!("invalid initial middleware configuration for '{key}': {error}")
+        })?;
+        Ok(Self {
+            key,
+            definition: MiddlewareDefinition {
+                key,
+                title,
+                schema: serde_json::to_value(schema_for!(C))?,
+                initial,
+                playground: false,
+            },
+            factory: Box::new(move |raw| {
+                let config = serde_yaml::from_value(raw).map_err(|error| {
+                    anyhow::anyhow!("invalid middleware configuration: {error}")
+                })?;
+                factory(config)
+            }),
+            previewer: None,
+        })
+    }
+
+    pub fn new_with_preview<C, F, I, P, Fut>(
+        key: &'static str,
+        title: &'static str,
+        initial: I,
+        factory: F,
+        previewer: P,
+    ) -> anyhow::Result<Self>
+    where
+        C: DeserializeOwned + JsonSchema + Send + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync + 'static,
+        I: FnOnce() -> JsonValue,
+        P: Fn(C, Vec<JsonValue>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<MiddlewarePreview>> + Send + 'static,
+    {
+        let mut registration = Self::new::<C, _, _>(key, title, initial, factory)?;
+        registration.definition.playground = true;
+        registration.previewer = Some(Box::new(move |raw, rows| {
+            let decoded = serde_yaml::from_value(raw);
+            match decoded {
+                Ok(config) => Box::pin(previewer(config, rows)),
+                Err(error) => Box::pin(async move {
+                    Err(anyhow::anyhow!("invalid middleware configuration: {error}"))
+                }),
+            }
+        }));
+        Ok(registration)
+    }
 }
 
 impl ComponentRegistration {
@@ -208,6 +310,8 @@ impl ComponentRegistration {
 pub struct RegistryBuilder {
     registrations: Vec<ComponentRegistration>,
     keys: BTreeSet<&'static str>,
+    middleware_registrations: Vec<MiddlewareRegistration>,
+    middleware_keys: BTreeSet<&'static str>,
 }
 
 impl RegistryBuilder {
@@ -216,6 +320,8 @@ impl RegistryBuilder {
         Self {
             registrations: Vec::new(),
             keys: BTreeSet::new(),
+            middleware_registrations: Vec::new(),
+            middleware_keys: BTreeSet::new(),
         }
     }
 
@@ -253,6 +359,19 @@ impl RegistryBuilder {
         Ok(self)
     }
 
+    pub fn register_middleware(
+        &mut self,
+        registration: MiddlewareRegistration,
+    ) -> anyhow::Result<&mut Self> {
+        anyhow::ensure!(
+            self.middleware_keys.insert(registration.key),
+            "middleware '{}' is registered more than once",
+            registration.key
+        );
+        self.middleware_registrations.push(registration);
+        Ok(self)
+    }
+
     #[must_use]
     pub fn build(self) -> Registry {
         let mut definitions = Vec::with_capacity(self.registrations.len());
@@ -284,12 +403,25 @@ impl RegistryBuilder {
                 sink,
             });
         }
+        let mut middleware_definitions = Vec::with_capacity(self.middleware_registrations.len());
+        let mut middlewares = BTreeMap::new();
+        let mut middleware_previewers = BTreeMap::new();
+        for registration in self.middleware_registrations {
+            middleware_definitions.push(registration.definition);
+            middlewares.insert(registration.key, registration.factory);
+            if let Some(previewer) = registration.previewer {
+                middleware_previewers.insert(registration.key, previewer);
+            }
+        }
         Registry {
             definitions,
             sources,
             sinks,
             source_checkers,
             sink_checkers,
+            middleware_definitions,
+            middlewares,
+            middleware_previewers,
         }
     }
 }
@@ -306,12 +438,20 @@ pub struct Registry {
     sinks: BTreeMap<&'static str, SinkFactory>,
     source_checkers: BTreeMap<&'static str, ConnectionChecker>,
     sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
+    middleware_definitions: Vec<MiddlewareDefinition>,
+    middlewares: BTreeMap<&'static str, MiddlewareFactory>,
+    middleware_previewers: BTreeMap<&'static str, MiddlewarePreviewer>,
 }
 
 impl Registry {
     #[must_use]
     pub fn definitions(&self) -> &[ProviderDefinition] {
         &self.definitions
+    }
+
+    #[must_use]
+    pub fn middleware_definitions(&self) -> &[MiddlewareDefinition] {
+        &self.middleware_definitions
     }
 
     pub fn edit_definitions(
@@ -351,6 +491,24 @@ impl Registry {
         self.sinks
             .get(kind)
             .ok_or_else(|| anyhow::anyhow!("unknown sink component '{kind}'"))?(raw)
+    }
+
+    pub fn build_middleware(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn Middleware>> {
+        self.middlewares
+            .get(kind)
+            .ok_or_else(|| anyhow::anyhow!("unknown middleware '{kind}'"))?(raw)
+    }
+
+    pub async fn preview_middleware(
+        &self,
+        kind: &str,
+        raw: Value,
+        rows: Vec<JsonValue>,
+    ) -> anyhow::Result<MiddlewarePreview> {
+        let previewer = self.middleware_previewers.get(kind).ok_or_else(|| {
+            anyhow::anyhow!("middleware '{kind}' does not support interactive preview")
+        })?;
+        previewer(raw, rows).await
     }
 
     pub async fn check_connection(

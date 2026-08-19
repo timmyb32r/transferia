@@ -16,7 +16,7 @@ use transferia_core::delivery::{
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::preparation::build_delivery_plan_with;
 use transferia_providers::extension::{DynamicOptions, OptionsRequest, Transferia};
-use transferia_registry::{SinkProvider, SourceDiscoveryContext};
+use transferia_registry::{Composition, SinkProvider, SourceDiscoveryContext};
 use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
 };
@@ -208,37 +208,37 @@ impl ControlPlane {
         sql: String,
         rows: Vec<serde_json::Value>,
     ) -> Result<SqlPlaygroundResult, ServiceError> {
-        #[cfg(not(feature = "datafusion"))]
-        {
-            drop((sql, rows));
-            return Err(ServiceError::Validation(
-                "SQL playground is not available in this build".to_owned(),
-            ));
-        }
-        #[cfg(feature = "datafusion")]
-        {
-            let middleware =
-                transferia_delivery::middleware::datafusion::DataFusionMiddleware::new(sql)
-                    .map_err(|error| ServiceError::Validation(error.to_string()))?;
-            let (batch, rows) = middleware
-                .execute_json_rows(&rows)
-                .await
-                .map_err(|error| ServiceError::Validation(error.to_string()))?;
-            let columns = batch
-                .schema()
-                .fields()
-                .iter()
-                .map(|field| ColumnView {
-                    name: field.name().clone(),
-                    arrow_type: format!("{:?}", field.data_type()),
-                    nullable: field.is_nullable(),
-                    primary_key: false,
-                    low_cardinality: false,
-                    max_length: None,
-                })
-                .collect();
-            Ok(SqlPlaygroundResult { columns, rows })
-        }
+        let metrics = Arc::new(transferia_providers::metrics::MetricsRegistry::new());
+        let registry = self
+            .transferia
+            .build_registry(&metrics)
+            .map_err(ServiceError::Internal)?;
+        let preview = registry
+            .preview_middleware(
+                "datafusion",
+                serde_yaml::to_value(serde_json::json!({ "sql": sql }))
+                    .map_err(anyhow::Error::from)
+                    .map_err(ServiceError::Internal)?,
+                rows,
+            )
+            .await
+            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+        let columns = preview
+            .columns
+            .into_iter()
+            .map(|column| ColumnView {
+                name: column.name,
+                arrow_type: column.arrow_type,
+                nullable: column.nullable,
+                primary_key: false,
+                low_cardinality: false,
+                max_length: None,
+            })
+            .collect();
+        Ok(SqlPlaygroundResult {
+            columns,
+            rows: preview.rows,
+        })
     }
 
     #[must_use]

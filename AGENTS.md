@@ -118,8 +118,8 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   Shared semantics, parser, middleware, retry, tracker, and metrics contracts
   belong to `crates/transferia-delivery-contracts/`. The provider-neutral
   read/parse/write/commit loop belongs to `crates/transferia-pipeline/`.
-- `crates/transferia-registry/` defines configured provider factory boundaries,
-  immutable component registration, provider UI definitions, and the
+- `crates/transferia-registry/` defines configured provider and middleware
+  factory boundaries, immutable component registration, UI definitions, and the
   provider-neutral `Composition` port. It is intentionally not
   `core::Source`/`core::Sink`: factories assemble parser, metrics,
   durable-storage, and runtime-port implementations around those core data-plane
@@ -133,6 +133,13 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   provider support, but never on a sibling provider crate. Heavy client
   dependencies belong exclusively to their provider crate; the architecture
   checker enforces both rules.
+- Every middleware implementation lives in its own
+  `crates/transferia-middleware-*` crate and registers its typed configuration,
+  runtime factory, and optional preview capability through `transferia-registry`.
+  Middleware crates may depend on core, registry, and delivery contracts, but
+  never on delivery orchestration, providers, or sibling middleware crates.
+  Heavy execution engines such as DataFusion belong exclusively to their
+  middleware crate; delivery and control-plane code must use registry ports.
 - `crates/transferia-provider-logbroker/` owns Logbroker discovery, generated
   YDB protocol types, YDB Topic and PQv1 transports, protocol decoding, and
   source/sink behavior. Do not expose Logbroker/YDB transport details through

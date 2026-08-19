@@ -26,5 +26,13 @@ pub mod server {
 }
 
 pub mod middleware {
-    pub use transferia_delivery::middleware::*;
+    pub use transferia_delivery::middleware::MiddlewareEntry;
+
+    pub mod datafusion {
+        pub use transferia_middleware_datafusion::*;
+    }
+
+    pub mod filter {
+        pub use transferia_middleware_filter::*;
+    }
 }

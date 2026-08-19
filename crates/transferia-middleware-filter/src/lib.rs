@@ -11,6 +11,7 @@ use serde::Deserialize;
 use transferia_core::data::schema::DatasetSchema;
 use transferia_core::data::table_data::TableData;
 use transferia_delivery_contracts::middleware::Middleware;
+use transferia_registry::{MiddlewareRegistration, RegistryBuilder};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -163,3 +164,16 @@ impl Middleware for FilterMiddleware {
         })
     }
 }
+
+pub fn register(builder: &mut RegistryBuilder) -> anyhow::Result<()> {
+    builder.register_middleware(MiddlewareRegistration::new::<FilterConfig, _, _>(
+        "filter",
+        "Filter",
+        || serde_json::json!({ "field": "", "value": "" }),
+        |config| Ok(Box::new(FilterMiddleware::new(config.field, config.value)?)),
+    )?)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

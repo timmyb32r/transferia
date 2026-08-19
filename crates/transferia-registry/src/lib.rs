@@ -5,9 +5,12 @@ pub mod durable;
 mod registry;
 mod traits;
 
-pub use definition::{DeliveryMode, EndpointDefinition, ProviderDefinition};
+pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, ProviderDefinition};
 pub use registry::Composition;
-pub use registry::{ComponentRegistration, Registry, RegistryBuilder};
+pub use registry::{
+    ComponentRegistration, MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration,
+    Registry, RegistryBuilder,
+};
 pub use traits::{
     ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, EndpointRole, SinkBuildContext,
     SinkPrepare, SinkProvider, SourceBuildContext, SourceDiscoveryContext, SourceProvider,

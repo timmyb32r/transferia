@@ -4,7 +4,7 @@ use arrow::array::{AsArray, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
-use super::super::datafusion::DataFusionMiddleware;
+use super::DataFusionMiddleware;
 use transferia_core::{DatasetSchema, SchemaColumn, SystemColumns, TableData};
 use transferia_delivery_contracts::middleware::Middleware;
 

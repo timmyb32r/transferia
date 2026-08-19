@@ -17,6 +17,16 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery-contracts",
     },
+    "transferia-middleware-datafusion": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-registry",
+    },
+    "transferia-middleware-filter": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-registry",
+    },
     "transferia-provider-support": {
         "transferia-core",
         "transferia-delivery-contracts",
@@ -68,6 +78,8 @@ PRODUCTION_ALLOWED = {
         "transferia-provider-s3",
         "transferia-provider-support",
         "transferia-provider-ytsaurus",
+        "transferia-middleware-datafusion",
+        "transferia-middleware-filter",
         "transferia-registry",
     },
     "transferia-delivery": {
@@ -102,7 +114,6 @@ DEV_EXTRA = {
     "transferia-provider-s3": {"transferia-pipeline"},
     "transferia-provider-support": {"transferia-pipeline"},
     "transferia-providers": {"transferia-pipeline"},
-    "transferia-delivery": {"transferia-providers"},
 }
 
 HEAVY_PROVIDER_OWNERS = {
@@ -113,6 +124,7 @@ HEAVY_PROVIDER_OWNERS = {
     "tokio-postgres": "transferia-provider-postgres",
     "tokio-postgres-rustls": "transferia-provider-postgres",
     "ydb-grpc": "transferia-provider-logbroker",
+    "datafusion": "transferia-middleware-datafusion",
 }
 
 
@@ -142,6 +154,16 @@ def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[s
         if siblings:
             errors.append(
                 f"{crate}: provider crates must not depend on siblings: {', '.join(sorted(siblings))}"
+            )
+    middleware_crates = {
+        name for name in manifests if name.startswith("transferia-middleware-")
+    }
+    for crate in sorted(middleware_crates):
+        dependencies = internal_dependencies(manifests[crate], "dependencies")
+        siblings = (dependencies & middleware_crates) - {crate}
+        if siblings:
+            errors.append(
+                f"{crate}: middleware crates must not depend on siblings: {', '.join(sorted(siblings))}"
             )
     return errors
 

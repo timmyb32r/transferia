@@ -1,35 +1,24 @@
-use schemars::JsonSchema;
-use serde::Deserialize;
-#[cfg(feature = "datafusion")]
 use std::sync::Arc;
 
-#[cfg(feature = "datafusion")]
 use anyhow::Context;
-#[cfg(feature = "datafusion")]
 use arrow::array::new_empty_array;
-#[cfg(feature = "datafusion")]
 use arrow::compute::concat_batches;
-#[cfg(feature = "datafusion")]
 use arrow::datatypes::{Field, Schema};
-#[cfg(feature = "datafusion")]
 use arrow::record_batch::RecordBatch;
-#[cfg(feature = "datafusion")]
 use async_trait::async_trait;
-#[cfg(feature = "datafusion")]
 use datafusion::execution::context::{SQLOptions, SessionContext};
-#[cfg(feature = "datafusion")]
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::Value;
 
-#[cfg(feature = "datafusion")]
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-#[cfg(feature = "datafusion")]
 use transferia_core::data::system_columns::{SystemColumn, SystemColumns};
-#[cfg(feature = "datafusion")]
 use transferia_core::data::table_data::TableData;
-#[cfg(feature = "datafusion")]
 use transferia_delivery_contracts::middleware::Middleware;
+use transferia_registry::{
+    MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration, RegistryBuilder,
+};
 
-#[cfg(feature = "datafusion")]
 const INPUT_TABLE: &str = "input";
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -43,12 +32,10 @@ pub struct DataFusionConfig {
     pub sql: String,
 }
 
-#[cfg(feature = "datafusion")]
 pub struct DataFusionMiddleware {
     sql: String,
 }
 
-#[cfg(feature = "datafusion")]
 impl DataFusionMiddleware {
     pub fn new(sql: String) -> anyhow::Result<Self> {
         anyhow::ensure!(!sql.trim().is_empty(), "DataFusion SQL must not be empty");
@@ -112,7 +99,6 @@ impl DataFusionMiddleware {
     }
 }
 
-#[cfg(feature = "datafusion")]
 #[async_trait]
 impl Middleware for DataFusionMiddleware {
     async fn output_schema(&self, schema: &DatasetSchema) -> anyhow::Result<DatasetSchema> {
@@ -190,3 +176,37 @@ impl Middleware for DataFusionMiddleware {
         })
     }
 }
+
+pub fn register(builder: &mut RegistryBuilder) -> anyhow::Result<()> {
+    builder.register_middleware(MiddlewareRegistration::new_with_preview::<
+        DataFusionConfig,
+        _,
+        _,
+        _,
+        _,
+    >(
+        "datafusion",
+        "DataFusion SQL",
+        || serde_json::json!({ "sql": "SELECT * FROM input" }),
+        |config| Ok(Box::new(DataFusionMiddleware::new(config.sql)?)),
+        |config, rows| async move {
+            let middleware = DataFusionMiddleware::new(config.sql)?;
+            let (batch, rows) = middleware.execute_json_rows(&rows).await?;
+            let columns = batch
+                .schema()
+                .fields()
+                .iter()
+                .map(|field| MiddlewarePreviewColumn {
+                    name: field.name().clone(),
+                    arrow_type: format!("{:?}", field.data_type()),
+                    nullable: field.is_nullable(),
+                })
+                .collect();
+            Ok(MiddlewarePreview { columns, rows })
+        },
+    )?)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

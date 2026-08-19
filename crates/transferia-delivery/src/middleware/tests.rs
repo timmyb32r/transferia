@@ -1,19 +1,17 @@
 use super::*;
 
 #[test]
-fn builds_middleware_from_opaque_entry() -> anyhow::Result<()> {
+fn decodes_an_opaque_middleware_entry_without_owning_its_implementation() -> anyhow::Result<()> {
     let entry: MiddlewareEntry =
         serde_yaml::from_str("filter:\n  field: event_name\n  value: page_view\n")?;
     anyhow::ensure!(entry.kind()? == "filter");
-    drop(build_middleware(entry.kind()?, entry.raw()?.clone())?);
+    anyhow::ensure!(entry.raw()?["field"] == "event_name");
     Ok(())
 }
 
 #[test]
-fn rejects_unknown_middleware() -> anyhow::Result<()> {
-    let entry: MiddlewareEntry = serde_yaml::from_str("unknown: {}\n")?;
-    anyhow::ensure!(build_middleware(entry.kind()?, entry.raw()?.clone()).is_err());
+fn rejects_multiple_middleware_kinds() -> anyhow::Result<()> {
+    let entry: MiddlewareEntry = serde_yaml::from_str("first: {}\nsecond: {}\n")?;
+    anyhow::ensure!(entry.kind().is_err());
     Ok(())
 }
-#[cfg(feature = "datafusion")]
-mod datafusion;
