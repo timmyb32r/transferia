@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { LatestJob } from "../effects";
 import type { DynamicOptions } from "../generated/apiContract";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
+import { backendSearchQuery } from "../ui/search";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
@@ -48,11 +49,13 @@ export function DynamicPathControl({
     setError(undefined);
     const timer = window.setTimeout(() => {
       void job
-        .run(
-          `${source}:${dependencyKey}:${value}`,
-          source,
-          (key, signal) =>
-            loadOptions({ key, query: value, dependencies, signal }),
+        .run(`${source}:${dependencyKey}:${value}`, source, (key, signal) =>
+          loadOptions({
+            key,
+            query: backendSearchQuery(value),
+            dependencies,
+            signal,
+          }),
         )
         .then((result) => {
           if (result === undefined) return;
@@ -123,7 +126,9 @@ export function DynamicPathControl({
             }
           }}
         />
-        {loading && <span class="spinner dynamic-path-spinner" aria-label="Loading" />}
+        {loading && (
+          <span class="spinner dynamic-path-spinner" aria-label="Loading" />
+        )}
       </div>
       {open && (
         <div

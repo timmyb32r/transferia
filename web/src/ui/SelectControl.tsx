@@ -1,6 +1,7 @@
 import { useId, useMemo } from "preact/hooks";
 
 import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
+import { matchesSearch } from "./search";
 import { useListbox } from "./useListbox";
 
 export interface SelectOption {
@@ -47,10 +48,7 @@ export function SelectControl({
     [clearable, options, placeholder],
   );
   const filtered = useMemo(
-    () =>
-      menuOptions.filter((option) =>
-        option.label.toLowerCase().includes(query.toLowerCase()),
-      ),
+    () => menuOptions.filter((option) => matchesSearch(option.label, query)),
     [menuOptions, query],
   );
   const choose = (next: string) => {
@@ -168,7 +166,7 @@ export function MultiSelectControl({
     (value) => options.find((option) => option.value === value)?.label ?? value,
   );
   const filtered = options.filter((option) =>
-    option.label.toLowerCase().includes(query.toLowerCase()),
+    matchesSearch(option.label, query),
   );
   return (
     <div
@@ -218,7 +216,7 @@ export function MultiSelectControl({
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
-          {placeholder.toLowerCase().includes(query.toLowerCase()) && (
+          {matchesSearch(placeholder, query) && (
             <button
               type="button"
               disabled={disabled}

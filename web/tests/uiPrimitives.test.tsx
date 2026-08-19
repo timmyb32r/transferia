@@ -87,4 +87,30 @@ describe("UI primitives", () => {
     expect(form.queryByRole("listbox")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
+
+  it("matches substrings and text typed with the Russian keyboard layout", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[{ value: "consumer", label: "timmy-test-consumer-00" }]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }), {
+      button: 0,
+    });
+    const search = form.getByRole("searchbox");
+
+    fireEvent.input(search, { target: { value: "cons" } });
+    expect(
+      form.getByRole("option", { name: "timmy-test-consumer-00" }),
+    ).toBeTruthy();
+
+    fireEvent.input(search, { target: { value: "сщты" } });
+    expect(
+      form.getByRole("option", { name: "timmy-test-consumer-00" }),
+    ).toBeTruthy();
+  });
 });

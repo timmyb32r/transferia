@@ -33,9 +33,7 @@ describe("dynamic path control", () => {
             : [{ value: "aaa/", label: "aaa/" }],
       };
     });
-    const view = render(
-      <Harness options={options} initialValue="a" />,
-    );
+    const view = render(<Harness options={options} initialValue="a" />);
     const input = view.getByRole("combobox");
 
     fireEvent.focus(input);
@@ -112,6 +110,21 @@ describe("dynamic path control", () => {
       await view.findByText("Select credentials to load path suggestions."),
     ).toBeTruthy();
     expect(view.queryByText("No matching paths")).toBeNull();
+  });
+
+  it("queries the backend with text corrected from the Russian keyboard layout", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({ options: [] }));
+    const view = render(<Harness options={options} initialValue="свс" />);
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    expect(options).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "cdc" }),
+    );
   });
 });
 
