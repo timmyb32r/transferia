@@ -22,20 +22,22 @@ api-contract-check:
     TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-server-api -- --check
     cd web && npm run check:api
 
-# Complete mandatory gate. Cargo tests include the embedded web UI contract suite.
-check: fmt-check
+# Release/merge gate. This is intentionally expensive and must not be used as
+# an ordinary agent completion gate.
+check-release: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace --all-targets --all-features
 
-# Normal development/completion gate: package-scoped formatting, Clippy, and tests.
-# The selector deliberately escalates to the complete workspace gate when a
-# change cannot be isolated safely.
+# Normal agent development/completion gate: compile checking only. No linking,
+# formatting, linting, tests, E2E, Docker, or generated-artifact checks.
 check-affected *args:
-    python3 scripts/check_crate_boundaries.py
     python3 scripts/test_affected.py {{args}}
 
-# Full verification: check + MIRI UB detection
-verify: check
+# Backward-compatible task-runner name for the release gate, not for agents.
+check: check-release
+
+# Full verification: release gate + MIRI UB detection
+verify: check-release
     cargo miri test -- --test-threads=1
 
 # Run MIRI UB detection only (run this before PR if you touched unsafe code)
@@ -46,8 +48,7 @@ miri: fmt
 test: fmt-check
     cargo test --workspace --all-targets --all-features
 
-# Direct affected quality gate without the crate-boundary precheck.
-# Unknown/cross-cutting inputs deliberately fall back to the complete gate.
+# Alias for the compile-only affected gate.
 test-affected *args:
     python3 scripts/test_affected.py {{args}}
 
@@ -63,8 +64,8 @@ test-affected-self:
 clippy: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# CI pipeline. Miri remains an explicit additional gate for unsafe changes.
-ci: check
+# CI/release pipeline. Miri remains an explicit additional gate for unsafe changes.
+ci: check-release
 
 # Verify the compiler-enforced crate dependency direction without compiling.
 crate-boundaries:

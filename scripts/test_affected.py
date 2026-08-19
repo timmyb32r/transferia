@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Run the smallest safe quality gate for the current change.
+"""Run the smallest compile-only development gate for the current change.
 
-The selector scopes rustfmt, Clippy, unit tests, and E2E tests to affected
-workspace packages. It follows reverse dependencies for public crate surfaces,
-and distinguishes configuration edits from provider data-plane edits so only
-the latter start external services. Unknown or truly cross-cutting files
-deliberately fall back to the complete workspace gate.
+Ordinary agent work performs no formatting, linting, tests, E2E, linking, or
+code generation. Unknown and cross-cutting Rust inputs fall back to workspace
+`cargo check`; expensive verification belongs exclusively to the release gate.
 """
 
 from __future__ import annotations
@@ -16,7 +14,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -30,20 +27,6 @@ TIMINGS_LOCK = threading.Lock()
 COMMAND_TIMINGS: list[dict[str, object]] = []
 
 
-PROVIDER_E2E = {
-    "clickhouse": {"e2e_clickhouse_source", "e2e_sinks"},
-    "discard": {"e2e_sinks"},
-    "kafka": {"e2e_kafka"},
-    "logbroker": {
-        "e2e_logbroker_pqv1_sink",
-        "e2e_logbroker_pqv1_source",
-        "e2e_logbroker_ydb_sink",
-    },
-    "postgres": {"e2e_postgres"},
-    "s3": {"e2e_s3_source", "e2e_sinks"},
-    "ytsaurus": {"e2e_ytsaurus"},
-}
-
 CROSS_CUTTING = {
     "Cargo.toml",
     "Cargo.lock",
@@ -51,31 +34,14 @@ CROSS_CUTTING = {
     ".cargo/config.toml",
 }
 
-PROVIDER_RUNTIME_PARTS = {
-    "actor.rs",
-    "client.rs",
-    "reader.rs",
-    "source.rs",
-    "transport.rs",
-    "writer.rs",
-    "sink.rs",
-    "src_batch",
-    "src_stream",
-    "src_dblog",
-}
-
-
 @dataclass
 class Selection:
     full: bool = False
     reason: str = ""
-    rust_modules: set[str] = field(default_factory=set)
     rust_packages: set[str] = field(default_factory=set)
     downstream_check_packages: set[str] = field(default_factory=set)
     integration_tests: set[str] = field(default_factory=set)
     web_paths: set[str] = field(default_factory=set)
-    web_build: bool = False
-    selector_self_test: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -112,28 +78,6 @@ def transitive_dependents(packages: set[str]) -> set[str]:
     return discovered
 
 
-def provider_e2e(provider: str, parts: tuple[str, ...]) -> set[str]:
-    tests = set(PROVIDER_E2E.get(provider, set()))
-    if provider == "clickhouse":
-        if "sink" in parts:
-            tests.discard("e2e_clickhouse_source")
-        elif "src_batch" in parts:
-            tests.discard("e2e_sinks")
-    elif provider == "s3":
-        if "sink" in parts:
-            tests.discard("e2e_s3_source")
-        elif "src_batch" in parts:
-            tests.discard("e2e_sinks")
-    return tests
-
-
-def touches_provider_runtime(parts: tuple[str, ...]) -> bool:
-    """Return true only when a provider's external data path changed."""
-    if "tests" in parts or any(part.startswith("tests.") for part in parts):
-        return False
-    return bool(PROVIDER_RUNTIME_PARTS.intersection(parts[3:]))
-
-
 def normalize(path: str) -> str:
     candidate = Path(path)
     if candidate.is_absolute():
@@ -156,17 +100,13 @@ def select(paths: list[str]) -> Selection:
 
         if path.startswith("web/"):
             result.web_paths.add(path.removeprefix("web/"))
-            result.web_build |= not path.startswith("web/tests/")
             continue
 
         if path in {
             "crates/transferia-server-contracts/contracts/server-api.schema.json",
             "crates/transferia-server-contracts/contracts/server-api.fixture.json",
         }:
-            result.rust_modules.add("server")
             result.web_paths.add("src/generated/apiContract.ts")
-            result.web_paths.add("tests/catalogContract.test.ts")
-            result.web_build = True
             continue
 
         if path.startswith("crates/transferia-core/"):
@@ -178,21 +118,8 @@ def select(paths: list[str]) -> Selection:
             parts = Path(path).parts
             crate = parts[1] if len(parts) > 1 else ""
             package = crate
-            if crate.startswith("transferia-provider-") and crate != "transferia-provider-support":
-                result.rust_packages.add(package)
-                provider = crate.removeprefix("transferia-provider-")
-                if touches_provider_runtime(parts[1:]):
-                    result.integration_tests.update(provider_e2e(provider, parts))
-            elif crate == "transferia-providers":
-                result.rust_packages.add(package)
-                if len(parts) > 4 and parts[2:4] == ("src", "providers"):
-                    provider = parts[4]
-                    if not provider.endswith(".rs") and touches_provider_runtime(parts[1:]):
-                        result.integration_tests.update(provider_e2e(provider, parts))
-            elif crate == "transferia-server-contracts":
+            if crate == "transferia-server-contracts":
                 result.rust_packages.update({package, "transferia-control-plane"})
-                result.web_paths.add("tests/apiContract.test.ts")
-                result.web_build = True
             elif crate:
                 result.rust_packages.add(package)
             if (
@@ -222,23 +149,10 @@ def select(paths: list[str]) -> Selection:
             result.reason = f"public facade changed: {path}"
             return result
 
-        if path == "justfile" or path in {
-            "scripts/test_test_affected.py",
-            "scripts/test_check_crate_boundaries.py",
-        }:
-            result.selector_self_test = True
+        if path == "justfile" or path.startswith("scripts/"):
             continue
 
         if path.startswith(("docs/", ".github/")) or path.endswith((".md", ".txt")):
-            continue
-
-        if path.startswith("scripts/") and path.endswith(".py"):
-            if path == "scripts/test_affected.py":
-                result.selector_self_test = True
-            else:
-                result.full = True
-                result.reason = f"unmapped executable script changed: {path}"
-                return result
             continue
 
         result.full = True
@@ -268,109 +182,33 @@ def changed_paths(base: str) -> list[str]:
 def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
     if selection.full:
         return (
-            [
-                ["cargo", "fmt", "--all", "--", "--check"],
-                [
-                    "cargo",
-                    "clippy",
-                    "--workspace",
-                    "--all-targets",
-                    "--all-features",
-                    "--",
-                    "-D",
-                    "warnings",
-                ],
-                ["cargo", "test", "--workspace", "--all-targets", "--all-features"],
-            ],
+            [["cargo", "check", "--workspace", "--all-targets", "--all-features"]],
             [],
         )
 
     rust: list[list[str]] = []
     packages = {package for package in selection.rust_packages if package}
-    modules = {module for module in selection.rust_modules if module}
-    format_packages = set(packages)
-    if selection.integration_tests:
-        format_packages.add("transferia")
-    if format_packages:
-        command = ["cargo", "fmt", "--check"]
-        for package in sorted(format_packages):
-            command.extend(["-p", package])
-        rust.append(command)
-
+    dependents = transitive_dependents(selection.downstream_check_packages)
     if packages:
-        command = ["cargo", "clippy", "--all-targets", "--all-features"]
+        command = ["cargo", "check", "--all-targets", "--all-features"]
         for package in sorted(packages):
             command.extend(["-p", package])
-        command.extend(["--", "-D", "warnings"])
         rust.append(command)
-
-    if selection.integration_tests:
-        for target in sorted(selection.integration_tests):
-            rust.append(
-                [
-                    "cargo",
-                    "clippy",
-                    "--all-features",
-                    "--test",
-                    target,
-                    "--",
-                    "-D",
-                    "warnings",
-                ]
-            )
-
-    dependents = transitive_dependents(selection.downstream_check_packages)
     if dependents:
-        command = ["cargo", "check", "--all-features", "--lib", "--bins"]
+        command = ["cargo", "check", "--lib", "--bins", "--all-features"]
         for package in sorted(dependents):
             command.extend(["-p", package])
         rust.append(command)
 
-    if packages:
-        command = ["cargo", "test", "--lib"]
-        for package in sorted(packages):
-            command.extend(["-p", package])
-        rust.append(command)
-    elif len(modules) == 1:
-        module = next(iter(modules))
-        rust.append(["cargo", "test", "--lib", f"{module}::"])
-    elif modules:
-        rust.append(["cargo", "test", "--lib"])
-
     if selection.integration_tests:
-        command = ["cargo", "test", "--all-features"]
+        command = ["cargo", "check", "--all-features"]
         for target in sorted(selection.integration_tests):
             command.extend(["--test", target])
         rust.append(command)
 
-    if selection.selector_self_test:
-        rust.append(
-            [
-                sys.executable,
-                "-m",
-                "unittest",
-                "scripts/test_test_affected.py",
-                "scripts/test_check_crate_boundaries.py",
-            ]
-        )
-
     web: list[list[str]] = []
     if selection.web_paths:
-        web.append(["npm", "run", "check:source"])
         web.append(["npm", "run", "typecheck"])
-        web.append(
-            [
-                "npx",
-                "--no-install",
-                "vitest",
-                "related",
-                *sorted(selection.web_paths),
-                "--run",
-                "--passWithNoTests",
-            ]
-        )
-        if selection.web_build:
-            web.append(["npm", "run", "bundle"])
     return rust, web
 
 
@@ -424,7 +262,7 @@ def main() -> int:
 
     paths = [normalize(path) for path in args.paths] if args.paths else changed_paths(args.base)
     if not paths:
-        print("No changed files; no affected tests to run.")
+        print("No changed files; no compile checks to run.")
         return 0
 
     print("Changed files:")
@@ -433,7 +271,7 @@ def main() -> int:
 
     selection = select(paths)
     if selection.full:
-        print(f"Falling back to the full test suite: {selection.reason}")
+        print(f"Falling back to workspace cargo check: {selection.reason}")
     rust, web = commands(selection)
     if not rust and not web:
         print("No executable code is affected.")

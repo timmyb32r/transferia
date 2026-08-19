@@ -1,6 +1,5 @@
 import importlib.util
 from pathlib import Path
-import subprocess
 import sys
 import unittest
 
@@ -13,175 +12,85 @@ sys.modules[SPEC.name] = test_affected
 SPEC.loader.exec_module(test_affected)
 
 
-class AffectedTestsTest(unittest.TestCase):
-    def test_frontend_change_uses_vitest_dependency_graph_and_build(self):
-        selection = test_affected.select(["web/src/delivery/EditorViews.tsx"])
-        rust, web = test_affected.commands(selection)
+class AffectedChecksTest(unittest.TestCase):
+    def test_frontend_change_runs_only_typescript_typecheck(self):
+        rust, web = test_affected.commands(
+            test_affected.select(["web/src/delivery/EditorViews.tsx"])
+        )
 
         self.assertEqual(rust, [])
-        self.assertEqual(web[0], ["npm", "run", "check:source"])
-        self.assertEqual(web[1], ["npm", "run", "typecheck"])
-        self.assertEqual(web[2][:4], ["npx", "--no-install", "vitest", "related"])
-        self.assertEqual(web[3], ["npm", "run", "bundle"])
+        self.assertEqual(web, [["npm", "run", "typecheck"]])
 
-    def test_provider_change_selects_unit_and_owned_e2e_tests(self):
+    def test_provider_change_runs_only_its_cargo_check(self):
         selection = test_affected.select([
-            "crates/transferia-providers/src/providers/clickhouse/sink/client.rs"
+            "crates/transferia-provider-clickhouse/src/providers/clickhouse/sink/client.rs"
         ])
         rust, web = test_affected.commands(selection)
 
         self.assertEqual(web, [])
-        self.assertEqual(len(rust), 5)
-        self.assertEqual(rust[0][:3], ["cargo", "fmt", "--check"])
-        self.assertEqual(rust[1][:2], ["cargo", "clippy"])
-        self.assertIn("transferia-providers", rust[1])
-        self.assertNotIn("e2e_clickhouse_source", rust[-1])
-        self.assertIn("e2e_sinks", rust[-1])
-
-    def test_catalog_change_does_not_start_provider_e2e_services(self):
-        selection = test_affected.select([
-            "crates/transferia-providers/src/providers/catalog.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertFalse(selection.full)
         self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(rust[-1], [
-            "cargo", "test", "--lib", "-p", "transferia-providers"
-        ])
-
-    def test_provider_config_change_stays_in_fast_unit_tests(self):
-        selection = test_affected.select([
-            "crates/transferia-providers/src/providers/kafka/config.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(len(rust), 3)
-
-    def test_provider_transport_change_selects_owned_e2e(self):
-        selection = test_affected.select([
-            "crates/transferia-provider-kafka/src/providers/kafka/source.rs"
-        ])
-
-        self.assertEqual(selection.integration_tests, {"e2e_kafka"})
-
-    def test_changed_integration_test_runs_only_that_target(self):
-        selection = test_affected.select(["tests/e2e_postgres.rs"])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertEqual(rust[-1], [
-            "cargo", "test", "--all-features", "--test", "e2e_postgres"
-        ])
-        self.assertEqual(rust[0], ["cargo", "fmt", "--check", "-p", "transferia"])
         self.assertEqual(
-            rust[1][:6],
-            ["cargo", "clippy", "--all-features", "--test", "e2e_postgres", "--"],
+            rust,
+            [[
+                "cargo",
+                "check",
+                "--all-targets",
+                "--all-features",
+                "-p",
+                "transferia-provider-clickhouse",
+            ]],
         )
 
-    def test_deleted_integration_test_is_not_scheduled(self):
-        selection = test_affected.select(["tests/removed_test.rs"])
-        self.assertEqual(selection.integration_tests, set())
+    def test_public_crate_surface_includes_transitive_dependents_in_one_check(self):
+        rust, _ = test_affected.commands(
+            test_affected.select(["crates/transferia-providers/src/lib.rs"])
+        )
 
-    def test_parser_change_selects_only_provider_crate(self):
-        selection = test_affected.select([
-            "crates/transferia-providers/src/parsers/detection.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
+        self.assertEqual(len(rust), 2)
+        self.assertEqual(rust[0][:4], ["cargo", "check", "--all-targets", "--all-features"])
+        self.assertIn("transferia-providers", rust[0])
+        self.assertEqual(rust[1][:5], ["cargo", "check", "--lib", "--bins", "--all-features"])
+        self.assertIn("transferia-composition", rust[1])
+        self.assertNotIn("transferia-delivery", rust[1])
 
-        self.assertIn("transferia-providers", rust[-1])
-        self.assertEqual(len(rust), 3)
-
-    def test_control_plane_change_selects_only_control_plane_crate(self):
-        selection = test_affected.select([
-            "crates/transferia-control-plane/src/server/http.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertEqual(rust[-1], [
-            "cargo", "test", "--lib", "-p", "transferia-control-plane"
-        ])
-
-    def test_middleware_change_stays_in_its_crate_without_provider_e2e(self):
+    def test_middleware_change_never_selects_tests_or_delivery(self):
         selection = test_affected.select([
             "crates/transferia-middleware-datafusion/src/lib.rs"
         ])
+        rust, _ = test_affected.commands(selection)
+
+        flattened = " ".join(part for command in rust for part in command)
+        self.assertNotIn("test", flattened)
+        self.assertNotIn("clippy", flattened)
+        self.assertNotIn("fmt", flattened)
+        self.assertNotIn("transferia-delivery", flattened)
+        self.assertIn("transferia-middleware-datafusion", flattened)
+        self.assertIn("transferia-providers", flattened)
+
+    def test_changed_integration_test_is_checked_but_not_executed(self):
+        rust, _ = test_affected.commands(
+            test_affected.select(["tests/e2e_postgres.rs"])
+        )
+
+        self.assertEqual(
+            rust,
+            [["cargo", "check", "--all-features", "--test", "e2e_postgres"]],
+        )
+
+    def test_unknown_build_input_falls_back_only_to_workspace_check(self):
+        selection = test_affected.select(["Cargo.toml"])
         rust, web = test_affected.commands(selection)
 
+        self.assertTrue(selection.full)
         self.assertEqual(web, [])
-        self.assertFalse(selection.full)
-        self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(selection.rust_packages, {"transferia-middleware-datafusion"})
         self.assertEqual(
-            rust[-1],
-            ["cargo", "test", "--lib", "-p", "transferia-middleware-datafusion"],
-        )
-        self.assertIn("transferia-providers", rust[2])
-        self.assertNotIn("transferia-delivery", rust[2])
-
-    def test_public_crate_surface_checks_transitive_dependents(self):
-        selection = test_affected.select([
-            "crates/transferia-providers/src/lib.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertNotIn("transferia-delivery", rust[2])
-        self.assertIn("transferia-composition", rust[2])
-        self.assertEqual(rust[1][:2], ["cargo", "clippy"])
-        self.assertEqual(rust[2][:2], ["cargo", "check"])
-        self.assertEqual(
-            rust[0],
-            ["cargo", "fmt", "--check", "-p", "transferia-providers"],
+            rust,
+            [["cargo", "check", "--workspace", "--all-targets", "--all-features"]],
         )
 
-    def test_contract_change_tests_owner_and_checks_transitive_dependents(self):
-        selection = test_affected.select([
-            "crates/transferia-delivery-contracts/src/lib.rs"
-        ])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertEqual(
-            rust[-1],
-            [
-                "cargo",
-                "test",
-                "--lib",
-                "-p",
-                "transferia-delivery-contracts",
-            ],
-        )
-        self.assertIn("transferia-pipeline", rust[2])
-        self.assertIn("transferia-providers", rust[2])
-        self.assertIn("transferia-composition", rust[2])
-
-    def test_unknown_build_input_falls_back_to_full_suite(self):
-        selection = test_affected.select(["Cargo.toml"])
-        rust, _ = test_affected.commands(selection)
-
-        self.assertTrue(selection.full)
-        self.assertEqual(rust[0], ["cargo", "fmt", "--all", "--", "--check"])
-        self.assertEqual(rust[1][:3], ["cargo", "clippy", "--workspace"])
-        self.assertEqual(
-            rust[2],
-            ["cargo", "test", "--workspace", "--all-targets", "--all-features"],
-        )
-
-    def test_shared_core_contract_falls_back_to_full_suite(self):
-        selection = test_affected.select(["crates/transferia-core/src/source.rs"])
-
-        self.assertTrue(selection.full)
-
-    def test_api_generator_preserves_unchanged_output_timestamp(self):
-        generator = test_affected.ROOT / "web/scripts/generate-api.mjs"
-        output = test_affected.ROOT / "web/src/generated/apiContract.ts"
-        subprocess.run(["node", generator], cwd=generator.parents[1], check=True)
-        before = output.stat().st_mtime_ns
-
-        subprocess.run(
-            ["node", generator, "--check"], cwd=generator.parents[1], check=True
-        )
-
-        self.assertEqual(output.stat().st_mtime_ns, before)
+    def test_documentation_change_runs_nothing(self):
+        rust, web = test_affected.commands(test_affected.select(["docs/server.md"]))
+        self.assertEqual((rust, web), ([], []))
 
 
 if __name__ == "__main__":

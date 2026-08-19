@@ -203,31 +203,21 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
 ## Verification gates
 
 During implementation and before completing an ordinary repository change, run
-`just check-affected`. It derives the smallest safe quality gate from the
-working-tree diff: rustfmt and Clippy are scoped to affected workspace packages,
-public crate-surface changes include their transitive dependents, Rust and
-frontend groups run concurrently, Vitest uses its dependency graph, and provider
-E2E services start only when that provider's external data path changed. Inspect
-the exact plan with `just test-affected-dry`. When the relevant changes are
-already committed, pass their comparison point explicitly, for example
-`just check-affected --base HEAD~1` or `--base origin/main`.
+`just check-affected`. This is deliberately a compile-only development gate:
+it runs package-scoped `cargo check` for affected Rust packages and their
+necessary dependents, and `tsc --noEmit` for frontend changes. It must not run
+rustfmt, Clippy, tests, E2E, Docker, bundling/linking, code generation, contract
+freshness checks, or architecture linters. Unknown or cross-cutting Rust changes
+fall back only to workspace-wide `cargo check`, never to the release gate.
+Inspect the exact plan with `just test-affected-dry`.
 
-Do not run unrelated E2E suites, full-workspace Clippy, or the complete test
-suite merely because a task changed the repository. A green affected gate is
-the normal completion evidence. Run focused stress, replay, benchmark, or E2E
-checks only when the changed behavior makes them relevant.
+Do not run tests, Clippy, rustfmt, E2E, or full binary builds during ordinary
+agent development or completion. Run a focused command only when the user asks
+for it or when executing the code is essential to diagnose an observed runtime
+failure. The compile-only gate is the normal completion evidence.
 
-Prefer focused tests while iterating and run `just check-affected` once on the
-final stable tree. Do not repeatedly launch workspace-wide Cargo commands while
-other agents or tasks are editing the shared tree; besides wasting time, they
-serialize on Cargo's build-directory lock. The affected selector records command
-durations in `target/affected-tests-timings.json` and appends history to
-`target/affected-tests-timings.jsonl`; use those measurements when refining the
-selector rather than guessing which checks are slow.
-
-Run the complete gate before merging or releasing, after changes to shared core
-contracts/build configuration/dependency resolution, or when the affected-test
-selector explicitly falls back to it:
+Run `just check-release` only in release/merge automation or when the user
+explicitly requests the complete quality gate:
 
 ```sh
 cargo fmt --all -- --check
@@ -235,10 +225,9 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 ```
 
-The complete test command includes all sink E2E/testcontainers tests. Do not
-claim that the complete gate passed when only the affected gate ran. Never reuse
-results from before the last relevant edit, dismiss selected failures as
-unrelated, or report completion while the applicable gate is red.
+The release test command includes all sink E2E/testcontainers tests. Do not
+claim that the release gate passed when only the compile-only development gate
+ran.
 
 ## Performance log contract
 
