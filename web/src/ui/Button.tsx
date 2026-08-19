@@ -5,13 +5,14 @@ type ButtonShape = "default" | "icon" | "row" | "add-row";
 
 export interface ButtonProps extends Omit<
   JSX.ButtonHTMLAttributes<HTMLButtonElement>,
-  "class"
+  "class" | "aria-busy"
 > {
   children: ComponentChildren;
   class?: string | undefined;
   variant?: ButtonVariant;
   shape?: ButtonShape;
   buttonRef?: Ref<HTMLButtonElement> | undefined;
+  pending?: boolean;
 }
 
 const VARIANT_CLASS: Record<ButtonVariant, string> = {
@@ -34,9 +35,16 @@ export function Button({
   shape = "default",
   type = "button",
   buttonRef,
+  pending = false,
+  disabled,
   ...props
 }: ButtonProps) {
-  const classes = [VARIANT_CLASS[variant], SHAPE_CLASS[shape], className]
+  const classes = [
+    VARIANT_CLASS[variant],
+    SHAPE_CLASS[shape],
+    pending ? "interaction-pending" : "",
+    className,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
@@ -44,6 +52,8 @@ export function Button({
       {...(buttonRef === undefined ? {} : { ref: buttonRef })}
       type={type}
       class={classes || undefined}
+      disabled={disabled || pending}
+      aria-busy={pending}
       {...props}
     >
       {children}

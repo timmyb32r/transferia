@@ -27,9 +27,9 @@ export function MessagePreviewDialog({
   const [showFull, setShowFull] = useState(false);
   const [activeTab, setActiveTab] = useState("text");
   const [selectedParser, setSelectedParser] = useState("");
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">(
-    "idle",
-  );
+  const [copyState, setCopyState] = useState<
+    "idle" | "copying" | "copied" | "error"
+  >("idle");
   useEffect(() => {
     dialog.current
       ?.querySelector<HTMLButtonElement>("[aria-label='Close message preview']")
@@ -79,7 +79,8 @@ export function MessagePreviewDialog({
     setActiveTab("parsed");
   };
   const copyMessage = async () => {
-    if (!result) return;
+    if (!result || copyState === "copying") return;
+    setCopyState("copying");
     try {
       await navigator.clipboard.writeText(
         bytesToHex(decodeBase64(result.payload_base64)),
@@ -188,7 +189,12 @@ export function MessagePreviewDialog({
                 <Button onClick={() => setShowFull((current) => !current)}>
                   {showFull ? "Show 16 KiB preview" : "View full"}
                 </Button>
-                <Button onClick={() => void copyMessage()}>Copy message</Button>
+                <Button
+                  pending={copyState === "copying"}
+                  onClick={() => void copyMessage()}
+                >
+                  Copy message
+                </Button>
                 <Button onClick={() => downloadMessage(result)}>
                   Download full message
                 </Button>
@@ -197,7 +203,12 @@ export function MessagePreviewDialog({
             {!truncated && (
               <div class="message-preview-download">
                 <CopyStatus state={copyState} />
-                <Button onClick={() => void copyMessage()}>Copy message</Button>
+                <Button
+                  pending={copyState === "copying"}
+                  onClick={() => void copyMessage()}
+                >
+                  Copy message
+                </Button>
                 <Button onClick={() => downloadMessage(result)}>
                   Download message
                 </Button>
@@ -245,7 +256,11 @@ export function MessagePreviewDialog({
   );
 }
 
-function CopyStatus({ state }: { state: "idle" | "copied" | "error" }) {
+function CopyStatus({
+  state,
+}: {
+  state: "idle" | "copying" | "copied" | "error";
+}) {
   return (
     <span
       class={`message-preview-copy-state ${state}`}
@@ -256,7 +271,9 @@ function CopyStatus({ state }: { state: "idle" | "copied" | "error" }) {
         ? "Message copied as hexadecimal bytes"
         : state === "error"
           ? "Could not copy the message"
-          : "Copy status"}
+          : state === "copying"
+            ? "Copying message…"
+            : "Copy status"}
     </span>
   );
 }

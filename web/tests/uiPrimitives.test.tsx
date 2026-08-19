@@ -4,11 +4,22 @@ import { cleanup, fireEvent, render, within } from "@testing-library/preact";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FormField } from "../src/ui/FormField";
+import { Button } from "../src/ui/Button";
 import { MultiSelectControl, SelectControl } from "../src/ui/SelectControl";
 
 afterEach(cleanup);
 
 describe("UI primitives", () => {
+  it("gives pending actions immediate feedback without changing their label", () => {
+    const view = render(<Button pending>Save</Button>);
+    const button = view.getByRole("button", { name: "Save" });
+
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.classList.contains("interaction-pending")).toBe(true);
+    expect(button.textContent).toBe("Save");
+  });
+
   it("exposes field help as an accessible tooltip", () => {
     const view = render(
       <FormField

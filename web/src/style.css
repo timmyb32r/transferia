@@ -1232,7 +1232,7 @@ input[type="checkbox"]:disabled {
   border-color: var(--line-strong);
 }
 .select-trigger:active:not(:disabled) {
-  transform: none;
+  transform: translateZ(0) scale(0.98);
 }
 .select-trigger .placeholder {
   color: var(--placeholder);
@@ -1289,6 +1289,9 @@ input[type="checkbox"]:disabled {
 .select-option:hover,
 .select-option[aria-selected="true"] {
   background: var(--surface-active);
+}
+.select-option:active:not(:disabled) {
+  transform: translateZ(0) scale(0.98);
 }
 .select-empty {
   padding: 10px;
@@ -1534,6 +1537,22 @@ input[type="checkbox"]:focus-visible {
 }
 button:active:not(:disabled) {
   transform: translateZ(0) scale(0.94);
+}
+button.interaction-pending {
+  position: relative;
+  cursor: progress;
+}
+button.interaction-pending::after {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: connection-check-spin 0.7s linear infinite;
 }
 button *,
 button::before,
@@ -1847,6 +1866,23 @@ button::after {
 .yaml-editor .card-heading {
   padding: 14px 16px;
   border-bottom: 1px solid var(--line);
+}
+.yaml-copy-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.yaml-copy-status {
+  width: 64px;
+  color: var(--success-text);
+  font-size: 11px;
+  text-align: right;
+}
+.yaml-copy-status.idle {
+  visibility: hidden;
+}
+.yaml-copy-status.error {
+  color: var(--danger-text);
 }
 .yaml-editor h2 {
   margin: 3px 0 0;
