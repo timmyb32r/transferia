@@ -340,7 +340,7 @@ async fn discover(
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .control_plane
-        .validate_preview(&request.config, CancellationToken::new())
+        .source_schema_preview(&request.config, CancellationToken::new())
         .await?;
     Ok(Json(result))
 }

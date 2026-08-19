@@ -80,7 +80,7 @@ fn service() -> ControlPlane {
 #[tokio::test]
 async fn source_schema_preview_does_not_require_a_sink() -> anyhow::Result<()> {
     let result = service()
-        .validate_preview(
+        .source_schema_preview(
             &serde_json::json!({
                 "delivery_type": "stream",
                 "source": {
@@ -114,7 +114,15 @@ async fn source_schema_preview_does_not_require_a_sink() -> anyhow::Result<()> {
                         "request_timeout_ms": 30000
                     }
                 },
-                "sink": {}
+                "sink": {
+                    "clickhouse": {
+                        "installation": {
+                            "type": "on_premise",
+                            "hosts": [""],
+                            "port": 9440
+                        }
+                    }
+                }
             }),
             CancellationToken::new(),
         )

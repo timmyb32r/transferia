@@ -484,14 +484,6 @@ impl ControlPlane {
         config: &Value,
         cancellation: CancellationToken,
     ) -> Result<DiscoveryResult, ServiceError> {
-        if config
-            .get("sink")
-            .is_none_or(|sink| sink.as_object().is_some_and(serde_json::Map::is_empty))
-        {
-            return self
-                .validate_source_schema_preview(config, cancellation)
-                .await;
-        }
         let yaml = config_yaml_from_json(config)?;
         let parsed = Config::from_yaml(&yaml)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
@@ -514,6 +506,15 @@ impl ControlPlane {
             primary.sink_provider.as_ref(),
         )
         .map_err(|error| ServiceError::Validation(error.to_string()))
+    }
+
+    pub async fn source_schema_preview(
+        &self,
+        config: &Value,
+        cancellation: CancellationToken,
+    ) -> Result<DiscoveryResult, ServiceError> {
+        self.validate_source_schema_preview(config, cancellation)
+            .await
     }
 
     async fn validate_source_schema_preview(
