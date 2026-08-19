@@ -75,6 +75,35 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 - When requirements call for a new transformation but the user has not selected
   its semantics, stop and ask rather than choosing a policy in code.
 
+## Frontend interaction stability: zero unexpected layout shift
+
+- **Unexpected layout shift is forbidden at any cost.** A situation where a
+  notification or asynchronous update moves the interface and can cause an
+  accidental click is absolutely unacceptable. Treat stable target coordinates
+  during interaction as a correctness and safety property, not visual polish.
+- Never insert an unexpected toast, snackbar, notification, validation message,
+  or asynchronous status into normal document flow. Render transient feedback
+  in a fixed overlay that does not move existing content.
+- When a banner or message must participate in normal flow, reserve a stable,
+  fixed-size region for it before the content appears. Showing, hiding, loading,
+  success, and error states must occupy the same layout footprint.
+- Do not change layout while the user has an active pointer press, focused
+  control, drag, scroll, tap, or equivalent interaction. Defer non-critical UI
+  updates until the interaction ends. If a change is unavoidable, preserve the
+  position and hit target of the control being used.
+- Declare dimensions for dynamic content in advance. Use explicit `width` and
+  `height`, `aspect-ratio`, stable containers, and correctly sized placeholders
+  or skeletons for images, previews, asynchronous blocks, and other late content.
+- Never place destructive or irreversible actions where a moving layout can
+  bring them under an existing pointer or touch target. `Delete`, `Buy`, `Send`,
+  `Confirm`, and equivalent actions require an additional safety barrier such as
+  confirmation, undo, or delayed enablement. This barrier supplements layout
+  stability and must never be used as a substitute for it.
+- Every frontend change that introduces conditional, asynchronous, lazy-loaded,
+  expanded, collapsed, validated, or notification content must include a
+  regression test proving that surrounding interactive controls do not move
+  unexpectedly.
+
 ## Performance and design
 
 - Every operational or safety limit must come from an explicit user-visible
