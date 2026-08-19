@@ -48,6 +48,73 @@ pub async fn check_network_connection(
     }
     Ok(())
 }
+
+pub async fn check_authentication(
+    host: &str,
+    port: u16,
+    auth: &crate::providers::logbroker::LogbrokerAuthConfig,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    crate::providers::address::validate_host("logbroker.host", host)?;
+    crate::providers::address::validate_port("logbroker.port", port)?;
+    let token = auth.load_token()?;
+    let uri: http::Uri = crate::providers::address::url("http", host, port)
+        .parse()
+        .map_err(|error| anyhow::anyhow!("Invalid Logbroker endpoint {host}:{port}: {error}"))?;
+    let service = connect_http2_prior_knowledge(&uri, NETWORK_TIMEOUT, &cancellation).await?;
+    let mut client = tonic::client::Grpc::<H2Service>::with_origin(service, uri);
+    let mut request = tonic::Request::new(
+        crate::providers::logbroker::proto::discovery::WhoAmIRequest {
+            include_groups: false,
+        },
+    );
+    set_ydb_headers(request.metadata_mut(), &token)?;
+    let path = http::uri::PathAndQuery::from_static("/Ydb.Discovery.V1.DiscoveryService/WhoAmI");
+    let response: crate::providers::logbroker::proto::discovery::WhoAmIResponse = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("Logbroker authentication check cancelled"),
+        result = tokio::time::timeout(NETWORK_TIMEOUT, async {
+            client.ready().await.map_err(|error| anyhow::anyhow!("Logbroker authentication service is unavailable: {error}"))?;
+            client
+                .unary(
+                    request,
+                    path,
+                    tonic_prost::ProstCodec::<
+                        crate::providers::logbroker::proto::discovery::WhoAmIRequest,
+                        crate::providers::logbroker::proto::discovery::WhoAmIResponse,
+                    >::default(),
+                )
+                .await
+                .map(tonic::Response::into_inner)
+                .map_err(|error| anyhow::anyhow!("Logbroker rejected the authentication token: {error}"))
+        }) => result.map_err(|_| anyhow::anyhow!("Logbroker authentication check timed out"))??,
+    };
+    let operation = response
+        .operation
+        .ok_or_else(|| anyhow::anyhow!("Logbroker authentication response has no operation"))?;
+    validate_authentication_operation(&operation)
+}
+
+fn validate_authentication_operation(
+    operation: &crate::providers::logbroker::proto::operations::Operation,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        operation.ready,
+        "Logbroker authentication check did not complete"
+    );
+    let success = crate::providers::logbroker::proto::status_ids::StatusCode::Success as i32;
+    if operation.status != success {
+        let status =
+            crate::providers::logbroker::proto::status_ids::StatusCode::try_from(operation.status)
+                .ok();
+        let status_name = status.map_or("UNKNOWN", |status| status.as_str_name());
+        anyhow::bail!(
+            "Logbroker rejected the authentication token: status={} ({status_name})",
+            operation.status
+        );
+    }
+    Ok(())
+}
 const CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";
@@ -339,7 +406,7 @@ fn validate_connection_config(cfg: &LogbrokerSourceConnectionConfig) -> anyhow::
     cfg.auth.validate()
 }
 
-pub(crate) async fn check_topic_connection(
+pub async fn check_topic_connection(
     host: &str,
     port: u16,
     topic_path: &str,

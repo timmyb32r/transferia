@@ -321,6 +321,18 @@ fn build_base_provider_catalog(
                         };
                         crate::providers::logbroker::check_connection(&complete, cancellation).await?;
                         Ok(transferia_registry::ConnectionCheckResult::default())
+                    } else if config.auth.is_configured() {
+                        crate::providers::logbroker::src_stream::check_authentication(
+                            &config.host,
+                            config.port,
+                            &config.auth,
+                            cancellation,
+                        )
+                        .await?;
+                        Ok(transferia_registry::ConnectionCheckResult {
+                            message: Some("The token is valid for Logbroker. Topic and consumer access were not checked because they are not configured.".to_owned()),
+                            ..Default::default()
+                        })
                     } else {
                         crate::providers::logbroker::check_network_connection(
                             &config.host,
@@ -347,14 +359,33 @@ fn build_base_provider_catalog(
                 },
                 crate::providers::logbroker::build_sink_provider,
             )?
-            .sink_checker::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
+            .sink_checker::<crate::providers::logbroker::sink::LogbrokerSinkCheckConfig, _, _>(
                 |config| async move {
-                    crate::providers::logbroker::sink::check_connection(
-                        &config,
-                        tokio_util::sync::CancellationToken::new(),
-                    )
-                    .await?;
-                    Ok(transferia_registry::ConnectionCheckResult::default())
+                    let cancellation = tokio_util::sync::CancellationToken::new();
+                    if config.topic_path.is_empty() {
+                        crate::providers::logbroker::src_stream::check_authentication(
+                            &config.host,
+                            config.port,
+                            &config.auth,
+                            cancellation,
+                        )
+                        .await?;
+                        Ok(transferia_registry::ConnectionCheckResult {
+                            message: Some("The token is valid for Logbroker. Topic access was not checked because it is not configured.".to_owned()),
+                            ..Default::default()
+                        })
+                    } else {
+                        crate::providers::logbroker::src_stream::check_topic_connection(
+                            &config.host,
+                            config.port,
+                            &config.topic_path,
+                            &config.auth,
+                            config.driver.unwrap_or(crate::providers::logbroker::LogbrokerDriver::Ydb),
+                            cancellation,
+                        )
+                        .await?;
+                        Ok(transferia_registry::ConnectionCheckResult::default())
+                    }
                 },
             ),
     )?;

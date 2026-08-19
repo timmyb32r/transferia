@@ -35,6 +35,24 @@ fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() 
 }
 
 #[test]
+fn authentication_check_accepts_only_a_successful_who_am_i_operation() {
+    let operation = crate::providers::logbroker::proto::operations::Operation {
+        ready: true,
+        status: crate::providers::logbroker::proto::status_ids::StatusCode::Success as i32,
+        ..Default::default()
+    };
+    validate_authentication_operation(&operation).expect("valid token must pass WhoAmI");
+
+    let rejected = crate::providers::logbroker::proto::operations::Operation {
+        status: crate::providers::logbroker::proto::status_ids::StatusCode::Unauthorized as i32,
+        ..operation
+    };
+    let error = validate_authentication_operation(&rejected)
+        .expect_err("an unauthorized token must fail the check");
+    assert!(error.to_string().contains("UNAUTHORIZED"), "{error:#}");
+}
+
+#[test]
 fn ydb_assignment_accepts_the_protocols_canonical_topic_path() {
     assert!(topic_paths_equal("/cdc/prod/logs", "cdc/prod/logs"));
     assert!(topic_paths_equal("cdc/prod/logs", "/cdc/prod/logs"));

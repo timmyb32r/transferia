@@ -34,6 +34,21 @@ pub struct LogbrokerSinkConfig {
     pub trusted_plaintext: bool,
 }
 
+#[derive(Deserialize)]
+pub struct LogbrokerSinkCheckConfig {
+    pub host: String,
+
+    pub port: u16,
+
+    pub auth: LogbrokerAuthConfig,
+
+    #[serde(default)]
+    pub topic_path: String,
+
+    #[serde(default)]
+    pub driver: Option<LogbrokerDriver>,
+}
+
 impl LogbrokerSinkConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         crate::providers::address::validate_host("logbroker.host", &self.host)?;

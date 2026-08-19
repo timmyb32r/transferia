@@ -27,6 +27,14 @@ pub enum LogbrokerAuthConfig {
 }
 
 impl LogbrokerAuthConfig {
+    #[must_use]
+    pub fn is_configured(&self) -> bool {
+        match self {
+            Self::Token { token } => !token.trim().is_empty(),
+            Self::TokenFile { token_file } => !token_file.trim().is_empty(),
+        }
+    }
+
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Token { token } => anyhow::ensure!(
