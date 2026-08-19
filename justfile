@@ -14,13 +14,21 @@ fmt-check:
 
 # Regenerate the Rust-owned server API schema and its TypeScript projection
 api-contract:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-server-api
+    cargo run -p transferia-server-contracts --bin generate-server-api
     cd web && npm run update:api
 
 # Verify generated API artifacts without modifying the working tree.
 api-contract-check:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-server-api -- --check
+    cargo run -p transferia-server-contracts --bin generate-server-api -- --check
     cd web && npm run check:api
+
+# Provider UI catalog generation is intentionally separate: it compiles the
+# concrete runtime composition and should run only after catalog/schema changes.
+catalog-contract:
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-provider-catalog
+
+catalog-contract-check:
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-provider-catalog -- --check
 
 # Release/merge gate. This is intentionally expensive and must not be used as
 # an ordinary agent completion gate.
@@ -33,8 +41,8 @@ check-release: fmt-check
 check-affected *args:
     python3 scripts/test_affected.py {{args}}
 
-# Backward-compatible task-runner name for the release gate, not for agents.
-check: check-release
+# Safe default: ordinary development never starts the release gate implicitly.
+check: check-affected
 
 # Full verification: release gate + MIRI UB detection
 verify: check-release
@@ -44,9 +52,8 @@ verify: check-release
 miri: fmt
     cargo miri test -- --test-threads=1
 
-# Run tests only
-test: fmt-check
-    cargo test --workspace --all-targets --all-features
+# Safe compatibility alias. Full tests are intentionally release-only.
+test: check-affected
 
 # Alias for the compile-only affected gate.
 test-affected *args:
@@ -60,8 +67,8 @@ test-affected-dry *args:
 test-affected-self:
     python3 -m unittest scripts/test_test_affected.py scripts/test_check_crate_boundaries.py
 
-# Run clippy only (strict — warnings are errors)
-clippy: fmt-check
+# Explicit release-only Clippy gate.
+clippy-release: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # CI/release pipeline. Miri remains an explicit additional gate for unsafe changes.

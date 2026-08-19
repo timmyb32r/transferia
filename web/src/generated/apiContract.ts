@@ -3,145 +3,22 @@
 
 import type { JsonObject, JsonSchema, JsonValue } from "../json";
 
-export type UiCatalog = {
-  common_schema: JsonSchema;
-  initial: JsonObject;
-  providers: Array<ProviderDefinition>;
+export type ApiErrorBody = {
+  error: ApiErrorView;
 };
 
-export type ProviderDefinition = {
-  key: string;
-  title: string;
-  source?: EndpointDefinition;
-  sink?: EndpointDefinition;
+export type ApiErrorCode =
+  | "invalid_request"
+  | "payload_too_large"
+  | "not_found"
+  | "conflict"
+  | "validation_failed"
+  | "internal_error";
+
+export type ApiErrorView = {
+  code: ApiErrorCode;
+  message: string;
 };
-
-export type EndpointDefinition = {
-  schema: JsonSchema;
-  initial: JsonObject;
-  delivery_modes: Array<DeliveryMode>;
-  partitioned: boolean;
-  connection_check: boolean;
-};
-
-export type DeliveryMode = "batch" | "stream";
-
-export type DeliverySummary = {
-  id: string;
-  name: string;
-  description: string;
-  revision: number;
-  validation: ValidationState;
-  runtime: RuntimeState;
-  updated_at_ms: number;
-};
-
-export type ValidationState =
-  | {
-      state: "draft";
-    }
-  | {
-      revision: number;
-      state: "ready";
-    }
-  | {
-      revision: number;
-      message: string;
-      state: "invalid";
-    };
-
-export type RuntimeState =
-  | {
-      state: "created";
-    }
-  | {
-      state: "stopped";
-    }
-  | {
-      run_id: string;
-      state: "starting";
-    }
-  | {
-      run_id: string;
-      pid: number;
-      state: "running";
-    }
-  | {
-      run_id: string;
-      state: "stopping";
-    }
-  | {
-      run_id: string;
-      message: string;
-      state: "failed";
-    };
-
-export type DeliveryRecord = {
-  id: string;
-  name: string;
-  description: string;
-  config: JsonObject;
-  revision: number;
-  record_version: string;
-  validation: ValidationState;
-  runtime: RuntimeState;
-  created_at_ms: number;
-  updated_at_ms: number;
-};
-
-export type DiscoveryResult = {
-  source: string;
-  sink: string;
-  pipeline_count: number;
-  datasets: Array<DatasetView>;
-  sink_limits: SinkLimitsDescription;
-};
-
-export type DatasetView = {
-  role: DatasetRoleView;
-  name: string;
-  intermediate_columns: Array<ColumnView>;
-  final_columns: Array<DestinationColumnView>;
-};
-
-export type DatasetRoleView = "Main" | "DeadLetterQueue";
-
-export type ColumnView = {
-  name: string;
-  arrow_type: string;
-  nullable: boolean;
-  primary_key: boolean;
-  low_cardinality: boolean;
-  max_length?: number;
-};
-
-export type DestinationColumnView = {
-  name: string;
-  arrow_type: string;
-  nullable: boolean;
-  primary_key: boolean;
-  low_cardinality: boolean;
-  max_length?: number;
-  destination_type: string;
-};
-
-export type SinkLimitsDescription = {
-  sink: string;
-  dataset_name?: TextLimit;
-  column_name?: TextLimit;
-  supported_arrow_types: Array<ArrowTypeFamily>;
-  object_key?: ObjectKeyLimit;
-};
-
-export type TextLimit = {
-  syntax: NameSyntax;
-  max_utf8_bytes?: number;
-};
-
-export type NameSyntax =
-  | "any_non_empty_utf8"
-  | "ascii_identifier"
-  | "object_store_path_segment";
 
 export type ArrowTypeFamily =
   | "utf8"
@@ -155,14 +32,100 @@ export type ArrowTypeFamily =
   | "date64"
   | "timestamp";
 
-export type ObjectKeyLimit = {
-  max_utf8_bytes: number;
-  normalized_relative_path: boolean;
+export type ColumnView = {
+  arrow_type: string;
+  low_cardinality: boolean;
+  max_length?: number;
+  name: string;
+  nullable: boolean;
+  primary_key: boolean;
 };
 
-export type ValidationCommandResult = {
-  delivery: DeliveryRecord;
-  discovery?: DiscoveryResult;
+export type ConfigRequest = {
+  config: JsonObject;
+};
+
+export type ConfigResponse = {
+  config: JsonObject;
+};
+
+export type ConnectionCheckRequest = {
+  config: JsonObject;
+  provider: string;
+  role: EndpointRole;
+};
+
+export type ConnectionCheckResult = {
+  message?: string | null;
+  options: {
+    [key: string]: Array<string>;
+  };
+  status: ConnectionCheckStatus;
+};
+
+export type ConnectionCheckStatus = "verified" | "network_reachable";
+
+export type CreateDraftRequest = {
+  config: JsonObject;
+  description?: string;
+  name: string;
+};
+
+export type DatasetRoleView = "Main" | "DeadLetterQueue";
+
+export type DatasetView = {
+  final_columns: Array<DestinationColumnView>;
+  intermediate_columns: Array<ColumnView>;
+  name: string;
+  role: DatasetRoleView;
+};
+
+export type DeliveryMode = "batch" | "stream";
+
+export type DeliveryRecord = {
+  config: JsonObject;
+  created_at_ms: number;
+  description: string;
+  id: string;
+  name: string;
+  record_version: string;
+  revision: number;
+  runtime: RuntimeState;
+  updated_at_ms: number;
+  validation: ValidationState;
+};
+
+export type DeliverySummary = {
+  description: string;
+  id: string;
+  name: string;
+  revision: number;
+  runtime: RuntimeState;
+  updated_at_ms: number;
+  validation: ValidationState;
+};
+
+export type DestinationColumnView = {
+  arrow_type: string;
+  destination_type: string;
+  low_cardinality: boolean;
+  max_length?: number;
+  name: string;
+  nullable: boolean;
+  primary_key: boolean;
+};
+
+export type DiscoveryResult = {
+  datasets: Array<DatasetView>;
+  pipeline_count: number;
+  sink: string;
+  sink_limits: SinkLimitsDescription;
+  source: string;
+};
+
+export type DynamicOption = {
+  label: string;
+  value: string;
 };
 
 export type DynamicOptions = {
@@ -170,70 +133,44 @@ export type DynamicOptions = {
   warning?: string;
 };
 
-export type DynamicOption = {
-  value: string;
-  label: string;
-};
-
-export type OptionsRequest = {
-  query?: string | null;
-  refresh?: boolean;
-  dependencies?: {
-    [key: string]: string;
-  };
-};
-
-export type ConnectionCheckRequest = {
-  provider: string;
-  role: EndpointRole;
-  config: JsonObject;
+export type EndpointDefinition = {
+  connection_check: boolean;
+  delivery_modes: Array<DeliveryMode>;
+  initial: JsonObject;
+  partitioned: boolean;
+  schema: JsonSchema;
 };
 
 export type EndpointRole = "source" | "sink";
 
-export type ConnectionCheckResult = {
-  status: ConnectionCheckStatus;
-  message?: string | null;
-  options: {
-    [key: string]: Array<string>;
-  };
+export type HealthResponse = {
+  status: string;
 };
 
-export type ConnectionCheckStatus = "verified" | "network_reachable";
-
-export type MessagePreviewRequest = {
-  provider: string;
-  config: JsonObject;
-  max_bytes: number;
-};
-
-export type MessagePreviewResult = {
-  text_preview: string;
-  payload_preview_base64: string;
-  payload_base64: string;
-  byte_length: number;
-  preview_bytes: number;
-  metadata: MessagePreviewMetadata;
-  detections: Array<ParserDetection>;
+export type InferredColumn = {
+  arrow_type: string;
+  name: string;
+  nullable: boolean;
+  source_type: string;
 };
 
 export type MessagePreviewMetadata = {
-  topic: string;
-  partition: number;
-  partition_session_id: number;
-  offset: number;
-  sequence_number: number;
-  created_at_ms?: number | null;
-  written_at_ms?: number | null;
-  producer_id: string;
-  message_group_id?: string | null;
   codec: string;
   compressed_size: number;
+  created_at_ms?: number | null;
   declared_uncompressed_size?: number | null;
+  message_group_id?: string | null;
   message_metadata: Array<MessagePreviewMetadataItem>;
+  offset: number;
+  partition: number;
+  partition_session_id: number;
+  producer_id: string;
+  sequence_number: number;
+  topic: string;
   write_session_metadata: {
     [key: string]: string;
   };
+  written_at_ms?: number | null;
 };
 
 export type MessagePreviewMetadataItem = {
@@ -242,34 +179,107 @@ export type MessagePreviewMetadataItem = {
   value_text?: string | null;
 };
 
+export type MessagePreviewRequest = {
+  config: JsonObject;
+  max_bytes: number;
+  provider: string;
+};
+
+export type MessagePreviewResult = {
+  byte_length: number;
+  detections: Array<ParserDetection>;
+  metadata: MessagePreviewMetadata;
+  payload_base64: string;
+  payload_preview_base64: string;
+  preview_bytes: number;
+  text_preview: string;
+};
+
+export type NameSyntax =
+  | "any_non_empty_utf8"
+  | "ascii_identifier"
+  | "object_store_path_segment";
+
+export type ObjectKeyLimit = {
+  max_utf8_bytes: number;
+  normalized_relative_path: boolean;
+};
+
+export type OptionsRequest = {
+  dependencies?: {
+    [key: string]: string;
+  };
+  query?: string | null;
+  refresh?: boolean;
+};
+
 export type ParserDetection = {
-  key: string;
-  label: string;
   config: JsonValue;
   inferred_columns: Array<InferredColumn>;
-  sample_rows: Array<JsonValue>;
+  key: string;
+  label: string;
   preview_tabs: Array<ParserPreviewTab>;
+  sample_rows: Array<JsonValue>;
   sampled_messages: number;
   sampled_rows: number;
 };
 
-export type InferredColumn = {
-  name: string;
-  source_type: string;
-  arrow_type: string;
-  nullable: boolean;
-};
-
 export type ParserPreviewTab = {
+  content: string;
   key: string;
   label: string;
-  content: string;
   truncated: boolean;
 };
 
+export type ProviderDefinition = {
+  key: string;
+  sink?: EndpointDefinition;
+  source?: EndpointDefinition;
+  title: string;
+};
+
+export type RevisionRequest = {
+  expected_record_version: string;
+  expected_revision: number;
+};
+
+export type RuntimeState =
+  | {
+      state: "created";
+    }
+  | {
+      state: "stopped";
+    }
+  | {
+      run_id: string;
+      state: "starting";
+    }
+  | {
+      pid: number;
+      run_id: string;
+      state: "running";
+    }
+  | {
+      run_id: string;
+      state: "stopping";
+    }
+  | {
+      message: string;
+      run_id: string;
+      state: "failed";
+    };
+
+export type SinkLimitsDescription = {
+  column_name?: TextLimit;
+  dataset_name?: TextLimit;
+  object_key?: ObjectKeyLimit;
+  sink: string;
+  supported_arrow_types: Array<ArrowTypeFamily>;
+};
+
 export type SqlPlaygroundRequest = {
-  sql: string;
   rows: Array<JsonValue>;
+  sql: string;
 };
 
 export type SqlPlaygroundResult = {
@@ -277,83 +287,55 @@ export type SqlPlaygroundResult = {
   rows: Array<JsonValue>;
 };
 
-export type YamlResponse = {
-  yaml: string;
-};
-
-export type ConfigResponse = {
-  config: JsonObject;
-};
-
-export type HealthResponse = {
-  status: string;
-};
-
-export type ApiErrorBody = {
-  error: ApiErrorView;
-};
-
-export type ApiErrorView = {
-  code: ApiErrorCode;
-  message: string;
-};
-
-export type ApiErrorCode =
-  | "invalid_request"
-  | "payload_too_large"
-  | "not_found"
-  | "conflict"
-  | "validation_failed"
-  | "internal_error";
-
-export type ConfigRequest = {
-  config: JsonObject;
-};
-
-export type YamlRequest = {
-  yaml: string;
-};
-
-export type CreateDraftRequest = {
-  name: string;
-  description?: string;
-  config: JsonObject;
-};
-
-export type UpdateDraftRequest = {
-  expected_revision: number;
-  expected_record_version: string;
-  name: string;
-  description?: string;
-  config: JsonObject;
-};
-
-export type RevisionRequest = {
-  expected_revision: number;
-  expected_record_version: string;
-};
-
 export type StopRequest = {
-  expected_revision: number;
   expected_record_version: string;
+  expected_revision: number;
   expected_run_id: string;
 };
 
-export type WorkerLogsResult = {
-  workers: Array<WorkerLogView>;
+export type TextLimit = {
+  max_utf8_bytes?: number;
+  syntax: NameSyntax;
 };
 
-export type WorkerLogView = {
-  worker_id: string;
-  size_bytes: number;
-  active: boolean;
+export type UiCatalog = {
+  common_schema: JsonSchema;
+  initial: JsonObject;
+  providers: Array<ProviderDefinition>;
 };
+
+export type UpdateDraftRequest = {
+  config: JsonObject;
+  description?: string;
+  expected_record_version: string;
+  expected_revision: number;
+  name: string;
+};
+
+export type ValidationCommandResult = {
+  delivery: DeliveryRecord;
+  discovery?: DiscoveryResult;
+};
+
+export type ValidationState =
+  | {
+      state: "draft";
+    }
+  | {
+      revision: number;
+      state: "ready";
+    }
+  | {
+      message: string;
+      revision: number;
+      state: "invalid";
+    };
 
 export type WorkerLogChunkView = {
-  text: string;
-  start_offset: number;
-  next_offset: number;
   end_offset: number;
+  next_offset: number;
+  start_offset: number;
+  text: string;
   truncated_before: boolean;
 };
 
@@ -362,33 +344,51 @@ export type WorkerLogReadQuery = {
   limit_bytes?: number | null;
 };
 
+export type WorkerLogView = {
+  active: boolean;
+  size_bytes: number;
+  worker_id: string;
+};
+
+export type WorkerLogsResult = {
+  workers: Array<WorkerLogView>;
+};
+
+export type YamlRequest = {
+  yaml: string;
+};
+
+export type YamlResponse = {
+  yaml: string;
+};
+
 export interface ApiContract {
   catalog_response: UiCatalog;
+  config_request: ConfigRequest;
+  config_response: ConfigResponse;
+  connection_check_request: ConnectionCheckRequest;
+  connection_check_response: ConnectionCheckResult;
+  create_draft_request: CreateDraftRequest;
   delivery_list_response: Array<DeliverySummary>;
   delivery_response: DeliveryRecord;
   discovery_response: DiscoveryResult;
-  validation_response: ValidationCommandResult;
-  dynamic_options_response: DynamicOptions;
   dynamic_options_request: OptionsRequest;
-  connection_check_request: ConnectionCheckRequest;
-  connection_check_response: ConnectionCheckResult;
+  dynamic_options_response: DynamicOptions;
+  error_response: ApiErrorBody;
+  health_response: HealthResponse;
   message_preview_request: MessagePreviewRequest;
   message_preview_response: MessagePreviewResult;
+  revision_request: RevisionRequest;
   sql_playground_request: SqlPlaygroundRequest;
   sql_playground_response: SqlPlaygroundResult;
-  yaml_response: YamlResponse;
-  config_response: ConfigResponse;
-  health_response: HealthResponse;
-  error_response: ApiErrorBody;
-  config_request: ConfigRequest;
-  yaml_request: YamlRequest;
-  create_draft_request: CreateDraftRequest;
-  update_draft_request: UpdateDraftRequest;
-  revision_request: RevisionRequest;
   stop_request: StopRequest;
-  worker_logs_response: WorkerLogsResult;
-  worker_log_response: WorkerLogChunkView;
+  update_draft_request: UpdateDraftRequest;
+  validation_response: ValidationCommandResult;
   worker_log_read_query: WorkerLogReadQuery;
+  worker_log_response: WorkerLogChunkView;
+  worker_logs_response: WorkerLogsResult;
+  yaml_request: YamlRequest;
+  yaml_response: YamlResponse;
 }
 
 export type ApiContractName = keyof ApiContract;

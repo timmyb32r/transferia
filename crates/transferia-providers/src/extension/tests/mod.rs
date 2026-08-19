@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 
 use super::*;

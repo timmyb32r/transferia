@@ -1,2 +1,9 @@
 [build]
+rustc-wrapper = ".cargo/rustc-wrapper.sh"
 rustflags = ["-C", "target-cpu=native"]
+
+[env]
+# Unlike Cargo's unbounded target directory, sccache evicts old entries when
+# this project-local budget is reached. Incremental compilation is disabled in
+# the development profiles below so rustc outputs remain cacheable.
+SCCACHE_CACHE_SIZE = "50G"

@@ -28,10 +28,9 @@ COMMAND_TIMINGS: list[dict[str, object]] = []
 
 
 CROSS_CUTTING = {
-    "Cargo.toml",
-    "Cargo.lock",
     "build.rs",
     ".cargo/config.toml",
+    "rust-toolchain.toml",
 }
 
 @dataclass
@@ -93,6 +92,18 @@ def select(paths: list[str]) -> Selection:
     result = Selection()
     for raw_path in paths:
         path = normalize(raw_path)
+        if path == "Cargo.lock":
+            # The changed crate manifests select the affected reverse-dependency
+            # closure. Lockfile churn alone does not justify compiling every
+            # workspace target during ordinary development.
+            continue
+
+        if path == "Cargo.toml":
+            # Workspace membership/profile edits still compile the root
+            # composition without turning every manifest edit into a full gate.
+            result.rust_packages.add("transferia")
+            continue
+
         if path in CROSS_CUTTING or path.startswith(("proto/", "vendor/")):
             result.full = True
             result.reason = f"cross-cutting build input changed: {path}"

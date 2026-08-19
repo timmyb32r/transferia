@@ -37,8 +37,10 @@ ydb-grpc.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+http-body-util.workspace = true
 serde_yaml.workspace = true
 transferia-provider-support = { path = "../transferia-provider-support", features = ["test"] }
+transferia-test-support = { path = "../transferia-test-support" }
 
 [build-dependencies]
 tonic-prost-build.workspace = true

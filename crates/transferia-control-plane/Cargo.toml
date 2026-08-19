@@ -5,8 +5,8 @@ edition.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "generate-server-api"
-path = "src/bin/generate_server_api.rs"
+name = "generate-provider-catalog"
+path = "src/bin/generate_provider_catalog.rs"
 test = false
 bench = false
 
@@ -31,6 +31,7 @@ tower.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery = { path = "../transferia-delivery" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-providers = { path = "../transferia-providers" }
 transferia-registry = { path = "../transferia-registry" }
 transferia-runtime = { path = "../transferia-runtime" }

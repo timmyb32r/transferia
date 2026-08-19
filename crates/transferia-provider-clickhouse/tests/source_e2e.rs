@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use arrow::array::{Array as _, BinaryArray, Int64Array};
 use std::sync::Arc;
 use testcontainers::core::wait::HttpWaitStrategy;
@@ -15,13 +13,13 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 
-use transferia::core::data::message::SourceBatch;
-use transferia::core::delivery::{DeliveryDiscoveryRequest, SchemaOrigin};
-use transferia::core::memory::PipelineMemory;
-use transferia::core::source::Source as _;
-use transferia::metrics::MetricsRegistry;
-use transferia::providers::clickhouse::ClickHouseSourceProvider;
-use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
+use transferia_core::data::message::SourceBatch;
+use transferia_core::delivery::{DeliveryDiscoveryRequest, SchemaOrigin};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::source::Source as _;
+use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_provider_clickhouse::clickhouse::ClickHouseSourceProvider;
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
 
 const IMAGE: &str = "clickhouse/clickhouse-server";
 const TAG: &str = "25.8.28.1";
@@ -84,7 +82,7 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
             partition_id: 0,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(256 * 1024 * 1024),
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
         })
         .await?;
     let first = source.read_batch().await?;

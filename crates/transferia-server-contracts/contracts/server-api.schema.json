@@ -1,31 +1,1396 @@
 {
+  "$defs": {
+    "ApiErrorBody": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ApiErrorView"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "ApiErrorCode": {
+      "enum": [
+        "invalid_request",
+        "payload_too_large",
+        "not_found",
+        "conflict",
+        "validation_failed",
+        "internal_error"
+      ],
+      "type": "string"
+    },
+    "ApiErrorView": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ApiErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ArrowTypeFamily": {
+      "enum": [
+        "utf8",
+        "binary",
+        "signed_integer",
+        "unsigned_integer",
+        "floating_point",
+        "decimal",
+        "boolean",
+        "date32",
+        "date64",
+        "timestamp"
+      ],
+      "type": "string"
+    },
+    "ColumnView": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_type": {
+          "type": "string"
+        },
+        "low_cardinality": {
+          "type": "boolean"
+        },
+        "max_length": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "primary_key": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "arrow_type",
+        "nullable",
+        "primary_key",
+        "low_cardinality"
+      ],
+      "type": "object"
+    },
+    "ConfigRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "type": "object"
+    },
+    "ConfigResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "type": "object"
+    },
+    "ConnectionCheckRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/EndpointRole"
+        }
+      },
+      "required": [
+        "provider",
+        "role",
+        "config"
+      ],
+      "type": "object"
+    },
+    "ConnectionCheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "status": {
+          "$ref": "#/$defs/ConnectionCheckStatus"
+        }
+      },
+      "required": [
+        "status",
+        "options"
+      ],
+      "type": "object"
+    },
+    "ConnectionCheckStatus": {
+      "enum": [
+        "verified",
+        "network_reachable"
+      ],
+      "type": "string"
+    },
+    "CreateDraftRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "config"
+      ],
+      "type": "object"
+    },
+    "DatasetRoleView": {
+      "enum": [
+        "Main",
+        "DeadLetterQueue"
+      ],
+      "type": "string"
+    },
+    "DatasetView": {
+      "additionalProperties": false,
+      "properties": {
+        "final_columns": {
+          "items": {
+            "$ref": "#/$defs/DestinationColumnView"
+          },
+          "type": "array"
+        },
+        "intermediate_columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnView"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/DatasetRoleView"
+        }
+      },
+      "required": [
+        "role",
+        "name",
+        "intermediate_columns",
+        "final_columns"
+      ],
+      "type": "object"
+    },
+    "DeliveryMode": {
+      "enum": [
+        "batch",
+        "stream"
+      ],
+      "type": "string"
+    },
+    "DeliveryRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "record_version": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeState"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationState"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "config",
+        "revision",
+        "record_version",
+        "validation",
+        "runtime",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "DeliverySummary": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeState"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationState"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "revision",
+        "validation",
+        "runtime",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "DestinationColumnView": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_type": {
+          "type": "string"
+        },
+        "destination_type": {
+          "type": "string"
+        },
+        "low_cardinality": {
+          "type": "boolean"
+        },
+        "max_length": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "primary_key": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "arrow_type",
+        "nullable",
+        "primary_key",
+        "low_cardinality",
+        "destination_type"
+      ],
+      "type": "object"
+    },
+    "DiscoveryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/DatasetView"
+          },
+          "type": "array"
+        },
+        "pipeline_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sink": {
+          "type": "string"
+        },
+        "sink_limits": {
+          "$ref": "#/$defs/SinkLimitsDescription"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sink",
+        "pipeline_count",
+        "datasets",
+        "sink_limits"
+      ],
+      "type": "object"
+    },
+    "DynamicOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    },
+    "DynamicOptions": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "items": {
+            "$ref": "#/$defs/DynamicOption"
+          },
+          "type": "array"
+        },
+        "warning": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-omit-none": true
+        }
+      },
+      "required": [
+        "options"
+      ],
+      "type": "object"
+    },
+    "EndpointDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "connection_check": {
+          "type": "boolean"
+        },
+        "delivery_modes": {
+          "items": {
+            "$ref": "#/$defs/DeliveryMode"
+          },
+          "type": "array"
+        },
+        "initial": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "partitioned": {
+          "type": "boolean"
+        },
+        "schema": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonSchema"
+        }
+      },
+      "required": [
+        "schema",
+        "initial",
+        "delivery_modes",
+        "partitioned",
+        "connection_check"
+      ],
+      "type": "object"
+    },
+    "EndpointRole": {
+      "enum": [
+        "source",
+        "sink"
+      ],
+      "type": "string"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "InferredColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "arrow_type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "source_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source_type",
+        "arrow_type",
+        "nullable"
+      ],
+      "type": "object"
+    },
+    "MessagePreviewMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "type": "string"
+        },
+        "compressed_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_at_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "declared_uncompressed_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "message_group_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message_metadata": {
+          "items": {
+            "$ref": "#/$defs/MessagePreviewMetadataItem"
+          },
+          "type": "array"
+        },
+        "offset": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "partition": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "partition_session_id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "producer_id": {
+          "type": "string"
+        },
+        "sequence_number": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "topic": {
+          "type": "string"
+        },
+        "write_session_metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "written_at_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "topic",
+        "partition",
+        "partition_session_id",
+        "offset",
+        "sequence_number",
+        "producer_id",
+        "codec",
+        "compressed_size",
+        "message_metadata",
+        "write_session_metadata"
+      ],
+      "type": "object"
+    },
+    "MessagePreviewMetadataItem": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value_base64": {
+          "type": "string"
+        },
+        "value_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "value_base64"
+      ],
+      "type": "object"
+    },
+    "MessagePreviewRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "max_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "config",
+        "max_bytes"
+      ],
+      "type": "object"
+    },
+    "MessagePreviewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "byte_length": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "detections": {
+          "items": {
+            "$ref": "#/$defs/ParserDetection"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/MessagePreviewMetadata"
+        },
+        "payload_base64": {
+          "type": "string"
+        },
+        "payload_preview_base64": {
+          "type": "string"
+        },
+        "preview_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text_preview": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text_preview",
+        "payload_preview_base64",
+        "payload_base64",
+        "byte_length",
+        "preview_bytes",
+        "metadata",
+        "detections"
+      ],
+      "type": "object"
+    },
+    "NameSyntax": {
+      "enum": [
+        "any_non_empty_utf8",
+        "ascii_identifier",
+        "object_store_path_segment"
+      ],
+      "type": "string"
+    },
+    "ObjectKeyLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "max_utf8_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "normalized_relative_path": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "max_utf8_bytes",
+        "normalized_relative_path"
+      ],
+      "type": "object"
+    },
+    "OptionsRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "query": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "refresh": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ParserDetection": {
+      "additionalProperties": false,
+      "properties": {
+        "config": true,
+        "inferred_columns": {
+          "items": {
+            "$ref": "#/$defs/InferredColumn"
+          },
+          "type": "array"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "preview_tabs": {
+          "items": {
+            "$ref": "#/$defs/ParserPreviewTab"
+          },
+          "type": "array"
+        },
+        "sample_rows": {
+          "items": true,
+          "type": "array"
+        },
+        "sampled_messages": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sampled_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "config",
+        "inferred_columns",
+        "sample_rows",
+        "preview_tabs",
+        "sampled_messages",
+        "sampled_rows"
+      ],
+      "type": "object"
+    },
+    "ParserPreviewTab": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "content",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "ProviderDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "sink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "title"
+      ],
+      "type": "object"
+    },
+    "RevisionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_record_version": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "expected_record_version"
+      ],
+      "type": "object"
+    },
+    "RuntimeState": {
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "const": "created",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "stopped",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "run_id": {
+              "type": "string"
+            },
+            "state": {
+              "const": "starting",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "run_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "pid": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "state": {
+              "const": "running",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "run_id",
+            "pid"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "run_id": {
+              "type": "string"
+            },
+            "state": {
+              "const": "stopping",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "run_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "state": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "run_id",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SinkLimitsDescription": {
+      "additionalProperties": false,
+      "description": "Machine-readable summary of the restrictions enforced by one sink.",
+      "properties": {
+        "column_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "dataset_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "object_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectKeyLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "sink": {
+          "type": "string"
+        },
+        "supported_arrow_types": {
+          "items": {
+            "$ref": "#/$defs/ArrowTypeFamily"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sink",
+        "supported_arrow_types"
+      ],
+      "type": "object"
+    },
+    "SqlPlaygroundRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sql",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "SqlPlaygroundResult": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnView"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "columns",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "StopRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_record_version": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "expected_record_version",
+        "expected_run_id"
+      ],
+      "type": "object"
+    },
+    "TextLimit": {
+      "additionalProperties": false,
+      "properties": {
+        "max_utf8_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ],
+          "x-omit-none": true
+        },
+        "syntax": {
+          "$ref": "#/$defs/NameSyntax"
+        }
+      },
+      "required": [
+        "syntax"
+      ],
+      "type": "object"
+    },
+    "UiCatalog": {
+      "additionalProperties": false,
+      "properties": {
+        "common_schema": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonSchema"
+        },
+        "initial": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/ProviderDefinition"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "common_schema",
+        "initial",
+        "providers"
+      ],
+      "type": "object"
+    },
+    "UpdateDraftRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "config": {
+          "additionalProperties": true,
+          "type": "object",
+          "x-typescript-type": "JsonObject"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "expected_record_version": {
+          "pattern": "^(?:0|[1-9][0-9]*)$",
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_revision",
+        "expected_record_version",
+        "name",
+        "config"
+      ],
+      "type": "object"
+    },
+    "ValidationCommandResult": {
+      "additionalProperties": false,
+      "properties": {
+        "delivery": {
+          "$ref": "#/$defs/DeliveryRecord"
+        },
+        "discovery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiscoveryResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        }
+      },
+      "required": [
+        "delivery"
+      ],
+      "type": "object"
+    },
+    "ValidationState": {
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "const": "draft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "const": "ready",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "revision"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "const": "invalid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "revision",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WorkerLogChunkView": {
+      "additionalProperties": false,
+      "properties": {
+        "end_offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "start_offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "truncated_before": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "start_offset",
+        "next_offset",
+        "end_offset",
+        "truncated_before"
+      ],
+      "type": "object"
+    },
+    "WorkerLogReadQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit_bytes": {
+          "default": null,
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "WorkerLogView": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "size_bytes",
+        "active"
+      ],
+      "type": "object"
+    },
+    "WorkerLogsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "items": {
+            "$ref": "#/$defs/WorkerLogView"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "workers"
+      ],
+      "type": "object"
+    },
+    "YamlRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "yaml": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "yaml"
+      ],
+      "type": "object"
+    },
+    "YamlResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "yaml": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "yaml"
+      ],
+      "type": "object"
+    }
+  },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ServerApiContract",
-  "type": "object",
   "properties": {
     "catalog_response": {
       "$ref": "#/$defs/UiCatalog"
     },
-    "delivery_list_response": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/DeliverySummary"
-      }
+    "config_request": {
+      "$ref": "#/$defs/ConfigRequest"
     },
-    "delivery_response": {
-      "$ref": "#/$defs/DeliveryRecord"
-    },
-    "discovery_response": {
-      "$ref": "#/$defs/DiscoveryResult"
-    },
-    "validation_response": {
-      "$ref": "#/$defs/ValidationCommandResult"
-    },
-    "dynamic_options_response": {
-      "$ref": "#/$defs/DynamicOptions"
-    },
-    "dynamic_options_request": {
-      "$ref": "#/$defs/OptionsRequest"
+    "config_response": {
+      "$ref": "#/$defs/ConfigResponse"
     },
     "connection_check_request": {
       "$ref": "#/$defs/ConnectionCheckRequest"
@@ -33,11 +1398,41 @@
     "connection_check_response": {
       "$ref": "#/$defs/ConnectionCheckResult"
     },
+    "create_draft_request": {
+      "$ref": "#/$defs/CreateDraftRequest"
+    },
+    "delivery_list_response": {
+      "items": {
+        "$ref": "#/$defs/DeliverySummary"
+      },
+      "type": "array"
+    },
+    "delivery_response": {
+      "$ref": "#/$defs/DeliveryRecord"
+    },
+    "discovery_response": {
+      "$ref": "#/$defs/DiscoveryResult"
+    },
+    "dynamic_options_request": {
+      "$ref": "#/$defs/OptionsRequest"
+    },
+    "dynamic_options_response": {
+      "$ref": "#/$defs/DynamicOptions"
+    },
+    "error_response": {
+      "$ref": "#/$defs/ApiErrorBody"
+    },
+    "health_response": {
+      "$ref": "#/$defs/HealthResponse"
+    },
     "message_preview_request": {
       "$ref": "#/$defs/MessagePreviewRequest"
     },
     "message_preview_response": {
       "$ref": "#/$defs/MessagePreviewResult"
+    },
+    "revision_request": {
+      "$ref": "#/$defs/RevisionRequest"
     },
     "sql_playground_request": {
       "$ref": "#/$defs/SqlPlaygroundRequest"
@@ -45,44 +1440,29 @@
     "sql_playground_response": {
       "$ref": "#/$defs/SqlPlaygroundResult"
     },
-    "yaml_response": {
-      "$ref": "#/$defs/YamlResponse"
-    },
-    "config_response": {
-      "$ref": "#/$defs/ConfigResponse"
-    },
-    "health_response": {
-      "$ref": "#/$defs/HealthResponse"
-    },
-    "error_response": {
-      "$ref": "#/$defs/ApiErrorBody"
-    },
-    "config_request": {
-      "$ref": "#/$defs/ConfigRequest"
-    },
-    "yaml_request": {
-      "$ref": "#/$defs/YamlRequest"
-    },
-    "create_draft_request": {
-      "$ref": "#/$defs/CreateDraftRequest"
+    "stop_request": {
+      "$ref": "#/$defs/StopRequest"
     },
     "update_draft_request": {
       "$ref": "#/$defs/UpdateDraftRequest"
     },
-    "revision_request": {
-      "$ref": "#/$defs/RevisionRequest"
+    "validation_response": {
+      "$ref": "#/$defs/ValidationCommandResult"
     },
-    "stop_request": {
-      "$ref": "#/$defs/StopRequest"
-    },
-    "worker_logs_response": {
-      "$ref": "#/$defs/WorkerLogsResult"
+    "worker_log_read_query": {
+      "$ref": "#/$defs/WorkerLogReadQuery"
     },
     "worker_log_response": {
       "$ref": "#/$defs/WorkerLogChunkView"
     },
-    "worker_log_read_query": {
-      "$ref": "#/$defs/WorkerLogReadQuery"
+    "worker_logs_response": {
+      "$ref": "#/$defs/WorkerLogsResult"
+    },
+    "yaml_request": {
+      "$ref": "#/$defs/YamlRequest"
+    },
+    "yaml_response": {
+      "$ref": "#/$defs/YamlResponse"
     }
   },
   "required": [
@@ -113,1386 +1493,6 @@
     "worker_log_response",
     "worker_log_read_query"
   ],
-  "$defs": {
-    "UiCatalog": {
-      "type": "object",
-      "properties": {
-        "common_schema": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonSchema"
-        },
-        "initial": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        },
-        "providers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ProviderDefinition"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "common_schema",
-        "initial",
-        "providers"
-      ]
-    },
-    "ProviderDefinition": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        },
-        "source": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EndpointDefinition"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        },
-        "sink": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EndpointDefinition"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "title"
-      ]
-    },
-    "EndpointDefinition": {
-      "type": "object",
-      "properties": {
-        "schema": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonSchema"
-        },
-        "initial": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        },
-        "delivery_modes": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DeliveryMode"
-          }
-        },
-        "partitioned": {
-          "type": "boolean"
-        },
-        "connection_check": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "schema",
-        "initial",
-        "delivery_modes",
-        "partitioned",
-        "connection_check"
-      ]
-    },
-    "DeliveryMode": {
-      "type": "string",
-      "enum": [
-        "batch",
-        "stream"
-      ]
-    },
-    "DeliverySummary": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "revision": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "validation": {
-          "$ref": "#/$defs/ValidationState"
-        },
-        "runtime": {
-          "$ref": "#/$defs/RuntimeState"
-        },
-        "updated_at_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "name",
-        "description",
-        "revision",
-        "validation",
-        "runtime",
-        "updated_at_ms"
-      ]
-    },
-    "ValidationState": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "draft"
-            }
-          },
-          "required": [
-            "state"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "revision": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
-            },
-            "state": {
-              "type": "string",
-              "const": "ready"
-            }
-          },
-          "required": [
-            "state",
-            "revision"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "revision": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 0
-            },
-            "message": {
-              "type": "string"
-            },
-            "state": {
-              "type": "string",
-              "const": "invalid"
-            }
-          },
-          "required": [
-            "state",
-            "revision",
-            "message"
-          ]
-        }
-      ]
-    },
-    "RuntimeState": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "created"
-            }
-          },
-          "required": [
-            "state"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "state": {
-              "type": "string",
-              "const": "stopped"
-            }
-          },
-          "required": [
-            "state"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "run_id": {
-              "type": "string"
-            },
-            "state": {
-              "type": "string",
-              "const": "starting"
-            }
-          },
-          "required": [
-            "state",
-            "run_id"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "run_id": {
-              "type": "string"
-            },
-            "pid": {
-              "type": "integer",
-              "format": "uint32",
-              "minimum": 0
-            },
-            "state": {
-              "type": "string",
-              "const": "running"
-            }
-          },
-          "required": [
-            "state",
-            "run_id",
-            "pid"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "run_id": {
-              "type": "string"
-            },
-            "state": {
-              "type": "string",
-              "const": "stopping"
-            }
-          },
-          "required": [
-            "state",
-            "run_id"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "run_id": {
-              "type": "string"
-            },
-            "message": {
-              "type": "string"
-            },
-            "state": {
-              "type": "string",
-              "const": "failed"
-            }
-          },
-          "required": [
-            "state",
-            "run_id",
-            "message"
-          ]
-        }
-      ]
-    },
-    "DeliveryRecord": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string"
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        },
-        "revision": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "record_version": {
-          "type": "string",
-          "pattern": "^(?:0|[1-9][0-9]*)$"
-        },
-        "validation": {
-          "$ref": "#/$defs/ValidationState"
-        },
-        "runtime": {
-          "$ref": "#/$defs/RuntimeState"
-        },
-        "created_at_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "updated_at_ms": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "name",
-        "description",
-        "config",
-        "revision",
-        "record_version",
-        "validation",
-        "runtime",
-        "created_at_ms",
-        "updated_at_ms"
-      ]
-    },
-    "DiscoveryResult": {
-      "type": "object",
-      "properties": {
-        "source": {
-          "type": "string"
-        },
-        "sink": {
-          "type": "string"
-        },
-        "pipeline_count": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "datasets": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DatasetView"
-          }
-        },
-        "sink_limits": {
-          "$ref": "#/$defs/SinkLimitsDescription"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "sink",
-        "pipeline_count",
-        "datasets",
-        "sink_limits"
-      ]
-    },
-    "DatasetView": {
-      "type": "object",
-      "properties": {
-        "role": {
-          "$ref": "#/$defs/DatasetRoleView"
-        },
-        "name": {
-          "type": "string"
-        },
-        "intermediate_columns": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ColumnView"
-          }
-        },
-        "final_columns": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DestinationColumnView"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "role",
-        "name",
-        "intermediate_columns",
-        "final_columns"
-      ]
-    },
-    "DatasetRoleView": {
-      "type": "string",
-      "enum": [
-        "Main",
-        "DeadLetterQueue"
-      ]
-    },
-    "ColumnView": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "arrow_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        },
-        "primary_key": {
-          "type": "boolean"
-        },
-        "low_cardinality": {
-          "type": "boolean"
-        },
-        "max_length": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0,
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "arrow_type",
-        "nullable",
-        "primary_key",
-        "low_cardinality"
-      ]
-    },
-    "DestinationColumnView": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "arrow_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        },
-        "primary_key": {
-          "type": "boolean"
-        },
-        "low_cardinality": {
-          "type": "boolean"
-        },
-        "max_length": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0,
-          "x-omit-none": true
-        },
-        "destination_type": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "arrow_type",
-        "nullable",
-        "primary_key",
-        "low_cardinality",
-        "destination_type"
-      ]
-    },
-    "SinkLimitsDescription": {
-      "description": "Machine-readable summary of the restrictions enforced by one sink.",
-      "type": "object",
-      "properties": {
-        "sink": {
-          "type": "string"
-        },
-        "dataset_name": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TextLimit"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        },
-        "column_name": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TextLimit"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        },
-        "supported_arrow_types": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ArrowTypeFamily"
-          }
-        },
-        "object_key": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ObjectKeyLimit"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "sink",
-        "supported_arrow_types"
-      ]
-    },
-    "TextLimit": {
-      "type": "object",
-      "properties": {
-        "syntax": {
-          "$ref": "#/$defs/NameSyntax"
-        },
-        "max_utf8_bytes": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0,
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "syntax"
-      ]
-    },
-    "NameSyntax": {
-      "type": "string",
-      "enum": [
-        "any_non_empty_utf8",
-        "ascii_identifier",
-        "object_store_path_segment"
-      ]
-    },
-    "ArrowTypeFamily": {
-      "type": "string",
-      "enum": [
-        "utf8",
-        "binary",
-        "signed_integer",
-        "unsigned_integer",
-        "floating_point",
-        "decimal",
-        "boolean",
-        "date32",
-        "date64",
-        "timestamp"
-      ]
-    },
-    "ObjectKeyLimit": {
-      "type": "object",
-      "properties": {
-        "max_utf8_bytes": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "normalized_relative_path": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "max_utf8_bytes",
-        "normalized_relative_path"
-      ]
-    },
-    "ValidationCommandResult": {
-      "type": "object",
-      "properties": {
-        "delivery": {
-          "$ref": "#/$defs/DeliveryRecord"
-        },
-        "discovery": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DiscoveryResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "delivery"
-      ]
-    },
-    "DynamicOptions": {
-      "type": "object",
-      "properties": {
-        "options": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/DynamicOption"
-          }
-        },
-        "warning": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "x-omit-none": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "options"
-      ]
-    },
-    "DynamicOption": {
-      "type": "object",
-      "properties": {
-        "value": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "value",
-        "label"
-      ]
-    },
-    "OptionsRequest": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "refresh": {
-          "type": "boolean",
-          "default": false
-        },
-        "dependencies": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {}
-        }
-      },
-      "additionalProperties": false
-    },
-    "ConnectionCheckRequest": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "role": {
-          "$ref": "#/$defs/EndpointRole"
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "provider",
-        "role",
-        "config"
-      ]
-    },
-    "EndpointRole": {
-      "type": "string",
-      "enum": [
-        "source",
-        "sink"
-      ]
-    },
-    "ConnectionCheckResult": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "$ref": "#/$defs/ConnectionCheckStatus"
-        },
-        "message": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "options": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "status",
-        "options"
-      ]
-    },
-    "ConnectionCheckStatus": {
-      "type": "string",
-      "enum": [
-        "verified",
-        "network_reachable"
-      ]
-    },
-    "MessagePreviewRequest": {
-      "type": "object",
-      "properties": {
-        "provider": {
-          "type": "string"
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        },
-        "max_bytes": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "provider",
-        "config",
-        "max_bytes"
-      ]
-    },
-    "MessagePreviewResult": {
-      "type": "object",
-      "properties": {
-        "text_preview": {
-          "type": "string"
-        },
-        "payload_preview_base64": {
-          "type": "string"
-        },
-        "payload_base64": {
-          "type": "string"
-        },
-        "byte_length": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "preview_bytes": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "metadata": {
-          "$ref": "#/$defs/MessagePreviewMetadata"
-        },
-        "detections": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ParserDetection"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "text_preview",
-        "payload_preview_base64",
-        "payload_base64",
-        "byte_length",
-        "preview_bytes",
-        "metadata",
-        "detections"
-      ]
-    },
-    "MessagePreviewMetadata": {
-      "type": "object",
-      "properties": {
-        "topic": {
-          "type": "string"
-        },
-        "partition": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "partition_session_id": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "offset": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "sequence_number": {
-          "type": "integer",
-          "format": "int64"
-        },
-        "created_at_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "int64"
-        },
-        "written_at_ms": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "int64"
-        },
-        "producer_id": {
-          "type": "string"
-        },
-        "message_group_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "codec": {
-          "type": "string"
-        },
-        "compressed_size": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "declared_uncompressed_size": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0
-        },
-        "message_metadata": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/MessagePreviewMetadataItem"
-          }
-        },
-        "write_session_metadata": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "topic",
-        "partition",
-        "partition_session_id",
-        "offset",
-        "sequence_number",
-        "producer_id",
-        "codec",
-        "compressed_size",
-        "message_metadata",
-        "write_session_metadata"
-      ]
-    },
-    "MessagePreviewMetadataItem": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "value_base64": {
-          "type": "string"
-        },
-        "value_text": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "value_base64"
-      ]
-    },
-    "ParserDetection": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        },
-        "config": true,
-        "inferred_columns": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/InferredColumn"
-          }
-        },
-        "sample_rows": {
-          "type": "array",
-          "items": true
-        },
-        "preview_tabs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ParserPreviewTab"
-          }
-        },
-        "sampled_messages": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        },
-        "sampled_rows": {
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "label",
-        "config",
-        "inferred_columns",
-        "sample_rows",
-        "preview_tabs",
-        "sampled_messages",
-        "sampled_rows"
-      ]
-    },
-    "InferredColumn": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "source_type": {
-          "type": "string"
-        },
-        "arrow_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "source_type",
-        "arrow_type",
-        "nullable"
-      ]
-    },
-    "ParserPreviewTab": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "label": {
-          "type": "string"
-        },
-        "content": {
-          "type": "string"
-        },
-        "truncated": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "label",
-        "content",
-        "truncated"
-      ]
-    },
-    "SqlPlaygroundRequest": {
-      "type": "object",
-      "properties": {
-        "sql": {
-          "type": "string"
-        },
-        "rows": {
-          "type": "array",
-          "items": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "sql",
-        "rows"
-      ]
-    },
-    "SqlPlaygroundResult": {
-      "type": "object",
-      "properties": {
-        "columns": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ColumnView"
-          }
-        },
-        "rows": {
-          "type": "array",
-          "items": true
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "columns",
-        "rows"
-      ]
-    },
-    "YamlResponse": {
-      "type": "object",
-      "properties": {
-        "yaml": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "yaml"
-      ]
-    },
-    "ConfigResponse": {
-      "type": "object",
-      "properties": {
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "config"
-      ]
-    },
-    "HealthResponse": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "status"
-      ]
-    },
-    "ApiErrorBody": {
-      "type": "object",
-      "properties": {
-        "error": {
-          "$ref": "#/$defs/ApiErrorView"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "error"
-      ]
-    },
-    "ApiErrorView": {
-      "type": "object",
-      "properties": {
-        "code": {
-          "$ref": "#/$defs/ApiErrorCode"
-        },
-        "message": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "code",
-        "message"
-      ]
-    },
-    "ApiErrorCode": {
-      "type": "string",
-      "enum": [
-        "invalid_request",
-        "payload_too_large",
-        "not_found",
-        "conflict",
-        "validation_failed",
-        "internal_error"
-      ]
-    },
-    "ConfigRequest": {
-      "type": "object",
-      "properties": {
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "config"
-      ]
-    },
-    "YamlRequest": {
-      "type": "object",
-      "properties": {
-        "yaml": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "yaml"
-      ]
-    },
-    "CreateDraftRequest": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string",
-          "default": ""
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "config"
-      ]
-    },
-    "UpdateDraftRequest": {
-      "type": "object",
-      "properties": {
-        "expected_revision": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "expected_record_version": {
-          "type": "string",
-          "pattern": "^(?:0|[1-9][0-9]*)$"
-        },
-        "name": {
-          "type": "string"
-        },
-        "description": {
-          "type": "string",
-          "default": ""
-        },
-        "config": {
-          "type": "object",
-          "additionalProperties": true,
-          "x-typescript-type": "JsonObject"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "expected_revision",
-        "expected_record_version",
-        "name",
-        "config"
-      ]
-    },
-    "RevisionRequest": {
-      "type": "object",
-      "properties": {
-        "expected_revision": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "expected_record_version": {
-          "type": "string",
-          "pattern": "^(?:0|[1-9][0-9]*)$"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "expected_revision",
-        "expected_record_version"
-      ]
-    },
-    "StopRequest": {
-      "type": "object",
-      "properties": {
-        "expected_revision": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "expected_record_version": {
-          "type": "string",
-          "pattern": "^(?:0|[1-9][0-9]*)$"
-        },
-        "expected_run_id": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "expected_revision",
-        "expected_record_version",
-        "expected_run_id"
-      ]
-    },
-    "WorkerLogsResult": {
-      "type": "object",
-      "properties": {
-        "workers": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/WorkerLogView"
-          }
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "workers"
-      ]
-    },
-    "WorkerLogView": {
-      "type": "object",
-      "properties": {
-        "worker_id": {
-          "type": "string"
-        },
-        "size_bytes": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "active": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "worker_id",
-        "size_bytes",
-        "active"
-      ]
-    },
-    "WorkerLogChunkView": {
-      "type": "object",
-      "properties": {
-        "text": {
-          "type": "string"
-        },
-        "start_offset": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "next_offset": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "end_offset": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "truncated_before": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "text",
-        "start_offset",
-        "next_offset",
-        "end_offset",
-        "truncated_before"
-      ]
-    },
-    "WorkerLogReadQuery": {
-      "type": "object",
-      "properties": {
-        "cursor": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint64",
-          "minimum": 0,
-          "default": null
-        },
-        "limit_bytes": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint",
-          "minimum": 0,
-          "default": null
-        }
-      },
-      "additionalProperties": false
-    }
-  }
+  "title": "ServerApiContract",
+  "type": "object"
 }

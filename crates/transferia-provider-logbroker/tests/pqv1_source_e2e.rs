@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -23,19 +21,19 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::core::delivery::DeliveryDiscoveryRequest;
-use transferia::core::memory::PipelineMemory;
-use transferia::metrics::MetricsRegistry;
-use transferia::providers::logbroker::pqv1::src_stream::PqV1SourceProvider;
-use transferia::providers::logbroker::proto::discovery::{EndpointInfo, ListEndpointsResult};
-use transferia::providers::logbroker::proto::operations::{GetOperationResponse, Operation};
-use transferia::providers::logbroker::proto::pers_queue::v1::{
+use transferia_core::delivery::DeliveryDiscoveryRequest;
+use transferia_core::memory::PipelineMemory;
+use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_provider_logbroker::logbroker::pqv1::src_stream::PqV1SourceProvider;
+use transferia_provider_logbroker::logbroker::proto::discovery::{EndpointInfo, ListEndpointsResult};
+use transferia_provider_logbroker::logbroker::proto::operations::{GetOperationResponse, Operation};
+use transferia_provider_logbroker::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message, migration_streaming_read_server_message,
     AutoPartitioningSettings, AutoPartitioningStrategy, Codec, CommitCookie, DescribeTopicResponse,
     DescribeTopicResult, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
     Path, TopicSettings,
 };
-use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
+use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
 const TOPIC: &str = "/Root/e2e-topic";
 const CONSUMER: &str = "e2e-consumer";
@@ -397,7 +395,7 @@ parser:
         .await?;
     assert_eq!(
         discovery.source_topology,
-        transferia::core::delivery::SourceTopology::StaticPartitions(vec![0])
+        transferia_core::delivery::SourceTopology::StaticPartitions(vec![0])
     );
 
     let mut source = provider
@@ -405,12 +403,12 @@ parser:
             partition_id: 0,
             cancellation: cancellation.child_token(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
         })
         .await?;
     let batch =
         tokio::time::timeout(core::time::Duration::from_secs(3), source.read_batch()).await??;
-    let transferia::core::data::message::SourceBatch::Raw {
+    let transferia_core::data::message::SourceBatch::Raw {
         messages,
         commit_marker,
         ..
@@ -429,5 +427,5 @@ parser:
 }
 
 mod topic_settings {
-    pub use transferia::providers::logbroker::proto::pers_queue::v1::topic_settings::ReadRule;
+    pub use transferia_provider_logbroker::logbroker::proto::pers_queue::v1::topic_settings::ReadRule;
 }

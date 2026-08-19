@@ -77,16 +77,27 @@ class AffectedChecksTest(unittest.TestCase):
             [["cargo", "check", "--all-features", "--test", "e2e_postgres"]],
         )
 
-    def test_unknown_build_input_falls_back_only_to_workspace_check(self):
+    def test_root_manifest_checks_root_composition_without_workspace_fallback(self):
         selection = test_affected.select(["Cargo.toml"])
         rust, web = test_affected.commands(selection)
 
-        self.assertTrue(selection.full)
+        self.assertFalse(selection.full)
         self.assertEqual(web, [])
         self.assertEqual(
             rust,
-            [["cargo", "check", "--workspace", "--all-targets", "--all-features"]],
+            [[
+                "cargo",
+                "check",
+                "--all-targets",
+                "--all-features",
+                "-p",
+                "transferia",
+            ]],
         )
+
+    def test_lockfile_alone_runs_nothing(self):
+        rust, web = test_affected.commands(test_affected.select(["Cargo.lock"]))
+        self.assertEqual((rust, web), ([], []))
 
     def test_documentation_change_runs_nothing(self):
         rust, web = test_affected.commands(test_affected.select(["docs/server.md"]))

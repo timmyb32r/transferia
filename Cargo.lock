@@ -5795,6 +5795,7 @@ dependencies = [
  "tracing",
  "transferia-core",
  "transferia-delivery",
+ "transferia-delivery-contracts",
  "transferia-providers",
  "transferia-registry",
  "transferia-runtime",
@@ -5846,6 +5847,7 @@ dependencies = [
  "async-trait",
  "schemars 1.2.2",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "transferia-core",
@@ -5913,6 +5915,7 @@ dependencies = [
  "chrono",
  "clickhouse-arrow",
  "futures-util",
+ "reqwest 0.12.28",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile",
@@ -5920,6 +5923,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "testcontainers",
  "tokio",
  "tokio-rustls",
  "tokio-util",
@@ -5928,6 +5932,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
 ]
 
 [[package]]
@@ -5943,9 +5948,12 @@ dependencies = [
  "iceberg-catalog-rest",
  "opendal",
  "parquet",
+ "reqwest 0.12.28",
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "testcontainers",
  "tokio",
  "tokio-util",
  "tracing",
@@ -5953,6 +5961,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
  "typetag",
  "url",
  "uuid",
@@ -5972,6 +5981,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "testcontainers",
  "tokio",
  "tokio-util",
  "tracing",
@@ -5979,6 +5989,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
 ]
 
 [[package]]
@@ -5993,6 +6004,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "http",
+ "http-body-util",
  "hyper",
  "hyper-util",
  "prost",
@@ -6015,6 +6027,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
  "ydb-grpc",
  "zstd",
 ]
@@ -6065,6 +6078,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
+ "testcontainers",
  "tokio",
  "tokio-util",
  "tracing",
@@ -6073,6 +6087,7 @@ dependencies = [
  "transferia-pipeline",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
 ]
 
 [[package]]
@@ -6106,6 +6121,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "simd-json",
+ "testcontainers",
  "time",
  "tokio",
  "tokio-util",
@@ -6135,6 +6151,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "testcontainers",
  "time",
  "tokio",
  "tokio-util",
@@ -6143,6 +6160,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-provider-support",
  "transferia-registry",
+ "transferia-test-support",
 ]
 
 [[package]]
@@ -6226,12 +6244,24 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
  "transferia-runtime",
 ]
 
 [[package]]
 name = "transferia-server-ui"
 version = "0.1.0"
+
+[[package]]
+name = "transferia-test-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-util",
+ "transferia-registry",
+]
 
 [[package]]
 name = "try-lock"

@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use std::sync::Arc;
 
 use anyhow::Context as _;
@@ -19,20 +17,20 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use transferia::core::data::message::SourceBatch;
-use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::delivery::{
+use transferia_core::data::message::SourceBatch;
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
-use transferia::core::memory::PipelineMemory;
-use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
-use transferia::core::source::Source as _;
-use transferia::metrics::{MetricsRegistry, SinkCounters};
-use transferia::providers::iceberg::{
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia_core::source::Source as _;
+use transferia_delivery_contracts::metrics::{MetricsRegistry, SinkCounters};
+use transferia_provider_iceberg::iceberg::{
     IcebergSinkConfig, IcebergSinkProvider, IcebergSourceConfig, IcebergSourceProvider,
 };
-use transferia::registry::{
+use transferia_registry::{
     SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
     SourceProvider as _,
 };
@@ -142,7 +140,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = provider
         .build_sink(SinkBuildContext {
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -200,7 +198,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
         IcebergSourceProvider::from_config(source_config, Arc::new(MetricsRegistry::new()))?;
     source_provider
         .delivery_discovery(SourceDiscoveryContext {
-            request: transferia::core::delivery::DeliveryDiscoveryRequest {
+            request: transferia_core::delivery::DeliveryDiscoveryRequest {
                 keep_system_columns: false,
             },
             cancellation: CancellationToken::new(),
@@ -211,7 +209,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
             partition_id: 0,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
         })
         .await?;
     let SourceBatch::Typed { tables, .. } = source

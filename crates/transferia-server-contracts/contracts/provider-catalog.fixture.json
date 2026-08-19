@@ -1,0 +1,5587 @@
+{
+  "common_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "CommonConfigSchema",
+    "type": "object",
+    "properties": {
+      "delivery_type": {
+        "title": "Delivery type",
+        "$ref": "#/$defs/DeliveryType"
+      },
+      "middlewares": {
+        "title": "Transforms",
+        "type": "array",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "FilterConfig",
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "field",
+                    "value"
+                  ]
+                }
+              },
+              "required": [
+                "filter"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "datafusion": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "DataFusionConfig",
+                  "type": "object",
+                  "properties": {
+                    "sql": {
+                      "title": "SQL",
+                      "description": "One SELECT query over the input table",
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "sql"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "sql"
+                  ]
+                }
+              },
+              "required": [
+                "datafusion"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "x-ui": {
+          "widget": "middlewares"
+        }
+      },
+      "pipeline_memory_limit_bytes": {
+        "title": "Pipeline memory limit",
+        "type": "integer",
+        "format": "uint",
+        "minimum": 0,
+        "x-ui": {
+          "widget": "byte_size"
+        }
+      },
+      "metrics": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/MetricsConfig"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "delivery_type",
+      "middlewares",
+      "pipeline_memory_limit_bytes"
+    ],
+    "$defs": {
+      "DeliveryType": {
+        "type": "string",
+        "enum": [
+          "batch",
+          "stream",
+          "batch_and_stream"
+        ]
+      },
+      "MetricsConfig": {
+        "type": "object",
+        "properties": {
+          "interval_ms": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0,
+            "default": 1000
+          },
+          "per_partition": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "initial": {
+    "delivery_id": "demo-delivery",
+    "durable_storage": {
+      "type": "local_file",
+      "path": ".transferia-state"
+    },
+    "delivery_type": null,
+    "source": {},
+    "sink": {},
+    "middlewares": [],
+    "pipeline_memory_limit_bytes": 268435456,
+    "metrics": null
+  },
+  "providers": [
+    {
+      "key": "logbroker",
+      "title": "Logbroker",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "LogbrokerSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "auth": {
+              "$ref": "#/$defs/LogbrokerAuthConfig",
+              "x-ui": {
+                "control_width": "auth"
+              }
+            },
+            "topics": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/LogbrokerTopicConfig"
+              },
+              "x-ui": {
+                "widget": "compact_array",
+                "item_label": "topic"
+              }
+            },
+            "consumer_name": {
+              "type": "string"
+            },
+            "driver": {
+              "title": "Driver",
+              "$ref": "#/$defs/LogbrokerDriver",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "allow_ttl_rewind": {
+              "title": "Allow TTL rewind",
+              "description": "Continue from the oldest retained message when committed offsets have expired",
+              "type": "boolean",
+              "default": false,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "parser": {
+              "$ref": "#/$defs/ParserSchema",
+              "x-ui": {
+                "widget": "parser"
+              }
+            },
+            "read_buffer_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 1048576,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
+            "pqv1_decompression_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 4,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "pqv1_discard_before_decompression": {
+              "type": "boolean",
+              "default": false,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "auth",
+            "topics",
+            "consumer_name",
+            "driver",
+            "parser",
+            "installation"
+          ],
+          "$defs": {
+            "LogbrokerAuthConfig": {
+              "oneOf": [
+                {
+                  "title": "Token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "title": "Token file",
+                  "type": "object",
+                  "properties": {
+                    "token_file": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token_file"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token_file"
+                  ]
+                }
+              ]
+            },
+            "LogbrokerTopicConfig": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "title": "Topic path",
+                  "type": "string"
+                },
+                "partitions": {
+                  "title": "Partition IDs",
+                  "description": "Partitions to read; leave empty to let YDB Topic assign every partition dynamically",
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int64"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "partition_ranges"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ]
+            },
+            "LogbrokerDriver": {
+              "oneOf": [
+                {
+                  "title": "YDB",
+                  "type": "string",
+                  "const": "ydb"
+                },
+                {
+                  "title": "PQv1",
+                  "type": "string",
+                  "const": "pqv1"
+                }
+              ]
+            },
+            "ParserSchema": {
+              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.",
+              "anyOf": [
+                {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserSchema"
+                },
+                {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserSchema"
+                },
+                {
+                  "title": "Discard messages (benchmark)",
+                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
+                }
+              ]
+            },
+            "JsonParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "json_parser": {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "json_parser"
+              ],
+              "x-ui": {
+                "widget": "json_parser"
+              }
+            },
+            "CommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SystemColumnsConfig",
+                  "default": {
+                    "topic": null,
+                    "partition": null,
+                    "offset": null,
+                    "message_index": null,
+                    "write_timestamp_ms": null
+                  },
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "table_naming"
+              ]
+            },
+            "TableNaming": {
+              "oneOf": [
+                {
+                  "title": "From config",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "from_config"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "name"
+                  ]
+                },
+                {
+                  "title": "From message",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "from_topic_name"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "SystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "message_index": {
+                  "description": "Zero-based index of a record inside one source message when framing yields multiple records",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "additionalProperties": false
+            },
+            "JsonParserConfig": {
+              "description": "JSON parser configuration deserialized from the `json_parser:` block.",
+              "type": "object",
+              "properties": {
+                "json_framing": {
+                  "title": "JSON framing",
+                  "description": "How incoming message bytes frame JSON records.",
+                  "$ref": "#/$defs/JsonFramingMode",
+                  "default": "single_document",
+                  "x-ui": {
+                    "control_width": "medium",
+                    "labels": {
+                      "single_document": "Single JSON document",
+                      "json_lines": "JSON Lines (JSONL)",
+                      "json_array": "JSON array"
+                    }
+                  }
+                },
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ColumnMapping"
+                  },
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "conversion_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/ConversionErrorPolicy",
+                  "x-ui": {
+                    "labels": {
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop",
+                      "fail": "Fail delivery"
+                    }
+                  }
+                },
+                "unknown_fields": {
+                  "title": "On Unknown Field",
+                  "$ref": "#/$defs/UnknownFieldPolicy",
+                  "default": {
+                    "action": "send_to_column",
+                    "column_name": "additional_properties"
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns",
+                "conversion_error"
+              ]
+            },
+            "JsonFramingMode": {
+              "description": "Record framing policy owned by the JSON parser.",
+              "type": "string",
+              "enum": [
+                "single_document",
+                "json_lines",
+                "json_array"
+              ]
+            },
+            "ColumnMapping": {
+              "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
+              "type": "object",
+              "properties": {
+                "jsonpath": {
+                  "type": "string"
+                },
+                "column_name": {
+                  "type": "string"
+                },
+                "json_data_type": {
+                  "$ref": "#/$defs/JsonDataType",
+                  "default": "string",
+                  "x-ui": {
+                    "labels": {
+                      "string": "String",
+                      "number": "Number",
+                      "boolean": "Boolean"
+                    }
+                  }
+                },
+                "arrow_type": {
+                  "type": "string",
+                  "default": "Utf8",
+                  "x-ui": {
+                    "widget": "select",
+                    "options": [
+                      "Utf8",
+                      "LargeUtf8",
+                      "Int64",
+                      "Int32",
+                      "Int16",
+                      "Int8",
+                      "UInt64",
+                      "UInt32",
+                      "UInt16",
+                      "UInt8",
+                      "Float64",
+                      "Float32",
+                      "Boolean",
+                      "Json",
+                      "Decimal128",
+                      "Date32",
+                      "Date64",
+                      "Timestamp(Second)",
+                      "Timestamp(Millisecond)",
+                      "Timestamp(Microsecond)",
+                      "Timestamp(Nanosecond)",
+                      "Timestamp(Second, UTC)",
+                      "Timestamp(Millisecond, UTC)",
+                      "Timestamp(Microsecond, UTC)",
+                      "Timestamp(Nanosecond, UTC)"
+                    ]
+                  }
+                },
+                "decimal_precision": {
+                  "title": "Decimal precision",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "decimal_scale": {
+                  "title": "Decimal scale",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int8",
+                  "minimum": -128,
+                  "maximum": 127,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "time_conversion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TimeConversion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "low_cardinality": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "jsonpath",
+                "column_name"
+              ]
+            },
+            "JsonDataType": {
+              "oneOf": [
+                {
+                  "title": "String",
+                  "type": "string",
+                  "const": "string"
+                },
+                {
+                  "title": "Number",
+                  "type": "string",
+                  "const": "number"
+                },
+                {
+                  "title": "Boolean",
+                  "type": "string",
+                  "const": "boolean"
+                },
+                {
+                  "title": "JSON",
+                  "type": "string",
+                  "const": "json"
+                },
+                {
+                  "title": "Decimal (exact string)",
+                  "type": "string",
+                  "const": "decimal"
+                }
+              ]
+            },
+            "TimeConversion": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "format": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "format"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "$ref": "#/$defs/EpochUnit"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "epoch"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "unit"
+                  ]
+                }
+              ]
+            },
+            "EpochUnit": {
+              "type": "string",
+              "enum": [
+                "seconds",
+                "milliseconds",
+                "microseconds",
+                "nanoseconds"
+              ]
+            },
+            "ConversionErrorPolicy": {
+              "type": "string",
+              "enum": [
+                "dlq",
+                "drop",
+                "fail"
+              ]
+            },
+            "UnknownFieldPolicy": {
+              "oneOf": [
+                {
+                  "title": "Drop",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "drop"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Fail delivery",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "fail"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Send to a column",
+                  "type": "object",
+                  "properties": {
+                    "column_name": {
+                      "title": "Column name",
+                      "type": "string",
+                      "default": "additional_properties"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "send_to_column"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "action"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/SchemaRegistryCommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "schema_registry": {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserConfig"
+                }
+              },
+              "required": [
+                "schema_registry"
+              ]
+            },
+            "SchemaRegistryCommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SchemaRegistrySystemColumnsConfig",
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "required": [
+                "table_naming",
+                "system_columns"
+              ]
+            },
+            "SchemaRegistrySystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "SchemaRegistryParserConfig": {
+              "type": "object",
+              "properties": {
+                "connection": {
+                  "$ref": "#/$defs/SchemaRegistryConnection"
+                },
+                "json_parser": {
+                  "$ref": "#/$defs/JsonParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "connection",
+                "json_parser"
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                }
+              ]
+            },
+            "BenchmarkDiscardParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "message_index": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                },
+                "benchmark_discard": {
+                  "$ref": "#/$defs/EmptyParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "required": [
+                "benchmark_discard"
+              ]
+            },
+            "EmptyParserConfig": {
+              "type": "object"
+            }
+          }
+        },
+        "initial": {
+          "read_buffer_bytes": 1048576,
+          "parser": {},
+          "topics": [
+            {
+              "path": "",
+              "partitions": []
+            }
+          ],
+          "consumer_name": "",
+          "auth": {
+            "type": "token",
+            "token": ""
+          },
+          "driver": "ydb",
+          "allow_ttl_rewind": false,
+          "installation": {
+            "host": "",
+            "port": 2135,
+            "trusted_plaintext": true,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "stream"
+        ],
+        "partitioned": true,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "LogbrokerSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "auth": {
+              "$ref": "#/$defs/LogbrokerAuthConfig",
+              "x-ui": {
+                "control_width": "auth"
+              }
+            },
+            "topic_path": {
+              "title": "Topic path",
+              "type": "string"
+            },
+            "partition_id": {
+              "title": "Partition ID",
+              "description": "Write to one explicit partition; leave empty for automatic assignment",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "default": null
+            },
+            "serializer": {
+              "$ref": "#/$defs/SerializerConfig",
+              "x-ui": {
+                "widget": "serializer"
+              }
+            },
+            "driver": {
+              "title": "Driver",
+              "$ref": "#/$defs/LogbrokerDriver",
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "auth",
+            "topic_path",
+            "serializer",
+            "driver",
+            "installation"
+          ],
+          "$defs": {
+            "LogbrokerAuthConfig": {
+              "oneOf": [
+                {
+                  "title": "Token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "title": "Token file",
+                  "type": "object",
+                  "properties": {
+                    "token_file": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token_file"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token_file"
+                  ]
+                }
+              ]
+            },
+            "SerializerConfig": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Schema Registry",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "subject": {
+                      "title": "Subject",
+                      "type": "string"
+                    },
+                    "format": {
+                      "title": "Format",
+                      "$ref": "#/$defs/SchemaFormat"
+                    },
+                    "protobuf_message_indexes": {
+                      "title": "Protobuf message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "schema_registry"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "subject",
+                    "format"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                }
+              ]
+            },
+            "SchemaFormat": {
+              "type": "string",
+              "enum": [
+                "avro",
+                "json_schema",
+                "protobuf"
+              ]
+            },
+            "LogbrokerDriver": {
+              "oneOf": [
+                {
+                  "title": "YDB",
+                  "type": "string",
+                  "const": "ydb"
+                },
+                {
+                  "title": "PQv1",
+                  "type": "string",
+                  "const": "pqv1"
+                }
+              ]
+            }
+          }
+        },
+        "initial": {
+          "serializer": {
+            "type": "json"
+          },
+          "driver": "ydb",
+          "topic_path": "",
+          "partition_id": null,
+          "auth": {
+            "type": "token",
+            "token": ""
+          },
+          "installation": {
+            "host": "",
+            "port": 2135,
+            "trusted_plaintext": true,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "kafka",
+      "title": "Kafka",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "KafkaSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "brokers": {
+                      "type": "array",
+                      "title": "Brokers",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "security": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "title": "Plaintext",
+                          "properties": {
+                            "type": {
+                              "const": "plaintext"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "TLS",
+                          "properties": {
+                            "type": {
+                              "const": "tls"
+                            },
+                            "ca_file": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "CA file"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "SASL over TLS",
+                          "properties": {
+                            "type": {
+                              "const": "sasl_tls"
+                            },
+                            "username": {
+                              "type": "string",
+                              "title": "Username"
+                            },
+                            "password": {
+                              "type": "string",
+                              "title": "Password",
+                              "x-ui": {
+                                "widget": "password"
+                              }
+                            },
+                            "mechanism": {
+                              "type": "string",
+                              "title": "Mechanism",
+                              "enum": [
+                                "scram_sha256",
+                                "scram_sha512"
+                              ]
+                            },
+                            "ca_file": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "CA file"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "username",
+                            "password",
+                            "mechanism"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "brokers",
+                    "security",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "topics": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "x-ui": {
+                "widget": "compact_array",
+                "item_label": "topic"
+              }
+            },
+            "consumer_group": {
+              "type": "string"
+            },
+            "offset_reset": {
+              "$ref": "#/$defs/KafkaOffsetReset"
+            },
+            "parser": {
+              "$ref": "#/$defs/ParserSchema",
+              "x-ui": {
+                "widget": "parser"
+              }
+            },
+            "batch_max_messages": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 1000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "batch_max_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 16777216,
+              "x-ui": {
+                "section": "advanced",
+                "widget": "byte_size"
+              }
+            },
+            "request_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "topics",
+            "consumer_group",
+            "offset_reset",
+            "parser",
+            "installation"
+          ],
+          "$defs": {
+            "KafkaSecurityConfig": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "plaintext"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "ca_file": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "tls"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "mechanism": {
+                      "$ref": "#/$defs/KafkaSaslMechanism"
+                    },
+                    "ca_file": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "sasl_tls"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password",
+                    "mechanism"
+                  ]
+                }
+              ]
+            },
+            "KafkaSaslMechanism": {
+              "type": "string",
+              "enum": [
+                "scram_sha256",
+                "scram_sha512"
+              ]
+            },
+            "KafkaOffsetReset": {
+              "type": "string",
+              "enum": [
+                "earliest",
+                "latest"
+              ]
+            },
+            "ParserSchema": {
+              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.",
+              "anyOf": [
+                {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserSchema"
+                },
+                {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserSchema"
+                },
+                {
+                  "title": "Discard messages (benchmark)",
+                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
+                }
+              ]
+            },
+            "JsonParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "json_parser": {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "json_parser"
+              ],
+              "x-ui": {
+                "widget": "json_parser"
+              }
+            },
+            "CommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SystemColumnsConfig",
+                  "default": {
+                    "topic": null,
+                    "partition": null,
+                    "offset": null,
+                    "message_index": null,
+                    "write_timestamp_ms": null
+                  },
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "table_naming"
+              ]
+            },
+            "TableNaming": {
+              "oneOf": [
+                {
+                  "title": "From config",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "from_config"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "name"
+                  ]
+                },
+                {
+                  "title": "From message",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "from_topic_name"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "SystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "message_index": {
+                  "description": "Zero-based index of a record inside one source message when framing yields multiple records",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "additionalProperties": false
+            },
+            "JsonParserConfig": {
+              "description": "JSON parser configuration deserialized from the `json_parser:` block.",
+              "type": "object",
+              "properties": {
+                "json_framing": {
+                  "title": "JSON framing",
+                  "description": "How incoming message bytes frame JSON records.",
+                  "$ref": "#/$defs/JsonFramingMode",
+                  "default": "single_document",
+                  "x-ui": {
+                    "control_width": "medium",
+                    "labels": {
+                      "single_document": "Single JSON document",
+                      "json_lines": "JSON Lines (JSONL)",
+                      "json_array": "JSON array"
+                    }
+                  }
+                },
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ColumnMapping"
+                  },
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "conversion_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/ConversionErrorPolicy",
+                  "x-ui": {
+                    "labels": {
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop",
+                      "fail": "Fail delivery"
+                    }
+                  }
+                },
+                "unknown_fields": {
+                  "title": "On Unknown Field",
+                  "$ref": "#/$defs/UnknownFieldPolicy",
+                  "default": {
+                    "action": "send_to_column",
+                    "column_name": "additional_properties"
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns",
+                "conversion_error"
+              ]
+            },
+            "JsonFramingMode": {
+              "description": "Record framing policy owned by the JSON parser.",
+              "type": "string",
+              "enum": [
+                "single_document",
+                "json_lines",
+                "json_array"
+              ]
+            },
+            "ColumnMapping": {
+              "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
+              "type": "object",
+              "properties": {
+                "jsonpath": {
+                  "type": "string"
+                },
+                "column_name": {
+                  "type": "string"
+                },
+                "json_data_type": {
+                  "$ref": "#/$defs/JsonDataType",
+                  "default": "string",
+                  "x-ui": {
+                    "labels": {
+                      "string": "String",
+                      "number": "Number",
+                      "boolean": "Boolean"
+                    }
+                  }
+                },
+                "arrow_type": {
+                  "type": "string",
+                  "default": "Utf8",
+                  "x-ui": {
+                    "widget": "select",
+                    "options": [
+                      "Utf8",
+                      "LargeUtf8",
+                      "Int64",
+                      "Int32",
+                      "Int16",
+                      "Int8",
+                      "UInt64",
+                      "UInt32",
+                      "UInt16",
+                      "UInt8",
+                      "Float64",
+                      "Float32",
+                      "Boolean",
+                      "Json",
+                      "Decimal128",
+                      "Date32",
+                      "Date64",
+                      "Timestamp(Second)",
+                      "Timestamp(Millisecond)",
+                      "Timestamp(Microsecond)",
+                      "Timestamp(Nanosecond)",
+                      "Timestamp(Second, UTC)",
+                      "Timestamp(Millisecond, UTC)",
+                      "Timestamp(Microsecond, UTC)",
+                      "Timestamp(Nanosecond, UTC)"
+                    ]
+                  }
+                },
+                "decimal_precision": {
+                  "title": "Decimal precision",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "decimal_scale": {
+                  "title": "Decimal scale",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int8",
+                  "minimum": -128,
+                  "maximum": 127,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "time_conversion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TimeConversion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "low_cardinality": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "jsonpath",
+                "column_name"
+              ]
+            },
+            "JsonDataType": {
+              "oneOf": [
+                {
+                  "title": "String",
+                  "type": "string",
+                  "const": "string"
+                },
+                {
+                  "title": "Number",
+                  "type": "string",
+                  "const": "number"
+                },
+                {
+                  "title": "Boolean",
+                  "type": "string",
+                  "const": "boolean"
+                },
+                {
+                  "title": "JSON",
+                  "type": "string",
+                  "const": "json"
+                },
+                {
+                  "title": "Decimal (exact string)",
+                  "type": "string",
+                  "const": "decimal"
+                }
+              ]
+            },
+            "TimeConversion": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "format": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "format"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "$ref": "#/$defs/EpochUnit"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "epoch"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "unit"
+                  ]
+                }
+              ]
+            },
+            "EpochUnit": {
+              "type": "string",
+              "enum": [
+                "seconds",
+                "milliseconds",
+                "microseconds",
+                "nanoseconds"
+              ]
+            },
+            "ConversionErrorPolicy": {
+              "type": "string",
+              "enum": [
+                "dlq",
+                "drop",
+                "fail"
+              ]
+            },
+            "UnknownFieldPolicy": {
+              "oneOf": [
+                {
+                  "title": "Drop",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "drop"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Fail delivery",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "fail"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Send to a column",
+                  "type": "object",
+                  "properties": {
+                    "column_name": {
+                      "title": "Column name",
+                      "type": "string",
+                      "default": "additional_properties"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "send_to_column"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "action"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/SchemaRegistryCommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "schema_registry": {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserConfig"
+                }
+              },
+              "required": [
+                "schema_registry"
+              ]
+            },
+            "SchemaRegistryCommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SchemaRegistrySystemColumnsConfig",
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "required": [
+                "table_naming",
+                "system_columns"
+              ]
+            },
+            "SchemaRegistrySystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "SchemaRegistryParserConfig": {
+              "type": "object",
+              "properties": {
+                "connection": {
+                  "$ref": "#/$defs/SchemaRegistryConnection"
+                },
+                "json_parser": {
+                  "$ref": "#/$defs/JsonParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "connection",
+                "json_parser"
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                }
+              ]
+            },
+            "BenchmarkDiscardParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "message_index": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                },
+                "benchmark_discard": {
+                  "$ref": "#/$defs/EmptyParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "required": [
+                "benchmark_discard"
+              ]
+            },
+            "EmptyParserConfig": {
+              "type": "object"
+            }
+          }
+        },
+        "initial": {
+          "request_timeout_ms": 30000,
+          "topics": [
+            ""
+          ],
+          "consumer_group": "",
+          "batch_max_bytes": 16777216,
+          "offset_reset": "earliest",
+          "parser": {},
+          "batch_max_messages": 1000,
+          "installation": {
+            "brokers": [
+              ""
+            ],
+            "security": {
+              "type": "plaintext"
+            },
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "stream"
+        ],
+        "partitioned": true,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "KafkaSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "brokers": {
+                      "type": "array",
+                      "title": "Brokers",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "security": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "title": "Plaintext",
+                          "properties": {
+                            "type": {
+                              "const": "plaintext"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "TLS",
+                          "properties": {
+                            "type": {
+                              "const": "tls"
+                            },
+                            "ca_file": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "CA file"
+                            }
+                          },
+                          "required": [
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "SASL over TLS",
+                          "properties": {
+                            "type": {
+                              "const": "sasl_tls"
+                            },
+                            "username": {
+                              "type": "string",
+                              "title": "Username"
+                            },
+                            "password": {
+                              "type": "string",
+                              "title": "Password",
+                              "x-ui": {
+                                "widget": "password"
+                              }
+                            },
+                            "mechanism": {
+                              "type": "string",
+                              "title": "Mechanism",
+                              "enum": [
+                                "scram_sha256",
+                                "scram_sha512"
+                              ]
+                            },
+                            "ca_file": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "CA file"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "username",
+                            "password",
+                            "mechanism"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "brokers",
+                    "security",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "topic": {
+              "type": "string"
+            },
+            "serializer": {
+              "$ref": "#/$defs/SerializerConfig",
+              "x-ui": {
+                "widget": "serializer"
+              }
+            },
+            "partition": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "default": null
+            },
+            "request_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "max_in_flight": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 16,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "topic",
+            "serializer",
+            "installation"
+          ],
+          "$defs": {
+            "KafkaSecurityConfig": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "plaintext"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "ca_file": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "tls"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "mechanism": {
+                      "$ref": "#/$defs/KafkaSaslMechanism"
+                    },
+                    "ca_file": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "sasl_tls"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password",
+                    "mechanism"
+                  ]
+                }
+              ]
+            },
+            "KafkaSaslMechanism": {
+              "type": "string",
+              "enum": [
+                "scram_sha256",
+                "scram_sha512"
+              ]
+            },
+            "SerializerConfig": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Schema Registry",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "title": "Connection",
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "subject": {
+                      "title": "Subject",
+                      "type": "string"
+                    },
+                    "format": {
+                      "title": "Format",
+                      "$ref": "#/$defs/SchemaFormat"
+                    },
+                    "protobuf_message_indexes": {
+                      "title": "Protobuf message indexes",
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "format": "int32"
+                      },
+                      "default": [
+                        0
+                      ],
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "schema_registry"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection",
+                    "subject",
+                    "format"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                }
+              ]
+            },
+            "SchemaFormat": {
+              "type": "string",
+              "enum": [
+                "avro",
+                "json_schema",
+                "protobuf"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "max_in_flight": 16,
+          "topic": "",
+          "request_timeout_ms": 30000,
+          "serializer": {
+            "type": "json"
+          },
+          "partition": null,
+          "installation": {
+            "brokers": [
+              ""
+            ],
+            "security": {
+              "type": "plaintext"
+            },
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "postgres",
+      "title": "PostgreSQL",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "PostgresSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "database": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string",
+              "x-ui": {
+                "widget": "password"
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TableConfig"
+              }
+            },
+            "batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 65536
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "database",
+            "username",
+            "password",
+            "tables",
+            "installation"
+          ],
+          "$defs": {
+            "TableConfig": {
+              "type": "object",
+              "properties": {
+                "schema": {
+                  "type": "string",
+                  "default": "public"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "batch_rows": 65536,
+          "tables": [
+            {
+              "schema": "",
+              "name": ""
+            }
+          ],
+          "database": "",
+          "username": "",
+          "password": "",
+          "installation": {
+            "host": "",
+            "port": 5432,
+            "trusted_plaintext": true,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "PostgresSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "database": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string",
+              "x-ui": {
+                "widget": "password"
+              }
+            },
+            "create_tables": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "database",
+            "username",
+            "password",
+            "create_tables",
+            "installation"
+          ]
+        },
+        "initial": {
+          "create_tables": true,
+          "password": "",
+          "database": "",
+          "username": "",
+          "installation": {
+            "host": "",
+            "port": 5432,
+            "trusted_plaintext": true,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "clickhouse",
+      "title": "ClickHouse",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "ClickHouseSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "title": "Hosts",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "description": "Native port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "hosts",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string",
+              "default": "",
+              "x-ui": {
+                "widget": "password"
+              }
+            },
+            "shard_group": {
+              "title": "Shard group",
+              "type": "string",
+              "default": "",
+              "x-ui": {
+                "section": "shard_group"
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TableConfig"
+              }
+            },
+            "batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 65536
+            },
+            "connect_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000
+            },
+            "request_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "username",
+            "tables",
+            "installation"
+          ],
+          "$defs": {
+            "TableConfig": {
+              "type": "object",
+              "properties": {
+                "database": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "output_name": {
+                  "type": "string"
+                },
+                "order_by": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "database",
+                "name",
+                "output_name",
+                "order_by"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "request_timeout_ms": 30000,
+          "connect_timeout_ms": 30000,
+          "batch_rows": 65536,
+          "username": "",
+          "password": "",
+          "shard_group": "",
+          "tables": [
+            {
+              "database": "",
+              "name": "",
+              "output_name": "",
+              "order_by": [
+                ""
+              ]
+            }
+          ],
+          "installation": {
+            "hosts": [
+              ""
+            ],
+            "port": 9440,
+            "trusted_plaintext": true,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "ClickHouseSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "hosts": {
+                      "type": "array",
+                      "title": "Hosts",
+                      "items": {
+                        "type": "string"
+                      },
+                      "x-ui": {
+                        "initial_items": 1
+                      }
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "description": "Native port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "hosts",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "database": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string",
+              "default": "",
+              "x-ui": {
+                "widget": "password"
+              }
+            },
+            "shard_group": {
+              "title": "Shard group",
+              "type": "string",
+              "default": "",
+              "x-ui": {
+                "section": "shard_group"
+              }
+            },
+            "insert_target_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 100000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "insert_target_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 67108864,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "flush_interval_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 100,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_initial_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 50,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_attempts": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0,
+              "default": null,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "connect_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "request_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "database",
+            "username",
+            "installation"
+          ]
+        },
+        "initial": {
+          "request_timeout_ms": 30000,
+          "connect_timeout_ms": 30000,
+          "retry_max_ms": 30000,
+          "database": "",
+          "username": "",
+          "password": "",
+          "shard_group": "",
+          "insert_target_rows": 100000,
+          "insert_target_bytes": 67108864,
+          "flush_interval_ms": 100,
+          "retry_initial_ms": 50,
+          "installation": {
+            "hosts": [
+              ""
+            ],
+            "port": 9440,
+            "trusted_plaintext": true,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "s3",
+      "title": "S3",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "S3SourceConfig",
+          "type": "object",
+          "properties": {
+            "bucket": {
+              "type": "string"
+            },
+            "prefix": {
+              "type": "string",
+              "default": ""
+            },
+            "region": {
+              "type": "string",
+              "default": "us-east-1"
+            },
+            "host": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "port": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": null
+            },
+            "allow_http": {
+              "type": "boolean",
+              "default": false
+            },
+            "credentials": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/S3CredentialsConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parser": {
+              "$ref": "#/$defs/ParserSchema",
+              "x-ui": {
+                "widget": "parser"
+              }
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "bucket",
+            "parser"
+          ],
+          "$defs": {
+            "S3CredentialsConfig": {
+              "type": "object",
+              "properties": {
+                "access_key": {
+                  "type": "string"
+                },
+                "secret_key": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "password"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "access_key",
+                "secret_key"
+              ]
+            },
+            "ParserSchema": {
+              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.",
+              "anyOf": [
+                {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserSchema"
+                },
+                {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserSchema"
+                },
+                {
+                  "title": "Discard messages (benchmark)",
+                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
+                }
+              ]
+            },
+            "JsonParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "json_parser": {
+                  "title": "JSON parser",
+                  "$ref": "#/$defs/JsonParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "json_parser"
+              ],
+              "x-ui": {
+                "widget": "json_parser"
+              }
+            },
+            "CommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SystemColumnsConfig",
+                  "default": {
+                    "topic": null,
+                    "partition": null,
+                    "offset": null,
+                    "message_index": null,
+                    "write_timestamp_ms": null
+                  },
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "table_naming"
+              ]
+            },
+            "TableNaming": {
+              "oneOf": [
+                {
+                  "title": "From config",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "from_config"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "name"
+                  ]
+                },
+                {
+                  "title": "From message",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "from_topic_name"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "SystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "message_index": {
+                  "description": "Zero-based index of a record inside one source message when framing yields multiple records",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "additionalProperties": false
+            },
+            "JsonParserConfig": {
+              "description": "JSON parser configuration deserialized from the `json_parser:` block.",
+              "type": "object",
+              "properties": {
+                "json_framing": {
+                  "title": "JSON framing",
+                  "description": "How incoming message bytes frame JSON records.",
+                  "$ref": "#/$defs/JsonFramingMode",
+                  "default": "single_document",
+                  "x-ui": {
+                    "control_width": "medium",
+                    "labels": {
+                      "single_document": "Single JSON document",
+                      "json_lines": "JSON Lines (JSONL)",
+                      "json_array": "JSON array"
+                    }
+                  }
+                },
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ColumnMapping"
+                  },
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "conversion_error": {
+                  "title": "On Parse Error",
+                  "$ref": "#/$defs/ConversionErrorPolicy",
+                  "x-ui": {
+                    "labels": {
+                      "dlq": "Send to DLQ",
+                      "drop": "Drop",
+                      "fail": "Fail delivery"
+                    }
+                  }
+                },
+                "unknown_fields": {
+                  "title": "On Unknown Field",
+                  "$ref": "#/$defs/UnknownFieldPolicy",
+                  "default": {
+                    "action": "send_to_column",
+                    "column_name": "additional_properties"
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns",
+                "conversion_error"
+              ]
+            },
+            "JsonFramingMode": {
+              "description": "Record framing policy owned by the JSON parser.",
+              "type": "string",
+              "enum": [
+                "single_document",
+                "json_lines",
+                "json_array"
+              ]
+            },
+            "ColumnMapping": {
+              "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
+              "type": "object",
+              "properties": {
+                "jsonpath": {
+                  "type": "string"
+                },
+                "column_name": {
+                  "type": "string"
+                },
+                "json_data_type": {
+                  "$ref": "#/$defs/JsonDataType",
+                  "default": "string",
+                  "x-ui": {
+                    "labels": {
+                      "string": "String",
+                      "number": "Number",
+                      "boolean": "Boolean"
+                    }
+                  }
+                },
+                "arrow_type": {
+                  "type": "string",
+                  "default": "Utf8",
+                  "x-ui": {
+                    "widget": "select",
+                    "options": [
+                      "Utf8",
+                      "LargeUtf8",
+                      "Int64",
+                      "Int32",
+                      "Int16",
+                      "Int8",
+                      "UInt64",
+                      "UInt32",
+                      "UInt16",
+                      "UInt8",
+                      "Float64",
+                      "Float32",
+                      "Boolean",
+                      "Json",
+                      "Decimal128",
+                      "Date32",
+                      "Date64",
+                      "Timestamp(Second)",
+                      "Timestamp(Millisecond)",
+                      "Timestamp(Microsecond)",
+                      "Timestamp(Nanosecond)",
+                      "Timestamp(Second, UTC)",
+                      "Timestamp(Millisecond, UTC)",
+                      "Timestamp(Microsecond, UTC)",
+                      "Timestamp(Nanosecond, UTC)"
+                    ]
+                  }
+                },
+                "decimal_precision": {
+                  "title": "Decimal precision",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "decimal_scale": {
+                  "title": "Decimal scale",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int8",
+                  "minimum": -128,
+                  "maximum": 127,
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "nullable": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "time_conversion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/TimeConversion"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "low_cardinality": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "max_length": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "jsonpath",
+                "column_name"
+              ]
+            },
+            "JsonDataType": {
+              "oneOf": [
+                {
+                  "title": "String",
+                  "type": "string",
+                  "const": "string"
+                },
+                {
+                  "title": "Number",
+                  "type": "string",
+                  "const": "number"
+                },
+                {
+                  "title": "Boolean",
+                  "type": "string",
+                  "const": "boolean"
+                },
+                {
+                  "title": "JSON",
+                  "type": "string",
+                  "const": "json"
+                },
+                {
+                  "title": "Decimal (exact string)",
+                  "type": "string",
+                  "const": "decimal"
+                }
+              ]
+            },
+            "TimeConversion": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "format": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "format"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "unit": {
+                      "$ref": "#/$defs/EpochUnit"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "epoch"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "unit"
+                  ]
+                }
+              ]
+            },
+            "EpochUnit": {
+              "type": "string",
+              "enum": [
+                "seconds",
+                "milliseconds",
+                "microseconds",
+                "nanoseconds"
+              ]
+            },
+            "ConversionErrorPolicy": {
+              "type": "string",
+              "enum": [
+                "dlq",
+                "drop",
+                "fail"
+              ]
+            },
+            "UnknownFieldPolicy": {
+              "oneOf": [
+                {
+                  "title": "Drop",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "drop"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Fail delivery",
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "type": "string",
+                      "const": "fail"
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Send to a column",
+                  "type": "object",
+                  "properties": {
+                    "column_name": {
+                      "title": "Column name",
+                      "type": "string",
+                      "default": "additional_properties"
+                    },
+                    "action": {
+                      "type": "string",
+                      "const": "send_to_column"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "action"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/SchemaRegistryCommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "schema_registry": {
+                  "title": "Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserConfig"
+                }
+              },
+              "required": [
+                "schema_registry"
+              ]
+            },
+            "SchemaRegistryCommonParserConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                },
+                "system_columns": {
+                  "$ref": "#/$defs/SchemaRegistrySystemColumnsConfig",
+                  "x-ui": {
+                    "widget": "system_columns"
+                  }
+                }
+              },
+              "required": [
+                "table_naming",
+                "system_columns"
+              ]
+            },
+            "SchemaRegistrySystemColumnsConfig": {
+              "type": "object",
+              "properties": {
+                "topic": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "partition": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "offset": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "write_timestamp_ms": {
+                  "description": "Source-reported message write time as Unix epoch milliseconds",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "SchemaRegistryParserConfig": {
+              "type": "object",
+              "properties": {
+                "connection": {
+                  "$ref": "#/$defs/SchemaRegistryConnection"
+                },
+                "json_parser": {
+                  "$ref": "#/$defs/JsonParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "connection",
+                "json_parser"
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                }
+              ]
+            },
+            "BenchmarkDiscardParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "default": {
+                    "table_naming": {
+                      "type": "from_topic_name"
+                    },
+                    "system_columns": {
+                      "topic": null,
+                      "partition": null,
+                      "offset": null,
+                      "message_index": null,
+                      "write_timestamp_ms": null
+                    }
+                  },
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                },
+                "benchmark_discard": {
+                  "$ref": "#/$defs/EmptyParserConfig",
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
+                }
+              },
+              "required": [
+                "benchmark_discard"
+              ]
+            },
+            "EmptyParserConfig": {
+              "type": "object"
+            }
+          }
+        },
+        "initial": {
+          "bucket": "",
+          "prefix": "",
+          "region": "",
+          "host": "",
+          "port": 4566,
+          "allow_http": true,
+          "credentials": {
+            "access_key": "",
+            "secret_key": ""
+          },
+          "parser": {},
+          "timeout_ms": 30000
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "S3SinkConfig",
+          "type": "object",
+          "properties": {
+            "bucket": {
+              "type": "string"
+            },
+            "object_layout_version": {
+              "description": "Version of the deterministic object key/payload/epoch contract. Keep\nthis pinned while uncommitted source data can replay.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 5
+            },
+            "prefix": {
+              "type": "string",
+              "default": ""
+            },
+            "region": {
+              "type": "string",
+              "default": "us-east-1"
+            },
+            "host": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "port": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": null
+            },
+            "allow_http": {
+              "type": "boolean",
+              "default": false
+            },
+            "credentials": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/S3CredentialsConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "partitioning": {
+              "$ref": "#/$defs/PartitioningConfig"
+            },
+            "rotation": {
+              "$ref": "#/$defs/RotationConfig"
+            },
+            "buffering": {
+              "$ref": "#/$defs/BufferingConfig"
+            },
+            "upload": {
+              "$ref": "#/$defs/UploadConfig"
+            },
+            "retry": {
+              "$ref": "#/$defs/RetryConfig"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "bucket"
+          ],
+          "$defs": {
+            "S3CredentialsConfig": {
+              "type": "object",
+              "properties": {
+                "access_key": {
+                  "type": "string"
+                },
+                "secret_key": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "password"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "access_key",
+                "secret_key"
+              ]
+            },
+            "PartitioningConfig": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "source"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "columns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "fields"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "columns"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "window": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "duration"
+                      }
+                    },
+                    "path": {
+                      "type": "string",
+                      "default": "year=%Y/month=%m/day=%d/hour=%H"
+                    },
+                    "timezone": {
+                      "type": "string",
+                      "default": "UTC"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "record_time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "window"
+                  ]
+                }
+              ]
+            },
+            "RotationConfig": {
+              "type": "object",
+              "properties": {
+                "max_rows": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 100000
+                },
+                "max_bytes": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                },
+                "record_time_interval": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "x-ui": {
+                    "widget": "duration"
+                  }
+                },
+                "wall_clock_interval": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "x-ui": {
+                    "widget": "duration"
+                  }
+                },
+                "on_partition_path_change": {
+                  "$ref": "#/$defs/PartitionPathChange"
+                }
+              },
+              "additionalProperties": false
+            },
+            "PartitionPathChange": {
+              "type": "string",
+              "enum": [
+                "rotate",
+                "keep_epoch"
+              ]
+            },
+            "BufferingConfig": {
+              "type": "object",
+              "properties": {
+                "max_epoch_buffers": {
+                  "description": "Soft deterministic limit for open objects in one partition actor.",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 128
+                },
+                "max_pending_upload_objects": {
+                  "description": "Soft admission limit for pending uploads in one partition actor. An\natomic source message may temporarily take the actor above this value;\npending upload timing never changes deterministic object boundaries.",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 1024
+                },
+                "max_buffered_bytes": {
+                  "description": "Soft admission limit for serialized bytes in one partition actor.",
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                },
+                "max_epoch_bytes": {
+                  "description": "Stable limit for serialized payload plus retained routing metadata in\none epoch. Metadata is measured as its UTF-8 lengths plus a fixed\n128-byte logical overhead per row, independent of Rust's ABI. When\nomitted, the limit is derived only from sink configuration, never from\nin-memory delivery state.",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "UploadConfig": {
+              "type": "object",
+              "properties": {
+                "multipart_threshold": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                },
+                "part_size": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                },
+                "parallel_parts": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 4
+                },
+                "max_in_flight_objects": {
+                  "description": "Maximum concurrent object uploads in one partition actor.",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 4
+                },
+                "operation_timeout": {
+                  "description": "Deadline applied independently to each object-store request.",
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "duration"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "RetryConfig": {
+              "type": "object",
+              "properties": {
+                "initial_backoff": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "duration"
+                  }
+                },
+                "max_backoff": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "duration"
+                  }
+                },
+                "max_attempts": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 10
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "initial": {
+          "bucket": "",
+          "object_layout_version": 5,
+          "region": "",
+          "host": "",
+          "port": 4566,
+          "allow_http": true,
+          "credentials": {
+            "access_key": "",
+            "secret_key": ""
+          },
+          "partitioning": {
+            "type": "source"
+          },
+          "rotation": {
+            "max_rows": 10000,
+            "max_bytes": "",
+            "on_partition_path_change": "keep_epoch"
+          },
+          "buffering": {
+            "max_epoch_buffers": 32,
+            "max_pending_upload_objects": 64,
+            "max_buffered_bytes": "",
+            "max_epoch_bytes": ""
+          },
+          "upload": {
+            "multipart_threshold": "",
+            "part_size": "",
+            "parallel_parts": 2,
+            "max_in_flight_objects": 2,
+            "operation_timeout": ""
+          },
+          "retry": {
+            "initial_backoff": "",
+            "max_backoff": "",
+            "max_attempts": 10
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "iceberg",
+      "title": "Apache Iceberg",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "IcebergSourceConfig",
+          "type": "object",
+          "properties": {
+            "catalog": {
+              "$ref": "#/$defs/RestCatalogConfig"
+            },
+            "storage": {
+              "$ref": "#/$defs/OpenDalStorageConfig",
+              "default": {
+                "type": "s3",
+                "bucket": "",
+                "region": null,
+                "endpoint": null,
+                "access_key_id": null,
+                "secret_access_key": null,
+                "session_token": null,
+                "path_style_access": false,
+                "allow_anonymous": false
+              }
+            },
+            "table": {
+              "$ref": "#/$defs/IcebergTableRef"
+            },
+            "output_name": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "catalog",
+            "table",
+            "output_name"
+          ],
+          "$defs": {
+            "RestCatalogConfig": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "warehouse": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "auth": {
+                  "$ref": "#/$defs/RestCatalogAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "uri"
+              ]
+            },
+            "RestCatalogAuth": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "client_id": {
+                      "type": "string"
+                    },
+                    "client_secret": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "scope": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "token_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "o_auth2"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "client_id",
+                    "client_secret"
+                  ]
+                }
+              ]
+            },
+            "OpenDalStorageConfig": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "bucket": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "endpoint": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "access_key_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "secret_access_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null,
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "session_token": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null,
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "path_style_access": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "allow_anonymous": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "s3"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "bucket"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": {
+                      "description": "`WebHDFS` endpoint, for example `https://namenode:9871`.",
+                      "type": "string"
+                    },
+                    "authority": {
+                      "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
+                      "type": "string"
+                    },
+                    "root": {
+                      "type": "string",
+                      "default": "/"
+                    },
+                    "user": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "hdfs"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "endpoint",
+                    "authority"
+                  ]
+                }
+              ]
+            },
+            "IcebergTableRef": {
+              "type": "object",
+              "properties": {
+                "namespace": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-ui": {
+                    "item_title": "Namespace level"
+                  }
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "namespace",
+                "name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "catalog": {
+            "uri": "",
+            "warehouse": null,
+            "auth": {
+              "type": "none"
+            }
+          },
+          "storage": {
+            "type": "s3",
+            "bucket": "",
+            "region": null,
+            "endpoint": null,
+            "access_key_id": null,
+            "secret_access_key": null,
+            "session_token": null,
+            "path_style_access": false,
+            "allow_anonymous": false
+          },
+          "table": {
+            "namespace": [
+              "default"
+            ],
+            "name": ""
+          },
+          "output_name": ""
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "IcebergSinkConfig",
+          "type": "object",
+          "properties": {
+            "catalog": {
+              "$ref": "#/$defs/RestCatalogConfig"
+            },
+            "storage": {
+              "$ref": "#/$defs/OpenDalStorageConfig",
+              "default": {
+                "type": "s3",
+                "bucket": "",
+                "region": null,
+                "endpoint": null,
+                "access_key_id": null,
+                "secret_access_key": null,
+                "session_token": null,
+                "path_style_access": false,
+                "allow_anonymous": false
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/IcebergSinkTable"
+              },
+              "x-ui": {
+                "item_title": "Table"
+              }
+            },
+            "target_file_size_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 134217728
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "catalog",
+            "tables"
+          ],
+          "$defs": {
+            "RestCatalogConfig": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "warehouse": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                },
+                "auth": {
+                  "$ref": "#/$defs/RestCatalogAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "uri"
+              ]
+            },
+            "RestCatalogAuth": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "client_id": {
+                      "type": "string"
+                    },
+                    "client_secret": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "scope": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "token_url": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "o_auth2"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "client_id",
+                    "client_secret"
+                  ]
+                }
+              ]
+            },
+            "OpenDalStorageConfig": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "bucket": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "endpoint": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "access_key_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "secret_access_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null,
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "session_token": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null,
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "path_style_access": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "allow_anonymous": {
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "s3"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "bucket"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": {
+                      "description": "`WebHDFS` endpoint, for example `https://namenode:9871`.",
+                      "type": "string"
+                    },
+                    "authority": {
+                      "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
+                      "type": "string"
+                    },
+                    "root": {
+                      "type": "string",
+                      "default": "/"
+                    },
+                    "user": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "hdfs"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "endpoint",
+                    "authority"
+                  ]
+                }
+              ]
+            },
+            "IcebergSinkTable": {
+              "type": "object",
+              "properties": {
+                "dataset": {
+                  "type": "string"
+                },
+                "namespace": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-ui": {
+                    "item_title": "Namespace level"
+                  }
+                },
+                "name": {
+                  "type": "string"
+                },
+                "create_if_missing": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "location": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "dataset",
+                "namespace",
+                "name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "catalog": {
+            "uri": "",
+            "warehouse": null,
+            "auth": {
+              "type": "none"
+            }
+          },
+          "storage": {
+            "type": "s3",
+            "bucket": "",
+            "region": null,
+            "endpoint": null,
+            "access_key_id": null,
+            "secret_access_key": null,
+            "session_token": null,
+            "path_style_access": false,
+            "allow_anonymous": false
+          },
+          "tables": [
+            {
+              "dataset": "",
+              "namespace": [
+                "default"
+              ],
+              "name": "",
+              "create_if_missing": false,
+              "location": null
+            }
+          ],
+          "target_file_size_bytes": 134217728
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "ytsaurus",
+      "title": "YTsaurus",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "YTsaurusSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "token": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "x-ui": {
+                            "widget": "password"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Token"
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SourceTableConfig"
+              }
+            },
+            "batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 65536
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "tables",
+            "installation"
+          ],
+          "$defs": {
+            "SourceTableConfig": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "output_name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "output_name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "batch_rows": 65536,
+          "tables": [
+            {
+              "path": "",
+              "output_name": ""
+            }
+          ],
+          "timeout_ms": 30000,
+          "installation": {
+            "host": "",
+            "port": 8000,
+            "token": null,
+            "trusted_plaintext": true,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "YTsaurusSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation"
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "token": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "x-ui": {
+                            "widget": "password"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Token"
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SinkTableConfig"
+              }
+            },
+            "replace_tables": {
+              "type": "boolean"
+            },
+            "format": {
+              "$ref": "#/$defs/YTsaurusWriteFormat"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "tables",
+            "replace_tables",
+            "installation"
+          ],
+          "$defs": {
+            "SinkTableConfig": {
+              "type": "object",
+              "properties": {
+                "dataset": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "dataset",
+                "path"
+              ]
+            },
+            "YTsaurusWriteFormat": {
+              "type": "string",
+              "enum": [
+                "arrow",
+                "yson"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "format": "arrow",
+          "replace_tables": true,
+          "tables": [
+            {
+              "dataset": "",
+              "path": ""
+            }
+          ],
+          "timeout_ms": 30000,
+          "installation": {
+            "host": "",
+            "port": 8000,
+            "token": null,
+            "trusted_plaintext": true,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true
+      }
+    },
+    {
+      "key": "discard",
+      "title": "Discard (benchmark)",
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "EmptyConfig",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "initial": {},
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": false
+      }
+    }
+  ]
+}

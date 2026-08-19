@@ -1,11 +1,11 @@
 use schemars::{schema_for, JsonSchema};
-use serde::Serialize;
 use serde_json::Value;
 
-use transferia_delivery::delivery::config::yaml::DeliveryType;
+use transferia_delivery_contracts::metrics::MetricsConfig;
+use transferia_delivery_contracts::DeliveryType;
 use transferia_providers::extension::Transferia;
-use transferia_providers::metrics::MetricsConfig;
-use transferia_registry::{Composition, MiddlewareDefinition, ProviderDefinition};
+use transferia_registry::{Composition, MiddlewareDefinition};
+pub use transferia_server_contracts::api::UiCatalog;
 
 #[derive(JsonSchema)]
 #[expect(dead_code, reason = "fields are consumed by the JsonSchema derive")]
@@ -23,24 +23,6 @@ struct CommonConfigSchema {
     pipeline_memory_limit_bytes: usize,
 
     metrics: Option<MetricsConfig>,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct UiCatalog {
-    #[schemars(
-        with = "std::collections::BTreeMap<String, Value>",
-        extend("x-typescript-type" = "JsonSchema")
-    )]
-    pub common_schema: Value,
-
-    #[schemars(
-        with = "std::collections::BTreeMap<String, Value>",
-        extend("x-typescript-type" = "JsonObject")
-    )]
-    pub initial: Value,
-
-    pub providers: Vec<ProviderDefinition>,
 }
 
 pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {

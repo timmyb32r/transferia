@@ -2,8 +2,6 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
-use schemars::JsonSchema;
-use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -11,14 +9,21 @@ use tokio_util::sync::CancellationToken;
 use super::logs::WorkerLogReader;
 use super::store::{DeliveryStore, StoreError};
 use transferia_core::delivery::{
-    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimitsDescription,
+    DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimitsDescription,
 };
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::preparation::build_delivery_plan_with;
-use transferia_providers::extension::{DynamicOptions, OptionsRequest, Transferia};
-use transferia_registry::{Composition, SinkProvider, SourceDiscoveryContext};
+use transferia_providers::extension::Transferia;
+use transferia_registry::{
+    Composition, DynamicOptions, OptionsRequest, SinkProvider, SourceDiscoveryContext,
+};
 use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
+};
+pub use transferia_server_contracts::api::{
+    ColumnView, DatasetView, DestinationColumnView, DiscoveryResult,
+    MessagePreviewMetadata, MessagePreviewMetadataItem, MessagePreviewResult, SqlPlaygroundResult,
+    ValidationCommandResult, WorkerLogChunkView, WorkerLogView, WorkerLogsResult,
 };
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
 
@@ -91,106 +96,6 @@ impl From<SupervisorError> for ServiceError {
             SupervisorError::Internal(error) => Self::Internal(error),
         }
     }
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DiscoveryResult {
-    pub source: String,
-
-    pub sink: String,
-
-    pub pipeline_count: usize,
-
-    pub datasets: Vec<DatasetView>,
-
-    pub sink_limits: SinkLimitsDescription,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ValidationCommandResult {
-    pub delivery: DeliveryRecord,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("x-omit-none" = true))]
-    pub discovery: Option<DiscoveryResult>,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DatasetView {
-    pub role: DatasetRoleView,
-    pub name: String,
-    pub intermediate_columns: Vec<ColumnView>,
-    pub final_columns: Vec<DestinationColumnView>,
-}
-
-#[derive(Clone, Copy, Debug, JsonSchema, Serialize)]
-pub enum DatasetRoleView {
-    Main,
-    DeadLetterQueue,
-}
-
-impl From<DatasetRole> for DatasetRoleView {
-    fn from(role: DatasetRole) -> Self {
-        match role {
-            DatasetRole::Main => Self::Main,
-            DatasetRole::DeadLetterQueue => Self::DeadLetterQueue,
-        }
-    }
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ColumnView {
-    pub name: String,
-    pub arrow_type: String,
-    pub nullable: bool,
-    pub primary_key: bool,
-    pub low_cardinality: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("x-omit-none" = true))]
-    pub max_length: Option<usize>,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DestinationColumnView {
-    #[serde(flatten)]
-    pub column: ColumnView,
-
-    pub destination_type: String,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkerLogsResult {
-    pub workers: Vec<WorkerLogView>,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkerLogView {
-    pub worker_id: String,
-
-    pub size_bytes: u64,
-
-    pub active: bool,
-}
-
-#[derive(Clone, Debug, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkerLogChunkView {
-    pub text: String,
-
-    pub start_offset: u64,
-
-    pub next_offset: u64,
-
-    pub end_offset: u64,
-
-    pub truncated_before: bool,
 }
 
 pub struct ControlPlane {
@@ -448,7 +353,7 @@ impl ControlPlane {
             payload_base64: base64::engine::general_purpose::STANDARD.encode(&preview.payload),
             byte_length: preview.payload.len(),
             preview_bytes,
-            metadata: MessagePreviewMetadata::from(preview.metadata),
+            metadata: message_preview_metadata(preview.metadata),
             detections: transferia_providers::parsers::detection::detect_samples(
                 &detection_payloads,
                 1_000,
@@ -1064,115 +969,39 @@ impl ControlPlane {
     }
 }
 
-#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct SqlPlaygroundResult {
-    pub columns: Vec<ColumnView>,
-
-    pub rows: Vec<serde_json::Value>,
-}
-
-#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct MessagePreviewResult {
-    pub text_preview: String,
-
-    pub payload_preview_base64: String,
-
-    pub payload_base64: String,
-
-    pub byte_length: usize,
-
-    pub preview_bytes: usize,
-
-    pub metadata: MessagePreviewMetadata,
-
-    pub detections: Vec<transferia_providers::parsers::detection::ParserDetection>,
-}
-
-#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct MessagePreviewMetadata {
-    pub topic: String,
-
-    pub partition: i64,
-
-    pub partition_session_id: i64,
-
-    pub offset: i64,
-
-    pub sequence_number: i64,
-
-    pub created_at_ms: Option<i64>,
-
-    pub written_at_ms: Option<i64>,
-
-    pub producer_id: String,
-
-    pub message_group_id: Option<String>,
-
-    pub codec: String,
-
-    pub compressed_size: usize,
-
-    pub declared_uncompressed_size: Option<usize>,
-
-    pub message_metadata: Vec<MessagePreviewMetadataItem>,
-
-    pub write_session_metadata: std::collections::BTreeMap<String, String>,
-}
-
-impl From<transferia_providers::providers::logbroker::src_stream::PreviewMessageMetadata>
-    for MessagePreviewMetadata
-{
-    fn from(
-        value: transferia_providers::providers::logbroker::src_stream::PreviewMessageMetadata,
-    ) -> Self {
-        Self {
-            topic: value.topic,
-            partition: value.partition,
-            partition_session_id: value.partition_session_id,
-            offset: value.offset,
-            sequence_number: value.sequence_number,
-            created_at_ms: value.created_at_ms,
-            written_at_ms: value.written_at_ms,
-            producer_id: value.producer_id,
-            message_group_id: value.message_group_id,
-            codec: value.codec,
-            compressed_size: value.compressed_size,
-            declared_uncompressed_size: value.declared_uncompressed_size,
-            message_metadata: value
-                .message_metadata
-                .into_iter()
-                .map(MessagePreviewMetadataItem::from)
-                .collect(),
-            write_session_metadata: value.write_session_metadata,
-        }
+fn message_preview_metadata(
+    value: transferia_providers::providers::logbroker::src_stream::PreviewMessageMetadata,
+) -> MessagePreviewMetadata {
+    MessagePreviewMetadata {
+        topic: value.topic,
+        partition: value.partition,
+        partition_session_id: value.partition_session_id,
+        offset: value.offset,
+        sequence_number: value.sequence_number,
+        created_at_ms: value.created_at_ms,
+        written_at_ms: value.written_at_ms,
+        producer_id: value.producer_id,
+        message_group_id: value.message_group_id,
+        codec: value.codec,
+        compressed_size: value.compressed_size,
+        declared_uncompressed_size: value.declared_uncompressed_size,
+        message_metadata: value
+            .message_metadata
+            .into_iter()
+            .map(message_preview_metadata_item)
+            .collect(),
+        write_session_metadata: value.write_session_metadata,
     }
 }
 
-#[derive(Clone, Debug, schemars::JsonSchema, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct MessagePreviewMetadataItem {
-    pub key: String,
-
-    pub value_base64: String,
-
-    pub value_text: Option<String>,
-}
-
-impl From<transferia_providers::providers::logbroker::src_stream::PreviewMetadataItem>
-    for MessagePreviewMetadataItem
-{
-    fn from(
-        value: transferia_providers::providers::logbroker::src_stream::PreviewMetadataItem,
-    ) -> Self {
-        let value_text = String::from_utf8(value.value.clone()).ok();
-        Self {
-            key: value.key,
-            value_base64: base64::engine::general_purpose::STANDARD.encode(value.value),
-            value_text,
-        }
+fn message_preview_metadata_item(
+    value: transferia_providers::providers::logbroker::src_stream::PreviewMetadataItem,
+) -> MessagePreviewMetadataItem {
+    let value_text = String::from_utf8(value.value.clone()).ok();
+    MessagePreviewMetadataItem {
+        key: value.key,
+        value_base64: base64::engine::general_purpose::STANDARD.encode(value.value),
+        value_text,
     }
 }
 

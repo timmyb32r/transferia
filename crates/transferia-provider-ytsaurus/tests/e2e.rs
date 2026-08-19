@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,17 +18,17 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::core::data::message::SourceBatch;
-use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::delivery::{
+use transferia_core::data::message::SourceBatch;
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
-use transferia::core::memory::PipelineMemory;
-use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
-use transferia::metrics::{MetricsRegistry, SinkCounters};
-use transferia::providers::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
-use transferia::registry::{
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia_delivery_contracts::metrics::{MetricsRegistry, SinkCounters};
+use transferia_provider_ytsaurus::ytsaurus::{YTsaurusSinkProvider, YTsaurusSourceProvider};
+use transferia_registry::{
     SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
     SourceProvider as _,
 };
@@ -103,7 +101,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
     ]);
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
@@ -117,7 +115,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
 }
 
 async fn write_delivery(
-    sink: Box<dyn transferia::core::sink::Sink>,
+    sink: Box<dyn transferia_core::sink::Sink>,
     memory: PipelineMemory,
     batches: Vec<RecordBatch>,
 ) -> anyhow::Result<()> {
@@ -233,11 +231,11 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .build()?;
     create_table(&client, &endpoint, "//tmp/input").await?;
 
-    let arrow_config: transferia::providers::ytsaurus::YTsaurusSinkConfig =
+    let arrow_config: transferia_provider_ytsaurus::ytsaurus::YTsaurusSinkConfig =
         serde_yaml::from_str(&format!(
         "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\ntables:\n  - dataset: events\n    path: //tmp/arrow_output\n"
     ))?;
-    transferia::providers::ytsaurus::check_connection(&arrow_config.connection).await?;
+    transferia_provider_ytsaurus::ytsaurus::check_connection(&arrow_config.connection).await?;
     let arrow_provider = YTsaurusSinkProvider::from_config(arrow_config)?;
     let discovered = discovery();
     arrow_provider.limits().validate_discovery(&discovered)?;
@@ -247,7 +245,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let arrow_sink = arrow_provider
         .build_sink(SinkBuildContext {
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -271,7 +269,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let yson_sink = yson_provider
         .build_sink(SinkBuildContext {
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -340,7 +338,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
             partition_id: 0,
             cancellation: CancellationToken::new(),
             memory: PipelineMemory::new(16 * 1024 * 1024),
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
         })
         .await?;
     let mut rows = 0;

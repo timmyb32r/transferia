@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
@@ -24,27 +22,29 @@ use hyper::{Request, Response, StatusCode};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-
-use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
-use transferia::core::memory::PipelineMemory;
-use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
-use transferia::metrics::SinkCounters;
-use transferia::providers::logbroker::pqv1::PqV1SinkProvider;
-use transferia::providers::logbroker::proto::pers_queue::v1::{
-    streaming_write_client_message, streaming_write_server_message, Codec,
-    StreamingWriteClientMessage, StreamingWriteServerMessage,
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia_delivery_contracts::metrics::SinkCounters;
+use transferia_provider_logbroker::logbroker::build_sink_provider;
+use transferia_registry::SinkBuildContext;
+use ydb_grpc::ydb_proto::topic::stream_write_message::from_client::ClientMessage;
+use ydb_grpc::ydb_proto::topic::stream_write_message::from_server::ServerMessage;
+use ydb_grpc::ydb_proto::topic::stream_write_message::write_response::write_ack;
+use ydb_grpc::ydb_proto::topic::stream_write_message::{
+    write_response, FromClient, FromServer, InitResponse, WriteResponse,
 };
-use transferia::registry::{SinkBuildContext, SinkProvider as _};
+use ydb_grpc::ydb_proto::topic::{Codec, SupportedCodecs};
 
-const TOKEN: &str = "pq-sink-token";
+const TOKEN: &str = "ydb-topic-sink-token";
 const TOPIC: &str = "/Root/output-topic";
 const SUCCESS: i32 = 400_000;
 type TestBody = http_body_util::combinators::UnsyncBoxBody<Bytes, Infallible>;
 
 #[tokio::test]
-async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> anyhow::Result<()> {
+async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result<()> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let address = listener.local_addr()?;
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -63,14 +63,18 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
         );
     });
 
-    let provider = PqV1SinkProvider::from_config(serde_yaml::from_str(&format!("host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nmessage_group_id: e2e-writer\npartition_group_id: 0\ntrusted_plaintext: true\nnetwork_timeout_ms: 5000\nauth:\n  type: access_token\n  token: {TOKEN}\nserializer:\n  type: json\n", address.ip(), address.port()))?)?;
+    let provider = build_sink_provider(serde_yaml::from_str(&format!(
+        "host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nauth: {{ type: token, token: {TOKEN} }}\nserializer: {{ type: json }}\ndriver: ydb\ntrusted_plaintext: true\n",
+        address.ip(),
+        address.port()
+    ))?)?;
     let schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("name".into(), DataType::Utf8, true),
     ]);
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("typed-e2e"),
-        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
@@ -84,7 +88,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
     provider.limits().validate_discovery(&discovery)?;
     let sink = provider
         .build_sink(SinkBuildContext {
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
             partition_id: 0,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
@@ -148,7 +152,7 @@ fn handle_write(
 ) -> Response<TestBody> {
     assert_eq!(
         request.uri().path(),
-        "/Ydb.PersQueue.V1.PersQueueService/StreamingWrite"
+        "/Ydb.Topic.V1.TopicService/StreamWrite"
     );
     assert_eq!(request.headers().get("x-ydb-auth-ticket").unwrap(), TOKEN);
     let (response_tx, response_rx) = mpsc::unbounded_channel::<Result<Frame<Bytes>, Infallible>>();
@@ -178,62 +182,66 @@ async fn process_requests(
             continue;
         };
         buffered.extend_from_slice(&data);
-        while let Some(message) = decode_grpc::<StreamingWriteClientMessage>(&mut buffered) {
+        while let Some(message) = decode_grpc::<FromClient>(&mut buffered) {
             match message.client_message {
-                Some(streaming_write_client_message::ClientMessage::InitRequest(init)) => {
-                    assert_eq!(init.topic, TOPIC);
+                Some(ClientMessage::InitRequest(init)) => {
+                    assert_eq!(init.path, TOPIC);
+                    assert_eq!(init.producer_id, "events");
                     send(
                         &response_tx,
-                        &StreamingWriteServerMessage {
+                        &FromServer {
                             status: SUCCESS,
                             issues: Vec::new(),
-                            server_message: Some(
-                                streaming_write_server_message::ServerMessage::InitResponse(
-                                    streaming_write_server_message::InitResponse {
-                                        last_sequence_number: 0,
-                                        topic: TOPIC.into(),
-                                        block_format_version: 0,
-                                        supported_codecs: vec![Codec::Raw as i32],
-                                        ..Default::default()
-                                    },
-                                ),
-                            ),
+                            server_message: Some(ServerMessage::InitResponse(InitResponse {
+                                last_seq_no: 0,
+                                session_id: "test-session".into(),
+                                partition_id: 0,
+                                supported_codecs: Some(SupportedCodecs {
+                                    codecs: vec![Codec::Raw as i32],
+                                }),
+                            })),
                         },
                     );
                 }
-                Some(streaming_write_client_message::ClientMessage::WriteRequest(write)) => {
-                    observed.lock().unwrap().extend(write.blocks_data);
+                Some(ClientMessage::WriteRequest(write)) => {
+                    let acks = write
+                        .messages
+                        .into_iter()
+                        .map(|message| {
+                            observed.lock().unwrap().push(message.data);
+                            write_response::WriteAck {
+                                seq_no: message.seq_no,
+                                message_write_status: Some(write_ack::MessageWriteStatus::Written(
+                                    write_ack::Written {
+                                        offset: message.seq_no,
+                                    },
+                                )),
+                            }
+                        })
+                        .collect();
                     send(
                         &response_tx,
-                        &StreamingWriteServerMessage {
+                        &FromServer {
                             status: SUCCESS,
                             issues: Vec::new(),
-                            server_message: Some(
-                                streaming_write_server_message::ServerMessage::BatchWriteResponse(
-                                    streaming_write_server_message::BatchWriteResponse {
-                                        sequence_numbers: write.sequence_numbers,
-                                        offsets: vec![1],
-                                        already_written: vec![false],
-                                        partition_id: 0,
-                                        write_statistics: None,
-                                    },
-                                ),
-                            ),
+                            server_message: Some(ServerMessage::WriteResponse(WriteResponse {
+                                acks,
+                                partition_id: 0,
+                                write_statistics: None,
+                            })),
                         },
                     );
                 }
-                _ => panic!("unexpected PQ write message"),
+                _ => panic!("unexpected YDB Topic write message"),
             }
         }
     }
 }
 
-fn send(
-    tx: &mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>,
-    message: &StreamingWriteServerMessage,
-) {
+fn send(tx: &mpsc::UnboundedSender<Result<Frame<Bytes>, Infallible>>, message: &FromServer) {
     tx.send(Ok(Frame::data(grpc_frame(message)))).unwrap();
 }
+
 fn grpc_frame(message: &impl prost::Message) -> Bytes {
     let payload = message.encode_to_vec();
     let mut frame = Vec::with_capacity(payload.len() + 5);
@@ -242,6 +250,7 @@ fn grpc_frame(message: &impl prost::Message) -> Bytes {
     frame.extend_from_slice(&payload);
     Bytes::from(frame)
 }
+
 fn decode_grpc<T: prost::Message + Default>(buffer: &mut BytesMut) -> Option<T> {
     if buffer.len() < 5 {
         return None;

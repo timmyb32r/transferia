@@ -12,8 +12,9 @@ pub use registry::{
     Registry, RegistryBuilder,
 };
 pub use traits::{
-    ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, EndpointRole, SinkBuildContext,
-    SinkPrepare, SinkProvider, SourceBuildContext, SourceDiscoveryContext, SourceProvider,
+    ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
+    EndpointRole, OptionsRequest, SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext,
+    SourceDiscoveryContext, SourceProvider,
 };
 
 #[cfg(test)]

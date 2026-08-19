@@ -1,0 +1,13 @@
+[package]
+name = "transferia-test-support"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+transferia-registry = { path = "../transferia-registry" }
+
+[lints]
+workspace = true

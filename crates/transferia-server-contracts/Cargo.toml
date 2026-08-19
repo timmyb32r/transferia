@@ -4,11 +4,20 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "generate-server-api"
+path = "src/bin/generate_server_api.rs"
+test = false
+bench = false
+
 [dependencies]
 anyhow.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-registry = { path = "../transferia-registry" }
 transferia-runtime = { path = "../transferia-runtime" }
 
 [lints]

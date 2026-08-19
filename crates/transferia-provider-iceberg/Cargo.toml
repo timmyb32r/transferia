@@ -31,4 +31,8 @@ transferia-registry = { path = "../transferia-registry" }
 workspace = true
 
 [dev-dependencies]
+reqwest.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
+testcontainers.workspace = true
+transferia-test-support = { path = "../transferia-test-support" }

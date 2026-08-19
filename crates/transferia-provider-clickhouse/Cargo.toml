@@ -28,8 +28,11 @@ transferia-provider-support = { path = "../transferia-provider-support" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
+reqwest.workspace = true
 serde_yaml.workspace = true
+testcontainers.workspace = true
 tokio-rustls.workspace = true
+transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]
 workspace = true

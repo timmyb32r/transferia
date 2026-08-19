@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import fixture from "../../crates/transferia-server-contracts/contracts/server-api.fixture.json";
+import catalogFixture from "../../crates/transferia-server-contracts/contracts/provider-catalog.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
@@ -13,7 +13,7 @@ describe("Rust catalog contract", () => {
   it("compiles every schema emitted by the Rust catalog", () => {
     const catalog = decodeApi(
       "catalog_response",
-      fixture.full_catalog,
+      catalogFixture,
       "catalog",
     );
 

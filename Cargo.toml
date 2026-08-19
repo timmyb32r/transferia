@@ -23,20 +23,23 @@ members = [
     "crates/transferia-runtime-local",
     "crates/transferia-server-contracts",
     "crates/transferia-server-ui",
+    "crates/transferia-test-support",
 ]
 exclude = ["vendor/clickhouse-arrow"]
 resolver = "2"
 
 [profile.dev]
 debug = "line-tables-only"
-split-debuginfo = "unpacked"
+incremental = false
+split-debuginfo = "off"
 
 [profile.dev.package."*"]
 debug = false
 
 [profile.test]
 debug = "line-tables-only"
-split-debuginfo = "unpacked"
+incremental = false
+split-debuginfo = "off"
 
 [profile.test.package."*"]
 debug = false
@@ -45,6 +48,7 @@ debug = false
 version = "0.1.0"
 edition = "2021"
 publish = false
+rust-version = "1.96"
 
 [workspace.dependencies]
 anyhow = "1"

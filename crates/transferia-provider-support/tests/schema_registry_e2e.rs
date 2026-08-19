@@ -10,16 +10,16 @@ use testcontainers::core::wait::HttpWaitStrategy;
 use testcontainers::core::{IntoContainerPort as _, WaitFor};
 use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
-use transferia::core::data::message::Message;
-use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::delivery::{DeliveryDiscoveryRequest, SourceTopology, NO_LIMITS};
-use transferia::core::memory::PipelineMemory;
-use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch};
-use transferia::parsers::{ParserConfig, ParserPlan};
-use transferia::schema_registry::{
+use transferia_core::data::message::Message;
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{DeliveryDiscoveryRequest, SourceTopology, NO_LIMITS};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch};
+use transferia_provider_support::parsers::{ParserConfig, ParserPlan};
+use transferia_provider_support::schema_registry::{
     ConfluentEnvelope, SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection,
 };
-use transferia::serializer::{DeliverySerializer, SerializerConfig};
+use transferia_provider_support::serializer::{DeliverySerializer, SerializerConfig};
 
 const REDPANDA_IMAGE: &str = "redpandadata/redpanda";
 const REDPANDA_TAG: &str = "v24.3.18";
@@ -147,8 +147,8 @@ async fn parse_one(
     plan: &ParserPlan,
     payload: Vec<u8>,
 ) -> anyhow::Result<(
-    transferia::core::data::table_data::TableData,
-    Option<transferia::core::data::table_data::TableData>,
+    transferia_core::data::table_data::TableData,
+    Option<transferia_core::data::table_data::TableData>,
 )> {
     let mut session = plan.parser().create_session(16 * 1024 * 1024);
     tokio::task::spawn_blocking(move || session.parse_into(vec![Message::new(payload.into())]))

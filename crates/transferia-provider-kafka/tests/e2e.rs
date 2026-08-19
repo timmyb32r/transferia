@@ -5,8 +5,6 @@
     reason = "test assertions intentionally fail fast"
 )]
 
-mod support;
-
 use std::net::{Ipv4Addr, TcpListener};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,17 +17,17 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
-use transferia::core::memory::PipelineMemory;
-use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
-use transferia::core::source::Source as _;
-use transferia::metrics::{MetricsRegistry, SinkCounters};
-use transferia::providers::kafka::{
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia_core::source::Source as _;
+use transferia_delivery_contracts::metrics::{MetricsRegistry, SinkCounters};
+use transferia_provider_kafka::kafka::{
     KafkaSinkConfig, KafkaSinkProvider, KafkaSourceConfig, KafkaSourceProvider,
 };
-use transferia::registry::{
+use transferia_registry::{
     SinkBuildContext, SinkProvider as _, SourceBuildContext, SourceProvider as _,
 };
 
@@ -75,7 +73,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovery),
-            durable: support::durable_context(),
+            durable: transferia_test_support::durable_context(),
         })
         .await?;
     send_delivery(sink).await?;
@@ -86,7 +84,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
     )?;
     let mut source = source_provider.build_source(source_context()).await?;
     let batch = read_after_transient_broker_startup(&mut source).await?;
-    let transferia::core::data::message::SourceBatch::Raw {
+    let transferia_core::data::message::SourceBatch::Raw {
         messages,
         commit_marker,
         memory: _,
@@ -112,7 +110,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
 }
 
 async fn assert_no_committed_replay(
-    source: &mut Box<dyn transferia::core::source::Source>,
+    source: &mut Box<dyn transferia_core::source::Source>,
 ) -> anyhow::Result<()> {
     let result = tokio::time::timeout(Duration::from_secs(3), async {
         loop {
@@ -130,8 +128,8 @@ async fn assert_no_committed_replay(
 }
 
 async fn read_after_transient_broker_startup(
-    source: &mut Box<dyn transferia::core::source::Source>,
-) -> anyhow::Result<transferia::core::data::message::SourceBatch> {
+    source: &mut Box<dyn transferia_core::source::Source>,
+) -> anyhow::Result<transferia_core::data::message::SourceBatch> {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             match source.read_batch().await {
@@ -151,7 +149,7 @@ fn source_context() -> SourceBuildContext {
         partition_id: 0,
         cancellation: CancellationToken::new(),
         memory: PipelineMemory::new(16 * 1024 * 1024),
-        durable: support::durable_context(),
+        durable: transferia_test_support::durable_context(),
     }
 }
 
@@ -167,7 +165,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
     ]);
     Arc::new(DeliveryDiscovery {
         source_name: Arc::from("kafka-e2e"),
-        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
         keep_system_columns: false,
         datasets: vec![DiscoveredDataset {
@@ -180,7 +178,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
     })
 }
 
-async fn send_delivery(sink: Box<dyn transferia::core::sink::Sink>) -> anyhow::Result<()> {
+async fn send_delivery(sink: Box<dyn transferia_core::sink::Sink>) -> anyhow::Result<()> {
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(vec![

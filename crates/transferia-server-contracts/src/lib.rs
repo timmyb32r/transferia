@@ -6,6 +6,8 @@ use serde_json::Value;
 
 use transferia_runtime::RunId;
 
+pub mod api;
+
 pub const STATE_VERSION: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]

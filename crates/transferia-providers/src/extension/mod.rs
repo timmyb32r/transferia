@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value};
 use sha2::{Digest, Sha256};
@@ -16,38 +16,9 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// schema change that would otherwise alter the composition fingerprint.
 const CORE_EXTENSION_ABI_VERSION: u32 = 3;
 
-pub use transferia_registry::EndpointRole;
-
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DynamicOption {
-    pub value: String,
-
-    pub label: String,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DynamicOptions {
-    pub options: Vec<DynamicOption>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("x-omit-none" = true))]
-    pub warning: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct OptionsRequest {
-    #[serde(default)]
-    pub query: Option<String>,
-
-    #[serde(default)]
-    pub refresh: bool,
-
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, String>,
-}
+pub use transferia_registry::{
+    DynamicOption, DynamicOptions, EndpointRole, OptionsRequest,
+};
 
 #[derive(Clone, Debug)]
 pub struct OptionsContext {

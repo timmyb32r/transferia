@@ -13,7 +13,7 @@ mod http;
 mod logs;
 mod service;
 mod store;
-mod ui_catalog;
+pub mod ui_catalog;
 
 pub async fn run_with(
     bind: SocketAddr,

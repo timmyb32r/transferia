@@ -59,6 +59,37 @@ pub enum EndpointRole {
     Sink,
 }
 
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DynamicOption {
+    pub value: String,
+
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DynamicOptions {
+    pub options: Vec<DynamicOption>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("x-omit-none" = true))]
+    pub warning: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OptionsRequest {
+    #[serde(default)]
+    pub query: Option<String>,
+
+    #[serde(default)]
+    pub refresh: bool,
+
+    #[serde(default)]
+    pub dependencies: BTreeMap<String, String>,
+}
+
 pub trait SourceProvider: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
 

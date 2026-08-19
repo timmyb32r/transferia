@@ -41,13 +41,12 @@ API, and UI boundaries.
 ## Quality checks
 
 ```bash
-just fmt
-just clippy
-cargo test --all-targets --all-features
+just check
 ```
 
-`just clippy` runs the strict lint policy from `Cargo.toml` with warnings as
-errors. Every quality recipe runs `rustfmt` first.
+`just check` is the fast, compile-only affected gate used during development.
+Before a merge or release, `just check-release` runs workspace formatting,
+strict Clippy, and the complete test/E2E suite.
 
 ## Configuration
 
