@@ -138,7 +138,7 @@ fn default_root() -> String {
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IcebergTableRef {
-    #[schemars(extend("x-ui" = { "item_title": "Namespace level" }))]
+    #[schemars(extend("x-ui" = { "item_label": "Namespace level" }))]
     pub namespace: Vec<String>,
 
     pub name: String,
@@ -180,7 +180,7 @@ pub struct IcebergSinkConfig {
     #[serde(default)]
     pub storage: OpenDalStorageConfig,
 
-    #[schemars(extend("x-ui" = { "item_title": "Table" }))]
+    #[schemars(extend("x-ui" = { "item_label": "Table" }))]
     pub tables: Vec<IcebergSinkTable>,
 
     #[serde(default = "default_target_file_size")]

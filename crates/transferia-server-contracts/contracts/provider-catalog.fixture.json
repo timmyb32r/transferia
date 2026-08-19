@@ -4938,7 +4938,7 @@
                     "type": "string"
                   },
                   "x-ui": {
-                    "item_title": "Namespace level"
+                    "item_label": "Namespace level"
                   }
                 },
                 "name": {
@@ -5015,7 +5015,7 @@
                 "$ref": "#/$defs/IcebergSinkTable"
               },
               "x-ui": {
-                "item_title": "Table"
+                "item_label": "Table"
               }
             },
             "target_file_size_bytes": {
@@ -5244,7 +5244,7 @@
                     "type": "string"
                   },
                   "x-ui": {
-                    "item_title": "Namespace level"
+                    "item_label": "Namespace level"
                   }
                 },
                 "name": {
