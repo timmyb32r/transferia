@@ -20,6 +20,7 @@ transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-middleware-datafusion = { path = "../transferia-middleware-datafusion" }
 transferia-middleware-filter = { path = "../transferia-middleware-filter" }
 transferia-provider-clickhouse = { path = "../transferia-provider-clickhouse" }
+transferia-provider-iceberg = { path = "../transferia-provider-iceberg" }
 transferia-provider-kafka = { path = "../transferia-provider-kafka" }
 transferia-provider-logbroker = { path = "../transferia-provider-logbroker" }
 transferia-provider-postgres = { path = "../transferia-provider-postgres" }

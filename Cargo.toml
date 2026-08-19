@@ -9,6 +9,7 @@ members = [
     "crates/transferia-middleware-datafusion",
     "crates/transferia-middleware-filter",
     "crates/transferia-provider-clickhouse",
+    "crates/transferia-provider-iceberg",
     "crates/transferia-provider-kafka",
     "crates/transferia-provider-logbroker",
     "crates/transferia-provider-postgres",
@@ -66,11 +67,15 @@ http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
+iceberg = "0.9.0"
+iceberg-catalog-rest = "0.9.0"
 itoa = "1"
 jsonpath_lib = "0.3"
 jsonschema = { version = "0.33.0", default-features = false }
 mimalloc = { version = "0.1", features = ["v2"] }
 object_store = { version = "0.12", default-features = false, features = ["aws"] }
+opendal = { version = "0.55.0", default-features = false, features = ["executors-tokio", "services-s3", "services-webhdfs"] }
+parquet = "57"
 postgres-types = { version = "0.2", features = ["with-chrono-0_4"] }
 prost = "0.14"
 prost-reflect = { version = "0.16", features = ["serde"] }
@@ -104,6 +109,9 @@ tonic-prost-build = "0.14"
 tower = { version = "0.5", features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+typetag = "0.2"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
 ydb-grpc = "0.2.2"
 zstd = "0.13"
 

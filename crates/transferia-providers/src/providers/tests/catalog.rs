@@ -18,6 +18,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             "postgres",
             "clickhouse",
             "s3",
+            "iceberg",
             "ytsaurus",
             "discard"
         ]

@@ -214,6 +214,12 @@
                   }
                 ]
               },
+              "auth": {
+                "$ref": "#/$defs/LogbrokerAuthConfig",
+                "x-ui": {
+                  "control_width": "auth"
+                }
+              },
               "topics": {
                 "type": "array",
                 "items": {
@@ -226,12 +232,6 @@
               },
               "consumer_name": {
                 "type": "string"
-              },
-              "auth": {
-                "$ref": "#/$defs/LogbrokerAuthConfig",
-                "x-ui": {
-                  "control_width": "auth"
-                }
               },
               "driver": {
                 "title": "Driver",
@@ -284,40 +284,14 @@
             },
             "additionalProperties": false,
             "required": [
+              "auth",
               "topics",
               "consumer_name",
-              "auth",
               "driver",
               "parser",
               "installation"
             ],
             "$defs": {
-              "LogbrokerTopicConfig": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "title": "Topic path",
-                    "type": "string"
-                  },
-                  "partitions": {
-                    "title": "Partition IDs",
-                    "description": "Partitions to read; leave empty to let YDB Topic assign every partition dynamically",
-                    "type": "array",
-                    "items": {
-                      "type": "integer",
-                      "format": "int64"
-                    },
-                    "default": [],
-                    "x-ui": {
-                      "widget": "partition_ranges"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "path"
-                ]
-              },
               "LogbrokerAuthConfig": {
                 "oneOf": [
                   {
@@ -359,6 +333,32 @@
                       "token_file"
                     ]
                   }
+                ]
+              },
+              "LogbrokerTopicConfig": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "title": "Topic path",
+                    "type": "string"
+                  },
+                  "partitions": {
+                    "title": "Partition IDs",
+                    "description": "Partitions to read; leave empty to let YDB Topic assign every partition dynamically",
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "format": "int64"
+                    },
+                    "default": [],
+                    "x-ui": {
+                      "widget": "partition_ranges"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "path"
                 ]
               },
               "LogbrokerDriver": {
@@ -1168,6 +1168,12 @@
                   }
                 ]
               },
+              "auth": {
+                "$ref": "#/$defs/LogbrokerAuthConfig",
+                "x-ui": {
+                  "control_width": "auth"
+                }
+              },
               "topic_path": {
                 "title": "Topic path",
                 "type": "string"
@@ -1181,12 +1187,6 @@
                 ],
                 "format": "int64",
                 "default": null
-              },
-              "auth": {
-                "$ref": "#/$defs/LogbrokerAuthConfig",
-                "x-ui": {
-                  "control_width": "auth"
-                }
               },
               "serializer": {
                 "$ref": "#/$defs/SerializerConfig",
@@ -1204,8 +1204,8 @@
             },
             "additionalProperties": false,
             "required": [
-              "topic_path",
               "auth",
+              "topic_path",
               "serializer",
               "driver",
               "installation"
@@ -4707,6 +4707,626 @@
               "max_backoff": "",
               "max_attempts": 10
             }
+          },
+          "delivery_modes": [],
+          "partitioned": false,
+          "connection_check": true
+        }
+      },
+      {
+        "key": "iceberg",
+        "title": "Apache Iceberg",
+        "source": {
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "IcebergSourceConfig",
+            "type": "object",
+            "properties": {
+              "catalog": {
+                "$ref": "#/$defs/RestCatalogConfig"
+              },
+              "storage": {
+                "$ref": "#/$defs/OpenDalStorageConfig",
+                "default": {
+                  "type": "s3",
+                  "bucket": "",
+                  "region": null,
+                  "endpoint": null,
+                  "access_key_id": null,
+                  "secret_access_key": null,
+                  "session_token": null,
+                  "path_style_access": false,
+                  "allow_anonymous": false
+                }
+              },
+              "table": {
+                "$ref": "#/$defs/IcebergTableRef"
+              },
+              "output_name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "catalog",
+              "table",
+              "output_name"
+            ],
+            "$defs": {
+              "RestCatalogConfig": {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string"
+                  },
+                  "warehouse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "auth": {
+                    "$ref": "#/$defs/RestCatalogAuth",
+                    "default": {
+                      "type": "none"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "uri"
+                ]
+              },
+              "RestCatalogAuth": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "none"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "token": {
+                        "type": "string",
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "token"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "token"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "client_id": {
+                        "type": "string"
+                      },
+                      "client_secret": {
+                        "type": "string",
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "scope": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "token_url": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "o_auth2"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "client_id",
+                      "client_secret"
+                    ]
+                  }
+                ]
+              },
+              "OpenDalStorageConfig": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "bucket": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "endpoint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "access_key_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "secret_access_key": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null,
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "session_token": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null,
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "path_style_access": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "allow_anonymous": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "s3"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "bucket"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "endpoint": {
+                        "description": "`WebHDFS` endpoint, for example `https://namenode:9871`.",
+                        "type": "string"
+                      },
+                      "authority": {
+                        "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
+                        "type": "string"
+                      },
+                      "root": {
+                        "type": "string",
+                        "default": "/"
+                      },
+                      "user": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "hdfs"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "endpoint",
+                      "authority"
+                    ]
+                  }
+                ]
+              },
+              "IcebergTableRef": {
+                "type": "object",
+                "properties": {
+                  "namespace": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "x-ui": {
+                      "item_title": "Namespace level"
+                    }
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "namespace",
+                  "name"
+                ]
+              }
+            }
+          },
+          "initial": {
+            "catalog": {
+              "uri": "",
+              "warehouse": null,
+              "auth": {
+                "type": "none"
+              }
+            },
+            "storage": {
+              "type": "s3",
+              "bucket": "",
+              "region": null,
+              "endpoint": null,
+              "access_key_id": null,
+              "secret_access_key": null,
+              "session_token": null,
+              "path_style_access": false,
+              "allow_anonymous": false
+            },
+            "table": {
+              "namespace": [
+                "default"
+              ],
+              "name": ""
+            },
+            "output_name": ""
+          },
+          "delivery_modes": [
+            "batch"
+          ],
+          "partitioned": false,
+          "connection_check": true
+        },
+        "sink": {
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "IcebergSinkConfig",
+            "type": "object",
+            "properties": {
+              "catalog": {
+                "$ref": "#/$defs/RestCatalogConfig"
+              },
+              "storage": {
+                "$ref": "#/$defs/OpenDalStorageConfig",
+                "default": {
+                  "type": "s3",
+                  "bucket": "",
+                  "region": null,
+                  "endpoint": null,
+                  "access_key_id": null,
+                  "secret_access_key": null,
+                  "session_token": null,
+                  "path_style_access": false,
+                  "allow_anonymous": false
+                }
+              },
+              "tables": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/IcebergSinkTable"
+                },
+                "x-ui": {
+                  "item_title": "Table"
+                }
+              },
+              "target_file_size_bytes": {
+                "type": "integer",
+                "format": "uint",
+                "minimum": 0,
+                "default": 134217728
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "catalog",
+              "tables"
+            ],
+            "$defs": {
+              "RestCatalogConfig": {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string"
+                  },
+                  "warehouse": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  },
+                  "auth": {
+                    "$ref": "#/$defs/RestCatalogAuth",
+                    "default": {
+                      "type": "none"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "uri"
+                ]
+              },
+              "RestCatalogAuth": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "const": "none"
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "token": {
+                        "type": "string",
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "token"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "token"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "client_id": {
+                        "type": "string"
+                      },
+                      "client_secret": {
+                        "type": "string",
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "scope": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "token_url": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "o_auth2"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "client_id",
+                      "client_secret"
+                    ]
+                  }
+                ]
+              },
+              "OpenDalStorageConfig": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "bucket": {
+                        "type": "string"
+                      },
+                      "region": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "endpoint": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "access_key_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "secret_access_key": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null,
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "session_token": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null,
+                        "x-ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "path_style_access": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "allow_anonymous": {
+                        "type": "boolean",
+                        "default": false
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "s3"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "bucket"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "endpoint": {
+                        "description": "`WebHDFS` endpoint, for example `https://namenode:9871`.",
+                        "type": "string"
+                      },
+                      "authority": {
+                        "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
+                        "type": "string"
+                      },
+                      "root": {
+                        "type": "string",
+                        "default": "/"
+                      },
+                      "user": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "default": null
+                      },
+                      "type": {
+                        "type": "string",
+                        "const": "hdfs"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "type",
+                      "endpoint",
+                      "authority"
+                    ]
+                  }
+                ]
+              },
+              "IcebergSinkTable": {
+                "type": "object",
+                "properties": {
+                  "dataset": {
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "x-ui": {
+                      "item_title": "Namespace level"
+                    }
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "create_if_missing": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "location": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "default": null
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "dataset",
+                  "namespace",
+                  "name"
+                ]
+              }
+            }
+          },
+          "initial": {
+            "catalog": {
+              "uri": "",
+              "warehouse": null,
+              "auth": {
+                "type": "none"
+              }
+            },
+            "storage": {
+              "type": "s3",
+              "bucket": "",
+              "region": null,
+              "endpoint": null,
+              "access_key_id": null,
+              "secret_access_key": null,
+              "session_token": null,
+              "path_style_access": false,
+              "allow_anonymous": false
+            },
+            "tables": [
+              {
+                "dataset": "",
+                "namespace": [
+                  "default"
+                ],
+                "name": "",
+                "create_if_missing": false,
+                "location": null
+              }
+            ],
+            "target_file_size_bytes": 134217728
           },
           "delivery_modes": [],
           "partitioned": false,

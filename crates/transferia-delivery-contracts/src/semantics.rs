@@ -17,12 +17,14 @@ pub enum EndpointDescriptor {
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
     S3Source(SourceDescriptor),
+    IcebergSource(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
     LogbrokerSink,
     KafkaSink,
     ClickHouse,
     S3(S3Descriptor),
+    IcebergSink,
     /// Benchmark-only sink which durably stores nothing.
     Discard,
 }
@@ -36,13 +38,15 @@ impl EndpointDescriptor {
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
-            | Self::S3Source(source) => Some(source.behavior),
+            | Self::S3Source(source)
+            | Self::IcebergSource(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
             | Self::ClickHouse
             | Self::S3(_)
+            | Self::IcebergSink
             | Self::Discard => None,
         }
     }
@@ -55,13 +59,15 @@ impl EndpointDescriptor {
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
-            | Self::S3Source(source) => source.delivery_modes.supports(delivery_type),
+            | Self::S3Source(source)
+            | Self::IcebergSource(source) => source.delivery_modes.supports(delivery_type),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
             | Self::ClickHouse
             | Self::S3(_)
+            | Self::IcebergSink
             | Self::Discard => false,
         }
     }
@@ -157,6 +163,7 @@ pub enum DiagnosticCode {
     ClickHouseAtLeastOnce,
     PostgresAtLeastOnce,
     YTsaurusAtLeastOnce,
+    IcebergAtLeastOnce,
     PqV1AtLeastOnce,
     BenchmarkDiscard,
     BenchmarkSourceDiscard,
@@ -277,6 +284,18 @@ pub fn validate_pipeline(
                 config_paths: vec!["sink.ytsaurus".into()],
                 explanation: "YTsaurus append completion precedes source progress commit, so a retry after an ambiguous write may duplicate rows".into(),
                 remediation: Some("include a user-defined idempotency key when duplicate-free final state is required".into()),
+            }],
+        };
+    }
+    if matches!(sink, EndpointDescriptor::IcebergSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::IcebergAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.iceberg".into()],
+                explanation: "an Iceberg snapshot commit precedes source progress commit, so replay after an ambiguous source commit may append duplicate rows".into(),
+                remediation: Some("include a stable row identity and run Iceberg compaction/deduplication when duplicate-free final state is required".into()),
             }],
         };
     }

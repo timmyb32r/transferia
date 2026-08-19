@@ -629,6 +629,41 @@ fn build_base_provider_catalog(
     )?;
 
     catalog.register(
+        component_registration("iceberg")?
+            .source::<crate::providers::iceberg::IcebergSourceConfig, _, _>(
+                vec![DeliveryMode::Batch],
+                false,
+                || serde_json::json!({
+                    "catalog": { "uri": "", "warehouse": null, "auth": { "type": "none" } },
+                    "storage": { "type": "s3", "bucket": "", "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
+                    "table": { "namespace": ["default"], "name": "" },
+                    "output_name": ""
+                }),
+                {
+                    let metrics_registry = Arc::clone(_metrics_registry);
+                    move |config| Ok(Box::new(crate::providers::iceberg::IcebergSourceProvider::from_config(config, Arc::clone(&metrics_registry))?))
+                },
+            )?
+            .source_checker::<crate::providers::iceberg::IcebergSourceConfig, _, _>(|config| async move {
+                crate::providers::iceberg::check_source_connection(&config).await?;
+                Ok(transferia_registry::ConnectionCheckResult::default())
+            })
+            .sink::<crate::providers::iceberg::IcebergSinkConfig, _, _>(
+                || serde_json::json!({
+                    "catalog": { "uri": "", "warehouse": null, "auth": { "type": "none" } },
+                    "storage": { "type": "s3", "bucket": "", "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
+                    "tables": [{ "dataset": "", "namespace": ["default"], "name": "", "create_if_missing": false, "location": null }],
+                    "target_file_size_bytes": 134_217_728
+                }),
+                |config| Ok(Box::new(crate::providers::iceberg::IcebergSinkProvider::from_config(config)?)),
+            )?
+            .sink_checker::<crate::providers::iceberg::IcebergSinkConfig, _, _>(|config| async move {
+                crate::providers::iceberg::check_sink_connection(&config).await?;
+                Ok(transferia_registry::ConnectionCheckResult::default())
+            }),
+    )?;
+
+    catalog.register(
         component_registration("ytsaurus")?
             .source::<crate::providers::ytsaurus::YTsaurusSourceConfig, _, _>(
                 vec![DeliveryMode::Batch],

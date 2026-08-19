@@ -250,7 +250,10 @@ impl ExtensionRegistry {
         role: EndpointRole,
         field: &'static str,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(!provider.is_empty(), "field placement provider must not be empty");
+        anyhow::ensure!(
+            !provider.is_empty(),
+            "field placement provider must not be empty"
+        );
         anyhow::ensure!(!field.is_empty(), "placed field must not be empty");
         let fields = self
             .pre_installation_fields

@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod discard;
 pub use transferia_provider_clickhouse::clickhouse;
+pub use transferia_provider_iceberg::iceberg;
 pub use transferia_provider_kafka::kafka;
 pub use transferia_provider_logbroker::logbroker;
 pub use transferia_provider_postgres::postgres;

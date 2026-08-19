@@ -90,6 +90,12 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
         sink: PLAIN,
     },
     ProviderDescriptor {
+        key: "iceberg",
+        title: "Apache Iceberg",
+        source: PLAIN,
+        sink: PLAIN,
+    },
+    ProviderDescriptor {
         key: "ytsaurus",
         title: "YTsaurus",
         source: YTSAURUS_ROLE,
