@@ -243,6 +243,43 @@ async fn incomplete_logbroker_source_check_only_requires_network_access() -> any
     Ok(())
 }
 
+#[tokio::test]
+async fn logbroker_checks_only_network_when_credentials_are_empty() -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
+
+    for (role, config) in [
+        (
+            crate::extension::EndpointRole::Source,
+            serde_yaml::to_value(serde_json::json!({
+                "host": "127.0.0.1",
+                "port": port,
+                "topics": [{ "path": "topic", "partitions": [] }],
+                "consumer_name": "consumer",
+                "auth": { "type": "token", "token": "" },
+                "trusted_plaintext": true
+            }))?,
+        ),
+        (
+            crate::extension::EndpointRole::Sink,
+            serde_yaml::to_value(serde_json::json!({
+                "host": "127.0.0.1",
+                "port": port,
+                "topic_path": "",
+                "auth": { "type": "token", "token": "" }
+            }))?,
+        ),
+    ] {
+        let result = catalog.check_connection("logbroker", role, config).await?;
+        assert!(matches!(
+            result.status,
+            transferia_registry::ConnectionCheckStatus::NetworkReachable
+        ));
+    }
+    Ok(())
+}
+
 #[test]
 fn provider_descriptors_are_the_authoritative_runtime_catalog() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;

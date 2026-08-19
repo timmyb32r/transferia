@@ -308,7 +308,7 @@ fn build_base_provider_catalog(
                             .topics
                             .first()
                             .is_some_and(|topic| !topic.path.is_empty());
-                    if connection_is_complete {
+                    if connection_is_complete && config.auth.is_configured() {
                         let complete = crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig {
                             host: config.host,
                             port: config.port,
@@ -362,7 +362,15 @@ fn build_base_provider_catalog(
             .sink_checker::<crate::providers::logbroker::sink::LogbrokerSinkCheckConfig, _, _>(
                 |config| async move {
                     let cancellation = tokio_util::sync::CancellationToken::new();
-                    if config.topic_path.is_empty() {
+                    if !config.auth.is_configured() {
+                        crate::providers::logbroker::check_network_connection(
+                            &config.host,
+                            config.port,
+                            cancellation,
+                        )
+                        .await?;
+                        Ok(transferia_registry::ConnectionCheckResult::network_reachable())
+                    } else if config.topic_path.is_empty() {
                         crate::providers::logbroker::src_stream::check_authentication(
                             &config.host,
                             config.port,
