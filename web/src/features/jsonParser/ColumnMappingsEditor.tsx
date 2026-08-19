@@ -12,6 +12,7 @@ import {
 } from "../../schema/columnDrag";
 import { createValue, type CompiledNode } from "../../schema/compiler";
 import { IndeterminateCheckbox } from "../../schema/controls";
+import { draftValue } from "../../schema/draft";
 import type {
   NodeEditorComponent,
   PropertyEditorComponent,
@@ -172,7 +173,7 @@ export function ColumnMappingsEditor({
           </div>
           <NodeEditor
             node={systemColumns.node}
-            value={systemColumns.value ?? createValue(systemColumns.node)}
+            value={draftValue(systemColumns.node, systemColumns.value)}
             disabled={disabled}
             onChange={systemColumns.onChange}
           />

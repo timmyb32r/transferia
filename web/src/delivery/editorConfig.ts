@@ -1,4 +1,5 @@
 import { compileSchema, type CompiledNode } from "../schema/compiler";
+import type { WidgetContracts } from "../schema/widgetDefinitions";
 import type {
   EndpointDefinition,
   JsonObject,
@@ -6,23 +7,37 @@ import type {
   UiCatalog,
 } from "../types";
 
-const compiledSchemaCache = new WeakMap<object, CompiledNode>();
+const compiledSchemaCache = new WeakMap<
+  WidgetContracts,
+  WeakMap<object, CompiledNode>
+>();
 
 export function compiledSchema(
   schema: UiCatalog["common_schema"],
+  widgets: WidgetContracts,
 ): CompiledNode {
-  const cached = compiledSchemaCache.get(schema);
+  let schemas = compiledSchemaCache.get(widgets);
+  if (schemas === undefined) {
+    schemas = new WeakMap<object, CompiledNode>();
+    compiledSchemaCache.set(widgets, schemas);
+  }
+  const cached = schemas.get(schema);
   if (cached !== undefined) return cached;
-  const compiled = compileSchema(schema);
-  compiledSchemaCache.set(schema, compiled);
+  const compiled = compileSchema(schema, widgets);
+  schemas.set(schema, compiled);
   return compiled;
 }
 
-export function validateCatalogSchemas(catalog: UiCatalog): void {
-  compiledSchema(catalog.common_schema);
+export function validateCatalogSchemas(
+  catalog: UiCatalog,
+  widgets: WidgetContracts,
+): void {
+  compiledSchema(catalog.common_schema, widgets);
   for (const provider of catalog.providers) {
-    if (provider.source !== undefined) compiledSchema(provider.source.schema);
-    if (provider.sink !== undefined) compiledSchema(provider.sink.schema);
+    if (provider.source !== undefined)
+      compiledSchema(provider.source.schema, widgets);
+    if (provider.sink !== undefined)
+      compiledSchema(provider.sink.schema, widgets);
   }
 }
 

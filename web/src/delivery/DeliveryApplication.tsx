@@ -38,6 +38,7 @@ import { useDiscovery } from "./useDiscovery";
 import { useOperations } from "./useOperations";
 import { useYamlEditor } from "./useYamlEditor";
 import { isComplete } from "../schema/compiler";
+import { useWidgetRegistry } from "../schema/widgetRegistry";
 import {
   editorReducer,
   isReadOnly,
@@ -70,6 +71,7 @@ const EMPTY_STATE: EditorState = {
 
 export function DeliveryApplication() {
   const api = useControlPlane();
+  const widgets = useWidgetRegistry();
   const [appearance, setAppearance] = useState<Appearance>(() =>
     loadAppearance(window.localStorage),
   );
@@ -136,7 +138,7 @@ export function DeliveryApplication() {
     const requestId = beginOperation("bootstrap", "Loading control plane…");
     void Promise.all([api.catalog(), api.deliveries()])
       .then(([nextCatalog, nextDeliveries]) => {
-        validateCatalogSchemas(nextCatalog);
+        validateCatalogSchemas(nextCatalog, widgets);
         setCatalog(nextCatalog);
         setDeliveries(nextDeliveries);
         dispatch({
@@ -196,19 +198,19 @@ export function DeliveryApplication() {
     catalog !== undefined &&
     selection !== undefined &&
     selection.error === undefined &&
-    isComplete(compiledSchema(catalog.common_schema), editor.config);
+    isComplete(compiledSchema(catalog.common_schema, widgets), editor.config);
   const sourceSchemaComplete =
     commonConfigComplete &&
     selection?.source !== undefined &&
     isComplete(
-      compiledSchema(selection.source!.schema),
+      compiledSchema(selection.source!.schema, widgets),
       endpointValue(editor.config, "source", selection!.sourceKey),
     );
   const structurallyComplete =
     sourceSchemaComplete &&
     selection?.sink !== undefined &&
     isComplete(
-      compiledSchema(selection.sink!.schema),
+      compiledSchema(selection.sink!.schema, widgets),
       endpointValue(editor.config, "sink", selection!.sinkKey),
     );
   const requiredFieldsComplete =

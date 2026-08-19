@@ -7,6 +7,7 @@ import {
 } from "./editorConfig";
 import { CommonSettings, EndpointCard } from "./EditorViews";
 import { ParserDetailsForm, SerializerDetailsForm } from "../schema/SchemaForm";
+import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { EditorState } from "../state";
 import type { JsonObject, UiCatalog } from "../types";
 import { TopField } from "../ui/FormField";
@@ -38,6 +39,7 @@ export function DeliveryConfiguration({
   onChooseEndpoint: (role: "source" | "sink", key: string) => void;
 }) {
   const api = useControlPlane();
+  const widgets = useWidgetRegistry();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
   const sourceProviders = catalog.providers.filter(
     (provider) => provider.source !== undefined,
@@ -158,7 +160,7 @@ export function DeliveryConfiguration({
             />
             {selection?.error === undefined && selection?.source && (
               <ParserDetailsForm
-                node={compiledSchema(selection.source.schema)}
+                node={compiledSchema(selection.source.schema, widgets)}
                 value={endpointValue(
                   editor.config,
                   "source",
@@ -176,7 +178,7 @@ export function DeliveryConfiguration({
             )}
             {selection?.error === undefined && selection?.sink && (
               <SerializerDetailsForm
-                node={compiledSchema(selection.sink.schema)}
+                node={compiledSchema(selection.sink.schema, widgets)}
                 value={endpointValue(editor.config, "sink", selection.sinkKey)}
                 disabled={readOnly}
                 showRequiredErrors={showRequiredErrors}

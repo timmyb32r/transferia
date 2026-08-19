@@ -9,6 +9,7 @@ import type {
   PropertyEditorComponent,
   PropertyEditorProps,
 } from "./editorTypes";
+import type { WidgetContracts } from "./widgetDefinitions";
 
 export interface EditorServices {
   NodeEditor: NodeEditorComponent;
@@ -26,7 +27,7 @@ export interface PropertyWidgetContext extends PropertyEditorProps {
   onParentChange?: ((value: JsonObject) => void) | undefined;
 }
 
-export interface WidgetRegistry {
+export interface WidgetRegistry extends WidgetContracts {
   renderNode(
     context: NodeWidgetContext,
     services: EditorServices,
@@ -63,4 +64,14 @@ export function useWidgetRegistry(): WidgetRegistry {
       "Widget registry is unavailable: register form features at the composition root",
     );
   return registry;
+}
+
+export function hasEditableContent(
+  node: CompiledNode,
+  registry: WidgetRegistry,
+): boolean {
+  if (node.kind !== "object") return true;
+  return Object.values(node.properties).some(
+    (child) => !registry.isHidden(child),
+  );
 }

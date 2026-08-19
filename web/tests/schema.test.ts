@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
+
 import {
   acceptsDraftSeed,
   compileSchema,
@@ -7,31 +9,35 @@ import {
   isComplete,
   SchemaContractError,
 } from "../src/schema/compiler";
+import { draftValue } from "../src/schema/draft";
 import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 
 describe("schema compiler", () => {
   it("validates every provider schema before the catalog becomes interactive", () => {
     expect(() =>
-      validateCatalogSchemas({
-        common_schema: { type: "object" },
-        initial: {},
-        providers: [
-          {
-            key: "broken",
-            title: "Broken",
-            source: {
-              schema: {
-                type: "string",
-                "x-ui": { widget: "compact_array" },
+      validateCatalogSchemas(
+        {
+          common_schema: { type: "object" },
+          initial: {},
+          providers: [
+            {
+              key: "broken",
+              title: "Broken",
+              source: {
+                schema: {
+                  type: "string",
+                  "x-ui": { widget: "compact_array" },
+                },
+                initial: {},
+                delivery_modes: [],
+                partitioned: false,
+                connection_check: false,
               },
-              initial: {},
-              delivery_modes: [],
-              partitioned: false,
-              connection_check: false,
             },
-          },
-        ],
-      }),
+          ],
+        },
+        productionWidgetRegistry,
+      ),
     ).toThrow(/compact_array.*does not support string/);
   });
   it("accepts safe external-console links and rejects unsafe templates", () => {
@@ -264,7 +270,10 @@ describe("schema compiler", () => {
       compileSchema({ type: "string", "x-ui": { surprise: true } }),
     ).toThrow(/unsupported x-ui hints/);
     expect(() =>
-      compileSchema({ type: "string", "x-ui": { widget: "compact_array" } }),
+      compileSchema(
+        { type: "string", "x-ui": { widget: "compact_array" } },
+        productionWidgetRegistry,
+      ),
     ).toThrow(/does not support string/);
   });
 
@@ -282,5 +291,12 @@ describe("schema compiler", () => {
     expect(acceptsDraftSeed(node, { count: 2 })).toBe(true);
     expect(acceptsDraftSeed(node, { count: 0 })).toBe(false);
     expect(acceptsDraftSeed(node, { typo: true })).toBe(false);
+  });
+
+  it("creates editor defaults only for absent values", () => {
+    const node = compileSchema({ type: "integer", minimum: 1 });
+    expect(draftValue(node, undefined)).toBeNull();
+    expect(draftValue(node, null)).toBeNull();
+    expect(draftValue(node, 0)).toBe(0);
   });
 });

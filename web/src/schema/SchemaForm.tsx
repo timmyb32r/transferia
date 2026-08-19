@@ -1,28 +1,24 @@
-import { createContext, Fragment, type ComponentChildren } from "preact";
-import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { createContext, type ComponentChildren } from "preact";
+import { useContext } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
-import { Button } from "../ui/Button";
-import { Disclosure } from "../ui/Disclosure";
 import { FormField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import {
-  branchMatches,
   createValue,
   humanize,
   isComplete,
   type CompiledNode,
 } from "./compiler";
-import { TrashIcon } from "../ui/icons";
+import { ArrayNodeEditor } from "./ArrayNodeEditor";
 import { DynamicSelectControl } from "./DynamicSelectControl";
+import { draftValue } from "./draft";
+import { UnionNodeEditor } from "./UnionNodeEditor";
+import { VariantDetailsCard } from "./VariantDetailsCard";
 import type { NodeEditorProps, PropertyEditorProps } from "./editorTypes";
-import {
-  clearConfiguredPartitionRanges,
-  hasConfiguredPartitionRanges,
-  partitionRangesProperty,
-} from "./partitionRanges";
+import { ObjectNodeEditor } from "./ObjectNodeEditor";
 import { isObject, jsonPointer } from "./value";
-import { useWidgetRegistry, type WidgetRegistry } from "./widgetRegistry";
+import { useWidgetRegistry } from "./widgetRegistry";
 
 interface SchemaFormProps extends NodeEditorProps {
   parserSelectionOnly?: boolean;
@@ -115,63 +111,22 @@ function VariantDetailsForm({
   cardClass: string;
 }) {
   const widgets = useWidgetRegistry();
-  if (node.kind !== "object") return null;
-  const variantEntry = Object.entries(node.properties).find(
-    ([, child]) => child.xUi.widget === widget,
-  );
-  if (variantEntry === undefined) return null;
-  const [name, variantNode] = variantEntry;
-  if (variantNode.kind !== "union") return null;
-  const object = isObject(value) ? value : {};
-  const variantValue = object[name];
-  const selected =
-    variantValue === undefined
-      ? undefined
-      : variantNode.branches.find((branch) =>
-          branchMatches(branch, variantValue),
-        );
-  if (
-    selected === undefined ||
-    selected.constant !== undefined ||
-    !nodeHasEditableContent(selected.node, widgets)
-  )
-    return null;
   return (
     <RootValueContext.Provider value={value}>
       <RequiredErrorsContext.Provider value={showRequiredErrors}>
-        <div class={bridgeClass} aria-hidden="true" />
-        <section class={cardClass} tabindex={-1}>
-          <div class="section-heading">
-            <h2>{selected.label} settings</h2>
-          </div>
-          <NodeEditor
-            node={selected.node}
-            value={variantValue ?? createValue(selected.node)}
-            disabled={disabled}
-            onChange={(next) => onChange({ ...object, [name]: next })}
-          />
-        </section>
+        <VariantDetailsCard
+          node={node}
+          value={value}
+          disabled={disabled}
+          widget={widget}
+          bridgeClass={bridgeClass}
+          cardClass={cardClass}
+          widgets={widgets}
+          NodeEditor={NodeEditor}
+          onChange={onChange}
+        />
       </RequiredErrorsContext.Provider>
     </RootValueContext.Provider>
-  );
-}
-
-function revealDetails(selector: string): void {
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      const details = document.querySelector<HTMLElement>(selector);
-      if (details === null) return;
-      details.scrollIntoView({ behavior: "smooth", block: "start" });
-      details.focus({ preventScroll: true });
-      const route = details.closest<HTMLElement>(".route-composition");
-      route?.classList.remove("route-selection-flash");
-      void route?.offsetWidth;
-      route?.classList.add("route-selection-flash");
-      window.setTimeout(
-        () => route?.classList.remove("route-selection-flash"),
-        1000,
-      );
-    }),
   );
 }
 
@@ -191,29 +146,6 @@ function NodeEditor({
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
   const parserAction = useContext(ParserActionContext);
-  const partitionRanges = partitionRangesProperty(node);
-  const configuredPartitionRanges = hasConfiguredPartitionRanges(
-    value,
-    partitionRanges,
-  );
-  const [partitionRangesVisible, setPartitionRangesVisible] = useState(
-    () => configuredPartitionRanges,
-  );
-  const previouslyConfiguredPartitionRanges = useRef(configuredPartitionRanges);
-  useEffect(() => {
-    if (partitionRanges === undefined) {
-      setPartitionRangesVisible(false);
-    } else if (configuredPartitionRanges) {
-      setPartitionRangesVisible(true);
-    } else if (previouslyConfiguredPartitionRanges.current) {
-      setPartitionRangesVisible(false);
-    }
-    previouslyConfiguredPartitionRanges.current = configuredPartitionRanges;
-  }, [
-    configuredPartitionRanges,
-    partitionRanges?.arrayName,
-    partitionRanges?.fieldName,
-  ]);
   const customWidget = widgets.renderNode(
     { node, value, disabled: isDisabled, onChange, path, controlId },
     { NodeEditor, PropertyEditor },
@@ -222,230 +154,46 @@ function NodeEditor({
   switch (node.kind) {
     case "object": {
       const object = isObject(value) ? value : {};
-      const visible = Object.entries(node.properties).filter(
-        ([, child]) => !widgets.isHidden(child),
-      );
-      const regular = visible.filter(
-        ([, child]) =>
-          child.xUi.section !== "advanced" &&
-          child.xUi.section !== "system_columns" &&
-          child.xUi.section !== "shard_group",
-      );
-      const advanced = visible.filter(
-        ([, child]) => child.xUi.section === "advanced",
-      );
-      const systemColumns = visible.filter(
-        ([, child]) => child.xUi.section === "system_columns",
-      );
-      const shardGroup = visible.filter(
-        ([, child]) => child.xUi.section === "shard_group",
-      );
-      const connectionActionFollowsSecret = regular.some(
-        ([, child]) => child.xUi.widget === "password",
-      );
-      const connectionActionPrecedesParser =
-        !connectionActionFollowsSecret &&
-        regular.some(([, child]) => child.xUi.widget === "parser");
       return (
-        <div class="schema-object">
-          {regular.map(([name, child]) => (
-            <Fragment key={name}>
-              {connectionActionPrecedesParser &&
-                child.xUi.widget === "parser" &&
-                connectionAction}
-              <PropertyEditor
-                name={name}
-                node={child}
-                required={node.required.has(name)}
-                value={object[name]}
-                disabled={isDisabled}
-                showPartitionRanges={partitionRangesVisible}
-                parentValue={object}
-                onParentChange={onChange}
-                path={`${path}/${name}`}
-                onChange={(next) => onChange({ ...object, [name]: next })}
-              />
-              {child.xUi.widget === "password" && connectionAction}
-            </Fragment>
-          ))}
-          {!connectionActionFollowsSecret &&
-            !connectionActionPrecedesParser &&
-            connectionAction}
-          {shardGroup.length > 0 && (
-            <Disclosure label="Shard group" class="shard-group-settings">
-              {shardGroup.map(([name, child]) => (
-                <PropertyEditor
-                  key={name}
-                  name={name}
-                  node={child}
-                  required={node.required.has(name)}
-                  value={object[name]}
-                  disabled={isDisabled}
-                  path={`${path}/${name}`}
-                  onChange={(next) => onChange({ ...object, [name]: next })}
-                />
-              ))}
-            </Disclosure>
-          )}
-          {systemColumns.length > 0 && (
-            <Disclosure label="Add system columns" class="system-columns">
-              {systemColumns.map(([name, child]) => (
-                <PropertyEditor
-                  key={name}
-                  name={name}
-                  node={child}
-                  required={node.required.has(name)}
-                  value={object[name]}
-                  disabled={isDisabled}
-                  path={`${path}/${name}`}
-                  onChange={(next) => onChange({ ...object, [name]: next })}
-                />
-              ))}
-            </Disclosure>
-          )}
-          {(advanced.length > 0 || partitionRanges !== undefined) && (
-            <Disclosure label="Advanced settings">
-              {partitionRanges !== undefined && (
-                <div class="form-row partition-mode-control">
-                  <span class="field-label">Specify partitions</span>
-                  <label class="toggle">
-                    <input
-                      type="checkbox"
-                      aria-label="Specify partitions"
-                      checked={partitionRangesVisible}
-                      disabled={isDisabled}
-                      onChange={(event) => {
-                        const visible = event.currentTarget.checked;
-                        setPartitionRangesVisible(visible);
-                        if (!visible) {
-                          onChange(
-                            clearConfiguredPartitionRanges(
-                              object,
-                              partitionRanges,
-                            ),
-                          );
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
-              {advanced.map(([name, child]) => (
-                <PropertyEditor
-                  key={name}
-                  name={name}
-                  node={child}
-                  required={node.required.has(name)}
-                  value={object[name]}
-                  disabled={isDisabled}
-                  path={`${path}/${name}`}
-                  onChange={(next) => onChange({ ...object, [name]: next })}
-                />
-              ))}
-            </Disclosure>
-          )}
-        </div>
+        <ObjectNodeEditor
+          node={node}
+          value={object}
+          disabled={isDisabled}
+          path={path}
+          connectionAction={connectionAction}
+          widgets={widgets}
+          PropertyEditor={PropertyEditor}
+          onChange={onChange}
+        />
       );
     }
     case "array": {
-      const items = Array.isArray(value) ? value : [];
       return (
-        <div class="array-editor">
-          {items.map((item, index) => (
-            <div class="array-row" key={index}>
-              <span class="array-index">{index + 1}</span>
-              <div class="array-value">
-                <NodeEditor
-                  node={node.item}
-                  value={item}
-                  disabled={isDisabled}
-                  path={`${path}/${index}`}
-                  onChange={(next) => {
-                    const copy = [...items];
-                    copy[index] = next;
-                    onChange(copy);
-                  }}
-                />
-              </div>
-              <Button
-                shape="icon"
-                class="danger"
-                title="Remove"
-                disabled={isDisabled}
-                onClick={() =>
-                  onChange(items.filter((_, itemIndex) => itemIndex !== index))
-                }
-              >
-                <TrashIcon />
-              </Button>
-            </div>
-          ))}
-          <Button
-            shape="icon"
-            class="add"
-            title="Add"
-            disabled={isDisabled}
-            onClick={() => onChange([...items, createValue(node.item)])}
-          >
-            +
-          </Button>
-        </div>
+        <ArrayNodeEditor
+          node={node}
+          value={value}
+          disabled={isDisabled}
+          path={path}
+          NodeEditor={NodeEditor}
+          onChange={onChange}
+        />
       );
     }
     case "union": {
-      const selected = node.branches.findIndex((branch) =>
-        branchMatches(branch, value),
-      );
       return (
-        <div class="union-editor">
-          <div
-            class={
-              node.xUi.widget === "parser" && parserAction
-                ? "parser-selector-row"
-                : undefined
-            }
-          >
-            <SelectControl
-              id={controlId}
-              value={selected < 0 ? "" : String(selected)}
-              disabled={isDisabled}
-              placeholder="Not selected"
-              options={node.branches.map((branch, index) => ({
-                value: String(index),
-                label: branch.label,
-              }))}
-              onChange={(raw) => {
-                if (raw === "") {
-                  onChange(null);
-                  return;
-                }
-                const branch = node.branches[Number(raw)];
-                if (branch === undefined) return;
-                onChange(branch.constant ?? createValue(branch.node));
-                if (node.xUi.widget === "parser")
-                  revealDetails(".parser-details-card");
-                if (node.xUi.widget === "serializer")
-                  revealDetails(".serializer-details-card");
-              }}
-            />
-            {node.xUi.widget === "parser" && parserAction}
-          </div>
-          {(!parserSelectionOnly || node.xUi.widget !== "parser") &&
-            (!serializerSelectionOnly || node.xUi.widget !== "serializer") &&
-            selected >= 0 &&
-            node.branches[selected]!.constant === undefined &&
-            nodeHasEditableContent(node.branches[selected]!.node, widgets) && (
-              <div class="nested-section">
-                <NodeEditor
-                  node={node.branches[selected]!.node}
-                  value={value}
-                  disabled={isDisabled}
-                  path={`${path}/branch-${selected}`}
-                  onChange={onChange}
-                />
-              </div>
-            )}
-        </div>
+        <UnionNodeEditor
+          node={node}
+          value={value}
+          disabled={isDisabled}
+          path={path}
+          controlId={controlId}
+          parserSelectionOnly={parserSelectionOnly}
+          serializerSelectionOnly={serializerSelectionOnly}
+          parserAction={parserAction}
+          widgets={widgets}
+          NodeEditor={NodeEditor}
+          onChange={onChange}
+        />
       );
     }
     case "nullable": {
@@ -676,7 +424,7 @@ function PropertyEditor({
   const showRequiredErrors = useContext(RequiredErrorsContext);
   const missingRequired =
     showRequiredErrors && required && !isComplete(node, value);
-  const effective = value ?? createValue(node);
+  const effective = draftValue(node, value);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
   const customWidget = widgets.renderProperty(
@@ -741,16 +489,6 @@ function controlWidthClass(_name: string, node: CompiledNode): string {
   )
     return "control-width-enum";
   return "";
-}
-
-function nodeHasEditableContent(
-  node: CompiledNode,
-  widgets: WidgetRegistry,
-): boolean {
-  if (node.kind !== "object") return true;
-  return Object.entries(node.properties).some(
-    ([, child]) => !widgets.isHidden(child),
-  );
 }
 
 function uiLabel(node: CompiledNode, value: string): string {

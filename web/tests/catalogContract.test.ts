@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import fixture from "../../crates/transferia-server-contracts/contracts/server-api.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
+import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
   acceptsDraftSeed,
   compileSchema,
@@ -16,7 +17,10 @@ describe("Rust catalog contract", () => {
       "catalog",
     );
 
-    const common = compileSchema(catalog.common_schema);
+    const common = compileSchema(
+      catalog.common_schema,
+      productionWidgetRegistry,
+    );
     if (common.kind !== "object")
       throw new Error("common schema must be an object");
     const commonInitial = Object.fromEntries(
@@ -30,7 +34,10 @@ describe("Rust catalog contract", () => {
       for (const endpoint of [provider.source, provider.sink]) {
         if (endpoint === undefined) continue;
         endpointCount += 1;
-        const compiled = compileSchema(endpoint.schema);
+        const compiled = compileSchema(
+          endpoint.schema,
+          productionWidgetRegistry,
+        );
         expect(
           acceptsDraftSeed(compiled, endpoint.initial),
           `${provider.key} initial value must be a valid partial schema value: ${draftSeedError(compiled, endpoint.initial)}`,

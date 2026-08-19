@@ -1,10 +1,10 @@
 import type { JsonSchema, JsonValue } from "../types";
-import { isWidgetName, type WidgetName } from "./widgetDefinitions";
+import type { WidgetContracts } from "./widgetDefinitions";
 
 export type UiSection = "advanced" | "system_columns" | "shard_group";
 
 export interface UiHints {
-  widget?: WidgetName;
+  widget?: string;
   section?: UiSection;
   initial_items?: number;
   dynamic_options?: string;
@@ -33,6 +33,7 @@ export function decodeUiHints(
   value: JsonSchema["x-ui"],
   path: string,
   fail: (message: string) => never,
+  widgets: WidgetContracts,
 ): UiHints {
   if (value === undefined) return {};
   const unknown = Object.keys(value).filter(
@@ -42,7 +43,10 @@ export function decodeUiHints(
     fail(`${path}: unsupported x-ui hints: ${unknown.join(", ")}`);
 
   const widget = value.widget;
-  if (widget !== undefined && !isWidgetName(widget))
+  if (
+    widget !== undefined &&
+    (typeof widget !== "string" || widgets.definition(widget) === undefined)
+  )
     fail(`${path}: unsupported x-ui widget`);
 
   const section = value.section;
@@ -112,7 +116,7 @@ export function decodeUiHints(
   );
 
   return {
-    ...(widget === undefined ? {} : { widget }),
+    ...(typeof widget === "string" ? { widget } : {}),
     ...(section === undefined ? {} : { section }),
     ...(initialItems === undefined ? {} : { initial_items: initialItems }),
     ...(dynamicOptions === undefined

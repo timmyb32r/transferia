@@ -3,6 +3,7 @@ import { Button } from "../ui/Button";
 import { TrashIcon } from "../ui/icons";
 import { createValue, humanize, type CompiledNode } from "./compiler";
 import { useStableRowIds } from "./controls";
+import { draftValue } from "./draft";
 import type { NodeEditorComponent } from "./editorTypes";
 import { isObject } from "./value";
 
@@ -76,7 +77,7 @@ export function CompactArrayEditor({
                         </label>
                         <NodeEditor
                           node={child}
-                          value={object[field] ?? createValue(child)}
+                          value={draftValue(child, object[field])}
                           disabled={disabled}
                           path={`#/compact/${rowIds.values[index]}/${field}`}
                           controlId={`compact-${rowIds.values[index]}-${field}`}

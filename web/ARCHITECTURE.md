@@ -40,8 +40,20 @@ the user selects it.
 
 Generic form code depends on the `WidgetRegistry` interface. Provider/parser
 features live under `src/features/` and are registered at the composition root;
-the generic schema runtime never imports them. A widget declaration that lacks
-its promised renderer fails during module initialization.
+the generic schema runtime never imports them. Each registry entry owns its
+schema-node contract and its node/property renderers together. The registry is
+injected into schema compilation, so an unknown widget, an unsupported node
+kind, or a declaration without its promised renderer fails before the catalog
+becomes interactive. Compiled schemas are cached per registry identity; tests
+can therefore use a deliberately smaller registry without sharing production
+cache entries. Feature-specific plugins live beside their feature; the central
+`formWidgetRegistry` only composes plugin arrays and contains no renderer logic.
+
+Editor state distinguishes an absent property from explicit JSON values.
+Synthetic editor seeds are created only for `undefined`; `null`, `false`, zero,
+and empty strings are preserved as user data. Only JSON Schema `default` and
+`const` values may supply an automatic scalar value. Enum order and numeric
+bounds are validation constraints, not implicit defaults.
 
 ## Asynchronous work
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { SchemaForm } from "../schema/SchemaForm";
+import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
 import { Disclosure } from "../ui/Disclosure";
@@ -29,6 +30,7 @@ export function EndpointCard(props: {
   onConfig: (config: JsonObject) => void;
 }) {
   const api = useControlPlane();
+  const widgets = useWidgetRegistry();
   const value =
     props.endpoint === undefined
       ? {}
@@ -168,7 +170,7 @@ export function EndpointCard(props: {
       {props.endpoint && (
         <div class="endpoint-fields">
           <SchemaForm
-            node={compiledSchema(props.endpoint.schema)}
+            node={compiledSchema(props.endpoint.schema, widgets)}
             value={value}
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
@@ -283,7 +285,8 @@ export function CommonSettings({
   showRequiredErrors: boolean;
   onChange: (config: JsonObject) => void;
 }) {
-  const compiled = compiledSchema(schema);
+  const widgets = useWidgetRegistry();
+  const compiled = compiledSchema(schema, widgets);
   if (compiled.kind !== "object") return null;
   const excluded = new Set(["delivery_type"]);
   let properties = Object.fromEntries(

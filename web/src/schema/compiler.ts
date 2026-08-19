@@ -2,7 +2,11 @@ import type { JsonObject, JsonSchema, JsonValue } from "../types";
 
 export const SCHEMA_DIALECT_VERSION =
   "transferia-schema-dialect-dynamic-options-dependencies-v1";
-import { isWidgetName, widgetSupportsKind } from "./widgetDefinitions";
+import {
+  NO_WIDGETS,
+  type WidgetContracts,
+  widgetSupportsKind,
+} from "./widgetDefinitions";
 import { decodeUiHints, type UiHints } from "./uiHints";
 
 interface NodeBase {
@@ -42,7 +46,10 @@ export interface UnionBranch {
 
 export class SchemaContractError extends Error {}
 
-export function compileSchema(root: JsonSchema): CompiledNode {
+export function compileSchema(
+  root: JsonSchema,
+  widgets: WidgetContracts = NO_WIDGETS,
+): CompiledNode {
   const compile = (
     input: JsonSchema,
     path: string,
@@ -60,7 +67,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
     }
     const schema = input;
     validateKeywords(schema, path);
-    const base = baseNode(schema, path);
+    const base = baseNode(schema, path, widgets);
     if (Array.isArray(schema.type)) {
       const nonNull = schema.type.filter((type) => type !== "null");
       if (nonNull.length === 1 && nonNull.length !== schema.type.length) {
@@ -163,7 +170,7 @@ export function compileSchema(root: JsonSchema): CompiledNode {
     );
   };
   const compiled = compile(root, "#");
-  validateWidgetTree(compiled, "#");
+  validateWidgetTree(compiled, "#", widgets);
   return compiled;
 }
 
@@ -248,12 +255,17 @@ function validateKeywords(schema: JsonSchema, path: string): void {
   }
 }
 
-function validateWidgetTree(node: CompiledNode, path: string): void {
+function validateWidgetTree(
+  node: CompiledNode,
+  path: string,
+  widgets: WidgetContracts,
+): void {
   const widget = node.xUi.widget;
   const supported =
-    !isWidgetName(widget) ||
-    widgetSupportsKind(widget, node.kind) ||
-    (node.kind === "nullable" && widgetSupportsKind(widget, node.inner.kind));
+    widget === undefined ||
+    widgetSupportsKind(widgets, widget, node.kind) ||
+    (node.kind === "nullable" &&
+      widgetSupportsKind(widgets, widget, node.inner.kind));
   if (!supported) {
     throw new SchemaContractError(
       `${path}: x-ui widget ${JSON.stringify(widget)} does not support ${node.kind}`,
@@ -261,14 +273,14 @@ function validateWidgetTree(node: CompiledNode, path: string): void {
   }
   if (node.kind === "object") {
     for (const [name, child] of Object.entries(node.properties))
-      validateWidgetTree(child, `${path}/${name}`);
+      validateWidgetTree(child, `${path}/${name}`, widgets);
   } else if (node.kind === "array") {
-    validateWidgetTree(node.item, `${path}/items`);
+    validateWidgetTree(node.item, `${path}/items`, widgets);
   } else if (node.kind === "nullable") {
-    validateWidgetTree(node.inner, `${path}/nullable`);
+    validateWidgetTree(node.inner, `${path}/nullable`, widgets);
   } else if (node.kind === "union") {
     node.branches.forEach((branch, index) =>
-      validateWidgetTree(branch.node, `${path}/branch-${index}`),
+      validateWidgetTree(branch.node, `${path}/branch-${index}`, widgets),
     );
   }
 }
@@ -297,9 +309,9 @@ export function createValue(node: CompiledNode): JsonValue {
     case "boolean":
       return false;
     case "number":
-      return node.minimum ?? 0;
+      return null;
     case "string":
-      return node.enumValues?.[0] ?? "";
+      return "";
   }
 }
 
@@ -549,14 +561,22 @@ function referenceTarget(root: JsonSchema, reference: string): JsonSchema {
   return target as JsonSchema;
 }
 
-function baseNode(schema: JsonSchema, path: string): NodeBase {
+function baseNode(
+  schema: JsonSchema,
+  path: string,
+  widgets: WidgetContracts,
+): NodeBase {
   return {
     ...(schema.title === undefined ? {} : { title: schema.title }),
     ...(schema.description === undefined
       ? {}
       : { description: schema.description }),
-    ...(schema.default === undefined ? {} : { defaultValue: schema.default }),
-    xUi: decodeUiHints(schema["x-ui"], path, failSchemaContract),
+    ...(schema.default !== undefined
+      ? { defaultValue: schema.default }
+      : schema.const !== undefined
+        ? { defaultValue: schema.const }
+        : {}),
+    xUi: decodeUiHints(schema["x-ui"], path, failSchemaContract, widgets),
   };
 }
 
