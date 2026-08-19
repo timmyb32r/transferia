@@ -99,7 +99,11 @@ describe("endpoint connection check", () => {
       options: { "#/shard_group": ["default", "analytics"] },
     });
     await waitFor(() =>
-      expect(view.getByText("Connection successful")).toBeTruthy(),
+      expect(
+        view.getByText(
+          "Connection verified, including access to the configured entities.",
+        ),
+      ).toBeTruthy(),
     );
 
     const password = view.container.querySelector("#field---password")!;

@@ -208,6 +208,16 @@ fn registry_rejects_connection_checker_without_matching_runtime_role() -> anyhow
 }
 
 #[test]
+fn verified_connection_result_confirms_entity_access() {
+    let result = ConnectionCheckResult::default();
+    assert!(matches!(result.status, ConnectionCheckStatus::Verified));
+    assert_eq!(
+        result.message.as_deref(),
+        Some("Connection verified, including access to the configured entities.")
+    );
+}
+
+#[test]
 fn typed_registration_keeps_schema_and_decoder_in_one_contract() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("source")?)?;

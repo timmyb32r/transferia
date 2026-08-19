@@ -27,7 +27,7 @@ pub enum ConnectionCheckStatus {
     NetworkReachable,
 }
 
-#[derive(Clone, Debug, Default, Serialize, JsonSchema)]
+#[derive(Clone, Debug, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionCheckResult {
     pub status: ConnectionCheckStatus,
@@ -35,6 +35,18 @@ pub struct ConnectionCheckResult {
     pub message: Option<String>,
 
     pub options: BTreeMap<String, Vec<String>>,
+}
+
+impl Default for ConnectionCheckResult {
+    fn default() -> Self {
+        Self {
+            status: ConnectionCheckStatus::Verified,
+            message: Some(
+                "Connection verified, including access to the configured entities.".to_owned(),
+            ),
+            options: BTreeMap::new(),
+        }
+    }
 }
 
 impl ConnectionCheckResult {

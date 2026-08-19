@@ -21,9 +21,9 @@ use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
 };
 pub use transferia_server_contracts::api::{
-    ColumnView, DatasetView, DestinationColumnView, DiscoveryResult,
-    MessagePreviewMetadata, MessagePreviewMetadataItem, MessagePreviewResult, SqlPlaygroundResult,
-    ValidationCommandResult, WorkerLogChunkView, WorkerLogView, WorkerLogsResult,
+    ColumnView, DatasetView, DestinationColumnView, DiscoveryResult, MessagePreviewMetadata,
+    MessagePreviewMetadataItem, MessagePreviewResult, SqlPlaygroundResult, ValidationCommandResult,
+    WorkerLogChunkView, WorkerLogView, WorkerLogsResult,
 };
 use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState};
 
@@ -281,6 +281,8 @@ impl ControlPlane {
                     transferia_registry::ConnectionCheckStatus::NetworkReachable
                 ) {
                     combined.status = checked.status;
+                    combined.message = checked.message;
+                } else if checked.message.is_some() {
                     combined.message = checked.message;
                 }
             }

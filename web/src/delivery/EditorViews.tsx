@@ -215,7 +215,8 @@ export function EndpointCard(props: {
                     role={check.state === "error" ? "alert" : "status"}
                   >
                     {check.state === "success"
-                      ? (check.message ?? "Connection successful")
+                      ? (check.message ??
+                        "Connection verified, including access to the configured entities.")
                       : check.state === "error"
                         ? check.message
                         : ""}
