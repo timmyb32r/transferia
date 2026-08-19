@@ -94,6 +94,25 @@ describe("dynamic path control", () => {
     expect(options).not.toHaveBeenCalled();
     expect(input).toHaveProperty("disabled", true);
   });
+
+  it("shows a prerequisite warning instead of claiming there are no paths", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({
+      options: [],
+      warning: "Select credentials to load path suggestions.",
+    }));
+    const view = render(<Harness options={options} initialValue="cdc" />);
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    expect(
+      await view.findByText("Select credentials to load path suggestions."),
+    ).toBeTruthy();
+    expect(view.queryByText("No matching paths")).toBeNull();
+  });
 });
 
 function Harness({

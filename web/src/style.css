@@ -1318,6 +1318,10 @@ input[type="checkbox"]:disabled {
 .dynamic-path-menu {
   min-height: 42px;
 }
+.dynamic-path-message {
+  max-width: 420px;
+  white-space: normal;
+}
 .password-control {
   position: relative;
 }

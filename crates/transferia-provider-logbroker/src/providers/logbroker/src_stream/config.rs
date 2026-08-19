@@ -26,13 +26,13 @@ pub struct LogbrokerSourceConfig {
 
     pub port: u16,
 
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
+    pub auth: LogbrokerAuthConfig,
+
     #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "topic" }))]
     pub topics: Vec<LogbrokerTopicConfig>,
 
     pub consumer_name: String,
-
-    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
-    pub auth: LogbrokerAuthConfig,
 
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
     pub driver: LogbrokerDriver,
@@ -81,6 +81,30 @@ pub struct LogbrokerSourceConnectionConfig {
 
     pub driver: LogbrokerDriver,
 
+    pub trusted_plaintext: bool,
+
+    #[serde(default = "default_read_buffer_bytes")]
+    pub read_buffer_bytes: usize,
+}
+
+#[derive(Deserialize)]
+pub struct LogbrokerSourceCheckConfig {
+    pub host: String,
+
+    pub port: u16,
+
+    pub auth: LogbrokerAuthConfig,
+
+    #[serde(default)]
+    pub topics: Vec<LogbrokerTopicConfig>,
+
+    #[serde(default)]
+    pub consumer_name: String,
+
+    #[serde(default)]
+    pub driver: Option<LogbrokerDriver>,
+
+    #[serde(default)]
     pub trusted_plaintext: bool,
 
     #[serde(default = "default_read_buffer_bytes")]

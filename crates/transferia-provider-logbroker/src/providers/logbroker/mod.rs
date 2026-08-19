@@ -8,5 +8,6 @@ mod transport;
 pub use config::{LogbrokerAuthConfig, LogbrokerDriver};
 pub use sink::build_sink_provider;
 pub use src_stream::check_connection;
+pub use src_stream::check_network_connection;
 pub use src_stream::preview_message;
 pub use src_stream::{build_source_provider, YdbDriverSourceProvider};

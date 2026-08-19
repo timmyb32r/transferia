@@ -24,10 +24,30 @@ use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProv
 use crate::providers::logbroker::LogbrokerAuthConfig;
 use crate::providers::logbroker::LogbrokerDriver;
 pub use config::LogbrokerSourceConnectionConfig;
-pub use config::{LogbrokerSourceConfig, LogbrokerTopicConfig};
+pub use config::{LogbrokerSourceCheckConfig, LogbrokerSourceConfig, LogbrokerTopicConfig};
 use source::YdbTopicSource;
 
 const NETWORK_TIMEOUT: core::time::Duration = core::time::Duration::from_secs(10);
+
+pub async fn check_network_connection(
+    host: &str,
+    port: u16,
+    cancellation: CancellationToken,
+) -> anyhow::Result<()> {
+    crate::providers::address::validate_host("logbroker.host", host)?;
+    crate::providers::address::validate_port("logbroker.port", port)?;
+    let address = crate::providers::address::host_port(host, port);
+    tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("Logbroker network check cancelled"),
+        result = tokio::time::timeout(NETWORK_TIMEOUT, tokio::net::TcpStream::connect(&address)) => {
+            result
+                .map_err(|_| anyhow::anyhow!("Logbroker TCP connection to {address} timed out"))?
+                .map_err(|error| anyhow::anyhow!("Logbroker TCP connection to {address} failed: {error}"))?;
+        }
+    }
+    Ok(())
+}
 const CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_READ_BUFFER_BYTES: usize = 128 * 1024 * 1024;
 const YDB_DATABASE: &str = "/Root";

@@ -11,6 +11,9 @@ pub struct LogbrokerSinkConfig {
 
     pub port: u16,
 
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
+    pub auth: LogbrokerAuthConfig,
+
     #[schemars(title = "Topic path")]
     pub topic_path: String,
 
@@ -20,9 +23,6 @@ pub struct LogbrokerSinkConfig {
         description = "Write to one explicit partition; leave empty for automatic assignment"
     )]
     pub partition_id: Option<i64>,
-
-    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
-    pub auth: LogbrokerAuthConfig,
 
     #[schemars(extend("x-ui" = { "widget": "serializer" }))]
     pub serializer: SerializerConfig,

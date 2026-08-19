@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Bump whenever core changes executable extension behavior without a public
 /// schema change that would otherwise alter the composition fingerprint.
-const CORE_EXTENSION_ABI_VERSION: u32 = 2;
+const CORE_EXTENSION_ABI_VERSION: u32 = 3;
 
 pub use transferia_registry::EndpointRole;
 
@@ -239,9 +239,31 @@ pub struct ExtensionRegistry {
 
     external_link_bindings:
         BTreeMap<(&'static str, EndpointRole, &'static str), ExternalLinkBinding>,
+
+    pre_installation_fields: BTreeMap<(&'static str, EndpointRole), Vec<&'static str>>,
 }
 
 impl ExtensionRegistry {
+    pub fn register_field_before_installation(
+        &mut self,
+        provider: &'static str,
+        role: EndpointRole,
+        field: &'static str,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(!provider.is_empty(), "field placement provider must not be empty");
+        anyhow::ensure!(!field.is_empty(), "placed field must not be empty");
+        let fields = self
+            .pre_installation_fields
+            .entry((provider, role))
+            .or_default();
+        anyhow::ensure!(
+            !fields.contains(&field),
+            "field placement '{provider}.{field}.{role:?}' is registered more than once"
+        );
+        fields.push(field);
+        Ok(())
+    }
+
     pub fn register_installation<I, O, R>(
         &mut self,
         spec: InstallationSpec<I>,
@@ -523,6 +545,33 @@ impl ExtensionRegistry {
 
     pub(crate) fn external_link_bindings(&self) -> impl Iterator<Item = &ExternalLinkBinding> {
         self.external_link_bindings.values()
+    }
+
+    pub(crate) fn fields_before_installation(
+        &self,
+        provider: &str,
+        role: EndpointRole,
+    ) -> Vec<&'static str> {
+        self.pre_installation_fields
+            .iter()
+            .find(|((registered_provider, registered_role), _)| {
+                *registered_provider == provider && *registered_role == role
+            })
+            .map(|(_, fields)| fields.clone())
+            .unwrap_or_default()
+    }
+
+    fn field_placements(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, EndpointRole, &'static str)> + '_ {
+        self.pre_installation_fields
+            .iter()
+            .flat_map(|(&(provider, role), fields)| {
+                fields
+                    .iter()
+                    .copied()
+                    .map(move |field| (provider, role, field))
+            })
     }
 
     pub async fn options(
@@ -936,6 +985,7 @@ fn composition_fingerprint(
         "installations": installations,
         "dynamic_option_keys": registry.option_keys().collect::<Vec<_>>(),
         "external_links": registry.external_link_bindings().collect::<Vec<_>>(),
+        "field_placements": registry.field_placements().collect::<Vec<_>>(),
     });
     let mut bytes = Vec::new();
     write_canonical_json(&contract, &mut bytes)?;

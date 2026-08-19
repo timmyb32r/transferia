@@ -297,17 +297,39 @@ fn build_base_provider_catalog(
                 },
             )?
             .source_checker::<
-                crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig,
+                crate::providers::logbroker::src_stream::LogbrokerSourceCheckConfig,
                 _,
                 _,
             >(
                 |config| async move {
-                    crate::providers::logbroker::check_connection(
-                        &config,
-                        tokio_util::sync::CancellationToken::new(),
-                    )
-                    .await?;
-                    Ok(transferia_registry::ConnectionCheckResult::default())
+                    let cancellation = tokio_util::sync::CancellationToken::new();
+                    let connection_is_complete = !config.consumer_name.is_empty()
+                        && config
+                            .topics
+                            .first()
+                            .is_some_and(|topic| !topic.path.is_empty());
+                    if connection_is_complete {
+                        let complete = crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig {
+                            host: config.host,
+                            port: config.port,
+                            topics: config.topics,
+                            consumer_name: config.consumer_name,
+                            auth: config.auth,
+                            driver: config.driver.unwrap_or(crate::providers::logbroker::LogbrokerDriver::Ydb),
+                            trusted_plaintext: config.trusted_plaintext,
+                            read_buffer_bytes: config.read_buffer_bytes,
+                        };
+                        crate::providers::logbroker::check_connection(&complete, cancellation).await?;
+                        Ok(transferia_registry::ConnectionCheckResult::default())
+                    } else {
+                        crate::providers::logbroker::check_network_connection(
+                            &config.host,
+                            config.port,
+                            cancellation,
+                        )
+                        .await?;
+                        Ok(transferia_registry::ConnectionCheckResult::network_reachable())
+                    }
                 },
             )
             .sink::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
@@ -973,7 +995,17 @@ fn apply_endpoint_installations(
             schema
         }).collect::<Vec<_>>()
     });
-    let endpoint_properties = std::mem::take(properties);
+    let mut endpoint_properties = std::mem::take(properties);
+    for field in registry.fields_before_installation(provider, role) {
+        anyhow::ensure!(
+            !replaced.contains(field),
+            "field placement cannot target installation-owned field '{provider}.{field}'"
+        );
+        let field_schema = endpoint_properties.remove(field).ok_or_else(|| {
+            anyhow::anyhow!("field placement targets unknown field '{provider}.{field}'")
+        })?;
+        properties.insert(field.to_owned(), field_schema);
+    }
     properties.insert("installation".to_owned(), installation_schema);
     properties.extend(
         endpoint_properties

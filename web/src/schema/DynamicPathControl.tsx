@@ -158,9 +158,11 @@ export function DynamicPathControl({
           {!loading && options.length === 0 && error === undefined && (
             <div class="select-empty">No matching paths</div>
           )}
+          {!loading && error !== undefined && (
+            <div class="select-empty dynamic-path-message">{error}</div>
+          )}
         </div>
       )}
-      {error !== undefined && <div class="field-hint error">{error}</div>}
     </div>
   );
 }
