@@ -77,6 +77,29 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Frontend interaction stability: zero unexpected layout shift
 
+- **Every user interaction must receive immediate visible feedback.** The
+  pressed state must appear on pointer-down/keyboard activation, and the
+  resulting state transition must be rendered synchronously or on the next
+  animation frame. A click must never appear to have been ignored.
+- If an operation waits for network, storage, discovery, validation, worker
+  startup, or any other asynchronous work, render a pending state immediately,
+  before awaiting it. Use a spinner, skeleton, progress state, or explicit
+  status text appropriate to the control. Preserve the control's dimensions and
+  surrounding layout across idle, pressed, pending, success, and error states.
+- Prevent accidental duplicate activation while an operation is pending. Use a
+  disabled/busy state, request deduplication, or an explicitly safe idempotent
+  interaction model. Keep enough visible feedback to make it obvious that the
+  first activation was accepted; disabling a control without explaining the
+  pending state is not sufficient.
+- Success and failure must also produce immediate, visible, accessible feedback.
+  Associate it with the initiating control or stable status region, expose busy
+  state through appropriate ARIA semantics, and restore focus deliberately.
+- **“Delayed interaction feedback + layout shift causes an accidental
+  second-click activation” is a forbidden failure mode.** Never allow delayed
+  content, a popup, a notification, or a newly enabled action to appear beneath
+  the pointer location where a user may repeat a seemingly ignored click. Delay
+  the new hit target until pointer release/movement when necessary, or place it
+  outside that interaction coordinate while preserving layout.
 - **Unexpected layout shift is forbidden at any cost.** A situation where a
   notification or asynchronous update moves the interface and can cause an
   accidental click is absolutely unacceptable. Treat stable target coordinates
@@ -102,7 +125,8 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 - Every frontend change that introduces conditional, asynchronous, lazy-loaded,
   expanded, collapsed, validated, or notification content must include a
   regression test proving that surrounding interactive controls do not move
-  unexpectedly.
+  unexpectedly. Every new asynchronous interaction must additionally test its
+  immediate pressed/pending feedback and duplicate-activation protection.
 
 ## Performance and design
 
