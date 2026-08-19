@@ -31,9 +31,10 @@ class AffectedTestsTest(unittest.TestCase):
         rust, web = test_affected.commands(selection)
 
         self.assertEqual(web, [])
-        self.assertEqual(len(rust), 2)
-        self.assertIn("-p", rust[0])
-        self.assertIn("transferia-providers", rust[0])
+        self.assertEqual(len(rust), 5)
+        self.assertEqual(rust[0][:3], ["cargo", "fmt", "--check"])
+        self.assertEqual(rust[1][:2], ["cargo", "clippy"])
+        self.assertIn("transferia-providers", rust[1])
         self.assertNotIn("e2e_clickhouse_source", rust[-1])
         self.assertIn("e2e_sinks", rust[-1])
 
@@ -45,10 +46,9 @@ class AffectedTestsTest(unittest.TestCase):
 
         self.assertFalse(selection.full)
         self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(
-            rust,
-            [["cargo", "test", "--lib", "-p", "transferia-providers"]],
-        )
+        self.assertEqual(rust[-1], [
+            "cargo", "test", "--lib", "-p", "transferia-providers"
+        ])
 
     def test_provider_config_change_stays_in_fast_unit_tests(self):
         selection = test_affected.select([
@@ -57,11 +57,11 @@ class AffectedTestsTest(unittest.TestCase):
         rust, _ = test_affected.commands(selection)
 
         self.assertEqual(selection.integration_tests, set())
-        self.assertEqual(len(rust), 1)
+        self.assertEqual(len(rust), 3)
 
     def test_provider_transport_change_selects_owned_e2e(self):
         selection = test_affected.select([
-            "crates/transferia-providers/src/providers/kafka/src_stream/source.rs"
+            "crates/transferia-provider-kafka/src/providers/kafka/source.rs"
         ])
 
         self.assertEqual(selection.integration_tests, {"e2e_kafka"})
@@ -70,9 +70,13 @@ class AffectedTestsTest(unittest.TestCase):
         selection = test_affected.select(["tests/e2e_postgres.rs"])
         rust, _ = test_affected.commands(selection)
 
+        self.assertEqual(rust[-1], [
+            "cargo", "test", "--all-features", "--test", "e2e_postgres"
+        ])
+        self.assertEqual(rust[0], ["cargo", "fmt", "--check", "-p", "transferia"])
         self.assertEqual(
-            rust,
-            [["cargo", "test", "--all-features", "--test", "e2e_postgres"]],
+            rust[1][:6],
+            ["cargo", "clippy", "--all-features", "--test", "e2e_postgres", "--"],
         )
 
     def test_deleted_integration_test_is_not_scheduled(self):
@@ -85,8 +89,8 @@ class AffectedTestsTest(unittest.TestCase):
         ])
         rust, _ = test_affected.commands(selection)
 
-        self.assertIn("transferia-providers", rust[0])
-        self.assertEqual(len(rust), 1)
+        self.assertIn("transferia-providers", rust[-1])
+        self.assertEqual(len(rust), 3)
 
     def test_control_plane_change_selects_only_control_plane_crate(self):
         selection = test_affected.select([
@@ -94,10 +98,9 @@ class AffectedTestsTest(unittest.TestCase):
         ])
         rust, _ = test_affected.commands(selection)
 
-        self.assertEqual(
-            rust,
-            [["cargo", "test", "--lib", "-p", "transferia-control-plane"]],
-        )
+        self.assertEqual(rust[-1], [
+            "cargo", "test", "--lib", "-p", "transferia-control-plane"
+        ])
 
     def test_public_crate_surface_checks_transitive_dependents(self):
         selection = test_affected.select([
@@ -105,8 +108,14 @@ class AffectedTestsTest(unittest.TestCase):
         ])
         rust, _ = test_affected.commands(selection)
 
-        self.assertIn("transferia-delivery", rust[1])
-        self.assertIn("transferia-composition", rust[1])
+        self.assertNotIn("transferia-delivery", rust[2])
+        self.assertIn("transferia-composition", rust[2])
+        self.assertEqual(rust[1][:2], ["cargo", "clippy"])
+        self.assertEqual(rust[2][:2], ["cargo", "check"])
+        self.assertEqual(
+            rust[0],
+            ["cargo", "fmt", "--check", "-p", "transferia-providers"],
+        )
 
     def test_contract_change_tests_owner_and_checks_transitive_dependents(self):
         selection = test_affected.select([
@@ -115,7 +124,7 @@ class AffectedTestsTest(unittest.TestCase):
         rust, _ = test_affected.commands(selection)
 
         self.assertEqual(
-            rust[0],
+            rust[-1],
             [
                 "cargo",
                 "test",
@@ -124,18 +133,20 @@ class AffectedTestsTest(unittest.TestCase):
                 "transferia-delivery-contracts",
             ],
         )
-        self.assertIn("transferia-pipeline", rust[1])
-        self.assertIn("transferia-providers", rust[1])
-        self.assertIn("transferia-composition", rust[1])
+        self.assertIn("transferia-pipeline", rust[2])
+        self.assertIn("transferia-providers", rust[2])
+        self.assertIn("transferia-composition", rust[2])
 
     def test_unknown_build_input_falls_back_to_full_suite(self):
         selection = test_affected.select(["Cargo.toml"])
         rust, _ = test_affected.commands(selection)
 
         self.assertTrue(selection.full)
+        self.assertEqual(rust[0], ["cargo", "fmt", "--all", "--", "--check"])
+        self.assertEqual(rust[1][:3], ["cargo", "clippy", "--workspace"])
         self.assertEqual(
-            rust,
-            [["cargo", "test", "--workspace", "--all-targets", "--all-features"]],
+            rust[2],
+            ["cargo", "test", "--workspace", "--all-targets", "--all-features"],
         )
 
     def test_shared_core_contract_falls_back_to_full_suite(self):

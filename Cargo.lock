@@ -5211,7 +5211,6 @@ dependencies = [
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-pipeline",
- "transferia-providers",
  "transferia-registry",
 ]
 
@@ -5245,7 +5244,153 @@ dependencies = [
 ]
 
 [[package]]
-name = "transferia-providers"
+name = "transferia-provider-clickhouse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bigdecimal",
+ "bytes",
+ "chrono",
+ "clickhouse-arrow",
+ "futures-util",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-provider-support",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-provider-kafka"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "rdkafka",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-provider-support",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-provider-logbroker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "flate2",
+ "futures-util",
+ "http",
+ "hyper",
+ "hyper-util",
+ "prost",
+ "prost-types",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "shellexpand",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-provider-support",
+ "transferia-registry",
+ "ydb-grpc",
+ "zstd",
+]
+
+[[package]]
+name = "transferia-provider-postgres"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures-util",
+ "postgres-types",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-provider-support",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-provider-s3"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "chrono-tz",
+ "futures-util",
+ "object_store",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-pipeline",
+ "transferia-provider-support",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-provider-support"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -5257,22 +5402,14 @@ dependencies = [
  "bytes",
  "chrono",
  "chrono-tz",
- "clickhouse-arrow",
  "flate2",
  "futures-util",
- "http",
- "hyper",
- "hyper-util",
  "itoa",
  "jsonpath_lib",
  "jsonschema",
- "object_store",
- "postgres-types",
  "prost",
  "prost-reflect",
- "prost-types",
  "protox",
- "rdkafka",
  "reqwest 0.12.28",
  "rustls",
  "rustls-native-certs",
@@ -5282,28 +5419,71 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sha2 0.10.9",
- "shellexpand",
  "simd-json",
- "testcontainers",
  "time",
  "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tokio-rustls",
- "tokio-stream",
  "tokio-util",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tower",
  "tracing",
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-pipeline",
  "transferia-registry",
- "ydb-grpc",
- "zstd",
+]
+
+[[package]]
+name = "transferia-provider-ytsaurus"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "async-trait",
+ "bytes",
+ "futures-util",
+ "http",
+ "hyper",
+ "hyper-util",
+ "itoa",
+ "reqwest 0.12.28",
+ "ryu",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-provider-support",
+ "transferia-registry",
+]
+
+[[package]]
+name = "transferia-providers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures-util",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tokio",
+ "tokio-util",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-pipeline",
+ "transferia-provider-clickhouse",
+ "transferia-provider-kafka",
+ "transferia-provider-logbroker",
+ "transferia-provider-postgres",
+ "transferia-provider-s3",
+ "transferia-provider-support",
+ "transferia-provider-ytsaurus",
+ "transferia-registry",
 ]
 
 [[package]]

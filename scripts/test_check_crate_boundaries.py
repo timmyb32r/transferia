@@ -35,36 +35,36 @@ class CrateBoundariesTest(unittest.TestCase):
             set(),
         )
 
-    def test_heavy_provider_dependencies_and_consumers_are_feature_gated(self):
-        providers = {
-            "dependencies": {
-                dependency: {"optional": True}
-                for dependency in boundaries.HEAVY_PROVIDER_DEPENDENCIES
-            }
-        }
+    def test_heavy_dependencies_are_owned_by_isolated_provider_crates(self):
         manifests = {
-            "transferia-providers": providers,
-            "transferia-delivery": {
-                "dependencies": {
-                    "transferia-providers": {"default-features": False}
-                }
+            owner: {"dependencies": {dependency: {"workspace": True}}}
+            for dependency, owner in boundaries.HEAVY_PROVIDER_OWNERS.items()
+        }
+        manifests["transferia-provider-support"] = {"dependencies": {}}
+        manifests["transferia-providers"] = {"dependencies": {}}
+
+        self.assertEqual(boundaries.provider_isolation_errors(manifests), [])
+
+        manifests["transferia-provider-clickhouse"]["dependencies"]["rdkafka"] = {
+            "workspace": True
+        }
+        self.assertIn(
+            "transferia-provider-clickhouse: heavy dependency 'rdkafka' belongs only to transferia-provider-kafka",
+            boundaries.provider_isolation_errors(manifests),
+        )
+
+    def test_provider_crates_cannot_depend_on_each_other(self):
+        manifests = {
+            "transferia-provider-clickhouse": {
+                "dependencies": {"transferia-provider-kafka": {"path": "../kafka"}}
             },
-            "transferia-control-plane": {
-                "dependencies": {
-                    "transferia-providers": {
-                        "default-features": False,
-                        "features": ["provider-logbroker"],
-                    }
-                }
-            },
+            "transferia-provider-kafka": {"dependencies": {}},
+            "transferia-provider-support": {"dependencies": {}},
         }
 
-        self.assertEqual(boundaries.provider_feature_errors(manifests), [])
-
-        providers["dependencies"]["rdkafka"]["optional"] = False
         self.assertIn(
-            "transferia-providers: heavy dependency 'rdkafka' must be optional",
-            boundaries.provider_feature_errors(manifests),
+            "transferia-provider-clickhouse: provider crates must not depend on siblings: transferia-provider-kafka",
+            boundaries.provider_isolation_errors(manifests),
         )
 
 

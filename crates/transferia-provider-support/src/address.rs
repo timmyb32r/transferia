@@ -22,6 +22,7 @@ pub fn validate_port(field: &str, port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[must_use]
 pub fn host_port(host: &str, port: u16) -> String {
     if host.parse::<Ipv6Addr>().is_ok() {
         format!("[{host}]:{port}")
@@ -30,6 +31,7 @@ pub fn host_port(host: &str, port: u16) -> String {
     }
 }
 
+#[must_use]
 pub fn url(scheme: &str, host: &str, port: u16) -> String {
     format!("{scheme}://{}", host_port(host, port))
 }

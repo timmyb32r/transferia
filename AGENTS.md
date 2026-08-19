@@ -125,10 +125,18 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   durable-storage, and runtime-port implementations around those core data-plane
   ports. Delivery orchestration depends on this neutral port and must never
   depend on concrete provider crates.
-- `crates/transferia-providers/src/providers/logbroker/` owns Logbroker discovery, generated YDB protocol
-  types, YDB Topic and PQv1 transports, protocol decoding, and source/sink
-  behavior. Do not expose Logbroker/YDB transport details at crate root or in
-  generic provider modules.
+- `crates/transferia-provider-support/` owns provider-neutral parser,
+  serializer, schema-registry, durable-storage, and address helpers. It must not
+  depend on any concrete provider crate.
+- Every heavyweight provider lives in its own `crates/transferia-provider-*`
+  crate. Provider crates may depend on core, registry, delivery contracts, and
+  provider support, but never on a sibling provider crate. Heavy client
+  dependencies belong exclusively to their provider crate; the architecture
+  checker enforces both rules.
+- `crates/transferia-provider-logbroker/` owns Logbroker discovery, generated
+  YDB protocol types, YDB Topic and PQv1 transports, protocol decoding, and
+  source/sink behavior. Do not expose Logbroker/YDB transport details through
+  provider-neutral modules.
 - Provider source implementations live in mode-specific `src_batch/`,
   `src_stream/`, or `src_dblog/` modules. Keep provider-wide configuration and
   transport in the provider root; each mode extends those common pieces with
@@ -143,9 +151,10 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   Name provider components after their responsibility, such as `reader`,
   `writer`, `client`, or `actor`; never use a generic `runtime` module for
   provider logic.
-- `crates/transferia-providers/src/providers/clickhouse/` and
-  `crates/transferia-providers/src/providers/s3/` own all destination-specific
-  validation and runtime behavior.
+- `crates/transferia-provider-clickhouse/` and
+  `crates/transferia-provider-s3/` own all destination-specific validation and
+  runtime behavior. The same ownership rule applies to Kafka, PostgreSQL, and
+  YTsaurus in their respective provider crates.
 - `tests/` contains cross-component integration and end-to-end tests.
 
 Preserve the startup sequence: source discovery, semantic validation, sink-limit
@@ -187,18 +196,27 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
 ## Verification gates
 
 During implementation and before completing an ordinary repository change, run
-`just check-affected`. It derives the smallest useful test set from the
-working-tree diff, runs independent Rust and frontend groups concurrently, uses
-Vitest's dependency graph for frontend selection, and starts provider E2E
-services only when that provider's external data path changed. Inspect the plan
-with `just test-affected-dry`. When the relevant changes are already committed,
-pass their comparison point explicitly, for example
+`just check-affected`. It derives the smallest safe quality gate from the
+working-tree diff: rustfmt and Clippy are scoped to affected workspace packages,
+public crate-surface changes include their transitive dependents, Rust and
+frontend groups run concurrently, Vitest uses its dependency graph, and provider
+E2E services start only when that provider's external data path changed. Inspect
+the exact plan with `just test-affected-dry`. When the relevant changes are
+already committed, pass their comparison point explicitly, for example
 `just check-affected --base HEAD~1` or `--base origin/main`.
 
 Do not run unrelated E2E suites, full-workspace Clippy, or the complete test
 suite merely because a task changed the repository. A green affected gate is
 the normal completion evidence. Run focused stress, replay, benchmark, or E2E
 checks only when the changed behavior makes them relevant.
+
+Prefer focused tests while iterating and run `just check-affected` once on the
+final stable tree. Do not repeatedly launch workspace-wide Cargo commands while
+other agents or tasks are editing the shared tree; besides wasting time, they
+serialize on Cargo's build-directory lock. The affected selector records command
+durations in `target/affected-tests-timings.json` and appends history to
+`target/affected-tests-timings.jsonl`; use those measurements when refining the
+selector rather than guessing which checks are slow.
 
 Run the complete gate before merging or releasing, after changes to shared core
 contracts/build configuration/dependency resolution, or when the affected-test

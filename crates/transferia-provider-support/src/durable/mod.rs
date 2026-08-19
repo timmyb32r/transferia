@@ -2,6 +2,6 @@
 
 pub use transferia_registry::durable::*;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test"))]
 #[doc(hidden)]
 pub mod test_support;

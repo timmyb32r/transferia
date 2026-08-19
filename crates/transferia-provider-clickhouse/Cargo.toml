@@ -1,33 +1,35 @@
 [package]
-name = "transferia-providers"
+name = "transferia-provider-clickhouse"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+arrow.workspace = true
 async-trait.workspace = true
+bigdecimal.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+clickhouse-arrow.workspace = true
 futures-util.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-pemfile.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
-sha2.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-transferia-provider-clickhouse = { path = "../transferia-provider-clickhouse" }
-transferia-provider-kafka = { path = "../transferia-provider-kafka" }
-transferia-provider-logbroker = { path = "../transferia-provider-logbroker" }
-transferia-provider-postgres = { path = "../transferia-provider-postgres" }
-transferia-provider-s3 = { path = "../transferia-provider-s3" }
 transferia-provider-support = { path = "../transferia-provider-support" }
-transferia-provider-ytsaurus = { path = "../transferia-provider-ytsaurus" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
-transferia-pipeline = { path = "../transferia-pipeline" }
+serde_yaml.workspace = true
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true

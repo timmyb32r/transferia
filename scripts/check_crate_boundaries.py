@@ -17,9 +17,57 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery-contracts",
     },
+    "transferia-provider-support": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-registry",
+    },
+    "transferia-provider-clickhouse": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
+    "transferia-provider-kafka": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
+    "transferia-provider-logbroker": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
+    "transferia-provider-postgres": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
+    "transferia-provider-s3": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
+    "transferia-provider-ytsaurus": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
     "transferia-providers": {
         "transferia-core",
         "transferia-delivery-contracts",
+        "transferia-provider-clickhouse",
+        "transferia-provider-kafka",
+        "transferia-provider-logbroker",
+        "transferia-provider-postgres",
+        "transferia-provider-s3",
+        "transferia-provider-support",
+        "transferia-provider-ytsaurus",
         "transferia-registry",
     },
     "transferia-delivery": {
@@ -51,18 +99,20 @@ PRODUCTION_ALLOWED = {
 }
 
 DEV_EXTRA = {
+    "transferia-provider-s3": {"transferia-pipeline"},
+    "transferia-provider-support": {"transferia-pipeline"},
     "transferia-providers": {"transferia-pipeline"},
     "transferia-delivery": {"transferia-providers"},
 }
 
-HEAVY_PROVIDER_DEPENDENCIES = {
-    "clickhouse-arrow",
-    "object_store",
-    "postgres-types",
-    "rdkafka",
-    "tokio-postgres",
-    "tokio-postgres-rustls",
-    "ydb-grpc",
+HEAVY_PROVIDER_OWNERS = {
+    "clickhouse-arrow": "transferia-provider-clickhouse",
+    "object_store": "transferia-provider-s3",
+    "postgres-types": "transferia-provider-postgres",
+    "rdkafka": "transferia-provider-kafka",
+    "tokio-postgres": "transferia-provider-postgres",
+    "tokio-postgres-rustls": "transferia-provider-postgres",
+    "ydb-grpc": "transferia-provider-logbroker",
 }
 
 
@@ -73,34 +123,25 @@ def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]
     return {name for name in dependencies if name.startswith("transferia-")}
 
 
-def provider_feature_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
+def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
     errors: list[str] = []
-    providers = manifests["transferia-providers"]
-    dependencies = providers.get("dependencies", {})
-    assert isinstance(dependencies, dict)
-    for dependency in sorted(HEAVY_PROVIDER_DEPENDENCIES):
-        declaration = dependencies.get(dependency)
-        if not isinstance(declaration, dict) or declaration.get("optional") is not True:
-            errors.append(
-                f"transferia-providers: heavy dependency '{dependency}' must be optional"
-            )
+    for dependency, owner in sorted(HEAVY_PROVIDER_OWNERS.items()):
+        for crate, manifest in manifests.items():
+            dependencies = manifest.get("dependencies", {})
+            if isinstance(dependencies, dict) and dependency in dependencies and crate != owner:
+                errors.append(
+                    f"{crate}: heavy dependency '{dependency}' belongs only to {owner}"
+                )
 
-    expected_consumers = {
-        "transferia-control-plane": {"provider-logbroker"},
-    }
-    for crate, expected_features in expected_consumers.items():
-        crate_dependencies = manifests[crate].get("dependencies", {})
-        assert isinstance(crate_dependencies, dict)
-        declaration = crate_dependencies.get("transferia-providers")
-        if not isinstance(declaration, dict):
-            errors.append(f"{crate}: transferia-providers dependency must be explicit")
-            continue
-        if declaration.get("default-features") is not False:
-            errors.append(f"{crate}: transferia-providers default features must be disabled")
-        actual_features = set(declaration.get("features", []))
-        if actual_features != expected_features:
+    provider_crates = {
+        name for name in manifests if name.startswith("transferia-provider-")
+    } - {"transferia-provider-support"}
+    for crate in sorted(provider_crates):
+        dependencies = internal_dependencies(manifests[crate], "dependencies")
+        siblings = (dependencies & provider_crates) - {crate}
+        if siblings:
             errors.append(
-                f"{crate}: expected provider features {sorted(expected_features)}, got {sorted(actual_features)}"
+                f"{crate}: provider crates must not depend on siblings: {', '.join(sorted(siblings))}"
             )
     return errors
 
@@ -139,7 +180,7 @@ def main() -> int:
     if list((ROOT / "src").glob("**/*.rs")) != [ROOT / "src/lib.rs"]:
         errors.append("root transferia facade must contain only src/lib.rs")
     if not (PRODUCTION_ALLOWED.keys() - discovered):
-        errors.extend(provider_feature_errors(manifests))
+        errors.extend(provider_isolation_errors(manifests))
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

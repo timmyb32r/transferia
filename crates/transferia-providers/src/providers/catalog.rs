@@ -5,13 +5,6 @@ use schemars::JsonSchema;
 use serde_json::Value as JsonValue;
 
 use crate::extension::{EndpointRole, ExtensionRegistry, Transferia};
-#[cfg(any(
-    feature = "provider-clickhouse",
-    feature = "provider-kafka",
-    feature = "provider-logbroker",
-    feature = "provider-postgres",
-    feature = "provider-ytsaurus"
-))]
 use crate::extension::{InstallationRegistration, OnPremiseResolver};
 use crate::metrics::MetricsRegistry;
 
@@ -257,7 +250,6 @@ fn build_base_provider_catalog(
 ) -> anyhow::Result<ProviderCatalog> {
     let mut catalog = RegistryBuilder::new();
 
-    #[cfg(feature = "provider-logbroker")]
     catalog.register(
         component_registration("logbroker")?
             .source_draft::<crate::providers::logbroker::src_stream::LogbrokerSourceConfig, _, _>(
@@ -328,7 +320,6 @@ fn build_base_provider_catalog(
             ),
     )?;
 
-    #[cfg(feature = "provider-kafka")]
     catalog.register(
         component_registration("kafka")?
             .source_draft::<crate::providers::kafka::KafkaSourceConfig, _, _>(
@@ -389,7 +380,6 @@ fn build_base_provider_catalog(
             }),
     )?;
 
-    #[cfg(feature = "provider-postgres")]
     catalog.register(
         component_registration("postgres")?
             .source::<crate::providers::postgres::src_batch::PostgresSourceConfig, _, _>(
@@ -451,7 +441,6 @@ fn build_base_provider_catalog(
             ),
     )?;
 
-    #[cfg(feature = "provider-clickhouse")]
     catalog.register(
         component_registration("clickhouse")?
             .source::<crate::providers::clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
@@ -537,7 +526,6 @@ fn build_base_provider_catalog(
             ),
     )?;
 
-    #[cfg(feature = "provider-s3")]
     catalog.register(
         component_registration("s3")?
             .source_draft::<crate::providers::s3::src_batch::S3SourceConfig, _, _>(
@@ -601,7 +589,6 @@ fn build_base_provider_catalog(
             ),
     )?;
 
-    #[cfg(feature = "provider-ytsaurus")]
     catalog.register(
         component_registration("ytsaurus")?
             .source::<crate::providers::ytsaurus::YTsaurusSourceConfig, _, _>(
@@ -681,7 +668,6 @@ fn component_registration(key: &'static str) -> anyhow::Result<ComponentRegistra
     Ok(ComponentRegistration::new(descriptor.key, descriptor.title))
 }
 
-#[cfg(feature = "provider-clickhouse")]
 fn clickhouse_connection_check_result(
     checked: crate::providers::clickhouse::sink::ClickHouseConnectionCheck,
 ) -> transferia_registry::ConnectionCheckResult {
@@ -699,7 +685,6 @@ fn clickhouse_connection_check_result(
 }
 
 pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
-    #[cfg(feature = "provider-postgres")]
     register_on_premise(
         _registry,
         "postgres",
@@ -713,7 +698,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 5432, "trusted_plaintext": true, "tls_ca_file": null }),
     )?;
-    #[cfg(feature = "provider-postgres")]
     register_on_premise(
         _registry,
         "postgres",
@@ -727,7 +711,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 5432, "trusted_plaintext": true, "tls_ca_file": null }),
     )?;
-    #[cfg(feature = "provider-clickhouse")]
     register_on_premise(
         _registry,
         "clickhouse",
@@ -741,7 +724,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["hosts", "port", "trusted_plaintext"],
         serde_json::json!({ "hosts": [""], "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT, "trusted_plaintext": true, "tls_ca_file": null }),
     )?;
-    #[cfg(feature = "provider-clickhouse")]
     register_on_premise(
         _registry,
         "clickhouse",
@@ -755,7 +737,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["hosts", "port", "trusted_plaintext"],
         serde_json::json!({ "hosts": [""], "port": crate::providers::clickhouse::DEFAULT_NATIVE_PORT, "trusted_plaintext": true, "tls_ca_file": null }),
     )?;
-    #[cfg(feature = "provider-logbroker")]
     register_on_premise(
         _registry,
         "logbroker",
@@ -768,7 +749,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
     )?;
-    #[cfg(feature = "provider-kafka")]
     for role in [EndpointRole::Source, EndpointRole::Sink] {
         register_on_premise(
             _registry,
@@ -834,7 +814,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
             serde_json::json!({ "brokers": [""], "security": { "type": "plaintext" } }),
         )?;
     }
-    #[cfg(feature = "provider-logbroker")]
     register_on_premise(
         _registry,
         "logbroker",
@@ -847,7 +826,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
     )?;
-    #[cfg(feature = "provider-ytsaurus")]
     register_on_premise(
         _registry,
         "ytsaurus",
@@ -856,7 +834,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 8000, "token": null, "trusted_plaintext": true }),
     )?;
-    #[cfg(feature = "provider-ytsaurus")]
     register_on_premise(
         _registry,
         "ytsaurus",
@@ -868,7 +845,6 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
     Ok(())
 }
 
-#[cfg(feature = "provider-ytsaurus")]
 fn ytsaurus_on_premise_schema() -> JsonValue {
     serde_json::json!({
         "host": { "type": "string", "title": "Host" },
@@ -878,13 +854,6 @@ fn ytsaurus_on_premise_schema() -> JsonValue {
     })
 }
 
-#[cfg(any(
-    feature = "provider-clickhouse",
-    feature = "provider-kafka",
-    feature = "provider-logbroker",
-    feature = "provider-postgres",
-    feature = "provider-ytsaurus"
-))]
 fn register_on_premise(
     registry: &mut ExtensionRegistry,
     provider: &'static str,

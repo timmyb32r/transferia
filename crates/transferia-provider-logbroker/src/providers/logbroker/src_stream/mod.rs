@@ -219,7 +219,7 @@ pub fn build_source_provider(
     }
 }
 
-pub(crate) async fn check_connection(
+pub async fn check_connection(
     cfg: &LogbrokerSourceConnectionConfig,
     cancellation: CancellationToken,
 ) -> anyhow::Result<()> {

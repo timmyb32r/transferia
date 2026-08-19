@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Run the smallest useful test set for the current change.
+"""Run the smallest safe quality gate for the current change.
 
-The selector distinguishes contract/configuration edits from data-plane edits:
-only the latter start external E2E services. Unknown or truly cross-cutting
-files deliberately fall back to the full suite.
+The selector scopes rustfmt, Clippy, unit tests, and E2E tests to affected
+workspace packages. It follows reverse dependencies for public crate surfaces,
+and distinguishes configuration edits from provider data-plane edits so only
+the latter start external services. Unknown or truly cross-cutting files
+deliberately fall back to the complete workspace gate.
 """
 
 from __future__ import annotations
@@ -176,7 +178,12 @@ def select(paths: list[str]) -> Selection:
             parts = Path(path).parts
             crate = parts[1] if len(parts) > 1 else ""
             package = crate
-            if crate == "transferia-providers":
+            if crate.startswith("transferia-provider-") and crate != "transferia-provider-support":
+                result.rust_packages.add(package)
+                provider = crate.removeprefix("transferia-provider-")
+                if touches_provider_runtime(parts[1:]):
+                    result.integration_tests.update(provider_e2e(provider, parts))
+            elif crate == "transferia-providers":
                 result.rust_packages.add(package)
                 if len(parts) > 4 and parts[2:4] == ("src", "providers"):
                     provider = parts[4]
@@ -260,24 +267,70 @@ def changed_paths(base: str) -> list[str]:
 
 def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
     if selection.full:
-        return ([
-            ["cargo", "test", "--workspace", "--all-targets", "--all-features"],
-        ], [])
+        return (
+            [
+                ["cargo", "fmt", "--all", "--", "--check"],
+                [
+                    "cargo",
+                    "clippy",
+                    "--workspace",
+                    "--all-targets",
+                    "--all-features",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+                ["cargo", "test", "--workspace", "--all-targets", "--all-features"],
+            ],
+            [],
+        )
 
     rust: list[list[str]] = []
     packages = {package for package in selection.rust_packages if package}
     modules = {module for module in selection.rust_modules if module}
+    format_packages = set(packages)
+    if selection.integration_tests:
+        format_packages.add("transferia")
+    if format_packages:
+        command = ["cargo", "fmt", "--check"]
+        for package in sorted(format_packages):
+            command.extend(["-p", package])
+        rust.append(command)
+
+    if packages:
+        command = ["cargo", "clippy", "--all-targets", "--all-features"]
+        for package in sorted(packages):
+            command.extend(["-p", package])
+        command.extend(["--", "-D", "warnings"])
+        rust.append(command)
+
+    if selection.integration_tests:
+        for target in sorted(selection.integration_tests):
+            rust.append(
+                [
+                    "cargo",
+                    "clippy",
+                    "--all-features",
+                    "--test",
+                    target,
+                    "--",
+                    "-D",
+                    "warnings",
+                ]
+            )
+
+    dependents = transitive_dependents(selection.downstream_check_packages)
+    if dependents:
+        command = ["cargo", "check", "--all-features", "--lib", "--bins"]
+        for package in sorted(dependents):
+            command.extend(["-p", package])
+        rust.append(command)
+
     if packages:
         command = ["cargo", "test", "--lib"]
         for package in sorted(packages):
             command.extend(["-p", package])
         rust.append(command)
-        dependents = transitive_dependents(selection.downstream_check_packages)
-        if dependents:
-            command = ["cargo", "check", "--all-features", "--lib", "--bins"]
-            for package in sorted(dependents):
-                command.extend(["-p", package])
-            rust.append(command)
     elif len(modules) == 1:
         module = next(iter(modules))
         rust.append(["cargo", "test", "--lib", f"{module}::"])

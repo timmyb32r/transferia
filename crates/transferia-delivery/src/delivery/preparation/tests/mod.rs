@@ -1,6 +1,90 @@
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use transferia_core::delivery::SinkLimits;
 
-mod integration;
+struct UnusedComposition;
+
+struct RecordingLimits {
+    called: AtomicBool,
+}
+
+impl SinkLimits for RecordingLimits {
+    fn description(&self) -> transferia_core::delivery::SinkLimitsDescription {
+        transferia_core::delivery::SinkLimitsDescription {
+            sink: "test",
+            dataset_name: None,
+            column_name: None,
+            supported_arrow_types: Vec::new(),
+            object_key: None,
+        }
+    }
+
+    fn validate_discovery(&self, _discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
+        self.called.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+impl transferia_registry::Composition for UnusedComposition {
+    fn fingerprint(&self) -> &'static str {
+        "unused-test-composition"
+    }
+
+    fn definitions(&self) -> &[transferia_registry::ProviderDefinition] {
+        &[]
+    }
+
+    fn build_registry(
+        &self,
+        _metrics: &Arc<MetricsRegistry>,
+    ) -> anyhow::Result<transferia_registry::Registry> {
+        panic!("invalid pipeline memory must fail before building the provider registry")
+    }
+
+    fn resolve_many(
+        &self,
+        _provider: &str,
+        _role: transferia_registry::EndpointRole,
+        _raw: serde_yaml::Value,
+        _cancellation: CancellationToken,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<Vec<serde_yaml::Value>>> + Send + '_>,
+    > {
+        Box::pin(async {
+            panic!("invalid pipeline memory must fail before resolving provider configuration")
+        })
+    }
+}
+
+#[test]
+fn semantic_errors_short_circuit_sink_limit_validation() {
+    let limits = RecordingLimits {
+        called: AtomicBool::new(false),
+    };
+    let discovery = DeliveryDiscovery {
+        source_name: Arc::from("topic"),
+        source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: transferia_core::delivery::SchemaOrigin::ParserProjection,
+        keep_system_columns: false,
+        datasets: Vec::new(),
+    };
+    let source = transferia_delivery_contracts::semantics::EndpointDescriptor::Logbroker(
+        transferia_delivery_contracts::semantics::SourceDescriptor {
+            behavior: transferia_delivery_contracts::semantics::SourceBehavior::BenchmarkDiscard,
+            delivery_modes: transferia_delivery_contracts::semantics::SourceDeliveryModes::STREAM,
+        },
+    );
+
+    assert!(validate_discovered_pipeline(
+        &source,
+        &transferia_delivery_contracts::semantics::EndpointDescriptor::ClickHouse,
+        &limits,
+        &discovery,
+        false,
+    )
+    .is_err());
+    assert!(!limits.called.load(Ordering::SeqCst));
+}
 
 #[tokio::test]
 async fn plan_rejects_zero_pipeline_memory_before_discovery() -> anyhow::Result<()> {
@@ -21,7 +105,7 @@ source:
 sink: { discard: {} }
 pipeline_memory_limit_bytes: 0
 ";
-    let composition = transferia_providers::extension::Transferia::public()?;
+    let composition = UnusedComposition;
     let error = build_delivery_plan_with(
         Config::from_yaml(yaml)?,
         CancellationToken::new(),

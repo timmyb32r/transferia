@@ -35,14 +35,14 @@ tower.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery = { path = "../transferia-delivery", default-features = false }
-transferia-providers = { path = "../transferia-providers", default-features = false, features = ["provider-logbroker"] }
+transferia-providers = { path = "../transferia-providers" }
 transferia-registry = { path = "../transferia-registry" }
 transferia-runtime = { path = "../transferia-runtime" }
 transferia-server-contracts = { path = "../transferia-server-contracts" }
 transferia-server-ui = { path = "../transferia-server-ui" }
 
 [dev-dependencies]
-transferia-providers = { path = "../transferia-providers", features = ["all-providers"] }
+transferia-providers = { path = "../transferia-providers" }
 
 [lints]
 workspace = true

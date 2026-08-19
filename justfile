@@ -27,8 +27,10 @@ check: fmt-check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo test --workspace --all-targets --all-features
 
-# Normal development/completion gate: formatting plus only affected tests.
-check-affected *args: fmt-check
+# Normal development/completion gate: package-scoped formatting, Clippy, and tests.
+# The selector deliberately escalates to the complete workspace gate when a
+# change cannot be isolated safely.
+check-affected *args:
     python3 scripts/check_crate_boundaries.py
     python3 scripts/test_affected.py {{args}}
 
@@ -44,8 +46,8 @@ miri: fmt
 test: fmt-check
     cargo test --workspace --all-targets --all-features
 
-# Fast development loop: run only tests affected by changes since HEAD.
-# Unknown/cross-cutting inputs deliberately fall back to the complete suite.
+# Direct affected quality gate without the crate-boundary precheck.
+# Unknown/cross-cutting inputs deliberately fall back to the complete gate.
 test-affected *args:
     python3 scripts/test_affected.py {{args}}
 

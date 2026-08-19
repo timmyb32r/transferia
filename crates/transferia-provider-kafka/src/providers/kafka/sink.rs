@@ -37,13 +37,15 @@ impl KafkaSink {
     }
 
     async fn write(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
-        let (payloads, rows) = crate::providers::logbroker::pqv1::sink::writer::serialize_delivery(
-            &mut self.serializer,
-            delivery,
-            &self.discovery,
-            self.config.as_ref() as &dyn SinkLimits,
-        )
-        .await?;
+        let (payloads, rows) = self
+            .serializer
+            .serialize(
+                delivery,
+                &self.discovery,
+                self.config.as_ref() as &dyn SinkLimits,
+                4 * 1024 * 1024,
+            )
+            .await?;
         let payload_bytes = payloads.iter().map(Vec::len).sum::<usize>();
         let timeout = super::config::timeout(self.config.request_timeout_ms);
         let mut pending = FuturesUnordered::new();
