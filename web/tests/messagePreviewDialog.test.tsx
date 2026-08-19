@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MessagePreviewDialog } from "../src/delivery/MessagePreviewDialog";
@@ -136,8 +136,19 @@ describe("message preview dialog", () => {
       />,
     );
 
+    const actionBar = view.container.querySelector(".message-preview-download");
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
     expect(copy).toHaveBeenCalledWith("7b 22 69 64 22 3a 31 7d");
+    await waitFor(() =>
+      expect(
+        actionBar?.contains(
+          view.getByText("Message copied as hexadecimal bytes"),
+        ),
+      ).toBe(true),
+    );
+    expect(view.container.querySelector(".message-preview-download")).toBe(
+      actionBar,
+    );
     fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
     expect(view.container.querySelector(".syntax-code")?.textContent).toContain(
       '"id": 1',

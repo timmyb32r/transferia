@@ -177,6 +177,7 @@ export function MessagePreviewDialog({
             </div>
             {truncated && (
               <div class="message-preview-truncation" role="note">
+                <CopyStatus state={copyState} />
                 <span>
                   Showing{" "}
                   {formatBytes(
@@ -195,20 +196,11 @@ export function MessagePreviewDialog({
             )}
             {!truncated && (
               <div class="message-preview-download">
+                <CopyStatus state={copyState} />
                 <Button onClick={() => void copyMessage()}>Copy message</Button>
                 <Button onClick={() => downloadMessage(result)}>
                   Download message
                 </Button>
-              </div>
-            )}
-            {copyState !== "idle" && (
-              <div
-                class={`message-preview-copy-state ${copyState}`}
-                role={copyState === "error" ? "alert" : "status"}
-              >
-                {copyState === "copied"
-                  ? "Message copied as hexadecimal bytes"
-                  : "Could not copy the message"}
               </div>
             )}
             <footer>
@@ -250,6 +242,22 @@ export function MessagePreviewDialog({
         )}
       </section>
     </div>
+  );
+}
+
+function CopyStatus({ state }: { state: "idle" | "copied" | "error" }) {
+  return (
+    <span
+      class={`message-preview-copy-state ${state}`}
+      role={state === "error" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      {state === "copied"
+        ? "Message copied as hexadecimal bytes"
+        : state === "error"
+          ? "Could not copy the message"
+          : "Copy status"}
+    </span>
   );
 }
 

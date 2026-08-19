@@ -7,6 +7,7 @@ import {
   DeliverySidebar,
   EditorActions,
   EditorTabs,
+  OperationNotices,
 } from "../src/delivery/EditorChrome";
 import type { EditorState } from "../src/state";
 
@@ -27,6 +28,26 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 
 describe("editor chrome", () => {
   afterEach(cleanup);
+
+  it("renders asynchronous operation feedback in one overlay", () => {
+    const dismiss = vi.fn();
+    const view = render(
+      <OperationNotices
+        operations={{
+          save: { requestId: 1, label: "Saving…" },
+          validate: { requestId: 2, error: "Validation failed" },
+        }}
+        onDismiss={dismiss}
+      />,
+    );
+
+    const overlay = view.getByLabelText("Operation status");
+    expect(overlay.classList.contains("operation-notices")).toBe(true);
+    expect(overlay.contains(view.getByRole("status"))).toBe(true);
+    expect(overlay.contains(view.getByRole("alert"))).toBe(true);
+    fireEvent.click(view.getByRole("button", { name: "×" }));
+    expect(dismiss).toHaveBeenCalledWith("validate", 2);
+  });
 
   it("exposes Data schema as a peer configuration view", () => {
     const onDataSchema = vi.fn();

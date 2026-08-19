@@ -260,11 +260,15 @@ export function OperationNotices({
   onDismiss: (key: OperationKey, requestId: number) => void;
 }) {
   return (
-    <>
+    <aside
+      class="operation-notices"
+      aria-label="Operation status"
+      aria-live="polite"
+    >
       {Object.entries(operations).map(
         ([key, operation]) =>
           operation?.error && (
-            <div class="notice error" key={key}>
+            <div class="notice error" key={key} role="alert">
               <span>{operation.error}</span>
               <Button
                 onClick={() =>
@@ -279,12 +283,12 @@ export function OperationNotices({
       {Object.values(operations).map(
         (operation) =>
           operation?.label && (
-            <div class="notice progress" key={operation.requestId}>
+            <div class="notice progress" key={operation.requestId} role="status">
               <span class="spinner" />
               {operation.label}
             </div>
           ),
       )}
-    </>
+    </aside>
   );
 }

@@ -161,11 +161,15 @@
 }
 
 .message-preview-copy-state {
-  padding: 6px 18px;
+  min-width: 0;
+  margin-right: auto;
   color: var(--success-text);
   font-size: 12px;
-  text-align: right;
-  border-top: 1px solid var(--line-inner);
+  text-align: left;
+}
+
+.message-preview-copy-state.idle {
+  visibility: hidden;
 }
 
 .message-preview-copy-state.error {
@@ -1754,8 +1758,7 @@ button::after {
 .pipeline-section .byte-size-input {
   max-width: 300px;
 }
-.compatibility-error,
-.notice {
+.compatibility-error {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -1770,12 +1773,26 @@ button::after {
 .compatibility-error span {
   color: var(--danger-text);
 }
+.operation-notices {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1200;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
 .notice {
-  position: sticky;
-  top: 8px;
-  z-index: 40;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 14px;
+  border-radius: 5px;
+  margin: 0;
   justify-content: space-between;
   box-shadow: 0 8px 25px var(--shadow);
+  pointer-events: auto;
 }
 .notice.error {
   background: var(--danger-surface);
