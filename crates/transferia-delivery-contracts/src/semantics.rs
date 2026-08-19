@@ -221,12 +221,13 @@ pub fn validate_pipeline(
                     remediation: Some("configure a row-producing parser and durable sink for a real delivery".into()),
                 }
             } else {
-                error(
-                    DiagnosticCode::BenchmarkDiscard,
-                    &["source.parser", "sink.discard"],
-                    "the discard sink is compatible only with the benchmark_discard parser",
-                    Some("select the benchmark_discard parser, or choose a durable sink"),
-                )
+                SemanticsDiagnostic {
+                    code: DiagnosticCode::BenchmarkDiscard,
+                    severity: DiagnosticSeverity::Info,
+                    config_paths: vec!["sink.discard".into()],
+                    explanation: "the discard sink intentionally acknowledges source messages without storing parsed rows".into(),
+                    remediation: Some("choose a durable sink when the delivery must preserve data".into()),
+                }
             }],
         };
     }
