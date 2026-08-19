@@ -49,7 +49,7 @@ function jsonTokens(value: string): Token[] {
 function yamlTokens(value: string): Token[] {
   return tokenize(
     value,
-    /#[^\n]*|^[ \t-]*[A-Za-z_][\w.-]*(?=\s*:)|"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|\b(?:true|false|null|yes|no)\b|-?\d+(?:\.\d+)?/gim,
+    /#[^\n]*|^[ \t-]*[A-Za-z_][\w.-]*(?=\s*:)|"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|\b(?:true|false|null|yes|no)\b|(?<![\w.-])-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?![\w.-])/gim,
     (text) => {
       if (text.trimStart().startsWith("#")) return "comment";
       if (/^[ \t-]*[A-Za-z_][\w.-]*$/i.test(text)) return "key";
