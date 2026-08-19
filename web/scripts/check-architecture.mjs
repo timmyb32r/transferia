@@ -81,4 +81,9 @@ async function checkCssCustomProperties() {
     if (!declared.has(property))
       violations.push(`style.css: custom property ${property} is not declared`);
   }
+  const inspector = css.match(/\.schema-inspector\s*\{([^}]*)\}/)?.[1] ?? "";
+  if (!inspector.includes("overflow: scroll"))
+    violations.push("style.css: schema inspector must always reserve scrollbars");
+  if (!inspector.includes("scrollbar-gutter: stable both-edges"))
+    violations.push("style.css: schema inspector must reserve a stable scrollbar gutter");
 }
