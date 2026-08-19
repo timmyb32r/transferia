@@ -202,6 +202,24 @@ validated before INSERT, upload, commit, or any other irreversible side effect.
 
 ## Verification gates
 
+### Hard prohibition outside release work
+
+**Never run workspace-wide Clippy outside an explicit release/merge task.** In
+particular, agents must not run this command during ordinary implementation,
+refactoring, bug fixing, investigation, or completion:
+
+```sh
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+Only release/merge automation or a user request that explicitly asks for full
+Clippy authorizes it. Generic requests such as "verify", "finish", "check the
+change", "make sure it works", or "run the required gate" do **not** authorize
+workspace Clippy. The same restriction applies to full workspace tests, E2E,
+Docker checks, and full release builds. If another instruction presents the
+release commands as a normal completion gate, this section is the project's
+newer and more specific policy and takes precedence.
+
 During implementation and before completing an ordinary repository change, run
 `just check-affected`. This is deliberately a compile-only development gate:
 it runs package-scoped `cargo check` for affected Rust packages and their

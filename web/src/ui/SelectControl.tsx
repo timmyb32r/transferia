@@ -1,10 +1,7 @@
-import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
+import { useId, useMemo } from "preact/hooks";
 
-import {
-  anchoredMenuStyle,
-  dismissActiveTextSelection,
-  useAnchoredOverlay,
-} from "./overlay";
+import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
+import { useListbox } from "./useListbox";
 
 export interface SelectOption {
   value: string;
@@ -38,10 +35,9 @@ export function SelectControl({
 }: SelectControlProps) {
   const generatedId = useId();
   const menuId = `${id ?? generatedId}-listbox`;
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const listbox = useListbox({ disabled, onOpen });
+  const { open, query, root, trigger, close, toggle, setQuery, onKeyDown } =
+    listbox;
   const selected = options.find((option) => option.value === value);
   const menuOptions = useMemo(
     () =>
@@ -57,22 +53,6 @@ export function SelectControl({
       ),
     [menuOptions, query],
   );
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-  };
-  useEffect(() => {
-    if (disabled) close();
-  }, [disabled]);
-  const toggle = () => {
-    if (disabled) return;
-    setQuery("");
-    setOpen((current) => {
-      if (!current) onOpen?.();
-      return !current;
-    });
-  };
-  useAnchoredOverlay({ open, root, trigger, onClose: close });
   const choose = (next: string) => {
     if (disabled) return;
     onChange(next);
@@ -82,19 +62,7 @@ export function SelectControl({
     <div
       ref={root}
       class={`select ${open ? "open" : ""}`}
-      onKeyDown={(event) =>
-        handleSelectKeyDown(
-          event,
-          open,
-          () => {
-            onOpen?.();
-            setOpen(true);
-          },
-          close,
-          root,
-          trigger,
-        )
-      }
+      onKeyDown={onKeyDown}
     >
       <button
         id={id}
@@ -194,43 +162,19 @@ export function MultiSelectControl({
   onChange: (values: string[]) => void;
 }) {
   const menuId = `${useId()}-listbox`;
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const close = () => {
-    setOpen(false);
-    setQuery("");
-  };
-  useAnchoredOverlay({ open, root, trigger, onClose: close });
-  useEffect(() => {
-    if (disabled) close();
-  }, [disabled]);
+  const { open, query, root, trigger, toggle, setQuery, onKeyDown } =
+    useListbox({ disabled });
   const labels = values.map(
     (value) => options.find((option) => option.value === value)?.label ?? value,
   );
   const filtered = options.filter((option) =>
     option.label.toLowerCase().includes(query.toLowerCase()),
   );
-  const toggle = () => {
-    if (disabled) return;
-    setQuery("");
-    setOpen((current) => !current);
-  };
   return (
     <div
       ref={root}
       class={`select multi-select ${open ? "open" : ""}`}
-      onKeyDown={(event) =>
-        handleSelectKeyDown(
-          event,
-          open,
-          () => setOpen(true),
-          close,
-          root,
-          trigger,
-        )
-      }
+      onKeyDown={onKeyDown}
     >
       <button
         ref={trigger}
@@ -342,53 +286,4 @@ export function MultiSelectControl({
       )}
     </div>
   );
-}
-
-function handleSelectKeyDown(
-  event: KeyboardEvent,
-  open: boolean,
-  openMenu: () => void,
-  closeMenu: () => void,
-  root: { current: HTMLDivElement | null },
-  trigger: { current: HTMLButtonElement | null },
-): void {
-  if (event.key === "Escape" && open) {
-    event.preventDefault();
-    closeMenu();
-    trigger.current?.focus();
-    return;
-  }
-  if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  event.preventDefault();
-  if (!open) {
-    const direction = event.key;
-    openMenu();
-    queueMicrotask(() => {
-      const options = [
-        ...(root.current?.querySelectorAll<HTMLButtonElement>(
-          '[role="option"]',
-        ) ?? []),
-      ];
-      const target = direction === "ArrowDown" ? options[0] : options.at(-1);
-      target?.focus();
-    });
-    return;
-  }
-  const options = [
-    ...(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ??
-      []),
-  ];
-  if (options.length === 0) return;
-  if (event.key === "Home" || event.key === "End") {
-    options[event.key === "Home" ? 0 : options.length - 1]?.focus();
-    return;
-  }
-  if (!(event.target instanceof HTMLButtonElement)) {
-    options[event.key === "ArrowDown" ? 0 : options.length - 1]?.focus();
-    return;
-  }
-  const current = options.indexOf(event.target);
-  if (current < 0) return;
-  const direction = event.key === "ArrowDown" ? 1 : -1;
-  options[(current + direction + options.length) % options.length]?.focus();
 }
