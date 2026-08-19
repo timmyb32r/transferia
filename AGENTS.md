@@ -276,6 +276,94 @@ The release test command includes all sink E2E/testcontainers tests. Do not
 claim that the release gate passed when only the compile-only development gate
 ran.
 
+## Fast development and Cargo cache hygiene
+
+Development latency is a product requirement. Preserve the following setup and
+workflow instead of compensating for slow builds with broader parallelism or
+repeated full-workspace commands.
+
+### Use the smallest stable compilation surface
+
+- Start with `just test-affected-dry` when the affected scope is not obvious,
+  then run `just check-affected` once on the final tree. Do not repeatedly run
+  it after every small edit.
+- Prefer `cargo check` to `cargo build`: checking avoids code generation and
+  linking. Build a binary only when the user needs to execute that binary.
+- Keep one canonical development profile and feature set. Alternating between
+  check/build/test/clippy, different feature combinations, `RUSTFLAGS`, target
+  triples, or profiles creates distinct Cargo fingerprints and duplicates most
+  artifacts.
+- Package-scoped checks must include only the changed crate and the necessary
+  reverse-dependency closure. A `Cargo.lock` change alone is not a reason to
+  compile every workspace target. Treat actual compiler configuration,
+  toolchain, protocol, or vendor changes as cross-cutting.
+- Rust and frontend compile checks may run concurrently when independent. Do
+  not run multiple Cargo processes against the same target directory: they
+  serialize on Cargo's build lock and make elapsed time harder to diagnose.
+- Record command durations. The affected selector writes its current report to
+  `target/affected-tests-timings.json` and history to the adjacent JSONL file;
+  use this evidence before broadening or optimizing a gate.
+
+### Preserve crate-local ownership
+
+- Provider-specific integration and E2E targets belong under that provider
+  crate's `tests/` directory. The root `tests/` directory is only for genuinely
+  cross-crate behavior. Otherwise checking one provider reconstructs a large
+  monolithic root test target.
+- Share integration-only utilities through `transferia-test-support`; never
+  make production crates depend on root-test helpers.
+- Keep generators lightweight. Server DTO/schema generation belongs to
+  `transferia-server-contracts` and must not construct the provider catalog.
+  Provider catalog generation is a separate, explicitly heavy operation. Do
+  not make `cargo build`, normal typechecking, or API contract generation pull
+  every provider or DataFusion into the dependency graph.
+- Builds and checks should consume generated artifacts without rewriting them.
+  Regeneration is an explicit task performed only when the owning contract
+  changes.
+
+### Keep caches bounded and reusable
+
+- The repository pins Rust in `rust-toolchain.toml`. Do not casually change the
+  toolchain, dev/test profiles, global rustflags, or workspace-wide features:
+  each change invalidates a large portion of both Cargo and compiler caches.
+- The project uses `.cargo/rustc-wrapper.sh` and `sccache`. Keep the sccache
+  budget bounded (currently 50 GiB). A normal developer shell should use
+  sccache; the wrapper may bypass it only in an environment whose sandbox blocks
+  sccache IPC.
+- `target/` is not a bounded cache. Do not use `cargo clean` routinely because
+  a healthy target directory is valuable. Clean it only after evidence of
+  pathological fragmentation, incompatible build variants, or severe disk
+  pressure. Never delete `~/.cargo` as a generic build-speed fix; registry and
+  source caches are reusable.
+- Keep at least roughly 15–20% filesystem capacity free. A nearly full APFS or
+  equivalent filesystem plus a huge flat `target/*/deps` directory can turn
+  metadata operations into minutes of I/O wait even when rustc consumes almost
+  no CPU.
+- Development profiles intentionally disable incremental compilation and split
+  debug info so sccache can reuse outputs and Cargo does not create enormous
+  populations of tiny files. Change this only with measured evidence from this
+  workspace.
+
+### Diagnose a slow or apparently hung build before retrying
+
+- Do not start a second Cargo command. Inspect the existing Cargo process and
+  its rustc child first. Cargo often appears idle because it is waiting for one
+  compiler, linker, archiver, filesystem operation, or the build-directory
+  lock.
+- Cargo timing output identifies the slow crate but not necessarily the blocked
+  syscall. On macOS, trace the actual rustc child PID, not the parent Cargo PID,
+  with `sample <rustc-pid>` and `sudo fs_usage -w -f filesystem <rustc-pid>`;
+  correlate it with `iostat` and `vm_stat`. A trace of only the Cargo parent
+  cannot prove where rustc waited.
+- Check `df -h`, `du -sh target`, the population of `target/*/deps`, duplicate
+  `.fingerprint` variants, and `sccache --show-stats`. Near-zero rustc CPU plus
+  a very large, slow-to-enumerate target directory is evidence of storage and
+  metadata pressure, not insufficient Cargo job parallelism.
+- Cargo already schedules work across available CPUs. Raising `jobs` far above
+  the CPU count does not shorten a dependency-chain critical path and can worsen
+  memory and I/O contention. Optimize dependency boundaries and cache reuse
+  before changing parallelism.
+
 ## Performance log contract
 
 - Every new source and sink must report through `SourceCounters`, `ParseCounters`,
