@@ -3,6 +3,52 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio_postgres::types::Type;
 
+#[derive(Clone, Deserialize)]
+pub struct PostgresConnectionCheckConfig {
+    #[serde(default)]
+    pub host: String,
+
+    #[serde(default = "default_postgres_port")]
+    pub port: u16,
+
+    #[serde(default)]
+    pub database: String,
+
+    #[serde(default)]
+    pub username: String,
+
+    #[serde(default)]
+    pub password: String,
+
+    #[serde(default)]
+    pub trusted_plaintext: bool,
+
+    #[serde(default)]
+    pub tls_ca_file: Option<String>,
+}
+
+impl PostgresConnectionCheckConfig {
+    pub fn credentials_complete(&self) -> bool {
+        !self.database.is_empty() && !self.username.is_empty()
+    }
+
+    pub fn connection(&self) -> PostgresConnectionConfig {
+        PostgresConnectionConfig {
+            host: self.host.clone(),
+            port: self.port,
+            database: self.database.clone(),
+            username: self.username.clone(),
+            password: self.password.clone(),
+            trusted_plaintext: self.trusted_plaintext,
+            tls_ca_file: self.tls_ca_file.clone(),
+        }
+    }
+}
+
+const fn default_postgres_port() -> u16 {
+    5432
+}
+
 pub const MAX_IDENTIFIER_BYTES: usize = 63;
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -98,6 +144,15 @@ pub async fn check_connection(config: &PostgresConnectionConfig) -> anyhow::Resu
     config.validate()?;
     let client = connect(config).await?;
     client.simple_query("SELECT 1").await?;
+    Ok(())
+}
+
+pub async fn check_network_connection(
+    config: &PostgresConnectionCheckConfig,
+) -> anyhow::Result<()> {
+    crate::providers::address::validate_host("postgres.host", &config.host)?;
+    crate::providers::address::validate_port("postgres.port", config.port)?;
+    tokio::net::TcpStream::connect((config.host.as_str(), config.port)).await?;
     Ok(())
 }
 

@@ -40,10 +40,9 @@ pub fn register(
                     }
                 },
             )?
-            .source_checker::<postgres::src_batch::PostgresSourceConfig, _, _>(
+            .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(
                 |config| async move {
-                    postgres::check_connection(&config.connection).await?;
-                    Ok(transferia_registry::ConnectionCheckResult::default())
+                    check_postgres_connection(config).await
                 },
             )
             .sink::<postgres::sink::PostgresSinkConfig, _, _>(
@@ -59,10 +58,30 @@ pub fn register(
                     )?))
                 },
             )?
-            .sink_checker::<postgres::sink::PostgresSinkConfig, _, _>(|config| async move {
-                postgres::check_connection(&config.connection).await?;
-                Ok(transferia_registry::ConnectionCheckResult::default())
+            .sink_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
+                check_postgres_connection(config).await
             }),
     )?;
     Ok(())
 }
+
+async fn check_postgres_connection(
+    config: postgres::PostgresConnectionCheckConfig,
+) -> anyhow::Result<transferia_registry::ConnectionCheckResult> {
+    if config.credentials_complete() {
+        postgres::check_connection(&config.connection()).await?;
+        Ok(transferia_registry::ConnectionCheckResult::default())
+    } else {
+        postgres::check_network_connection(&config).await?;
+        Ok(transferia_registry::ConnectionCheckResult {
+            message: Some(
+                "PostgreSQL is network-reachable. Authentication was not checked because database or username is incomplete."
+                    .to_owned(),
+            ),
+            ..transferia_registry::ConnectionCheckResult::network_reachable()
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests;
