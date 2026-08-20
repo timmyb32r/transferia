@@ -44,9 +44,11 @@ describe("editor chrome", () => {
 
     const overlay = view.getByLabelText("Operation status");
     expect(overlay.classList.contains("operation-notices")).toBe(true);
-    expect(view.getAllByRole("status")).toHaveLength(2);
+    expect(view.getAllByRole("status")).toHaveLength(1);
     expect(overlay.contains(view.getByRole("alert"))).toBe(true);
     expect(view.getByText("Configuration is valid.")).toBeTruthy();
+    fireEvent.click(view.getByText("Configuration is valid."));
+    expect(dismiss).toHaveBeenCalledWith("action", 3);
     fireEvent.click(view.getByRole("button", { name: "×" }));
     expect(dismiss).toHaveBeenCalledWith("validate", 2);
   });

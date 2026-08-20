@@ -306,16 +306,26 @@ export function OperationNotices({
       {Object.entries(operations).map(
         ([key, operation]) =>
           operation?.success && (
-            <div class="notice success" key={key} role="status">
-              <span>{operation.success}</span>
-              <Button
-                aria-label="Dismiss success"
-                onClick={() =>
-                  onDismiss(key as OperationKey, operation.requestId)
+            <div
+              class="notice success"
+              key={key}
+              role="button"
+              tabIndex={0}
+              aria-label={`Dismiss: ${operation.success}`}
+              onClick={() =>
+                onDismiss(key as OperationKey, operation.requestId)
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onDismiss(key as OperationKey, operation.requestId);
                 }
-              >
+              }}
+            >
+              <span>{operation.success}</span>
+              <span aria-hidden="true">
                 ×
-              </Button>
+              </span>
             </div>
           ),
       )}
