@@ -25,8 +25,12 @@ use transferia_core::delivery::DeliveryDiscoveryRequest;
 use transferia_core::memory::PipelineMemory;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_provider_logbroker::logbroker::pqv1::src_stream::PqV1SourceProvider;
-use transferia_provider_logbroker::logbroker::proto::discovery::{EndpointInfo, ListEndpointsResult};
-use transferia_provider_logbroker::logbroker::proto::operations::{GetOperationResponse, Operation};
+use transferia_provider_logbroker::logbroker::proto::discovery::{
+    EndpointInfo, ListEndpointsResult,
+};
+use transferia_provider_logbroker::logbroker::proto::operations::{
+    GetOperationResponse, Operation,
+};
 use transferia_provider_logbroker::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message, migration_streaming_read_server_message,
     AutoPartitioningSettings, AutoPartitioningStrategy, Codec, CommitCookie, DescribeTopicResponse,

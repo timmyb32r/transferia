@@ -79,10 +79,7 @@ export function decodeUiHints(
     fail,
   );
   const dynamicOptionsControl = value.dynamic_options_control;
-  if (
-    dynamicOptionsControl !== undefined &&
-    dynamicOptionsControl !== "path"
-  )
+  if (dynamicOptionsControl !== undefined && dynamicOptionsControl !== "path")
     fail(`${path}: x-ui dynamic_options_control must be path`);
   if (
     dependencies !== undefined &&

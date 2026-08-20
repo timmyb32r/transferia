@@ -117,7 +117,10 @@ pub struct YTsaurusSinkConfig {
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
-    #[schemars(title = "Path", description = "Directory where dataset tables are stored")]
+    #[schemars(
+        title = "Path",
+        description = "Directory where dataset tables are stored"
+    )]
     pub path: String,
 
     pub replace_tables: bool,
@@ -135,7 +138,10 @@ impl YTsaurusSinkConfig {
     }
 
     pub fn path_for_dataset(&self, dataset: &str) -> anyhow::Result<String> {
-        anyhow::ensure!(!dataset.is_empty(), "YTsaurus dataset name must not be empty");
+        anyhow::ensure!(
+            !dataset.is_empty(),
+            "YTsaurus dataset name must not be empty"
+        );
         anyhow::ensure!(
             !dataset.contains('/')
                 && !dataset.contains('<')

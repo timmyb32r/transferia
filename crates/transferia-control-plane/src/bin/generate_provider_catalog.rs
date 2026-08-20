@@ -1,7 +1,6 @@
 use std::path::Path;
 
-const OUTPUT: &str =
-    "crates/transferia-server-contracts/contracts/provider-catalog.fixture.json";
+const OUTPUT: &str = "crates/transferia-server-contracts/contracts/provider-catalog.fixture.json";
 
 fn main() -> anyhow::Result<()> {
     let check = std::env::args().any(|argument| argument == "--check");

@@ -8,9 +8,7 @@ use transferia_runtime::WorkerInfo;
 
 #[test]
 fn connection_check_reports_local_egress_denial_as_network_access_error() {
-    let error = anyhow::Error::new(std::io::Error::from(
-        std::io::ErrorKind::PermissionDenied,
-    ));
+    let error = anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
 
     assert!(connection_check_service_error(error)
         .to_string()

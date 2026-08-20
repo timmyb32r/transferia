@@ -16,9 +16,7 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// schema change that would otherwise alter the composition fingerprint.
 const CORE_EXTENSION_ABI_VERSION: u32 = 3;
 
-pub use transferia_registry::{
-    DynamicOption, DynamicOptions, EndpointRole, OptionsRequest,
-};
+pub use transferia_registry::{DynamicOption, DynamicOptions, EndpointRole, OptionsRequest};
 
 #[derive(Clone, Debug)]
 pub struct OptionsContext {
