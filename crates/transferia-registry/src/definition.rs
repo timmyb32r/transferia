@@ -31,6 +31,8 @@ pub struct EndpointDefinition {
     pub partitioned: bool,
 
     pub connection_check: bool,
+
+    pub message_preview: bool,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]

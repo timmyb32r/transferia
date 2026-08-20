@@ -32,6 +32,7 @@ describe("schema compiler", () => {
                 delivery_modes: [],
                 partitioned: false,
                 connection_check: false,
+                message_preview: false,
               },
             },
           ],

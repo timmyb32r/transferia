@@ -21,6 +21,15 @@ type ConnectionChecker = Box<
         + Send
         + Sync,
 >;
+type SourcePreviewer = Box<
+    dyn Fn(
+            Value,
+            usize,
+            CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<SourcePreview>> + Send>>
+        + Send
+        + Sync,
+>;
 type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
 type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
 type MiddlewareFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync>;
@@ -47,6 +56,36 @@ pub struct MiddlewarePreview {
     pub columns: Vec<MiddlewarePreviewColumn>,
 
     pub rows: Vec<JsonValue>,
+}
+
+pub struct SourcePreview {
+    pub payload: Vec<u8>,
+
+    pub detection_payloads: Vec<Vec<u8>>,
+
+    pub metadata: SourcePreviewMetadata,
+}
+
+pub struct SourcePreviewMetadata {
+    pub topic: String,
+    pub partition: i64,
+    pub partition_session_id: i64,
+    pub offset: i64,
+    pub sequence_number: i64,
+    pub created_at_ms: Option<i64>,
+    pub written_at_ms: Option<i64>,
+    pub producer_id: String,
+    pub message_group_id: Option<String>,
+    pub codec: String,
+    pub compressed_size: usize,
+    pub declared_uncompressed_size: Option<usize>,
+    pub message_metadata: Vec<SourcePreviewMetadataItem>,
+    pub write_session_metadata: BTreeMap<String, String>,
+}
+
+pub struct SourcePreviewMetadataItem {
+    pub key: String,
+    pub value: Vec<u8>,
 }
 
 /// Complete executable composition consumed by delivery preparation.
@@ -76,6 +115,7 @@ pub struct ComponentRegistration {
     sink: Option<(EndpointDefinition, SinkFactory)>,
     source_checker: Option<ConnectionChecker>,
     sink_checker: Option<ConnectionChecker>,
+    source_previewer: Option<SourcePreviewer>,
 }
 
 pub struct MiddlewareRegistration {
@@ -164,7 +204,27 @@ impl ComponentRegistration {
             sink: None,
             source_checker: None,
             sink_checker: None,
+            source_previewer: None,
         }
+    }
+
+    #[must_use]
+    pub fn source_previewer<C, F, Fut>(mut self, previewer: F) -> Self
+    where
+        C: DeserializeOwned + Send + 'static,
+        F: Fn(C, usize, CancellationToken) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = anyhow::Result<SourcePreview>> + Send + 'static,
+    {
+        self.source_previewer =
+            Some(Box::new(
+                move |raw, max_bytes, cancellation| match serde_yaml::from_value(raw) {
+                    Ok(config) => Box::pin(previewer(config, max_bytes, cancellation)),
+                    Err(error) => Box::pin(async move {
+                        Err(anyhow::anyhow!("invalid source configuration: {error}"))
+                    }),
+                },
+            ));
+        self
     }
 
     pub fn source<C, F, I>(
@@ -346,6 +406,11 @@ impl RegistryBuilder {
             registration.key
         );
         anyhow::ensure!(
+            registration.source_previewer.is_none() || registration.source.is_some(),
+            "component '{}' registers message preview without a source",
+            registration.key
+        );
+        anyhow::ensure!(
             registration.sink_checker.is_none() || registration.sink.is_some(),
             "component '{}' registers a sink connection check without a sink",
             registration.key
@@ -379,9 +444,11 @@ impl RegistryBuilder {
         let mut sinks = BTreeMap::new();
         let mut source_checkers = BTreeMap::new();
         let mut sink_checkers = BTreeMap::new();
+        let mut source_previewers = BTreeMap::new();
         for registration in self.registrations {
             let source = registration.source.map(|(mut definition, factory)| {
                 definition.connection_check = registration.source_checker.is_some();
+                definition.message_preview = registration.source_previewer.is_some();
                 sources.insert(registration.key, factory);
                 definition
             });
@@ -395,6 +462,9 @@ impl RegistryBuilder {
             }
             if let Some(checker) = registration.sink_checker {
                 sink_checkers.insert(registration.key, checker);
+            }
+            if let Some(previewer) = registration.source_previewer {
+                source_previewers.insert(registration.key, previewer);
             }
             definitions.push(ProviderDefinition {
                 key: registration.key,
@@ -419,6 +489,7 @@ impl RegistryBuilder {
             sinks,
             source_checkers,
             sink_checkers,
+            source_previewers,
             middleware_definitions,
             middlewares,
             middleware_previewers,
@@ -438,6 +509,7 @@ pub struct Registry {
     sinks: BTreeMap<&'static str, SinkFactory>,
     source_checkers: BTreeMap<&'static str, ConnectionChecker>,
     sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
+    source_previewers: BTreeMap<&'static str, SourcePreviewer>,
     middleware_definitions: Vec<MiddlewareDefinition>,
     middlewares: BTreeMap<&'static str, MiddlewareFactory>,
     middleware_previewers: BTreeMap<&'static str, MiddlewarePreviewer>,
@@ -524,6 +596,20 @@ impl Registry {
         .ok_or_else(|| anyhow::anyhow!("{kind} {role:?} does not support connection checks"))?;
         checker(raw).await
     }
+
+    pub async fn preview_source(
+        &self,
+        kind: &str,
+        raw: Value,
+        max_bytes: usize,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<SourcePreview> {
+        let previewer = self
+            .source_previewers
+            .get(kind)
+            .ok_or_else(|| anyhow::anyhow!("{kind} source does not support message preview"))?;
+        previewer(raw, max_bytes, cancellation).await
+    }
 }
 
 fn definition_shape(definitions: &[ProviderDefinition]) -> Vec<(&'static str, bool, bool)> {
@@ -550,5 +636,6 @@ fn endpoint_definition<C: JsonSchema>(
         delivery_modes,
         partitioned,
         connection_check: false,
+        message_preview: false,
     })
 }

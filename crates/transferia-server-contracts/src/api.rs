@@ -464,6 +464,7 @@ pub fn fixture() -> anyhow::Result<Value> {
                 ],
                 partitioned: false,
                 connection_check: true,
+                message_preview: false,
             }),
         }],
     };

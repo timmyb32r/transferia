@@ -207,6 +207,56 @@ fn registry_rejects_connection_checker_without_matching_runtime_role() -> anyhow
     Ok(())
 }
 
+#[tokio::test]
+async fn source_preview_is_a_typed_optional_capability() -> anyhow::Result<()> {
+    let registration = source_registration("source")?.source_previewer::<TestSourceConfig, _, _>(
+        |config, max_bytes, _cancellation| async move {
+            anyhow::ensure!(config.enabled, "preview received decoded configuration");
+            Ok(SourcePreview {
+                payload: vec![7; max_bytes.min(2)],
+                detection_payloads: vec![vec![7]],
+                metadata: SourcePreviewMetadata {
+                    topic: "topic".to_owned(),
+                    partition: 0,
+                    partition_session_id: 1,
+                    offset: 2,
+                    sequence_number: 3,
+                    created_at_ms: None,
+                    written_at_ms: None,
+                    producer_id: String::new(),
+                    message_group_id: None,
+                    codec: "raw".to_owned(),
+                    compressed_size: 1,
+                    declared_uncompressed_size: None,
+                    message_metadata: Vec::new(),
+                    write_session_metadata: Default::default(),
+                },
+            })
+        },
+    );
+    let mut builder = RegistryBuilder::new();
+    builder.register(registration)?;
+    let registry = builder.build();
+
+    assert!(
+        registry.definitions()[0]
+            .source
+            .as_ref()
+            .unwrap()
+            .message_preview
+    );
+    let preview = registry
+        .preview_source(
+            "source",
+            serde_yaml::from_str("enabled: true")?,
+            2,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await?;
+    assert_eq!(preview.payload, vec![7, 7]);
+    Ok(())
+}
+
 #[test]
 fn verified_connection_result_confirms_entity_access() {
     let result = ConnectionCheckResult::default();

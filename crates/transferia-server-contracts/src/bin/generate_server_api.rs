@@ -1,9 +1,7 @@
 use std::path::Path;
 
-const SCHEMA_OUTPUT: &str =
-    "crates/transferia-server-contracts/contracts/server-api.schema.json";
-const FIXTURE_OUTPUT: &str =
-    "crates/transferia-server-contracts/contracts/server-api.fixture.json";
+const SCHEMA_OUTPUT: &str = "crates/transferia-server-contracts/contracts/server-api.schema.json";
+const FIXTURE_OUTPUT: &str = "crates/transferia-server-contracts/contracts/server-api.fixture.json";
 
 fn main() -> anyhow::Result<()> {
     let check = std::env::args().any(|argument| argument == "--check");

@@ -137,6 +137,7 @@ export type EndpointDefinition = {
   connection_check: boolean;
   delivery_modes: Array<DeliveryMode>;
   initial: JsonObject;
+  message_preview: boolean;
   partitioned: boolean;
   schema: JsonSchema;
 };

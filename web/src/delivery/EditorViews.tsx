@@ -183,7 +183,7 @@ export function EndpointCard(props: {
             serializerSelectionOnly={props.role === "sink"}
             optionOverrides={check.options}
             parserAction={
-              props.role === "source" && props.selectedKey === "logbroker" ? (
+              props.role === "source" && props.endpoint.message_preview ? (
                 <Button
                   class="parser-preview-button"
                   title="Preview one message"

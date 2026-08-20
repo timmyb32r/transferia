@@ -37,6 +37,7 @@ const endpoint: EndpointDefinition = {
   delivery_modes: [],
   partitioned: false,
   connection_check: true,
+  message_preview: false,
 };
 
 afterEach(() => {
@@ -230,6 +231,7 @@ describe("endpoint connection check", () => {
       delivery_modes: [],
       partitioned: true,
       connection_check: false,
+      message_preview: true,
     };
     vi.spyOn(api, "previewMessage").mockResolvedValue({
       text_preview: "{}",

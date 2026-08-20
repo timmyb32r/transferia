@@ -9,7 +9,7 @@ pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, Pro
 pub use registry::Composition;
 pub use registry::{
     ComponentRegistration, MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration,
-    Registry, RegistryBuilder,
+    Registry, RegistryBuilder, SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem,
 };
 pub use traits::{
     ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,

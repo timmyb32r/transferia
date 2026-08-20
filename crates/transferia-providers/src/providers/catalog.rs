@@ -344,6 +344,52 @@ fn build_base_provider_catalog(
                     }
                 },
             )
+            .source_previewer::<
+                crate::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig,
+                _,
+                _,
+            >(|config, max_bytes, cancellation| async move {
+                let preview = crate::providers::logbroker::preview_message(
+                    &config,
+                    max_bytes,
+                    cancellation,
+                )
+                .await?;
+                Ok(transferia_registry::SourcePreview {
+                    payload: preview.payload.to_vec(),
+                    detection_payloads: preview
+                        .detection_payloads
+                        .into_iter()
+                        .map(|payload| payload.to_vec())
+                        .collect(),
+                    metadata: transferia_registry::SourcePreviewMetadata {
+                        topic: preview.metadata.topic,
+                        partition: preview.metadata.partition,
+                        partition_session_id: preview.metadata.partition_session_id,
+                        offset: preview.metadata.offset,
+                        sequence_number: preview.metadata.sequence_number,
+                        created_at_ms: preview.metadata.created_at_ms,
+                        written_at_ms: preview.metadata.written_at_ms,
+                        producer_id: preview.metadata.producer_id,
+                        message_group_id: preview.metadata.message_group_id,
+                        codec: preview.metadata.codec,
+                        compressed_size: preview.metadata.compressed_size,
+                        declared_uncompressed_size: preview
+                            .metadata
+                            .declared_uncompressed_size,
+                        message_metadata: preview
+                            .metadata
+                            .message_metadata
+                            .into_iter()
+                            .map(|item| transferia_registry::SourcePreviewMetadataItem {
+                                key: item.key,
+                                value: item.value,
+                            })
+                            .collect(),
+                        write_session_metadata: preview.metadata.write_session_metadata,
+                    },
+                })
+            })
             .sink::<crate::providers::logbroker::sink::LogbrokerSinkConfig, _, _>(
                 || {
                     serde_json::json!({

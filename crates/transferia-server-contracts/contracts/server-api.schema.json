@@ -468,6 +468,9 @@
           "type": "object",
           "x-typescript-type": "JsonObject"
         },
+        "message_preview": {
+          "type": "boolean"
+        },
         "partitioned": {
           "type": "boolean"
         },
@@ -482,7 +485,8 @@
         "initial",
         "delivery_modes",
         "partitioned",
-        "connection_check"
+        "connection_check",
+        "message_preview"
       ],
       "type": "object"
     },

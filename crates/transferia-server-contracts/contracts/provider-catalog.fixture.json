@@ -522,6 +522,7 @@
                   "items": {
                     "$ref": "#/$defs/ColumnMapping"
                   },
+                  "minItems": 1,
                   "x-ui": {
                     "widget": "column_mappings",
                     "initial_items": 1
@@ -1095,7 +1096,8 @@
           "stream"
         ],
         "partitioned": true,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": true
       },
       "sink": {
         "schema": {
@@ -1161,7 +1163,10 @@
                 "null"
               ],
               "format": "int64",
-              "default": null
+              "default": null,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
             "serializer": {
               "$ref": "#/$defs/SerializerConfig",
@@ -1439,7 +1444,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -1889,6 +1895,7 @@
                   "items": {
                     "$ref": "#/$defs/ColumnMapping"
                   },
+                  "minItems": 1,
                   "x-ui": {
                     "widget": "column_mappings",
                     "initial_items": 1
@@ -2459,7 +2466,8 @@
           "stream"
         ],
         "partitioned": true,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -2602,7 +2610,10 @@
                 "null"
               ],
               "format": "int32",
-              "default": null
+              "default": null,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
             "request_timeout_ms": {
               "type": "integer",
@@ -2905,7 +2916,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -2988,7 +3000,10 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 65536
+              "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -3041,7 +3056,8 @@
           "batch"
         ],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -3138,7 +3154,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -3234,19 +3251,28 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 65536
+              "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
             "connect_timeout_ms": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 30000
+              "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
             "request_timeout_ms": {
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 30000
+              "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -3264,23 +3290,12 @@
                 },
                 "name": {
                   "type": "string"
-                },
-                "output_name": {
-                  "type": "string"
-                },
-                "order_by": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
                 }
               },
               "additionalProperties": false,
               "required": [
                 "database",
-                "name",
-                "output_name",
-                "order_by"
+                "name"
               ]
             }
           }
@@ -3295,11 +3310,7 @@
           "tables": [
             {
               "database": "",
-              "name": "",
-              "output_name": "",
-              "order_by": [
-                ""
-              ]
+              "name": ""
             }
           ],
           "installation": {
@@ -3316,7 +3327,8 @@
           "batch"
         ],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -3407,7 +3419,7 @@
               "minimum": 0,
               "default": 100000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "insert_target_bytes": {
@@ -3416,7 +3428,7 @@
               "minimum": 0,
               "default": 67108864,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "flush_interval_ms": {
@@ -3425,7 +3437,7 @@
               "minimum": 0,
               "default": 100,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_initial_ms": {
@@ -3434,7 +3446,7 @@
               "minimum": 0,
               "default": 50,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_ms": {
@@ -3443,7 +3455,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry_max_attempts": {
@@ -3455,7 +3467,7 @@
               "minimum": 0,
               "default": null,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "connect_timeout_ms": {
@@ -3464,7 +3476,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "request_timeout_ms": {
@@ -3473,7 +3485,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -3508,7 +3520,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -3772,6 +3785,7 @@
                   "items": {
                     "$ref": "#/$defs/ColumnMapping"
                   },
+                  "minItems": 1,
                   "x-ui": {
                     "widget": "column_mappings",
                     "initial_items": 1
@@ -4336,7 +4350,8 @@
           "batch"
         ],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -4685,7 +4700,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -4984,7 +5000,8 @@
           "batch"
         ],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -5305,7 +5322,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -5373,7 +5391,10 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 30000
+              "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
             "tables": {
               "type": "array",
@@ -5385,7 +5406,10 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 65536
+              "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -5433,7 +5457,8 @@
           "batch"
         ],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       },
       "sink": {
         "schema": {
@@ -5497,44 +5522,31 @@
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 30000
-            },
-            "tables": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/SinkTableConfig"
+              "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
               }
+            },
+            "path": {
+              "title": "Path",
+              "description": "Directory where dataset tables are stored",
+              "type": "string"
             },
             "replace_tables": {
               "type": "boolean"
             },
             "format": {
+              "title": "Driver exchange format",
               "$ref": "#/$defs/YTsaurusWriteFormat"
             }
           },
           "additionalProperties": false,
           "required": [
-            "tables",
+            "path",
             "replace_tables",
             "installation"
           ],
           "$defs": {
-            "SinkTableConfig": {
-              "type": "object",
-              "properties": {
-                "dataset": {
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "dataset",
-                "path"
-              ]
-            },
             "YTsaurusWriteFormat": {
               "type": "string",
               "enum": [
@@ -5547,12 +5559,7 @@
         "initial": {
           "format": "arrow",
           "replace_tables": true,
-          "tables": [
-            {
-              "dataset": "",
-              "path": ""
-            }
-          ],
+          "path": "",
           "timeout_ms": 30000,
           "installation": {
             "host": "",
@@ -5564,7 +5571,8 @@
         },
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": true
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
@@ -5580,7 +5588,8 @@
         "initial": {},
         "delivery_modes": [],
         "partitioned": false,
-        "connection_check": false
+        "connection_check": false,
+        "message_preview": false
       }
     }
   ]

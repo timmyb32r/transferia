@@ -186,6 +186,7 @@ describe("App request orchestration", () => {
             delivery_modes: ["batch"],
             partitioned: false,
             connection_check: false,
+            message_preview: false,
           },
         },
         {
@@ -203,6 +204,7 @@ describe("App request orchestration", () => {
             delivery_modes: ["batch"],
             partitioned: false,
             connection_check: false,
+            message_preview: false,
           },
         },
       ],
@@ -475,6 +477,7 @@ describe("App request orchestration", () => {
             delivery_modes: ["batch"],
             partitioned: false,
             connection_check: false,
+            message_preview: false,
           },
         },
         {
@@ -486,6 +489,7 @@ describe("App request orchestration", () => {
             delivery_modes: ["batch"],
             partitioned: false,
             connection_check: false,
+            message_preview: false,
           },
         },
       ],

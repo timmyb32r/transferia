@@ -321,11 +321,6 @@ impl ControlPlane {
                 "message preview max_bytes must be in 1..={MAX_MESSAGE_PREVIEW_BYTES}"
             )));
         }
-        if provider != "logbroker" {
-            return Err(ServiceError::Validation(format!(
-                "{provider} source does not support message preview"
-            )));
-        }
         let raw = serde_yaml::to_value(config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
         let resolved = self
@@ -341,19 +336,21 @@ impl ControlPlane {
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
         let attempts_cancellation = cancellation.child_token();
         let mut attempts = tokio::task::JoinSet::new();
+        let catalog = Arc::new(
+            transferia_providers::providers::catalog::build_provider_catalog_with(
+                &self.transferia,
+                &Arc::new(transferia_providers::metrics::MetricsRegistry::new()),
+            )
+            .map_err(ServiceError::Internal)?,
+        );
         for endpoint in resolved {
-            let config: transferia_providers::providers::logbroker::src_stream::LogbrokerSourceConnectionConfig =
-                serde_yaml::from_value(endpoint).map_err(|error| {
-                    ServiceError::Validation(format!("invalid source configuration: {error}"))
-                })?;
             let endpoint_cancellation = attempts_cancellation.clone();
+            let catalog = Arc::clone(&catalog);
+            let provider = provider.to_owned();
             attempts.spawn(async move {
-                transferia_providers::providers::logbroker::preview_message(
-                    &config,
-                    max_bytes,
-                    endpoint_cancellation,
-                )
-                .await
+                catalog
+                    .preview_source(&provider, endpoint, max_bytes, endpoint_cancellation)
+                    .await
             });
         }
         let preview = first_successful_preview(&mut attempts, &cancellation).await?;
@@ -363,7 +360,7 @@ impl ControlPlane {
         let detection_payloads = preview
             .detection_payloads
             .iter()
-            .map(bytes::Bytes::as_ref)
+            .map(Vec::as_slice)
             .collect::<Vec<_>>();
         Ok(MessagePreviewResult {
             text_preview: String::from_utf8_lossy(&preview.payload[..preview_bytes]).into_owned(),
@@ -994,7 +991,9 @@ fn connection_check_service_error(error: anyhow::Error) -> ServiceError {
         cause
             .downcast_ref::<std::io::Error>()
             .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
-    }) || error.to_string().contains("Permission denied (os error 13)");
+    }) || error
+        .to_string()
+        .contains("Permission denied (os error 13)");
     if permission_denied {
         ServiceError::Validation(
             "No network access to the endpoint: the operating system denied the outgoing connection."
@@ -1032,7 +1031,7 @@ async fn first_successful_preview<T: Send + 'static>(
 }
 
 fn message_preview_metadata(
-    value: transferia_providers::providers::logbroker::src_stream::PreviewMessageMetadata,
+    value: transferia_registry::SourcePreviewMetadata,
 ) -> MessagePreviewMetadata {
     MessagePreviewMetadata {
         topic: value.topic,
@@ -1057,7 +1056,7 @@ fn message_preview_metadata(
 }
 
 fn message_preview_metadata_item(
-    value: transferia_providers::providers::logbroker::src_stream::PreviewMetadataItem,
+    value: transferia_registry::SourcePreviewMetadataItem,
 ) -> MessagePreviewMetadataItem {
     let value_text = String::from_utf8(value.value.clone()).ok();
     MessagePreviewMetadataItem {
