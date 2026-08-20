@@ -8,6 +8,7 @@ import {
   pathSearchFragment,
   rankSearchResults,
 } from "../ui/search";
+import { SearchHighlight } from "../ui/SearchHighlight";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
@@ -166,7 +167,12 @@ export function DynamicPathControl({
                 <span class="dynamic-path-kind" aria-hidden="true">
                   {directory ? "▸" : ""}
                 </span>
-                <span>{option.label}</span>
+                <span>
+                  <SearchHighlight
+                    text={option.label}
+                    query={pathSearchFragment(value)}
+                  />
+                </span>
               </button>
             );
           })}

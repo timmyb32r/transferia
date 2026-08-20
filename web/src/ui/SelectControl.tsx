@@ -2,6 +2,7 @@ import { useId, useMemo } from "preact/hooks";
 
 import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
 import { rankSearchResults } from "./search";
+import { SearchHighlight } from "./SearchHighlight";
 import { useListbox } from "./useListbox";
 
 export interface SelectOption {
@@ -142,7 +143,7 @@ export function SelectControl({
                   if (event.detail === 0) choose(option.value);
                 }}
               >
-                {option.label}
+                <SearchHighlight text={option.label} query={query} />
               </button>
             ))}
             {!loading && filtered.length === 0 && (
@@ -274,7 +275,7 @@ export function MultiSelectControl({
                 <span class={`multi-check ${selected ? "checked" : ""}`}>
                   {selected ? "✓" : ""}
                 </span>
-                {option.label}
+                <SearchHighlight text={option.label} query={query} />
               </button>
             );
           })}

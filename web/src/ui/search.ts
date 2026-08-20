@@ -26,6 +26,48 @@ function rankNormalized(value: string, query: string): number | undefined {
   return undefined;
 }
 
+function matchNormalized(value: string, query: string): number[] | undefined {
+  if (query === "") return [];
+  const valueCharacters = [...value];
+  const queryCharacters = [...query];
+  for (let start = 0; start <= valueCharacters.length - queryCharacters.length; start += 1) {
+    if (
+      queryCharacters.every(
+        (character, offset) => valueCharacters[start + offset] === character,
+      )
+    ) {
+      return queryCharacters.map((_, offset) => start + offset);
+    }
+  }
+  const indices: number[] = [];
+  let queryIndex = 0;
+  for (const [index, character] of valueCharacters.entries()) {
+    if (character !== queryCharacters[queryIndex]) continue;
+    indices.push(index);
+    queryIndex += 1;
+    if (queryIndex === queryCharacters.length) return indices;
+  }
+  return undefined;
+}
+
+export function searchMatchIndices(value: string, query: string): number[] {
+  const normalizedValue = value.toLowerCase();
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery === "") return [];
+  const candidates = [
+    ...new Set([normalizedQuery, latinKeyboardInput(normalizedQuery)]),
+  ];
+  let best: { rank: number; indices: number[] } | undefined;
+  for (const candidate of candidates) {
+    const rank = rankNormalized(normalizedValue, candidate);
+    const indices = matchNormalized(normalizedValue, candidate);
+    if (rank !== undefined && indices !== undefined && (best === undefined || rank < best.rank)) {
+      best = { rank, indices };
+    }
+  }
+  return best?.indices ?? [];
+}
+
 export function searchRank(value: string, query: string): number | undefined {
   const normalizedValue = value.toLowerCase();
   const normalizedQuery = query.trim().toLowerCase();
