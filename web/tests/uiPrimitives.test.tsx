@@ -139,13 +139,68 @@ describe("UI primitives", () => {
 
     expect(
       form.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["dca", "dcb", "adcb", "adbc"]);
+    ).toEqual(["Not selected", "dca", "dcb", "adcb", "adbc"]);
 
     fireEvent.input(form.getByRole("searchbox"), {
       target: { value: "вс" },
     });
     expect(
       form.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["dca", "dcb", "adcb", "adbc"]);
+    ).toEqual(["Not selected", "dca", "dcb", "adcb", "adbc"]);
+  });
+
+  it("always keeps Not selected as the first option", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[
+          { value: "stream", label: "Stream" },
+          { value: "batch", label: "Batch" },
+        ]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }), {
+      button: 0,
+    });
+
+    expect(
+      form.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Not selected", "Batch", "Stream"]);
+
+    fireEvent.input(form.getByRole("searchbox"), {
+      target: { value: "str" },
+    });
+    expect(
+      form.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Not selected", "Stream"]);
+  });
+
+  it("always keeps Not selected first in multi-selects", () => {
+    const view = render(
+      <MultiSelectControl
+        values={[]}
+        placeholder="Not selected"
+        options={[
+          { value: "stream", label: "Stream" },
+          { value: "batch", label: "Batch" },
+        ]}
+        disabled={false}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }), {
+      button: 0,
+    });
+    fireEvent.input(form.getByRole("searchbox"), {
+      target: { value: "str" },
+    });
+
+    expect(
+      form.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["✓Not selected", "Stream"]);
   });
 });

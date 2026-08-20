@@ -1,7 +1,7 @@
 import { useId, useMemo } from "preact/hooks";
 
 import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
-import { matchesSearch, rankSearchResults } from "./search";
+import { rankSearchResults } from "./search";
 import { useListbox } from "./useListbox";
 
 export interface SelectOption {
@@ -40,17 +40,22 @@ export function SelectControl({
   const { open, query, root, trigger, close, toggle, setQuery, onKeyDown } =
     listbox;
   const selected = options.find((option) => option.value === value);
-  const menuOptions = useMemo(
-    () =>
-      clearable && !options.some((option) => option.value === "")
-        ? [{ value: "", label: placeholder }, ...options]
-        : options,
-    [clearable, options, placeholder],
-  );
-  const filtered = useMemo(
-    () => rankSearchResults(menuOptions, query, (option) => option.label),
-    [menuOptions, query],
-  );
+  const filtered = useMemo(() => {
+    const clearOption = clearable
+      ? (options.find((option) => option.value === "") ?? {
+          value: "",
+          label: placeholder,
+        })
+      : undefined;
+    return [
+      ...(clearOption === undefined ? [] : [clearOption]),
+      ...rankSearchResults(
+        options.filter((option) => option.value !== ""),
+        query,
+        (option) => option.label,
+      ),
+    ];
+  }, [clearable, options, placeholder, query]);
   const choose = (next: string) => {
     if (disabled) return;
     onChange(next);
@@ -214,31 +219,27 @@ export function MultiSelectControl({
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
-          {matchesSearch(placeholder, query) && (
-            <button
-              type="button"
-              disabled={disabled}
-              role="option"
-              aria-selected={values.length === 0}
-              class="select-option multi-select-option"
-              onPointerDown={(event) => {
-                if (event.button !== 0) return;
-                event.preventDefault();
-                dismissActiveTextSelection();
-                onChange([]);
-              }}
-              onClick={(event) => {
-                if (event.detail === 0) onChange([]);
-              }}
-            >
-              <span
-                class={`multi-check ${values.length === 0 ? "checked" : ""}`}
-              >
-                {values.length === 0 ? "✓" : ""}
-              </span>
-              {placeholder}
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={disabled}
+            role="option"
+            aria-selected={values.length === 0}
+            class="select-option multi-select-option"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              dismissActiveTextSelection();
+              onChange([]);
+            }}
+            onClick={(event) => {
+              if (event.detail === 0) onChange([]);
+            }}
+          >
+            <span class={`multi-check ${values.length === 0 ? "checked" : ""}`}>
+              {values.length === 0 ? "✓" : ""}
+            </span>
+            {placeholder}
+          </button>
           {filtered.map((option) => {
             const selected = values.includes(option.value);
             const choose = () =>
