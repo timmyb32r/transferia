@@ -1143,7 +1143,7 @@ describe("schema form", () => {
     ).not.toBeNull();
     expect(
       incompleteDetails.container.querySelectorAll(
-        ".column-table tr.validation-guided",
+        ".column-table tr.validation-missing-row",
       ),
     ).toHaveLength(1);
     expect(

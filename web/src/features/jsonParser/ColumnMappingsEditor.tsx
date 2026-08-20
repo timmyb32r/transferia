@@ -286,7 +286,7 @@ export function ColumnMappingsEditor({
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${showRequiredErrors && index === firstIncompleteRow ? "validation-guided" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
+                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${showRequiredErrors && index === firstIncompleteRow ? "validation-missing-row" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();
