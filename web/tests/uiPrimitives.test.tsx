@@ -88,6 +88,27 @@ describe("UI primitives", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("releases focus after selecting a single value", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[{ value: "one", label: "One" }]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    const trigger = form.getByRole("button", { name: "Not selected" });
+    fireEvent.pointerDown(trigger, { button: 0 });
+    expect(document.activeElement).toBe(trigger);
+
+    fireEvent.pointerDown(form.getByRole("option", { name: "One" }), {
+      button: 0,
+    });
+
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
   it("matches substrings and text typed with the Russian keyboard layout", () => {
     const view = render(
       <SelectControl

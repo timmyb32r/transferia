@@ -101,6 +101,21 @@ describe("App request orchestration", () => {
       expect(deliveryType.classList.contains("required-next")).toBe(true),
     );
     expect(name.classList.contains("required-next")).toBe(false);
+
+    const deliveryTypeTrigger = within(deliveryType).getByRole("button", {
+      name: "Delivery type",
+    });
+    chooseFromSelect(app, "Delivery type", "Batch");
+
+    await waitFor(() =>
+      expect(
+        app
+          .getByRole("heading", { name: "Source" })
+          .closest(".endpoint-card")
+          ?.querySelector(".required-next"),
+      ).not.toBeNull(),
+    );
+    expect(document.activeElement).not.toBe(deliveryTypeTrigger);
   });
 
   it("highlights missing required fields when inactive Activate is clicked", async () => {

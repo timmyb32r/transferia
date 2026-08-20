@@ -58,6 +58,9 @@ export function SelectControl({
   }, [clearable, options, placeholder, query]);
   const choose = (next: string) => {
     if (disabled) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) active.blur();
+    trigger.current?.blur();
     onChange(next);
     close();
   };
