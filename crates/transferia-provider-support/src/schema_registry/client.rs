@@ -1,15 +1,16 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
-use reqwest::{Client, RequestBuilder, Url};
+use reqwest::Url;
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
 use super::{SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection};
+use crate::outbound_http::{OutboundHttpClient, OutboundHttpRequest};
 
 #[derive(Clone)]
 pub struct RegistryClient {
-    client: Client,
+    client: OutboundHttpClient,
     urls: Arc<[Url]>,
     auth: SchemaRegistryAuth,
     schemas: Arc<RwLock<HashMap<i32, RegistrySchema>>>,
@@ -34,14 +35,16 @@ impl RegistryClient {
     pub fn new(config: &SchemaRegistryConnection) -> anyhow::Result<Self> {
         config.validate()?;
         let urls = vec![Url::parse(&config.url)?];
-        let mut client =
-            Client::builder().timeout(Duration::from_millis(config.request_timeout_ms));
-        if let Some(certificate) = &config.ca_certificate {
-            client = client
-                .add_root_certificate(reqwest::Certificate::from_pem(certificate.as_bytes())?);
-        }
-        let client = client
-            .build()
+        let certificates = config
+            .ca_certificate
+            .as_deref()
+            .map(|certificate| reqwest::Certificate::from_pem(certificate.as_bytes()))
+            .transpose()?
+            .into_iter();
+        let client = OutboundHttpClient::new(
+            Duration::from_millis(config.request_timeout_ms),
+            certificates,
+        )
             .context("failed to build Schema Registry HTTP client")?;
         Ok(Self {
             client,
@@ -131,13 +134,15 @@ impl RegistryClient {
         )
     }
 
-    async fn send(&self, request: RequestBuilder) -> anyhow::Result<RegistryResponse> {
+    async fn send(&self, request: OutboundHttpRequest) -> anyhow::Result<RegistryResponse> {
         let request = match &self.auth {
             SchemaRegistryAuth::None => request,
             SchemaRegistryAuth::Basic { username, password } => {
-                request.basic_auth(username, Some(password))
+                request.configure(|request| request.basic_auth(username, Some(password)))
             }
-            SchemaRegistryAuth::Bearer { token } => request.bearer_auth(token),
+            SchemaRegistryAuth::Bearer { token } => {
+                request.configure(|request| request.bearer_auth(token))
+            }
         };
         request
             .send()

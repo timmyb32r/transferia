@@ -6122,6 +6122,7 @@ dependencies = [
  "serde_yaml",
  "simd-json",
  "testcontainers",
+ "thiserror",
  "time",
  "tokio",
  "tokio-util",

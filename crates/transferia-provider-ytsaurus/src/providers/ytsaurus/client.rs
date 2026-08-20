@@ -1,4 +1,5 @@
 use serde_json::Value;
+use transferia_provider_support::outbound_http::{OutboundHttpClient, OutboundHttpRequest};
 
 use super::config::YTsaurusConnectionConfig;
 
@@ -18,32 +19,39 @@ impl std::error::Error for YTsaurusHttpError {}
 
 #[derive(Clone)]
 pub struct YTsaurusClient {
-    endpoint: String,
+    endpoint: reqwest::Url,
     token: Option<String>,
-    client: reqwest::Client,
+    client: OutboundHttpClient,
 }
 
 impl YTsaurusClient {
     pub fn new(config: &YTsaurusConnectionConfig) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
-            endpoint: config.endpoint(),
+            endpoint: config.endpoint().parse()?,
             token: config.token.clone(),
-            client: reqwest::Client::builder()
-                .timeout(config.timeout())
-                .redirect(reqwest::redirect::Policy::limited(5))
-                .build()?,
+            client: OutboundHttpClient::new(config.timeout(), [])?,
         })
     }
 
-    fn request(&self, method: reqwest::Method, command: &str) -> reqwest::RequestBuilder {
-        let request = self
-            .client
-            .request(method, format!("{}/api/v3/{command}", self.endpoint));
+    fn request(
+        &self,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
+        let mut url = self.endpoint.clone();
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|()| anyhow::anyhow!("YTsaurus endpoint cannot be a base URL"))?;
+        segments.pop_if_empty().extend(["api", "v3", command]);
+        drop(segments);
+        let request = self.client.request(method, url);
         if let Some(token) = &self.token {
-            request.header(reqwest::header::AUTHORIZATION, format!("OAuth {token}"))
+            Ok(request.configure(|request| {
+                request.header(reqwest::header::AUTHORIZATION, format!("OAuth {token}"))
+            }))
         } else {
-            request
+            Ok(request)
         }
     }
 
@@ -59,10 +67,15 @@ impl YTsaurusClient {
 
     pub async fn get_json(&self, path: &str) -> anyhow::Result<Value> {
         let parameters = serde_json::json!({ "path": path });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::GET, "get")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
-            .header(reqwest::header::ACCEPT, "application/json")
+            ?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters)
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
             .send()
             .await?;
         Ok(Self::checked(response).await?.json().await?)
@@ -70,10 +83,15 @@ impl YTsaurusClient {
 
     pub async fn read_arrow(&self, path: &str) -> anyhow::Result<reqwest::Response> {
         let parameters = serde_json::json!({ "path": path });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::GET, "read_table")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
-            .header("X-YT-Output-Format", "\"arrow\"")
+            ?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters)
+                    .header("X-YT-Output-Format", "\"arrow\"")
+            })
             .send()
             .await?;
         Self::checked(response).await
@@ -86,11 +104,16 @@ impl YTsaurusClient {
         payload: Vec<u8>,
     ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({ "path": format!("<append=%true>{path}") });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::PUT, "write_table")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
-            .header("X-YT-Input-Format", format!("\"{format}\""))
-            .body(payload)
+            ?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters)
+                    .header("X-YT-Input-Format", format!("\"{format}\""))
+                    .body(payload)
+            })
             .send()
             .await?;
         Self::checked(response).await?;
@@ -99,9 +122,13 @@ impl YTsaurusClient {
 
     pub async fn remove_table(&self, path: &str) -> anyhow::Result<()> {
         let parameters = serde_json::json!({ "path": path, "force": true });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::POST, "remove")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
+            ?
+            .configure(|request| {
+                request.header("X-YT-Parameters", parameters)
+            })
             .send()
             .await?;
         Self::checked(response).await?;
@@ -114,9 +141,13 @@ impl YTsaurusClient {
             "path": path,
             "attributes": { "schema": schema, "optimize_for": "scan" }
         });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::POST, "create")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
+            ?
+            .configure(|request| {
+                request.header("X-YT-Parameters", parameters)
+            })
             .send()
             .await?;
         Self::checked(response).await?;
@@ -130,9 +161,13 @@ impl YTsaurusClient {
             "recursive": true,
             "ignore_existing": true
         });
+        let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .request(reqwest::Method::POST, "create")
-            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
+            ?
+            .configure(|request| {
+                request.header("X-YT-Parameters", parameters)
+            })
             .send()
             .await?;
         Self::checked(response).await?;

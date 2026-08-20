@@ -7,7 +7,7 @@
 pub use transferia_core as core;
 pub use transferia_delivery as delivery;
 pub use transferia_providers::{
-    durable, extension, metrics, parsers, providers, schema_registry, serializer,
+    durable, extension, metrics, outbound_http, parsers, providers, schema_registry, serializer,
 };
 pub use transferia_registry as registry;
 pub use transferia_runtime as runtime_api;

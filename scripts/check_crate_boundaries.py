@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import sys
 import tomllib
 
@@ -127,6 +128,8 @@ HEAVY_PROVIDER_OWNERS = {
     "datafusion": "transferia-middleware-datafusion",
 }
 
+DIRECT_HTTP_CLIENT = re.compile(r"reqwest::Client\s*::|\bClient\s*::builder\s*\(")
+
 
 def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]:
     dependencies = manifest.get(section, {})
@@ -168,6 +171,21 @@ def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[s
     return errors
 
 
+def outbound_http_boundary_errors() -> list[str]:
+    errors: list[str] = []
+    wrapper = ROOT / "crates/transferia-provider-support/src/outbound_http.rs"
+    for source_path in sorted((ROOT / "crates").glob("*/src/**/*.rs")):
+        if source_path == wrapper or "/tests/" in source_path.as_posix():
+            continue
+        source = source_path.read_text()
+        if DIRECT_HTTP_CLIENT.search(source):
+            errors.append(
+                f"{source_path.relative_to(ROOT)}: direct reqwest client construction is forbidden; "
+                "use transferia_provider_support::outbound_http"
+            )
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     discovered: set[str] = set()
@@ -203,6 +221,7 @@ def main() -> int:
         errors.append("root transferia facade must contain only src/lib.rs")
     if not (PRODUCTION_ALLOWED.keys() - discovered):
         errors.extend(provider_isolation_errors(manifests))
+    errors.extend(outbound_http_boundary_errors())
 
     if errors:
         print("\n".join(errors), file=sys.stderr)

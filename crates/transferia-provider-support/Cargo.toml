@@ -37,6 +37,7 @@ serde_yaml.workspace = true
 simd-json.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
