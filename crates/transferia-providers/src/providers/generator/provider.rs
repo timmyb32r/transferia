@@ -50,7 +50,7 @@ impl DataGeneratorConfig {
         );
         let row_bytes = self.row_bytes()?;
         anyhow::ensure!(
-            self.data_size_bytes % row_bytes == 0,
+            self.data_size_bytes.is_multiple_of(row_bytes),
             "generator.data_size_bytes ({}) must be divisible by the generated row width ({row_bytes} bytes)",
             self.data_size_bytes
         );
