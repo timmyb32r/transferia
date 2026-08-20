@@ -233,7 +233,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
 
     let arrow_config: transferia_provider_ytsaurus::ytsaurus::YTsaurusSinkConfig =
         serde_yaml::from_str(&format!(
-        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\npath: //tmp/arrow_output\n"
+        "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\npath: //tmp/arrow_output\n"
     ))?;
     transferia_provider_ytsaurus::ytsaurus::check_connection(&arrow_config.connection).await?;
     let arrow_provider = YTsaurusSinkProvider::from_config(arrow_config)?;
@@ -260,7 +260,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     .await?;
 
     let yson_provider = YTsaurusSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\npath: //tmp/yson_output\n"
+        "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\npath: //tmp/yson_output\n"
     ))?)?;
     yson_provider.limits().validate_discovery(&discovered)?;
     yson_provider
@@ -317,7 +317,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceProvider::from_config(
         serde_yaml::from_str(&format!(
-            "host: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n    output_name: events\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

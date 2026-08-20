@@ -5,7 +5,8 @@ mod sink;
 pub mod src_batch;
 
 pub use config::{
-    YTsaurusConnectionConfig, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat,
+    YTsaurusAuthConfig, YTsaurusConnectionConfig, YTsaurusSinkConfig, YTsaurusSourceConfig,
+    YTsaurusWriteFormat,
 };
 pub use sink::YTsaurusSinkProvider;
 pub use src_batch::YTsaurusSourceProvider;

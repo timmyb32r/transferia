@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 use std::time::Duration;
 
 use schemars::JsonSchema;
@@ -10,13 +10,11 @@ const DEFAULT_BATCH_ROWS: usize = 65_536;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
+    pub auth: YTsaurusAuthConfig,
+
     pub host: String,
 
     pub port: u16,
-
-    #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "password" }))]
-    pub token: Option<String>,
 
     pub trusted_plaintext: bool,
 
@@ -30,9 +28,7 @@ impl YTsaurusConnectionConfig {
         crate::providers::address::validate_host("ytsaurus.host", &self.host)?;
         crate::providers::address::validate_port("ytsaurus.port", self.port)?;
         anyhow::ensure!(self.timeout_ms > 0, "ytsaurus.timeout_ms must be positive");
-        if let Some(token) = &self.token {
-            anyhow::ensure!(!token.is_empty(), "ytsaurus.token must not be empty");
-        }
+        self.auth.validate()?;
         Ok(())
     }
 
@@ -51,6 +47,65 @@ impl YTsaurusConnectionConfig {
             &self.host,
             self.port,
         )
+    }
+}
+
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum YTsaurusAuthConfig {
+    #[schemars(title = "Token")]
+    Token {
+        #[schemars(extend("x-ui" = { "widget": "password" }))]
+        token: String,
+    },
+
+    #[schemars(title = "Token file")]
+    TokenFile { token_file: String },
+}
+
+impl YTsaurusAuthConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        match self {
+            Self::Token { token } => {
+                anyhow::ensure!(!token.trim().is_empty(), "ytsaurus.auth.token must not be empty")
+            }
+            Self::TokenFile { token_file } => anyhow::ensure!(
+                !token_file.trim().is_empty(),
+                "ytsaurus.auth.token_file must not be empty"
+            ),
+        }
+        Ok(())
+    }
+
+    pub(crate) fn load_token(&self) -> anyhow::Result<String> {
+        self.validate()?;
+        let token = match self {
+            Self::Token { token } => token.clone(),
+            Self::TokenFile { token_file } => {
+                let expanded = shellexpand::full(token_file)?;
+                std::fs::read_to_string(expanded.as_ref()).map_err(|error| {
+                    anyhow::anyhow!("failed to read YTsaurus token file '{expanded}': {error}")
+                })?
+            }
+        };
+        let token = token.trim().to_owned();
+        anyhow::ensure!(!token.is_empty(), "YTsaurus token is empty");
+        Ok(token)
+    }
+}
+
+impl fmt::Debug for YTsaurusAuthConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Token { .. } => formatter
+                .debug_struct("Token")
+                .field("token", &"[REDACTED]")
+                .finish(),
+            Self::TokenFile { token_file } => formatter
+                .debug_struct("TokenFile")
+                .field("token_file", token_file)
+                .finish(),
+        }
     }
 }
 

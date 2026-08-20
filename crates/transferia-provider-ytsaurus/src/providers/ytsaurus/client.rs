@@ -20,7 +20,7 @@ impl std::error::Error for YTsaurusHttpError {}
 #[derive(Clone)]
 pub struct YTsaurusClient {
     endpoint: reqwest::Url,
-    token: Option<String>,
+    token: String,
     client: OutboundHttpClient,
 }
 
@@ -29,7 +29,7 @@ impl YTsaurusClient {
         config.validate()?;
         Ok(Self {
             endpoint: config.endpoint().parse()?,
-            token: config.token.clone(),
+            token: config.auth.load_token()?,
             client: OutboundHttpClient::new(config.timeout(), [])?,
         })
     }
@@ -46,13 +46,12 @@ impl YTsaurusClient {
         segments.pop_if_empty().extend(["api", "v3", command]);
         drop(segments);
         let request = self.client.request(method, url);
-        if let Some(token) = &self.token {
-            Ok(request.configure(|request| {
-                request.header(reqwest::header::AUTHORIZATION, format!("OAuth {token}"))
-            }))
-        } else {
-            Ok(request)
-        }
+        Ok(request.configure(|request| {
+            request.header(
+                reqwest::header::AUTHORIZATION,
+                format!("OAuth {}", self.token),
+            )
+        }))
     }
 
     async fn checked(response: reqwest::Response) -> anyhow::Result<reqwest::Response> {

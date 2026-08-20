@@ -449,7 +449,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         EndpointRole::Source,
         ytsaurus_on_premise_schema(),
         &["host", "port", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 8000, "token": null, "trusted_plaintext": true }),
+        serde_json::json!({ "host": "", "port": 8000, "trusted_plaintext": true }),
     )?;
     register_on_premise(
         _registry,
@@ -457,7 +457,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         EndpointRole::Sink,
         ytsaurus_on_premise_schema(),
         &["host", "port", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 8000, "token": null, "trusted_plaintext": true }),
+        serde_json::json!({ "host": "", "port": 8000, "trusted_plaintext": true }),
     )?;
     Ok(())
 }
@@ -466,7 +466,6 @@ fn ytsaurus_on_premise_schema() -> JsonValue {
     serde_json::json!({
         "host": { "type": "string", "title": "Host" },
         "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-        "token": { "anyOf": [{ "type": "string", "x-ui": { "widget": "password" } }, { "type": "null" }], "title": "Token" },
         "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
     })
 }

@@ -12,16 +12,16 @@ use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 #[test]
 fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
     )?;
     source.validate()?;
     let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
     )?;
     tls_source.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: relative\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: relative\n"
     )?
     .validate()
     .is_err());
@@ -31,7 +31,7 @@ fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::R
 #[test]
 fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: //tmp/output\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: //tmp/output\n",
     )?;
     assert_eq!(config.format, YTsaurusWriteFormat::Arrow);
     assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");

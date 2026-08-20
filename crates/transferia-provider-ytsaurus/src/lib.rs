@@ -26,6 +26,7 @@ pub fn register(
                 false,
                 || {
                     serde_json::json!({
+                        "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "timeout_ms": 30000,
                         "tables": [{ "path": "", "output_name": "" }],
@@ -49,6 +50,7 @@ pub fn register(
             .sink::<ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
                     serde_json::json!({
+                        "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "timeout_ms": 30000, "path": "",
                         "replace_tables": true, "format": "arrow"
