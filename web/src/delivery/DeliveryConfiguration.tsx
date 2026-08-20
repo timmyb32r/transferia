@@ -79,6 +79,7 @@ export function DeliveryConfiguration({
           <TopField
             label="Delivery name"
             required
+            incomplete={!readOnly && editor.name.trim() === ""}
             invalid={showRequiredErrors && editor.name.trim() === ""}
           >
             <input
@@ -104,6 +105,7 @@ export function DeliveryConfiguration({
           <TopField
             label="Delivery type"
             required
+            incomplete={!readOnly && !deliveryTypeSelected}
             invalid={
               showRequiredErrors &&
               stringValue(editor.config.delivery_type) === ""

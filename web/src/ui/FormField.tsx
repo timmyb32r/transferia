@@ -42,15 +42,25 @@ export function TopField({
   label,
   required = false,
   invalid = false,
+  incomplete = false,
   children,
 }: {
   label: string;
   required?: boolean;
   invalid?: boolean;
+  incomplete?: boolean;
   children: ComponentChildren;
 }) {
   return (
-    <label class={invalid ? "top-field required-missing" : "top-field"}>
+    <label
+      class={[
+        "top-field",
+        incomplete ? "required-incomplete" : "",
+        invalid ? "required-missing" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <span>
         {label}
         {!required && <small class="optional">(optional)</small>}

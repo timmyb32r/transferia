@@ -149,11 +149,16 @@ export function EndpointCard(props: {
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <h2>{props.title}</h2>
       <div
-        class={
+        class={[
+          !props.readOnly && props.selectedKey === ""
+            ? "required-incomplete"
+            : "",
           props.showRequiredErrors && props.selectedKey === ""
             ? "required-missing"
-            : undefined
-        }
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
         <SelectControl
           searchable

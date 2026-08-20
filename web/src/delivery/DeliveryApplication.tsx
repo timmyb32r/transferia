@@ -37,6 +37,7 @@ import { useDeliveryPolling } from "./useDeliveryPolling";
 import { useDiscovery } from "./useDiscovery";
 import { useOperations } from "./useOperations";
 import { useYamlEditor } from "./useYamlEditor";
+import { RequiredFieldGuide } from "./RequiredFieldGuide";
 import { isComplete } from "../schema/compiler";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import {
@@ -89,6 +90,7 @@ export function DeliveryApplication() {
     resetOperations,
   } = useOperations();
   const sessionSequence = useRef(0);
+  const workspace = useRef<HTMLElement>(null);
   const jobs = useDeliveryJobs();
   const {
     yaml: yamlJob,
@@ -453,7 +455,12 @@ export function DeliveryApplication() {
         }}
       />
 
-      <main class="workspace">
+      <main ref={workspace} class="workspace">
+        <RequiredFieldGuide
+          root={workspace}
+          enabled={!readOnly && activeView === "ui"}
+          revision={editor.localRevision}
+        />
         <header class="page-header">
           <div>
             <small>

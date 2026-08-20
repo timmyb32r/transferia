@@ -429,8 +429,10 @@ function PropertyEditor({
 }: PropertyEditorProps) {
   const widgets = useWidgetRegistry();
   const showRequiredErrors = useContext(RequiredErrorsContext);
-  const missingRequired =
-    showRequiredErrors && required && !isComplete(node, value);
+  const incompleteRequired = required && !isComplete(node, value);
+  const missingRequired = showRequiredErrors && incompleteRequired;
+  const guidanceClass =
+    !disabled && incompleteRequired ? "required-incomplete" : "";
   const effective = draftValue(node, value);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const controlWidth = controlWidthClass(name, node);
@@ -453,7 +455,11 @@ function PropertyEditor({
   );
   if (customWidget !== undefined)
     return (
-      <div class={missingRequired ? "required-missing" : undefined}>
+      <div
+        class={[guidanceClass, missingRequired ? "required-missing" : ""]
+          .filter(Boolean)
+          .join(" ")}
+      >
         {customWidget}
       </div>
     );
@@ -464,7 +470,7 @@ function PropertyEditor({
       optional={!required}
       description={node.xUi.widget === "parser" ? undefined : node.description}
       controlId={isDirectlyLabelled(node) ? identifier : undefined}
-      class={`${classes}${missingRequired ? " required-missing" : ""}`}
+      class={`${classes}${guidanceClass ? ` ${guidanceClass}` : ""}${missingRequired ? " required-missing" : ""}`}
     >
       <NodeEditor
         node={node}

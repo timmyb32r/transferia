@@ -1100,6 +1100,17 @@ button.diagnostic-disabled {
   opacity: 0.55;
   cursor: help;
 }
+.required-next input:not([type="checkbox"]),
+.required-next .select-trigger {
+  border-color: var(--blue);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--blue) 72%, transparent);
+}
+.required-next > .field-label,
+.top-field.required-next > span {
+  color: var(--blue);
+}
 .required-missing input,
 .required-missing .select-trigger {
   border-color: var(--red) !important;

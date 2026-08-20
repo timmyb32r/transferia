@@ -71,6 +71,29 @@ describe("App request orchestration", () => {
     ).toEqual(["Not selected", "Batch", "Stream", "Batch + stream"]);
   });
 
+  it("guides the user through one missing required field at a time", async () => {
+    installApiMocks([]);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    const name = app.getByLabelText("Delivery name").closest("label")!;
+    const deliveryType = app.getByText("Delivery type").closest("label")!;
+    await waitFor(() =>
+      expect(name.classList.contains("required-next")).toBe(true),
+    );
+    expect(deliveryType.classList.contains("required-next")).toBe(false);
+
+    fireEvent.input(app.getByLabelText("Delivery name"), {
+      target: { value: "guided-delivery" },
+    });
+
+    await waitFor(() =>
+      expect(deliveryType.classList.contains("required-next")).toBe(true),
+    );
+    expect(name.classList.contains("required-next")).toBe(false);
+  });
+
   it("highlights missing required fields when inactive Activate is clicked", async () => {
     installApiMocks([]);
     const view = render(<App />);
