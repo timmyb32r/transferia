@@ -76,7 +76,8 @@ describe("editor chrome", () => {
     expect(onToggleSchemaInspector).toHaveBeenCalledOnce();
   });
 
-  it("disables Data schema until discovery produces a table", () => {
+  it("lets unavailable Data schema reveal missing source fields", () => {
+    const onDataSchemaUnavailable = vi.fn();
     const view = render(
       <EditorTabs
         active="ui"
@@ -86,15 +87,19 @@ describe("editor chrome", () => {
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={() => undefined}
+        onDataSchemaUnavailable={onDataSchemaUnavailable}
       />,
     );
     const tab = view.getByRole("tab", {
       name: "Data schema",
     }) as HTMLButtonElement;
-    expect(tab.disabled).toBe(true);
+    expect(tab.disabled).toBe(false);
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
     expect(tab.parentElement?.title).toBe(
       "Complete the required parser settings",
     );
+    fireEvent.click(tab);
+    expect(onDataSchemaUnavailable).toHaveBeenCalledOnce();
   });
 
   it("passes the exact running generation to Stop", () => {
@@ -230,6 +235,42 @@ describe("editor chrome", () => {
 
     expect(onMissingRequired).toHaveBeenCalledOnce();
     expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  it("lets Validate reveal missing required fields without submitting", () => {
+    const onMissingRequired = vi.fn();
+    const onValidate = vi.fn();
+    const view = render(
+      <EditorActions
+        editor={{
+          sessionId: "new-session",
+          editing: true,
+          localRevision: 0,
+          name: "",
+          description: "",
+          config: {},
+          validation: { state: "draft" },
+          runtime: { state: "stopped" },
+        }}
+        blocked={false}
+        requiredFieldsComplete={false}
+        onMissingRequired={onMissingRequired}
+        onEdit={() => undefined}
+        onDelete={() => undefined}
+        onSave={() => undefined}
+        onValidate={onValidate}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />,
+    );
+
+    const validate = view.getByRole("button", { name: "Validate" });
+    expect((validate as HTMLButtonElement).disabled).toBe(false);
+    expect(validate.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(validate);
+
+    expect(onMissingRequired).toHaveBeenCalledOnce();
+    expect(onValidate).not.toHaveBeenCalled();
   });
 
   it("reports sidebar navigation without owning request state", () => {

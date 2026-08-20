@@ -110,6 +110,7 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   background: var(--yaml);
 }
 
@@ -571,8 +572,10 @@
 }
 
 *::-webkit-scrollbar {
+  -webkit-appearance: none;
   width: 10px;
   height: 10px;
+  background: var(--surface-soft);
 }
 
 *::-webkit-scrollbar-track {
@@ -648,6 +651,7 @@ select {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .delivery-item {
   display: grid;
@@ -1261,6 +1265,7 @@ input[type="checkbox"]:disabled {
   width: 100%;
   max-height: 320px;
   overflow: auto;
+  scrollbar-gutter: stable;
   background: var(--popup);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
@@ -1978,6 +1983,7 @@ button::after {
 .sink-limits pre {
   max-height: 220px;
   overflow: auto;
+  scrollbar-gutter: stable;
   color: var(--yaml-text);
   font:
     11px/1.5 ui-monospace,
@@ -2150,6 +2156,7 @@ button::after {
 .sql-playground-output {
   min-width: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .sql-playground-output > span {

@@ -530,6 +530,7 @@
                 "conversion_error": {
                   "title": "On Parse Error",
                   "$ref": "#/$defs/ConversionErrorPolicy",
+                  "default": "dlq",
                   "x-ui": {
                     "labels": {
                       "dlq": "Send to DLQ",
@@ -560,8 +561,7 @@
               },
               "additionalProperties": false,
               "required": [
-                "columns",
-                "conversion_error"
+                "columns"
               ]
             },
             "JsonFramingMode": {
@@ -1897,6 +1897,7 @@
                 "conversion_error": {
                   "title": "On Parse Error",
                   "$ref": "#/$defs/ConversionErrorPolicy",
+                  "default": "dlq",
                   "x-ui": {
                     "labels": {
                       "dlq": "Send to DLQ",
@@ -1927,8 +1928,7 @@
               },
               "additionalProperties": false,
               "required": [
-                "columns",
-                "conversion_error"
+                "columns"
               ]
             },
             "JsonFramingMode": {
@@ -3780,6 +3780,7 @@
                 "conversion_error": {
                   "title": "On Parse Error",
                   "$ref": "#/$defs/ConversionErrorPolicy",
+                  "default": "dlq",
                   "x-ui": {
                     "labels": {
                       "dlq": "Send to DLQ",
@@ -3810,8 +3811,7 @@
               },
               "additionalProperties": false,
               "required": [
-                "columns",
-                "conversion_error"
+                "columns"
               ]
             },
             "JsonFramingMode": {

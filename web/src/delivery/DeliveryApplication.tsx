@@ -336,6 +336,20 @@ export function DeliveryApplication() {
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
   ).some((key) => operations[key]?.label !== undefined);
+  const revealMissingSourceFields = () => {
+    setShowRequiredErrors(true);
+    void applyYamlAndShowUi().then(() => {
+      window.requestAnimationFrame(() => {
+        const missing = document.querySelector<HTMLElement>(
+          ".endpoint-card-source .required-missing",
+        );
+        missing?.scrollIntoView({ behavior: "smooth", block: "center" });
+        missing
+          ?.querySelector<HTMLElement>("input, button, textarea, select")
+          ?.focus({ preventScroll: true });
+      });
+    });
+  };
   const actionButtons = (
     <EditorActions
       editor={editor}
@@ -458,6 +472,7 @@ export function DeliveryApplication() {
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
+          onDataSchemaUnavailable={revealMissingSourceFields}
           onLogs={() => void showLogs()}
           onToggleSchemaInspector={() =>
             setSchemaInspectorVisible((visible) => !visible)

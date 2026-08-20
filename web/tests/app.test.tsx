@@ -96,6 +96,31 @@ describe("App request orchestration", () => {
     expect(api.activate).not.toHaveBeenCalled();
   });
 
+  it("keeps Validate clickable and highlights missing required fields", async () => {
+    installApiMocks([]);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+
+    const validate = app.getByRole("button", { name: "Validate" });
+    expect((validate as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(validate);
+
+    expect(
+      app
+        .getByLabelText("Delivery name")
+        .closest("label")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
+    expect(
+      app
+        .getByText("Delivery type")
+        .closest("label")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
+    expect(api.validate).not.toHaveBeenCalled();
+  });
+
   it("does not let a save response overwrite a delivery opened meanwhile", async () => {
     const existing = delivery("existing", "Existing");
     installApiMocks([existing]);
@@ -300,6 +325,33 @@ describe("App request orchestration", () => {
 
   it("validates the committed save even when sidebar refresh fails", async () => {
     installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      providers: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test destination",
+          sink: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+          },
+        },
+      ],
+    });
     const created = delivery("created", "Created");
     vi.mocked(api.create).mockResolvedValue(created);
     vi.mocked(api.deliveries)
@@ -320,6 +372,9 @@ describe("App request orchestration", () => {
     fireEvent.input(app.getByLabelText("Delivery name"), {
       target: { value: "Created" },
     });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    chooseFromSelect(app, "Destination", "Test destination");
     fireEvent.click(app.getByRole("button", { name: "Validate" }));
 
     await waitFor(() =>
@@ -329,6 +384,20 @@ describe("App request orchestration", () => {
     expect(await app.findByText(/Delivery list refresh failed/)).toBeTruthy();
   });
 });
+
+function chooseFromSelect(
+  app: ReturnType<typeof within>,
+  label: string,
+  option: string,
+) {
+  const field = within(app.getByText(label).closest("label, article")!);
+  fireEvent.pointerDown(field.getAllByRole("button")[0]!, {
+    button: 0,
+  });
+  fireEvent.pointerDown(app.getByRole("option", { name: option }), {
+    button: 0,
+  });
+}
 
 function installApiMocks(deliveries: DeliverySummary[]) {
   vi.spyOn(api, "catalog").mockResolvedValue(CATALOG);

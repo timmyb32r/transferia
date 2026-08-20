@@ -120,6 +120,21 @@ fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Resu
 }
 
 #[test]
+fn defaults_parse_errors_to_dlq() -> anyhow::Result<()> {
+    let config: JsonParserConfig = serde_yaml::from_str(
+        "columns:\n  - jsonpath: $.id\n    column_name: id\n    nullable: false\n",
+    )?;
+    assert_eq!(config.conversion_error, ConversionErrorPolicy::Dlq);
+
+    let schema = serde_json::to_value(schemars::schema_for!(JsonParserConfig))?;
+    assert_eq!(
+        schema.pointer("/properties/conversion_error/default"),
+        Some(&serde_json::json!("dlq"))
+    );
+    Ok(())
+}
+
+#[test]
 fn column_mapping_defaults_to_string_utf8() -> anyhow::Result<()> {
     let mapping: ColumnMapping =
         serde_yaml::from_str("jsonpath: $.value\ncolumn_name: value\nnullable: false\n")?;

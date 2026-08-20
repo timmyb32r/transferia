@@ -28,7 +28,8 @@ pub struct JsonParserConfig {
     )]
     pub columns: Vec<ColumnMapping>,
 
-    #[schemars(title = "On Parse Error", extend("x-ui" = {
+    #[serde(default = "default_conversion_error_policy")]
+    #[schemars(default = "default_conversion_error_policy", title = "On Parse Error", extend("x-ui" = {
         "labels": {
             "dlq": "Send to DLQ",
             "drop": "Drop",
@@ -111,12 +112,22 @@ impl JsonFramingMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversionErrorPolicy {
     Dlq,
     Drop,
     Fail,
+}
+
+impl Default for ConversionErrorPolicy {
+    fn default() -> Self {
+        default_conversion_error_policy()
+    }
+}
+
+const fn default_conversion_error_policy() -> ConversionErrorPolicy {
+    ConversionErrorPolicy::Dlq
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]

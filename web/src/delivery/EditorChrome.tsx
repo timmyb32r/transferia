@@ -53,6 +53,8 @@ export function EditorActions({
   const activationIsDiagnostic = !activationReady && !requiredFieldsComplete;
   const activate = () =>
     activationIsDiagnostic ? onMissingRequired() : onActivate();
+  const validate = () =>
+    requiredFieldsComplete ? onValidate() : onMissingRequired();
   if (!editor.editing && editor.id !== undefined) {
     const runtimeAllowsEditing =
       editor.runtime.state === "created" ||
@@ -67,8 +69,10 @@ export function EditorActions({
           Edit
         </Button>
         <Button
-          disabled={blocked || editor.name.trim() === ""}
-          onClick={onValidate}
+          class={!requiredFieldsComplete ? "diagnostic-disabled" : undefined}
+          aria-disabled={!requiredFieldsComplete}
+          disabled={blocked}
+          onClick={validate}
         >
           Validate
         </Button>
@@ -90,8 +94,10 @@ export function EditorActions({
         Save
       </Button>
       <Button
-        disabled={blocked || editor.name.trim() === ""}
-        onClick={onValidate}
+        class={!requiredFieldsComplete ? "diagnostic-disabled" : undefined}
+        aria-disabled={!requiredFieldsComplete}
+        disabled={blocked}
+        onClick={validate}
       >
         Validate
       </Button>
@@ -167,6 +173,7 @@ export function EditorTabs({
   onUi,
   onYaml,
   onDataSchema,
+  onDataSchemaUnavailable,
   onLogs,
   onToggleSchemaInspector,
 }: {
@@ -178,6 +185,7 @@ export function EditorTabs({
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
+  onDataSchemaUnavailable?: (() => void) | undefined;
   onLogs?: () => void;
   onToggleSchemaInspector?: () => void;
 }) {
@@ -213,9 +221,19 @@ export function EditorTabs({
         <Button
           role="tab"
           aria-selected={active === "data_schema"}
-          class={active === "data_schema" ? "active" : ""}
-          disabled={disabled || !dataSchemaAvailable}
-          onClick={onDataSchema}
+          aria-disabled={!dataSchemaAvailable}
+          class={[
+            active === "data_schema" ? "active" : "",
+            !dataSchemaAvailable ? "diagnostic-disabled" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          disabled={disabled}
+          onClick={
+            dataSchemaAvailable
+              ? onDataSchema
+              : (onDataSchemaUnavailable ?? onDataSchema)
+          }
         >
           Data schema
         </Button>
@@ -283,7 +301,11 @@ export function OperationNotices({
       {Object.values(operations).map(
         (operation) =>
           operation?.label && (
-            <div class="notice progress" key={operation.requestId} role="status">
+            <div
+              class="notice progress"
+              key={operation.requestId}
+              role="status"
+            >
               <span class="spinner" />
               {operation.label}
             </div>
