@@ -76,8 +76,7 @@ fn validates_static_partition_group_ids() {
 #[test]
 fn discovers_all_topic_partitions_when_none_are_configured() {
     let resolved =
-        resolve_partition_group_ids(&topic_settings(3, &["consumer"]), "consumer", &[])
-            .unwrap();
+        resolve_partition_group_ids(&topic_settings(3, &["consumer"]), "consumer", &[]).unwrap();
     assert_eq!(resolved, [0, 1, 2]);
 }
 
@@ -175,7 +174,12 @@ async fn rejects_builds_for_undeclared_partitions_before_network_io() {
         .await
         .err()
         .expect("undeclared partition must fail locally");
-    assert!(error.to_string().contains("not declared"), "{error:#}");
+    assert!(
+        error
+            .to_string()
+            .contains("not part of the discovered PQv1 topology"),
+        "{error:#}"
+    );
 }
 
 #[test]
