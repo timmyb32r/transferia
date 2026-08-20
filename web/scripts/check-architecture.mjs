@@ -6,6 +6,7 @@ const sourceFiles = await collect(root);
 const violations = [];
 
 await checkCssCustomProperties();
+await checkStableInteractiveHitTargets();
 
 for (const file of sourceFiles) {
   const source = await readFile(file, "utf8");
@@ -102,4 +103,14 @@ async function checkCssCustomProperties() {
     "";
   if (!inspectorScrollbar.includes("display: block"))
     violations.push("style.css: schema inspector scrollbar must remain visible without hover");
+}
+
+async function checkStableInteractiveHitTargets() {
+  const css = await readFile(resolve(root, "style.css"), "utf8");
+  for (const match of css.matchAll(/([^{}]*:active[^{}]*)\{([^}]*)\}/g)) {
+    if (/\b(transform|scale)\s*:/.test(match[2]))
+      violations.push(
+        `style.css: active control '${match[1].trim()}' must not resize its hit target`,
+      );
+  }
 }

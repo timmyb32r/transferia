@@ -630,7 +630,7 @@ select {
   user-select: none;
 }
 .brand:active {
-  transform: scale(0.98);
+  opacity: 0.78;
 }
 .brand-mark {
   display: grid;
@@ -1027,7 +1027,7 @@ h3 {
   color: var(--text-hover);
 }
 .foldout summary:active {
-  transform: translateZ(0) scale(0.94);
+  background: var(--surface-active);
 }
 .foldout summary:focus {
   outline: none;
@@ -1255,7 +1255,7 @@ input[type="checkbox"]:disabled {
   border-color: var(--line-strong);
 }
 .select-trigger:active:not(:disabled) {
-  transform: translateZ(0) scale(0.98);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .select-trigger .placeholder {
   color: var(--placeholder);
@@ -1327,7 +1327,7 @@ input[type="checkbox"]:disabled {
   background: var(--surface-active);
 }
 .select-option:active:not(:disabled) {
-  transform: translateZ(0) scale(0.98);
+  background: var(--surface-hover);
 }
 .select-empty {
   padding: 10px;
@@ -1572,7 +1572,7 @@ input[type="checkbox"]:focus-visible {
   outline-offset: 2px;
 }
 button:active:not(:disabled) {
-  transform: translateZ(0) scale(0.94);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent);
 }
 button.interaction-pending {
   position: relative;
@@ -2554,7 +2554,6 @@ button::after {
 }
 .drag-handle:active:not(:disabled) {
   cursor: grabbing;
-  transform: none;
 }
 .drag-handle svg {
   width: 16px;
@@ -2997,7 +2996,7 @@ svg.trash-icon {
   background: var(--surface-hover);
 }
 .design-option:active {
-  transform: scale(0.98);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .design-option.selected {
   border-color: color-mix(in srgb, var(--blue), transparent 50%);
