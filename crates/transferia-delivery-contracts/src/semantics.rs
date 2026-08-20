@@ -40,8 +40,8 @@ impl EndpointDescriptor {
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)
-            | Self::IcebergSource(source) => Some(source.behavior),
-            Self::DataGenerator(source) => Some(source.behavior),
+            | Self::IcebergSource(source)
+            | Self::DataGenerator(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
@@ -62,8 +62,8 @@ impl EndpointDescriptor {
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)
-            | Self::IcebergSource(source) => source.delivery_modes.supports(delivery_type),
-            Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
+            | Self::IcebergSource(source)
+            | Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
