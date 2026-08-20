@@ -2657,6 +2657,12 @@ svg.trash-icon {
   padding-inline: 11px;
   background: var(--surface-hover);
 }
+
+.column-editor-footer {
+  display: flex;
+  justify-content: flex-start;
+  padding-top: 10px;
+}
 .compact-array-field {
   gap: 8px;
 }

@@ -120,6 +120,23 @@ export function ColumnMappingsEditor({
       );
     });
   };
+  const addColumn = () => {
+    rowIds.insert(value.length);
+    const created = createValue(node);
+    onChange(
+      [
+        ...value,
+        isObject(created)
+          ? {
+              ...created,
+              json_data_type: "string",
+              arrow_type: "Utf8",
+            }
+          : created,
+      ],
+      keys,
+    );
+  };
   return (
     <div
       data-required-guidance="structural"
@@ -166,30 +183,6 @@ export function ColumnMappingsEditor({
               Add system columns
             </Button>
           )}
-          <Button
-            shape="add-row"
-            data-required-control={value.length === 0 ? "true" : undefined}
-            disabled={disabled}
-            onClick={() => {
-              rowIds.insert(value.length);
-              const created = createValue(node);
-              onChange(
-                [
-                  ...value,
-                  isObject(created)
-                    ? {
-                        ...created,
-                        json_data_type: "string",
-                        arrow_type: "Utf8",
-                      }
-                    : created,
-                ],
-                keys,
-              );
-            }}
-          >
-            + Add column
-          </Button>
         </div>
       </div>
       {systemColumns && systemColumnsOpen && (
@@ -479,6 +472,16 @@ export function ColumnMappingsEditor({
           Add the first output column to define the parsed data schema.
         </p>
       )}
+      <div class="column-editor-footer">
+        <Button
+          shape="add-row"
+          data-required-control={value.length === 0 ? "true" : undefined}
+          disabled={disabled}
+          onClick={addColumn}
+        >
+          + Add column
+        </Button>
+      </div>
       <div class="column-keys">
         <span class="field-label">
           Keys <small class="optional">(optional)</small>
