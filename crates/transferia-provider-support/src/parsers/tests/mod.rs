@@ -17,10 +17,14 @@ fn benchmark_discard_schema_has_no_visible_settings() {
     let value = serde_json::to_value(schema).expect("schema must serialize");
 
     assert_eq!(value["properties"]["common"]["x-ui"]["widget"], "hidden");
-    assert_eq!(
-        value["properties"]["benchmark_discard"]["title"],
-        "Discard messages (for benchmarks)"
-    );
+    let parser_schema =
+        serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
+            .expect("parser schema must serialize");
+    assert!(parser_schema["anyOf"]
+        .as_array()
+        .expect("parser variants")
+        .iter()
+        .any(|variant| variant["title"] == "Discard messages (for benchmarks)"));
     assert_eq!(
         value["properties"]["benchmark_discard"]["x-ui"]["widget"],
         "hidden"
