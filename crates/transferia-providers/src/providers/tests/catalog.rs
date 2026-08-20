@@ -20,6 +20,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             "s3",
             "iceberg",
             "ytsaurus",
+            "data_generator",
             "discard"
         ]
     );
@@ -38,6 +39,14 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .iter()
         .find(|definition| definition.key == "discard")
         .is_some_and(|definition| definition.source.is_none()));
+    let generator = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "data_generator")
+        .and_then(|definition| definition.source.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("missing data generator source"))?;
+    assert_eq!(generator.initial["column_count"], 10);
+    assert_eq!(generator.initial["data_size_bytes"], 107_374_182_400_u64);
 
     let logbroker = catalog
         .definitions()

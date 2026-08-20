@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod discard;
+pub mod generator;
 pub use transferia_provider_clickhouse::clickhouse;
 pub use transferia_provider_iceberg::iceberg;
 pub use transferia_provider_kafka::kafka;

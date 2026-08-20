@@ -6170,6 +6170,7 @@ name = "transferia-providers"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow",
  "async-trait",
  "futures-util",
  "schemars 1.2.2",

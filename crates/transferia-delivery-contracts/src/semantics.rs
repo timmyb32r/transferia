@@ -18,6 +18,7 @@ pub enum EndpointDescriptor {
     ClickHouseSource(SourceDescriptor),
     S3Source(SourceDescriptor),
     IcebergSource(SourceDescriptor),
+    DataGenerator(SourceDescriptor),
     PostgresSink,
     YTsaurusSink,
     LogbrokerSink,
@@ -40,6 +41,7 @@ impl EndpointDescriptor {
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)
             | Self::IcebergSource(source) => Some(source.behavior),
+            Self::DataGenerator(source) => Some(source.behavior),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
@@ -61,6 +63,7 @@ impl EndpointDescriptor {
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)
             | Self::IcebergSource(source) => source.delivery_modes.supports(delivery_type),
+            Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
             Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink

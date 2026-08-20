@@ -102,6 +102,12 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
         sink: YTSAURUS_ROLE,
     },
     ProviderDescriptor {
+        key: "data_generator",
+        title: "Data generator",
+        source: PLAIN,
+        sink: None,
+    },
+    ProviderDescriptor {
         key: "discard",
         title: "Discard (benchmark)",
         source: None,

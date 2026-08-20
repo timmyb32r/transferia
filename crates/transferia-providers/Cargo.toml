@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+arrow.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
 schemars.workspace = true
