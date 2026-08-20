@@ -1100,8 +1100,7 @@ button.diagnostic-disabled {
   opacity: 0.55;
   cursor: help;
 }
-.required-next input:not([type="checkbox"]),
-.required-next .select-trigger {
+.required-next-control {
   border-color: var(--blue);
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent),
