@@ -8,23 +8,23 @@ fn main() -> anyhow::Result<()> {
     let check = std::env::args().any(|argument| argument == "--check");
     write_or_check(
         Path::new(SCHEMA_OUTPUT),
-        transferia_server_contracts::api::schema()?,
+        &transferia_server_contracts::api::schema()?,
         check,
     )?;
     write_or_check(
         Path::new(ROUTES_OUTPUT),
-        serde_json::to_value(transferia_server_contracts::routes::API_ROUTES)?,
+        &serde_json::to_value(transferia_server_contracts::routes::API_ROUTES)?,
         check,
     )?;
     write_or_check(
         Path::new(FIXTURE_OUTPUT),
-        transferia_server_contracts::api::fixture()?,
+        &transferia_server_contracts::api::fixture()?,
         check,
     )?;
     Ok(())
 }
 
-fn write_or_check(path: &Path, value: serde_json::Value, check: bool) -> anyhow::Result<()> {
+fn write_or_check(path: &Path, value: &serde_json::Value, check: bool) -> anyhow::Result<()> {
     let output = format!("{}\n", serde_json::to_string_pretty(&value)?);
     if check {
         let committed = std::fs::read_to_string(path)?;
