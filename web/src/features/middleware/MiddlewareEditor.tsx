@@ -8,7 +8,8 @@ import { Button } from "../../ui/Button";
 import { SelectControl } from "../../ui/SelectControl";
 
 interface PlaygroundState {
-  sample: string;
+  inputRows?: JsonValue[];
+  activeTab: "input" | "output";
   loading: boolean;
   loadingSample?: boolean;
   error?: string;
@@ -64,7 +65,7 @@ export function MiddlewareEditor({
         const kind = "datafusion" in object ? "datafusion" : "filter";
         const raw = isObject(object[kind]) ? object[kind] : {};
         const playground = playgrounds[index] ?? {
-          sample: "",
+          activeTab: "input" as const,
           loading: false,
         };
         const setPlayground = (next: PlaygroundState) =>
@@ -149,107 +150,29 @@ export function MiddlewareEditor({
                     }
                   />
                 </label>
-                <details
-                  class="sql-playground"
-                  onToggle={(event) => {
-                    if (
-                      !event.currentTarget.open ||
-                      playground.sample !== "" ||
-                      playground.loadingSample ||
-                      loadSourceSample === undefined
-                    )
-                      return;
-                    setPlayground({ ...playground, loadingSample: true });
-                    void loadSourceSample()
-                      .then((rows) =>
-                        setPlayground({
-                          ...playground,
-                          sample: JSON.stringify(rows, null, 2),
-                          loading: false,
-                          loadingSample: false,
-                        }),
-                      )
-                      .catch((error: unknown) =>
-                        setPlayground({
-                          ...playground,
-                          loading: false,
-                          loadingSample: false,
-                          error:
-                            error instanceof Error
-                              ? error.message
-                              : String(error),
-                        }),
-                      );
-                  }}
-                >
-                  <summary>Playground</summary>
-                  <div class="sql-playground-grid">
-                    <label>
-                      <span>Sample rows · JSON array</span>
-                      {playground.loadingSample && (
-                        <small>Loading from source…</small>
-                      )}
-                      <textarea
-                        spellcheck={false}
-                        value={playground.sample}
-                        onInput={(event) =>
-                          setPlayground({
-                            ...playground,
-                            sample: event.currentTarget.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <div class="sql-playground-output">
-                      <span>Result</span>
-                      {playground.error && (
-                        <p role="alert">{playground.error}</p>
-                      )}
-                      {playground.columns && (
-                        <table>
-                          <thead>
-                            <tr>
-                              {playground.columns.map((column) => (
-                                <th key={column.name}>
-                                  {column.name}
-                                  <small>{column.arrow_type}</small>
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(playground.rows ?? []).map((row, rowIndex) => (
-                              <tr key={rowIndex}>
-                                {playground.columns?.map((column) => (
-                                  <td key={column.name}>
-                                    {JSON.stringify(
-                                      isObject(row) ? row[column.name] : null,
-                                    )}
-                                  </td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  </div>
+                <section class="sql-playground" aria-label="Playground">
                   <Button
                     variant="primary"
-                    disabled={playground.loading || playground.sample === ""}
+                    disabled={playground.loading || playground.loadingSample}
                     onClick={async () => {
                       const { error: _error, ...pending } = playground;
                       setPlayground({ ...pending, loading: true });
                       try {
-                        const rows = JSON.parse(playground.sample) as unknown;
-                        if (!Array.isArray(rows))
-                          throw new Error("Sample must be a JSON array");
+                        const rows =
+                          playground.inputRows ??
+                          (loadSourceSample
+                            ? await loadSourceSample()
+                            : undefined);
+                        if (rows === undefined)
+                          throw new Error("Source sample is unavailable");
                         const result = await api.sqlPlayground({
                           sql: typeof raw.sql === "string" ? raw.sql : "",
                           rows,
                         });
                         setPlayground({
                           ...playground,
+                          inputRows: rows,
+                          activeTab: "output",
                           loading: false,
                           ...result,
                         });
@@ -265,14 +188,96 @@ export function MiddlewareEditor({
                       }
                     }}
                   >
-                    {playground.loading ? "Running…" : "Run sample"}
+                    {playground.loading || playground.loadingSample
+                      ? "Running…"
+                      : "Run sample"}
                   </Button>
-                </details>
+                  <div class="sql-playground-tabs" role="tablist">
+                    {(["input", "output"] as const).map((tab) => (
+                      <Button
+                        key={tab}
+                        role="tab"
+                        aria-selected={playground.activeTab === tab}
+                        variant={
+                          playground.activeTab === tab ? "primary" : "secondary"
+                        }
+                        onClick={() =>
+                          setPlayground({ ...playground, activeTab: tab })
+                        }
+                      >
+                        {tab === "input" ? "Input" : "Output"}
+                      </Button>
+                    ))}
+                  </div>
+                  <div class="sql-playground-output" role="tabpanel">
+                    {playground.error && <p role="alert">{playground.error}</p>}
+                    {playground.activeTab === "input" ? (
+                      <RowsTable rows={playground.inputRows ?? []} />
+                    ) : playground.columns ? (
+                      <table>
+                        <thead>
+                          <tr>
+                            {playground.columns.map((column) => (
+                              <th key={column.name}>
+                                {column.name}
+                                <small>{column.arrow_type}</small>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(playground.rows ?? []).map((row, rowIndex) => (
+                            <tr key={rowIndex}>
+                              {playground.columns?.map((column) => (
+                                <td key={column.name}>
+                                  {JSON.stringify(
+                                    isObject(row) ? row[column.name] : null,
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p>Run the sample to see output.</p>
+                    )}
+                  </div>
+                </section>
               </>
             )}
           </article>
         );
       })}
     </section>
+  );
+}
+
+function RowsTable({ rows }: { rows: JsonValue[] }) {
+  const columns = Array.from(
+    new Set(rows.flatMap((row) => (isObject(row) ? Object.keys(row) : []))),
+  );
+  if (rows.length === 0) return <p>Run the sample to load input rows.</p>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          {columns.map((column) => (
+            <th key={column}>{column}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, index) => (
+          <tr key={index}>
+            {columns.map((column) => (
+              <td key={column}>
+                {JSON.stringify(isObject(row) ? row[column] : null)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

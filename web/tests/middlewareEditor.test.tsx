@@ -33,7 +33,9 @@ describe("DataFusion middleware editor", () => {
     );
 
     expect(view.getByText("SQL over table")).toBeTruthy();
-    expect(view.getByText("Playground")).toBeTruthy();
+    expect(view.getByRole("region", { name: "Playground" })).toBeTruthy();
+    expect(view.getByRole("tab", { name: "Input" })).toBeTruthy();
+    expect(view.getByRole("tab", { name: "Output" })).toBeTruthy();
     expect(view.getByDisplayValue("SELECT id FROM input")).toBeTruthy();
   });
 
@@ -49,11 +51,11 @@ describe("DataFusion middleware editor", () => {
       </SourceSampleProvider>,
     );
 
-    fireEvent.click(view.getByText("Playground"));
+    fireEvent.click(view.getByRole("button", { name: "Run sample" }));
     await waitFor(() => expect(load).toHaveBeenCalledOnce());
 
     expect(
-      (view.getByLabelText(/Sample rows/) as HTMLTextAreaElement).value,
-    ).toContain('"id": 17');
+      view.getByRole("tab", { name: "Output" }).getAttribute("aria-selected"),
+    ).toBe("true");
   });
 });

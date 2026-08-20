@@ -2163,8 +2163,7 @@ button::after {
   margin-left: auto;
 }
 
-.middleware-filter-fields,
-.sql-playground-grid {
+.middleware-filter-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
@@ -2191,19 +2190,21 @@ button::after {
   padding-top: 12px;
 }
 
-.sql-playground summary {
-  cursor: pointer;
-  user-select: none;
-}
-
-.sql-playground-grid {
-  margin: 14px 0;
+.sql-playground-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .sql-playground-output {
   min-width: 0;
+  min-height: 160px;
+  margin-top: 10px;
   overflow: auto;
   scrollbar-gutter: stable;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
 }
 
 .sql-playground-output > span {
