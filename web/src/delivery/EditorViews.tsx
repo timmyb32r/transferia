@@ -199,6 +199,7 @@ export function EndpointCard(props: {
               props.endpoint.connection_check ? (
                 <div class="connection-check">
                   <Button
+                    variant="primary"
                     class="connection-check-button"
                     disabled={check.state === "checking"}
                     onClick={() => void checkConnection()}

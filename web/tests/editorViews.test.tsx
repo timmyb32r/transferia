@@ -87,6 +87,9 @@ describe("endpoint connection check", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Check connection" }));
     expect(
+      view.getByRole("button", { name: /Checking connection/ }).classList,
+    ).toContain("primary");
+    expect(
       (
         view.getByRole("button", {
           name: "Checking connection…",
