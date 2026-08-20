@@ -586,7 +586,7 @@ impl ControlPlane {
                 cancellation,
             })
             .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
         Ok(source_discovery_result(
             source_kind.clone(),
             pipeline_count,
