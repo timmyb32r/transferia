@@ -356,6 +356,11 @@ describe("schema form", () => {
 
     expect(onChange).toHaveBeenCalledWith(null);
     expect(onChange).not.toHaveBeenCalledWith(0);
+    fireEvent.click(view.getByRole("button", { name: "MiB" }));
+    expect(view.queryByText("B")).toBeNull();
+    expect(view.queryByText("KiB")).toBeNull();
+    expect(view.getAllByText("MiB")).toHaveLength(2);
+    expect(view.getByText("GiB")).toBeTruthy();
     view.unmount();
   });
 

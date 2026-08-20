@@ -163,8 +163,6 @@ export function SystemColumnsEditor({
 }
 
 const BYTE_UNITS = [
-  { label: "B", factor: 1 },
-  { label: "KiB", factor: 1024 },
   { label: "MiB", factor: 1024 * 1024 },
   { label: "GiB", factor: 1024 * 1024 * 1024 },
 ] as const;
