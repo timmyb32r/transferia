@@ -40,11 +40,9 @@ pub fn register(
                     }
                 },
             )?
-            .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(
-                |config| async move {
-                    check_postgres_connection(config).await
-                },
-            )
+            .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
+                check_postgres_connection(config).await
+            })
             .sink::<postgres::sink::PostgresSinkConfig, _, _>(
                 || {
                     serde_json::json!({

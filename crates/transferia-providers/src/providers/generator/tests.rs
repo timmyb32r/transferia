@@ -7,8 +7,8 @@ use transferia_core::source::Source as _;
 use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
 use transferia_registry::{SourceDiscoveryContext, SourceProvider as _};
 
-use super::{DataGeneratorConfig, DataGeneratorSourceProvider};
 use super::source::DataGeneratorSource;
+use super::{DataGeneratorConfig, DataGeneratorSourceProvider};
 
 fn config() -> DataGeneratorConfig {
     DataGeneratorConfig {
@@ -29,7 +29,11 @@ async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Resul
     let mut rows = 0_u64;
     loop {
         match source.read_batch().await? {
-            SourceBatch::Typed { tables, source_rows, .. } => {
+            SourceBatch::Typed {
+                tables,
+                source_rows,
+                ..
+            } => {
                 assert_eq!(tables[0].table.as_ref(), "my_table");
                 assert_eq!(tables[0].batch.num_columns(), 10);
                 rows += source_rows;
@@ -44,11 +48,16 @@ async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Resul
 
 #[tokio::test]
 async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
-    let provider = DataGeneratorSourceProvider::from_config(config(), Arc::new(MetricsRegistry::new()))?;
-    let discovery = provider.delivery_discovery(SourceDiscoveryContext {
-        request: DeliveryDiscoveryRequest { keep_system_columns: false },
-        cancellation: tokio_util::sync::CancellationToken::new(),
-    }).await?;
+    let provider =
+        DataGeneratorSourceProvider::from_config(config(), Arc::new(MetricsRegistry::new()))?;
+    let discovery = provider
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await?;
     assert_eq!(discovery.datasets[0].name.as_ref(), "my_table");
     assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 10);
     Ok(())
@@ -58,5 +67,9 @@ async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
 fn generator_rejects_unrepresentable_requested_sizes() {
     let mut config = config();
     config.data_size_bytes = 101;
-    assert!(config.validate().unwrap_err().to_string().contains("must be divisible"));
+    assert!(config
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("must be divisible"));
 }

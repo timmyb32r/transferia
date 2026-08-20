@@ -55,7 +55,9 @@ fn source_and_sink_config_schemas_compile() {
             "Kafka sink operational field {field} must stay out of the UI"
         );
     }
-    assert!(!serde_json::to_string(&sink).unwrap().contains("\"section\":\"advanced\""));
+    assert!(!serde_json::to_string(&sink)
+        .unwrap()
+        .contains("\"section\":\"advanced\""));
 }
 
 #[test]

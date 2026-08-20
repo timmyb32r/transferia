@@ -41,7 +41,11 @@ async fn rejects_redirect_without_contacting_target() {
 
     let client = OutboundHttpClient::new(Duration::from_secs(1), []).unwrap();
     let error = client
-        .get(format!("http://{redirector_address}/start").parse().unwrap())
+        .get(
+            format!("http://{redirector_address}/start")
+                .parse()
+                .unwrap(),
+        )
         .send()
         .await
         .unwrap_err();

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url, redirect};
+use reqwest::{redirect, Client, Method, RequestBuilder, Response, StatusCode, Url};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

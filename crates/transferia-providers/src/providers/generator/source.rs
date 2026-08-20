@@ -29,7 +29,13 @@ impl DataGeneratorSource {
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
         let total_rows = config.data_size_bytes / config.row_bytes()?;
-        Ok(Self { config, memory, counters, next_row: 0, total_rows })
+        Ok(Self {
+            config,
+            memory,
+            counters,
+            next_row: 0,
+            total_rows,
+        })
     }
 }
 
@@ -41,8 +47,11 @@ impl Source for DataGeneratorSource {
             }
             let remaining = self.total_rows - self.next_row;
             let rows = remaining.min(self.config.batch_rows as u64);
-            let batch_bytes_u64 = rows.checked_mul(self.config.row_bytes().map_err(DataPlaneFailure::fatal)?)
-                .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("generator batch size overflow")))?;
+            let batch_bytes_u64 = rows
+                .checked_mul(self.config.row_bytes().map_err(DataPlaneFailure::fatal)?)
+                .ok_or_else(|| {
+                    DataPlaneFailure::fatal(anyhow::anyhow!("generator batch size overflow"))
+                })?;
             let batch_bytes = usize::try_from(batch_bytes_u64)
                 .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
             let reservation = self.memory.reserve(batch_bytes).await;
@@ -78,7 +87,10 @@ impl Source for DataGeneratorSource {
         })
     }
 
-    fn commit_offsets<'ctx>(&'ctx mut self, _markers: &'ctx [CommitMarker]) -> BoxFuture<'ctx, DataPlaneResult<()>> {
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        _markers: &'ctx [CommitMarker],
+    ) -> BoxFuture<'ctx, DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
 }

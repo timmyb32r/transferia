@@ -68,8 +68,7 @@ impl YTsaurusClient {
         let parameters = serde_json::json!({ "path": path });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::GET, "get")
-            ?
+            .request(reqwest::Method::GET, "get")?
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
@@ -84,8 +83,7 @@ impl YTsaurusClient {
         let parameters = serde_json::json!({ "path": path });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::GET, "read_table")
-            ?
+            .request(reqwest::Method::GET, "read_table")?
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
@@ -105,8 +103,7 @@ impl YTsaurusClient {
         let parameters = serde_json::json!({ "path": format!("<append=%true>{path}") });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::PUT, "write_table")
-            ?
+            .request(reqwest::Method::PUT, "write_table")?
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
@@ -123,11 +120,8 @@ impl YTsaurusClient {
         let parameters = serde_json::json!({ "path": path, "force": true });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::POST, "remove")
-            ?
-            .configure(|request| {
-                request.header("X-YT-Parameters", parameters)
-            })
+            .request(reqwest::Method::POST, "remove")?
+            .configure(|request| request.header("X-YT-Parameters", parameters))
             .send()
             .await?;
         Self::checked(response).await?;
@@ -142,11 +136,8 @@ impl YTsaurusClient {
         });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::POST, "create")
-            ?
-            .configure(|request| {
-                request.header("X-YT-Parameters", parameters)
-            })
+            .request(reqwest::Method::POST, "create")?
+            .configure(|request| request.header("X-YT-Parameters", parameters))
             .send()
             .await?;
         Self::checked(response).await?;
@@ -162,11 +153,8 @@ impl YTsaurusClient {
         });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::POST, "create")
-            ?
-            .configure(|request| {
-                request.header("X-YT-Parameters", parameters)
-            })
+            .request(reqwest::Method::POST, "create")?
+            .configure(|request| request.header("X-YT-Parameters", parameters))
             .send()
             .await?;
         Self::checked(response).await?;

@@ -5,10 +5,14 @@ use futures_util::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology};
+use transferia_core::delivery::{
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+};
 use transferia_core::source::Source;
 use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
-use transferia_delivery_contracts::semantics::{EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor};
+use transferia_delivery_contracts::semantics::{
+    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+};
 use transferia_provider_support::parsers::ParserPlan;
 use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider};
 
@@ -31,10 +35,19 @@ pub struct DataGeneratorConfig {
 
 impl DataGeneratorConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(!self.table_name.is_empty(), "generator.table_name must not be empty");
-        anyhow::ensure!(self.column_count > 0, "generator.column_count must be positive");
+        anyhow::ensure!(
+            !self.table_name.is_empty(),
+            "generator.table_name must not be empty"
+        );
+        anyhow::ensure!(
+            self.column_count > 0,
+            "generator.column_count must be positive"
+        );
         anyhow::ensure!(self.batch_rows > 0, "generator.batch_rows must be positive");
-        anyhow::ensure!(self.data_size_bytes > 0, "generator.data_size_bytes must be positive");
+        anyhow::ensure!(
+            self.data_size_bytes > 0,
+            "generator.data_size_bytes must be positive"
+        );
         let row_bytes = self.row_bytes()?;
         anyhow::ensure!(
             self.data_size_bytes % row_bytes == 0,
@@ -67,7 +80,10 @@ pub struct DataGeneratorSourceProvider {
 }
 
 impl DataGeneratorSourceProvider {
-    pub fn from_config(config: DataGeneratorConfig, metrics: Arc<MetricsRegistry>) -> anyhow::Result<Self> {
+    pub fn from_config(
+        config: DataGeneratorConfig,
+        metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<Self> {
         config.validate()?;
         Ok(Self {
             config,
@@ -78,7 +94,10 @@ impl DataGeneratorSourceProvider {
     }
 
     fn counters(&self) -> Arc<SourceCounters> {
-        let mut counters = self.counters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut counters = self
+            .counters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Arc::clone(counters.get_or_insert_with(|| {
             let counters = Arc::new(SourceCounters::new());
             self.metrics.register_source(0, Arc::clone(&counters));
@@ -95,9 +114,15 @@ impl SourceProvider for DataGeneratorSourceProvider {
         })
     }
 
-    fn delivery_discovery(&self, context: SourceDiscoveryContext) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
+    fn delivery_discovery(
+        &self,
+        context: SourceDiscoveryContext,
+    ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
-            anyhow::ensure!(!context.cancellation.is_cancelled(), "data generator discovery cancelled");
+            anyhow::ensure!(
+                !context.cancellation.is_cancelled(),
+                "data generator discovery cancelled"
+            );
             let schema = self.config.schema();
             Ok(DeliveryDiscovery {
                 source_name: Arc::from("data_generator"),
@@ -115,9 +140,15 @@ impl SourceProvider for DataGeneratorSourceProvider {
         })
     }
 
-    fn build_source(&self, context: SourceBuildContext) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
+    fn build_source(
+        &self,
+        context: SourceBuildContext,
+    ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
-            anyhow::ensure!(context.partition_id == 0, "data generator partition must be 0");
+            anyhow::ensure!(
+                context.partition_id == 0,
+                "data generator partition must be 0"
+            );
             Ok(Box::new(DataGeneratorSource::new(
                 self.config.clone(),
                 context.memory,

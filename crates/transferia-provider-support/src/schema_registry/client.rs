@@ -45,7 +45,7 @@ impl RegistryClient {
             Duration::from_millis(config.request_timeout_ms),
             certificates,
         )
-            .context("failed to build Schema Registry HTTP client")?;
+        .context("failed to build Schema Registry HTTP client")?;
         Ok(Self {
             client,
             urls: urls.into(),

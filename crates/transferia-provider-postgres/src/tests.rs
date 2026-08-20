@@ -21,7 +21,10 @@ async fn incomplete_credentials_produce_a_network_only_result() {
         result.status,
         transferia_registry::ConnectionCheckStatus::NetworkReachable
     ));
-    assert!(result.message.unwrap().contains("Authentication was not checked"));
+    assert!(result
+        .message
+        .unwrap()
+        .contains("Authentication was not checked"));
     accept.await.unwrap();
 }
 
@@ -31,10 +34,8 @@ fn checker_config_ignores_source_and_sink_specific_fields() {
         "host: db.example\nport: 5432\ntables: [{schema: public, name: events}]\nbatch_rows: 10\n",
     )
     .unwrap();
-    let sink: postgres::PostgresConnectionCheckConfig = serde_yaml::from_str(
-        "host: db.example\nport: 5432\ncreate_tables: true\n",
-    )
-    .unwrap();
+    let sink: postgres::PostgresConnectionCheckConfig =
+        serde_yaml::from_str("host: db.example\nport: 5432\ncreate_tables: true\n").unwrap();
 
     assert!(!source.credentials_complete());
     assert!(!sink.credentials_complete());

@@ -282,22 +282,28 @@ fn build_base_provider_catalog(
     transferia_provider_ytsaurus::register(&mut catalog, _metrics_registry)?;
 
     catalog.register(
-        component_registration("data_generator")?.source::<
-            crate::providers::generator::DataGeneratorConfig,
-            _,
-            _,
-        >(
+        component_registration("data_generator")?
+            .source::<crate::providers::generator::DataGeneratorConfig, _, _>(
             vec![DeliveryMode::Batch],
             false,
-            || serde_json::json!({
-                "table_name": "",
-                "column_count": 10,
-                "data_size_bytes": 107_374_182_400_u64,
-                "batch_rows": 65_536
-            }),
+            || {
+                serde_json::json!({
+                    "table_name": "",
+                    "column_count": 10,
+                    "data_size_bytes": 107_374_182_400_u64,
+                    "batch_rows": 65_536
+                })
+            },
             {
                 let metrics = Arc::clone(_metrics_registry);
-                move |config| Ok(Box::new(crate::providers::generator::DataGeneratorSourceProvider::from_config(config, Arc::clone(&metrics))?))
+                move |config| {
+                    Ok(Box::new(
+                        crate::providers::generator::DataGeneratorSourceProvider::from_config(
+                            config,
+                            Arc::clone(&metrics),
+                        )?,
+                    ))
+                }
             },
         )?,
     )?;

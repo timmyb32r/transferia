@@ -1,5 +1,5 @@
-use std::{collections::HashSet, fmt};
 use std::time::Duration;
+use std::{collections::HashSet, fmt};
 
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -67,7 +67,10 @@ impl YTsaurusAuthConfig {
     fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Token { token } => {
-                anyhow::ensure!(!token.trim().is_empty(), "ytsaurus.auth.token must not be empty")
+                anyhow::ensure!(
+                    !token.trim().is_empty(),
+                    "ytsaurus.auth.token must not be empty"
+                )
             }
             Self::TokenFile { token_file } => anyhow::ensure!(
                 !token_file.trim().is_empty(),
