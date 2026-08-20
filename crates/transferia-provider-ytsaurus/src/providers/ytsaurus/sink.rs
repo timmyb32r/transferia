@@ -136,6 +136,7 @@ impl SinkProvider for YTsaurusSinkProvider {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
+            self.client.create_directory(&self.config.path).await?;
             for dataset in request.datasets {
                 let path = self.config.path_for_dataset(&dataset.table)?;
                 if self.config.replace_tables {

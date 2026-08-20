@@ -122,6 +122,22 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+
+    pub async fn create_directory(&self, path: &str) -> anyhow::Result<()> {
+        let parameters = serde_json::json!({
+            "type": "map_node",
+            "path": path,
+            "recursive": true,
+            "ignore_existing": true
+        });
+        let response = self
+            .request(reqwest::Method::POST, "create")
+            .header("X-YT-Parameters", serde_json::to_string(&parameters)?)
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        Ok(())
+    }
 }
 
 pub fn classify_http_failure(error: anyhow::Error) -> anyhow::Error {
