@@ -898,6 +898,7 @@ describe("schema form", () => {
             columns: {
               kind: "array",
               xUi: { widget: "column_mappings" },
+              minItems: 1,
               item: {
                 kind: "object",
                 xUi: {},
@@ -969,6 +970,59 @@ describe("schema form", () => {
     expect(
       details.container.querySelector(".source-parser-bridge"),
     ).not.toBeNull();
+
+    const incompleteValue = {
+      parser: {
+        common: { table_naming: "events" },
+        json_parser: { columns: [{ column_name: "" }] },
+      },
+    };
+    const incompleteEndpoint = render(
+      <SchemaForm
+        node={node}
+        value={incompleteValue}
+        parserSelectionOnly
+        showRequiredErrors
+        onChange={() => undefined}
+      />,
+    );
+    expect(
+      incompleteEndpoint.container.querySelector(".required-missing"),
+    ).toBeNull();
+
+    const incompleteDetails = render(
+      <ParserDetailsForm
+        node={node}
+        value={incompleteValue}
+        showRequiredErrors
+        onChange={() => undefined}
+      />,
+    );
+    expect(
+      incompleteDetails.container.querySelector(
+        ".column-table td.required-missing input",
+      ),
+    ).not.toBeNull();
+
+    const emptyDetails = render(
+      <ParserDetailsForm
+        node={node}
+        value={{
+          parser: {
+            common: { table_naming: "events" },
+            json_parser: { columns: [] },
+          },
+        }}
+        showRequiredErrors
+        onChange={() => undefined}
+      />,
+    );
+    expect(
+      emptyDetails.container
+        .querySelector<HTMLButtonElement>(".add-row-button")
+        ?.closest(".column-editor")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
   });
 
   it("removes parser configuration when parser selection is cleared", () => {

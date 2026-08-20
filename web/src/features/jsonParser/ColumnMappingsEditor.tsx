@@ -10,7 +10,11 @@ import {
   createColumnDragPreview,
   insertionSlot,
 } from "../../schema/columnDrag";
-import { createValue, type CompiledNode } from "../../schema/compiler";
+import {
+  createValue,
+  isComplete,
+  type CompiledNode,
+} from "../../schema/compiler";
 import { IndeterminateCheckbox } from "../../schema/controls";
 import { draftValue } from "../../schema/draft";
 import type {
@@ -24,6 +28,9 @@ import { isObject, jsonValuesEqual, uniqueStrings } from "../../schema/value";
 export function ColumnMappingsEditor({
   node,
   value,
+  required,
+  incomplete,
+  showRequiredErrors,
   keys,
   additionalKeyOptions,
   systemColumns,
@@ -34,6 +41,9 @@ export function ColumnMappingsEditor({
 }: {
   node: CompiledNode;
   value: JsonValue[];
+  required: boolean;
+  incomplete: boolean;
+  showRequiredErrors: boolean;
   keys: string[];
   additionalKeyOptions: string[];
   systemColumns?: {
@@ -98,7 +108,17 @@ export function ColumnMappingsEditor({
   ).length;
   const allNotNull = value.length > 0 && notNullCount === value.length;
   return (
-    <div class="column-editor">
+    <div
+      class={[
+        "column-editor",
+        !disabled && incomplete ? "required-incomplete" : "",
+        showRequiredErrors && required && value.length === 0
+          ? "required-missing"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div class="column-editor-heading">
         <div>
           <small>DATA SCHEMA</small>
@@ -137,6 +157,7 @@ export function ColumnMappingsEditor({
           )}
           <Button
             shape="add-row"
+            data-required-control={value.length === 0 ? "true" : undefined}
             disabled={disabled}
             onClick={() => {
               rowIds.insert(value.length);
@@ -327,26 +348,42 @@ export function ColumnMappingsEditor({
                         onChange={() => toggleRowSelection(index)}
                       />
                     </td>
-                    {mainFields.map((field) => (
-                      <td key={field}>
-                        {node.properties[field] && (
-                          <NodeEditor
-                            node={node.properties[field]!}
-                            value={
-                              column[field] ??
-                              createValue(node.properties[field]!)
-                            }
-                            disabled={disabled}
-                            onChange={(next) =>
-                              updateColumn(index, {
-                                ...column,
-                                [field]: next,
-                              })
-                            }
-                          />
-                        )}
-                      </td>
-                    ))}
+                    {mainFields.map((field) => {
+                      const child = node.properties[field];
+                      const fieldIncomplete =
+                        child !== undefined &&
+                        node.required.has(field) &&
+                        !isComplete(child, column[field]);
+                      return (
+                        <td
+                          key={field}
+                          class={[
+                            !disabled && fieldIncomplete
+                              ? "required-incomplete"
+                              : "",
+                            showRequiredErrors && fieldIncomplete
+                              ? "required-missing"
+                              : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                        >
+                          {child && (
+                            <NodeEditor
+                              node={child}
+                              value={column[field] ?? createValue(child)}
+                              disabled={disabled}
+                              onChange={(next) =>
+                                updateColumn(index, {
+                                  ...column,
+                                  [field]: next,
+                                })
+                              }
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
                     <td class="flag-column">
                       <input
                         type="checkbox"

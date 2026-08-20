@@ -134,6 +134,18 @@ describe("schema compiler", () => {
     expect(isComplete(node, { cluster: "logbroker" })).toBe(true);
   });
 
+  it("enforces minItems when deciding whether an array is complete", () => {
+    const node = compileSchema({
+      type: "array",
+      minItems: 1,
+      items: { type: "string" },
+    });
+
+    expect(isComplete(node, [])).toBe(false);
+    expect(isComplete(node, [""])).toBe(false);
+    expect(isComplete(node, ["column"])).toBe(true);
+  });
+
   it("selects tagged object variants from their discriminator", () => {
     const node = compileSchema({
       oneOf: [

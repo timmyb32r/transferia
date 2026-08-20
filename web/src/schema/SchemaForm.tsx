@@ -6,6 +6,7 @@ import { FormField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import {
   createValue,
+  branchMatches,
   humanize,
   isComplete,
   type CompiledNode,
@@ -36,6 +37,10 @@ const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
 const ParserActionContext = createContext<ComponentChildren>(undefined);
+
+export function useShowRequiredErrors(): boolean {
+  return useContext(RequiredErrorsContext);
+}
 
 export function SchemaForm({
   node,
@@ -429,7 +434,16 @@ function PropertyEditor({
 }: PropertyEditorProps) {
   const widgets = useWidgetRegistry();
   const showRequiredErrors = useContext(RequiredErrorsContext);
-  const incompleteRequired = required && !isComplete(node, value);
+  const parserSelectionOnly = useContext(ParserSelectionContext);
+  const serializerSelectionOnly = useContext(SerializerSelectionContext);
+  const selectionOnly =
+    (parserSelectionOnly && node.xUi.widget === "parser") ||
+    (serializerSelectionOnly && node.xUi.widget === "serializer");
+  const selectionComplete =
+    node.kind === "union" &&
+    node.branches.some((branch) => branchMatches(branch, value ?? null));
+  const incompleteRequired =
+    required && (selectionOnly ? !selectionComplete : !isComplete(node, value));
   const missingRequired = showRequiredErrors && incompleteRequired;
   const guidanceClass =
     !disabled && incompleteRequired ? "required-incomplete" : "";

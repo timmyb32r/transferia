@@ -104,6 +104,10 @@ fn defaults_unknown_fields_to_the_additional_properties_column() -> anyhow::Resu
 
     let schema = serde_json::to_value(schemars::schema_for!(JsonParserConfig))?;
     assert_eq!(
+        schema.pointer("/properties/columns/minItems"),
+        Some(&serde_json::json!(1))
+    );
+    assert_eq!(
         schema.pointer("/properties/unknown_fields/default/action"),
         Some(&serde_json::json!("send_to_column"))
     );

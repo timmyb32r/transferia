@@ -2,6 +2,7 @@ import type { WidgetPlugin } from "../../schema/widgetPlugin";
 import { stringArray } from "../../schema/value";
 import { ColumnMappingsEditor } from "./ColumnMappingsEditor";
 import { JsonParserEditor } from "./JsonParserEditor";
+import { isComplete } from "../../schema/compiler";
 
 export const jsonParserWidgets: readonly WidgetPlugin[] = [
   {
@@ -49,6 +50,11 @@ export const jsonParserWidgets: readonly WidgetPlugin[] = [
         <ColumnMappingsEditor
           node={context.node.item}
           value={Array.isArray(context.value) ? context.value : []}
+          required={context.required}
+          incomplete={
+            context.required && !isComplete(context.node, context.value)
+          }
+          showRequiredErrors={false}
           keys={stringArray(context.parentValue.keys)}
           additionalKeyOptions={[]}
           disabled={context.disabled}

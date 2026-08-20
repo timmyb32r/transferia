@@ -1119,6 +1119,10 @@ button.diagnostic-disabled {
 .top-field.required-missing > span {
   color: var(--red);
 }
+.column-editor.required-missing .add-row-button {
+  border-color: var(--red);
+  box-shadow: inset 0 0 0 1px var(--red);
+}
 .toggle {
   display: flex;
   gap: 8px;

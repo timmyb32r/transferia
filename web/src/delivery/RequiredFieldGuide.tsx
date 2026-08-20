@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 const INCOMPLETE_SELECTOR = ".required-incomplete";
 const GUIDED_CONTROL_SELECTOR =
-  "input:not([type='checkbox']), textarea, select, .select-trigger";
+  "input:not([type='checkbox']), textarea, select, .select-trigger, [data-required-control]";
 
 export function RequiredFieldGuide({
   root,

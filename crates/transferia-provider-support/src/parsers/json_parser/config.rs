@@ -24,6 +24,7 @@ pub struct JsonParserConfig {
 
     #[schemars(
         title = "Data schema",
+        length(min = 1),
         extend("x-ui" = { "widget": "column_mappings", "initial_items": 1 })
     )]
     pub columns: Vec<ColumnMapping>,

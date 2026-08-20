@@ -31,7 +31,7 @@ export type CompiledNode =
       required: Set<string>;
       additionalProperties?: boolean;
     })
-  | (NodeBase & { kind: "array"; item: CompiledNode })
+  | (NodeBase & { kind: "array"; item: CompiledNode; minItems?: number })
   | (NodeBase & { kind: "union"; branches: UnionBranch[] })
   | (NodeBase & { kind: "nullable"; inner: CompiledNode });
 
@@ -142,6 +142,7 @@ export function compileSchema(
         ...base,
         kind: "array",
         item: compile(schema.items, `${path}/items`, activeReferences),
+        ...(schema.minItems === undefined ? {} : { minItems: schema.minItems }),
       };
     }
     if (type === "boolean") return { ...base, kind: "boolean" };
@@ -189,6 +190,7 @@ const SUPPORTED_KEYWORDS = new Set([
   "properties",
   "required",
   "items",
+  "minItems",
   "minimum",
   "maximum",
   "format",
@@ -213,6 +215,14 @@ function validateKeywords(schema: JsonSchema, path: string): void {
   if (schema.format !== undefined && !numericSchemaType(schema.type)) {
     throw new SchemaContractError(
       `${path}: numeric JSON Schema format ${schema.format} requires a numeric type`,
+    );
+  }
+  if (
+    schema.minItems !== undefined &&
+    (!Number.isSafeInteger(schema.minItems) || schema.minItems < 0)
+  ) {
+    throw new SchemaContractError(
+      `${path}: minItems must be a non-negative integer`,
     );
   }
   if (
@@ -423,6 +433,7 @@ export function isComplete(
     case "array":
       return (
         Array.isArray(value) &&
+        (node.minItems === undefined || value.length >= node.minItems) &&
         value.every((item) => isComplete(node.item, item))
       );
     case "boolean":
