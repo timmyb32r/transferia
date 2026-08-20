@@ -9,7 +9,7 @@ import type {
   PropertyEditorComponent,
   PropertyEditorProps,
 } from "./editorTypes";
-import type { WidgetContracts } from "./widgetDefinitions";
+import type { WidgetContracts, WidgetDefinition } from "./widgetDefinitions";
 
 export interface EditorServices {
   NodeEditor: NodeEditorComponent;
@@ -37,6 +37,7 @@ export interface WidgetRegistry extends WidgetContracts {
     services: EditorServices,
   ): ComponentChildren | undefined;
   isHidden(node: CompiledNode): boolean;
+  presentation(node: CompiledNode): WidgetDefinition | undefined;
 }
 
 const WidgetRegistryContext = createContext<WidgetRegistry | undefined>(

@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
+import { SchemaForm } from "../src/schema/SchemaForm";
 import {
   ParserDetailsForm,
-  SchemaForm,
   SerializerDetailsForm,
-} from "../src/schema/SchemaForm";
+} from "../src/features/variantDetails/VariantDetailsForms";
 import { SelectControl } from "../src/ui/SelectControl";
 import type { CompiledNode } from "../src/schema/compiler";
 import type { JsonValue } from "../src/types";
@@ -132,7 +132,7 @@ describe("schema form", () => {
           <SchemaForm
             node={node}
             value={value}
-            parserSelectionOnly
+            variantUi={{ selectionOnly: ["parser"] }}
             onChange={setValue}
           />
           <ParserDetailsForm node={node} value={value} onChange={setValue} />
@@ -1084,9 +1084,13 @@ describe("schema form", () => {
       <SchemaForm
         node={node}
         value={value}
-        parserSelectionOnly
+        variantUi={{
+          selectionOnly: ["parser"],
+          actions: {
+            parser: <button aria-label="Preview one message">eye</button>,
+          },
+        }}
         connectionAction={<button>Check connection</button>}
-        parserAction={<button aria-label="Preview one message">eye</button>}
         onChange={() => undefined}
       />,
     );
@@ -1127,7 +1131,7 @@ describe("schema form", () => {
       <SchemaForm
         node={node}
         value={incompleteValue}
-        parserSelectionOnly
+        variantUi={{ selectionOnly: ["parser"] }}
         showRequiredErrors
         onChange={() => undefined}
       />,
@@ -1278,7 +1282,7 @@ describe("schema form", () => {
       <SchemaForm
         node={node}
         value={{ serializer: { type: "json" } }}
-        serializerSelectionOnly
+        variantUi={{ selectionOnly: ["serializer"] }}
         onChange={(next) => changes.push(next)}
       />,
     );

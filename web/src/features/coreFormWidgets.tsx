@@ -65,6 +65,7 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
     name: "password",
     kinds: ["string"],
     renderer: "node",
+    connectionActionAnchor: "after",
     node: (context) =>
       context.node.kind === "string" ? (
         <PasswordInput
@@ -145,8 +146,22 @@ function genericWidgets(): WidgetPlugin[] {
       renderer: "generic",
       hidden: true,
     },
-    { name: "parser", kinds: ["object", "union"], renderer: "generic" },
+    {
+      name: "parser",
+      kinds: ["object", "union"],
+      renderer: "generic",
+      wide: true,
+      hideDescription: true,
+      controlWidth: "parser",
+      connectionActionAnchor: "before",
+    },
     { name: "select", kinds: ["string"], renderer: "generic" },
-    { name: "serializer", kinds: ["object", "union"], renderer: "generic" },
+    {
+      name: "serializer",
+      kinds: ["object", "union"],
+      renderer: "generic",
+      wide: true,
+      controlWidth: "parser",
+    },
   ];
 }

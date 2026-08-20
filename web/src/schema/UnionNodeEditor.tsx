@@ -1,11 +1,9 @@
-import type { ComponentChildren } from "preact";
-
 import type { JsonValue } from "../json";
 import { SelectControl } from "../ui/SelectControl";
 import { branchMatches, createValue, type CompiledNode } from "./compiler";
 import type { NodeEditorComponent } from "./editorTypes";
-import { revealDetails } from "./revealDetails";
 import { hasEditableContent, type WidgetRegistry } from "./widgetRegistry";
+import type { VariantUi } from "./SchemaForm";
 
 export function UnionNodeEditor({
   node,
@@ -13,9 +11,7 @@ export function UnionNodeEditor({
   disabled,
   path,
   controlId,
-  parserSelectionOnly,
-  serializerSelectionOnly,
-  parserAction,
+  variantUi,
   widgets,
   NodeEditor,
   onChange,
@@ -25,9 +21,7 @@ export function UnionNodeEditor({
   disabled: boolean;
   path: string;
   controlId?: string | undefined;
-  parserSelectionOnly: boolean;
-  serializerSelectionOnly: boolean;
-  parserAction?: ComponentChildren;
+  variantUi: VariantUi;
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
   onChange: (value: JsonValue) => void;
@@ -35,15 +29,13 @@ export function UnionNodeEditor({
   const selected = node.branches.findIndex((branch) =>
     branchMatches(branch, value),
   );
+  const widget = node.xUi.widget;
+  const action = widget === undefined ? undefined : variantUi.actions?.[widget];
+  const selectionOnly =
+    widget !== undefined && variantUi.selectionOnly?.includes(widget) === true;
   return (
     <div class="union-editor">
-      <div
-        class={
-          node.xUi.widget === "parser" && parserAction
-            ? "parser-selector-row"
-            : undefined
-        }
-      >
+      <div class={action !== undefined ? "parser-selector-row" : undefined}>
         <SelectControl
           id={controlId}
           value={selected < 0 ? "" : String(selected)}
@@ -61,16 +53,12 @@ export function UnionNodeEditor({
             const branch = node.branches[Number(raw)];
             if (branch === undefined) return;
             onChange(branch.constant ?? createValue(branch.node));
-            if (node.xUi.widget === "parser")
-              revealDetails(".parser-details-card");
-            if (node.xUi.widget === "serializer")
-              revealDetails(".serializer-details-card");
+            if (widget !== undefined) variantUi.onSelected?.(widget);
           }}
         />
-        {node.xUi.widget === "parser" && parserAction}
+        {action}
       </div>
-      {(!parserSelectionOnly || node.xUi.widget !== "parser") &&
-        (!serializerSelectionOnly || node.xUi.widget !== "serializer") &&
+      {!selectionOnly &&
         selected >= 0 &&
         node.branches[selected]!.constant === undefined &&
         hasEditableContent(node.branches[selected]!.node, widgets) && (

@@ -19,7 +19,7 @@ export function VariantDetailsCard({
   node: CompiledNode;
   value: JsonValue;
   disabled: boolean;
-  widget: "parser" | "serializer";
+  widget: string;
   bridgeClass: string;
   cardClass: string;
   widgets: WidgetRegistry;

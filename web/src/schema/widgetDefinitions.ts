@@ -12,6 +12,10 @@ export type WidgetRendererPosition = "generic" | "node" | "property" | "both";
 export interface WidgetDefinition {
   kinds: readonly SchemaNodeKind[];
   renderer: WidgetRendererPosition;
+  wide?: boolean;
+  hideDescription?: boolean;
+  controlWidth?: string;
+  connectionActionAnchor?: "before" | "after";
 }
 
 export interface WidgetContracts {

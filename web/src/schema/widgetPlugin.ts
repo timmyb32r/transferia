@@ -49,6 +49,7 @@ export function createWidgetRegistry(
     isHidden: (node) =>
       selected(node)?.hidden === true ||
       (node.kind === "string" && node.enumValues?.length === 1),
+    presentation: (node) => selected(node),
   };
 }
 

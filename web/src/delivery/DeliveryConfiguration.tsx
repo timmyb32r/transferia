@@ -6,7 +6,10 @@ import {
   stringValue,
 } from "./editorConfig";
 import { CommonSettings, EndpointCard } from "./EditorViews";
-import { ParserDetailsForm, SerializerDetailsForm } from "../schema/SchemaForm";
+import {
+  ParserDetailsForm,
+  SerializerDetailsForm,
+} from "../features/variantDetails/VariantDetailsForms";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { EditorState } from "../state";
 import type { JsonObject, UiCatalog } from "../types";

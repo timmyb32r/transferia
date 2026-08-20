@@ -22,83 +22,55 @@ import { ObjectNodeEditor } from "./ObjectNodeEditor";
 import { isObject, jsonPointer } from "./value";
 import { useWidgetRegistry } from "./widgetRegistry";
 
-interface SchemaFormProps extends NodeEditorProps {
-  parserSelectionOnly?: boolean;
-  serializerSelectionOnly?: boolean;
+export interface SchemaFormProps extends NodeEditorProps {
+  variantUi?: VariantUi;
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
-  parserAction?: ComponentChildren;
 }
 
-const ParserSelectionContext = createContext(false);
-const SerializerSelectionContext = createContext(false);
+export interface VariantUi {
+  selectionOnly?: readonly string[];
+  actions?: Readonly<Record<string, ComponentChildren>>;
+  onSelected?: (widget: string) => void;
+}
+
+const VariantUiContext = createContext<VariantUi>({});
 const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
-const ParserActionContext = createContext<ComponentChildren>(undefined);
 
 export function SchemaForm({
   node,
   value,
   disabled = false,
-  parserSelectionOnly = false,
-  serializerSelectionOnly = false,
+  variantUi = {},
   showRequiredErrors = false,
   optionOverrides = {},
   connectionAction,
-  parserAction,
   onChange,
 }: SchemaFormProps) {
   return (
     <RootValueContext.Provider value={value}>
       <OptionOverridesContext.Provider value={optionOverrides}>
         <RequiredErrorsContext.Provider value={showRequiredErrors}>
-          <ParserActionContext.Provider value={parserAction}>
-            <SerializerSelectionContext.Provider
-              value={serializerSelectionOnly}
-            >
-              <ParserSelectionContext.Provider value={parserSelectionOnly}>
-                <NodeEditor
-                  node={node}
-                  value={value}
-                  disabled={disabled}
-                  connectionAction={connectionAction}
-                  onChange={onChange}
-                  path="#"
-                />
-              </ParserSelectionContext.Provider>
-            </SerializerSelectionContext.Provider>
-          </ParserActionContext.Provider>
+          <VariantUiContext.Provider value={variantUi}>
+            <NodeEditor
+              node={node}
+              value={value}
+              disabled={disabled}
+              connectionAction={connectionAction}
+              onChange={onChange}
+              path="#"
+            />
+          </VariantUiContext.Provider>
         </RequiredErrorsContext.Provider>
       </OptionOverridesContext.Provider>
     </RootValueContext.Provider>
   );
 }
 
-export function ParserDetailsForm({ ...props }: SchemaFormProps) {
-  return (
-    <VariantDetailsForm
-      {...props}
-      widget="parser"
-      bridgeClass="source-parser-bridge"
-      cardClass="parser-details-card"
-    />
-  );
-}
-
-export function SerializerDetailsForm({ ...props }: SchemaFormProps) {
-  return (
-    <VariantDetailsForm
-      {...props}
-      widget="serializer"
-      bridgeClass="sink-serializer-bridge"
-      cardClass="serializer-details-card"
-    />
-  );
-}
-
-function VariantDetailsForm({
+export function VariantDetailsForm({
   node,
   value,
   disabled = false,
@@ -108,7 +80,7 @@ function VariantDetailsForm({
   bridgeClass,
   cardClass,
 }: SchemaFormProps & {
-  widget: "parser" | "serializer";
+  widget: string;
   bridgeClass: string;
   cardClass: string;
 }) {
@@ -143,11 +115,9 @@ function NodeEditor({
 }: SchemaFormProps) {
   const widgets = useWidgetRegistry();
   const isDisabled = disabled ?? false;
-  const parserSelectionOnly = useContext(ParserSelectionContext);
-  const serializerSelectionOnly = useContext(SerializerSelectionContext);
+  const variantUi = useContext(VariantUiContext);
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
-  const parserAction = useContext(ParserActionContext);
   const customWidget = widgets.renderNode(
     { node, value, disabled: isDisabled, onChange, path, controlId },
     { NodeEditor, PropertyEditor },
@@ -189,9 +159,7 @@ function NodeEditor({
           disabled={isDisabled}
           path={path}
           controlId={controlId}
-          parserSelectionOnly={parserSelectionOnly}
-          serializerSelectionOnly={serializerSelectionOnly}
-          parserAction={parserAction}
+          variantUi={variantUi}
           widgets={widgets}
           NodeEditor={NodeEditor}
           onChange={onChange}
@@ -430,11 +398,10 @@ function PropertyEditor({
 }: PropertyEditorProps) {
   const widgets = useWidgetRegistry();
   const showRequiredErrors = useContext(RequiredErrorsContext);
-  const parserSelectionOnly = useContext(ParserSelectionContext);
-  const serializerSelectionOnly = useContext(SerializerSelectionContext);
+  const variantUi = useContext(VariantUiContext);
   const selectionOnly =
-    (parserSelectionOnly && node.xUi.widget === "parser") ||
-    (serializerSelectionOnly && node.xUi.widget === "serializer");
+    node.xUi.widget !== undefined &&
+    variantUi.selectionOnly?.includes(node.xUi.widget) === true;
   const selectionComplete =
     node.kind === "union" &&
     node.branches.some((branch) => branchMatches(branch, value ?? null));
@@ -445,7 +412,12 @@ function PropertyEditor({
     !disabled && incompleteRequired ? "required-incomplete" : "";
   const effective = draftValue(node, value);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-  const controlWidth = controlWidthClass(name, node);
+  const presentation = widgets.presentation(node);
+  const controlWidth = controlWidthClass(
+    name,
+    node,
+    presentation?.controlWidth,
+  );
   const customWidget = widgets.renderProperty(
     {
       name,
@@ -473,12 +445,12 @@ function PropertyEditor({
         {customWidget}
       </div>
     );
-  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || node.xUi.widget === "parser" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
+  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || presentation?.wide ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField
       label={node.title ?? humanize(name)}
       optional={!required}
-      description={node.xUi.widget === "parser" ? undefined : node.description}
+      description={presentation?.hideDescription ? undefined : node.description}
       controlId={isDirectlyLabelled(node) ? identifier : undefined}
       class={`${classes}${guidanceClass ? ` ${guidanceClass}` : ""}${missingRequired ? " required-missing" : ""}`}
     >
@@ -498,10 +470,14 @@ function isDirectlyLabelled(node: CompiledNode): boolean {
   return ["string", "number", "boolean", "union"].includes(node.kind);
 }
 
-function controlWidthClass(_name: string, node: CompiledNode): string {
+function controlWidthClass(
+  _name: string,
+  node: CompiledNode,
+  widgetWidth?: string,
+): string {
+  if (widgetWidth !== undefined) return `control-width-${widgetWidth}`;
   if (node.xUi.control_width === "installation")
     return "control-width-installation";
-  if (node.xUi.widget === "parser") return "control-width-parser";
   if (node.xUi.control_width === "auth") return "control-width-auth";
   if (node.xUi.control_width === "medium") return "control-width-medium";
   if (node.xUi.control_width === "table_name")

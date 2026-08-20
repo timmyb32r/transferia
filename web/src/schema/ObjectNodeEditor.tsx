@@ -64,12 +64,18 @@ export function ObjectNodeEditor({
   const advanced = section(visible, "advanced");
   const systemColumns = section(visible, "system_columns");
   const shardGroup = section(visible, "shard_group");
-  const connectionActionFollowsSecret = regular.some(
-    ([, child]) => child.xUi.widget === "password",
-  );
-  const connectionActionPrecedesParser =
-    !connectionActionFollowsSecret &&
-    regular.some(([, child]) => child.xUi.widget === "parser");
+  const connectionAnchor =
+    regular.find(
+      ([, child]) =>
+        widgets.presentation(child)?.connectionActionAnchor === "after",
+    ) ??
+    regular.find(
+      ([, child]) =>
+        widgets.presentation(child)?.connectionActionAnchor === "before",
+    );
+  const connectionAnchorPosition = connectionAnchor
+    ? widgets.presentation(connectionAnchor[1])?.connectionActionAnchor
+    : undefined;
   const property = ([name, child]: PropertyEntry) => (
     <PropertyEditor
       key={name}
@@ -87,8 +93,8 @@ export function ObjectNodeEditor({
     <div class="schema-object">
       {regular.map(([name, child]) => (
         <Fragment key={name}>
-          {connectionActionPrecedesParser &&
-            child.xUi.widget === "parser" &&
+          {connectionAnchorPosition === "before" &&
+            connectionAnchor?.[0] === name &&
             connectionAction}
           <PropertyEditor
             name={name}
@@ -102,12 +108,12 @@ export function ObjectNodeEditor({
             path={`${path}/${name}`}
             onChange={(next) => onChange({ ...value, [name]: next })}
           />
-          {child.xUi.widget === "password" && connectionAction}
+          {connectionAnchorPosition === "after" &&
+            connectionAnchor?.[0] === name &&
+            connectionAction}
         </Fragment>
       ))}
-      {!connectionActionFollowsSecret &&
-        !connectionActionPrecedesParser &&
-        connectionAction}
+      {connectionAnchor === undefined && connectionAction}
       {shardGroup.length > 0 && (
         <Disclosure label="Shard group" class="shard-group-settings">
           {shardGroup.map(property)}

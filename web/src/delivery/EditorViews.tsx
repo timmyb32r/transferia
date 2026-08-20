@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { SchemaForm } from "../schema/SchemaForm";
+import { revealDetails } from "../schema/revealDetails";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { CompiledNode } from "../schema/compiler";
 import { Button } from "../ui/Button";
@@ -179,22 +180,34 @@ export function EndpointCard(props: {
             value={value}
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
-            parserSelectionOnly={props.role === "source"}
-            serializerSelectionOnly={props.role === "sink"}
+            variantUi={{
+              selectionOnly: [
+                props.role === "source" ? "parser" : "serializer",
+              ],
+              actions:
+                props.role === "source" && props.endpoint.message_preview
+                  ? {
+                      parser: (
+                        <Button
+                          class="parser-preview-button"
+                          title="Preview one message"
+                          aria-label="Preview one message"
+                          disabled={props.readOnly || preview.loading}
+                          onClick={() => void previewMessage()}
+                        >
+                          Scan
+                        </Button>
+                      ),
+                    }
+                  : {},
+              onSelected: (widget) =>
+                revealDetails(
+                  widget === "parser"
+                    ? ".parser-details-card"
+                    : ".serializer-details-card",
+                ),
+            }}
             optionOverrides={check.options}
-            parserAction={
-              props.role === "source" && props.endpoint.message_preview ? (
-                <Button
-                  class="parser-preview-button"
-                  title="Preview one message"
-                  aria-label="Preview one message"
-                  disabled={props.readOnly || preview.loading}
-                  onClick={() => void previewMessage()}
-                >
-                  Scan
-                </Button>
-              ) : undefined
-            }
             connectionAction={
               props.endpoint.connection_check ? (
                 <div class="connection-check">
