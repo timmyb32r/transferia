@@ -91,7 +91,7 @@ fn connection_check_error(error: &clickhouse_arrow::Error) -> anyhow::Error {
     let rendered = error.to_string();
     if rendered.contains("AUTHENTICATION_FAILED") || rendered.contains("Authentication failed") {
         anyhow::anyhow!(
-            "Authentication failed: password is incorrect, or there is no user with such name."
+            "Network connection succeeded, but authentication failed: password is incorrect, or there is no user with such name."
         )
     } else {
         anyhow::anyhow!("ClickHouse connection check failed: {rendered}")
