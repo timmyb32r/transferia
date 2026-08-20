@@ -986,6 +986,10 @@ impl ControlPlane {
     }
 }
 
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "map_err transfers ownership of the anyhow error into this boundary"
+)]
 fn connection_check_service_error(error: anyhow::Error) -> ServiceError {
     let permission_denied = error.chain().any(|cause| {
         cause
