@@ -21,7 +21,7 @@ fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::R
     tls_source.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: relative\n"
+        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: relative\n"
     )?
     .validate()
     .is_err());
@@ -31,9 +31,10 @@ fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::R
 #[test]
 fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\ntables:\n  - dataset: events\n    path: //tmp/events\n",
+        "host: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: //tmp/output\n",
     )?;
     assert_eq!(config.format, YTsaurusWriteFormat::Arrow);
+    assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");
     Ok(())
 }
 

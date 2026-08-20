@@ -34,12 +34,15 @@ pub struct ClickHouseSourceConfig {
     pub tables: Vec<TableConfig>,
 
     #[serde(default = "default_batch_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
 
     #[serde(default = "default_connect_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub connect_timeout_ms: u64,
 
     #[serde(default = "default_request_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 }
 
@@ -49,10 +52,6 @@ pub struct TableConfig {
     pub database: String,
 
     pub name: String,
-
-    pub output_name: String,
-
-    pub order_by: Vec<String>,
 }
 
 impl ClickHouseSourceConfig {
@@ -70,37 +69,17 @@ impl ClickHouseSourceConfig {
             self.batch_rows > 0,
             "clickhouse.batch_rows must be positive"
         );
-        let mut outputs = HashSet::with_capacity(self.tables.len());
         let mut identities = HashSet::with_capacity(self.tables.len());
         for table in &self.tables {
             validate_identifier(&table.database)
                 .map_err(|error| error.context("invalid clickhouse.tables.database"))?;
             validate_identifier(&table.name)
                 .map_err(|error| error.context("invalid clickhouse.tables.name"))?;
-            validate_identifier(&table.output_name)
-                .map_err(|error| error.context("invalid clickhouse.tables.output_name"))?;
-            anyhow::ensure!(!table.order_by.is_empty(), "clickhouse.tables entry '{}.{}' must declare order_by for a deterministic snapshot", table.database, table.name);
-            let mut ordering = HashSet::with_capacity(table.order_by.len());
-            for column in &table.order_by {
-                validate_identifier(column)
-                    .map_err(|error| error.context("invalid clickhouse.tables.order_by"))?;
-                anyhow::ensure!(
-                    ordering.insert(column.as_str()),
-                    "clickhouse.tables entry '{}.{}' repeats order_by column '{column}'",
-                    table.database,
-                    table.name
-                );
-            }
             anyhow::ensure!(
                 identities.insert((table.database.as_str(), table.name.as_str())),
                 "clickhouse.tables repeats source table '{}.{}'",
                 table.database,
                 table.name
-            );
-            anyhow::ensure!(
-                outputs.insert(table.output_name.as_str()),
-                "clickhouse.tables repeats output_name '{}'",
-                table.output_name
             );
         }
         Ok(())

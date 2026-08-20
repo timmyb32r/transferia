@@ -74,12 +74,6 @@ impl SinkLimits for YTsaurusSinkConfig {
             !discovery.datasets.is_empty(),
             "YTsaurus sink requires at least one dataset"
         );
-        anyhow::ensure!(
-            discovery.datasets.len() == self.tables.len(),
-            "YTsaurus sink config maps {} datasets but discovery contains {}",
-            self.tables.len(),
-            discovery.datasets.len()
-        );
         let mut names = HashSet::new();
         for dataset in &discovery.datasets {
             anyhow::ensure!(
@@ -103,13 +97,6 @@ impl SinkLimits for YTsaurusSinkConfig {
                 validate_column_name(&column.name)?;
                 arrow_to_yt(&column.data_type)?;
             }
-        }
-        for mapping in &self.tables {
-            anyhow::ensure!(
-                names.contains(mapping.dataset.as_str()),
-                "YTsaurus mapping for dataset '{}' does not match delivery discovery",
-                mapping.dataset
-            );
         }
         Ok(())
     }
@@ -152,9 +139,9 @@ impl SinkProvider for YTsaurusSinkProvider {
             for dataset in request.datasets {
                 let path = self.config.path_for_dataset(&dataset.table)?;
                 if self.config.replace_tables {
-                    self.client.remove_table(path).await?;
+                    self.client.remove_table(&path).await?;
                     self.client
-                        .create_table(path, schema_to_yt(&dataset.schema)?)
+                        .create_table(&path, schema_to_yt(&dataset.schema)?)
                         .await?;
                 } else {
                     let dynamic = self.client.get_json(&format!("{path}/@dynamic")).await?;
@@ -222,7 +209,11 @@ impl YTsaurusSink {
             };
             let started = Instant::now();
             self.client
-                .write_table(self.config.path_for_dataset(&batch.table)?, format, payload)
+                .write_table(
+                    &self.config.path_for_dataset(&batch.table)?,
+                    format,
+                    payload,
+                )
                 .await
                 .map_err(classify_http_failure)?;
             self.counters.add_busy(started.elapsed());

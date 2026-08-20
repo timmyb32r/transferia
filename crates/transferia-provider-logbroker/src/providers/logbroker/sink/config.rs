@@ -20,7 +20,8 @@ pub struct LogbrokerSinkConfig {
     #[serde(default)]
     #[schemars(
         title = "Partition ID",
-        description = "Write to one explicit partition; leave empty for automatic assignment"
+        description = "Write to one explicit partition; leave empty for automatic assignment",
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub partition_id: Option<i64>,
 

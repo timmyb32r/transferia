@@ -21,6 +21,7 @@ pub struct YTsaurusConnectionConfig {
     pub trusted_plaintext: bool,
 
     #[serde(default = "default_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub timeout_ms: u64,
 }
 
@@ -62,6 +63,7 @@ pub struct YTsaurusSourceConfig {
     pub tables: Vec<SourceTableConfig>,
 
     #[serde(default = "default_batch_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
 }
 
@@ -115,54 +117,33 @@ pub struct YTsaurusSinkConfig {
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
-    pub tables: Vec<SinkTableConfig>,
+    #[schemars(title = "Path", description = "Directory where dataset tables are stored")]
+    pub path: String,
 
     pub replace_tables: bool,
 
     #[serde(default)]
+    #[schemars(title = "Driver exchange format")]
     pub format: YTsaurusWriteFormat,
-}
-
-#[derive(Clone, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SinkTableConfig {
-    pub dataset: String,
-
-    pub path: String,
 }
 
 impl YTsaurusSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "ytsaurus.tables must not be empty");
-        let mut paths = HashSet::new();
-        let mut datasets = HashSet::new();
-        for table in &self.tables {
-            validate_path(&table.path)?;
-            anyhow::ensure!(
-                !table.dataset.is_empty(),
-                "ytsaurus.tables.dataset must not be empty"
-            );
-            anyhow::ensure!(
-                paths.insert(table.path.as_str()),
-                "ytsaurus.tables repeats path '{}'",
-                table.path
-            );
-            anyhow::ensure!(
-                datasets.insert(table.dataset.as_str()),
-                "ytsaurus.tables repeats dataset '{}'",
-                table.dataset
-            );
-        }
+        validate_path(&self.path)?;
         Ok(())
     }
 
-    pub fn path_for_dataset(&self, dataset: &str) -> anyhow::Result<&str> {
-        self.tables
-            .iter()
-            .find(|table| table.dataset == dataset)
-            .map(|table| table.path.as_str())
-            .ok_or_else(|| anyhow::anyhow!("no YTsaurus path configured for dataset '{dataset}'"))
+    pub fn path_for_dataset(&self, dataset: &str) -> anyhow::Result<String> {
+        anyhow::ensure!(!dataset.is_empty(), "YTsaurus dataset name must not be empty");
+        anyhow::ensure!(
+            !dataset.contains('/')
+                && !dataset.contains('<')
+                && !dataset.contains('>')
+                && !dataset.contains('\0'),
+            "YTsaurus dataset name '{dataset}' cannot be used as one table path segment"
+        );
+        Ok(format!("{}/{dataset}", self.path.trim_end_matches('/')))
     }
 }
 

@@ -203,7 +203,7 @@ impl SourceProvider for ClickHouseSourceProvider {
                     }));
                     DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table.config.output_name.as_str()),
+                        name: Arc::from(table.config.name.as_str()),
                         incoming_schema: incoming.clone(),
                         stored_schema: if request.keep_system_columns {
                             incoming
@@ -271,14 +271,8 @@ impl SourceProvider for ClickHouseSourceProvider {
 }
 
 fn snapshot_query(table: &TableConfig) -> String {
-    let order = table
-        .order_by
-        .iter()
-        .map(|column| quote_identifier(column))
-        .collect::<Vec<_>>()
-        .join(", ");
     format!(
-        "SELECT * FROM {}.{} ORDER BY {order}",
+        "SELECT * FROM {}.{}",
         quote_identifier(&table.database),
         quote_identifier(&table.name)
     )
@@ -351,14 +345,6 @@ async fn discover_table(
         table.database,
         table.name
     );
-    for key in &table.order_by {
-        anyhow::ensure!(
-            columns.iter().any(|column| &column.name == key),
-            "ClickHouse order_by column '{key}' is absent from '{}.{}'",
-            table.database,
-            table.name
-        );
-    }
     Ok(DiscoveredTable {
         config: table,
         schema: DatasetSchema::new(columns),

@@ -142,6 +142,7 @@ pub struct KafkaSinkConfig {
     pub serializer: SerializerConfig,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub partition: Option<i32>,
 
     #[serde(default = "default_request_timeout_ms")]

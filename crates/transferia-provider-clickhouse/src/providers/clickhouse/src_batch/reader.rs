@@ -106,7 +106,7 @@ impl ClickHouseSource {
             .add_decompressed_bytes(batch.get_array_memory_size() as u64);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
-                Arc::from(self.table.config.output_name.as_str()),
+                Arc::from(self.table.config.name.as_str()),
                 false,
                 batch,
                 SystemColumns::new(vec![

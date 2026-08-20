@@ -33,35 +33,35 @@ pub struct ClickHouseSinkConfig {
     pub shard_group: String,
 
     #[serde(default = "default_insert_rows")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_target_rows: usize,
 
     #[serde(default = "default_insert_bytes")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_target_bytes: usize,
 
     #[serde(default = "default_flush_interval")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub flush_interval_ms: u64,
 
     #[serde(default = "default_retry_initial")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub retry_initial_ms: u64,
 
     #[serde(default = "default_retry_max")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub retry_max_ms: u64,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub retry_max_attempts: Option<u32>,
 
     #[serde(default = "default_connect_timeout")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub connect_timeout_ms: u64,
 
     #[serde(default = "default_request_timeout")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 }
 

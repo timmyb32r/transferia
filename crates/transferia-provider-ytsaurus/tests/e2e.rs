@@ -233,7 +233,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
 
     let arrow_config: transferia_provider_ytsaurus::ytsaurus::YTsaurusSinkConfig =
         serde_yaml::from_str(&format!(
-        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\ntables:\n  - dataset: events\n    path: //tmp/arrow_output\n"
+        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\npath: //tmp/arrow_output\n"
     ))?;
     transferia_provider_ytsaurus::ytsaurus::check_connection(&arrow_config.connection).await?;
     let arrow_provider = YTsaurusSinkProvider::from_config(arrow_config)?;
@@ -260,7 +260,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     .await?;
 
     let yson_provider = YTsaurusSinkProvider::from_config(serde_yaml::from_str(&format!(
-        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\ntables:\n  - dataset: events\n    path: //tmp/yson_output\n"
+        "host: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\npath: //tmp/yson_output\n"
     ))?)?;
     yson_provider.limits().validate_discovery(&discovered)?;
     yson_provider
@@ -278,12 +278,12 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .await?;
     write_delivery(yson_sink, memory, vec![batch(vec![3], vec![Some(b"b")])?]).await?;
 
-    let arrow_rows = read_arrow(&client, &endpoint, "//tmp/arrow_output").await?;
+    let arrow_rows = read_arrow(&client, &endpoint, "//tmp/arrow_output/events").await?;
     assert_eq!(
         arrow_rows.iter().map(RecordBatch::num_rows).sum::<usize>(),
         2
     );
-    let yson_rows = read_arrow(&client, &endpoint, "//tmp/yson_output").await?;
+    let yson_rows = read_arrow(&client, &endpoint, "//tmp/yson_output/events").await?;
     assert_eq!(
         yson_rows.iter().map(RecordBatch::num_rows).sum::<usize>(),
         1

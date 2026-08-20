@@ -534,9 +534,7 @@ fn build_base_provider_catalog(
                         "shard_group": "",
                         "tables": [{
                             "database": "",
-                            "name": "",
-                            "output_name": "",
-                            "order_by": [""]
+                            "name": ""
                         }],
                         "batch_rows": 65536,
                         "connect_timeout_ms": 30000,
@@ -742,7 +740,7 @@ fn build_base_provider_catalog(
                         "port": 8000,
                         "trusted_plaintext": true,
                         "timeout_ms": 30000,
-                        "tables": [{ "dataset": "", "path": "" }],
+                        "path": "",
                         "replace_tables": true,
                         "format": "arrow"
                     })

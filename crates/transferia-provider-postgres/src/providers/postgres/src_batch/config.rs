@@ -12,6 +12,7 @@ pub struct PostgresSourceConfig {
     pub tables: Vec<TableConfig>,
 
     #[serde(default = "default_batch_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
 }
 
