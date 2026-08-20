@@ -1016,6 +1016,8 @@ describe("schema form", () => {
       ".column-keys .select-search",
     );
     expect(search).not.toBeNull();
+    expect(search?.getAttribute("autocomplete")).toBe("new-password");
+    expect(search?.getAttribute("data-form-type")).toBe("other");
     const id = getByRole("option", { name: /id/ });
     expect(id.closest(".select-menu-floating")).not.toBeNull();
     fireEvent.pointerDown(id, { button: 0, clientX: 1 });

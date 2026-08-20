@@ -108,7 +108,13 @@ export function DynamicPathControl({
           ref={input}
           type="text"
           name={`transferia-${id ?? menuId}`}
-          autoComplete="off"
+          autoComplete="new-password"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck={false}
+          data-1p-ignore
+          data-lpignore="true"
+          data-form-type="other"
           value={value}
           disabled={disabled}
           role="combobox"

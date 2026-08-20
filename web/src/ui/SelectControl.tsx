@@ -113,7 +113,14 @@ export function SelectControl({
             <input
               class="select-search"
               type="search"
-              autoComplete="off"
+              name={`${menuId}-query`}
+              autoComplete="new-password"
+              autocapitalize="off"
+              autocorrect="off"
+              spellcheck={false}
+              data-1p-ignore
+              data-lpignore="true"
+              data-form-type="other"
               placeholder="Search"
               value={query}
               onInput={(event) => setQuery(event.currentTarget.value)}
@@ -219,7 +226,14 @@ export function MultiSelectControl({
           <input
             class="select-search"
             type="search"
-            autoComplete="off"
+            name={`${menuId}-query`}
+            autoComplete="new-password"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck={false}
+            data-1p-ignore
+            data-lpignore="true"
+            data-form-type="other"
             placeholder="Search"
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}
