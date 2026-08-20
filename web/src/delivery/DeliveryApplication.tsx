@@ -38,6 +38,11 @@ import { useDiscovery } from "./useDiscovery";
 import { useOperations } from "./useOperations";
 import { useYamlEditor } from "./useYamlEditor";
 import { RequiredFieldGuide } from "./RequiredFieldGuide";
+import {
+  nextRequiredTarget,
+  requestRequiredGuidance,
+  REQUIRED_CONTROL_SELECTOR,
+} from "../ui/requiredGuidance";
 import { isComplete } from "../schema/compiler";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import {
@@ -342,19 +347,14 @@ export function DeliveryApplication() {
     setShowRequiredErrors(true);
     void applyYamlAndShowUi().then(() => {
       window.requestAnimationFrame(() => {
-        const sourceSelector = [
-          ".endpoint-card-source .required-missing",
-          ".parser-details-card .required-missing",
-        ].join(", ");
-        const missing =
-          document.querySelector<HTMLElement>(sourceSelector) ??
-          document.querySelector<HTMLElement>(
-            `${sourceSelector}, .required-missing`,
-          );
+        const container = workspace.current;
+        if (container === null) return;
+        requestRequiredGuidance(container);
+        const missing = nextRequiredTarget(container);
         missing?.closest("details")?.setAttribute("open", "");
         missing?.scrollIntoView({ behavior: "smooth", block: "center" });
         missing
-          ?.querySelector<HTMLElement>("input, button, textarea, select")
+          ?.querySelector<HTMLElement>(REQUIRED_CONTROL_SELECTOR)
           ?.focus({ preventScroll: true });
       });
     });

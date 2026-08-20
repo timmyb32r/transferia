@@ -1,11 +1,13 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { onRequiredGuidanceRequest } from "../ui/requiredGuidance";
+import {
+  nextRequiredTarget,
+  onRequiredGuidanceRequest,
+  REQUIRED_CONTROL_SELECTOR,
+} from "../ui/requiredGuidance";
 
 const INCOMPLETE_SELECTOR = ".required-incomplete";
-const GUIDED_CONTROL_SELECTOR =
-  "input:not([type='checkbox']), textarea, select, .select-trigger, [data-required-control]";
 
 export function RequiredFieldGuide({
   root,
@@ -20,12 +22,16 @@ export function RequiredFieldGuide({
   const guidedControls = useRef<HTMLElement[]>([]);
   const [blurRevision, setBlurRevision] = useState(0);
   const [requestedScope, setRequestedScope] = useState<HTMLElement>();
+  const [requestRevision, setRequestRevision] = useState(0);
+  const forceGuidance = useRef(false);
 
   useEffect(
     () =>
       onRequiredGuidanceRequest((scope) => {
         if (root.current?.contains(scope)) {
+          forceGuidance.current = true;
           setRequestedScope(scope);
+          setRequestRevision((value) => value + 1);
         }
       }),
     [root],
@@ -42,7 +48,10 @@ export function RequiredFieldGuide({
           : workspace;
       if (container === null) return;
       const active = document.activeElement;
+      const force = forceGuidance.current;
+      forceGuidance.current = false;
       if (
+        !force &&
         enabled &&
         active instanceof HTMLElement &&
         guidedPath.current.every((candidate) =>
@@ -71,10 +80,7 @@ export function RequiredFieldGuide({
         setRequestedScope(undefined);
         return;
       }
-      const leaf =
-        candidates.find(
-          (candidate) => candidate.querySelector(INCOMPLETE_SELECTOR) === null,
-        ) ?? candidates[0];
+      const leaf = nextRequiredTarget(container);
       if (leaf === undefined) return;
       const path = [
         leaf,
@@ -91,7 +97,7 @@ export function RequiredFieldGuide({
         )
           continue;
         const ownControl = [
-          ...candidate.querySelectorAll<HTMLElement>(GUIDED_CONTROL_SELECTOR),
+          ...candidate.querySelectorAll<HTMLElement>(REQUIRED_CONTROL_SELECTOR),
         ].find((control) => control.closest(INCOMPLETE_SELECTOR) === candidate);
         if (ownControl !== undefined) {
           ownControl.classList.add("required-next-control");
@@ -103,7 +109,7 @@ export function RequiredFieldGuide({
       window.cancelAnimationFrame(frame);
       focusedControl?.removeEventListener("blur", continueAfterBlur);
     };
-  }, [blurRevision, enabled, requestedScope, revision, root]);
+  }, [blurRevision, enabled, requestedScope, requestRevision, revision, root]);
 
   useEffect(
     () => () => {

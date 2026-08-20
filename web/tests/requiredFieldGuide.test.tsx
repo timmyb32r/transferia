@@ -92,6 +92,24 @@ describe("required field guide", () => {
         .getByRole("button", { name: "Keys" })
         .classList.contains("required-next-control"),
     ).toBe(false);
+    expect(
+      view
+        .getByLabelText("Destination")
+        .classList.contains("required-next-control"),
+    ).toBe(false);
+
+    view.getByLabelText("Destination").focus();
+    requestRequiredGuidance(view.container.firstElementChild as HTMLElement);
+    await waitFor(() =>
+      expect(
+        view.getByTestId("column-row").classList.contains("required-next"),
+      ).toBe(true),
+    );
+    expect(
+      view
+        .getByLabelText("Destination")
+        .classList.contains("required-next-control"),
+    ).toBe(false);
   });
 });
 
@@ -185,6 +203,9 @@ function StructuralHarness() {
         <button type="button" class="select-trigger">
           Keys
         </button>
+      </div>
+      <div class="required-incomplete required-missing">
+        <input aria-label="Destination" />
       </div>
     </div>
   );
