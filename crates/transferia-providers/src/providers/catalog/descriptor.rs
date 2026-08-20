@@ -51,7 +51,7 @@ const CLICKHOUSE_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescrip
 
 const YTSAURUS_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
     installation: Some(InstallationContract {
-        output_fields: &["host", "port", "token", "trusted_plaintext"],
+        output_fields: &["host", "port", "trusted_plaintext"],
         required_output_fields: &["host", "port", "trusted_plaintext"],
     }),
 });
