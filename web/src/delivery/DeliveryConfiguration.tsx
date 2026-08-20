@@ -25,7 +25,7 @@ export function DeliveryConfiguration({
   editor,
   selection,
   readOnly,
-  showRequiredErrors,
+  requiredErrorScope,
   onName,
   onDescription,
   onConfig,
@@ -35,7 +35,7 @@ export function DeliveryConfiguration({
   editor: EditorState;
   selection: EndpointSelection | undefined;
   readOnly: boolean;
-  showRequiredErrors: boolean;
+  requiredErrorScope: "none" | "source" | "all";
   onName: (name: string) => void;
   onDescription: (description: string) => void;
   onConfig: (config: JsonObject) => void;
@@ -83,7 +83,7 @@ export function DeliveryConfiguration({
             label="Delivery name"
             required
             incomplete={!readOnly && editor.name.trim() === ""}
-            invalid={showRequiredErrors && editor.name.trim() === ""}
+            invalid={requiredErrorScope !== "none" && editor.name.trim() === ""}
           >
             <input
               type="text"
@@ -110,7 +110,7 @@ export function DeliveryConfiguration({
             required
             incomplete={!readOnly && !deliveryTypeSelected}
             invalid={
-              showRequiredErrors &&
+              requiredErrorScope !== "none" &&
               stringValue(editor.config.delivery_type) === ""
             }
           >
@@ -143,7 +143,7 @@ export function DeliveryConfiguration({
                 : { endpoint: selection.source })}
               config={editor.config}
               readOnly={readOnly}
-              showRequiredErrors={showRequiredErrors}
+              showRequiredErrors={requiredErrorScope !== "none"}
               onChoose={onChooseEndpoint}
               onConfig={onConfig}
             />
@@ -159,7 +159,7 @@ export function DeliveryConfiguration({
                 : { endpoint: selection.sink })}
               config={editor.config}
               readOnly={readOnly}
-              showRequiredErrors={showRequiredErrors}
+              showRequiredErrors={requiredErrorScope === "all"}
               onChoose={onChooseEndpoint}
               onConfig={onConfig}
             />
@@ -172,7 +172,7 @@ export function DeliveryConfiguration({
                   selection.sourceKey,
                 )}
                 disabled={readOnly}
-                showRequiredErrors={showRequiredErrors}
+                showRequiredErrors={requiredErrorScope !== "none"}
                 onChange={(next) =>
                   onConfig({
                     ...editor.config,
@@ -186,7 +186,7 @@ export function DeliveryConfiguration({
                 node={compiledSchema(selection.sink.schema, widgets)}
                 value={endpointValue(editor.config, "sink", selection.sinkKey)}
                 disabled={readOnly}
-                showRequiredErrors={showRequiredErrors}
+                showRequiredErrors={requiredErrorScope === "all"}
                 onChange={(next) =>
                   onConfig({
                     ...editor.config,
@@ -211,7 +211,7 @@ export function DeliveryConfiguration({
               schema={catalog.common_schema}
               config={editor.config}
               disabled={readOnly}
-              showRequiredErrors={showRequiredErrors}
+              showRequiredErrors={requiredErrorScope !== "none"}
               partitionedSource={selection?.source?.partitioned === true}
               onChange={onConfig}
             />

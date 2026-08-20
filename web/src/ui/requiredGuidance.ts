@@ -6,10 +6,14 @@ export const REQUIRED_CONTROL_SELECTOR =
 
 export function nextRequiredTarget(
   container: HTMLElement,
+  excludeSelector?: string,
 ): HTMLElement | undefined {
   const candidates = [
     ...container.querySelectorAll<HTMLElement>(INCOMPLETE_SELECTOR),
-  ];
+  ].filter(
+    (candidate) =>
+      excludeSelector === undefined || candidate.closest(excludeSelector) === null,
+  );
   return (
     candidates.find(
       (candidate) => candidate.querySelector(INCOMPLETE_SELECTOR) === null,
@@ -17,18 +21,26 @@ export function nextRequiredTarget(
   );
 }
 
-export function requestRequiredGuidance(scope: HTMLElement): void {
+export function requestRequiredGuidance(
+  scope: HTMLElement,
+  excludeSelector?: string,
+): void {
   document.dispatchEvent(
-    new CustomEvent<HTMLElement>(REQUIRED_GUIDANCE_EVENT, { detail: scope }),
+    new CustomEvent(REQUIRED_GUIDANCE_EVENT, {
+      detail: { scope, excludeSelector },
+    }),
   );
 }
 
 export function onRequiredGuidanceRequest(
-  listener: (scope: HTMLElement) => void,
+  listener: (scope: HTMLElement, excludeSelector?: string) => void,
 ): () => void {
   const handler = (event: Event) => {
-    if (event instanceof CustomEvent && event.detail instanceof HTMLElement)
-      listener(event.detail);
+    if (
+      event instanceof CustomEvent &&
+      event.detail?.scope instanceof HTMLElement
+    )
+      listener(event.detail.scope, event.detail.excludeSelector);
   };
   document.addEventListener(REQUIRED_GUIDANCE_EVENT, handler);
   return () => document.removeEventListener(REQUIRED_GUIDANCE_EVENT, handler);

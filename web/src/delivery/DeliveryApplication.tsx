@@ -83,7 +83,9 @@ export function DeliveryApplication() {
   );
   const [catalog, setCatalog] = useState<UiCatalog>();
   const [deliveries, setDeliveries] = useState<DeliverySummary[]>([]);
-  const [showRequiredErrors, setShowRequiredErrors] = useState(false);
+  const [requiredErrorScope, setRequiredErrorScope] = useState<
+    "none" | "source" | "all"
+  >("none");
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
@@ -343,14 +345,15 @@ export function DeliveryApplication() {
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
   ).some((key) => operations[key]?.label !== undefined);
-  const revealMissingRequiredFields = () => {
-    setShowRequiredErrors(true);
+  const revealMissingRequiredFields = (scope: "source" | "all" = "all") => {
+    setRequiredErrorScope(scope);
     void applyYamlAndShowUi().then(() => {
       window.requestAnimationFrame(() => {
         const container = workspace.current;
         if (container === null) return;
-        requestRequiredGuidance(container);
-        const missing = nextRequiredTarget(container);
+        const excluded = scope === "source" ? ".endpoint-card-sink, .serializer-details-card" : undefined;
+        requestRequiredGuidance(container, excluded);
+        const missing = nextRequiredTarget(container, excluded);
         missing?.closest("details")?.setAttribute("open", "");
         missing?.scrollIntoView({ behavior: "smooth", block: "center" });
         missing
@@ -366,7 +369,7 @@ export function DeliveryApplication() {
       requiredFieldsComplete={requiredFieldsComplete}
       onMissingRequired={revealMissingRequiredFields}
       onEdit={() => {
-        setShowRequiredErrors(false);
+        setRequiredErrorScope("none");
         dispatch({ type: "edit" });
       }}
       onDelete={() => {
@@ -375,7 +378,7 @@ export function DeliveryApplication() {
           if (!deleted) return;
           jobs.cancelEditorJobs();
           resetOperations({});
-          setShowRequiredErrors(false);
+          setRequiredErrorScope("none");
           dispatch({
             type: "new",
             sessionId: nextSession(),
@@ -425,7 +428,7 @@ export function DeliveryApplication() {
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});
-          setShowRequiredErrors(false);
+          setRequiredErrorScope("none");
           dispatch({
             type: "new",
             sessionId: nextSession(),
@@ -447,7 +450,7 @@ export function DeliveryApplication() {
               }
               yamlEditor.reset();
               setDiscovery(undefined);
-              setShowRequiredErrors(false);
+              setRequiredErrorScope("none");
               dispatch({
                 type: "open",
                 sessionId: result.context,
@@ -466,7 +469,7 @@ export function DeliveryApplication() {
           root={workspace}
           enabled={!readOnly && activeView === "ui"}
           revision={editor.localRevision}
-          tone={showRequiredErrors ? "error" : "guided"}
+          tone={requiredErrorScope !== "none" ? "error" : "guided"}
         />
         <header class="page-header">
           <div>
@@ -492,7 +495,7 @@ export function DeliveryApplication() {
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
-          onDataSchemaUnavailable={revealMissingRequiredFields}
+          onDataSchemaUnavailable={() => revealMissingRequiredFields("source")}
           onLogs={() => void showLogs()}
         />
         <OperationNotices
@@ -506,7 +509,7 @@ export function DeliveryApplication() {
             editor={editor}
             selection={selection}
             readOnly={readOnly}
-            showRequiredErrors={showRequiredErrors}
+            requiredErrorScope={requiredErrorScope}
             onName={(name) => dispatchLocalChange({ type: "name", name })}
             onDescription={(description) =>
               dispatchLocalChange({ type: "description", description })

@@ -24,15 +24,17 @@ export function RequiredFieldGuide({
   const guidedControls = useRef<HTMLElement[]>([]);
   const [blurRevision, setBlurRevision] = useState(0);
   const [requestedScope, setRequestedScope] = useState<HTMLElement>();
+  const [excludeSelector, setExcludeSelector] = useState<string>();
   const [requestRevision, setRequestRevision] = useState(0);
   const forceGuidance = useRef(false);
 
   useEffect(
     () =>
-      onRequiredGuidanceRequest((scope) => {
+      onRequiredGuidanceRequest((scope, excluded) => {
         if (root.current?.contains(scope)) {
           forceGuidance.current = true;
           setRequestedScope(scope);
+          setExcludeSelector(excluded);
           setRequestRevision((value) => value + 1);
         }
       }),
@@ -73,13 +75,17 @@ export function RequiredFieldGuide({
       guidedControls.current = [];
       const candidates = [
         ...container.querySelectorAll<HTMLElement>(INCOMPLETE_SELECTOR),
-      ];
+      ].filter(
+        (candidate) =>
+          excludeSelector === undefined ||
+          candidate.closest(excludeSelector) === null,
+      );
       if (!enabled) return;
       if (candidates.length === 0 && requestedScope !== undefined) {
         setRequestedScope(undefined);
         return;
       }
-      const leaf = nextRequiredTarget(container);
+      const leaf = nextRequiredTarget(container, excludeSelector);
       if (leaf === undefined) return;
       const path = [
         leaf,
@@ -114,6 +120,7 @@ export function RequiredFieldGuide({
   }, [
     blurRevision,
     enabled,
+    excludeSelector,
     requestedScope,
     requestRevision,
     revision,

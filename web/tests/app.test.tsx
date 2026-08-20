@@ -225,6 +225,23 @@ describe("App request orchestration", () => {
     chooseFromSelect(app, "Destination", "Test destination");
     scrollIntoView.mockClear();
 
+    fireEvent.click(app.getByRole("tab", { name: "Data schema" }));
+
+    await waitFor(() =>
+      expect(
+        app
+          .getByText("Host")
+          .closest(".form-row")
+          ?.classList.contains("required-missing"),
+      ).toBe(true),
+    );
+    expect(
+      app
+        .getByText("Database")
+        .closest(".form-row")
+        ?.classList.contains("required-missing"),
+    ).toBe(false);
+
     fireEvent.click(app.getByRole("button", { name: "Validate" }));
 
     await waitFor(() =>
