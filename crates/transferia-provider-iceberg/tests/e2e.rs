@@ -150,9 +150,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(vec![
             Field::new("id", DataType::Int64, false).with_metadata(
-                [("transferia.primary_key".to_owned(), "true".to_owned())]
-                    .into_iter()
-                    .collect(),
+                std::iter::once(("transferia.primary_key".to_owned(), "true".to_owned())).collect(),
             ),
             Field::new("value", DataType::Utf8, false),
         ])),
@@ -233,8 +231,10 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
 
 fn indent(value: &str, spaces: usize) -> String {
     let prefix = " ".repeat(spaces);
-    value
-        .lines()
-        .map(|line| format!("{prefix}{line}\n"))
-        .collect()
+    value.lines().fold(String::new(), |mut output, line| {
+        output.push_str(&prefix);
+        output.push_str(line);
+        output.push('\n');
+        output
+    })
 }
