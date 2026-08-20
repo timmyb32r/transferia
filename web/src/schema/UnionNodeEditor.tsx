@@ -52,7 +52,18 @@ export function UnionNodeEditor({
             }
             const branch = node.branches[Number(raw)];
             if (branch === undefined) return;
-            onChange(branch.constant ?? createValue(branch.node));
+            const created = branch.constant ?? createValue(branch.node);
+            onChange(
+              branch.discriminator !== undefined &&
+                typeof created === "object" &&
+                created !== null &&
+                !Array.isArray(created)
+                ? {
+                    ...created,
+                    [branch.discriminator.key]: branch.discriminator.value,
+                  }
+                : created,
+            );
             if (widget !== undefined) variantUi.onSelected?.(widget);
           }}
         />

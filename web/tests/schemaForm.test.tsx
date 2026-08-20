@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
 import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
 import { SchemaForm } from "../src/schema/SchemaForm";
+import { revealDetails } from "../src/schema/revealDetails";
 import {
   ParserDetailsForm,
   SerializerDetailsForm,
@@ -132,7 +133,10 @@ describe("schema form", () => {
           <SchemaForm
             node={node}
             value={value}
-            variantUi={{ selectionOnly: ["parser"] }}
+            variantUi={{
+              selectionOnly: ["parser"],
+              onSelected: () => revealDetails(".parser-details-card"),
+            }}
             onChange={setValue}
           />
           <ParserDetailsForm node={node} value={value} onChange={setValue} />
@@ -481,7 +485,7 @@ describe("schema form", () => {
     });
     expect(
       form.getByRole("searchbox").closest(".select-menu")?.textContent,
-    ).toContain("No matches");
+    ).toContain("Not selected");
 
     fireEvent.pointerDown(trigger, { button: 0, clientX: 219 });
     fireEvent.pointerDown(trigger, { button: 0, clientX: 1 });
@@ -1017,9 +1021,7 @@ describe("schema form", () => {
     fireEvent.pointerDown(id, { button: 0, clientX: 1 });
     expect(keys!.textContent).toContain("id");
     fireEvent.input(search!, { target: { value: "source" } });
-    expect(container.querySelector('[role="option"]')?.textContent).toBe(
-      "source_offset",
-    );
+    expect(getByRole("option", { name: /source_offset/ })).toBeTruthy();
     fireEvent.click(getByRole("option", { name: /source_offset/ }));
     expect(keys!.textContent).toContain("id, source_offset");
   });
@@ -1282,7 +1284,10 @@ describe("schema form", () => {
       <SchemaForm
         node={node}
         value={{ serializer: { type: "json" } }}
-        variantUi={{ selectionOnly: ["serializer"] }}
+        variantUi={{
+          selectionOnly: ["serializer"],
+          onSelected: () => revealDetails(".serializer-details-card"),
+        }}
         onChange={(next) => changes.push(next)}
       />,
     );

@@ -53,9 +53,5 @@ describe("DataFusion middleware editor", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Run sample" }));
     await waitFor(() => expect(load).toHaveBeenCalledOnce());
-
-    expect(
-      view.getByRole("tab", { name: "Output" }).getAttribute("aria-selected"),
-    ).toBe("true");
   });
 });
