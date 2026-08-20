@@ -14,8 +14,8 @@ afterEach(cleanup);
 
 describe("data schema view", () => {
   it("shows one selected table instead of a scrolling list", () => {
-    const dataset = (name: string) => ({
-      role: "Main" as const,
+    const dataset = (name: string, role: "Main" | "DeadLetterQueue" = "Main") => ({
+      role,
       name,
       intermediate_columns: [],
       final_columns: [],
@@ -26,7 +26,7 @@ describe("data schema view", () => {
           source: "source",
           sink: "sink",
           pipeline_count: 1,
-          datasets: [dataset("first"), dataset("second")],
+          datasets: [dataset("first"), dataset("second", "DeadLetterQueue")],
           sink_limits: { sink: "sink", supported_arrow_types: [] },
         }}
       />,
@@ -39,6 +39,9 @@ describe("data schema view", () => {
     fireEvent.pointerDown(view.getByRole("button", { name: /first/i }), {
       button: 0,
     });
+    expect(view.getByRole("option", { name: "first" })).toBeTruthy();
+    expect(view.getByRole("option", { name: "second" })).toBeTruthy();
+    expect(view.queryByText(/DeadLetterQueue/)).toBeNull();
     fireEvent.pointerDown(view.getByRole("option", { name: /second/i }), {
       button: 0,
     });

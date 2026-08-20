@@ -357,7 +357,7 @@ function withoutObjectProperty(
 export function ContractView({ result }: { result: DiscoveryResult }) {
   const datasetOptions = result.datasets.map((dataset, index) => ({
     value: String(index),
-    label: `${dataset.name} · ${dataset.role}`,
+    label: dataset.name,
   }));
   const [selectedDataset, setSelectedDataset] = useState("0");
   const selectedIndex = Number(selectedDataset);
