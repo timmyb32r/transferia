@@ -436,9 +436,12 @@ export function isComplete(
         (node.maximum === undefined || value <= node.maximum)
       );
     case "string":
-      return node.enumValues === undefined
-        ? typeof value === "string" && value.length > 0
-        : node.enumValues.some((candidate) => Object.is(candidate, value));
+      return (
+        typeof value === "string" &&
+        value.length > 0 &&
+        (node.enumValues === undefined ||
+          node.enumValues.some((candidate) => Object.is(candidate, value)))
+      );
   }
 }
 

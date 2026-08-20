@@ -118,6 +118,22 @@ describe("schema compiler", () => {
     expect(isComplete(node, { token: "secret" })).toBe(true);
   });
 
+  it("does not treat an empty enum placeholder as a completed required value", () => {
+    const node = compileSchema({
+      type: "object",
+      properties: {
+        cluster: {
+          type: "string",
+          enum: ["", "logbroker", "logbroker-prestable"],
+        },
+      },
+      required: ["cluster"],
+    });
+
+    expect(isComplete(node, { cluster: "" })).toBe(false);
+    expect(isComplete(node, { cluster: "logbroker" })).toBe(true);
+  });
+
   it("selects tagged object variants from their discriminator", () => {
     const node = compileSchema({
       oneOf: [
