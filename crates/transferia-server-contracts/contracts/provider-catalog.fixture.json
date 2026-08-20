@@ -362,7 +362,7 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
-                  "title": "Discard messages (benchmark)",
+                  "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema"
                 }
               ]
@@ -1735,7 +1735,7 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
-                  "title": "Discard messages (benchmark)",
+                  "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema"
                 }
               ]
@@ -2621,7 +2621,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "max_in_flight": {
@@ -2630,7 +2630,7 @@
               "minimum": 0,
               "default": 16,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -3625,7 +3625,7 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
-                  "title": "Discard messages (benchmark)",
+                  "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema"
                 }
               ]
@@ -5355,20 +5355,6 @@
                       "minimum": 1,
                       "maximum": 65535
                     },
-                    "token": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "x-ui": {
-                            "widget": "password"
-                          }
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Token"
-                    },
                     "trusted_plaintext": {
                       "type": "boolean",
                       "title": "Trusted plaintext"
@@ -5386,6 +5372,9 @@
                   "additionalProperties": false
                 }
               ]
+            },
+            "auth": {
+              "$ref": "#/$defs/YTsaurusAuthConfig"
             },
             "timeout_ms": {
               "type": "integer",
@@ -5414,41 +5403,83 @@
           },
           "additionalProperties": false,
           "required": [
+            "auth",
             "tables",
             "installation"
           ],
           "$defs": {
+            "YTsaurusAuthConfig": {
+              "oneOf": [
+                {
+                  "title": "Token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "title": "Token file",
+                  "type": "object",
+                  "properties": {
+                    "token_file": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token_file"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token_file"
+                  ]
+                }
+              ]
+            },
             "SourceTableConfig": {
               "type": "object",
               "properties": {
                 "path": {
                   "type": "string"
-                },
-                "output_name": {
-                  "type": "string"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "path",
-                "output_name"
+                "path"
               ]
             }
           }
         },
         "initial": {
+          "auth": {
+            "type": "token",
+            "token": ""
+          },
           "batch_rows": 65536,
           "tables": [
             {
-              "path": "",
-              "output_name": ""
+              "path": ""
             }
           ],
           "timeout_ms": 30000,
           "installation": {
             "host": "",
             "port": 8000,
-            "token": null,
             "trusted_plaintext": true,
             "type": "on_premise"
           }
@@ -5486,20 +5517,6 @@
                       "minimum": 1,
                       "maximum": 65535
                     },
-                    "token": {
-                      "anyOf": [
-                        {
-                          "type": "string",
-                          "x-ui": {
-                            "widget": "password"
-                          }
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ],
-                      "title": "Token"
-                    },
                     "trusted_plaintext": {
                       "type": "boolean",
                       "title": "Trusted plaintext"
@@ -5517,6 +5534,9 @@
                   "additionalProperties": false
                 }
               ]
+            },
+            "auth": {
+              "$ref": "#/$defs/YTsaurusAuthConfig"
             },
             "timeout_ms": {
               "type": "integer",
@@ -5542,11 +5562,55 @@
           },
           "additionalProperties": false,
           "required": [
+            "auth",
             "path",
             "replace_tables",
             "installation"
           ],
           "$defs": {
+            "YTsaurusAuthConfig": {
+              "oneOf": [
+                {
+                  "title": "Token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "title": "Token file",
+                  "type": "object",
+                  "properties": {
+                    "token_file": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token_file"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token_file"
+                  ]
+                }
+              ]
+            },
             "YTsaurusWriteFormat": {
               "type": "string",
               "enum": [
@@ -5557,6 +5621,10 @@
           }
         },
         "initial": {
+          "auth": {
+            "type": "token",
+            "token": ""
+          },
           "format": "arrow",
           "replace_tables": true,
           "path": "",
@@ -5564,7 +5632,6 @@
           "installation": {
             "host": "",
             "port": 8000,
-            "token": null,
             "trusted_plaintext": true,
             "type": "on_premise"
           }
@@ -5576,8 +5643,64 @@
       }
     },
     {
+      "key": "data_generator",
+      "title": "Data generator (for benchmarks)",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "DataGeneratorConfig",
+          "type": "object",
+          "properties": {
+            "table_name": {
+              "type": "string"
+            },
+            "column_count": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1
+            },
+            "data_size_bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 1,
+              "x-ui": {
+                "widget": "byte_size"
+              }
+            },
+            "batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "table_name",
+            "column_count",
+            "data_size_bytes",
+            "batch_rows"
+          ]
+        },
+        "initial": {
+          "table_name": "",
+          "column_count": 10,
+          "data_size_bytes": 107374182400,
+          "batch_rows": 65536
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": false,
+        "message_preview": false
+      }
+    },
+    {
       "key": "discard",
-      "title": "Discard (benchmark)",
+      "title": "Discard (for benchmarks)",
       "sink": {
         "schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",

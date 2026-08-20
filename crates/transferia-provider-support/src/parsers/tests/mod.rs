@@ -18,6 +18,10 @@ fn benchmark_discard_schema_has_no_visible_settings() {
 
     assert_eq!(value["properties"]["common"]["x-ui"]["widget"], "hidden");
     assert_eq!(
+        value["properties"]["benchmark_discard"]["title"],
+        "Discard messages (for benchmarks)"
+    );
+    assert_eq!(
         value["properties"]["benchmark_discard"]["x-ui"]["widget"],
         "hidden"
     );

@@ -16,7 +16,7 @@ pub enum ParserSchema {
     Json(JsonParserSchema),
     #[schemars(title = "Schema Registry parser")]
     SchemaRegistry(SchemaRegistryParserSchema),
-    #[schemars(title = "Discard messages (benchmark)")]
+    #[schemars(title = "Discard messages (for benchmarks)")]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }
 

@@ -103,13 +103,13 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
     },
     ProviderDescriptor {
         key: "data_generator",
-        title: "Data generator",
+        title: "Data generator (for benchmarks)",
         source: PLAIN,
         sink: None,
     },
     ProviderDescriptor {
         key: "discard",
-        title: "Discard (benchmark)",
+        title: "Discard (for benchmarks)",
         source: None,
         sink: PLAIN,
     },
