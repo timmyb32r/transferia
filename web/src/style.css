@@ -1727,7 +1727,15 @@ button::after {
   max-width: 100vw;
   overflow: scroll;
   resize: both;
-  scrollbar-color: var(--text-secondary) var(--surface-soft);
+  /*
+   * Chromium ignores the ::-webkit-scrollbar rules below when the standard
+   * scrollbar properties have non-auto values. On macOS that falls back to
+   * an overlay scrollbar which disappears as soon as pointer activity stops.
+   * Keep these auto so the explicitly painted, permanently visible track and
+   * thumb below remain authoritative.
+   */
+  scrollbar-color: auto;
+  scrollbar-width: auto;
   scrollbar-gutter: stable both-edges;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
@@ -1752,6 +1760,10 @@ button::after {
   border: 2px solid var(--surface-soft);
   border-radius: 8px;
   background: var(--text-secondary);
+}
+
+.schema-inspector::-webkit-scrollbar-corner {
+  background: var(--surface-soft);
 }
 
 .schema-inspector-drag-handle {

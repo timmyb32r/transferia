@@ -86,4 +86,16 @@ async function checkCssCustomProperties() {
     violations.push("style.css: schema inspector must always reserve scrollbars");
   if (!inspector.includes("scrollbar-gutter: stable both-edges"))
     violations.push("style.css: schema inspector must reserve a stable scrollbar gutter");
+  if (
+    !inspector.includes("scrollbar-color: auto") ||
+    !inspector.includes("scrollbar-width: auto")
+  )
+    violations.push(
+      "style.css: schema inspector must let its permanent WebKit scrollbar styling take precedence",
+    );
+  const inspectorScrollbar =
+    css.match(/\.schema-inspector::\-webkit-scrollbar\s*\{([^}]*)\}/)?.[1] ??
+    "";
+  if (!inspectorScrollbar.includes("display: block"))
+    violations.push("style.css: schema inspector scrollbar must remain visible without hover");
 }
