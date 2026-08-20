@@ -393,3 +393,126 @@ export interface ApiContract {
 }
 
 export type ApiContractName = keyof ApiContract;
+
+export const API_ROUTES = {
+  health: {
+    method: "GET",
+    path: "/api/v1/health",
+    response: "health_response",
+  },
+  catalog: {
+    method: "GET",
+    path: "/api/v1/catalog",
+    response: "catalog_response",
+  },
+  options: {
+    method: "POST",
+    path: "/api/v1/options/{key}",
+    response: "dynamic_options_response",
+  },
+  check_connection: {
+    method: "POST",
+    path: "/api/v1/check-connection",
+    response: "connection_check_response",
+  },
+  preview_message: {
+    method: "POST",
+    path: "/api/v1/preview-message",
+    response: "message_preview_response",
+  },
+  sql_playground: {
+    method: "POST",
+    path: "/api/v1/playground/sql",
+    response: "sql_playground_response",
+  },
+  render_yaml: {
+    method: "POST",
+    path: "/api/v1/config/yaml",
+    response: "yaml_response",
+  },
+  parse_yaml: {
+    method: "POST",
+    path: "/api/v1/config/from-yaml",
+    response: "config_response",
+  },
+  discover: {
+    method: "POST",
+    path: "/api/v1/discover",
+    response: "discovery_response",
+  },
+  list_deliveries: {
+    method: "GET",
+    path: "/api/v1/deliveries",
+    response: "delivery_list_response",
+  },
+  create_delivery: {
+    method: "POST",
+    path: "/api/v1/deliveries",
+    response: "delivery_response",
+  },
+  get_delivery: {
+    method: "GET",
+    path: "/api/v1/deliveries/{id}",
+    response: "delivery_response",
+  },
+  update_delivery: {
+    method: "PUT",
+    path: "/api/v1/deliveries/{id}",
+    response: "delivery_response",
+  },
+  delete_delivery: {
+    method: "DELETE",
+    path: "/api/v1/deliveries/{id}",
+    response: "delivery_response",
+  },
+  validate: {
+    method: "POST",
+    path: "/api/v1/deliveries/{id}/validate",
+    response: "validation_response",
+  },
+  activate: {
+    method: "POST",
+    path: "/api/v1/deliveries/{id}/activate",
+    response: "delivery_response",
+  },
+  stop: {
+    method: "POST",
+    path: "/api/v1/deliveries/{id}/stop",
+    response: "delivery_response",
+  },
+  worker_logs: {
+    method: "GET",
+    path: "/api/v1/deliveries/{id}/logs",
+    response: "worker_logs_response",
+  },
+  worker_log: {
+    method: "GET",
+    path: "/api/v1/deliveries/{id}/logs/{worker_id}",
+    response: "worker_log_response",
+  },
+} as const satisfies Record<
+  string,
+  { method: string; path: string; response: ApiContractName }
+>;
+export interface ApiRouteContract {
+  health: ApiContract["health_response"];
+  catalog: ApiContract["catalog_response"];
+  options: ApiContract["dynamic_options_response"];
+  check_connection: ApiContract["connection_check_response"];
+  preview_message: ApiContract["message_preview_response"];
+  sql_playground: ApiContract["sql_playground_response"];
+  render_yaml: ApiContract["yaml_response"];
+  parse_yaml: ApiContract["config_response"];
+  discover: ApiContract["discovery_response"];
+  list_deliveries: ApiContract["delivery_list_response"];
+  create_delivery: ApiContract["delivery_response"];
+  get_delivery: ApiContract["delivery_response"];
+  update_delivery: ApiContract["delivery_response"];
+  delete_delivery: ApiContract["delivery_response"];
+  validate: ApiContract["validation_response"];
+  activate: ApiContract["delivery_response"];
+  stop: ApiContract["delivery_response"];
+  worker_logs: ApiContract["worker_logs_response"];
+  worker_log: ApiContract["worker_log_response"];
+}
+export type ApiRouteName = keyof ApiRouteContract;

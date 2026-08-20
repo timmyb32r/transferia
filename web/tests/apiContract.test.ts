@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import fixture from "../../crates/transferia-server-contracts/contracts/server-api.fixture.json";
+import routes from "../../crates/transferia-server-contracts/contracts/server-api.routes.json";
 import { decodeApi } from "../src/api/contractDecoder";
+import { API_ROUTES } from "../src/generated/apiContract";
 
 describe("generated Rust server API contract", () => {
   it("decodes the shared Rust serialization fixture", () => {
@@ -46,5 +48,13 @@ describe("generated Rust server API contract", () => {
         "delivery",
       ),
     ).toThrow("delivery.record_version");
+  });
+
+  it("generates every frontend method, path, and response from the Rust route manifest", () => {
+    expect(API_ROUTES).toEqual(
+      Object.fromEntries(
+        routes.map(({ name, ...route }) => [name, route]),
+      ),
+    );
   });
 });

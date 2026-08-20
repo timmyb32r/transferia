@@ -7,6 +7,11 @@ use serde_json::Value;
 use transferia_runtime::RunId;
 
 pub mod api;
+pub mod routes;
+
+#[cfg(test)]
+#[path = "tests/routes.rs"]
+mod route_tests;
 
 pub const STATE_VERSION: u32 = 4;
 

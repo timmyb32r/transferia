@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 
+use crate::ui_contract::validate_ui_dialect;
 use crate::{
     ConnectionCheckResult, DeliveryMode, EndpointDefinition, EndpointRole, MiddlewareDefinition,
     ProviderDefinition, SinkProvider, SourceProvider,
@@ -143,6 +144,8 @@ impl MiddlewareRegistration {
             "middleware '{key}' title must not be empty"
         );
         let initial = initial();
+        let schema = serde_json::to_value(schema_for!(C))?;
+        validate_ui_dialect(&schema)?;
         serde_json::from_value::<C>(initial.clone()).map_err(|error| {
             anyhow::anyhow!("invalid initial middleware configuration for '{key}': {error}")
         })?;
@@ -151,7 +154,7 @@ impl MiddlewareRegistration {
             definition: MiddlewareDefinition {
                 key,
                 title,
-                schema: serde_json::to_value(schema_for!(C))?,
+                schema,
                 initial,
                 playground: false,
             },
@@ -549,6 +552,14 @@ impl Registry {
             definition_shape(&definitions) == definition_shape(&self.definitions),
             "provider definitions do not match the executable registry"
         );
+        for definition in &definitions {
+            if let Some(source) = &definition.source {
+                validate_ui_dialect(&source.schema)?;
+            }
+            if let Some(sink) = &definition.sink {
+                validate_ui_dialect(&sink.schema)?;
+            }
+        }
         self.definitions = definitions;
         Ok(())
     }
@@ -630,8 +641,10 @@ fn endpoint_definition<C: JsonSchema>(
     delivery_modes: Vec<DeliveryMode>,
     partitioned: bool,
 ) -> anyhow::Result<EndpointDefinition> {
+    let schema = serde_json::to_value(schema_for!(C))?;
+    validate_ui_dialect(&schema)?;
     Ok(EndpointDefinition {
-        schema: serde_json::to_value(schema_for!(C))?,
+        schema,
         initial,
         delivery_modes,
         partitioned,

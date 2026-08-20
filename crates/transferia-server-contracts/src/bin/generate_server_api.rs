@@ -2,12 +2,18 @@ use std::path::Path;
 
 const SCHEMA_OUTPUT: &str = "crates/transferia-server-contracts/contracts/server-api.schema.json";
 const FIXTURE_OUTPUT: &str = "crates/transferia-server-contracts/contracts/server-api.fixture.json";
+const ROUTES_OUTPUT: &str = "crates/transferia-server-contracts/contracts/server-api.routes.json";
 
 fn main() -> anyhow::Result<()> {
     let check = std::env::args().any(|argument| argument == "--check");
     write_or_check(
         Path::new(SCHEMA_OUTPUT),
         transferia_server_contracts::api::schema()?,
+        check,
+    )?;
+    write_or_check(
+        Path::new(ROUTES_OUTPUT),
+        serde_json::to_value(transferia_server_contracts::routes::API_ROUTES)?,
         check,
     )?;
     write_or_check(

@@ -1,0 +1,116 @@
+[
+  {
+    "method": "GET",
+    "name": "health",
+    "path": "/api/v1/health",
+    "response": "health_response"
+  },
+  {
+    "method": "GET",
+    "name": "catalog",
+    "path": "/api/v1/catalog",
+    "response": "catalog_response"
+  },
+  {
+    "method": "POST",
+    "name": "options",
+    "path": "/api/v1/options/{key}",
+    "response": "dynamic_options_response"
+  },
+  {
+    "method": "POST",
+    "name": "check_connection",
+    "path": "/api/v1/check-connection",
+    "response": "connection_check_response"
+  },
+  {
+    "method": "POST",
+    "name": "preview_message",
+    "path": "/api/v1/preview-message",
+    "response": "message_preview_response"
+  },
+  {
+    "method": "POST",
+    "name": "sql_playground",
+    "path": "/api/v1/playground/sql",
+    "response": "sql_playground_response"
+  },
+  {
+    "method": "POST",
+    "name": "render_yaml",
+    "path": "/api/v1/config/yaml",
+    "response": "yaml_response"
+  },
+  {
+    "method": "POST",
+    "name": "parse_yaml",
+    "path": "/api/v1/config/from-yaml",
+    "response": "config_response"
+  },
+  {
+    "method": "POST",
+    "name": "discover",
+    "path": "/api/v1/discover",
+    "response": "discovery_response"
+  },
+  {
+    "method": "GET",
+    "name": "list_deliveries",
+    "path": "/api/v1/deliveries",
+    "response": "delivery_list_response"
+  },
+  {
+    "method": "POST",
+    "name": "create_delivery",
+    "path": "/api/v1/deliveries",
+    "response": "delivery_response"
+  },
+  {
+    "method": "GET",
+    "name": "get_delivery",
+    "path": "/api/v1/deliveries/{id}",
+    "response": "delivery_response"
+  },
+  {
+    "method": "PUT",
+    "name": "update_delivery",
+    "path": "/api/v1/deliveries/{id}",
+    "response": "delivery_response"
+  },
+  {
+    "method": "DELETE",
+    "name": "delete_delivery",
+    "path": "/api/v1/deliveries/{id}",
+    "response": "delivery_response"
+  },
+  {
+    "method": "POST",
+    "name": "validate",
+    "path": "/api/v1/deliveries/{id}/validate",
+    "response": "validation_response"
+  },
+  {
+    "method": "POST",
+    "name": "activate",
+    "path": "/api/v1/deliveries/{id}/activate",
+    "response": "delivery_response"
+  },
+  {
+    "method": "POST",
+    "name": "stop",
+    "path": "/api/v1/deliveries/{id}/stop",
+    "response": "delivery_response"
+  },
+  {
+    "method": "GET",
+    "name": "worker_logs",
+    "path": "/api/v1/deliveries/{id}/logs",
+    "response": "worker_logs_response"
+  },
+  {
+    "method": "GET",
+    "name": "worker_log",
+    "path": "/api/v1/deliveries/{id}/logs/{worker_id}",
+    "response": "worker_log_response"
+  }
+]

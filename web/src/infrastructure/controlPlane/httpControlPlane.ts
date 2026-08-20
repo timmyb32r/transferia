@@ -17,6 +17,11 @@ import type {
   UpdateDraftRequest,
   YamlRequest,
 } from "../../generated/apiContract";
+import {
+  API_ROUTES,
+  type ApiRouteContract,
+  type ApiRouteName,
+} from "../../generated/apiContract";
 
 export const OPTIONS_TRANSPORT_VERSION = "transferia-options-post-v1";
 import type { JsonObject } from "../../json";
@@ -51,11 +56,39 @@ function json(value: object): string {
   return JSON.stringify(value);
 }
 
+function routeRequest<Name extends ApiRouteName>(
+  name: Name,
+  parameters: Record<string, string> = {},
+  init?: RequestInit,
+  query?: URLSearchParams,
+): Promise<ApiRouteContract[Name]> {
+  const route = API_ROUTES[name];
+  const path = `${routePath(name, parameters)}${query === undefined ? "" : `?${query}`}`;
+  return request(path, route.response, {
+    ...init,
+    method: route.method,
+  }) as Promise<ApiRouteContract[Name]>;
+}
+
+function routePath(
+  name: ApiRouteName,
+  parameters: Record<string, string> = {},
+): string {
+  let path: string = API_ROUTES[name].path;
+  for (const [key, value] of Object.entries(parameters))
+    path = path.replace(`{${key}}`, encodeURIComponent(value));
+  return path;
+}
+
 export const httpControlPlane: ControlPlanePort = {
   catalog: (signal) =>
-    request("/api/v1/catalog", "catalog_response", {
-      ...(signal === undefined ? {} : { signal }),
-    }),
+    routeRequest(
+      "catalog",
+      {},
+      {
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
   options: ({
     key,
     query,
@@ -68,48 +101,60 @@ export const httpControlPlane: ControlPlanePort = {
       dependencies,
       ...(query === undefined ? {} : { query }),
     };
-    return request(
-      `/api/v1/options/${encodeURIComponent(key)}`,
-      "dynamic_options_response",
+    return routeRequest(
+      "options",
+      { key },
       {
-        method: "POST",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },
     );
   },
   checkConnection: (body: ConnectionCheckRequest, signal?: AbortSignal) =>
-    request("/api/v1/check-connection", "connection_check_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    }),
+    routeRequest(
+      "check_connection",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
   previewMessage: (body: MessagePreviewRequest, signal?: AbortSignal) =>
-    request("/api/v1/preview-message", "message_preview_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    }),
+    routeRequest(
+      "preview_message",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
   sqlPlayground: (body: SqlPlaygroundRequest, signal?: AbortSignal) =>
-    request("/api/v1/playground/sql", "sql_playground_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    }),
+    routeRequest(
+      "sql_playground",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
   deliveries: (signal) =>
-    request("/api/v1/deliveries", "delivery_list_response", {
-      ...(signal === undefined ? {} : { signal }),
-    }),
+    routeRequest(
+      "list_deliveries",
+      {},
+      {
+        ...(signal === undefined ? {} : { signal }),
+      },
+    ),
   delivery: (id: string, signal?: AbortSignal) =>
-    request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}`,
-      "delivery_response",
+    routeRequest(
+      "get_delivery",
+      { id },
       { ...(signal === undefined ? {} : { signal }) },
     ),
   deliveryLogs: (id: string, signal?: AbortSignal) =>
-    request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}/logs`,
-      "worker_logs_response",
+    routeRequest(
+      "worker_logs",
+      { id },
       { ...(signal === undefined ? {} : { signal }) },
     ),
   deliveryLog: (
@@ -120,10 +165,11 @@ export const httpControlPlane: ControlPlanePort = {
   ) => {
     const query = new URLSearchParams({ limit_bytes: String(128 * 1024) });
     if (cursor !== undefined) query.set("cursor", String(cursor));
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}/logs/${encodeURIComponent(workerId)}?${query}`,
-      "worker_log_response",
+    return routeRequest(
+      "worker_log",
+      { id, worker_id: workerId },
       { ...(signal === undefined ? {} : { signal }) },
+      query,
     );
   },
   create: (
@@ -133,11 +179,14 @@ export const httpControlPlane: ControlPlanePort = {
     signal?: AbortSignal,
   ) => {
     const body: CreateDraftRequest = { name, description, config };
-    return request("/api/v1/deliveries", "delivery_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    });
+    return routeRequest(
+      "create_delivery",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
   },
   update: (
     id: string,
@@ -155,11 +204,10 @@ export const httpControlPlane: ControlPlanePort = {
       description,
       config,
     };
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}`,
-      "delivery_response",
+    return routeRequest(
+      "update_delivery",
+      { id },
       {
-        method: "PUT",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },
@@ -175,11 +223,10 @@ export const httpControlPlane: ControlPlanePort = {
       expected_revision: expectedRevision,
       expected_record_version: expectedRecordVersion,
     };
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}`,
-      "delivery_response",
+    return routeRequest(
+      "delete_delivery",
+      { id },
       {
-        method: "DELETE",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },
@@ -187,27 +234,36 @@ export const httpControlPlane: ControlPlanePort = {
   },
   yaml: (config: JsonObject, signal?: AbortSignal) => {
     const body: ConfigRequest = { config };
-    return request("/api/v1/config/yaml", "yaml_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    });
+    return routeRequest(
+      "render_yaml",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
   },
   parseYaml: (yaml: string, signal?: AbortSignal) => {
     const body: YamlRequest = { yaml };
-    return request("/api/v1/config/from-yaml", "config_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    });
+    return routeRequest(
+      "parse_yaml",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
   },
   discover: (config: JsonObject, signal?: AbortSignal) => {
     const body: ConfigRequest = { config };
-    return request("/api/v1/discover", "discovery_response", {
-      method: "POST",
-      body: json(body),
-      ...(signal === undefined ? {} : { signal }),
-    });
+    return routeRequest(
+      "discover",
+      {},
+      {
+        body: json(body),
+        ...(signal === undefined ? {} : { signal }),
+      },
+    );
   },
   validate: (
     id: string,
@@ -219,11 +275,10 @@ export const httpControlPlane: ControlPlanePort = {
       expected_revision: expectedRevision,
       expected_record_version: expectedRecordVersion,
     };
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}/validate`,
-      "validation_response",
+    return routeRequest(
+      "validate",
+      { id },
       {
-        method: "POST",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },
@@ -239,11 +294,10 @@ export const httpControlPlane: ControlPlanePort = {
       expected_revision: expectedRevision,
       expected_record_version: expectedRecordVersion,
     };
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}/activate`,
-      "delivery_response",
+    return routeRequest(
+      "activate",
+      { id },
       {
-        method: "POST",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },
@@ -261,11 +315,10 @@ export const httpControlPlane: ControlPlanePort = {
       expected_record_version: expectedRecordVersion,
       expected_run_id: expectedRunId,
     };
-    return request(
-      `/api/v1/deliveries/${encodeURIComponent(id)}/stop`,
-      "delivery_response",
+    return routeRequest(
+      "stop",
+      { id },
       {
-        method: "POST",
         body: json(body),
         ...(signal === undefined ? {} : { signal }),
       },

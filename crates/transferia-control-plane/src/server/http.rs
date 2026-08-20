@@ -24,6 +24,7 @@ use super::assets::{APP_JS, INDEX_HTML, STYLE_CSS};
 use super::service::{ControlPlane, ServiceError};
 use super::ui_catalog::UiCatalog;
 use transferia_runtime::RunId;
+use transferia_server_contracts::routes;
 use transferia_server_contracts::DeliveryRecord;
 
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
@@ -138,28 +139,28 @@ pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router
         .route("/", get(index))
         .route("/app.js", get(app_js))
         .route("/style.css", get(style_css))
-        .route("/api/v1/health", get(health))
-        .route("/api/v1/catalog", get(get_catalog))
-        .route("/api/v1/options/{key}", post(dynamic_options))
-        .route("/api/v1/check-connection", post(check_connection))
-        .route("/api/v1/preview-message", post(preview_message))
-        .route("/api/v1/playground/sql", post(sql_playground))
-        .route("/api/v1/config/yaml", post(render_yaml))
-        .route("/api/v1/config/from-yaml", post(parse_yaml))
-        .route("/api/v1/discover", post(discover))
+        .route(routes::HEALTH.path, get(health))
+        .route(routes::CATALOG.path, get(get_catalog))
+        .route(routes::OPTIONS.path, post(dynamic_options))
+        .route(routes::CHECK_CONNECTION.path, post(check_connection))
+        .route(routes::PREVIEW_MESSAGE.path, post(preview_message))
+        .route(routes::SQL_PLAYGROUND.path, post(sql_playground))
+        .route(routes::RENDER_YAML.path, post(render_yaml))
+        .route(routes::PARSE_YAML.path, post(parse_yaml))
+        .route(routes::DISCOVER.path, post(discover))
         .route(
-            "/api/v1/deliveries",
+            routes::LIST_DELIVERIES.path,
             get(list_deliveries).post(create_draft),
         )
         .route(
-            "/api/v1/deliveries/{id}",
+            routes::GET_DELIVERY.path,
             get(get_delivery).put(update_draft).delete(delete_delivery),
         )
-        .route("/api/v1/deliveries/{id}/validate", post(validate_saved))
-        .route("/api/v1/deliveries/{id}/activate", post(activate))
-        .route("/api/v1/deliveries/{id}/stop", post(stop))
-        .route("/api/v1/deliveries/{id}/logs", get(worker_logs))
-        .route("/api/v1/deliveries/{id}/logs/{worker_id}", get(worker_log))
+        .route(routes::VALIDATE.path, post(validate_saved))
+        .route(routes::ACTIVATE.path, post(activate))
+        .route(routes::STOP.path, post(stop))
+        .route(routes::WORKER_LOGS.path, get(worker_logs))
+        .route(routes::WORKER_LOG.path, get(worker_log))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(axum::middleware::from_fn(no_store))
         .layer(axum::middleware::from_fn(enforce_loopback_origin))

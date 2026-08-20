@@ -4,6 +4,7 @@ mod definition;
 pub mod durable;
 mod registry;
 mod traits;
+mod ui_contract;
 
 pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, ProviderDefinition};
 pub use registry::Composition;

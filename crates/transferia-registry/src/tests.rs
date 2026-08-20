@@ -112,6 +112,22 @@ fn registry_rejects_duplicate_component_keys() -> anyhow::Result<()> {
 }
 
 #[test]
+fn registry_rejects_unknown_ui_dialect_hints() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema =
+        serde_json::json!({ "type": "string", "x-ui": { "typo": true } });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("unknown x-ui hints must fail composition");
+    assert!(error.to_string().contains("invalid x-ui contract"));
+    Ok(())
+}
+
+#[test]
 fn registry_preserves_explicit_composition_order() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("second")?)?;
