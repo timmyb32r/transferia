@@ -158,6 +158,7 @@ pub fn provider_roles() -> impl Iterator<Item = (&'static str, EndpointRole)> {
     })
 }
 
+#[cfg(test)]
 pub fn networked_provider_roles() -> impl Iterator<Item = (&'static str, EndpointRole)> {
     PROVIDERS.iter().flat_map(|provider| {
         [
@@ -179,13 +180,19 @@ pub fn provider_contracts() -> JsonValue {
     let role = |descriptor: Option<ProviderRoleDescriptor>| {
         descriptor.map(|descriptor| {
             descriptor.installation.map_or_else(
-                || serde_json::json!({ "installation": null }),
+                || {
+                    serde_json::json!({
+                        "installation": null,
+                        "networked": descriptor.networked,
+                    })
+                },
                 |contract| {
                     serde_json::json!({
                         "installation": {
                             "output_fields": contract.output_fields,
                             "required_output_fields": contract.required_output_fields,
-                        }
+                        },
+                        "networked": descriptor.networked,
                     })
                 },
             )
