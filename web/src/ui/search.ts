@@ -76,3 +76,17 @@ export function backendSearchQuery(query: string): string {
   const converted = latinKeyboardInput(query);
   return converted === query.toLowerCase() ? query : converted;
 }
+
+export function pathBrowseQuery(query: string): string {
+  const converted = backendSearchQuery(query);
+  if (converted.endsWith("/")) return converted;
+  const separator = converted.lastIndexOf("/");
+  return separator === -1 ? "" : converted.slice(0, separator + 1);
+}
+
+export function pathSearchFragment(query: string): string {
+  const converted = backendSearchQuery(query);
+  if (converted.endsWith("/")) return "";
+  const separator = converted.lastIndexOf("/");
+  return converted.slice(separator + 1);
+}

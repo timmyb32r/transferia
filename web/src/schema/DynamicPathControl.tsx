@@ -3,7 +3,11 @@ import { useEffect, useId, useRef, useState } from "preact/hooks";
 import { LatestJob } from "../effects";
 import type { DynamicOptions } from "../generated/apiContract";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
-import { backendSearchQuery } from "../ui/search";
+import {
+  pathBrowseQuery,
+  pathSearchFragment,
+  rankSearchResults,
+} from "../ui/search";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
@@ -52,14 +56,20 @@ export function DynamicPathControl({
         .run(`${source}:${dependencyKey}:${value}`, source, (key, signal) =>
           loadOptions({
             key,
-            query: backendSearchQuery(value),
+            query: pathBrowseQuery(value),
             dependencies,
             signal,
           }),
         )
         .then((result) => {
           if (result === undefined) return;
-          setOptions(result.value.options);
+          setOptions(
+            rankSearchResults(
+              result.value.options,
+              pathSearchFragment(value),
+              (option) => option.label.split("/").filter(Boolean).at(-1) ?? "",
+            ),
+          );
           setError(result.value.warning);
           setLoading(false);
         })

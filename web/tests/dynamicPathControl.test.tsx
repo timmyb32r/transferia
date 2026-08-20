@@ -42,7 +42,7 @@ describe("dynamic path control", () => {
     });
     expect(requests.at(-1)).toMatchObject({
       key: "endpoint.paths",
-      query: "a",
+      query: "",
       dependencies: { installation: "cluster-a" },
     });
 
@@ -112,10 +112,15 @@ describe("dynamic path control", () => {
     expect(view.queryByText("No matching paths")).toBeNull();
   });
 
-  it("queries the backend with text corrected from the Russian keyboard layout", async () => {
+  it("finds cdc for Russian вс and ranks prefix matches first", async () => {
     vi.useFakeTimers();
-    const options = vi.fn(async () => ({ options: [] }));
-    const view = render(<Harness options={options} initialValue="свс" />);
+    const options = vi.fn(async () => ({
+      options: ["cdc/", "dcc_logbroker/", "dca/"].map((value) => ({
+        value,
+        label: value,
+      })),
+    }));
+    const view = render(<Harness options={options} initialValue="вс" />);
 
     fireEvent.focus(view.getByRole("combobox"));
     await act(async () => {
@@ -123,8 +128,13 @@ describe("dynamic path control", () => {
     });
 
     expect(options).toHaveBeenCalledWith(
-      expect.objectContaining({ query: "cdc" }),
+      expect.objectContaining({ query: "" }),
     );
+    expect(
+      view
+        .getAllByRole("option")
+        .map((option) => option.querySelector("span:last-child")?.textContent),
+    ).toEqual(["dca/", "dcc_logbroker/", "cdc/"]);
   });
 });
 
