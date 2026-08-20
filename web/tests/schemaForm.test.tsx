@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/preact";
-import { useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { httpControlPlane as api } from "../src/infrastructure/controlPlane/httpControlPlane";
+import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
 import {
   ParserDetailsForm,
   SchemaForm,
@@ -24,6 +25,138 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("guides the first required parser setting after selecting a parser", async () => {
+    const fromConfig: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["type", "name"]),
+      properties: {
+        type: { kind: "string", xUi: {}, enumValues: ["from_config"] },
+        name: stringNode("Name"),
+      },
+    };
+    const parserContainer: CompiledNode = {
+      kind: "object",
+      xUi: { widget: "json_parser" },
+      required: new Set(["common", "json_parser"]),
+      properties: {
+        common: {
+          kind: "object",
+          xUi: { widget: "parser_common" },
+          required: new Set(["table_naming"]),
+          properties: {
+            table_naming: {
+              kind: "union",
+              title: "Table name",
+              xUi: { control_width: "table_name" },
+              branches: [
+                {
+                  label: "From config",
+                  requiredKeys: ["type", "name"],
+                  discriminator: { key: "type", value: "from_config" },
+                  node: fromConfig,
+                },
+                {
+                  label: "From message",
+                  requiredKeys: ["type"],
+                  discriminator: { key: "type", value: "from_topic_name" },
+                  node: {
+                    kind: "object",
+                    xUi: {},
+                    required: new Set(["type"]),
+                    properties: {
+                      type: {
+                        kind: "string",
+                        xUi: {},
+                        enumValues: ["from_topic_name"],
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+        json_parser: {
+          kind: "object",
+          xUi: {},
+          required: new Set(["columns"]),
+          properties: {
+            columns: {
+              kind: "array",
+              xUi: { widget: "column_mappings", initial_items: 1 },
+              minItems: 1,
+              item: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["column_name"]),
+                properties: { column_name: stringNode("Column name") },
+              },
+            },
+          },
+        },
+      },
+    };
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["parser"]),
+      properties: {
+        parser: {
+          kind: "union",
+          xUi: { widget: "parser" },
+          branches: [
+            {
+              label: "JSON parser",
+              requiredKeys: ["common", "json_parser"],
+              node: parserContainer,
+            },
+          ],
+        },
+      },
+    };
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    function Harness() {
+      const root = useRef<HTMLDivElement>(null);
+      const [value, setValue] = useState<JsonValue>({ parser: null });
+      return (
+        <div ref={root}>
+          <RequiredFieldGuide root={root} enabled revision={value} />
+          <div class="required-incomplete">
+            <input aria-label="Earlier required field" />
+          </div>
+          <SchemaForm
+            node={node}
+            value={value}
+            parserSelectionOnly
+            onChange={setValue}
+          />
+          <ParserDetailsForm node={node} value={value} onChange={setValue} />
+        </div>
+      );
+    }
+
+    const view = render(<Harness />);
+    fireEvent.click(view.getByRole("button", { name: "Parser" }));
+    fireEvent.click(view.getByRole("option", { name: "JSON parser" }));
+
+    const tableName = await view.findByText("Table name");
+    await waitFor(() =>
+      expect(
+        tableName.closest(".form-row")?.classList.contains("required-next"),
+      ).toBe(true),
+    );
+    expect(
+      view
+        .getByLabelText("Earlier required field")
+        .classList.contains("required-next-control"),
+    ).toBe(false);
+  });
+
   it("disables implicit browser autofill for ordinary and secret fields", () => {
     const node: CompiledNode = {
       kind: "object",

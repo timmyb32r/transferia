@@ -18,16 +18,14 @@ export function RequiredFieldGuide({
 }) {
   const guidedPath = useRef<HTMLElement[]>([]);
   const guidedControls = useRef<HTMLElement[]>([]);
-  const requestedScope = useRef<HTMLElement>();
   const [blurRevision, setBlurRevision] = useState(0);
-  const [requestRevision, setRequestRevision] = useState(0);
+  const [requestedScope, setRequestedScope] = useState<HTMLElement>();
 
   useEffect(
     () =>
       onRequiredGuidanceRequest((scope) => {
         if (root.current?.contains(scope)) {
-          requestedScope.current = scope;
-          setRequestRevision((value) => value + 1);
+          setRequestedScope(scope);
         }
       }),
     [root],
@@ -37,13 +35,19 @@ export function RequiredFieldGuide({
     let focusedControl: HTMLElement | undefined;
     const continueAfterBlur = () => setBlurRevision((value) => value + 1);
     const frame = window.requestAnimationFrame(() => {
-      const container = requestedScope.current ?? root.current;
-      requestedScope.current = undefined;
+      const workspace = root.current;
+      const container =
+        requestedScope !== undefined && workspace?.contains(requestedScope)
+          ? requestedScope
+          : workspace;
       if (container === null) return;
       const active = document.activeElement;
       if (
         enabled &&
         active instanceof HTMLElement &&
+        guidedPath.current.every((candidate) =>
+          container.contains(candidate),
+        ) &&
         guidedPath.current.some((candidate) => candidate.contains(active))
       ) {
         for (const candidate of guidedPath.current)
@@ -63,6 +67,10 @@ export function RequiredFieldGuide({
         ...container.querySelectorAll<HTMLElement>(INCOMPLETE_SELECTOR),
       ];
       if (!enabled) return;
+      if (candidates.length === 0 && requestedScope !== undefined) {
+        setRequestedScope(undefined);
+        return;
+      }
       const leaf =
         candidates.find(
           (candidate) => candidate.querySelector(INCOMPLETE_SELECTOR) === null,
@@ -90,7 +98,7 @@ export function RequiredFieldGuide({
       window.cancelAnimationFrame(frame);
       focusedControl?.removeEventListener("blur", continueAfterBlur);
     };
-  }, [blurRevision, enabled, requestRevision, revision, root]);
+  }, [blurRevision, enabled, requestedScope, revision, root]);
 
   useEffect(
     () => () => {
