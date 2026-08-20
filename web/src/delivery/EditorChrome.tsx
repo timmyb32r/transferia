@@ -186,7 +186,11 @@ export function EditorTabs({
 }) {
   return (
     <div class="editor-tabs">
-      <div class="editor-view-tabs" role="tablist" aria-label="Configuration view">
+      <div
+        class="editor-view-tabs"
+        role="tablist"
+        aria-label="Configuration view"
+      >
         <Button
           role="tab"
           aria-selected={active === "ui"}
@@ -286,6 +290,22 @@ export function OperationNotices({
             <div class="notice error" key={key} role="alert">
               <span>{operation.error}</span>
               <Button
+                onClick={() =>
+                  onDismiss(key as OperationKey, operation.requestId)
+                }
+              >
+                ×
+              </Button>
+            </div>
+          ),
+      )}
+      {Object.entries(operations).map(
+        ([key, operation]) =>
+          operation?.success && (
+            <div class="notice success" key={key} role="status">
+              <span>{operation.success}</span>
+              <Button
+                aria-label="Dismiss success"
                 onClick={() =>
                   onDismiss(key as OperationKey, operation.requestId)
                 }

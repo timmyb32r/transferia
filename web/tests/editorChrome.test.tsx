@@ -36,6 +36,7 @@ describe("editor chrome", () => {
         operations={{
           save: { requestId: 1, label: "Saving…" },
           validate: { requestId: 2, error: "Validation failed" },
+          action: { requestId: 3, success: "Configuration is valid." },
         }}
         onDismiss={dismiss}
       />,
@@ -43,8 +44,9 @@ describe("editor chrome", () => {
 
     const overlay = view.getByLabelText("Operation status");
     expect(overlay.classList.contains("operation-notices")).toBe(true);
-    expect(overlay.contains(view.getByRole("status"))).toBe(true);
+    expect(view.getAllByRole("status")).toHaveLength(2);
     expect(overlay.contains(view.getByRole("alert"))).toBe(true);
+    expect(view.getByText("Configuration is valid.")).toBeTruthy();
     fireEvent.click(view.getByRole("button", { name: "×" }));
     expect(dismiss).toHaveBeenCalledWith("validate", 2);
   });
@@ -303,9 +305,7 @@ describe("editor chrome", () => {
     );
 
     fireEvent.click(view.getByRole("button", { name: "+ New delivery" }));
-    fireEvent.click(
-      view.getByRole("button", { name: "Open Transferia home" }),
-    );
+    fireEvent.click(view.getByRole("button", { name: "Open Transferia home" }));
     fireEvent.click(view.getByRole("button", { name: /First/ }));
 
     expect(onNew).toHaveBeenCalledTimes(2);

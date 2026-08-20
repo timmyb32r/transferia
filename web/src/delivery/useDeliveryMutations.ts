@@ -177,7 +177,12 @@ export function useDeliveryMutations({
         onDiscovery(result.value.discovery);
       onRuntime(result.context, result.value.delivery);
       await refreshList();
-      finishOperation("validate", requestId);
+      finishOperation(
+        "validate",
+        requestId,
+        undefined,
+        "Configuration is valid.",
+      );
     } catch (reason) {
       finishOperation("validate", requestId, errorMessage(reason));
     }

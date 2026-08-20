@@ -14,4 +14,5 @@ export interface OperationState {
   requestId: number;
   label?: string;
   error?: string;
+  success?: string;
 }

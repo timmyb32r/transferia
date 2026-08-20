@@ -1885,6 +1885,11 @@ button::after {
   border: 1px solid var(--progress-border);
   justify-content: flex-start;
 }
+.notice.success {
+  color: var(--success-text);
+  background: var(--success-surface);
+  border: 1px solid currentColor;
+}
 .notice button {
   border: 0;
   background: transparent;

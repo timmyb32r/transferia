@@ -18,11 +18,18 @@ export function useOperations() {
   }, []);
 
   const finish = useCallback(
-    (key: OperationKey, requestId: number, error?: string) => {
+    (
+      key: OperationKey,
+      requestId: number,
+      error?: string,
+      success?: string,
+    ) => {
       setOperations((current) => {
         if (current[key]?.requestId !== requestId) return current;
         if (error !== undefined)
           return { ...current, [key]: { requestId, error } };
+        if (success !== undefined)
+          return { ...current, [key]: { requestId, success } };
         const next = { ...current };
         delete next[key];
         return next;
