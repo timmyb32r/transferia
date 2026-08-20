@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/preact";
 import { useRef, useState } from "preact/hooks";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
 import { requestRequiredGuidance } from "../src/ui/requiredGuidance";
+
+afterEach(cleanup);
 
 describe("required field guide", () => {
   it("highlights every incomplete branch on the path to the next leaf", async () => {
@@ -70,6 +72,26 @@ describe("required field guide", () => {
     await waitFor(() =>
       expect(row.classList.contains("required-next")).toBe(true),
     );
+  });
+
+  it("does not guide unrelated controls owned by a structural required ancestor", async () => {
+    const view = render(<StructuralHarness />);
+
+    await waitFor(() =>
+      expect(
+        view.getByTestId("column-row").classList.contains("required-next"),
+      ).toBe(true),
+    );
+    expect(
+      view
+        .getByLabelText("Column name")
+        .classList.contains("required-next-control"),
+    ).toBe(true);
+    expect(
+      view
+        .getByRole("button", { name: "Keys" })
+        .classList.contains("required-next-control"),
+    ).toBe(false);
   });
 });
 
@@ -141,6 +163,29 @@ function ParserHarness() {
           </tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function StructuralHarness() {
+  const root = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={root}>
+      <RequiredFieldGuide root={root} enabled revision={0} />
+      <div class="required-incomplete" data-required-guidance="structural">
+        <table>
+          <tbody>
+            <tr data-testid="column-row" class="required-incomplete">
+              <td>
+                <input aria-label="Column name" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <button type="button" class="select-trigger">
+          Keys
+        </button>
+      </div>
     </div>
   );
 }

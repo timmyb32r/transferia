@@ -109,6 +109,7 @@ export function ColumnMappingsEditor({
   const allNotNull = value.length > 0 && notNullCount === value.length;
   return (
     <div
+      data-required-guidance="structural"
       class={[
         "column-editor",
         !disabled && incomplete ? "required-incomplete" : "",

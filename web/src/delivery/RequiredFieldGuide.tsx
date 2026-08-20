@@ -85,6 +85,11 @@ export function RequiredFieldGuide({
       guidedPath.current = path;
       for (const candidate of path) {
         candidate.classList.add("required-next");
+        if (
+          candidate !== leaf &&
+          candidate.dataset.requiredGuidance === "structural"
+        )
+          continue;
         const ownControl = [
           ...candidate.querySelectorAll<HTMLElement>(GUIDED_CONTROL_SELECTOR),
         ].find((control) => control.closest(INCOMPLETE_SELECTOR) === candidate);
