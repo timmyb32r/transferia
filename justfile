@@ -41,6 +41,10 @@ check-release: fmt-check
 check-affected *args:
     python3 scripts/test_affected.py {{args}}
 
+# Explicit middle gate: generated contracts and the selector's own mapping
+# tests, without workspace lint, E2E, or unrelated test targets.
+check-contracts: api-contract-check catalog-contract-check test-affected-self
+
 # Safe default: ordinary development never starts the release gate implicitly.
 check: check-affected
 

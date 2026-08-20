@@ -1,0 +1,42 @@
+name: Scheduled release gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 * * *"
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install frontend dependencies
+        run: npm ci --prefix web
+      - name: Run release gate with timings
+        env:
+          RUSTC_WRAPPER: sccache
+        run: |
+          mkdir -p target/ci-artifacts
+          /usr/bin/time -p -o target/ci-artifacts/release-gate.time just check-release
+      - name: Publish timing history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-timings-${{ github.run_id }}
+          path: |
+            target/ci-artifacts
+            target/cargo-timings

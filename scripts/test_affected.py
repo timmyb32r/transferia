@@ -41,6 +41,8 @@ class Selection:
     downstream_check_packages: set[str] = field(default_factory=set)
     integration_tests: set[str] = field(default_factory=set)
     web_paths: set[str] = field(default_factory=set)
+    api_contract: bool = False
+    catalog_contract: bool = False
 
 
 @lru_cache(maxsize=1)
@@ -111,13 +113,22 @@ def select(paths: list[str]) -> Selection:
 
         if path.startswith("web/"):
             result.web_paths.add(path.removeprefix("web/"))
+            if path in {
+                "web/scripts/generate-api.mjs",
+                "web/src/generated/apiContract.ts",
+                "web/src/infrastructure/controlPlane/httpControlPlane.ts",
+                "web/tests/apiContract.test.ts",
+            }:
+                result.api_contract = True
             continue
 
         if path in {
             "crates/transferia-server-contracts/contracts/server-api.schema.json",
             "crates/transferia-server-contracts/contracts/server-api.fixture.json",
+            "crates/transferia-server-contracts/contracts/server-api.routes.json",
         }:
             result.web_paths.add("src/generated/apiContract.ts")
+            result.api_contract = True
             continue
 
         if path.startswith("crates/transferia-core/"):
@@ -131,8 +142,16 @@ def select(paths: list[str]) -> Selection:
             package = crate
             if crate == "transferia-server-contracts":
                 result.rust_packages.update({package, "transferia-control-plane"})
+                result.api_contract = True
             elif crate:
                 result.rust_packages.add(package)
+            if (
+                "/catalog" in path
+                or "/registry" in path
+                or "/config" in path
+                or path.endswith("/descriptor.rs")
+            ) and crate.startswith(("transferia-provider-", "transferia-registry")):
+                result.catalog_contract = True
             if (
                 path.endswith(("/src/lib.rs", "/Cargo.toml"))
                 or crate
@@ -217,9 +236,19 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
             command.extend(["--test", target])
         rust.append(command)
 
+    # Contract checks are the narrow correctness layer between compile-only
+    # development checks and the release suite. Keep Cargo commands in this one
+    # serial lane so they never contend for the same target directory.
+    if selection.api_contract:
+        rust.append(["just", "api-contract-check"])
+    if selection.catalog_contract:
+        rust.append(["just", "catalog-contract-check"])
+
     web: list[list[str]] = []
     if selection.web_paths:
         web.append(["npm", "run", "typecheck"])
+    if selection.api_contract:
+        web.append(["npm", "test", "--", "--run", "tests/apiContract.test.ts"])
     return rust, web
 
 

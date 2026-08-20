@@ -103,6 +103,28 @@ class AffectedChecksTest(unittest.TestCase):
         rust, web = test_affected.commands(test_affected.select(["docs/server.md"]))
         self.assertEqual((rust, web), ([], []))
 
+    def test_route_manifest_runs_only_api_contract_gate(self):
+        selection = test_affected.select([
+            "crates/transferia-server-contracts/src/routes.rs"
+        ])
+        rust, web = test_affected.commands(selection)
+
+        self.assertIn(["just", "api-contract-check"], rust)
+        self.assertIn(
+            ["npm", "test", "--", "--run", "tests/apiContract.test.ts"], web
+        )
+        self.assertNotIn(["just", "catalog-contract-check"], rust)
+
+    def test_provider_config_runs_catalog_contract_gate(self):
+        selection = test_affected.select([
+            "crates/transferia-provider-kafka/src/providers/kafka/config.rs"
+        ])
+        rust, web = test_affected.commands(selection)
+
+        self.assertIn(["just", "catalog-contract-check"], rust)
+        self.assertNotIn(["just", "api-contract-check"], rust)
+        self.assertEqual(web, [])
+
 
 if __name__ == "__main__":
     unittest.main()
