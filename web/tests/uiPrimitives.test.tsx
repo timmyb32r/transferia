@@ -114,12 +114,17 @@ describe("UI primitives", () => {
     ).toBeTruthy();
   });
 
-  it("matches cdc when the search query is dc", () => {
+  it("ranks prefix, substring, and subsequence matches for dc and вс", () => {
     const view = render(
       <SelectControl
         value=""
         placeholder="Not selected"
-        options={[{ value: "cdc", label: "cdc" }]}
+        options={[
+          { value: "adbc", label: "adbc" },
+          { value: "dcb", label: "dcb" },
+          { value: "adcb", label: "adcb" },
+          { value: "dca", label: "dca" },
+        ]}
         onChange={() => undefined}
       />,
     );
@@ -132,6 +137,15 @@ describe("UI primitives", () => {
       target: { value: "dc" },
     });
 
-    expect(form.getByRole("option", { name: "cdc" })).toBeTruthy();
+    expect(
+      form.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["dca", "dcb", "adcb", "adbc"]);
+
+    fireEvent.input(form.getByRole("searchbox"), {
+      target: { value: "вс" },
+    });
+    expect(
+      form.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["dca", "dcb", "adcb", "adbc"]);
   });
 });

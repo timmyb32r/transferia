@@ -1,7 +1,7 @@
 import { useId, useMemo } from "preact/hooks";
 
 import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
-import { matchesSearch } from "./search";
+import { matchesSearch, rankSearchResults } from "./search";
 import { useListbox } from "./useListbox";
 
 export interface SelectOption {
@@ -48,7 +48,7 @@ export function SelectControl({
     [clearable, options, placeholder],
   );
   const filtered = useMemo(
-    () => menuOptions.filter((option) => matchesSearch(option.label, query)),
+    () => rankSearchResults(menuOptions, query, (option) => option.label),
     [menuOptions, query],
   );
   const choose = (next: string) => {
@@ -165,9 +165,7 @@ export function MultiSelectControl({
   const labels = values.map(
     (value) => options.find((option) => option.value === value)?.label ?? value,
   );
-  const filtered = options.filter((option) =>
-    matchesSearch(option.label, query),
-  );
+  const filtered = rankSearchResults(options, query, (option) => option.label);
   return (
     <div
       ref={root}
