@@ -45,7 +45,7 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
             "source": {},
             "sink": {},
             "middlewares": [],
-            "pipeline_memory_limit_bytes": 268_435_456,
+            "pipeline_memory_limit_bytes": 1_073_741_824,
             "metrics": null
         }),
         providers: transferia.composition().provider_definitions().to_vec(),

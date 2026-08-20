@@ -136,7 +136,7 @@
     "source": {},
     "sink": {},
     "middlewares": [],
-    "pipeline_memory_limit_bytes": 268435456,
+    "pipeline_memory_limit_bytes": 1073741824,
     "metrics": null
   },
   "providers": [

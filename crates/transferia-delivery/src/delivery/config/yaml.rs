@@ -111,7 +111,7 @@ fn entry_value<'entry>(
 }
 
 const fn default_pipeline_memory_limit() -> usize {
-    256 * 1024 * 1024
+    1024 * 1024 * 1024
 }
 
 #[cfg(test)]
