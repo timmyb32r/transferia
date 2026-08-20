@@ -12,6 +12,8 @@ pub struct InstallationContract {
 #[derive(Clone, Copy)]
 pub(super) struct ProviderRoleDescriptor {
     pub installation: Option<InstallationContract>,
+
+    pub networked: bool,
 }
 
 pub(super) struct ProviderDescriptor {
@@ -26,6 +28,7 @@ const LOGBROKER_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescript
         output_fields: &["host", "port", "trusted_plaintext"],
         required_output_fields: &["host", "port", "trusted_plaintext"],
     }),
+    networked: true,
 });
 
 const KAFKA_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
@@ -33,6 +36,7 @@ const KAFKA_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
         output_fields: &["brokers", "security"],
         required_output_fields: &["brokers", "security"],
     }),
+    networked: true,
 });
 
 const POSTGRES_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
@@ -40,6 +44,7 @@ const POSTGRES_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescripto
         output_fields: &["host", "port", "trusted_plaintext", "tls_ca_file"],
         required_output_fields: &["host", "port", "trusted_plaintext"],
     }),
+    networked: true,
 });
 
 const CLICKHOUSE_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
@@ -47,6 +52,7 @@ const CLICKHOUSE_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescrip
         output_fields: &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
         required_output_fields: &["hosts", "port", "trusted_plaintext"],
     }),
+    networked: true,
 });
 
 const YTSAURUS_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
@@ -54,9 +60,17 @@ const YTSAURUS_ROLE: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescripto
         output_fields: &["host", "port", "trusted_plaintext"],
         required_output_fields: &["host", "port", "trusted_plaintext"],
     }),
+    networked: true,
 });
 
-const PLAIN: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor { installation: None });
+const NETWORKED_PLAIN: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
+    installation: None,
+    networked: true,
+});
+const LOCAL_PLAIN: Option<ProviderRoleDescriptor> = Some(ProviderRoleDescriptor {
+    installation: None,
+    networked: false,
+});
 
 pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor {
@@ -86,14 +100,14 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor {
         key: "s3",
         title: "S3",
-        source: PLAIN,
-        sink: PLAIN,
+        source: NETWORKED_PLAIN,
+        sink: NETWORKED_PLAIN,
     },
     ProviderDescriptor {
         key: "iceberg",
         title: "Apache Iceberg",
-        source: PLAIN,
-        sink: PLAIN,
+        source: NETWORKED_PLAIN,
+        sink: NETWORKED_PLAIN,
     },
     ProviderDescriptor {
         key: "ytsaurus",
@@ -104,14 +118,14 @@ pub(super) static PROVIDERS: &[ProviderDescriptor] = &[
     ProviderDescriptor {
         key: "data_generator",
         title: "Data generator (for benchmarks)",
-        source: PLAIN,
+        source: LOCAL_PLAIN,
         sink: None,
     },
     ProviderDescriptor {
         key: "discard",
         title: "Discard (for benchmarks)",
         source: None,
-        sink: PLAIN,
+        sink: LOCAL_PLAIN,
     },
 ];
 
@@ -138,6 +152,23 @@ pub fn provider_roles() -> impl Iterator<Item = (&'static str, EndpointRole)> {
                 .source
                 .map(|_| (provider.key, EndpointRole::Source)),
             provider.sink.map(|_| (provider.key, EndpointRole::Sink)),
+        ]
+        .into_iter()
+        .flatten()
+    })
+}
+
+pub fn networked_provider_roles() -> impl Iterator<Item = (&'static str, EndpointRole)> {
+    PROVIDERS.iter().flat_map(|provider| {
+        [
+            provider
+                .source
+                .filter(|role| role.networked)
+                .map(|_| (provider.key, EndpointRole::Source)),
+            provider
+                .sink
+                .filter(|role| role.networked)
+                .map(|_| (provider.key, EndpointRole::Sink)),
         ]
         .into_iter()
         .flatten()

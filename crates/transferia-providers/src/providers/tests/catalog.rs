@@ -182,24 +182,35 @@ fn queue_sinks_expose_serializer_selection_to_the_ui() -> anyhow::Result<()> {
 #[test]
 fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
     let catalog = build_provider_catalog(&Arc::new(MetricsRegistry::new()))?;
-    for definition in catalog
-        .definitions()
-        .iter()
-        .filter(|definition| definition.key != "discard")
-    {
-        if let Some(source) = &definition.source {
-            assert!(
-                source.connection_check,
-                "{} source is missing its connection check",
-                definition.key
-            );
-        }
-        if let Some(sink) = &definition.sink {
-            assert!(
-                sink.connection_check,
-                "{} sink is missing its connection check",
-                definition.key
-            );
+    for (provider, role) in crate::providers::catalog::descriptor::networked_provider_roles() {
+        let definition = catalog
+            .definitions()
+            .iter()
+            .find(|definition| definition.key == provider)
+            .ok_or_else(|| anyhow::anyhow!("missing {provider} provider definition"))?;
+        match role {
+            EndpointRole::Source => {
+                let source = definition
+                    .source
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("missing {provider} source definition"))?;
+                assert!(
+                    source.connection_check,
+                    "{} source is missing its connection check",
+                    definition.key
+                );
+            }
+            EndpointRole::Sink => {
+                let sink = definition
+                    .sink
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("missing {provider} sink definition"))?;
+                assert!(
+                    sink.connection_check,
+                    "{} sink is missing its connection check",
+                    definition.key
+                );
+            }
         }
     }
 
