@@ -55,9 +55,14 @@ fn source_and_sink_config_schemas_compile() {
             "Kafka sink operational field {field} must stay out of the UI"
         );
     }
-    assert!(!serde_json::to_string(&sink)
-        .unwrap()
-        .contains("\"section\":\"advanced\""));
+    assert!(
+        sink["properties"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|field| field.pointer("/x-ui/section") != Some(&serde_json::json!("advanced"))),
+        "Kafka sink must not expose a top-level Advanced settings section"
+    );
 }
 
 #[test]
