@@ -1274,11 +1274,23 @@ input[type="checkbox"]:disabled {
 .select-trigger .placeholder {
   color: var(--placeholder);
 }
+.select-trigger-indicator {
+  display: grid;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  place-items: center;
+}
+.select-trigger-indicator .spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
 .chevron {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
-  margin-left: 8px;
   color: var(--muted);
   fill: none;
   stroke: currentColor;

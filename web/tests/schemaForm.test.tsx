@@ -679,6 +679,9 @@ describe("schema form", () => {
 
     fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }));
 
+    expect(
+      form.getByRole("button", { name: "Loading…" }).querySelector(".spinner"),
+    ).toBeTruthy();
     expect((await form.findByRole("status")).textContent).toContain("Loading…");
     expect(form.queryByText("No matches")).toBeNull();
     pending.resolve({ options: [{ value: "cluster", label: "Cluster" }] });

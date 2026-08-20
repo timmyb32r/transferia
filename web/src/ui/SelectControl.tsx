@@ -93,14 +93,15 @@ export function SelectControl({
         <span class={selected === undefined ? "placeholder" : ""}>
           {selected?.label ?? placeholder}
         </span>
-        <svg
-          class="chevron"
-          viewBox="0 0 16 16"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="m3.5 6 4.5 4 4.5-4" />
-        </svg>
+        <span class="select-trigger-indicator" aria-hidden="true">
+          {loading ? (
+            <span class="spinner" />
+          ) : (
+            <svg class="chevron" viewBox="0 0 16 16" focusable="false">
+              <path d="m3.5 6 4.5 4 4.5-4" />
+            </svg>
+          )}
+        </span>
       </button>
       {open && (
         <div
