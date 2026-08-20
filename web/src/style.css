@@ -828,18 +828,6 @@ h3 {
   align-items: start;
   margin-bottom: 0;
 }
-@keyframes route-selection-flash {
-  0%,
-  100% {
-    filter: none;
-  }
-  35% {
-    filter: drop-shadow(0 0 10px rgb(62 142 255 / 55%));
-  }
-}
-.route-composition.route-selection-flash {
-  animation: route-selection-flash 1s ease-out;
-}
 .endpoint-card-source {
   grid-area: source;
 }

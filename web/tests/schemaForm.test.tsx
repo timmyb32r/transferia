@@ -124,7 +124,7 @@ describe("schema form", () => {
       const root = useRef<HTMLDivElement>(null);
       const [value, setValue] = useState<JsonValue>({ parser: null });
       return (
-        <div ref={root}>
+        <div ref={root} class="route-composition">
           <RequiredFieldGuide root={root} enabled revision={value} />
           <div class="required-incomplete">
             <input aria-label="Earlier required field" />
@@ -154,6 +154,11 @@ describe("schema form", () => {
       view
         .getByLabelText("Earlier required field")
         .classList.contains("required-next-control"),
+    ).toBe(false);
+    expect(
+      view.container
+        .querySelector(".route-composition")
+        ?.classList.contains("route-selection-flash"),
     ).toBe(false);
   });
 
@@ -1294,7 +1299,6 @@ describe("schema form", () => {
       behavior: "smooth",
       block: "start",
     });
-    expect(route.classList.contains("route-selection-flash")).toBe(true);
     route.remove();
 
     const details = render(
