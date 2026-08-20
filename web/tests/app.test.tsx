@@ -84,9 +84,18 @@ describe("App request orchestration", () => {
     );
     expect(deliveryType.classList.contains("required-next")).toBe(false);
 
-    fireEvent.input(app.getByLabelText("Delivery name"), {
+    const nameInput = app.getByLabelText("Delivery name");
+    nameInput.focus();
+    fireEvent.input(nameInput, {
       target: { value: "guided-delivery" },
     });
+
+    await waitFor(() =>
+      expect(name.classList.contains("required-next")).toBe(true),
+    );
+    expect(deliveryType.classList.contains("required-next")).toBe(false);
+
+    nameInput.blur();
 
     await waitFor(() =>
       expect(deliveryType.classList.contains("required-next")).toBe(true),
