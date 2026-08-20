@@ -111,6 +111,10 @@ export function DeliverySidebar({
   onOpen,
   appearance,
   onAppearance,
+  dataWidgetAvailable,
+  dataWidgetUnavailableReason,
+  dataWidgetVisible,
+  onToggleDataWidget,
 }: {
   deliveries: DeliverySummary[];
   selectedId: string | undefined;
@@ -118,6 +122,10 @@ export function DeliverySidebar({
   onOpen: (id: string) => void;
   appearance: Appearance;
   onAppearance: (appearance: Appearance) => void;
+  dataWidgetAvailable: boolean;
+  dataWidgetUnavailableReason?: string | undefined;
+  dataWidgetVisible: boolean;
+  onToggleDataWidget: () => void;
 }) {
   return (
     <aside class="sidebar">
@@ -154,6 +162,25 @@ export function DeliverySidebar({
           <p class="empty-list">No saved deliveries yet.</p>
         )}
       </nav>
+      <span
+        class="sidebar-tool-tooltip"
+        title={
+          dataWidgetAvailable
+            ? dataWidgetVisible
+              ? "Hide the data widget"
+              : "Show the data widget"
+            : (dataWidgetUnavailableReason ?? "No data schema is available")
+        }
+      >
+        <Button
+          class="sidebar-tool-button"
+          aria-pressed={dataWidgetVisible}
+          disabled={!dataWidgetAvailable}
+          onClick={onToggleDataWidget}
+        >
+          Data widget
+        </Button>
+      </span>
       <AppearanceSettings value={appearance} onChange={onAppearance} />
     </aside>
   );
@@ -164,25 +191,21 @@ export function EditorTabs({
   disabled,
   dataSchemaAvailable,
   dataSchemaUnavailableReason,
-  schemaInspectorVisible = false,
   onUi,
   onYaml,
   onDataSchema,
   onDataSchemaUnavailable,
   onLogs,
-  onToggleSchemaInspector,
 }: {
   active: EditorView;
   disabled: boolean;
   dataSchemaAvailable: boolean;
   dataSchemaUnavailableReason?: string | undefined;
-  schemaInspectorVisible?: boolean;
   onUi: () => void;
   onYaml: () => void;
   onDataSchema: () => void;
   onDataSchemaUnavailable?: (() => void) | undefined;
   onLogs?: () => void;
-  onToggleSchemaInspector?: () => void;
 }) {
   return (
     <div class="editor-tabs">
@@ -248,25 +271,6 @@ export function EditorTabs({
           Logs
         </Button>
       </div>
-      <span
-        class="editor-tab-tooltip schema-widget-toggle"
-        title={
-          dataSchemaAvailable
-            ? schemaInspectorVisible
-              ? "Hide the schema widget"
-              : "Show the schema widget"
-            : (dataSchemaUnavailableReason ?? "No data schema is available")
-        }
-      >
-        <Button
-          class="schema-widget-button"
-          aria-pressed={schemaInspectorVisible}
-          disabled={disabled || !dataSchemaAvailable}
-          onClick={onToggleSchemaInspector}
-        >
-          Schema widget
-        </Button>
-      </span>
     </div>
   );
 }

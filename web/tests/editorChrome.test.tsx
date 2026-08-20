@@ -54,18 +54,15 @@ describe("editor chrome", () => {
   it("exposes Data schema as a peer configuration view", () => {
     const onDataSchema = vi.fn();
     const onLogs = vi.fn();
-    const onToggleSchemaInspector = vi.fn();
     const view = render(
       <EditorTabs
         active="ui"
         disabled={false}
         dataSchemaAvailable
-        schemaInspectorVisible={false}
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
         onLogs={onLogs}
-        onToggleSchemaInspector={onToggleSchemaInspector}
       />,
     );
 
@@ -74,8 +71,6 @@ describe("editor chrome", () => {
     expect(onDataSchema).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Logs" }));
     expect(onLogs).toHaveBeenCalledOnce();
-    fireEvent.click(view.getByRole("button", { name: "Schema widget" }));
-    expect(onToggleSchemaInspector).toHaveBeenCalledOnce();
   });
 
   it("lets unavailable Data schema reveal missing source fields", () => {
@@ -279,6 +274,7 @@ describe("editor chrome", () => {
   it("reports sidebar navigation without owning request state", () => {
     const onNew = vi.fn();
     const onOpen = vi.fn();
+    const onToggleDataWidget = vi.fn();
     const view = render(
       <DeliverySidebar
         deliveries={[
@@ -299,6 +295,9 @@ describe("editor chrome", () => {
           autoShowSchemaWidget: true,
         }}
         onAppearance={() => undefined}
+        dataWidgetAvailable
+        dataWidgetVisible={false}
+        onToggleDataWidget={onToggleDataWidget}
         onNew={onNew}
         onOpen={onOpen}
       />,
@@ -307,8 +306,10 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("button", { name: "+ New delivery" }));
     fireEvent.click(view.getByRole("button", { name: "Open Transferia home" }));
     fireEvent.click(view.getByRole("button", { name: /First/ }));
+    fireEvent.click(view.getByRole("button", { name: "Data widget" }));
 
     expect(onNew).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenCalledWith("delivery-1");
+    expect(onToggleDataWidget).toHaveBeenCalledOnce();
   });
 });

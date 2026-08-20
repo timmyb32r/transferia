@@ -416,6 +416,12 @@ export function DeliveryApplication() {
         selectedId={editor.id}
         appearance={appearance}
         onAppearance={setAppearance}
+        dataWidgetAvailable={dataSchemaAvailable}
+        dataWidgetUnavailableReason={dataSchemaUnavailableReason}
+        dataWidgetVisible={schemaInspectorVisible}
+        onToggleDataWidget={() =>
+          setSchemaInspectorVisible((visible) => !visible)
+        }
         onNew={() => {
           jobs.cancelEditorJobs();
           resetOperations({});
@@ -483,15 +489,11 @@ export function DeliveryApplication() {
           disabled={blockingOperation}
           dataSchemaAvailable={dataSchemaAvailable}
           dataSchemaUnavailableReason={dataSchemaUnavailableReason}
-          schemaInspectorVisible={schemaInspectorVisible}
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
           onDataSchemaUnavailable={revealMissingRequiredFields}
           onLogs={() => void showLogs()}
-          onToggleSchemaInspector={() =>
-            setSchemaInspectorVisible((visible) => !visible)
-          }
         />
         <OperationNotices
           operations={operations}
