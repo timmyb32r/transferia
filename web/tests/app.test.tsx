@@ -52,6 +52,25 @@ describe("App request orchestration", () => {
     expect(deliveries).toHaveBeenCalledOnce();
   });
 
+  it("lists delivery types as batch, stream, then batch and stream", async () => {
+    installApiMocks([]);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    const deliveryType = within(
+      app.getByText("Delivery type").closest("label")!,
+    );
+
+    fireEvent.pointerDown(
+      deliveryType.getByRole("button", { name: "Delivery type" }),
+      { button: 0 },
+    );
+
+    expect(
+      deliveryType.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Not selected", "Batch", "Stream", "Batch + stream"]);
+  });
+
   it("highlights missing required fields when inactive Activate is clicked", async () => {
     installApiMocks([]);
     const view = render(<App />);

@@ -168,7 +168,7 @@ describe("UI primitives", () => {
 
     expect(
       form.getAllByRole("option").map((option) => option.textContent),
-    ).toEqual(["Not selected", "Batch", "Stream"]);
+    ).toEqual(["Not selected", "Stream", "Batch"]);
 
     fireEvent.input(form.getByRole("searchbox"), {
       target: { value: "str" },

@@ -52,6 +52,7 @@ export function rankSearchResults<T>(
   query: string,
   label: (value: T) => string,
 ): T[] {
+  if (query.trim() === "") return [...values];
   return values
     .map((value, index) => ({
       value,
