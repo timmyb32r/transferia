@@ -38,7 +38,7 @@ fn schema_registry_config_is_visible_in_parser_schema() {
         .and_then(serde_json::Value::as_str),
         Some("from_topic_name")
     );
-    assert!(json.to_string().contains("From message"));
+    assert!(json.to_string().contains("From topic name"));
 }
 
 #[test]

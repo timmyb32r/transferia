@@ -57,7 +57,7 @@ describe("schema form", () => {
                   node: fromConfig,
                 },
                 {
-                  label: "From message",
+                  label: "From topic name",
                   requiredKeys: ["type"],
                   discriminator: { key: "type", value: "from_topic_name" },
                   node: {

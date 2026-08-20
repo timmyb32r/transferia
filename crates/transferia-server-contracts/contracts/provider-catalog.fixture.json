@@ -440,7 +440,7 @@
                   ]
                 },
                 {
-                  "title": "From message",
+                  "title": "From topic name",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -1807,7 +1807,7 @@
                   ]
                 },
                 {
-                  "title": "From message",
+                  "title": "From topic name",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -3690,7 +3690,7 @@
                   ]
                 },
                 {
-                  "title": "From message",
+                  "title": "From topic name",
                   "type": "object",
                   "properties": {
                     "type": {

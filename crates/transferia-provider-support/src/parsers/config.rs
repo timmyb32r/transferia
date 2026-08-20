@@ -178,7 +178,7 @@ pub enum TableNaming {
     #[schemars(title = "From config")]
     FromConfig { name: String },
 
-    #[schemars(title = "From message")]
+    #[schemars(title = "From topic name")]
     #[default]
     FromTopicName,
 }
