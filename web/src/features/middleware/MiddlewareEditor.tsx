@@ -192,15 +192,17 @@ export function MiddlewareEditor({
                       ? "Running…"
                       : "Run sample"}
                   </Button>
-                  <div class="sql-playground-tabs" role="tablist">
+                  <div
+                    class="editor-view-tabs sql-playground-tabs"
+                    role="tablist"
+                    aria-label="DataFusion sample view"
+                  >
                     {(["input", "output"] as const).map((tab) => (
                       <Button
                         key={tab}
                         role="tab"
                         aria-selected={playground.activeTab === tab}
-                        variant={
-                          playground.activeTab === tab ? "primary" : "default"
-                        }
+                        class={playground.activeTab === tab ? "active" : ""}
                         onClick={() =>
                           setPlayground({ ...playground, activeTab: tab })
                         }

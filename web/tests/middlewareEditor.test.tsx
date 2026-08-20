@@ -36,6 +36,9 @@ describe("DataFusion middleware editor", () => {
     expect(view.getByRole("region", { name: "Playground" })).toBeTruthy();
     expect(view.getByRole("tab", { name: "Input" })).toBeTruthy();
     expect(view.getByRole("tab", { name: "Output" })).toBeTruthy();
+    expect(
+      view.getByRole("tablist", { name: "DataFusion sample view" }).classList,
+    ).toContain("editor-view-tabs");
     expect(view.getByDisplayValue("SELECT id FROM input")).toBeTruthy();
   });
 
