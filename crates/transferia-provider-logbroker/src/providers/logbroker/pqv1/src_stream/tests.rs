@@ -67,11 +67,18 @@ fn validates_static_partition_group_ids() {
     for (ids, expected) in [
         ("partition_group_ids: [-1]\n", "must be nonnegative"),
         ("partition_group_ids: [1, 1]\n", "duplicate group 1"),
-        ("partition_group_ids: []\n", "must not be empty"),
     ] {
         let error = provider(&config(ids, "")).err().expect("config must fail");
         assert!(error.to_string().contains(expected), "{error:#}");
     }
+}
+
+#[test]
+fn discovers_all_topic_partitions_when_none_are_configured() {
+    let resolved =
+        resolve_partition_group_ids(&topic_settings(3, &["consumer"]), "consumer", &[])
+            .unwrap();
+    assert_eq!(resolved, [0, 1, 2]);
 }
 
 #[test]
@@ -282,13 +289,9 @@ fn payload_discard_requires_the_discard_parser() {
 }
 
 #[test]
-fn missing_partition_group_ids_fails_during_provider_construction() {
-    let error = provider(&config("", ""))
-        .err()
-        .expect("missing partition_group_ids must fail");
-    assert!(error
-        .to_string()
-        .contains("missing field `partition_group_ids`"));
+fn missing_partition_group_ids_are_discovered_later() {
+    let source = provider(&config("", "")).expect("dynamic topology must be accepted");
+    assert!(source.cfg.partition_group_ids.is_empty());
 }
 
 #[test]

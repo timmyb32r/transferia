@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
@@ -118,6 +118,7 @@ pub struct PqV1SourceProvider {
     decompression_slots: Arc<Semaphore>,
     token: Arc<OnceCell<Arc<str>>>,
     endpoint_cache: Arc<EndpointCache>,
+    resolved_partitions: Arc<OnceLock<Arc<[i64]>>>,
 }
 
 impl PqV1SourceProvider {
@@ -181,6 +182,10 @@ impl PqV1SourceProvider {
         };
         let parser_plan = ParserPlan::from_config(&cfg.parser, &cfg.topic_path)?;
         let decompression_slots = Arc::new(Semaphore::new(cfg.decompression_concurrency));
+        let resolved_partitions = Arc::new(OnceLock::new());
+        if !cfg.partition_group_ids.is_empty() {
+            drop(resolved_partitions.set(Arc::from(cfg.partition_group_ids.clone())));
+        }
         Ok(Self {
             cfg,
             parser_plan,
@@ -191,11 +196,21 @@ impl PqV1SourceProvider {
             decompression_slots,
             token: Arc::new(OnceCell::new()),
             endpoint_cache: Arc::new(EndpointCache::default()),
+            resolved_partitions,
         })
     }
 
+    #[cfg(test)]
     fn configured_delivery_discovery(
         &self,
+        request: DeliveryDiscoveryRequest,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        self.configured_delivery_discovery_for(self.cfg.partition_group_ids.clone(), request)
+    }
+
+    fn configured_delivery_discovery_for(
+        &self,
+        partition_group_ids: Vec<i64>,
         request: DeliveryDiscoveryRequest,
     ) -> anyhow::Result<DeliveryDiscovery> {
         // PQ delivers opaque message bytes, not an Arrow row schema. DescribeTopic
@@ -203,17 +218,13 @@ impl PqV1SourceProvider {
         // therefore remain the projection declared by the configured parser.
         self.parser_plan.delivery_discovery(
             Arc::from(self.cfg.topic_path.as_str()),
-            SourceTopology::StaticPartitions(self.cfg.partition_group_ids.clone()),
+            SourceTopology::StaticPartitions(partition_group_ids),
             request,
         )
     }
 }
 
 fn validate_partition_group_ids(partition_group_ids: &[i64]) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !partition_group_ids.is_empty(),
-        "pqv1.partition_group_ids must not be empty"
-    );
     let mut unique = std::collections::HashSet::with_capacity(partition_group_ids.len());
     for &partition_group_id in partition_group_ids {
         anyhow::ensure!(
@@ -272,6 +283,19 @@ fn validate_topic_metadata(
         "pqv1.consumer_name '{consumer_name}' is not configured on the source topic"
     );
     Ok(())
+}
+
+fn resolve_partition_group_ids(
+    settings: &TopicSettings,
+    consumer_name: &str,
+    configured: &[i64],
+) -> anyhow::Result<Vec<i64>> {
+    validate_topic_metadata(settings, consumer_name, configured)?;
+    if configured.is_empty() {
+        Ok((0..i64::from(settings.partitions_count)).collect())
+    } else {
+        Ok(configured.to_vec())
+    }
 }
 
 async fn shared_access_token(
@@ -401,11 +425,9 @@ impl SourceProvider for PqV1SourceProvider {
         let cfg = self.cfg.clone();
         let token = Arc::clone(&self.token);
         let endpoint_cache = Arc::clone(&self.endpoint_cache);
-        let configured = self.configured_delivery_discovery(request);
+        let resolved_partitions = Arc::clone(&self.resolved_partitions);
 
         Box::pin(async move {
-            let discovery = configured?;
-            validate_partition_group_ids(&cfg.partition_group_ids)?;
             let token = shared_access_token(token.as_ref(), &cfg.auth).await?;
             let network_timeout = core::time::Duration::from_millis(cfg.network_timeout_ms);
             let discovery_endpoint = cfg.discovery_endpoint();
@@ -424,11 +446,19 @@ impl SourceProvider for PqV1SourceProvider {
             );
             let ((main_host, endpoints), topic_settings) = tokio::try_join!(endpoints, topic)
                 .map_err(|error| error.context("PQv1 delivery discovery failed"))?;
-            validate_topic_metadata(
+            let partition_group_ids = resolve_partition_group_ids(
                 &topic_settings,
                 &cfg.consumer_name,
                 &cfg.partition_group_ids,
             )?;
+            if let Some(existing) = resolved_partitions.get() {
+                anyhow::ensure!(
+                    existing.as_ref() == partition_group_ids.as_slice(),
+                    "PQv1 topic partition topology changed during delivery preparation"
+                );
+            } else {
+                drop(resolved_partitions.set(Arc::from(partition_group_ids.clone())));
+            }
 
             endpoint_cache.replace(CachedEndpoints {
                 fetched_at: Instant::now(),
@@ -436,7 +466,7 @@ impl SourceProvider for PqV1SourceProvider {
                 main_host,
                 endpoints,
             });
-            Ok(discovery)
+            self.configured_delivery_discovery_for(partition_group_ids, request)
         })
     }
 
@@ -457,11 +487,15 @@ impl SourceProvider for PqV1SourceProvider {
         let decompression_slots = Arc::clone(&self.decompression_slots);
         let token = Arc::clone(&self.token);
         let endpoint_cache = Arc::clone(&self.endpoint_cache);
+        let resolved_partitions = Arc::clone(&self.resolved_partitions);
 
         Box::pin(async move {
+            let declared_partitions = resolved_partitions.get().ok_or_else(|| {
+                anyhow::anyhow!("PQv1 source cannot start before delivery discovery")
+            })?;
             anyhow::ensure!(
-                cfg.partition_group_ids.contains(&partition_id),
-                "partition group {partition_id} is not declared in pqv1.partition_group_ids"
+                declared_partitions.contains(&partition_id),
+                "partition group {partition_id} is not part of the discovered PQv1 topology"
             );
             metrics_registry.register_source(partition_id, Arc::clone(&source_counters));
             // Token rotation is intentionally not supported yet. Load lazily

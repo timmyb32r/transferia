@@ -23,6 +23,7 @@ pub struct PqV1SourceConfig {
     )]
     pub parser: ParserConfig,
 
+    #[serde(default)]
     pub partition_group_ids: Vec<i64>,
 
     /// Bounds discovery/connect/open stages and the HTTP/2 keepalive interval/ACK wait for a

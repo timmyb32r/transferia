@@ -251,10 +251,6 @@ pub fn build_source_provider(
                 "logbroker.driver=pqv1 currently requires exactly one topic"
             );
             anyhow::ensure!(
-                !cfg.topics[0].partitions.is_empty(),
-                "logbroker.driver=pqv1 requires explicit topic partitions"
-            );
-            anyhow::ensure!(
                 cfg.read_buffer_bytes == config::default_read_buffer_bytes(),
                 "logbroker.read_buffer_bytes is supported only by driver=ydb"
             );

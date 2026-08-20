@@ -248,10 +248,11 @@ fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<(
     let dynamic: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  benchmark_discard: {}\n",
     )?;
-    let error = build_source_provider(dynamic, Arc::new(MetricsRegistry::new()))
-        .err()
-        .ok_or_else(|| anyhow::anyhow!("PQv1 without explicit partitions must fail"))?;
-    assert!(error.to_string().contains("explicit topic partitions"));
+    let provider = build_source_provider(dynamic, Arc::new(MetricsRegistry::new()))?;
+    assert!(matches!(
+        provider.compatibility(),
+        EndpointDescriptor::Logbroker(_)
+    ));
     Ok(())
 }
 
