@@ -45,15 +45,12 @@ pub fn register(
                     };
                     logbroker::check_connection(&connection, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult::default())
-                } else if config.auth.is_configured() {
-                    logbroker::src_stream::check_authentication(&config.host, config.port, &config.auth, cancellation).await?;
-                    Ok(transferia_registry::ConnectionCheckResult {
-                        message: Some("The token is valid for Logbroker. Topic and consumer access were not checked because they are not configured.".to_owned()),
-                        ..Default::default()
-                    })
                 } else {
                     logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
-                    Ok(transferia_registry::ConnectionCheckResult::network_reachable())
+                    Ok(transferia_registry::ConnectionCheckResult {
+                        message: Some("Logbroker is network-reachable. Authentication and entity access were not checked because topic and consumer are incomplete.".to_owned()),
+                        ..transferia_registry::ConnectionCheckResult::network_reachable()
+                    })
                 }
             })
             .source_previewer::<logbroker::src_stream::LogbrokerSourceConnectionConfig, _, _>(|config, max_bytes, cancellation| async move {
@@ -88,10 +85,10 @@ pub fn register(
                     logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult::network_reachable())
                 } else if config.topic_path.is_empty() {
-                    logbroker::src_stream::check_authentication(&config.host, config.port, &config.auth, cancellation).await?;
+                    logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult {
-                        message: Some("The token is valid for Logbroker. Topic access was not checked because it is not configured.".to_owned()),
-                        ..Default::default()
+                        message: Some("Logbroker is network-reachable. Authentication and topic access were not checked because the topic is incomplete.".to_owned()),
+                        ..transferia_registry::ConnectionCheckResult::network_reachable()
                     })
                 } else {
                     logbroker::src_stream::check_topic_connection(
