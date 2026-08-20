@@ -5,11 +5,27 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { FormField } from "../src/ui/FormField";
 import { Button } from "../src/ui/Button";
+import { Disclosure } from "../src/ui/Disclosure";
 import { MultiSelectControl, SelectControl } from "../src/ui/SelectControl";
 
 afterEach(cleanup);
 
 describe("UI primitives", () => {
+  it("uses the native disclosure hit area for the entire summary", () => {
+    const view = render(
+      <Disclosure
+        label={<span data-testid="summary-edge">Advanced settings</span>}
+      >
+        <p>Advanced value</p>
+      </Disclosure>,
+    );
+    const details = view.container.querySelector("details")!;
+
+    fireEvent.click(view.getByTestId("summary-edge"), { detail: 1 });
+
+    expect(details.open).toBe(true);
+  });
+
   it("gives pending actions immediate feedback without changing their label", () => {
     const view = render(<Button pending>Save</Button>);
     const button = view.getByRole("button", { name: "Save" });
