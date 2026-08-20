@@ -28,10 +28,12 @@ pub struct PostgresConnectionCheckConfig {
 }
 
 impl PostgresConnectionCheckConfig {
-    pub fn credentials_complete(&self) -> bool {
+    #[must_use]
+    pub const fn credentials_complete(&self) -> bool {
         !self.database.is_empty() && !self.username.is_empty()
     }
 
+    #[must_use]
     pub fn connection(&self) -> PostgresConnectionConfig {
         PostgresConnectionConfig {
             host: self.host.clone(),
