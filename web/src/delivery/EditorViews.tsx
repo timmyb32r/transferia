@@ -386,13 +386,7 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
   );
 }
 
-export function DataSchemaWorkspace({
-  result,
-  onShowInspector,
-}: {
-  result: DiscoveryResult;
-  onShowInspector: () => void;
-}) {
+export function DataSchemaWorkspace({ result }: { result: DiscoveryResult }) {
   return (
     <section class="data-schema-workspace" role="tabpanel">
       <header class="data-schema-toolbar">
@@ -403,7 +397,6 @@ export function DataSchemaWorkspace({
             configuration.
           </p>
         </div>
-        <Button onClick={onShowInspector}>Show schema inspector</Button>
       </header>
       <ContractView result={result} />
     </section>

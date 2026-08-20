@@ -180,63 +180,65 @@ export function EditorTabs({
   onToggleSchemaInspector?: () => void;
 }) {
   return (
-    <div class="editor-tabs" role="tablist" aria-label="Configuration view">
-      <Button
-        role="tab"
-        aria-selected={active === "ui"}
-        class={active === "ui" ? "active" : ""}
-        disabled={disabled}
-        onClick={onUi}
-      >
-        UI
-      </Button>
-      <Button
-        role="tab"
-        aria-selected={active === "yaml"}
-        class={active === "yaml" ? "active" : ""}
-        disabled={disabled}
-        onClick={onYaml}
-      >
-        YAML
-      </Button>
-      <span
-        class="editor-tab-tooltip"
-        title={
-          dataSchemaAvailable
-            ? "Open the discovered data schema"
-            : (dataSchemaUnavailableReason ??
-              "Data schema becomes available after discovery has produced a table")
-        }
-      >
+    <div class="editor-tabs">
+      <div class="editor-view-tabs" role="tablist" aria-label="Configuration view">
         <Button
           role="tab"
-          aria-selected={active === "data_schema"}
-          aria-disabled={!dataSchemaAvailable}
-          class={[
-            active === "data_schema" ? "active" : "",
-            !dataSchemaAvailable ? "diagnostic-disabled" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
+          aria-selected={active === "ui"}
+          class={active === "ui" ? "active" : ""}
           disabled={disabled}
-          onClick={
+          onClick={onUi}
+        >
+          UI
+        </Button>
+        <Button
+          role="tab"
+          aria-selected={active === "yaml"}
+          class={active === "yaml" ? "active" : ""}
+          disabled={disabled}
+          onClick={onYaml}
+        >
+          YAML
+        </Button>
+        <span
+          class="editor-tab-tooltip"
+          title={
             dataSchemaAvailable
-              ? onDataSchema
-              : (onDataSchemaUnavailable ?? onDataSchema)
+              ? "Open the discovered data schema"
+              : (dataSchemaUnavailableReason ??
+                "Data schema becomes available after discovery has produced a table")
           }
         >
-          Data schema
+          <Button
+            role="tab"
+            aria-selected={active === "data_schema"}
+            aria-disabled={!dataSchemaAvailable}
+            class={[
+              active === "data_schema" ? "active" : "",
+              !dataSchemaAvailable ? "diagnostic-disabled" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            disabled={disabled}
+            onClick={
+              dataSchemaAvailable
+                ? onDataSchema
+                : (onDataSchemaUnavailable ?? onDataSchema)
+            }
+          >
+            Data schema
+          </Button>
+        </span>
+        <Button
+          role="tab"
+          aria-selected={active === "logs"}
+          class={active === "logs" ? "active" : ""}
+          disabled={disabled}
+          onClick={onLogs}
+        >
+          Logs
         </Button>
-      </span>
-      <Button
-        role="tab"
-        aria-selected={active === "logs"}
-        class={active === "logs" ? "active" : ""}
-        disabled={disabled}
-        onClick={onLogs}
-      >
-        Logs
-      </Button>
+      </div>
       <span
         class="editor-tab-tooltip schema-widget-toggle"
         title={

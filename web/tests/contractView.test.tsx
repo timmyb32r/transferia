@@ -104,14 +104,10 @@ describe("data schema view", () => {
     );
     expect(onHide).toHaveBeenCalledOnce();
 
-    const onShow = vi.fn();
-    const workspace = render(
-      <DataSchemaWorkspace result={result} onShowInspector={onShow} />,
-    );
-    fireEvent.click(
-      workspace.getByRole("button", { name: "Show schema inspector" }),
-    );
-    expect(onShow).toHaveBeenCalledOnce();
+    const workspace = render(<DataSchemaWorkspace result={result} />);
+    expect(
+      workspace.queryByRole("button", { name: "Show schema inspector" }),
+    ).toBeNull();
   });
 
   it("positions the draggable inspector without transforming dropdown coordinates", () => {

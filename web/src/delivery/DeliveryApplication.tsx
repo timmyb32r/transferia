@@ -519,10 +519,7 @@ export function DeliveryApplication() {
             onChange={editYaml}
           />
         ) : activeView === "data_schema" && discovery !== undefined ? (
-          <DataSchemaWorkspace
-            result={discovery}
-            onShowInspector={() => setSchemaInspectorVisible(true)}
-          />
+          <DataSchemaWorkspace result={discovery} />
         ) : activeView === "logs" ? (
           editor.id === undefined ? (
             <p class="data-schema-empty">
