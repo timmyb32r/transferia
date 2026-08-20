@@ -343,6 +343,70 @@ describe("App request orchestration", () => {
     expect(app.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
+  it("does not auto-open the data widget for an existing delivery", async () => {
+    const existing = {
+      ...delivery("existing", "Existing"),
+      config: {
+        delivery_id: "existing",
+        delivery_type: "batch",
+        source: { source: {} },
+        sink: { sink: {} },
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      providers: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test sink",
+          sink: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    });
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.discover).mockResolvedValue({
+      ...discovery(),
+      datasets: [
+        {
+          role: "Main",
+          name: "events",
+          intermediate_columns: [],
+          final_columns: [],
+        },
+      ],
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+    await waitFor(() => expect(api.discover).toHaveBeenCalled());
+
+    expect(app.queryByRole("dialog", { name: "Final schema" })).toBeNull();
+    expect(app.getByRole("button", { name: "Data widget" })).toBeTruthy();
+  });
+
   it("ignores an action response after navigating to another delivery", async () => {
     const first = delivery("first", "First", true);
     const second = delivery("second", "Second");

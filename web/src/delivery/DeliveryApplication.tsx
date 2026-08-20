@@ -250,10 +250,10 @@ export function DeliveryApplication() {
   useEffect(() => {
     if (!dataSchemaAvailable) {
       setSchemaInspectorVisible(false);
-    } else if (appearance.autoShowSchemaWidget) {
+    } else if (appearance.autoShowSchemaWidget && editor.id === undefined) {
       setSchemaInspectorVisible(true);
     }
-  }, [dataSchemaAvailable, appearance.autoShowSchemaWidget]);
+  }, [dataSchemaAvailable, appearance.autoShowSchemaWidget, editor.id]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
     editable: !isReadOnly(editor),
