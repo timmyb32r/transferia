@@ -38,10 +38,6 @@ const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
 const ParserActionContext = createContext<ComponentChildren>(undefined);
 
-export function useShowRequiredErrors(): boolean {
-  return useContext(RequiredErrorsContext);
-}
-
 export function SchemaForm({
   node,
   value,

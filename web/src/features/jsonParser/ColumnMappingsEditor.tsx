@@ -28,9 +28,7 @@ import { isObject, jsonValuesEqual, uniqueStrings } from "../../schema/value";
 export function ColumnMappingsEditor({
   node,
   value,
-  required,
   incomplete,
-  showRequiredErrors,
   keys,
   additionalKeyOptions,
   systemColumns,
@@ -41,9 +39,7 @@ export function ColumnMappingsEditor({
 }: {
   node: CompiledNode;
   value: JsonValue[];
-  required: boolean;
   incomplete: boolean;
-  showRequiredErrors: boolean;
   keys: string[];
   additionalKeyOptions: string[];
   systemColumns?: {
@@ -124,16 +120,12 @@ export function ColumnMappingsEditor({
       );
     });
   };
-  const firstIncompleteRow = value.findIndex(rowIsIncomplete);
   return (
     <div
       data-required-guidance="structural"
       class={[
         "column-editor",
         !disabled && incomplete ? "required-incomplete" : "",
-        showRequiredErrors && required && value.length === 0
-          ? "required-missing"
-          : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -286,7 +278,7 @@ export function ColumnMappingsEditor({
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${showRequiredErrors && index === firstIncompleteRow ? "validation-missing-row" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
+                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();

@@ -460,6 +460,7 @@ export function DeliveryApplication() {
           root={workspace}
           enabled={!readOnly && activeView === "ui"}
           revision={editor.localRevision}
+          tone={showRequiredErrors ? "error" : "guided"}
         />
         <header class="page-header">
           <div>

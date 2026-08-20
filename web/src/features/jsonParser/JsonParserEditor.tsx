@@ -5,7 +5,6 @@ import type {
   NodeEditorComponent,
   PropertyEditorComponent,
 } from "../../schema/editorTypes";
-import { useShowRequiredErrors } from "../../schema/SchemaForm";
 import { isComplete } from "../../schema/compiler";
 import { reconcileSystemColumnKeys } from "./model";
 import { isObject, stringArray } from "../../schema/value";
@@ -26,7 +25,6 @@ export function JsonParserEditor({
   PropertyEditor: PropertyEditorComponent;
 }) {
   const object = isObject(value) ? value : {};
-  const showRequiredErrors = useShowRequiredErrors();
   const commonNode = node.properties.common;
   const parserNode = node.properties.json_parser;
   if (commonNode?.kind !== "object" || parserNode?.kind !== "object")
@@ -88,12 +86,10 @@ export function JsonParserEditor({
       <ColumnMappingsEditor
         node={columnsNode.item}
         value={Array.isArray(parser.columns) ? parser.columns : []}
-        required={parserNode.required.has("columns")}
         incomplete={
           parserNode.required.has("columns") &&
           !isComplete(columnsNode, parser.columns)
         }
-        showRequiredErrors={showRequiredErrors}
         keys={stringArray(parser.keys)}
         additionalKeyOptions={systemColumns}
         {...(commonNode.properties.system_columns === undefined

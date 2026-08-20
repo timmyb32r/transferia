@@ -233,6 +233,17 @@ describe("App request orchestration", () => {
           ?.classList.contains("required-missing"),
       ).toBe(true),
     );
+    await waitFor(() =>
+      expect(
+        app
+          .getByText("Host")
+          .closest(".form-row")
+          ?.classList.contains("required-error"),
+      ).toBe(true),
+    );
+    expect(
+      app.getByLabelText("Host").classList.contains("required-error-control"),
+    ).toBe(true);
     expect(
       app
         .getByText("Database")

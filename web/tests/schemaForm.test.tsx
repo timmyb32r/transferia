@@ -1142,11 +1142,6 @@ describe("schema form", () => {
       ),
     ).not.toBeNull();
     expect(
-      incompleteDetails.container.querySelectorAll(
-        ".column-table tr.validation-missing-row",
-      ),
-    ).toHaveLength(1);
-    expect(
       incompleteDetails.container.querySelector(
         ".column-table td.required-missing",
       ),
@@ -1169,7 +1164,7 @@ describe("schema form", () => {
       emptyDetails.container
         .querySelector<HTMLButtonElement>(".add-row-button")
         ?.closest(".column-editor")
-        ?.classList.contains("required-missing"),
+        ?.classList.contains("required-incomplete"),
     ).toBe(true);
   });
 

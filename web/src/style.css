@@ -1094,9 +1094,19 @@ button.diagnostic-disabled {
     0 0 0 3px color-mix(in srgb, var(--blue) 16%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--blue) 72%, transparent);
 }
+.required-next-control.required-error-control {
+  border-color: var(--red);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--red) 14%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--red) 76%, transparent);
+}
 .required-next > .field-label,
 .top-field.required-next > span {
   color: var(--blue);
+}
+.required-next.required-error > .field-label,
+.top-field.required-next.required-error > span {
+  color: var(--red);
 }
 .required-missing input,
 .required-missing .select-trigger {
@@ -2510,7 +2520,7 @@ button::after {
     inset 0 1px 0 color-mix(in srgb, var(--blue) 38%, transparent),
     inset 0 -1px 0 color-mix(in srgb, var(--blue) 38%, transparent);
 }
-.column-table .config-table-row.validation-missing-row td {
+.column-table .config-table-row.required-next.required-error td {
   background: color-mix(in srgb, var(--red) 7%, var(--panel));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, var(--red) 55%, transparent),

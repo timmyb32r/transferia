@@ -13,10 +13,12 @@ export function RequiredFieldGuide({
   root,
   enabled,
   revision,
+  tone = "guided",
 }: {
   root: RefObject<HTMLElement>;
   enabled: boolean;
   revision: unknown;
+  tone?: "guided" | "error";
 }) {
   const guidedPath = useRef<HTMLElement[]>([]);
   const guidedControls = useRef<HTMLElement[]>([]);
@@ -59,10 +61,7 @@ export function RequiredFieldGuide({
         ) &&
         guidedPath.current.some((candidate) => candidate.contains(active))
       ) {
-        for (const candidate of guidedPath.current)
-          candidate.classList.add("required-next");
-        for (const control of guidedControls.current)
-          control.classList.add("required-next-control");
+        applyGuidance(guidedPath.current, guidedControls.current, tone);
         focusedControl = active;
         focusedControl.addEventListener("blur", continueAfterBlur, {
           once: true,
@@ -91,6 +90,7 @@ export function RequiredFieldGuide({
       guidedPath.current = path;
       for (const candidate of path) {
         candidate.classList.add("required-next");
+        if (tone === "error") candidate.classList.add("required-error");
         if (
           candidate !== leaf &&
           candidate.dataset.requiredGuidance === "structural"
@@ -101,6 +101,8 @@ export function RequiredFieldGuide({
         ].find((control) => control.closest(INCOMPLETE_SELECTOR) === candidate);
         if (ownControl !== undefined) {
           ownControl.classList.add("required-next-control");
+          if (tone === "error")
+            ownControl.classList.add("required-error-control");
           guidedControls.current.push(ownControl);
         }
       }
@@ -109,7 +111,15 @@ export function RequiredFieldGuide({
       window.cancelAnimationFrame(frame);
       focusedControl?.removeEventListener("blur", continueAfterBlur);
     };
-  }, [blurRevision, enabled, requestedScope, requestRevision, revision, root]);
+  }, [
+    blurRevision,
+    enabled,
+    requestedScope,
+    requestRevision,
+    revision,
+    root,
+    tone,
+  ]);
 
   useEffect(
     () => () => {
@@ -124,7 +134,25 @@ export function RequiredFieldGuide({
 function clearGuidance(path: HTMLElement[], controls: HTMLElement[]) {
   for (const candidate of path) {
     candidate.classList.remove("required-next");
+    candidate.classList.remove("required-error");
   }
-  for (const control of controls)
+  for (const control of controls) {
     control.classList.remove("required-next-control");
+    control.classList.remove("required-error-control");
+  }
+}
+
+function applyGuidance(
+  path: HTMLElement[],
+  controls: HTMLElement[],
+  tone: "guided" | "error",
+) {
+  for (const candidate of path) {
+    candidate.classList.add("required-next");
+    candidate.classList.toggle("required-error", tone === "error");
+  }
+  for (const control of controls) {
+    control.classList.add("required-next-control");
+    control.classList.toggle("required-error-control", tone === "error");
+  }
 }

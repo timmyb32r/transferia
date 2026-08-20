@@ -111,6 +111,24 @@ describe("required field guide", () => {
         .classList.contains("required-next-control"),
     ).toBe(false);
   });
+
+  it("uses the same row and control target for validation with an error tone", async () => {
+    const view = render(<StructuralHarness tone="error" />);
+    const row = view.getByTestId("column-row");
+    const columnName = view.getByLabelText("Column name");
+
+    await waitFor(() =>
+      expect(row.classList.contains("required-error")).toBe(true),
+    );
+    expect(row.classList.contains("required-next")).toBe(true);
+    expect(columnName.classList.contains("required-next-control")).toBe(true);
+    expect(columnName.classList.contains("required-error-control")).toBe(true);
+    expect(
+      view
+        .getByRole("button", { name: "Keys" })
+        .classList.contains("required-error-control"),
+    ).toBe(false);
+  });
 });
 
 function Harness() {
@@ -185,11 +203,11 @@ function ParserHarness() {
   );
 }
 
-function StructuralHarness() {
+function StructuralHarness({ tone = "guided" }: { tone?: "guided" | "error" }) {
   const root = useRef<HTMLDivElement>(null);
   return (
     <div ref={root}>
-      <RequiredFieldGuide root={root} enabled revision={0} />
+      <RequiredFieldGuide root={root} enabled revision={0} tone={tone} />
       <div class="required-incomplete" data-required-guidance="structural">
         <table>
           <tbody>
