@@ -317,7 +317,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceProvider::from_config(
         serde_yaml::from_str(&format!(
-            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -333,6 +333,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         source_discovery.datasets[0].stored_schema.columns.len(),
         input_schema.columns.len()
     );
+    assert_eq!(source_discovery.datasets[0].name.as_ref(), "//tmp/input");
     let mut actor = source
         .build_source(SourceBuildContext {
             partition_id: 0,
@@ -345,6 +346,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     loop {
         match actor.read_batch().await? {
             SourceBatch::Typed { tables, .. } => {
+                assert_eq!(tables[0].table.as_ref(), "//tmp/input");
                 assert!(tables[0].batch.num_rows() <= 2);
                 rows += tables[0].batch.num_rows();
             }

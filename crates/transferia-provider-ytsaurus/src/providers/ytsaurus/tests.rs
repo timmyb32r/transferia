@@ -10,13 +10,13 @@ use super::src_batch::validate_read_schema;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
-fn configs_derive_transport_from_trust_and_require_explicit_names() -> anyhow::Result<()> {
+fn configs_derive_transport_and_use_paths_as_table_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n    output_name: events\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n",
     )?;
     source.validate()?;
     let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n    output_name: events\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n"
     )?;
     tls_source.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");

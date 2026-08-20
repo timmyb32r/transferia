@@ -126,8 +126,6 @@ pub struct YTsaurusSourceConfig {
 #[serde(deny_unknown_fields)]
 pub struct SourceTableConfig {
     pub path: String,
-
-    pub output_name: String,
 }
 
 impl YTsaurusSourceConfig {
@@ -136,22 +134,12 @@ impl YTsaurusSourceConfig {
         anyhow::ensure!(!self.tables.is_empty(), "ytsaurus.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "ytsaurus.batch_rows must be positive");
         let mut paths = HashSet::new();
-        let mut outputs = HashSet::new();
         for table in &self.tables {
             validate_path(&table.path)?;
-            anyhow::ensure!(
-                !table.output_name.is_empty(),
-                "ytsaurus.tables.output_name must not be empty"
-            );
             anyhow::ensure!(
                 paths.insert(table.path.as_str()),
                 "ytsaurus.tables repeats path '{}'",
                 table.path
-            );
-            anyhow::ensure!(
-                outputs.insert(table.output_name.as_str()),
-                "ytsaurus.tables repeats output_name '{}'",
-                table.output_name
             );
         }
         Ok(())

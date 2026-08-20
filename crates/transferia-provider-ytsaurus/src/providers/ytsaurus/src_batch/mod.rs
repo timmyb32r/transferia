@@ -146,7 +146,7 @@ impl SourceProvider for YTsaurusSourceProvider {
                     }));
                     DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table.config.output_name.as_str()),
+                        name: Arc::from(table.config.path.as_str()),
                         incoming_schema: incoming.clone(),
                         stored_schema: if request.keep_system_columns {
                             incoming
@@ -311,7 +311,7 @@ impl YTsaurusSource {
         self.counters.add_decompressed_bytes(batch_bytes as u64);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
-                Arc::from(self.table.config.output_name.as_str()),
+                Arc::from(self.table.config.path.as_str()),
                 false,
                 batch,
                 SystemColumns::new(vec![

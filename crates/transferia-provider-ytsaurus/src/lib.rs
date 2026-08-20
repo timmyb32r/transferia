@@ -29,7 +29,7 @@ pub fn register(
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "timeout_ms": 30000,
-                        "tables": [{ "path": "", "output_name": "" }],
+                        "tables": [{ "path": "" }],
                         "batch_rows": 65536
                     })
                 },
