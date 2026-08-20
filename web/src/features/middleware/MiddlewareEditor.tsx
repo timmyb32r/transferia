@@ -199,7 +199,7 @@ export function MiddlewareEditor({
                         role="tab"
                         aria-selected={playground.activeTab === tab}
                         variant={
-                          playground.activeTab === tab ? "primary" : "secondary"
+                          playground.activeTab === tab ? "primary" : "default"
                         }
                         onClick={() =>
                           setPlayground({ ...playground, activeTab: tab })
