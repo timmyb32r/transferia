@@ -46,7 +46,16 @@ fn source_and_sink_config_schemas_compile() {
     let source = schemars::schema_for!(super::KafkaSourceConfig);
     let sink = schemars::schema_for!(super::KafkaSinkConfig);
     assert!(serde_json::to_value(source).unwrap().is_object());
-    assert!(serde_json::to_value(sink).unwrap().is_object());
+    let sink = serde_json::to_value(sink).unwrap();
+    assert!(sink.is_object());
+    for field in ["request_timeout_ms", "max_in_flight"] {
+        assert_eq!(
+            sink.pointer(&format!("/properties/{field}/x-ui/widget")),
+            Some(&serde_json::json!("hidden")),
+            "Kafka sink operational field {field} must stay out of the UI"
+        );
+    }
+    assert!(!serde_json::to_string(&sink).unwrap().contains("\"section\":\"advanced\""));
 }
 
 #[test]

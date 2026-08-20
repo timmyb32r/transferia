@@ -146,11 +146,11 @@ pub struct KafkaSinkConfig {
     pub partition: Option<i32>,
 
     #[serde(default = "default_request_timeout_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 
     #[serde(default = "default_max_in_flight")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub max_in_flight: usize,
 }
 
