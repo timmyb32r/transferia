@@ -112,7 +112,7 @@ describe("data schema view", () => {
             {
               name: "id",
               arrow_type: "Int64",
-              destination_type: "Int64",
+              destination_type: "UInt64",
               nullable: false,
               primary_key: true,
               low_cardinality: false,
@@ -132,7 +132,10 @@ describe("data schema view", () => {
     expect(
       view.getByRole("table", { name: "Selected table schema" }).textContent,
     ).toContain("Int64");
-    expect(view.container.textContent).not.toContain("Column type");
+    fireEvent.click(view.getByRole("tab", { name: "Destination types" }));
+    expect(
+      view.getByRole("table", { name: "Selected table schema" }).textContent,
+    ).toContain("UInt64");
     fireEvent.click(
       view.getByRole("button", { name: "Hide schema inspector" }),
     );

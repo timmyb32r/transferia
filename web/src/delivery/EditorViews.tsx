@@ -452,6 +452,7 @@ export function DataSchemaInspector({
 }) {
   const [selectedTable, setSelectedTable] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [typeView, setTypeView] = useState<"arrow" | "destination">("arrow");
   const [changedColumns, setChangedColumns] = useState<Set<string>>(
     () => new Set(),
   );
@@ -560,6 +561,24 @@ export function DataSchemaInspector({
               }))}
               onChange={setSelectedTable}
             />
+            <div class="schema-inspector-type-tabs" role="tablist" aria-label="Column type view">
+              <Button
+                role="tab"
+                aria-selected={typeView === "arrow"}
+                class={typeView === "arrow" ? "active" : undefined}
+                onClick={() => setTypeView("arrow")}
+              >
+                Arrow types
+              </Button>
+              <Button
+                role="tab"
+                aria-selected={typeView === "destination"}
+                class={typeView === "destination" ? "active" : undefined}
+                onClick={() => setTypeView("destination")}
+              >
+                Destination types
+              </Button>
+            </div>
             <div
               class="schema-inspector-table"
               role="table"
@@ -570,7 +589,7 @@ export function DataSchemaInspector({
                 role="row"
               >
                 <span>Column</span>
-                <span>Arrow type</span>
+                <span>{typeView === "arrow" ? "Arrow type" : "Destination type"}</span>
                 <span>PK</span>
                 <span>Not null</span>
               </div>
@@ -583,7 +602,11 @@ export function DataSchemaInspector({
                     key={column.name}
                   >
                     <strong>{column.name}</strong>
-                    <code>{column.arrow_type}</code>
+                    <code>
+                      {typeView === "arrow"
+                        ? column.arrow_type
+                        : column.destination_type}
+                    </code>
                     <span>{column.primary_key ? "Yes" : "—"}</span>
                     <span>{column.nullable ? "—" : "Yes"}</span>
                   </div>

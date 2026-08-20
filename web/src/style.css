@@ -1792,6 +1792,31 @@ button::after {
 .schema-inspector > .select-control {
   margin: 12px;
 }
+.schema-inspector-type-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.schema-inspector-type-tabs button {
+  min-width: 0;
+  border-radius: 0;
+  color: var(--muted);
+}
+.schema-inspector-type-tabs button + button {
+  margin-left: -1px;
+}
+.schema-inspector-type-tabs button:first-child {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+.schema-inspector-type-tabs button:last-child {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+.schema-inspector-type-tabs button.active {
+  position: relative;
+  z-index: 1;
+  border-color: var(--blue);
+  color: var(--blue);
+}
 
 .schema-inspector-table {
   min-width: 0;
