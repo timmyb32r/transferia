@@ -121,6 +121,86 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("highlights incomplete required fields in both endpoints and scrolls to the first", async () => {
+    installApiMocks([]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      providers: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: {
+              type: "object",
+              properties: { host: { type: "string", title: "Host" } },
+              required: ["host"],
+            },
+            initial: { host: "" },
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test destination",
+          sink: {
+            schema: {
+              type: "object",
+              properties: {
+                database: { type: "string", title: "Database" },
+              },
+              required: ["database"],
+            },
+            initial: { database: "" },
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+          },
+        },
+      ],
+    });
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    fireEvent.input(app.getByLabelText("Delivery name"), {
+      target: { value: "Incomplete source" },
+    });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    chooseFromSelect(app, "Destination", "Test destination");
+    scrollIntoView.mockClear();
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await waitFor(() =>
+      expect(
+        app
+          .getByText("Host")
+          .closest(".form-row")
+          ?.classList.contains("required-missing"),
+      ).toBe(true),
+    );
+    expect(
+      app
+        .getByText("Database")
+        .closest(".form-row")
+        ?.classList.contains("required-missing"),
+    ).toBe(true);
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement | null)?.id).toBe(
+        "field---host",
+      ),
+    );
+    expect(api.validate).not.toHaveBeenCalled();
+  });
+
   it("does not let a save response overwrite a delivery opened meanwhile", async () => {
     const existing = delivery("existing", "Existing");
     installApiMocks([existing]);

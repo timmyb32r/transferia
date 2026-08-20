@@ -68,12 +68,7 @@ export function EditorActions({
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
         </Button>
-        <Button
-          class={!requiredFieldsComplete ? "diagnostic-disabled" : undefined}
-          aria-disabled={!requiredFieldsComplete}
-          disabled={blocked}
-          onClick={validate}
-        >
+        <Button disabled={blocked} onClick={validate}>
           Validate
         </Button>
         <Button
@@ -93,12 +88,7 @@ export function EditorActions({
       <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
         Save
       </Button>
-      <Button
-        class={!requiredFieldsComplete ? "diagnostic-disabled" : undefined}
-        aria-disabled={!requiredFieldsComplete}
-        disabled={blocked}
-        onClick={validate}
-      >
+      <Button disabled={blocked} onClick={validate}>
         Validate
       </Button>
       <Button

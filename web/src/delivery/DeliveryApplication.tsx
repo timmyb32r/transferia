@@ -336,13 +336,20 @@ export function DeliveryApplication() {
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
   ).some((key) => operations[key]?.label !== undefined);
-  const revealMissingSourceFields = () => {
+  const revealMissingRequiredFields = () => {
     setShowRequiredErrors(true);
     void applyYamlAndShowUi().then(() => {
       window.requestAnimationFrame(() => {
-        const missing = document.querySelector<HTMLElement>(
+        const sourceSelector = [
           ".endpoint-card-source .required-missing",
-        );
+          ".parser-details-card .required-missing",
+        ].join(", ");
+        const missing =
+          document.querySelector<HTMLElement>(sourceSelector) ??
+          document.querySelector<HTMLElement>(
+            `${sourceSelector}, .required-missing`,
+          );
+        missing?.closest("details")?.setAttribute("open", "");
         missing?.scrollIntoView({ behavior: "smooth", block: "center" });
         missing
           ?.querySelector<HTMLElement>("input, button, textarea, select")
@@ -355,7 +362,7 @@ export function DeliveryApplication() {
       editor={editor}
       blocked={blockingOperation}
       requiredFieldsComplete={requiredFieldsComplete}
-      onMissingRequired={() => setShowRequiredErrors(true)}
+      onMissingRequired={revealMissingRequiredFields}
       onEdit={() => {
         setShowRequiredErrors(false);
         dispatch({ type: "edit" });
@@ -472,7 +479,7 @@ export function DeliveryApplication() {
           onUi={() => void applyYamlAndShowUi()}
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
-          onDataSchemaUnavailable={revealMissingSourceFields}
+          onDataSchemaUnavailable={revealMissingRequiredFields}
           onLogs={() => void showLogs()}
           onToggleSchemaInspector={() =>
             setSchemaInspectorVisible((visible) => !visible)

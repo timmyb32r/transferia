@@ -266,7 +266,8 @@ describe("editor chrome", () => {
 
     const validate = view.getByRole("button", { name: "Validate" });
     expect((validate as HTMLButtonElement).disabled).toBe(false);
-    expect(validate.getAttribute("aria-disabled")).toBe("true");
+    expect(validate.classList.contains("diagnostic-disabled")).toBe(false);
+    expect(validate.getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(validate);
 
     expect(onMissingRequired).toHaveBeenCalledOnce();
