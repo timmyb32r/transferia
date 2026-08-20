@@ -245,7 +245,7 @@ async fn source_preview_is_a_typed_optional_capability() -> anyhow::Result<()> {
                     compressed_size: 1,
                     declared_uncompressed_size: None,
                     message_metadata: Vec::new(),
-                    write_session_metadata: Default::default(),
+                    write_session_metadata: std::collections::BTreeMap::default(),
                 },
             })
         },

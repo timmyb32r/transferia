@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::Value;
 
+const EXTERNAL_LINK_VALUE_PLACEHOLDER: &str = "{value}";
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct UiHints {
@@ -33,7 +35,7 @@ enum DynamicOptionsControl {
     Path,
 }
 
-pub(crate) fn validate_ui_dialect(value: &Value) -> anyhow::Result<()> {
+pub fn validate_ui_dialect(value: &Value) -> anyhow::Result<()> {
     validate_node(value, "#")
 }
 
@@ -59,7 +61,7 @@ fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
                 if let Some(template) = hints.external_link_template {
                     anyhow::ensure!(
                         template.starts_with("https://")
-                            && template.matches("{value}").count() == 1,
+                            && template.matches(EXTERNAL_LINK_VALUE_PLACEHOLDER).count() == 1,
                         "{path}: external link template must be HTTPS and contain one {{value}}"
                     );
                 }
