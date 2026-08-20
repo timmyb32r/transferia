@@ -1000,9 +1000,14 @@ describe("schema form", () => {
     );
     expect(
       incompleteDetails.container.querySelector(
-        ".column-table td.required-missing input",
+        ".column-table tr.required-incomplete",
       ),
     ).not.toBeNull();
+    expect(
+      incompleteDetails.container.querySelector(
+        ".column-table td.required-missing",
+      ),
+    ).toBeNull();
 
     const emptyDetails = render(
       <ParserDetailsForm

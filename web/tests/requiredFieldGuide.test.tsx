@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, waitFor } from "@testing-library/preact";
-import { useRef } from "preact/hooks";
+import { fireEvent, render, waitFor } from "@testing-library/preact";
+import { useRef, useState } from "preact/hooks";
 import { describe, expect, it } from "vitest";
 
 import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
@@ -52,6 +52,25 @@ describe("required field guide", () => {
     );
     expect(earlier.classList.contains("required-next-control")).toBe(false);
   });
+
+  it("advances from a completed parser field to the incomplete column row after blur", async () => {
+    const view = render(<ParserHarness />);
+    const tableName = view.getByLabelText("Table name");
+    const row = view.getByTestId("column-row");
+
+    await waitFor(() =>
+      expect(tableName.classList.contains("required-next-control")).toBe(true),
+    );
+    tableName.focus();
+    fireEvent.input(tableName, { target: { value: "events" } });
+    expect(row.classList.contains("required-next")).toBe(false);
+
+    tableName.blur();
+
+    await waitFor(() =>
+      expect(row.classList.contains("required-next")).toBe(true),
+    );
+  });
 });
 
 function Harness() {
@@ -93,6 +112,35 @@ function ScopedHarness() {
           <input aria-label="Parser required field" />
         </div>
       </section>
+    </div>
+  );
+}
+
+function ParserHarness() {
+  const root = useRef<HTMLDivElement>(null);
+  const [tableName, setTableName] = useState("");
+  return (
+    <div ref={root}>
+      <RequiredFieldGuide root={root} enabled revision={tableName} />
+      <div class={tableName === "" ? "required-incomplete" : ""}>
+        <input
+          aria-label="Table name"
+          value={tableName}
+          onInput={(event) => setTableName(event.currentTarget.value)}
+        />
+      </div>
+      <table>
+        <tbody>
+          <tr data-testid="column-row" class="required-incomplete">
+            <td>
+              <input aria-label="Column name" />
+            </td>
+            <td>
+              <input aria-label="JSON path" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

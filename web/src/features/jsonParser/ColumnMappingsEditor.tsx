@@ -269,10 +269,18 @@ export function ColumnMappingsEditor({
               );
               const settingsExpanded = expandedSettings.has(index);
               const selected = selectedRows.has(index);
+              const incompleteRequiredMainField = mainFields.some((field) => {
+                const child = node.properties[field];
+                return (
+                  child !== undefined &&
+                  node.required.has(field) &&
+                  !isComplete(child, column[field])
+                );
+              });
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
+                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();
@@ -350,24 +358,8 @@ export function ColumnMappingsEditor({
                     </td>
                     {mainFields.map((field) => {
                       const child = node.properties[field];
-                      const fieldIncomplete =
-                        child !== undefined &&
-                        node.required.has(field) &&
-                        !isComplete(child, column[field]);
                       return (
-                        <td
-                          key={field}
-                          class={[
-                            !disabled && fieldIncomplete
-                              ? "required-incomplete"
-                              : "",
-                            showRequiredErrors && fieldIncomplete
-                              ? "required-missing"
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                        >
+                        <td key={field}>
                           {child && (
                             <NodeEditor
                               node={child}
