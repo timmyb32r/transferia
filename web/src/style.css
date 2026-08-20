@@ -1723,7 +1723,7 @@ button::after {
   width: min(380px, calc(100vw - 48px));
   min-width: 300px;
   min-height: 120px;
-  max-height: 100vh;
+  max-height: calc(100vh - 48px);
   max-width: 100vw;
   overflow: scroll;
   resize: both;

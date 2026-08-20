@@ -86,6 +86,10 @@ async function checkCssCustomProperties() {
     violations.push("style.css: schema inspector must always reserve scrollbars");
   if (!inspector.includes("scrollbar-gutter: stable both-edges"))
     violations.push("style.css: schema inspector must reserve a stable scrollbar gutter");
+  if (!inspector.includes("max-height: calc(100vh - 48px)"))
+    violations.push(
+      "style.css: schema inspector must keep its resize handle inside the initial viewport",
+    );
   if (
     !inspector.includes("scrollbar-color: auto") ||
     !inspector.includes("scrollbar-width: auto")
