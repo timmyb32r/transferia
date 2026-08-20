@@ -211,9 +211,10 @@ export function EditorTabs({
         <Button
           role="tab"
           aria-selected={active === "data_schema"}
+          aria-disabled={!dataSchemaAvailable}
           class={[
             active === "data_schema" ? "active" : "",
-            !dataSchemaAvailable ? "diagnostic-action" : "",
+            !dataSchemaAvailable ? "diagnostic-disabled" : "",
           ]
             .filter(Boolean)
             .join(" ")}

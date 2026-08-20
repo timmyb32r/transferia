@@ -1100,9 +1100,6 @@ button.diagnostic-disabled {
   opacity: 0.55;
   cursor: help;
 }
-button.diagnostic-action {
-  cursor: help;
-}
 .required-missing input,
 .required-missing .select-trigger {
   border-color: var(--red) !important;

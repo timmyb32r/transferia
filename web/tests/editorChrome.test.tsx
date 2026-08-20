@@ -94,8 +94,7 @@ describe("editor chrome", () => {
       name: "Data schema",
     }) as HTMLButtonElement;
     expect(tab.disabled).toBe(false);
-    expect(tab.getAttribute("aria-disabled")).toBeNull();
-    expect(tab.classList.contains("diagnostic-action")).toBe(true);
+    expect(tab.getAttribute("aria-disabled")).toBe("true");
     expect(tab.parentElement?.title).toBe(
       "Complete the required parser settings",
     );
