@@ -113,4 +113,25 @@ describe("UI primitives", () => {
       form.getByRole("option", { name: "timmy-test-consumer-00" }),
     ).toBeTruthy();
   });
+
+  it("matches cdc when the search query is dc", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder="Not selected"
+        options={[{ value: "cdc", label: "cdc" }]}
+        onChange={() => undefined}
+      />,
+    );
+    const form = within(view.container as HTMLElement);
+    fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }), {
+      button: 0,
+    });
+
+    fireEvent.input(form.getByRole("searchbox"), {
+      target: { value: "dc" },
+    });
+
+    expect(form.getByRole("option", { name: "cdc" })).toBeTruthy();
+  });
 });
