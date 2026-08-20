@@ -1604,6 +1604,11 @@ button::after {
   margin-top: 12px;
 }
 
+.contract-dataset-selector {
+  width: min(100%, 420px);
+  margin-bottom: 16px;
+}
+
 .data-schema-workspace {
   position: relative;
   min-height: 620px;

@@ -341,6 +341,19 @@ function withoutObjectProperty(
 }
 
 export function ContractView({ result }: { result: DiscoveryResult }) {
+  const datasetOptions = result.datasets.map((dataset, index) => ({
+    value: String(index),
+    label: `${dataset.name} · ${dataset.role}`,
+  }));
+  const [selectedDataset, setSelectedDataset] = useState("0");
+  const selectedIndex = Number(selectedDataset);
+  const dataset =
+    result.datasets[
+      Number.isInteger(selectedIndex) && selectedIndex >= 0 ? selectedIndex : 0
+    ] ?? result.datasets[0];
+  useEffect(() => {
+    if (selectedIndex >= result.datasets.length) setSelectedDataset("0");
+  }, [result.datasets.length, selectedIndex]);
   return (
     <section class="card contract">
       <div class="card-heading">
@@ -350,7 +363,18 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
           {result.pipeline_count > 1 && ` · ${result.pipeline_count} pipelines`}
         </span>
       </div>
-      {result.datasets.map((dataset) => (
+      {result.datasets.length > 1 && (
+        <div class="contract-dataset-selector">
+          <SelectControl
+            searchable
+            value={selectedDataset}
+            placeholder="Select table"
+            options={datasetOptions}
+            onChange={setSelectedDataset}
+          />
+        </div>
+      )}
+      {dataset !== undefined && (
         <div class="dataset" key={`${dataset.role}:${dataset.name}`}>
           <h3>
             {dataset.name} <small>{dataset.role}</small>
@@ -378,7 +402,7 @@ export function ContractView({ result }: { result: DiscoveryResult }) {
             />
           </div>
         </div>
-      ))}
+      )}
       <Disclosure label="Destination limits" class="sink-limits">
         <pre>{JSON.stringify(result.sink_limits, null, 2)}</pre>
       </Disclosure>

@@ -13,6 +13,40 @@ import type { DiscoveryResult } from "../src/types";
 afterEach(cleanup);
 
 describe("data schema view", () => {
+  it("shows one selected table instead of a scrolling list", () => {
+    const dataset = (name: string) => ({
+      role: "Main" as const,
+      name,
+      intermediate_columns: [],
+      final_columns: [],
+    });
+    const view = render(
+      <ContractView
+        result={{
+          source: "source",
+          sink: "sink",
+          pipeline_count: 1,
+          datasets: [dataset("first"), dataset("second")],
+          sink_limits: { sink: "sink", supported_arrow_types: [] },
+        }}
+      />,
+    );
+
+    expect(view.container.querySelectorAll(".dataset")).toHaveLength(1);
+    expect(view.container.querySelector(".dataset")?.textContent).toContain(
+      "first",
+    );
+    fireEvent.pointerDown(view.getByRole("button", { name: /first/i }), {
+      button: 0,
+    });
+    fireEvent.pointerDown(view.getByRole("option", { name: /second/i }), {
+      button: 0,
+    });
+    expect(view.container.querySelector(".dataset")?.textContent).toContain(
+      "second",
+    );
+  });
+
   it("shows intermediate Arrow and final destination types separately", () => {
     const view = render(
       <ContractView
