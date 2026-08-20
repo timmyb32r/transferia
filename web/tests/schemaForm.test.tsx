@@ -1112,7 +1112,7 @@ describe("schema form", () => {
     const incompleteValue = {
       parser: {
         common: { table_naming: "events" },
-        json_parser: { columns: [{ column_name: "" }] },
+        json_parser: { columns: [{ column_name: "" }, { column_name: "" }] },
       },
     };
     const incompleteEndpoint = render(
@@ -1141,6 +1141,11 @@ describe("schema form", () => {
         ".column-table tr.required-incomplete",
       ),
     ).not.toBeNull();
+    expect(
+      incompleteDetails.container.querySelectorAll(
+        ".column-table tr.validation-guided",
+      ),
+    ).toHaveLength(1);
     expect(
       incompleteDetails.container.querySelector(
         ".column-table td.required-missing",

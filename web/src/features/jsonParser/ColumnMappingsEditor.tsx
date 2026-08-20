@@ -107,6 +107,24 @@ export function ColumnMappingsEditor({
     (raw) => isObject(raw) && raw.nullable !== true,
   ).length;
   const allNotNull = value.length > 0 && notNullCount === value.length;
+  const mainFields = [
+    "column_name",
+    "jsonpath",
+    "json_data_type",
+    "arrow_type",
+  ];
+  const rowIsIncomplete = (raw: JsonValue) => {
+    const column = isObject(raw) ? raw : {};
+    return mainFields.some((field) => {
+      const child = node.properties[field];
+      return (
+        child !== undefined &&
+        node.required.has(field) &&
+        !isComplete(child, column[field])
+      );
+    });
+  };
+  const firstIncompleteRow = value.findIndex(rowIsIncomplete);
   return (
     <div
       data-required-guidance="structural"
@@ -251,12 +269,6 @@ export function ColumnMappingsEditor({
                 typeof column.column_name === "string"
                   ? column.column_name
                   : "";
-              const mainFields = [
-                "column_name",
-                "jsonpath",
-                "json_data_type",
-                "arrow_type",
-              ];
               const extraFields = Object.entries(node.properties).filter(
                 ([field]) =>
                   ![...mainFields, "nullable", "low_cardinality"].includes(
@@ -270,18 +282,11 @@ export function ColumnMappingsEditor({
               );
               const settingsExpanded = expandedSettings.has(index);
               const selected = selectedRows.has(index);
-              const incompleteRequiredMainField = mainFields.some((field) => {
-                const child = node.properties[field];
-                return (
-                  child !== undefined &&
-                  node.required.has(field) &&
-                  !isComplete(child, column[field])
-                );
-              });
+              const incompleteRequiredMainField = rowIsIncomplete(raw);
               return (
                 <Fragment key={rowIds.values[index]}>
                   <tr
-                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
+                    class={`config-table-row ${!disabled && incompleteRequiredMainField ? "required-incomplete" : ""} ${showRequiredErrors && index === firstIncompleteRow ? "validation-guided" : ""} ${selected ? "selected" : ""} ${draggedRow === index ? "dragged" : ""} ${dragTargetSlot === index && draggedRow !== index ? "drag-before" : ""} ${dragTargetSlot === value.length && index === value.length - 1 && draggedRow !== index ? "drag-after" : ""}`}
                     onDragOver={(event) => {
                       if (draggedRow === undefined) return;
                       event.preventDefault();
