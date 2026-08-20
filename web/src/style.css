@@ -620,6 +620,17 @@ select {
   align-items: center;
   gap: 10px;
   margin: 0 8px 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.brand:active {
+  transform: scale(0.98);
 }
 .brand-mark {
   display: grid;

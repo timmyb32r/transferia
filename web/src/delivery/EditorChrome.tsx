@@ -121,13 +121,18 @@ export function DeliverySidebar({
 }) {
   return (
     <aside class="sidebar">
-      <div class="brand">
+      <button
+        type="button"
+        class="brand"
+        aria-label="Open Transferia home"
+        onClick={onNew}
+      >
         <span class="brand-mark">T</span>
         <div>
           <strong>Transferia</strong>
           <small>Local control plane</small>
         </div>
-      </div>
+      </button>
       <Button variant="primary" class="new-button" onClick={onNew}>
         + New delivery
       </Button>

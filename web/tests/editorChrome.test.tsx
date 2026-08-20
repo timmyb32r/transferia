@@ -303,9 +303,12 @@ describe("editor chrome", () => {
     );
 
     fireEvent.click(view.getByRole("button", { name: "+ New delivery" }));
+    fireEvent.click(
+      view.getByRole("button", { name: "Open Transferia home" }),
+    );
     fireEvent.click(view.getByRole("button", { name: /First/ }));
 
-    expect(onNew).toHaveBeenCalledOnce();
+    expect(onNew).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenCalledWith("delivery-1");
   });
 });
