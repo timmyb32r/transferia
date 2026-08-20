@@ -5,6 +5,7 @@ import { useRef } from "preact/hooks";
 import { describe, expect, it } from "vitest";
 
 import { RequiredFieldGuide } from "../src/delivery/RequiredFieldGuide";
+import { requestRequiredGuidance } from "../src/ui/requiredGuidance";
 
 describe("required field guide", () => {
   it("highlights every incomplete branch on the path to the next leaf", async () => {
@@ -32,6 +33,25 @@ describe("required field guide", () => {
         .classList.contains("required-next-control"),
     ).toBe(false);
   });
+
+  it("prioritizes the first incomplete field inside an explicitly revealed scope", async () => {
+    const view = render(<ScopedHarness />);
+    const earlier = view.getByLabelText("Earlier required field");
+    const parserField = view.getByLabelText("Parser required field");
+
+    await waitFor(() =>
+      expect(earlier.classList.contains("required-next-control")).toBe(true),
+    );
+
+    requestRequiredGuidance(view.getByTestId("parser-settings"));
+
+    await waitFor(() =>
+      expect(parserField.classList.contains("required-next-control")).toBe(
+        true,
+      ),
+    );
+    expect(earlier.classList.contains("required-next-control")).toBe(false);
+  });
 });
 
 function Harness() {
@@ -56,6 +76,23 @@ function Harness() {
           </label>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ScopedHarness() {
+  const root = useRef<HTMLDivElement>(null);
+  return (
+    <div ref={root}>
+      <RequiredFieldGuide root={root} enabled revision={0} />
+      <div class="required-incomplete">
+        <input aria-label="Earlier required field" />
+      </div>
+      <section data-testid="parser-settings">
+        <div class="required-incomplete">
+          <input aria-label="Parser required field" />
+        </div>
+      </section>
     </div>
   );
 }

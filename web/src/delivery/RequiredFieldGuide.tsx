@@ -1,6 +1,8 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { onRequiredGuidanceRequest } from "../ui/requiredGuidance";
+
 const INCOMPLETE_SELECTOR = ".required-incomplete";
 const GUIDED_CONTROL_SELECTOR =
   "input:not([type='checkbox']), textarea, select, .select-trigger, [data-required-control]";
@@ -16,13 +18,27 @@ export function RequiredFieldGuide({
 }) {
   const guidedPath = useRef<HTMLElement[]>([]);
   const guidedControls = useRef<HTMLElement[]>([]);
+  const requestedScope = useRef<HTMLElement>();
   const [blurRevision, setBlurRevision] = useState(0);
+  const [requestRevision, setRequestRevision] = useState(0);
+
+  useEffect(
+    () =>
+      onRequiredGuidanceRequest((scope) => {
+        if (root.current?.contains(scope)) {
+          requestedScope.current = scope;
+          setRequestRevision((value) => value + 1);
+        }
+      }),
+    [root],
+  );
 
   useEffect(() => {
     let focusedControl: HTMLElement | undefined;
     const continueAfterBlur = () => setBlurRevision((value) => value + 1);
     const frame = window.requestAnimationFrame(() => {
-      const container = root.current;
+      const container = requestedScope.current ?? root.current;
+      requestedScope.current = undefined;
       if (container === null) return;
       const active = document.activeElement;
       if (
@@ -74,7 +90,7 @@ export function RequiredFieldGuide({
       window.cancelAnimationFrame(frame);
       focusedControl?.removeEventListener("blur", continueAfterBlur);
     };
-  }, [blurRevision, enabled, revision, root]);
+  }, [blurRevision, enabled, requestRevision, revision, root]);
 
   useEffect(
     () => () => {

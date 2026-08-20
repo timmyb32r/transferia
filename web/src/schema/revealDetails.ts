@@ -1,3 +1,5 @@
+import { requestRequiredGuidance } from "../ui/requiredGuidance";
+
 export function revealDetails(selector: string): void {
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
@@ -5,6 +7,7 @@ export function revealDetails(selector: string): void {
       if (details === null) return;
       details.scrollIntoView({ behavior: "smooth", block: "start" });
       details.focus({ preventScroll: true });
+      requestRequiredGuidance(details);
       const route = details.closest<HTMLElement>(".route-composition");
       route?.classList.remove("route-selection-flash");
       void route?.offsetWidth;
