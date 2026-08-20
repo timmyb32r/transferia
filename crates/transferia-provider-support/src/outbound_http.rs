@@ -33,10 +33,12 @@ impl OutboundHttpClient {
         })
     }
 
+    #[must_use]
     pub fn get(&self, url: Url) -> OutboundHttpRequest {
         self.request(Method::GET, url)
     }
 
+    #[must_use]
     pub fn request(&self, method: Method, url: Url) -> OutboundHttpRequest {
         OutboundHttpRequest {
             inner: self.inner.request(method, url),
@@ -49,6 +51,7 @@ pub struct OutboundHttpRequest {
 }
 
 impl OutboundHttpRequest {
+    #[must_use]
     pub fn configure(self, configure: impl FnOnce(RequestBuilder) -> RequestBuilder) -> Self {
         Self {
             inner: configure(self.inner),
