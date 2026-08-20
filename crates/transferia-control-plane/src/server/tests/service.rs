@@ -6,6 +6,23 @@ use async_trait::async_trait;
 use super::*;
 use transferia_runtime::WorkerInfo;
 
+#[test]
+fn connection_check_reports_local_egress_denial_as_network_access_error() {
+    let error = anyhow::Error::new(std::io::Error::from(
+        std::io::ErrorKind::PermissionDenied,
+    ));
+
+    assert!(connection_check_service_error(error)
+        .to_string()
+        .contains("No network access"));
+}
+
+#[test]
+fn connection_check_timeout_explains_the_likely_network_cause() {
+    assert!(CONNECTION_TIMEOUT_MESSAGE.contains("usually means there is no network access"));
+    assert_eq!(CONNECTION_CHECK_TIMEOUT, std::time::Duration::from_secs(5));
+}
+
 struct TestSupervisor {
     events: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<WorkerEvent>>>,
     shutdown: Arc<AtomicBool>,

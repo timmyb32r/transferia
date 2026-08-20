@@ -29,6 +29,9 @@ use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState}
 
 const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
 const INLINE_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024;
+const CONNECTION_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const CONNECTION_TIMEOUT_MESSAGE: &str =
+    "Connection timed out after 5 seconds; this usually means there is no network access to the endpoint.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {
@@ -264,8 +267,13 @@ impl ControlPlane {
             for endpoint in resolved {
                 let checked = tokio::select! {
                     () = cancellation.cancelled() => return Err(ServiceError::Validation("connection check cancelled".to_owned())),
-                    result = catalog.check_connection(provider, role, endpoint) => {
-                        result.map_err(|error| ServiceError::Validation(error.to_string()))?
+                    result = tokio::time::timeout(
+                        CONNECTION_CHECK_TIMEOUT,
+                        catalog.check_connection(provider, role, endpoint),
+                    ) => {
+                        result
+                            .map_err(|_| ServiceError::Validation(CONNECTION_TIMEOUT_MESSAGE.to_owned()))?
+                            .map_err(connection_check_service_error)?
                     }
                 };
                 for (key, values) in checked.options {
@@ -978,6 +986,22 @@ impl ControlPlane {
         record.updated_at_ms = now_ms();
         self.store.replace(record, expected_record_version).await?;
         Ok(())
+    }
+}
+
+fn connection_check_service_error(error: anyhow::Error) -> ServiceError {
+    let permission_denied = error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::PermissionDenied)
+    }) || error.to_string().contains("Permission denied (os error 13)");
+    if permission_denied {
+        ServiceError::Validation(
+            "No network access to the endpoint: the operating system denied the outgoing connection."
+                .to_owned(),
+        )
+    } else {
+        ServiceError::Validation(error.to_string())
     }
 }
 
