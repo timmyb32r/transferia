@@ -121,7 +121,7 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
-  it("highlights incomplete required fields in both endpoints and scrolls to the first", async () => {
+  it("Data schema highlights incomplete endpoint fields and scrolls to the first", async () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
@@ -176,7 +176,7 @@ describe("App request orchestration", () => {
     chooseFromSelect(app, "Destination", "Test destination");
     scrollIntoView.mockClear();
 
-    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+    fireEvent.click(app.getByRole("tab", { name: "Data schema" }));
 
     await waitFor(() =>
       expect(
