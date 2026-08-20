@@ -128,6 +128,24 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   unexpectedly. Every new asynchronous interaction must additionally test its
   immediate pressed/pending feedback and duplicate-activation protection.
 
+## Outbound HTTP security
+
+- Every production outbound HTTP request must use the repository's shared HTTP
+  client wrapper. Do not construct or execute a provider-local `reqwest::Client`,
+  `hyper` client, or another general-purpose HTTP client directly.
+- The shared client must disable redirects. Treat every redirect as an SSRF
+  boundary violation: never follow it automatically, including redirects that
+  appear to remain on the same host. A redirect response must be returned as an
+  explicit typed failure before credentials or request bodies can be replayed to
+  another destination.
+- Keep URL allow-listing, scheme and address validation, DNS/IP protections,
+  timeouts, TLS policy, and credential redaction centralized in the same outbound
+  HTTP boundary. Provider code may add a narrower policy but must never weaken
+  the shared one.
+- Every new HTTP integration and every redirect-related bug fix needs a regression
+  test proving that 3xx responses are not followed and that sensitive headers and
+  bodies are not forwarded to the redirect target.
+
 ## Performance and design
 
 - Every operational or safety limit must come from an explicit user-visible
