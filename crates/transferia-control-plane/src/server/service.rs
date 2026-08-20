@@ -321,6 +321,19 @@ impl ControlPlane {
                 "message preview max_bytes must be in 1..={MAX_MESSAGE_PREVIEW_BYTES}"
             )));
         }
+        let supports_preview = self
+            .transferia
+            .composition()
+            .provider_definitions()
+            .iter()
+            .find(|definition| definition.key == provider)
+            .and_then(|definition| definition.source.as_ref())
+            .is_some_and(|source| source.message_preview);
+        if !supports_preview {
+            return Err(ServiceError::Validation(format!(
+                "{provider} source does not support message preview"
+            )));
+        }
         let raw = serde_yaml::to_value(config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
         let resolved = self
