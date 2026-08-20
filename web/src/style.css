@@ -1689,11 +1689,31 @@ button::after {
   max-width: 100vw;
   overflow: scroll;
   resize: both;
+  scrollbar-color: var(--text-secondary) var(--surface-soft);
   scrollbar-gutter: stable both-edges;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--panel);
   box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+}
+
+.schema-inspector::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+  height: 10px;
+  background: var(--surface-soft);
+}
+
+.schema-inspector::-webkit-scrollbar-track {
+  background: var(--surface-soft);
+}
+
+.schema-inspector::-webkit-scrollbar-thumb {
+  min-width: 24px;
+  min-height: 24px;
+  border: 2px solid var(--surface-soft);
+  border-radius: 8px;
+  background: var(--text-secondary);
 }
 
 .schema-inspector-drag-handle {
