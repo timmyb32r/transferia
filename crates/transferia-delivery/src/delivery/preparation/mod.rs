@@ -13,7 +13,7 @@ use transferia_delivery_contracts::semantics::{
 };
 use transferia_registry::durable::DurableContext;
 use transferia_registry::{
-    Composition, EndpointRole, SinkProvider, SourceDiscoveryContext, SourceProvider,
+    Composition, EndpointRole, SinkConnector, SourceDiscoveryContext, SourceConnector,
 };
 
 pub struct DeliveryPlan {
@@ -28,8 +28,8 @@ pub struct PipelinePlan {
     pub metrics_registry: Arc<MetricsRegistry>,
     pub source_kind: String,
     pub sink_kind: String,
-    pub source_provider: Arc<dyn SourceProvider>,
-    pub sink_provider: Arc<dyn SinkProvider>,
+    pub source_connector: Arc<dyn SourceConnector>,
+    pub sink_connector: Arc<dyn SinkConnector>,
     pub discovery: Arc<DeliveryDiscovery>,
     pub middlewares: Vec<Box<dyn Middleware>>,
     pub semantics: DeliverySemanticsReport,
@@ -214,13 +214,13 @@ async fn build_pipeline_plan(
     let catalog = composition.build_registry(&metrics_registry)?;
     let source_config = config.source.raw()?.clone();
     let sink_config = config.sink.raw()?.clone();
-    let source_provider: Arc<dyn SourceProvider> =
+    let source_connector: Arc<dyn SourceConnector> =
         Arc::from(catalog.build_source(source_kind, source_config)?);
-    let sink_provider: Arc<dyn SinkProvider> =
+    let sink_connector: Arc<dyn SinkConnector> =
         Arc::from(catalog.build_sink(sink_kind, sink_config)?);
-    sink_provider.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
+    sink_connector.validate_pipeline_memory_limit(config.pipeline_memory_limit_bytes)?;
 
-    let source_descriptor = source_provider.compatibility();
+    let source_descriptor = source_connector.compatibility();
     anyhow::ensure!(
         source_descriptor.supports_delivery_type(config.delivery_type),
         "source '{source_kind}' does not support delivery_type '{}'",
@@ -228,7 +228,7 @@ async fn build_pipeline_plan(
     );
     let finite_source =
         source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
-    let discovery = source_provider
+    let discovery = source_connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
                 keep_system_columns: true,
@@ -249,8 +249,8 @@ async fn build_pipeline_plan(
     let discovery = validate_middlewares(&middlewares, discovery).await?;
     let semantics = validate_discovered_pipeline(
         &source_descriptor,
-        &sink_provider.compatibility(),
-        sink_provider.limits(),
+        &sink_connector.compatibility(),
+        sink_connector.limits(),
         &discovery,
         true,
     )?;
@@ -261,8 +261,8 @@ async fn build_pipeline_plan(
         metrics_registry,
         source_kind: source_kind.to_owned(),
         sink_kind: sink_kind.to_owned(),
-        source_provider,
-        sink_provider,
+        source_connector,
+        sink_connector,
         discovery: Arc::new(discovery),
         middlewares,
         semantics,

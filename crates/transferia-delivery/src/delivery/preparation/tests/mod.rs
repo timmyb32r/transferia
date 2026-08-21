@@ -30,7 +30,7 @@ impl transferia_registry::Composition for UnusedComposition {
         "unused-test-composition"
     }
 
-    fn definitions(&self) -> &[transferia_registry::ProviderDefinition] {
+    fn definitions(&self) -> &[transferia_registry::ConnectorDefinition] {
         &[]
     }
 
@@ -38,12 +38,12 @@ impl transferia_registry::Composition for UnusedComposition {
         &self,
         _metrics: &Arc<MetricsRegistry>,
     ) -> anyhow::Result<transferia_registry::Registry> {
-        panic!("invalid pipeline memory must fail before building the provider registry")
+        panic!("invalid pipeline memory must fail before building the connector registry")
     }
 
     fn resolve_many(
         &self,
-        _provider: &str,
+        _connector: &str,
         _role: transferia_registry::EndpointRole,
         _raw: serde_yaml::Value,
         _cancellation: CancellationToken,
@@ -51,7 +51,7 @@ impl transferia_registry::Composition for UnusedComposition {
         Box<dyn std::future::Future<Output = anyhow::Result<Vec<serde_yaml::Value>>> + Send + '_>,
     > {
         Box::pin(async {
-            panic!("invalid pipeline memory must fail before resolving provider configuration")
+            panic!("invalid pipeline memory must fail before resolving connector configuration")
         })
     }
 }

@@ -9,7 +9,7 @@ use transferia_core::delivery::{
 };
 use transferia_delivery_contracts::parser::ParserDetection;
 use transferia_registry::{
-    ConnectionCheckResult, DynamicOptions, EndpointRole, OptionsRequest, ProviderDefinition,
+    ConnectionCheckResult, DynamicOptions, EndpointRole, OptionsRequest, ConnectorDefinition,
 };
 use transferia_runtime::RunId;
 
@@ -28,7 +28,7 @@ pub struct ConfigRequest {
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectionCheckRequest {
-    pub provider: String,
+    pub connector: String,
 
     pub role: EndpointRole,
 
@@ -42,7 +42,7 @@ pub struct ConnectionCheckRequest {
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MessagePreviewRequest {
-    pub provider: String,
+    pub connector: String,
 
     #[schemars(
         with = "BTreeMap<String, Value>",
@@ -233,7 +233,7 @@ pub struct UiCatalog {
     )]
     pub initial: Value,
 
-    pub providers: Vec<ProviderDefinition>,
+    pub connectors: Vec<ConnectorDefinition>,
 }
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
@@ -451,7 +451,7 @@ pub fn fixture() -> anyhow::Result<Value> {
     let catalog = UiCatalog {
         common_schema: serde_json::json!({ "type": "object" }),
         initial: serde_json::json!({}),
-        providers: vec![ProviderDefinition {
+        connectors: vec![ConnectorDefinition {
             key: "clickhouse",
             title: "ClickHouse",
             source: None,

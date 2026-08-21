@@ -77,7 +77,7 @@ async fn shutdown_always_delegates_worker_termination() -> anyhow::Result<()> {
     let service = ControlPlane::new(
         Arc::new(MemoryStore::default()),
         supervisor,
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     service.shutdown().await?;
     assert!(shutdown.load(Ordering::SeqCst));
@@ -88,7 +88,7 @@ fn service() -> ControlPlane {
     ControlPlane::new(
         Arc::new(MemoryStore::default()),
         Arc::new(TestSupervisor::new()),
-        transferia_providers::extension::Transferia::public().unwrap(),
+        transferia_connectors::extension::Transferia::public().unwrap(),
     )
 }
 
@@ -375,7 +375,7 @@ async fn runtime_only_change_invalidates_a_draft_update_request() -> anyhow::Res
     let service = ControlPlane::new(
         store.clone(),
         Arc::new(TestSupervisor::new()),
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     let created = service
         .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
@@ -413,7 +413,7 @@ async fn stale_worker_event_cannot_overwrite_a_newer_run() -> anyhow::Result<()>
     let service = ControlPlane::new(
         store.clone(),
         Arc::new(TestSupervisor::new()),
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     let created = service
         .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
@@ -457,7 +457,7 @@ async fn stale_stop_request_cannot_stop_a_newer_run() -> anyhow::Result<()> {
     let service = ControlPlane::new(
         store.clone(),
         supervisor,
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     let created = service
         .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
@@ -496,7 +496,7 @@ async fn delayed_stop_event_cannot_overwrite_a_terminal_stop_failure() -> anyhow
     let service = ControlPlane::new(
         store.clone(),
         Arc::new(TestSupervisor::new()),
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     let created = service
         .create_draft("test".to_owned(), String::new(), serde_json::json!({}))
@@ -537,7 +537,7 @@ async fn cancelled_start_event_moves_starting_run_to_stopped() -> anyhow::Result
     let service = ControlPlane::new(
         store.clone(),
         Arc::new(TestSupervisor::new()),
-        transferia_providers::extension::Transferia::public()?,
+        transferia_connectors::extension::Transferia::public()?,
     );
     let created = service
         .create_draft("test".to_owned(), String::new(), serde_json::json!({}))

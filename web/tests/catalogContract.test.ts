@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import catalogFixture from "../../crates/transferia-server-contracts/contracts/provider-catalog.fixture.json";
+import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
@@ -30,8 +30,8 @@ describe("Rust catalog contract", () => {
     );
     expect(acceptsDraftSeed(common, commonInitial)).toBe(true);
     let endpointCount = 0;
-    for (const provider of catalog.providers) {
-      for (const endpoint of [provider.source, provider.sink]) {
+    for (const connector of catalog.connectors) {
+      for (const endpoint of [connector.source, connector.sink]) {
         if (endpoint === undefined) continue;
         endpointCount += 1;
         const compiled = compileSchema(
@@ -40,7 +40,7 @@ describe("Rust catalog contract", () => {
         );
         expect(
           acceptsDraftSeed(compiled, endpoint.initial),
-          `${provider.key} initial value must be a valid partial schema value: ${draftSeedError(compiled, endpoint.initial)}`,
+          `${connector.key} initial value must be a valid partial schema value: ${draftSeedError(compiled, endpoint.initial)}`,
         ).toBe(true);
       }
     }

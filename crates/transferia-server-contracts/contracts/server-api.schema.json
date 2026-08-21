@@ -127,7 +127,7 @@
           "type": "object",
           "x-typescript-type": "JsonObject"
         },
-        "provider": {
+        "connector": {
           "type": "string"
         },
         "role": {
@@ -135,7 +135,7 @@
         }
       },
       "required": [
-        "provider",
+        "connector",
         "role",
         "config"
       ],
@@ -175,6 +175,44 @@
         "network_reachable"
       ],
       "type": "string"
+    },
+    "ConnectorDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "sink": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "x-omit-none": true
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "title"
+      ],
+      "type": "object"
     },
     "CreateDraftRequest": {
       "additionalProperties": false,
@@ -651,17 +689,17 @@
           "type": "object",
           "x-typescript-type": "JsonObject"
         },
+        "connector": {
+          "type": "string"
+        },
         "max_bytes": {
           "format": "uint",
           "minimum": 0,
           "type": "integer"
-        },
-        "provider": {
-          "type": "string"
         }
       },
       "required": [
-        "provider",
+        "connector",
         "config",
         "max_bytes"
       ],
@@ -830,44 +868,6 @@
         "label",
         "content",
         "truncated"
-      ],
-      "type": "object"
-    },
-    "ProviderDefinition": {
-      "additionalProperties": false,
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "sink": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EndpointDefinition"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        },
-        "source": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EndpointDefinition"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "x-omit-none": true
-        },
-        "title": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "key",
-        "title"
       ],
       "type": "object"
     },
@@ -1134,22 +1134,22 @@
           "type": "object",
           "x-typescript-type": "JsonSchema"
         },
+        "connectors": {
+          "items": {
+            "$ref": "#/$defs/ConnectorDefinition"
+          },
+          "type": "array"
+        },
         "initial": {
           "additionalProperties": true,
           "type": "object",
           "x-typescript-type": "JsonObject"
-        },
-        "providers": {
-          "items": {
-            "$ref": "#/$defs/ProviderDefinition"
-          },
-          "type": "array"
         }
       },
       "required": [
         "common_schema",
         "initial",
-        "providers"
+        "connectors"
       ],
       "type": "object"
     },

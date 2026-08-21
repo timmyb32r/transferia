@@ -150,7 +150,7 @@ def select(paths: list[str]) -> Selection:
                 or "/registry" in path
                 or "/config" in path
                 or path.endswith("/descriptor.rs")
-            ) and crate.startswith(("transferia-provider-", "transferia-registry")):
+            ) and crate.startswith(("transferia-connector-", "transferia-registry")):
                 result.catalog_contract = True
             if (
                 path.endswith(("/src/lib.rs", "/Cargo.toml"))

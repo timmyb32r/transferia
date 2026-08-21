@@ -44,11 +44,11 @@ export function DeliveryConfiguration({
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
-  const sourceProviders = catalog.providers.filter(
-    (provider) => provider.source !== undefined,
+  const sourceConnectors = catalog.connectors.filter(
+    (connector) => connector.source !== undefined,
   );
-  const sinkProviders = catalog.providers.filter(
-    (provider) => provider.sink !== undefined,
+  const sinkConnectors = catalog.connectors.filter(
+    (connector) => connector.sink !== undefined,
   );
   const sourceSampleLoader =
     selection?.error === undefined && selection?.source !== undefined
@@ -59,7 +59,7 @@ export function DeliveryConfiguration({
             selection.sourceKey,
           );
           const result = await api.previewMessage({
-            provider: selection.sourceKey,
+            connector: selection.sourceKey,
             config: isObject(sourceConfig) ? sourceConfig : {},
             max_bytes: 10 * 1024 * 1024,
           });
@@ -136,7 +136,7 @@ export function DeliveryConfiguration({
               title="Source"
               role="source"
               selectedKey={selection?.sourceKey ?? ""}
-              providers={sourceProviders}
+              connectors={sourceConnectors}
               {...(selection?.source === undefined ||
               selection.error !== undefined
                 ? {}
@@ -152,7 +152,7 @@ export function DeliveryConfiguration({
               title="Destination"
               role="sink"
               selectedKey={selection?.sinkKey ?? ""}
-              providers={sinkProviders}
+              connectors={sinkConnectors}
               {...(selection?.sink === undefined ||
               selection.error !== undefined
                 ? {}

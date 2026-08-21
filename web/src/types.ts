@@ -12,7 +12,7 @@ export type {
   EndpointDefinition,
   NameSyntax,
   ObjectKeyLimit,
-  ProviderDefinition,
+  ConnectorDefinition,
   RuntimeState,
   SinkLimitsDescription,
   TextLimit,

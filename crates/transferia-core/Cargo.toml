@@ -2,7 +2,7 @@
 name = "transferia-core"
 version = "0.1.0"
 edition = "2021"
-description = "Stable data-plane contracts for Transferia providers and runtimes"
+description = "Stable data-plane contracts for Transferia connectors and runtimes"
 publish = false
 
 [dependencies]

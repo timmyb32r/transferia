@@ -11,7 +11,7 @@ performance.
 
 ## Non-goals
 
-- No new provider, parser, sink, or user-facing redesign.
+- No new connector, parser, sink, or user-facing redesign.
 - No compatibility layer for internal Rust APIs.
 - No `ya make`.
 
@@ -27,7 +27,7 @@ performance.
 5. Frontend async workflows live in focused hooks/controllers; `App` composes
    view state and commands.
 6. Generic schema traversal dispatches presentation through `x-ui` widgets and
-   does not branch on provider/config property names.
+   does not branch on connector/config property names.
 7. Labels target real controls with schema-path-stable IDs.
 8. JSON strings remain zero-copy. Their validity and source-buffer lifetime are
    encoded in the stored value; no byte range may be paired with another buffer.
@@ -41,7 +41,7 @@ performance.
 - Every source/sink failure has an explicit disposition; commit-marker type
   mismatches are fatal and transient transports remain retryable.
 - Extension installation input/output types drive runtime decoding and schemas;
-  resolvers cannot emit undeclared provider fields.
+  resolvers cannot emit undeclared connector fields.
 - Cancelling a dynamic-options request stops backend pagination and stale
   results cannot update a newer control.
 - Existing navigation/save/poll/YAML/discovery race tests remain green and each
@@ -57,7 +57,7 @@ performance.
 
 ## Risks
 
-- Failure typing changes every provider boundary at once.
+- Failure typing changes every connector boundary at once.
 - Typed installation registration changes the separately located Yandex plugin
   in lockstep.
 - Parser lifetime changes are performance-sensitive and require benchmark and

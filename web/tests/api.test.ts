@@ -146,7 +146,7 @@ describe("control-plane API", () => {
     vi.stubGlobal("fetch", request);
 
     await api.checkConnection({
-      provider: "clickhouse",
+      connector: "clickhouse",
       role: "sink",
       config: { username: "user", password: "secret" },
     });
@@ -156,7 +156,7 @@ describe("control-plane API", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          provider: "clickhouse",
+          connector: "clickhouse",
           role: "sink",
           config: { username: "user", password: "secret" },
         }),

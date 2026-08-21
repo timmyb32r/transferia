@@ -1,5 +1,5 @@
-//! Cross-provider rules. This module contains no provider implementation or
-//! provider-specific config types: only neutral capability descriptors and the
+//! Cross-connector rules. This module contains no connector implementation or
+//! connector-specific config types: only neutral capability descriptors and the
 //! rules that relate a source pipeline to a sink.
 
 use arrow::datatypes::DataType;

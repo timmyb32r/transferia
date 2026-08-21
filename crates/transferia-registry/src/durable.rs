@@ -24,7 +24,7 @@ pub enum CompareExchangeResult {
     Conflict(Option<DurableValue>),
 }
 
-/// Revisioned durable key/value storage used by providers for crash-recovery protocols.
+/// Revisioned durable key/value storage used by connectors for crash-recovery protocols.
 pub trait DurableStorage: Send + Sync {
     fn read<'a>(&'a self, key: &'a str) -> BoxFuture<'a, anyhow::Result<Option<DurableValue>>>;
 

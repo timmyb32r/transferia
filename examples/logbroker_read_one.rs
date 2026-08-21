@@ -9,8 +9,8 @@ use transferia::core::delivery::DeliveryDiscoveryRequest;
 use transferia::core::memory::PipelineMemory;
 use transferia::delivery::config::yaml::Config;
 use transferia::metrics::MetricsRegistry;
-use transferia::providers::logbroker::YdbDriverSourceProvider;
-use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceProvider as _};
+use transferia::connectors::logbroker::YdbDriverSourceConnector;
+use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector as _};
 
 #[derive(Parser)]
 struct Args {
@@ -35,12 +35,12 @@ async fn main() -> anyhow::Result<()> {
     let durable = config.durable_storage.build(&config.delivery_id)?;
     let metrics = Arc::new(MetricsRegistry::new());
     let source_config = serde_yaml::from_value(config.source.raw()?.clone())?;
-    let provider = Arc::new(YdbDriverSourceProvider::from_config(
+    let connector = Arc::new(YdbDriverSourceConnector::from_config(
         source_config,
         metrics,
     )?);
     let cancellation = CancellationToken::new();
-    let discovery = provider
+    let discovery = connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {
                 keep_system_columns: true,
@@ -53,8 +53,8 @@ async fn main() -> anyhow::Result<()> {
         .partitions_for_worker(1, 0)?
         .into_iter()
         .next()
-        .context("YDB Topic provider returned no reader lane")?;
-    let mut source = provider
+        .context("YDB Topic connector returned no reader lane")?;
+    let mut source = connector
         .build_source(SourceBuildContext {
             partition_id: reader_lane,
             cancellation: cancellation.child_token(),

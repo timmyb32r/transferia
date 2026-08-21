@@ -2,13 +2,13 @@
 //! background stats reporter.
 //!
 //! Two counter sets, both per partition:
-//! - [`SourceCounters`] — filled by every source provider (messages, compressed
+//! - [`SourceCounters`] — filled by every source connector (messages, compressed
 //!   and decompressed bytes, downloader and decompressor busy time).
 //! - [`ParseCounters`] — filled by the parser thread (rows, Arrow bytes, DLQ
 //!   rows, source messages, parser busy time).
 //!
 //! [`MetricsRegistry`] merges them by `partition_id` (source and parse counters
-//! are registered independently — the source by its provider inside
+//! are registered independently — the source by its connector inside
 //! `build_source`, the parse counters by `main`). [`spawn_stats_reporter`]
 //! snapshots the registry every `interval_ms` and prints a per-partition
 //! (or aggregated) line via `tracing::info!`.
@@ -49,7 +49,7 @@ const fn default_metrics_interval_ms() -> u64 {
 // Counters
 // ---------------------------------------------------------------------------
 
-/// Per-partition source counters. Filled by the provider's background session
+/// Per-partition source counters. Filled by the connector's background session
 /// (bytes + response-wait/decompress duty) and `read_batch` (messages).
 pub struct SourceCounters {
     messages: AtomicU64,

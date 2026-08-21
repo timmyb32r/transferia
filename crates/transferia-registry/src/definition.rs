@@ -37,7 +37,7 @@ pub struct EndpointDefinition {
 
 #[derive(Clone, Debug, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProviderDefinition {
+pub struct ConnectorDefinition {
     pub key: &'static str,
 
     pub title: &'static str,

@@ -11,7 +11,7 @@ pub struct Message {
     pub meta: MessageMeta,
 }
 
-/// Provider-neutral source metadata that can be materialized as system columns.
+/// Connector-neutral source metadata that can be materialized as system columns.
 #[derive(Debug, Clone, Default)]
 pub struct MessageMeta {
     pub topic: Option<Arc<str>>,

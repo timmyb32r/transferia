@@ -95,8 +95,8 @@ fn single_entry_kind<'entry>(
     let keys: Vec<&str> = entries.keys().map(String::as_str).collect();
     match *keys.as_slice() {
         [single] => Ok(single),
-        [] => anyhow::bail!("{section}: no provider key found"),
-        _ => anyhow::bail!("{section}: expected exactly one provider key, got {keys:?}"),
+        [] => anyhow::bail!("{section}: no connector key found"),
+        _ => anyhow::bail!("{section}: expected exactly one connector key, got {keys:?}"),
     }
 }
 
@@ -107,7 +107,7 @@ fn entry_value<'entry>(
     let kind = single_entry_kind(section, entries)?;
     entries
         .get(kind)
-        .ok_or_else(|| anyhow::anyhow!("{section}: provider key '{kind}' is missing from config"))
+        .ok_or_else(|| anyhow::anyhow!("{section}: connector key '{kind}' is missing from config"))
 }
 
 const fn default_pipeline_memory_limit() -> usize {

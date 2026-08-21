@@ -5,31 +5,31 @@ Status: approved for implementation on 2026-08-16.
 ## Goal
 
 Turn the current internal architecture into a compiler-enforced foundation for
-future providers, runtimes, parsers, and UI features. The change must preserve
+future connectors, runtimes, parsers, and UI features. The change must preserve
 all observable delivery behavior and data-path performance while reducing the
 number of places that can violate core contracts.
 
 ## Non-goals
 
 - Backward compatibility for internal Rust module paths or traits.
-- A new distributed runtime, provider SDK, parser feature, or UI redesign.
+- A new distributed runtime, connector SDK, parser feature, or UI redesign.
 - Abstracting Tokio out of the local data-plane API before a second executor
   exists.
 - Splitting files solely to satisfy a line-count target.
-- Changing configuration, HTTP, persistence, or provider wire formats.
+- Changing configuration, HTTP, persistence, or connector wire formats.
 
 ## Constraints
 
 - `transferia-core` is a separate workspace crate and cannot depend on the
-  application crate, providers, parsers, metrics, durable storage, runtime, or
+  application crate, connectors, parsers, metrics, durable storage, runtime, or
   server.
 - The application crate may re-export `transferia-core` as `transferia::core`,
   but core dependency direction is enforced by Cargo rather than convention.
 - Data-path changes remain allocation-neutral unless a measured regression is
   justified. Commit-marker erasure may not add a per-message allocation.
-- Provider construction remains object-safe and supports runtime catalog
+- Connector construction remains object-safe and supports runtime catalog
   selection.
-- Existing provider, parser, sink, server, plugin, and E2E behavior remains
+- Existing connector, parser, sink, server, plugin, and E2E behavior remains
   unchanged.
 - Tests remain outside production files, in accordance with `AGENTS.md`.
 
@@ -45,11 +45,11 @@ number of places that can violate core contracts.
 - The application package publicly re-exports the crate as `transferia::core`
   so external composition crates have one stable import surface.
 - Core owns only dependencies required by those contracts. It does not acquire
-  provider, parser, server, extension, or control-plane dependencies.
+  connector, parser, server, extension, or control-plane dependencies.
 
-### 2. Provider phase contexts
+### 2. Connector phase contexts
 
-- Provider traits receive named request/context values instead of positional
+- Connector traits receive named request/context values instead of positional
   bundles:
   - `SourceDiscoveryContext` contains the discovery request and cancellation;
   - `SourceBuildContext` contains partition, cancellation, memory, and durable
@@ -58,26 +58,26 @@ number of places that can violate core contracts.
     discovery, and durable services.
 - The contexts model existing phases only; no speculative common context or
   service locator is introduced.
-- All providers and direct tests use these contexts, preventing parameter-order
+- All connectors and direct tests use these contexts, preventing parameter-order
   mistakes and allowing individual phases to evolve independently.
 
 ### 3. Commit-marker contract
 
-- Provider implementations no longer manually downcast public `Any` payloads.
+- Connector implementations no longer manually downcast public `Any` payloads.
 - Marker erasure and type checking live behind a core-owned API. Each marker
   carries a stable Rust type identity, and extraction returns a typed error that
   identifies the expected marker type rather than permitting a panic.
-- Batch commit remains one provider operation over a marker slice and marker
+- Batch commit remains one connector operation over a marker slice and marker
   cloning remains `Arc`-cheap.
 - Regression tests prove that matching markers round-trip and mismatched markers
   fail explicitly without panicking.
 
 ### 4. Catalog decomposition
 
-- The catalog remains one source of provider truth, but its implementation is
+- The catalog remains one source of connector truth, but its implementation is
   separated by responsibility:
   - public definitions and typed endpoint specifications;
-  - static provider descriptors and output contracts;
+  - static connector descriptors and output contracts;
   - compiled runtime registry and validation;
   - builtin installation schemas and overlay application.
 - No registration metadata or validation rule is duplicated by the split.
@@ -95,7 +95,7 @@ number of places that can violate core contracts.
   fallible boundary. Missing metadata produces an explicit parser error instead
   of reaching `expect` in a release binary configured with `panic = "abort"`.
 - Internal impossible builder-shape states remain documented invariants, while
-  provider-supplied runtime data never relies on process-aborting assertions.
+  connector-supplied runtime data never relies on process-aborting assertions.
 
 ### 6. Frontend decomposition
 
@@ -113,9 +113,9 @@ number of places that can violate core contracts.
    path back to `transferia`.
 2. Existing users can import public contracts through `transferia::core`, while
    the Arcadia extension can depend directly on `transferia-core` where useful.
-3. No provider build implementation accepts the former positional source tuple
+3. No connector build implementation accepts the former positional source tuple
    or the old generic `SinkContext` name.
-4. No provider source calls `CommitMarker::downcast_ref`; a marker mismatch is a
+4. No connector source calls `CommitMarker::downcast_ref`; a marker mismatch is a
    regular typed error covered by a regression test.
 5. Missing topic, partition, offset, or timestamp metadata for an enabled system
    column returns an error and cannot abort the process.
@@ -132,7 +132,7 @@ number of places that can violate core contracts.
 
 - A workspace split can accidentally duplicate dependency versions. Workspace
   dependency resolution and `cargo tree -d` inspection are used to prevent it.
-- Type-erased provider selection inherently needs an erased marker boundary.
+- Type-erased connector selection inherently needs an erased marker boundary.
   Erasure stays private to core and every mismatch becomes a typed error.
 - Moving large parser sections can produce subtle hot-path regressions. The code
   is moved without algorithm changes and focused parser tests run before the full

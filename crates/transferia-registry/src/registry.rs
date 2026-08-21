@@ -14,7 +14,7 @@ use transferia_delivery_contracts::middleware::Middleware;
 use crate::ui_contract::validate_ui_dialect;
 use crate::{
     ConnectionCheckResult, DeliveryMode, EndpointDefinition, EndpointRole, MiddlewareDefinition,
-    ProviderDefinition, SinkProvider, SourceProvider,
+    ConnectorDefinition, SinkConnector, SourceConnector,
 };
 
 type ConnectionChecker = Box<
@@ -31,8 +31,8 @@ type SourcePreviewer = Box<
         + Send
         + Sync,
 >;
-type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync>;
-type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync>;
+type SourceFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync>;
+type SinkFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync>;
 type MiddlewareFactory = Box<dyn Fn(Value) -> anyhow::Result<Box<dyn Middleware>> + Send + Sync>;
 type MiddlewarePreviewer = Box<
     dyn Fn(
@@ -92,17 +92,17 @@ pub struct SourcePreviewMetadataItem {
 /// Complete executable composition consumed by delivery preparation.
 ///
 /// Implementations own installation resolution and component registration;
-/// delivery orchestration depends only on this provider-neutral port.
+/// delivery orchestration depends only on this connector-neutral port.
 pub trait Composition: Send + Sync {
     fn fingerprint(&self) -> &str;
 
-    fn definitions(&self) -> &[ProviderDefinition];
+    fn definitions(&self) -> &[ConnectorDefinition];
 
     fn build_registry(&self, metrics: &Arc<MetricsRegistry>) -> anyhow::Result<Registry>;
 
     fn resolve_many(
         &self,
-        provider: &str,
+        connector: &str,
         role: EndpointRole,
         raw: Value,
         cancellation: CancellationToken,
@@ -239,7 +239,7 @@ impl ComponentRegistration {
     ) -> anyhow::Result<Self>
     where
         C: DeserializeOwned + JsonSchema + 'static,
-        F: Fn(C) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
         let initial = initial();
@@ -276,7 +276,7 @@ impl ComponentRegistration {
     ) -> anyhow::Result<Self>
     where
         C: DeserializeOwned + JsonSchema + 'static,
-        F: Fn(C) -> anyhow::Result<Box<dyn SourceProvider>> + Send + Sync + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
         let definition = endpoint_definition::<C>(initial(), delivery_modes, partitioned)?;
@@ -294,7 +294,7 @@ impl ComponentRegistration {
     pub fn sink<C, F, I>(mut self, initial: I, factory: F) -> anyhow::Result<Self>
     where
         C: DeserializeOwned + JsonSchema + 'static,
-        F: Fn(C) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
         let initial = initial();
@@ -321,7 +321,7 @@ impl ComponentRegistration {
     pub fn sink_draft<C, F, I>(mut self, initial: I, factory: F) -> anyhow::Result<Self>
     where
         C: DeserializeOwned + JsonSchema + 'static,
-        F: Fn(C) -> anyhow::Result<Box<dyn SinkProvider>> + Send + Sync + 'static,
+        F: Fn(C) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
         let definition = endpoint_definition::<C>(initial(), Vec::new(), false)?;
@@ -469,7 +469,7 @@ impl RegistryBuilder {
             if let Some(previewer) = registration.source_previewer {
                 source_previewers.insert(registration.key, previewer);
             }
-            definitions.push(ProviderDefinition {
+            definitions.push(ConnectorDefinition {
                 key: registration.key,
                 title: registration.title,
                 source,
@@ -507,7 +507,7 @@ impl Default for RegistryBuilder {
 }
 
 pub struct Registry {
-    definitions: Vec<ProviderDefinition>,
+    definitions: Vec<ConnectorDefinition>,
     sources: BTreeMap<&'static str, SourceFactory>,
     sinks: BTreeMap<&'static str, SinkFactory>,
     source_checkers: BTreeMap<&'static str, ConnectionChecker>,
@@ -520,7 +520,7 @@ pub struct Registry {
 
 impl Registry {
     #[must_use]
-    pub fn definitions(&self) -> &[ProviderDefinition] {
+    pub fn definitions(&self) -> &[ConnectorDefinition] {
         &self.definitions
     }
 
@@ -531,14 +531,14 @@ impl Registry {
 
     pub fn edit_definitions(
         &mut self,
-        edit: impl FnOnce(&mut [ProviderDefinition]) -> anyhow::Result<()>,
+        edit: impl FnOnce(&mut [ConnectorDefinition]) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let runtime_shape = definition_shape(&self.definitions);
         let mut candidate = self.definitions.clone();
         edit(&mut candidate)?;
         anyhow::ensure!(
             definition_shape(&candidate) == runtime_shape,
-            "provider definition editing changed executable component identity or roles"
+            "connector definition editing changed executable component identity or roles"
         );
         self.definitions = candidate;
         Ok(())
@@ -546,11 +546,11 @@ impl Registry {
 
     pub fn replace_definitions(
         &mut self,
-        definitions: Vec<ProviderDefinition>,
+        definitions: Vec<ConnectorDefinition>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             definition_shape(&definitions) == definition_shape(&self.definitions),
-            "provider definitions do not match the executable registry"
+            "connector definitions do not match the executable registry"
         );
         for definition in &definitions {
             if let Some(source) = &definition.source {
@@ -564,13 +564,13 @@ impl Registry {
         Ok(())
     }
 
-    pub fn build_source(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SourceProvider>> {
+    pub fn build_source(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SourceConnector>> {
         self.sources
             .get(kind)
             .ok_or_else(|| anyhow::anyhow!("unknown source component '{kind}'"))?(raw)
     }
 
-    pub fn build_sink(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SinkProvider>> {
+    pub fn build_sink(&self, kind: &str, raw: Value) -> anyhow::Result<Box<dyn SinkConnector>> {
         self.sinks
             .get(kind)
             .ok_or_else(|| anyhow::anyhow!("unknown sink component '{kind}'"))?(raw)
@@ -623,7 +623,7 @@ impl Registry {
     }
 }
 
-fn definition_shape(definitions: &[ProviderDefinition]) -> Vec<(&'static str, bool, bool)> {
+fn definition_shape(definitions: &[ConnectorDefinition]) -> Vec<(&'static str, bool, bool)> {
     definitions
         .iter()
         .map(|definition| {

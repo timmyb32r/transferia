@@ -13,9 +13,9 @@ use transferia_core::delivery::{
 };
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::preparation::build_delivery_plan_with;
-use transferia_providers::extension::Transferia;
+use transferia_connectors::extension::Transferia;
 use transferia_registry::{
-    Composition, DynamicOptions, OptionsRequest, SinkProvider, SourceDiscoveryContext,
+    Composition, DynamicOptions, OptionsRequest, SinkConnector, SourceDiscoveryContext,
 };
 use transferia_runtime::{
     RunId, SupervisorError, WorkerEvent, WorkerLaunchSpec, WorkerOutcome, WorkerSupervisor,
@@ -116,7 +116,7 @@ impl ControlPlane {
         sql: String,
         rows: Vec<serde_json::Value>,
     ) -> Result<SqlPlaygroundResult, ServiceError> {
-        let metrics = Arc::new(transferia_providers::metrics::MetricsRegistry::new());
+        let metrics = Arc::new(transferia_connectors::metrics::MetricsRegistry::new());
         let registry = self
             .transferia
             .build_registry(&metrics)
@@ -233,8 +233,8 @@ impl ControlPlane {
 
     pub async fn check_connection(
         &self,
-        provider: &str,
-        role: transferia_providers::extension::EndpointRole,
+        connector: &str,
+        role: transferia_connectors::extension::EndpointRole,
         config: Value,
         cancellation: CancellationToken,
     ) -> Result<transferia_registry::ConnectionCheckResult, ServiceError> {
@@ -245,10 +245,10 @@ impl ControlPlane {
         let resolved = self
             .transferia
             .registry()
-            .resolve_many(provider, role, raw, cancellation.clone())
+            .resolve_many(connector, role, raw, cancellation.clone())
             .await;
         tracing::info!(
-            provider,
+            connector,
             ?role,
             stage = "installation_resolution",
             elapsed_ms = resolve_started.elapsed().as_millis(),
@@ -256,9 +256,9 @@ impl ControlPlane {
             "connection check stage completed"
         );
         let resolved = resolved.map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let catalog = transferia_providers::providers::catalog::build_provider_catalog_with(
+        let catalog = transferia_connectors::connectors::catalog::build_connector_catalog_with(
             &self.transferia,
-            &Arc::new(transferia_providers::metrics::MetricsRegistry::new()),
+            &Arc::new(transferia_connectors::metrics::MetricsRegistry::new()),
         )
         .map_err(ServiceError::Internal)?;
         let check_started = std::time::Instant::now();
@@ -269,7 +269,7 @@ impl ControlPlane {
                     () = cancellation.cancelled() => return Err(ServiceError::Validation("connection check cancelled".to_owned())),
                     result = tokio::time::timeout(
                         CONNECTION_CHECK_TIMEOUT,
-                        catalog.check_connection(provider, role, endpoint),
+                        catalog.check_connection(connector, role, endpoint),
                     ) => {
                         result
                             .map_err(|_| ServiceError::Validation(CONNECTION_TIMEOUT_MESSAGE.to_owned()))?
@@ -298,9 +298,9 @@ impl ControlPlane {
         };
         let result = result.await;
         tracing::info!(
-            provider,
+            connector,
             ?role,
-            stage = "provider_connection_check",
+            stage = "connector_connection_check",
             elapsed_ms = check_started.elapsed().as_millis(),
             total_elapsed_ms = total_started.elapsed().as_millis(),
             success = result.is_ok(),
@@ -311,7 +311,7 @@ impl ControlPlane {
 
     pub async fn preview_message(
         &self,
-        provider: &str,
+        connector: &str,
         config: Value,
         max_bytes: usize,
         cancellation: CancellationToken,
@@ -324,14 +324,14 @@ impl ControlPlane {
         let supports_preview = self
             .transferia
             .composition()
-            .provider_definitions()
+            .connector_definitions()
             .iter()
-            .find(|definition| definition.key == provider)
+            .find(|definition| definition.key == connector)
             .and_then(|definition| definition.source.as_ref())
             .is_some_and(|source| source.message_preview);
         if !supports_preview {
             return Err(ServiceError::Validation(format!(
-                "{provider} source does not support message preview"
+                "{connector} source does not support message preview"
             )));
         }
         let raw = serde_yaml::to_value(config)
@@ -340,8 +340,8 @@ impl ControlPlane {
             .transferia
             .registry()
             .resolve_many(
-                provider,
-                transferia_providers::extension::EndpointRole::Source,
+                connector,
+                transferia_connectors::extension::EndpointRole::Source,
                 raw,
                 cancellation.clone(),
             )
@@ -350,19 +350,19 @@ impl ControlPlane {
         let attempts_cancellation = cancellation.child_token();
         let mut attempts = tokio::task::JoinSet::new();
         let catalog = Arc::new(
-            transferia_providers::providers::catalog::build_provider_catalog_with(
+            transferia_connectors::connectors::catalog::build_connector_catalog_with(
                 &self.transferia,
-                &Arc::new(transferia_providers::metrics::MetricsRegistry::new()),
+                &Arc::new(transferia_connectors::metrics::MetricsRegistry::new()),
             )
             .map_err(ServiceError::Internal)?,
         );
         for endpoint in resolved {
             let endpoint_cancellation = attempts_cancellation.clone();
             let catalog = Arc::clone(&catalog);
-            let provider = provider.to_owned();
+            let connector = connector.to_owned();
             attempts.spawn(async move {
                 catalog
-                    .preview_source(&provider, endpoint, max_bytes, endpoint_cancellation)
+                    .preview_source(&connector, endpoint, max_bytes, endpoint_cancellation)
                     .await
             });
         }
@@ -383,7 +383,7 @@ impl ControlPlane {
             byte_length: preview.payload.len(),
             preview_bytes,
             metadata: message_preview_metadata(preview.metadata),
-            detections: transferia_providers::parsers::detection::detect_samples(
+            detections: transferia_connectors::parsers::detection::detect_samples(
                 &detection_payloads,
                 1_000,
             ),
@@ -521,7 +521,7 @@ impl ControlPlane {
             primary.sink_kind.clone(),
             plan.pipelines.len(),
             &primary.discovery,
-            primary.sink_provider.as_ref(),
+            primary.sink_connector.as_ref(),
         )
         .map_err(|error| ServiceError::Validation(error.to_string()))
     }
@@ -560,7 +560,7 @@ impl ControlPlane {
             .registry()
             .resolve_many(
                 source_kind,
-                transferia_providers::extension::EndpointRole::Source,
+                transferia_connectors::extension::EndpointRole::Source,
                 raw,
                 cancellation.child_token(),
             )
@@ -570,15 +570,15 @@ impl ControlPlane {
         let source_config = resolved.into_iter().next().ok_or_else(|| {
             ServiceError::Validation("source installation resolved no endpoints".to_owned())
         })?;
-        let catalog = transferia_providers::providers::catalog::build_provider_catalog_with(
+        let catalog = transferia_connectors::connectors::catalog::build_connector_catalog_with(
             &self.transferia,
-            &Arc::new(transferia_providers::metrics::MetricsRegistry::new()),
+            &Arc::new(transferia_connectors::metrics::MetricsRegistry::new()),
         )
         .map_err(ServiceError::Internal)?;
-        let source_provider = catalog
+        let source_connector = catalog
             .build_source(source_kind, source_config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let discovery = source_provider
+        let discovery = source_connector
             .delivery_discovery(SourceDiscoveryContext {
                 request: DeliveryDiscoveryRequest {
                     keep_system_columns: true,
@@ -1122,7 +1122,7 @@ fn discovery_result(
     sink: String,
     pipeline_count: usize,
     discovery: &DeliveryDiscovery,
-    sink_provider: &dyn SinkProvider,
+    sink_connector: &dyn SinkConnector,
 ) -> anyhow::Result<DiscoveryResult> {
     Ok(DiscoveryResult {
         source,
@@ -1148,14 +1148,14 @@ fn discovery_result(
                         .map(|column| {
                             Ok(DestinationColumnView {
                                 column: column_view(column),
-                                destination_type: sink_provider.destination_type(column)?,
+                                destination_type: sink_connector.destination_type(column)?,
                             })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?,
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?,
-        sink_limits: sink_provider.limits().description(),
+        sink_limits: sink_connector.limits().description(),
     })
 }
 

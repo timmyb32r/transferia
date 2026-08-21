@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use transferia_delivery_contracts::metrics::MetricsConfig;
 use transferia_delivery_contracts::DeliveryType;
-use transferia_providers::extension::Transferia;
+use transferia_connectors::extension::Transferia;
 use transferia_registry::{Composition, MiddlewareDefinition};
 pub use transferia_server_contracts::api::UiCatalog;
 
@@ -31,7 +31,7 @@ pub fn build_ui_catalog() -> anyhow::Result<UiCatalog> {
 
 pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalog> {
     let registry = transferia.build_registry(&std::sync::Arc::new(
-        transferia_providers::metrics::MetricsRegistry::new(),
+        transferia_connectors::metrics::MetricsRegistry::new(),
     ))?;
     let mut common_schema = serde_json::to_value(schema_for!(CommonConfigSchema))?;
     common_schema["properties"]["middlewares"]["items"] =
@@ -48,7 +48,7 @@ pub fn build_ui_catalog_with(transferia: &Transferia) -> anyhow::Result<UiCatalo
             "pipeline_memory_limit_bytes": 1_073_741_824,
             "metrics": null
         }),
-        providers: transferia.composition().provider_definitions().to_vec(),
+        connectors: transferia.composition().connector_definitions().to_vec(),
     })
 }
 

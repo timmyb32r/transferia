@@ -6,7 +6,7 @@ pub const META_MAX_LENGTH: &str = "transferia.max_length";
 pub const META_ARROW_EXTENSION_NAME: &str = "ARROW:extension:name";
 pub const ARROW_JSON_EXTENSION_NAME: &str = "arrow.json";
 
-/// Sink-neutral runtime schema exchanged between source and sink providers.
+/// Sink-neutral runtime schema exchanged between source and sink connectors.
 #[derive(Debug, Clone, Default)]
 pub struct DatasetSchema {
     pub columns: Vec<SchemaColumn>,

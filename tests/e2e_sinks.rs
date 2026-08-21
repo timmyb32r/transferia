@@ -28,10 +28,10 @@ use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDatas
 use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
-use transferia::providers::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkProvider};
-use transferia::providers::discard::provider::DiscardSinkProvider;
-use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
-use transferia::registry::{SinkBuildContext, SinkPrepare, SinkProvider as _};
+use transferia::connectors::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkConnector};
+use transferia::connectors::discard::connector::DiscardSinkConnector;
+use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
+use transferia::registry::{SinkBuildContext, SinkPrepare, SinkConnector as _};
 
 const CLICKHOUSE_IMAGE: &str = "clickhouse/clickhouse-server";
 const CLICKHOUSE_TAG: &str = "25.8.28.1";
@@ -108,8 +108,8 @@ async fn run_one_delivery(
 }
 
 #[tokio::test]
-async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::Result<()> {
-    let provider = DiscardSinkProvider::new();
+async fn discard_sink_runs_through_the_connector_and_actor_boundary() -> anyhow::Result<()> {
+    let connector = DiscardSinkConnector::new();
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("benchmark-source"),
         source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
@@ -117,8 +117,8 @@ async fn discard_sink_runs_through_the_provider_and_actor_boundary() -> anyhow::
         keep_system_columns: false,
         datasets: Vec::new(),
     });
-    provider.limits().validate_discovery(&discovery)?;
-    let sink = provider
+    connector.limits().validate_discovery(&discovery)?;
+    let sink = connector
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
@@ -179,23 +179,23 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let config: ClickHouseSinkConfig = serde_yaml::from_str(&format!(
         "hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
     ))?;
-    let checked = ClickHouseSinkProvider::check_connection(config.clone()).await?;
-    let transferia::providers::clickhouse::ClickHouseConnectionCheck::Verified { shard_groups } =
+    let checked = ClickHouseSinkConnector::check_connection(config.clone()).await?;
+    let transferia::connectors::clickhouse::ClickHouseConnectionCheck::Verified { shard_groups } =
         checked
     else {
         anyhow::bail!("complete ClickHouse credentials must be fully verified")
     };
     assert!(shard_groups.is_empty() || shard_groups.iter().all(|group| !group.is_empty()));
-    let provider = ClickHouseSinkProvider::from_config(config)?;
+    let connector = ClickHouseSinkConnector::from_config(config)?;
     let schema = dataset_schema(&[
         ("id", DataType::Int64, false),
         ("name", DataType::Utf8, false),
     ]);
     let discovery = discovery("topic-a", schema.clone(), schema.clone(), &[], false);
-    provider.limits().validate_discovery(&discovery)?;
+    connector.limits().validate_discovery(&discovery)?;
     let mut last_prepare_error = None;
     for _ in 0..50 {
-        match provider
+        match connector
             .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
             .await
         {
@@ -214,7 +214,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     }
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
-    let sink = provider
+    let sink = connector
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
@@ -311,7 +311,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     );
     let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
     config.check_connection().await?;
-    let provider = S3SinkProvider::from_config(config)?;
+    let connector = S3SinkConnector::from_config(config)?;
     let system_kinds = vec![
         SystemColumnKind::Topic,
         SystemColumnKind::Partition,
@@ -343,8 +343,8 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     ]);
     let stored = dataset_schema(&[("id", DataType::Int64, false)]);
     let discovery = discovery("topic-a", incoming, stored, &system_kinds, false);
-    provider.limits().validate_discovery(&discovery)?;
-    provider
+    connector.limits().validate_discovery(&discovery)?;
+    connector
         .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
         .await?;
 
@@ -355,7 +355,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     }
     .build("s3-e2e")?;
     let memory = PipelineMemory::new(256 * 1024 * 1024);
-    let sink = provider
+    let sink = connector
         .build_sink(SinkBuildContext {
             durable: durable.clone(),
             partition_id: 0,
@@ -459,11 +459,11 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     );
     let modified_before_replay = object.last_modified;
 
-    // Recreate the production provider and local durable-storage handle exactly as a process
+    // Recreate the production connector and local durable-storage handle exactly as a process
     // restart would. CLOSED state must recover source commit without issuing another PUT.
     tokio::time::sleep(core::time::Duration::from_millis(20)).await;
-    let replay_provider = S3SinkProvider::from_config(serde_yaml::from_str(&yaml)?)?;
-    let replay_sink = replay_provider
+    let replay_connector = S3SinkConnector::from_config(serde_yaml::from_str(&yaml)?)?;
+    let replay_sink = replay_connector
         .build_sink(SinkBuildContext {
             durable: transferia::durable::DurableStorageConfig::LocalFile {
                 path: durable_root.clone(),

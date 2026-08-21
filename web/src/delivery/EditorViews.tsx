@@ -12,7 +12,7 @@ import type {
   DiscoveryResult,
   EndpointDefinition,
   JsonObject,
-  ProviderDefinition,
+  ConnectorDefinition,
   UiCatalog,
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
@@ -22,7 +22,7 @@ export function EndpointCard(props: {
   title: string;
   role: "source" | "sink";
   selectedKey: string;
-  providers: ProviderDefinition[];
+  connectors: ConnectorDefinition[];
   endpoint?: EndpointDefinition;
   config: JsonObject;
   readOnly: boolean;
@@ -93,7 +93,7 @@ export function EndpointCard(props: {
     try {
       const result = await api.checkConnection(
         {
-          provider: props.selectedKey,
+          connector: props.selectedKey,
           role: props.role,
           config: isObject(value) ? value : {},
         },
@@ -127,7 +127,7 @@ export function EndpointCard(props: {
     try {
       const result = await api.previewMessage(
         {
-          provider: props.selectedKey,
+          connector: props.selectedKey,
           config: isObject(value) ? value : {},
           max_bytes: 32 * 1024 * 1024,
         },
@@ -166,9 +166,9 @@ export function EndpointCard(props: {
           value={props.selectedKey}
           disabled={props.readOnly}
           placeholder="Not selected"
-          options={props.providers.map((provider) => ({
-            value: provider.key,
-            label: provider.title,
+          options={props.connectors.map((connector) => ({
+            value: connector.key,
+            label: connector.title,
           }))}
           onChange={(key) => props.onChoose(props.role, key)}
         />

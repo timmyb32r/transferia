@@ -3,8 +3,7 @@
     "common_schema": {
       "type": "object"
     },
-    "initial": {},
-    "providers": [
+    "connectors": [
       {
         "key": "clickhouse",
         "sink": {
@@ -22,7 +21,8 @@
         },
         "title": "ClickHouse"
       }
-    ]
+    ],
+    "initial": {}
   },
   "delivery_record": {
     "config": {

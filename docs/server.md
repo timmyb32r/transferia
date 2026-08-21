@@ -6,19 +6,19 @@ The local control plane owns delivery drafts, validation, worker processes, and 
 
 | Module | Responsibility |
 | --- | --- |
-| `core/` | Stable provider-neutral data, discovery, limits, memory, and Source/Sink contracts |
+| `core/` | Stable connector-neutral data, discovery, limits, memory, and Source/Sink contracts |
 | `delivery/config/` | Runnable delivery configuration and strict YAML parsing |
-| `delivery/semantics.rs` | Cross-provider compatibility and delivery-guarantee diagnostics |
+| `delivery/semantics.rs` | Cross-connector compatibility and delivery-guarantee diagnostics |
 | `delivery/preparation/` | The one resolution, discovery, and validation sequence shared by workers and the control plane |
 | `delivery/execution/` | Partition assignment, startup barrier, retries, pipeline flow, memory, and commit ordering |
-| `providers/catalog.rs` | The only provider registration catalog: runtime factories, schemas, initial form values, and supported delivery modes |
+| `connectors/catalog.rs` | The only connector registration catalog: runtime factories, schemas, initial form values, and supported delivery modes |
 | `server/service.rs` | Delivery use cases and state transitions; depends only on the storage and supervisor ports |
 | `server/store.rs` | `DeliveryStore` port and the transactional local JSON implementation |
 | `runtime/mod.rs` | Environment-neutral worker runtime interface and lifecycle events |
 | `runtime/local/` | Local CLI, child-process supervisor, readiness protocol, signals, and shutdown |
 | `server/api_contract.rs` | The Rust-owned HTTP request/response DTOs and generated JSON Schema root |
 | `server/http.rs` | Routing, error classification, body limits, headers, and embedded assets |
-| `server/ui_catalog.rs` | The root form schema composed with the provider catalog |
+| `server/ui_catalog.rs` | The root form schema composed with the connector catalog |
 | `web/src/api/` | Runtime decoding of every server response against the generated Rust contract |
 | `web/src/delivery/` | Delivery-editor composition and feature views |
 | `web/src/schema/` | Strict JSON Schema compiler, generic form controls, and specialized schema widgets |
@@ -78,7 +78,7 @@ objects, arrays, scalar types, string enums/constants, nullable schemas,
 numeric ranges/formats, and `oneOf`/`anyOf`. Recursive references, unsupported
 formats/keywords, and schema-valued `additionalProperties` fail fast instead of
 silently rendering the wrong control. A Rust test feeds the real compiled
-provider catalog through this TypeScript compiler, so backend schema evolution
+connector catalog through this TypeScript compiler, so backend schema evolution
 cannot bypass the UI contract.
 
 Editor session IDs, local revisions, persisted record versions, and per-operation

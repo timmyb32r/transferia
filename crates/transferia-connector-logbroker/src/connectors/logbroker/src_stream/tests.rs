@@ -1,0 +1,431 @@
+use std::io::Write as _;
+
+use ydb_grpc::ydb_proto::topic::stream_read_message::from_client::ClientMessage;
+use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
+
+use super::source::{
+    build_commit_request, coalesce_ranges, connection_check_init_message, continuous_commit_range,
+    decode_message, init_message, releasable_session_ids, take_releasable_credit,
+    topic_paths_equal, wire_consumer_name, PartitionCommitMarker, PartitionSessionState,
+    YdbTopicCommitMarker,
+};
+use super::*;
+use transferia_core::data::message::{Message, MessageMeta};
+use transferia_core::source::CommitMarker;
+
+fn connector(extra: &str) -> anyhow::Result<YdbDriverSourceConnector> {
+    connector_with_topics("  - path: topic\n    partitions: []\n", extra)
+}
+
+#[test]
+fn connection_check_uses_the_real_stream_read_handshake_without_parser_config() -> anyhow::Result<()>
+{
+    let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(
+        "host: lb.example.test\nport: 2135\ntopics: [{ path: account/topic, partitions: [] }]\nconsumer_name: /account/consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser: {}\nread_buffer_bytes: 1048576\n",
+    )?;
+    let message = connection_check_init_message(&config);
+    let Some(ClientMessage::InitRequest(init)) = message.client_message else {
+        panic!("connection check must begin with StreamRead InitRequest");
+    };
+    assert_eq!(init.consumer, "/account/consumer");
+    assert_eq!(init.topics_read_settings.len(), 1);
+    assert_eq!(init.topics_read_settings[0].path, "account/topic");
+    assert_eq!(init.partition_max_in_flight_bytes, 1_048_576);
+    Ok(())
+}
+
+#[test]
+fn authentication_check_accepts_only_a_successful_who_am_i_operation() {
+    let operation = crate::connectors::logbroker::proto::operations::Operation {
+        ready: true,
+        status: crate::connectors::logbroker::proto::status_ids::StatusCode::Success as i32,
+        ..Default::default()
+    };
+    validate_authentication_operation(&operation).expect("valid token must pass WhoAmI");
+
+    let rejected = crate::connectors::logbroker::proto::operations::Operation {
+        status: crate::connectors::logbroker::proto::status_ids::StatusCode::Unauthorized as i32,
+        ..operation
+    };
+    let error = validate_authentication_operation(&rejected)
+        .expect_err("an unauthorized token must fail the check");
+    assert!(error.to_string().contains("UNAUTHORIZED"), "{error:#}");
+}
+
+#[test]
+fn ydb_assignment_accepts_the_protocols_canonical_topic_path() {
+    assert!(topic_paths_equal("/cdc/prod/logs", "cdc/prod/logs"));
+    assert!(topic_paths_equal("cdc/prod/logs", "/cdc/prod/logs"));
+    assert!(!topic_paths_equal("cdc/prod/logs", "cdc/prod/other"));
+}
+
+#[test]
+fn ydb_wire_paths_accept_both_user_facing_forms() -> anyhow::Result<()> {
+    assert_eq!(
+        wire_consumer_name("cdc/prod/consumer"),
+        "/cdc/prod/consumer"
+    );
+    assert_eq!(
+        wire_consumer_name("/cdc/prod/consumer"),
+        "/cdc/prod/consumer"
+    );
+
+    for topic in ["cdc/prod/logs", "/cdc/prod/logs"] {
+        for consumer in ["cdc/prod/consumer", "/cdc/prod/consumer"] {
+            let config: LogbrokerSourceConnectionConfig = serde_yaml::from_str(&format!(
+                "host: lb.example.test\nport: 2135\ntopics: [{{ path: {topic}, partitions: [] }}]\nconsumer_name: {consumer}\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nparser: {{}}\nread_buffer_bytes: 1048576\n"
+            ))?;
+            let message = connection_check_init_message(&config);
+            let Some(ClientMessage::InitRequest(init)) = message.client_message else {
+                panic!("connection check must begin with StreamRead InitRequest");
+            };
+            assert_eq!(init.topics_read_settings[0].path, "cdc/prod/logs");
+            assert_eq!(init.consumer, "/cdc/prod/consumer");
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn rejects_topic_paths_that_are_protocol_aliases() {
+    let Err(error) = connector_with_topics(
+        "  - path: /cdc/prod/logs\n    partitions: []\n  - path: cdc/prod/logs\n    partitions: []\n",
+        "",
+    ) else {
+        panic!("canonical topic aliases must be rejected");
+    };
+    assert!(error.to_string().contains("duplicate path"));
+}
+
+#[test]
+fn control_plane_streams_accept_thirty_two_mebibyte_grpc_messages() {
+    assert_eq!(CONTROL_PLANE_MAX_GRPC_MESSAGE_BYTES, 32 * 1024 * 1024);
+}
+
+#[test]
+fn read_credit_is_withheld_until_every_read_batch_is_committed() {
+    let mut credit = 8_243_154;
+    assert_eq!(take_releasable_credit(&mut credit, 1), 0);
+    assert_eq!(credit, 8_243_154);
+
+    assert_eq!(take_releasable_credit(&mut credit, 0), 8_243_154);
+    assert_eq!(credit, 0);
+}
+
+#[test]
+fn ydb_commit_range_covers_sparse_offsets_like_the_official_sdk() -> anyhow::Result<()> {
+    assert_eq!(
+        continuous_commit_range(96_445_502_768, 96_994_239_580)?,
+        OffsetsRange {
+            start: 96_445_502_768,
+            end: 96_994_239_580,
+        }
+    );
+    assert!(continuous_commit_range(10, 10).is_err());
+    Ok(())
+}
+
+fn connector_with_topics(topics: &str, extra: &str) -> anyhow::Result<YdbDriverSourceConnector> {
+    let config = serde_yaml::from_str(&format!(
+        "host: localhost\nport: 2135\ntopics:\n{topics}consumer_name: consumer\nauth: {{ type: token, token: test }}\ndriver: ydb\ntrusted_plaintext: true\nallow_ttl_rewind: false\n{extra}parser:\n  common:\n    table_naming: {{ type: from_config, name: events }}\n  json_parser:\n    json_framing: single_document\n    columns:\n      - {{ jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }}\n    conversion_error: dlq\n    unknown_fields: {{ action: fail }}\n"
+    ))?;
+    YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))
+}
+
+#[test]
+fn accepts_dynamic_and_explicit_topic_partitions() -> anyhow::Result<()> {
+    let connector = connector("")?;
+    assert_eq!(connector.cfg.host, "localhost");
+    assert!(connector.cfg.topics[0].partitions.is_empty());
+
+    let explicit = connector_with_topics("  - path: selected\n    partitions: [1, 3]\n", "")?;
+    assert_eq!(explicit.cfg.topics[0].path, "selected");
+    assert_eq!(explicit.cfg.topics[0].partitions, [1, 3]);
+    Ok(())
+}
+
+#[test]
+fn rejects_old_hosts_and_database_fields() {
+    let Err(error) = connector("hosts: [localhost]\n") else {
+        panic!("hosts must be rejected");
+    };
+    assert!(
+        error.to_string().contains("unknown field `hosts`"),
+        "{error:#}"
+    );
+
+    let Err(error) = connector("database: /Root\n") else {
+        panic!("database must be rejected");
+    };
+    assert!(
+        error.to_string().contains("unknown field `database`"),
+        "{error:#}"
+    );
+
+    let Err(error) = connector("network_timeout_ms: 1000\n") else {
+        panic!("network_timeout_ms must be rejected");
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("unknown field `network_timeout_ms`"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn rejects_implicit_plaintext_trust() {
+    let mut config = connector("").expect("base config is valid").cfg;
+    config.trusted_plaintext = false;
+    let error = validate_config(&config).expect_err("trust must fail");
+    assert!(error.to_string().contains("trusted_plaintext"), "{error:#}");
+}
+
+#[test]
+fn rejects_topology_discovery_and_invalid_topic_filters() {
+    let Err(error) = connector("topology_discovery: topic_api\n") else {
+        panic!("topology discovery must be protocol-owned");
+    };
+    assert!(
+        error.to_string().contains("topology_discovery"),
+        "{error:#}"
+    );
+
+    let Err(error) = connector_with_topics("  - path: selected\n    partitions: [1, 1]\n", "")
+    else {
+        panic!("duplicate partitions must fail");
+    };
+    assert!(
+        error.to_string().contains("duplicate partition 1"),
+        "{error:#}"
+    );
+
+    let Err(error) = connector_with_topics("  - path: selected\n    partitions: [-1]\n", "") else {
+        panic!("negative partitions must fail");
+    };
+    assert!(
+        error.to_string().contains("negative partition -1"),
+        "{error:#}"
+    );
+}
+
+#[test]
+fn token_debug_output_is_redacted() {
+    let auth = LogbrokerAuthConfig::Token {
+        token: "secret".to_owned(),
+    };
+    let debug = format!("{auth:?}");
+    assert!(!debug.contains("secret"));
+    assert!(debug.contains("[REDACTED]"));
+}
+
+#[test]
+fn auth_is_exactly_one_explicit_variant() -> anyhow::Result<()> {
+    let token_file: LogbrokerAuthConfig =
+        serde_yaml::from_str("type: token_file\ntoken_file: ~/.logbroker/token\n")?;
+    token_file.validate()?;
+
+    let error = serde_yaml::from_str::<LogbrokerAuthConfig>(
+        "type: token\ntoken_file: ~/.logbroker/token\n",
+    )
+    .expect_err("mismatched auth field must fail");
+    assert!(error.to_string().contains("token"), "{error:#}");
+    Ok(())
+}
+
+#[test]
+fn pqv1_driver_is_selected_through_logbroker_and_validated() -> anyhow::Result<()> {
+    let mut value: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [0] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: drop\n    unknown_fields: { action: drop }\n",
+    )?;
+    value.allow_ttl_rewind = true;
+    let connector = build_source_connector(value, Arc::new(MetricsRegistry::new()))?;
+    assert!(matches!(
+        connector.compatibility(),
+        EndpointDescriptor::Logbroker(_)
+    ));
+
+    let dynamic: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: pqv1\ntrusted_plaintext: true\nparser:\n  common:\n    table_naming: { type: from_config, name: events }\n  benchmark_discard: {}\n",
+    )?;
+    let connector = build_source_connector(dynamic, Arc::new(MetricsRegistry::new()))?;
+    assert!(matches!(
+        connector.compatibility(),
+        EndpointDescriptor::Logbroker(_)
+    ));
+    Ok(())
+}
+
+#[test]
+fn ydb_driver_supports_benchmark_discard_without_a_schema() -> anyhow::Result<()> {
+    let config: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  benchmark_discard: {}\n",
+    )?;
+    let connector = YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    assert_eq!(connector.behavior, SourceBehavior::BenchmarkDiscard);
+    let discovery = connector.configured_delivery_discovery(DeliveryDiscoveryRequest {
+        keep_system_columns: true,
+    })?;
+    assert!(discovery.datasets.is_empty());
+    Ok(())
+}
+
+#[test]
+fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Result<()> {
+    let config: LogbrokerSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 2135\ntopics: [{ path: /account/first, partitions: [] }, { path: account/second, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: fail\n    unknown_fields: { action: fail }\n",
+    )?;
+    let connector = YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    let discovery = connector.configured_delivery_discovery(DeliveryDiscoveryRequest {
+        keep_system_columns: false,
+    })?;
+    assert_eq!(
+        discovery
+            .datasets
+            .iter()
+            .map(|dataset| dataset.name.as_ref())
+            .collect::<Vec<_>>(),
+        [
+            "account/first",
+            "account/first_dlq",
+            "account/second",
+            "account/second_dlq"
+        ]
+    );
+
+    let mut session = connector.parser_plan.parser().create_session(1024 * 1024);
+    let message = Message {
+        value: bytes::Bytes::from_static(b"{\"id\":1}"),
+        meta: MessageMeta {
+            topic: Some(Arc::from("account/second")),
+            ..MessageMeta::default()
+        },
+    };
+    let (main, dlq) = session.parse_into(vec![message])?;
+    assert_eq!(main.table.as_ref(), "account/second");
+    assert!(dlq.is_none());
+    Ok(())
+}
+
+#[test]
+fn stream_read_init_delegates_topology_to_the_protocol() -> anyhow::Result<()> {
+    let config = connector_with_topics(
+        "  - path: all\n    partitions: []\n  - path: selected\n    partitions: [2, 5]\n",
+        "",
+    )?
+    .cfg;
+    let init = init_message(&config, 3);
+    let Some(ClientMessage::InitRequest(init)) = init.client_message else {
+        panic!("expected StreamRead init request");
+    };
+    assert!(init.auto_partitioning_support);
+    assert_eq!(init.reader_name, "transferia-rust-3");
+    assert_eq!(init.topics_read_settings.len(), 2);
+    assert_eq!(init.topics_read_settings[0].path, "all");
+    assert!(init.topics_read_settings[0].partition_ids.is_empty());
+    assert_eq!(init.topics_read_settings[1].path, "selected");
+    assert_eq!(init.topics_read_settings[1].partition_ids, [2, 5]);
+    Ok(())
+}
+
+#[test]
+fn raw_gzip_and_zstd_payloads_decode() -> anyhow::Result<()> {
+    let payload = b"{\"id\":1}";
+    assert_eq!(
+        decode_message(Codec::Raw, payload.to_vec())?,
+        payload.as_slice()
+    );
+
+    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    gzip.write_all(payload)?;
+    assert_eq!(
+        decode_message(Codec::Gzip, gzip.finish()?)?,
+        payload.as_slice()
+    );
+
+    let zstd = zstd::stream::encode_all(payload.as_slice(), 1)?;
+    assert_eq!(decode_message(Codec::Zstd, zstd)?, payload.as_slice());
+    Ok(())
+}
+
+#[test]
+fn commit_ranges_are_sorted_and_coalesced() -> anyhow::Result<()> {
+    let ranges = coalesce_ranges(vec![
+        OffsetsRange { start: 4, end: 5 },
+        OffsetsRange { start: 1, end: 2 },
+        OffsetsRange { start: 2, end: 4 },
+        OffsetsRange { start: 9, end: 10 },
+    ])?;
+    assert_eq!(
+        ranges,
+        [
+            OffsetsRange { start: 1, end: 5 },
+            OffsetsRange { start: 9, end: 10 }
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn commit_request_groups_multiple_dynamic_partition_sessions() -> anyhow::Result<()> {
+    let topic: Arc<str> = Arc::from("topic");
+    let sessions = HashMap::from([
+        (
+            10,
+            PartitionSessionState {
+                topic_path: Arc::clone(&topic),
+                partition_id: 1,
+                committed_offset: 0,
+                read_through: 5,
+                pending_graceful_stop: false,
+                invalidated: false,
+            },
+        ),
+        (
+            20,
+            PartitionSessionState {
+                topic_path: Arc::clone(&topic),
+                partition_id: 2,
+                committed_offset: 3,
+                read_through: 8,
+                pending_graceful_stop: true,
+                invalidated: false,
+            },
+        ),
+    ]);
+    let marker = CommitMarker::new(YdbTopicCommitMarker {
+        partitions: vec![
+            PartitionCommitMarker {
+                topic_path: Arc::clone(&topic),
+                partition_id: 1,
+                partition_session_id: 10,
+                ranges: vec![
+                    OffsetsRange { start: 0, end: 2 },
+                    OffsetsRange { start: 2, end: 5 },
+                ],
+            },
+            PartitionCommitMarker {
+                topic_path: topic,
+                partition_id: 2,
+                partition_session_id: 20,
+                ranges: vec![OffsetsRange { start: 3, end: 8 }],
+            },
+        ],
+    });
+
+    let (request, targets) = build_commit_request(&[marker], &sessions)?;
+    assert_eq!(request.len(), 2);
+    assert_eq!(request[0].partition_session_id, 10);
+    assert_eq!(request[0].offsets, [OffsetsRange { start: 0, end: 5 }]);
+    assert_eq!(request[1].partition_session_id, 20);
+    assert_eq!(targets, HashMap::from([(10, 5), (20, 8)]));
+    assert!(releasable_session_ids(&sessions).is_empty());
+
+    let mut committed = sessions;
+    committed
+        .get_mut(&20)
+        .expect("session exists")
+        .committed_offset = 8;
+    assert_eq!(releasable_session_ids(&committed), [20]);
+    Ok(())
+}

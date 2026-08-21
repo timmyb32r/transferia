@@ -35,10 +35,10 @@ headers, and response decoding remain in
 
 The schema compiler validates the supported JSON Schema dialect and converts
 raw `x-ui` objects into typed `UiHints`. All catalog schemas are compiled before
-the editor becomes interactive, so a malformed provider cannot break only when
+the editor becomes interactive, so a malformed connector cannot break only when
 the user selects it.
 
-Generic form code depends on the `WidgetRegistry` interface. Provider/parser
+Generic form code depends on the `WidgetRegistry` interface. Connector/parser
 features live under `src/features/` and are registered at the composition root;
 the generic schema runtime never imports them. Each registry entry owns its
 schema-node contract and its node/property renderers together. The registry is
@@ -76,4 +76,4 @@ test compiles every schema in the Rust fixture. Rust tests never spawn npm.
 
 Use `just check-affected` during development. Full Clippy, all targets, and
 container E2E tests remain merge/release gates or are selected for changes to
-core, build inputs, dependencies, or provider data paths.
+core, build inputs, dependencies, or connector data paths.

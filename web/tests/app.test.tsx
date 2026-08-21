@@ -30,7 +30,7 @@ const CATALOG: UiCatalog = {
     },
   },
   initial: {},
-  providers: [],
+  connectors: [],
 };
 
 describe("App request orchestration", () => {
@@ -172,7 +172,7 @@ describe("App request orchestration", () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
-      providers: [
+      connectors: [
         {
           key: "source",
           title: "Test source",
@@ -356,7 +356,7 @@ describe("App request orchestration", () => {
     installApiMocks([existing]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
-      providers: [
+      connectors: [
         {
           key: "source",
           title: "Test source",
@@ -548,7 +548,7 @@ describe("App request orchestration", () => {
     installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
-      providers: [
+      connectors: [
         {
           key: "source",
           title: "Test source",

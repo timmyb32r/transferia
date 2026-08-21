@@ -22,7 +22,7 @@ fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistratio
         || serde_json::json!({ "enabled": false }),
         |config| {
             anyhow::ensure!(config.enabled, "factory received the decoded configuration");
-            anyhow::bail!("test factory intentionally has no runtime provider")
+            anyhow::bail!("test factory intentionally has no runtime connector")
         },
     )
 }
@@ -310,7 +310,7 @@ fn typed_registration_keeps_schema_and_decoder_in_one_contract() -> anyhow::Resu
         .expect("test factory intentionally fails");
     assert!(factory_error
         .to_string()
-        .contains("test factory intentionally has no runtime provider"));
+        .contains("test factory intentionally has no runtime connector"));
     Ok(())
 }
 

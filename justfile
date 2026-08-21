@@ -22,13 +22,13 @@ api-contract-check:
     cargo run -p transferia-server-contracts --bin generate-server-api -- --check
     cd web && npm run check:api
 
-# Provider UI catalog generation is intentionally separate: it compiles the
+# Connector UI catalog generation is intentionally separate: it compiles the
 # concrete runtime composition and should run only after catalog/schema changes.
 catalog-contract:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-provider-catalog
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-connector-catalog
 
 catalog-contract-check:
-    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-provider-catalog -- --check
+    TRANSFERIA_SKIP_SERVER_UI=1 cargo run -p transferia-control-plane --bin generate-connector-catalog -- --check
 
 # Release/merge gate. This is intentionally expensive and must not be used as
 # an ordinary agent completion gate.
@@ -37,9 +37,9 @@ check-release: fmt-check
     # Start the heavyweight Redpanda fixture before the other Docker E2Es. On
     # constrained developer runtimes it can otherwise starve during a long
     # all-target run even though the same hermetic test passes in isolation.
-    cargo test -p transferia-provider-support --test schema_registry_e2e --all-features
-    cargo test --workspace --all-targets --all-features --exclude transferia-provider-support
-    cargo test -p transferia-provider-support --lib --all-features
+    cargo test -p transferia-connector-support --test schema_registry_e2e --all-features
+    cargo test --workspace --all-targets --all-features --exclude transferia-connector-support
+    cargo test -p transferia-connector-support --lib --all-features
 
 # Normal agent development/completion gate: compile checking only. No linking,
 # formatting, linting, tests, E2E, Docker, or generated-artifact checks.

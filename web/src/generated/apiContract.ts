@@ -51,7 +51,7 @@ export type ConfigResponse = {
 
 export type ConnectionCheckRequest = {
   config: JsonObject;
-  provider: string;
+  connector: string;
   role: EndpointRole;
 };
 
@@ -64,6 +64,13 @@ export type ConnectionCheckResult = {
 };
 
 export type ConnectionCheckStatus = "verified" | "network_reachable";
+
+export type ConnectorDefinition = {
+  key: string;
+  sink?: EndpointDefinition;
+  source?: EndpointDefinition;
+  title: string;
+};
 
 export type CreateDraftRequest = {
   config: JsonObject;
@@ -182,8 +189,8 @@ export type MessagePreviewMetadataItem = {
 
 export type MessagePreviewRequest = {
   config: JsonObject;
+  connector: string;
   max_bytes: number;
-  provider: string;
 };
 
 export type MessagePreviewResult = {
@@ -230,13 +237,6 @@ export type ParserPreviewTab = {
   key: string;
   label: string;
   truncated: boolean;
-};
-
-export type ProviderDefinition = {
-  key: string;
-  sink?: EndpointDefinition;
-  source?: EndpointDefinition;
-  title: string;
 };
 
 export type RevisionRequest = {
@@ -301,8 +301,8 @@ export type TextLimit = {
 
 export type UiCatalog = {
   common_schema: JsonSchema;
+  connectors: Array<ConnectorDefinition>;
   initial: JsonObject;
-  providers: Array<ProviderDefinition>;
 };
 
 export type UpdateDraftRequest = {

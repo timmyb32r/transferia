@@ -1,0 +1,37 @@
+[package]
+name = "transferia-connectors"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-middleware-datafusion = { path = "../transferia-middleware-datafusion" }
+transferia-middleware-filter = { path = "../transferia-middleware-filter" }
+transferia-connector-clickhouse = { path = "../transferia-connector-clickhouse" }
+transferia-connector-iceberg = { path = "../transferia-connector-iceberg" }
+transferia-connector-kafka = { path = "../transferia-connector-kafka" }
+transferia-connector-logbroker = { path = "../transferia-connector-logbroker" }
+transferia-connector-postgres = { path = "../transferia-connector-postgres" }
+transferia-connector-s3 = { path = "../transferia-connector-s3" }
+transferia-connector-support = { path = "../transferia-connector-support" }
+transferia-connector-ytsaurus = { path = "../transferia-connector-ytsaurus" }
+transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+transferia-pipeline = { path = "../transferia-pipeline" }
+
+[lints]
+workspace = true

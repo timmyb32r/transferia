@@ -99,14 +99,14 @@ class StatsAverageTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid stats line 1"):
             STATS.read_samples(["[stats p=0] obsolete format\n"])
 
-    def test_aggregates_native_postgres_provider_logs(self):
+    def test_aggregates_native_postgres_connector_logs(self):
         averages = STATS.average_samples(STATS.read_samples([postgres_stats_line()]))
 
         self.assertEqual(averages["source_messages_per_s"], 40000)
         self.assertEqual(averages["sink_rows_per_s"], 40000)
         self.assertEqual(averages["sink_busy_percent"], 65)
 
-    def test_aggregates_native_ytsaurus_provider_logs(self):
+    def test_aggregates_native_ytsaurus_connector_logs(self):
         averages = STATS.average_samples(STATS.read_samples([ytsaurus_stats_line()]))
 
         self.assertEqual(averages["source_messages_per_s"], 300)

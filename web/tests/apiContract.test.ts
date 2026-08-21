@@ -28,7 +28,7 @@ describe("generated Rust server API contract", () => {
       "fixture.error_envelope",
     );
 
-    expect(catalog.providers[0]?.sink?.connection_check).toBe(true);
+    expect(catalog.connectors[0]?.sink?.connection_check).toBe(true);
     expect(delivery.runtime).toEqual({
       state: "running",
       run_id: "run-7",

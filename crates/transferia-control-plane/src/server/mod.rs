@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use transferia_providers::extension::Transferia;
+use transferia_connectors::extension::Transferia;
 use transferia_runtime::WorkerSupervisor;
 
 pub mod api_contract;

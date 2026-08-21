@@ -238,7 +238,7 @@ export function DeliveryApplication() {
       return "Discovering the data schema…";
     if (operations.discovery?.error !== undefined)
       return `Data schema discovery failed: ${operations.discovery.error}`;
-    if (catalog === undefined) return "Loading the provider catalog…";
+    if (catalog === undefined) return "Loading the connector catalog…";
     if (selection?.error !== undefined) return selection.error;
     if (selection?.source === undefined) return "Choose a source first";
     if (!sourceSchemaComplete)
@@ -330,10 +330,10 @@ export function DeliveryApplication() {
   const updateConfig = (next: JsonObject) =>
     dispatchLocalChange({ type: "config", config: next });
   const chooseEndpoint = (role: "source" | "sink", key: string) => {
-    const provider = catalog.providers.find(
+    const connector = catalog.connectors.find(
       (candidate) => candidate.key === key,
     );
-    const endpoint = provider?.[role];
+    const endpoint = connector?.[role];
     updateConfig({
       ...editor.config,
       [role]:

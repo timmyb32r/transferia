@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use serde::de::DeserializeOwned;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use transferia_providers::extension::OptionsRequest;
+use transferia_connectors::extension::OptionsRequest;
 
 use super::api_contract::{
     ApiErrorBody, ApiErrorCode, ApiErrorView, ConfigRequest, ConfigResponse,
@@ -292,7 +292,7 @@ async fn check_connection(
     let result = state
         .control_plane
         .check_connection(
-            &request.provider,
+            &request.connector,
             request.role,
             request.config,
             cancellation,
@@ -310,7 +310,7 @@ async fn preview_message(
     let result = state
         .control_plane
         .preview_message(
-            &request.provider,
+            &request.connector,
             request.config,
             request.max_bytes,
             cancellation,

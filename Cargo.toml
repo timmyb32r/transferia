@@ -8,15 +8,15 @@ members = [
     "crates/transferia-delivery-contracts",
     "crates/transferia-middleware-datafusion",
     "crates/transferia-middleware-filter",
-    "crates/transferia-provider-clickhouse",
-    "crates/transferia-provider-iceberg",
-    "crates/transferia-provider-kafka",
-    "crates/transferia-provider-logbroker",
-    "crates/transferia-provider-postgres",
-    "crates/transferia-provider-s3",
-    "crates/transferia-provider-support",
-    "crates/transferia-provider-ytsaurus",
-    "crates/transferia-providers",
+    "crates/transferia-connector-clickhouse",
+    "crates/transferia-connector-iceberg",
+    "crates/transferia-connector-kafka",
+    "crates/transferia-connector-logbroker",
+    "crates/transferia-connector-postgres",
+    "crates/transferia-connector-s3",
+    "crates/transferia-connector-support",
+    "crates/transferia-connector-ytsaurus",
+    "crates/transferia-connectors",
     "crates/transferia-registry",
     "crates/transferia-pipeline",
     "crates/transferia-runtime",
@@ -136,7 +136,7 @@ transferia-core = { path = "crates/transferia-core" }
 transferia-delivery = { path = "crates/transferia-delivery" }
 transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
 transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
-transferia-providers = { path = "crates/transferia-providers" }
+transferia-connectors = { path = "crates/transferia-connectors" }
 transferia-registry = { path = "crates/transferia-registry" }
 transferia-runtime = { path = "crates/transferia-runtime" }
 transferia-runtime-local = { path = "crates/transferia-runtime-local" }

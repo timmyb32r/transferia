@@ -139,7 +139,7 @@ impl<T: ClientFormat> Connection<T> {
             arrow_options: options.ext.arrow.unwrap_or_default(),
         };
 
-        // Install rustls provider if using tls
+        // Install rustls connector if using tls
         if options.use_tls {
             drop(rustls::crypto::aws_lc_rs::default_provider().install_default());
         }

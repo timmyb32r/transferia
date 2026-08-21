@@ -11,11 +11,11 @@ use crate::server::ui_catalog::build_ui_catalog;
 static TEST_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 async fn test_router() -> anyhow::Result<(Router, std::path::PathBuf)> {
-    test_router_with(transferia_providers::extension::Transferia::public()?).await
+    test_router_with(transferia_connectors::extension::Transferia::public()?).await
 }
 
 async fn test_router_with(
-    transferia: transferia_providers::extension::Transferia,
+    transferia: transferia_connectors::extension::Transferia,
 ) -> anyhow::Result<(Router, std::path::PathBuf)> {
     let root = std::env::temp_dir().join(format!(
         "transferia-http-test-{}-{}",
@@ -33,14 +33,14 @@ async fn test_router_with(
 struct TestOptions;
 
 #[async_trait::async_trait]
-impl transferia_providers::extension::DynamicOptionsProvider for TestOptions {
+impl transferia_connectors::extension::DynamicOptionsConnector for TestOptions {
     async fn list(
         &self,
-        request: transferia_providers::extension::OptionsRequest,
-        _context: transferia_providers::extension::OptionsContext,
-    ) -> anyhow::Result<transferia_providers::extension::DynamicOptions> {
-        Ok(transferia_providers::extension::DynamicOptions {
-            options: vec![transferia_providers::extension::DynamicOption {
+        request: transferia_connectors::extension::OptionsRequest,
+        _context: transferia_connectors::extension::OptionsContext,
+    ) -> anyhow::Result<transferia_connectors::extension::DynamicOptions> {
+        Ok(transferia_connectors::extension::DynamicOptions {
+            options: vec![transferia_connectors::extension::DynamicOption {
                 value: request.query.unwrap_or_default(),
                 label: format!(
                     "{}:{}",
@@ -58,9 +58,9 @@ impl transferia_providers::extension::DynamicOptionsProvider for TestOptions {
 
 struct TestExtension;
 
-impl transferia_providers::extension::TransferiaExtension for TestExtension {
-    fn identity(&self) -> transferia_providers::extension::ExtensionIdentity {
-        transferia_providers::extension::ExtensionIdentity {
+impl transferia_connectors::extension::TransferiaExtension for TestExtension {
+    fn identity(&self) -> transferia_connectors::extension::ExtensionIdentity {
+        transferia_connectors::extension::ExtensionIdentity {
             package: "server-http-test",
             abi_version: 1,
         }
@@ -68,7 +68,7 @@ impl transferia_providers::extension::TransferiaExtension for TestExtension {
 
     fn register(
         &self,
-        registry: &mut transferia_providers::extension::ExtensionRegistry,
+        registry: &mut transferia_connectors::extension::ExtensionRegistry,
     ) -> anyhow::Result<()> {
         registry.register_options("test.options", Arc::new(TestOptions))
     }
@@ -114,7 +114,7 @@ async fn sql_playground_executes_the_runtime_datafusion_transform() -> anyhow::R
 
 #[tokio::test]
 async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
-    let transferia = transferia_providers::extension::TransferiaBuilder::new()
+    let transferia = transferia_connectors::extension::TransferiaBuilder::new()
         .with_extension(Arc::new(TestExtension))
         .build()?;
     let (app, root) = test_router_with(transferia).await?;
@@ -139,7 +139,7 @@ async fn dynamic_options_forward_search_and_refresh() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn dynamic_options_reject_unknown_request_fields_as_json() -> anyhow::Result<()> {
-    let transferia = transferia_providers::extension::TransferiaBuilder::new()
+    let transferia = transferia_connectors::extension::TransferiaBuilder::new()
         .with_extension(Arc::new(TestExtension))
         .build()?;
     let (app, root) = test_router_with(transferia).await?;
@@ -168,7 +168,7 @@ async fn connection_check_uses_the_typed_endpoint_capability() -> anyhow::Result
             Request::post("/api/v1/check-connection")
                 .header(CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    r#"{"provider":"discard","role":"sink","config":{}}"#,
+                    r#"{"connector":"discard","role":"sink","config":{}}"#,
                 ))?,
         )
         .await?;
@@ -193,7 +193,7 @@ async fn message_preview_rejects_sources_without_preview_capability() -> anyhow:
             Request::post("/api/v1/preview-message")
                 .header(CONTENT_TYPE, "application/json")
                 .body(Body::from(
-                    r#"{"provider":"postgres","config":{},"max_bytes":4194304}"#,
+                    r#"{"connector":"postgres","config":{},"max_bytes":4194304}"#,
                 ))?,
         )
         .await?;

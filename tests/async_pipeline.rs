@@ -23,7 +23,7 @@ use transferia::delivery::execution::middleware::Middleware;
 use transferia::delivery::execution::run_partition_pipeline;
 use transferia::metrics::{ParseCounters, SinkCounters};
 use transferia::middleware::filter::FilterMiddleware;
-use transferia::providers::clickhouse::{
+use transferia::connectors::clickhouse::{
     ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
 };
 
@@ -508,7 +508,7 @@ async fn blocked_sink_propagates_memory_backpressure_to_source_reads() {
 async fn source_failed_result_is_a_non_retryable_pipeline_failure() {
     for _ in 0..32 {
         let sink =
-            transferia::providers::discard::sink::DiscardSink::new(Arc::new(SinkCounters::new()));
+            transferia::connectors::discard::sink::DiscardSink::new(Arc::new(SinkCounters::new()));
         let error = run_partition_pipeline(
             Box::new(FailedSource),
             parser(),
@@ -537,7 +537,7 @@ async fn marker_only_delivery_is_acknowledged_and_committed() -> anyhow::Result<
         Box::new(source),
         parser(),
         Arc::new(Vec::new()),
-        Box::new(transferia::providers::discard::sink::DiscardSink::new(
+        Box::new(transferia::connectors::discard::sink::DiscardSink::new(
             Arc::new(SinkCounters::new()),
         )),
         PipelineMemory::new(1024),

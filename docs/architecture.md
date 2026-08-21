@@ -9,7 +9,7 @@ transferia-core
     ↓
 transferia-delivery-contracts
     ↓
-transferia-pipeline     transferia-providers
+transferia-pipeline     transferia-connectors
             ↘             ↙
              transferia-delivery
                     ↓
@@ -22,12 +22,12 @@ transferia-runtime-local  transferia-control-plane
 
 ## Ownership
 
-- `transferia-core` is the stable provider-neutral data-plane API.
+- `transferia-core` is the stable connector-neutral data-plane API.
 - `transferia-delivery-contracts` owns parser, middleware, retry, semantics, and
-  metrics contracts shared by providers and execution.
-- `transferia-pipeline` owns the provider-neutral per-partition read/parse/write/
-  commit pipeline. It intentionally does not depend on provider implementations.
-- `transferia-providers` owns concrete providers, parsers, serializers, durable
+  metrics contracts shared by connectors and execution.
+- `transferia-pipeline` owns the connector-neutral per-partition read/parse/write/
+  commit pipeline. It intentionally does not depend on connector implementations.
+- `transferia-connectors` owns concrete connectors, parsers, serializers, durable
   storage implementations, catalog composition, and extension registration.
 - `transferia-delivery` owns runnable configuration, preparation/discovery, and
   delivery-level execution/restart orchestration.
@@ -38,7 +38,7 @@ transferia-runtime-local  transferia-control-plane
 - `transferia-control-plane` owns HTTP, application services, persistence, logs,
   and the embedded web UI.
 - `transferia-composition` is the executable composition root. It is the only
-  crate that wires the control plane, local runtime, delivery, and providers.
+  crate that wires the control plane, local runtime, delivery, and connectors.
 
 Dependencies must point downward through this graph. A lower-level crate must
 not use a dev-dependency back to a higher-level crate; cross-layer tests belong

@@ -131,7 +131,7 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 ## Outbound HTTP security
 
 - Every production outbound HTTP request must use the repository's shared HTTP
-  client wrapper. Do not construct or execute a provider-local `reqwest::Client`,
+  client wrapper. Do not construct or execute a connector-local `reqwest::Client`,
   `hyper` client, or another general-purpose HTTP client directly.
 - The shared client must disable redirects. Treat every redirect as an SSRF
   boundary violation: never follow it automatically, including redirects that
@@ -140,7 +140,7 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   another destination.
 - Keep URL allow-listing, scheme and address validation, DNS/IP protections,
   timeouts, TLS policy, and credential redaction centralized in the same outbound
-  HTTP boundary. Provider code may add a narrower policy but must never weaken
+  HTTP boundary. Connector code may add a narrower policy but must never weaken
   the shared one.
 - Every new HTTP integration and every redirect-related bug fix needs a regression
   test proving that 3xx responses are not followed and that sensitive headers and
@@ -174,10 +174,10 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Repository architecture
 
-- `crates/transferia-core/` is the compiler-enforced stable data-plane API. It owns provider-neutral messages,
+- `crates/transferia-core/` is the compiler-enforced stable data-plane API. It owns connector-neutral messages,
   Arrow datasets and schemas, discovery and sink-limit contracts, memory leases,
   and the runtime `Source`/`Sink` ports. `core` may depend on external primitive
-  libraries, but never on providers, parsers, delivery preparation/execution,
+  libraries, but never on connectors, parsers, delivery preparation/execution,
   runtime adapters, or server code. The application crate re-exports it as
   `transferia::core`; do not recreate core types or compatibility wrappers under
   `src/`. Export the most important contracts from the core crate root so callers
@@ -187,37 +187,37 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   discovery, validation, and construction of a resolved `DeliveryPlan`; and
   `delivery/execution/` owns delivery-level partition startup and restart.
   Shared semantics, parser, middleware, retry, tracker, and metrics contracts
-  belong to `crates/transferia-delivery-contracts/`. The provider-neutral
+  belong to `crates/transferia-delivery-contracts/`. The connector-neutral
   read/parse/write/commit loop belongs to `crates/transferia-pipeline/`.
-- `crates/transferia-registry/` defines configured provider and middleware
+- `crates/transferia-registry/` defines configured connector and middleware
   factory boundaries, immutable component registration, UI definitions, and the
-  provider-neutral `Composition` port. It is intentionally not
+  connector-neutral `Composition` port. It is intentionally not
   `core::Source`/`core::Sink`: factories assemble parser, metrics,
   durable-storage, and runtime-port implementations around those core data-plane
   ports. Delivery orchestration depends on this neutral port and must never
-  depend on concrete provider crates.
-- `crates/transferia-provider-support/` owns provider-neutral parser,
+  depend on concrete connector crates.
+- `crates/transferia-connector-support/` owns connector-neutral parser,
   serializer, schema-registry, durable-storage, and address helpers. It must not
-  depend on any concrete provider crate.
-- Every heavyweight provider lives in its own `crates/transferia-provider-*`
-  crate. Provider crates may depend on core, registry, delivery contracts, and
-  provider support, but never on a sibling provider crate. Heavy client
-  dependencies belong exclusively to their provider crate; the architecture
+  depend on any concrete connector crate.
+- Every heavyweight connector lives in its own `crates/transferia-connector-*`
+  crate. Connector crates may depend on core, registry, delivery contracts, and
+  connector support, but never on a sibling connector crate. Heavy client
+  dependencies belong exclusively to their connector crate; the architecture
   checker enforces both rules.
 - Every middleware implementation lives in its own
   `crates/transferia-middleware-*` crate and registers its typed configuration,
   runtime factory, and optional preview capability through `transferia-registry`.
   Middleware crates may depend on core, registry, and delivery contracts, but
-  never on delivery orchestration, providers, or sibling middleware crates.
+  never on delivery orchestration, connectors, or sibling middleware crates.
   Heavy execution engines such as DataFusion belong exclusively to their
   middleware crate; delivery and control-plane code must use registry ports.
-- `crates/transferia-provider-logbroker/` owns Logbroker discovery, generated
+- `crates/transferia-connector-logbroker/` owns Logbroker discovery, generated
   YDB protocol types, YDB Topic and PQv1 transports, protocol decoding, and
   source/sink behavior. Do not expose Logbroker/YDB transport details through
-  provider-neutral modules.
-- Provider source implementations live in mode-specific `src_batch/`,
-  `src_stream/`, or `src_dblog/` modules. Keep provider-wide configuration and
-  transport in the provider root; each mode extends those common pieces with
+  connector-neutral modules.
+- Connector source implementations live in mode-specific `src_batch/`,
+  `src_stream/`, or `src_dblog/` modules. Keep connector-wide configuration and
+  transport in the connector root; each mode extends those common pieces with
   its own settings. Do not create empty mode modules before an implementation
   exists.
 - `crates/transferia-runtime/` defines the environment-neutral worker-runtime
@@ -225,14 +225,14 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   Executable CLI/worker composition belongs to `crates/transferia-composition/`.
   Future Kubernetes or EC2 implementations must be sibling runtime adapters.
   Delivery execution itself remains in `crates/transferia-delivery/` and the
-  provider-neutral per-partition pipeline lives in `crates/transferia-pipeline/`.
-  Name provider components after their responsibility, such as `reader`,
+  connector-neutral per-partition pipeline lives in `crates/transferia-pipeline/`.
+  Name connector components after their responsibility, such as `reader`,
   `writer`, `client`, or `actor`; never use a generic `runtime` module for
-  provider logic.
-- `crates/transferia-provider-clickhouse/` and
-  `crates/transferia-provider-s3/` own all destination-specific validation and
+  connector logic.
+- `crates/transferia-connector-clickhouse/` and
+  `crates/transferia-connector-s3/` own all destination-specific validation and
   runtime behavior. The same ownership rule applies to Kafka, PostgreSQL, and
-  YTsaurus in their respective provider crates.
+  YTsaurus in their respective connector crates.
 - `tests/` contains cross-component integration and end-to-end tests.
 
 Preserve the startup sequence: source discovery, semantic validation, sink-limit
@@ -348,17 +348,17 @@ repeated full-workspace commands.
 
 ### Preserve crate-local ownership
 
-- Provider-specific integration and E2E targets belong under that provider
+- Connector-specific integration and E2E targets belong under that connector
   crate's `tests/` directory. The root `tests/` directory is only for genuinely
-  cross-crate behavior. Otherwise checking one provider reconstructs a large
+  cross-crate behavior. Otherwise checking one connector reconstructs a large
   monolithic root test target.
 - Share integration-only utilities through `transferia-test-support`; never
   make production crates depend on root-test helpers.
 - Keep generators lightweight. Server DTO/schema generation belongs to
-  `transferia-server-contracts` and must not construct the provider catalog.
-  Provider catalog generation is a separate, explicitly heavy operation. Do
+  `transferia-server-contracts` and must not construct the connector catalog.
+  Connector catalog generation is a separate, explicitly heavy operation. Do
   not make `cargo build`, normal typechecking, or API contract generation pull
-  every provider or DataFusion into the dependency graph.
+  every connector or DataFusion into the dependency graph.
 - Builds and checks should consume generated artifacts without rewriting them.
   Regeneration is an explicit task performed only when the owning contract
   changes.
@@ -410,19 +410,19 @@ repeated full-workspace commands.
 
 - Every new source and sink must report through `SourceCounters`, `ParseCounters`,
   and `SinkCounters` so the standard reporter emits one stable, parseable line per
-  partition and interval. Do not invent provider-local throughput log formats.
+  partition and interval. Do not invent connector-local throughput log formats.
 - Preserve the named `[stats p=<partition>]` sections and units emitted by
   `src/metrics/mod.rs`: source message/compressed/decompressed rates and response
   wait, parser rows/Arrow/DLQ/source-message rates, sink rows/bytes/flushes/source-
   message rates, attempt load, retries, buffering/object gauges, backpressure,
   delivery guarantee, CPU, and RSS.
-- A provider that does not perform a stage must report zero/`N/A` through the
+- A connector that does not perform a stage must report zero/`N/A` through the
   common counters; it must not remove or reorder fields. Sink `busy` is attempt
   load, not CPU utilization, and may exceed 100% when operations are concurrent.
 - Any deliberate log-contract change must update `scripts/stats_avg.py`,
   `scripts/run_single_partition_benchmark.py`, their separate tests, and
   `docs/benchmarks.md` in the same commit.
-- Before accepting a new provider, feed representative provider log lines through
+- Before accepting a new connector, feed representative connector log lines through
   `scripts/stats_avg.py` and add a regression fixture proving they parse. Use the
   restored aggregator as `python3 scripts/stats_avg.py transferia.log` or pipe
   logs on stdin; use `--json` for automation.
@@ -433,7 +433,7 @@ repeated full-workspace commands.
   enum variant, separate adjacent fields with exactly one blank line. A field's
   doc comments and attributes belong to that field: keep them together without
   blank lines, and put the separator before the comments or attributes of the
-  following field. Apply this convention to shared, nested, provider, parser,
+  following field. Apply this convention to shared, nested, connector, parser,
   sink, source, and internal configuration types alike, even when a helper type
   does not have a `Config` suffix.
 - Search for and remove obsolete names, options, comments, tests, and docs after

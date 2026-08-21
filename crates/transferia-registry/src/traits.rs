@@ -102,7 +102,7 @@ pub struct OptionsRequest {
     pub dependencies: BTreeMap<String, String>,
 }
 
-pub trait SourceProvider: Send + Sync {
+pub trait SourceConnector: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
 
     fn delivery_discovery(
@@ -136,7 +136,7 @@ pub struct SourceBuildContext {
     pub durable: DurableContext,
 }
 
-pub trait SinkProvider: Send + Sync {
+pub trait SinkConnector: Send + Sync {
     fn compatibility(&self) -> EndpointDescriptor;
 
     fn limits(&self) -> &dyn SinkLimits;

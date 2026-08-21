@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn rejects_multiple_source_providers() -> anyhow::Result<()> {
+fn rejects_multiple_source_connectors() -> anyhow::Result<()> {
     let config: Config =
         serde_yaml::from_str("delivery_id: test\ndelivery_type: batch\ndurable_storage: { type: local_file, path: /tmp/state }\nsource: {a: {}, b: {}}\nsink: {clickhouse: {}}\nmiddlewares: []\n")?;
     anyhow::ensure!(config.source.kind().is_err());
@@ -9,7 +9,7 @@ fn rejects_multiple_source_providers() -> anyhow::Result<()> {
 }
 
 #[test]
-fn rejects_provider_specific_top_level_fields() {
+fn rejects_connector_specific_top_level_fields() {
     let result = serde_yaml::from_str::<Config>(
         "source: {pqv1: {}}\nsink: {clickhouse: {}}\nrecreate_tables: true\n",
     );

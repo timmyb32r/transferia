@@ -28,64 +28,64 @@ PRODUCTION_ALLOWED = {
         "transferia-delivery-contracts",
         "transferia-registry",
     },
-    "transferia-provider-support": {
+    "transferia-connector-support": {
         "transferia-core",
         "transferia-delivery-contracts",
         "transferia-registry",
     },
-    "transferia-provider-clickhouse": {
+    "transferia-connector-clickhouse": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-iceberg": {
+    "transferia-connector-iceberg": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-kafka": {
+    "transferia-connector-kafka": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-logbroker": {
+    "transferia-connector-logbroker": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-postgres": {
+    "transferia-connector-postgres": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-s3": {
+    "transferia-connector-s3": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-provider-ytsaurus": {
+    "transferia-connector-ytsaurus": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-support",
+        "transferia-connector-support",
         "transferia-registry",
     },
-    "transferia-providers": {
+    "transferia-connectors": {
         "transferia-core",
         "transferia-delivery-contracts",
-        "transferia-provider-clickhouse",
-        "transferia-provider-iceberg",
-        "transferia-provider-kafka",
-        "transferia-provider-logbroker",
-        "transferia-provider-postgres",
-        "transferia-provider-s3",
-        "transferia-provider-support",
-        "transferia-provider-ytsaurus",
+        "transferia-connector-clickhouse",
+        "transferia-connector-iceberg",
+        "transferia-connector-kafka",
+        "transferia-connector-logbroker",
+        "transferia-connector-postgres",
+        "transferia-connector-s3",
+        "transferia-connector-support",
+        "transferia-connector-ytsaurus",
         "transferia-middleware-datafusion",
         "transferia-middleware-filter",
         "transferia-registry",
@@ -110,7 +110,7 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery",
         "transferia-delivery-contracts",
-        "transferia-providers",
+        "transferia-connectors",
         "transferia-registry",
         "transferia-runtime",
         "transferia-server-contracts",
@@ -119,31 +119,31 @@ PRODUCTION_ALLOWED = {
     "transferia-composition": {
         "transferia-control-plane",
         "transferia-delivery",
-        "transferia-providers",
+        "transferia-connectors",
         "transferia-runtime",
         "transferia-runtime-local",
     },
 }
 
 DEV_EXTRA = {
-    "transferia-provider-clickhouse": {"transferia-test-support"},
-    "transferia-provider-iceberg": {"transferia-test-support"},
-    "transferia-provider-kafka": {"transferia-test-support"},
-    "transferia-provider-logbroker": {"transferia-test-support"},
-    "transferia-provider-s3": {"transferia-pipeline", "transferia-test-support"},
-    "transferia-provider-support": {"transferia-pipeline"},
-    "transferia-provider-ytsaurus": {"transferia-test-support"},
-    "transferia-providers": {"transferia-pipeline"},
+    "transferia-connector-clickhouse": {"transferia-test-support"},
+    "transferia-connector-iceberg": {"transferia-test-support"},
+    "transferia-connector-kafka": {"transferia-test-support"},
+    "transferia-connector-logbroker": {"transferia-test-support"},
+    "transferia-connector-s3": {"transferia-pipeline", "transferia-test-support"},
+    "transferia-connector-support": {"transferia-pipeline"},
+    "transferia-connector-ytsaurus": {"transferia-test-support"},
+    "transferia-connectors": {"transferia-pipeline"},
 }
 
-HEAVY_PROVIDER_OWNERS = {
-    "clickhouse-arrow": "transferia-provider-clickhouse",
-    "object_store": "transferia-provider-s3",
-    "postgres-types": "transferia-provider-postgres",
-    "rdkafka": "transferia-provider-kafka",
-    "tokio-postgres": "transferia-provider-postgres",
-    "tokio-postgres-rustls": "transferia-provider-postgres",
-    "ydb-grpc": "transferia-provider-logbroker",
+HEAVY_CONNECTOR_OWNERS = {
+    "clickhouse-arrow": "transferia-connector-clickhouse",
+    "object_store": "transferia-connector-s3",
+    "postgres-types": "transferia-connector-postgres",
+    "rdkafka": "transferia-connector-kafka",
+    "tokio-postgres": "transferia-connector-postgres",
+    "tokio-postgres-rustls": "transferia-connector-postgres",
+    "ydb-grpc": "transferia-connector-logbroker",
     "datafusion": "transferia-middleware-datafusion",
 }
 
@@ -157,9 +157,9 @@ def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]
     return {name for name in dependencies if name.startswith("transferia-")}
 
 
-def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
+def connector_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
     errors: list[str] = []
-    for dependency, owner in sorted(HEAVY_PROVIDER_OWNERS.items()):
+    for dependency, owner in sorted(HEAVY_CONNECTOR_OWNERS.items()):
         for crate, manifest in manifests.items():
             dependencies = manifest.get("dependencies", {})
             if isinstance(dependencies, dict) and dependency in dependencies and crate != owner:
@@ -167,15 +167,15 @@ def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[s
                     f"{crate}: heavy dependency '{dependency}' belongs only to {owner}"
                 )
 
-    provider_crates = {
-        name for name in manifests if name.startswith("transferia-provider-")
-    } - {"transferia-provider-support"}
-    for crate in sorted(provider_crates):
+    connector_crates = {
+        name for name in manifests if name.startswith("transferia-connector-")
+    } - {"transferia-connector-support"}
+    for crate in sorted(connector_crates):
         dependencies = internal_dependencies(manifests[crate], "dependencies")
-        siblings = (dependencies & provider_crates) - {crate}
+        siblings = (dependencies & connector_crates) - {crate}
         if siblings:
             errors.append(
-                f"{crate}: provider crates must not depend on siblings: {', '.join(sorted(siblings))}"
+                f"{crate}: connector crates must not depend on siblings: {', '.join(sorted(siblings))}"
             )
     middleware_crates = {
         name for name in manifests if name.startswith("transferia-middleware-")
@@ -192,7 +192,7 @@ def provider_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[s
 
 def outbound_http_boundary_errors() -> list[str]:
     errors: list[str] = []
-    wrapper = ROOT / "crates/transferia-provider-support/src/outbound_http.rs"
+    wrapper = ROOT / "crates/transferia-connector-support/src/outbound_http.rs"
     for source_path in sorted((ROOT / "crates").glob("*/src/**/*.rs")):
         if source_path == wrapper or "/tests/" in source_path.as_posix():
             continue
@@ -200,7 +200,7 @@ def outbound_http_boundary_errors() -> list[str]:
         if DIRECT_HTTP_CLIENT.search(source):
             errors.append(
                 f"{source_path.relative_to(ROOT)}: direct reqwest client construction is forbidden; "
-                "use transferia_provider_support::outbound_http"
+                "use transferia_connector_support::outbound_http"
             )
     return errors
 
@@ -239,7 +239,7 @@ def main() -> int:
     if list((ROOT / "src").glob("**/*.rs")) != [ROOT / "src/lib.rs"]:
         errors.append("root transferia facade must contain only src/lib.rs")
     if not (PRODUCTION_ALLOWED.keys() - discovered):
-        errors.extend(provider_isolation_errors(manifests))
+        errors.extend(connector_isolation_errors(manifests))
     errors.extend(outbound_http_boundary_errors())
 
     if errors:

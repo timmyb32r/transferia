@@ -13,7 +13,7 @@ SPEC.loader.exec_module(boundaries)
 
 
 class CrateBoundariesTest(unittest.TestCase):
-    def test_provider_pipeline_dependency_is_allowed_only_for_tests(self):
+    def test_connector_pipeline_dependency_is_allowed_only_for_tests(self):
         manifest = {
             "dependencies": {"transferia-pipeline": {"path": "../transferia-pipeline"}},
             "dev-dependencies": {"transferia-pipeline": {"path": "../transferia-pipeline"}},
@@ -23,37 +23,37 @@ class CrateBoundariesTest(unittest.TestCase):
         development = boundaries.internal_dependencies(manifest, "dev-dependencies")
 
         self.assertNotEqual(
-            production - boundaries.PRODUCTION_ALLOWED["transferia-providers"],
+            production - boundaries.PRODUCTION_ALLOWED["transferia-connectors"],
             set(),
         )
         self.assertEqual(
             development
             - (
-                boundaries.PRODUCTION_ALLOWED["transferia-providers"]
-                | boundaries.DEV_EXTRA["transferia-providers"]
+                boundaries.PRODUCTION_ALLOWED["transferia-connectors"]
+                | boundaries.DEV_EXTRA["transferia-connectors"]
             ),
             set(),
         )
 
-    def test_heavy_dependencies_are_owned_by_isolated_provider_crates(self):
+    def test_heavy_dependencies_are_owned_by_isolated_connector_crates(self):
         manifests = {
             owner: {"dependencies": {dependency: {"workspace": True}}}
-            for dependency, owner in boundaries.HEAVY_PROVIDER_OWNERS.items()
+            for dependency, owner in boundaries.HEAVY_CONNECTOR_OWNERS.items()
         }
-        manifests["transferia-provider-support"] = {"dependencies": {}}
-        manifests["transferia-providers"] = {"dependencies": {}}
+        manifests["transferia-connector-support"] = {"dependencies": {}}
+        manifests["transferia-connectors"] = {"dependencies": {}}
         manifests["transferia-middleware-datafusion"] = {
             "dependencies": {"datafusion": {"workspace": True}}
         }
 
-        self.assertEqual(boundaries.provider_isolation_errors(manifests), [])
+        self.assertEqual(boundaries.connector_isolation_errors(manifests), [])
 
-        manifests["transferia-provider-clickhouse"]["dependencies"]["rdkafka"] = {
+        manifests["transferia-connector-clickhouse"]["dependencies"]["rdkafka"] = {
             "workspace": True
         }
         self.assertIn(
-            "transferia-provider-clickhouse: heavy dependency 'rdkafka' belongs only to transferia-provider-kafka",
-            boundaries.provider_isolation_errors(manifests),
+            "transferia-connector-clickhouse: heavy dependency 'rdkafka' belongs only to transferia-connector-kafka",
+            boundaries.connector_isolation_errors(manifests),
         )
 
     def test_datafusion_is_owned_only_by_its_registered_component_crate(self):
@@ -63,14 +63,14 @@ class CrateBoundariesTest(unittest.TestCase):
             },
             "transferia-delivery": {"dependencies": {}},
         }
-        self.assertEqual(boundaries.provider_isolation_errors(manifests), [])
+        self.assertEqual(boundaries.connector_isolation_errors(manifests), [])
 
         manifests["transferia-delivery"]["dependencies"]["datafusion"] = {
             "workspace": True
         }
         self.assertIn(
             "transferia-delivery: heavy dependency 'datafusion' belongs only to transferia-middleware-datafusion",
-            boundaries.provider_isolation_errors(manifests),
+            boundaries.connector_isolation_errors(manifests),
         )
 
     def test_middleware_crates_cannot_depend_on_each_other(self):
@@ -84,21 +84,21 @@ class CrateBoundariesTest(unittest.TestCase):
         }
         self.assertIn(
             "transferia-middleware-datafusion: middleware crates must not depend on siblings: transferia-middleware-filter",
-            boundaries.provider_isolation_errors(manifests),
+            boundaries.connector_isolation_errors(manifests),
         )
 
-    def test_provider_crates_cannot_depend_on_each_other(self):
+    def test_connector_crates_cannot_depend_on_each_other(self):
         manifests = {
-            "transferia-provider-clickhouse": {
-                "dependencies": {"transferia-provider-kafka": {"path": "../kafka"}}
+            "transferia-connector-clickhouse": {
+                "dependencies": {"transferia-connector-kafka": {"path": "../kafka"}}
             },
-            "transferia-provider-kafka": {"dependencies": {}},
-            "transferia-provider-support": {"dependencies": {}},
+            "transferia-connector-kafka": {"dependencies": {}},
+            "transferia-connector-support": {"dependencies": {}},
         }
 
         self.assertIn(
-            "transferia-provider-clickhouse: provider crates must not depend on siblings: transferia-provider-kafka",
-            boundaries.provider_isolation_errors(manifests),
+            "transferia-connector-clickhouse: connector crates must not depend on siblings: transferia-connector-kafka",
+            boundaries.connector_isolation_errors(manifests),
         )
 
 

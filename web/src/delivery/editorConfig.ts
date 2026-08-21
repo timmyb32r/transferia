@@ -33,11 +33,11 @@ export function validateCatalogSchemas(
   widgets: WidgetContracts,
 ): void {
   compiledSchema(catalog.common_schema, widgets);
-  for (const provider of catalog.providers) {
-    if (provider.source !== undefined)
-      compiledSchema(provider.source.schema, widgets);
-    if (provider.sink !== undefined)
-      compiledSchema(provider.sink.schema, widgets);
+  for (const connector of catalog.connectors) {
+    if (connector.source !== undefined)
+      compiledSchema(connector.source.schema, widgets);
+    if (connector.sink !== undefined)
+      compiledSchema(connector.sink.schema, widgets);
   }
 }
 
@@ -68,11 +68,11 @@ export function selectedEndpoints(
 } {
   const sourceKey = singleKey(config.source);
   const sinkKey = singleKey(config.sink);
-  const source = catalog.providers.find(
-    (provider) => provider.key === sourceKey,
+  const source = catalog.connectors.find(
+    (connector) => connector.key === sourceKey,
   )?.source;
-  const sink = catalog.providers.find(
-    (provider) => provider.key === sinkKey,
+  const sink = catalog.connectors.find(
+    (connector) => connector.key === sinkKey,
   )?.sink;
   const deliveryType = stringValue(config.delivery_type);
   let error: string | undefined;
@@ -86,7 +86,7 @@ export function selectedEndpoints(
     );
     if (missing.length > 0) {
       const title =
-        catalog.providers.find((provider) => provider.key === sourceKey)
+        catalog.connectors.find((connector) => connector.key === sourceKey)
           ?.title ?? sourceKey;
       error = `${title} does not support ${deliveryType.replaceAll("_", " ")} delivery.`;
     }

@@ -1,0 +1,35 @@
+[package]
+name = "transferia-connector-postgres"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+postgres-types.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
+rustls-pemfile.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-postgres-rustls.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-connector-support = { path = "../transferia-connector-support" }
+transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+serde_yaml.workspace = true
+
+[lints]
+workspace = true

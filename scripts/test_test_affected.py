@@ -21,9 +21,9 @@ class AffectedChecksTest(unittest.TestCase):
         self.assertEqual(rust, [])
         self.assertEqual(web, [["npm", "run", "typecheck"]])
 
-    def test_provider_change_runs_only_its_cargo_check(self):
+    def test_connector_change_runs_only_its_cargo_check(self):
         selection = test_affected.select([
-            "crates/transferia-provider-clickhouse/src/providers/clickhouse/sink/client.rs"
+            "crates/transferia-connector-clickhouse/src/connectors/clickhouse/sink/client.rs"
         ])
         rust, web = test_affected.commands(selection)
 
@@ -37,18 +37,18 @@ class AffectedChecksTest(unittest.TestCase):
                 "--all-targets",
                 "--all-features",
                 "-p",
-                "transferia-provider-clickhouse",
+                "transferia-connector-clickhouse",
             ]],
         )
 
     def test_public_crate_surface_includes_transitive_dependents_in_one_check(self):
         rust, _ = test_affected.commands(
-            test_affected.select(["crates/transferia-providers/src/lib.rs"])
+            test_affected.select(["crates/transferia-connectors/src/lib.rs"])
         )
 
         self.assertEqual(len(rust), 2)
         self.assertEqual(rust[0][:4], ["cargo", "check", "--all-targets", "--all-features"])
-        self.assertIn("transferia-providers", rust[0])
+        self.assertIn("transferia-connectors", rust[0])
         self.assertEqual(rust[1][:5], ["cargo", "check", "--lib", "--bins", "--all-features"])
         self.assertIn("transferia-composition", rust[1])
         self.assertNotIn("transferia-delivery", rust[1])
@@ -65,7 +65,7 @@ class AffectedChecksTest(unittest.TestCase):
         self.assertNotIn("fmt", flattened)
         self.assertNotIn("transferia-delivery", flattened)
         self.assertIn("transferia-middleware-datafusion", flattened)
-        self.assertIn("transferia-providers", flattened)
+        self.assertIn("transferia-connectors", flattened)
 
     def test_changed_integration_test_is_checked_but_not_executed(self):
         rust, _ = test_affected.commands(
@@ -115,9 +115,9 @@ class AffectedChecksTest(unittest.TestCase):
         )
         self.assertNotIn(["just", "catalog-contract-check"], rust)
 
-    def test_provider_config_runs_catalog_contract_gate(self):
+    def test_connector_config_runs_catalog_contract_gate(self):
         selection = test_affected.select([
-            "crates/transferia-provider-kafka/src/providers/kafka/config.rs"
+            "crates/transferia-connector-kafka/src/connectors/kafka/config.rs"
         ])
         rust, web = test_affected.commands(selection)
 

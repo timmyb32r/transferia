@@ -32,12 +32,12 @@ use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::delivery::execution::run_partition_pipeline;
 use transferia::metrics::{MetricsRegistry, ParseCounters, SinkCounters};
-use transferia::providers::clickhouse::ClickHouseSinkProvider;
-use transferia::providers::postgres::{PostgresSinkProvider, PostgresSourceProvider};
-use transferia::providers::s3::sink::{S3SinkConfig, S3SinkProvider};
+use transferia::connectors::clickhouse::ClickHouseSinkConnector;
+use transferia::connectors::postgres::{PostgresSinkConnector, PostgresSourceConnector};
+use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
 use transferia::registry::{
-    SinkBuildContext, SinkPrepare, SinkProvider as _, SourceBuildContext, SourceDiscoveryContext,
-    SourceProvider as _,
+    SinkBuildContext, SinkPrepare, SinkConnector as _, SourceBuildContext, SourceDiscoveryContext,
+    SourceConnector as _,
 };
 
 const POSTGRES_IMAGE: &str = "postgres";
@@ -89,8 +89,8 @@ async fn wait_for_tcp(host: &str, port: u16) -> anyhow::Result<()> {
 }
 
 async fn run_pipeline(
-    source: &PostgresSourceProvider,
-    sink: &dyn transferia::registry::SinkProvider,
+    source: &PostgresSourceConnector,
+    sink: &dyn transferia::registry::SinkConnector,
     discovery: Arc<DeliveryDiscovery>,
 ) -> anyhow::Result<()> {
     sink.limits().validate_discovery(&discovery)?;
@@ -172,8 +172,8 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     let pg_connection =
         format!("host={pg_host} port={pg_port} user=postgres password=test dbname=transferia");
     let pg = wait_for_postgres(&pg_connection).await?;
-    transferia::providers::postgres::check_connection(
-        &transferia::providers::postgres::PostgresConnectionConfig {
+    transferia::connectors::postgres::check_connection(
+        &transferia::connectors::postgres::PostgresConnectionConfig {
             host: pg_host.clone(),
             port: pg_port,
             database: "transferia".to_owned(),
@@ -190,7 +190,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     )
     .await?;
 
-    let source = PostgresSourceProvider::from_config(
+    let source = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
             "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 1\ntables:\n  - name: events\n"
         ))?,
@@ -222,7 +222,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     let ch_native = clickhouse.get_host_port_ipv4(9000.tcp()).await?;
     let ch_http = clickhouse.get_host_port_ipv4(8123.tcp()).await?;
     wait_for_tcp(&ch_host, ch_native).await?;
-    let clickhouse_sink = ClickHouseSinkProvider::from_config(serde_yaml::from_str(&format!(
+    let clickhouse_sink = ClickHouseSinkConnector::from_config(serde_yaml::from_str(&format!(
         "hosts: ['{ch_host}']\nport: {ch_native}\ntrusted_plaintext: true\ndatabase: default\nusername: default\nflush_interval_ms: 10\n"
     ))?)?;
     let mut last_error = None;
@@ -296,7 +296,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     let s3_yaml = format!(
         "bucket: postgres-source-e2e\nobject_layout_version: 5\nprefix: pg\nregion: us-east-1\nhost: '{s3_host}'\nport: {s3_port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
     );
-    let s3_sink = S3SinkProvider::from_config(serde_yaml::from_str(&s3_yaml)?)?;
+    let s3_sink = S3SinkConnector::from_config(serde_yaml::from_str(&s3_yaml)?)?;
     run_pipeline(&source, &s3_sink, Arc::clone(&discovery)).await?;
     let store = serde_yaml::from_str::<S3SinkConfig>(&s3_yaml)?.build_store()?;
     let mut objects = store.list(Some(&Path::from("pg/events")));
@@ -344,7 +344,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
             system_columns: Vec::new(),
         }],
     });
-    let postgres_sink = PostgresSinkProvider::from_config(serde_yaml::from_str(&format!(
+    let postgres_sink = PostgresSinkConnector::from_config(serde_yaml::from_str(&format!(
         "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\n"
     ))?)?;
     postgres_sink.limits().validate_discovery(&copy_discovery)?;

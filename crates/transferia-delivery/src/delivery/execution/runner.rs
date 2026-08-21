@@ -16,15 +16,15 @@ use transferia_delivery_contracts::parser::ParserFactory;
 use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
 use transferia_registry::durable::DurableContext;
 use transferia_registry::{
-    SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext, SourceProvider,
+    SinkBuildContext, SinkPrepare, SinkConnector, SourceBuildContext, SourceConnector,
 };
 
 #[derive(Clone)]
 struct PipelineDependencies {
     parser: Arc<dyn ParserFactory>,
     middlewares: Arc<Vec<Box<dyn Middleware>>>,
-    source_provider: Arc<dyn SourceProvider>,
-    sink_provider: Arc<dyn SinkProvider>,
+    source_connector: Arc<dyn SourceConnector>,
+    sink_connector: Arc<dyn SinkConnector>,
     discovery: Arc<DeliveryDiscovery>,
     memory_limit: usize,
     cancellation: CancellationToken,
@@ -152,8 +152,8 @@ async fn start_pipeline(
         config,
         durable,
         metrics_registry,
-        source_provider,
-        sink_provider,
+        source_connector,
+        sink_connector,
         discovery,
         middlewares,
         semantics,
@@ -161,10 +161,10 @@ async fn start_pipeline(
         ..
     } = plan;
     tracing::info!(report = %serde_json::to_string(&semantics)?, "delivery semantics inferred from configuration");
-    tracing::info!(limits = %serde_json::to_string(&sink_provider.limits().description())?, "sink limits validated against delivery discovery");
+    tracing::info!(limits = %serde_json::to_string(&sink_connector.limits().description())?, "sink limits validated against delivery discovery");
 
-    let parses_rows = source_provider.parses_rows();
-    let parser = source_provider.parser();
+    let parses_rows = source_connector.parses_rows();
+    let parser = source_connector.parser();
     let partitions = discovery
         .source_topology
         .partitions_for_worker(total_workers, worker_index)?;
@@ -174,7 +174,7 @@ async fn start_pipeline(
     }
 
     if let Some(request) = SinkPrepare::from_discovery(&discovery)? {
-        sink_provider.prepare(request).await?;
+        sink_connector.prepare(request).await?;
     }
     if let Some(metrics) = &config.metrics {
         spawn_stats_reporter(
@@ -187,8 +187,8 @@ async fn start_pipeline(
     let dependencies = PipelineDependencies {
         parser,
         middlewares: Arc::new(middlewares),
-        source_provider,
-        sink_provider,
+        source_connector,
+        sink_connector,
         discovery,
         memory_limit: config.pipeline_memory_limit_bytes,
         cancellation: cancellation.clone(),
@@ -236,7 +236,7 @@ async fn run_partition_attempt(
 ) -> DataPlaneResult<()> {
     let memory = PipelineMemory::new(dependencies.memory_limit);
     let source = dependencies
-        .source_provider
+        .source_connector
         .build_source(SourceBuildContext {
             partition_id,
             cancellation: attempt_token.clone(),
@@ -246,7 +246,7 @@ async fn run_partition_attempt(
         .await
         .map_err(|error| DataPlaneFailure::retryable(error.context("source creation failed")))?;
     let sink = dependencies
-        .sink_provider
+        .sink_connector
         .build_sink(SinkBuildContext {
             partition_id,
             counters: sink_counters,

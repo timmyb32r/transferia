@@ -1,4 +1,4 @@
-//! Provider-neutral runtime component registry.
+//! Connector-neutral runtime component registry.
 
 mod definition;
 pub mod durable;
@@ -6,7 +6,7 @@ mod registry;
 mod traits;
 mod ui_contract;
 
-pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, ProviderDefinition};
+pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, ConnectorDefinition};
 pub use registry::Composition;
 pub use registry::{
     ComponentRegistration, MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration,
@@ -14,8 +14,8 @@ pub use registry::{
 };
 pub use traits::{
     ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
-    EndpointRole, OptionsRequest, SinkBuildContext, SinkPrepare, SinkProvider, SourceBuildContext,
-    SourceDiscoveryContext, SourceProvider,
+    EndpointRole, OptionsRequest, SinkBuildContext, SinkPrepare, SinkConnector, SourceBuildContext,
+    SourceDiscoveryContext, SourceConnector,
 };
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 # transferia
 
 A performance-oriented Rust data integrator. The active runtime
-creates one logical pipeline and sink actor per stream partition or batch split, while providers
+creates one logical pipeline and sink actor per stream partition or batch split, while connectors
 share expensive connection pools and upload clients:
 
 ```text
@@ -9,18 +9,18 @@ YDB Topics (YDB or PQv1 driver) / PostgreSQL / YTsaurus -> parser or native Arro
                                                                                -> ClickHouse | PostgreSQL | S3 | YTsaurus
 ```
 
-Source and sink providers are selected from a small runtime registry; parser
+Source and sink connectors are selected from a small runtime registry; parser
 kinds are validated explicitly. The executable registers `logbroker` (with YDB
 and PQv1 source and sink drivers), finite-snapshot `postgres`, `clickhouse`,
 `s3`, and `ytsaurus` sources; `clickhouse`, `postgres`, `s3`, and `ytsaurus`
 sinks; and the non-durable `discard` sink used by explicit benchmark configurations.
 
-Source implementations are grouped by delivery mode inside each provider:
+Source implementations are grouped by delivery mode inside each connector:
 `src_batch` contains finite snapshot readers and `src_stream` contains live
 streams. `src_dblog` is reserved for database-log readers and will be added with
-the first implementation. Provider-wide transport, credentials, and shared
-configuration remain at the provider root; mode-specific configuration belongs
-to the corresponding source module. A provider may expose more than one source
+the first implementation. Connector-wide transport, credentials, and shared
+configuration remain at the connector root; mode-specific configuration belongs
+to the corresponding source module. A connector may expose more than one source
 mode without duplicating its common contract.
 
 For the demonstration control plane, run:
@@ -29,7 +29,7 @@ For the demonstration control plane, run:
 transferia --server --bind 127.0.0.1:8080 --state-dir .transferia-server
 ```
 
-The embedded Preact UI saves incomplete drafts, renders provider forms from the
+The embedded Preact UI saves incomplete drafts, renders connector forms from the
 Rust-generated schema catalog, and keeps a copyable runnable YAML preview.
 Validation and activation share the same complete preflight sequence as a CLI
 worker. The local supervisor waits for child readiness, tracks exits, and stops
@@ -225,7 +225,7 @@ transferia --config ./config.yaml --total-workers 1 --worker-index 0
 
 YAML values are parsed literally and are never implicitly expanded from the
 process environment. This keeps the UI preview, validation, and worker startup
-semantically identical. Credential files may use the provider's documented path
+semantically identical. Credential files may use the connector's documented path
 handling; explicit environment references can be added later as a typed config
 feature. Byte sizes accept `B`, `KiB`, `MiB`,
 and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
@@ -344,7 +344,7 @@ work. Existing tables are checked against the Arrow schema before ingestion.
 Ready-to-edit benchmark configurations live in `benchmarks/`. The three
 `discard` variants isolate network, decompression, and parsing; separate configs
 exercise the full ClickHouse and S3 paths. Repository tests parse and validate
-every benchmark config against the registered provider schemas. Run and compare
+every benchmark config against the registered connector schemas. Run and compare
 them with `scripts/run_single_partition_benchmark.py`; the complete procedure,
 environment overrides, backlog requirements, and regression rule are in
 `docs/benchmarks.md`.

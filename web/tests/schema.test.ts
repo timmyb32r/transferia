@@ -13,13 +13,13 @@ import { draftValue } from "../src/schema/draft";
 import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 
 describe("schema compiler", () => {
-  it("validates every provider schema before the catalog becomes interactive", () => {
+  it("validates every connector schema before the catalog becomes interactive", () => {
     expect(() =>
       validateCatalogSchemas(
         {
           common_schema: { type: "object" },
           initial: {},
-          providers: [
+          connectors: [
             {
               key: "broken",
               title: "Broken",
