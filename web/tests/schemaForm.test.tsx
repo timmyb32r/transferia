@@ -510,7 +510,7 @@ describe("schema form", () => {
       button: 0,
     });
     const search = view.getByRole("searchbox") as HTMLInputElement;
-    expect(search.autocomplete).toBe("off");
+    expect(search.autocomplete).toBe("new-password");
     fireEvent.input(search, { target: { value: "int" } });
     expect(view.queryByRole("option", { name: "Utf8" })).toBeNull();
     expect(view.getByRole("option", { name: "Int64" })).toBeTruthy();
