@@ -39,6 +39,12 @@ PRODUCTION_ALLOWED = {
         "transferia-provider-support",
         "transferia-registry",
     },
+    "transferia-provider-iceberg": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-provider-support",
+        "transferia-registry",
+    },
     "transferia-provider-kafka": {
         "transferia-core",
         "transferia-delivery-contracts",
@@ -73,6 +79,7 @@ PRODUCTION_ALLOWED = {
         "transferia-core",
         "transferia-delivery-contracts",
         "transferia-provider-clickhouse",
+        "transferia-provider-iceberg",
         "transferia-provider-kafka",
         "transferia-provider-logbroker",
         "transferia-provider-postgres",
@@ -91,11 +98,18 @@ PRODUCTION_ALLOWED = {
     },
     "transferia-runtime": set(),
     "transferia-runtime-local": {"transferia-runtime"},
-    "transferia-server-contracts": {"transferia-runtime"},
+    "transferia-server-contracts": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-registry",
+        "transferia-runtime",
+    },
     "transferia-server-ui": set(),
+    "transferia-test-support": {"transferia-registry"},
     "transferia-control-plane": {
         "transferia-core",
         "transferia-delivery",
+        "transferia-delivery-contracts",
         "transferia-providers",
         "transferia-registry",
         "transferia-runtime",
@@ -112,8 +126,13 @@ PRODUCTION_ALLOWED = {
 }
 
 DEV_EXTRA = {
-    "transferia-provider-s3": {"transferia-pipeline"},
+    "transferia-provider-clickhouse": {"transferia-test-support"},
+    "transferia-provider-iceberg": {"transferia-test-support"},
+    "transferia-provider-kafka": {"transferia-test-support"},
+    "transferia-provider-logbroker": {"transferia-test-support"},
+    "transferia-provider-s3": {"transferia-pipeline", "transferia-test-support"},
     "transferia-provider-support": {"transferia-pipeline"},
+    "transferia-provider-ytsaurus": {"transferia-test-support"},
     "transferia-providers": {"transferia-pipeline"},
 }
 
