@@ -222,7 +222,12 @@ describe("App request orchestration", () => {
     });
     chooseFromSelect(app, "Delivery type", "Batch");
     chooseFromSelect(app, "Source", "Test source");
+    expect(app.queryByText("Host")).toBeNull();
+    expect(app.queryByText("Pipeline settings")).toBeNull();
     chooseFromSelect(app, "Destination", "Test destination");
+    expect(app.getByText("Host")).toBeTruthy();
+    expect(app.getByText("Database")).toBeTruthy();
+    expect(app.getByText("Pipeline settings")).toBeTruthy();
     scrollIntoView.mockClear();
 
     fireEvent.click(app.getByRole("tab", { name: "Data schema" }));

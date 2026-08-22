@@ -44,6 +44,10 @@ export function DeliveryConfiguration({
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
   const deliveryTypeSelected = stringValue(editor.config.delivery_type) !== "";
+  const routeSelectionComplete =
+    deliveryTypeSelected &&
+    (selection?.sourceKey ?? "") !== "" &&
+    (selection?.sinkKey ?? "") !== "";
   const sourceConnectors = catalog.connectors.filter(
     (connector) => connector.source !== undefined,
   );
@@ -143,6 +147,7 @@ export function DeliveryConfiguration({
                 : { endpoint: selection.source })}
               config={editor.config}
               readOnly={readOnly}
+              showSettings={routeSelectionComplete}
               showRequiredErrors={requiredErrorScope !== "none"}
               onChoose={onChooseEndpoint}
               onConfig={onConfig}
@@ -159,11 +164,14 @@ export function DeliveryConfiguration({
                 : { endpoint: selection.sink })}
               config={editor.config}
               readOnly={readOnly}
+              showSettings={routeSelectionComplete}
               showRequiredErrors={requiredErrorScope === "all"}
               onChoose={onChooseEndpoint}
               onConfig={onConfig}
             />
-            {selection?.error === undefined && selection?.source && (
+            {routeSelectionComplete &&
+              selection?.error === undefined &&
+              selection?.source && (
               <ParserDetailsForm
                 node={compiledSchema(selection.source.schema, widgets)}
                 value={endpointValue(
@@ -181,7 +189,9 @@ export function DeliveryConfiguration({
                 }
               />
             )}
-            {selection?.error === undefined && selection?.sink && (
+            {routeSelectionComplete &&
+              selection?.error === undefined &&
+              selection?.sink && (
               <SerializerDetailsForm
                 node={compiledSchema(selection.sink.schema, widgets)}
                 value={endpointValue(editor.config, "sink", selection.sinkKey)}
@@ -197,14 +207,14 @@ export function DeliveryConfiguration({
             )}
           </section>
         )}
-        {deliveryTypeSelected && selection?.error && (
+        {routeSelectionComplete && selection?.error && (
           <div class="compatibility-error">
             <strong>Incompatible route</strong>
             <span>{selection.error}</span>
           </div>
         )}
 
-        {deliveryTypeSelected && (
+        {routeSelectionComplete && (
           <section class="pipeline-section">
             <h2>Pipeline settings</h2>
             <CommonSettings

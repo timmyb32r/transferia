@@ -21,10 +21,12 @@ export function EndpointCard(props: {
   endpoint?: EndpointDefinition;
   config: JsonObject;
   readOnly: boolean;
+  showSettings?: boolean;
   showRequiredErrors: boolean;
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
 }) {
+  const showSettings = props.showSettings ?? true;
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
   const value =
@@ -93,7 +95,7 @@ export function EndpointCard(props: {
           onChange={(key) => props.onChoose(props.role, key)}
         />
       </div>
-      {props.endpoint && (
+      {props.endpoint && showSettings && (
         <div class="endpoint-fields">
           <SchemaForm
             node={compiledSchema(props.endpoint.schema, widgets)}
@@ -180,7 +182,7 @@ export function EndpointCard(props: {
           />
         </div>
       )}
-      {preview.open && (
+      {showSettings && preview.open && (
         <MessagePreviewDialog
           result={preview.result}
           error={preview.error}
