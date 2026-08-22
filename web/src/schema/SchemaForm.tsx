@@ -445,7 +445,7 @@ function PropertyEditor({
         {customWidget}
       </div>
     );
-  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || presentation?.wide ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
+  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || presentation?.wide || node.xUi.control_width === "full" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField
       label={node.title ?? humanize(name)}
@@ -482,6 +482,7 @@ function controlWidthClass(
   if (node.xUi.control_width === "medium") return "control-width-medium";
   if (node.xUi.control_width === "table_name")
     return "control-width-table-name";
+  if (node.xUi.control_width === "full") return "control-width-full";
   if (
     node.kind === "union" ||
     (node.kind === "string" && node.enumValues !== undefined)

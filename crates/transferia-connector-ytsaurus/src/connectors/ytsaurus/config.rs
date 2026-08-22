@@ -162,7 +162,14 @@ pub enum YTsaurusWriteFormat {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusSinkConfig {
-    #[schemars(title = "Table type", extend("x-ui" = { "order": -100 }))]
+    #[schemars(
+        title = "Table type",
+        extend("x-ui" = {
+            "control_width": "full",
+            "order": -100,
+            "reveal_rest_on_selection": true
+        })
+    )]
     pub tables: YTsaurusTableMode,
 
     #[serde(flatten)]

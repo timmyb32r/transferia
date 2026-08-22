@@ -575,7 +575,7 @@ fn apply_endpoint_installations(
     }
     let installation_schema = serde_json::json!({
         "title": "Installation type",
-        "x-ui": { "control_width": "installation" },
+        "x-ui": { "control_width": "installation", "order": -80 },
         "oneOf": registrations.iter().map(|registration| {
             let mut schema = registration.schema.clone();
             if let Some(object) = schema.as_object_mut() {
@@ -604,9 +604,20 @@ fn apply_endpoint_installations(
             !replaced.contains(field),
             "field placement cannot target installation-owned field '{connector}.{field}'"
         );
-        let field_schema = endpoint_properties.remove(field).ok_or_else(|| {
+        let mut field_schema = endpoint_properties.remove(field).ok_or_else(|| {
             anyhow::anyhow!("field placement targets unknown field '{connector}.{field}'")
         })?;
+        let field_object = field_schema.as_object_mut().ok_or_else(|| {
+            anyhow::anyhow!("field placement target '{connector}.{field}' must be a schema object")
+        })?;
+        let hints = field_object
+            .entry("x-ui")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .ok_or_else(|| {
+                anyhow::anyhow!("field placement target '{connector}.{field}' has invalid x-ui")
+            })?;
+        hints.insert("order".to_owned(), serde_json::json!(-90));
         properties.insert(field.to_owned(), field_schema);
     }
     properties.insert("installation".to_owned(), installation_schema);

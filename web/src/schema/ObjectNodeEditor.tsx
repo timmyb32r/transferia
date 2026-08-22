@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { JsonObject } from "../json";
 import { Disclosure } from "../ui/Disclosure";
-import type { CompiledNode } from "./compiler";
+import { branchMatches, type CompiledNode } from "./compiler";
 import type { PropertyEditorComponent } from "./editorTypes";
 import {
   clearConfiguredPartitionRanges,
@@ -94,6 +94,18 @@ export function ObjectNodeEditor({
       onChange={(next) => onChange({ ...value, [name]: next })}
     />
   );
+  const revealGate = regular.find(
+    ([, child]) => child.xUi.reveal_rest_on_selection === true,
+  );
+  const gateSelected =
+    revealGate === undefined ||
+    (revealGate[1].kind === "union" &&
+      revealGate[1].branches.some((branch) =>
+        branchMatches(branch, value[revealGate[0]] ?? null),
+      ));
+
+  if (!gateSelected && revealGate !== undefined)
+    return <div class="schema-object">{property(revealGate)}</div>;
 
   return (
     <div class="schema-object">

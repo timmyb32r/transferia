@@ -47,16 +47,12 @@ pub fn register(
                 ytsaurus::check_connection(&config.connection).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())
             })
-            .sink::<ytsaurus::YTsaurusSinkConfig, _, _>(
+            .sink_draft::<ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
                     serde_json::json!({
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
-                        "timeout_ms": 30000,
-                        "tables": {
-                            "type": "static_tables", "path": "",
-                            "replace_tables": true, "format": "arrow"
-                        }
+                        "timeout_ms": 30000
                     })
                 },
                 |config| {

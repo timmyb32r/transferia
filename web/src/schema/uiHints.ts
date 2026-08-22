@@ -16,6 +16,7 @@ export interface UiHints {
   control_width?: string;
   item_label?: string;
   order?: number;
+  reveal_rest_on_selection?: boolean;
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
@@ -31,6 +32,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "control_width",
   "item_label",
   "order",
+  "reveal_rest_on_selection",
 ]);
 
 export function decodeUiHints(
@@ -127,6 +129,12 @@ export function decodeUiHints(
     (typeof order !== "number" || !Number.isSafeInteger(order))
   )
     fail(`${path}: x-ui order must be a safe integer`);
+  const revealRestOnSelection = value.reveal_rest_on_selection;
+  if (
+    revealRestOnSelection !== undefined &&
+    typeof revealRestOnSelection !== "boolean"
+  )
+    fail(`${path}: x-ui reveal_rest_on_selection must be a boolean`);
 
   return {
     ...(typeof widget === "string" ? { widget } : {}),
@@ -149,6 +157,9 @@ export function decodeUiHints(
     ...(controlWidth === undefined ? {} : { control_width: controlWidth }),
     ...(itemLabel === undefined ? {} : { item_label: itemLabel }),
     ...(order === undefined ? {} : { order }),
+    ...(revealRestOnSelection === undefined
+      ? {}
+      : { reveal_rest_on_selection: revealRestOnSelection }),
   };
 }
 
