@@ -15,6 +15,7 @@ export interface UiHints {
   options?: readonly JsonValue[];
   control_width?: string;
   item_label?: string;
+  order?: number;
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
@@ -29,6 +30,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "options",
   "control_width",
   "item_label",
+  "order",
 ]);
 
 export function decodeUiHints(
@@ -119,6 +121,12 @@ export function decodeUiHints(
     `${path}: x-ui item_label must be a string`,
     fail,
   );
+  const order = value.order;
+  if (
+    order !== undefined &&
+    (typeof order !== "number" || !Number.isSafeInteger(order))
+  )
+    fail(`${path}: x-ui order must be a safe integer`);
 
   return {
     ...(typeof widget === "string" ? { widget } : {}),
@@ -140,6 +148,7 @@ export function decodeUiHints(
     ...(options === undefined ? {} : { options }),
     ...(controlWidth === undefined ? {} : { control_width: controlWidth }),
     ...(itemLabel === undefined ? {} : { item_label: itemLabel }),
+    ...(order === undefined ? {} : { order }),
   };
 }
 

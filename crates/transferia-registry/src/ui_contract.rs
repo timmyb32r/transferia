@@ -19,6 +19,7 @@ struct UiHints {
     options: Option<Vec<Value>>,
     control_width: Option<String>,
     item_label: Option<String>,
+    order: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +82,7 @@ fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
                     hints.dynamic_options_control,
                     hints.labels,
                     hints.options,
+                    hints.order,
                 ));
             }
             for (key, value) in object {

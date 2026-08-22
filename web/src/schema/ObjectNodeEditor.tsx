@@ -55,9 +55,15 @@ export function ObjectNodeEditor({
     partitionRanges?.fieldName,
   ]);
 
-  const visible = Object.entries(node.properties).filter(
-    ([, child]) => !widgets.isHidden(child),
-  );
+  const visible = Object.entries(node.properties)
+    .filter(([, child]) => !widgets.isHidden(child))
+    .map((entry, index) => ({ entry, index }))
+    .sort(
+      (left, right) =>
+        (left.entry[1].xUi.order ?? 0) -
+          (right.entry[1].xUi.order ?? 0) || left.index - right.index,
+    )
+    .map(({ entry }) => entry);
   const regular = visible.filter(
     ([, child]) => child.xUi.section === undefined,
   );
