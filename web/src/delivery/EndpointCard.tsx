@@ -137,16 +137,24 @@ export function EndpointCard(props: {
                     disabled={check.state === "checking"}
                     onClick={() => void checkConnection()}
                   >
+                    Check connection
+                  </Button>
+                  <span
+                    class="connection-check-spinner-slot"
+                    aria-label={
+                      check.state === "checking"
+                        ? "Checking connection…"
+                        : undefined
+                    }
+                    role={check.state === "checking" ? "status" : undefined}
+                  >
                     {check.state === "checking" && (
                       <span
                         class="connection-check-spinner"
                         aria-hidden="true"
                       />
                     )}
-                    {check.state === "checking"
-                      ? "Checking connection…"
-                      : "Check connection"}
-                  </Button>
+                  </span>
                   <span
                     class={`connection-check-result connection-check-${
                       check.state === "success" ? check.status : check.state

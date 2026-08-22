@@ -88,15 +88,16 @@ describe("endpoint connection check", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Check connection" }));
     expect(
-      view.getByRole("button", { name: /Checking connection/ }).classList,
+      view.getByRole("button", { name: "Check connection" }).classList,
     ).toContain("primary");
     expect(
       (
         view.getByRole("button", {
-          name: "Checking connection…",
+          name: "Check connection",
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+    expect(view.getByRole("status", { name: "Checking connection…" })).toBeTruthy();
     resolve({
       status: "verified",
       message: null,

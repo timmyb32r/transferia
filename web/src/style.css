@@ -916,8 +916,14 @@ h3 {
 .connection-check-button {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
   flex: 0 0 auto;
+}
+.connection-check-spinner-slot {
+  display: grid;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  place-items: center;
 }
 .connection-check-result {
   min-width: 0;
@@ -935,6 +941,7 @@ h3 {
   color: var(--red);
 }
 .connection-check-spinner {
+  display: block;
   width: 12px;
   height: 12px;
   border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
