@@ -5,23 +5,27 @@ pub struct ApiRoute {
     pub name: &'static str,
     pub method: &'static str,
     pub path: &'static str,
+    pub body: Option<&'static str>,
+    pub query: Option<&'static str>,
     pub response: &'static str,
 }
 
 macro_rules! routes {
-    ($(($constant:ident, $name:literal, $method:literal, $path:literal, $response:literal)),+ $(,)?) => {
-        $(pub const $constant: ApiRoute = ApiRoute { name: $name, method: $method, path: $path, response: $response };)+
+    ($(($constant:ident, $name:literal, $method:literal, $path:literal, $body:expr, $query:expr, $response:literal)),+ $(,)?) => {
+        $(pub const $constant: ApiRoute = ApiRoute { name: $name, method: $method, path: $path, body: $body, query: $query, response: $response };)+
         pub const API_ROUTES: &[ApiRoute] = &[$($constant),+];
     };
 }
 
 routes![
-    (HEALTH, "health", "GET", "/api/v1/health", "health_response"),
+    (HEALTH, "health", "GET", "/api/v1/health", None, None, "health_response"),
     (
         CATALOG,
         "catalog",
         "GET",
         "/api/v1/catalog",
+        None,
+        None,
         "catalog_response"
     ),
     (
@@ -29,6 +33,8 @@ routes![
         "options",
         "POST",
         "/api/v1/options/{key}",
+        Some("dynamic_options_request"),
+        None,
         "dynamic_options_response"
     ),
     (
@@ -36,6 +42,8 @@ routes![
         "check_connection",
         "POST",
         "/api/v1/check-connection",
+        Some("connection_check_request"),
+        None,
         "connection_check_response"
     ),
     (
@@ -43,6 +51,8 @@ routes![
         "preview_message",
         "POST",
         "/api/v1/preview-message",
+        Some("message_preview_request"),
+        None,
         "message_preview_response"
     ),
     (
@@ -50,6 +60,8 @@ routes![
         "sql_playground",
         "POST",
         "/api/v1/playground/sql",
+        Some("sql_playground_request"),
+        None,
         "sql_playground_response"
     ),
     (
@@ -57,6 +69,8 @@ routes![
         "render_yaml",
         "POST",
         "/api/v1/config/yaml",
+        Some("config_request"),
+        None,
         "yaml_response"
     ),
     (
@@ -64,6 +78,8 @@ routes![
         "parse_yaml",
         "POST",
         "/api/v1/config/from-yaml",
+        Some("yaml_request"),
+        None,
         "config_response"
     ),
     (
@@ -71,6 +87,8 @@ routes![
         "discover",
         "POST",
         "/api/v1/discover",
+        Some("config_request"),
+        None,
         "discovery_response"
     ),
     (
@@ -78,6 +96,8 @@ routes![
         "list_deliveries",
         "GET",
         "/api/v1/deliveries",
+        None,
+        None,
         "delivery_list_response"
     ),
     (
@@ -85,6 +105,8 @@ routes![
         "create_delivery",
         "POST",
         "/api/v1/deliveries",
+        Some("create_draft_request"),
+        None,
         "delivery_response"
     ),
     (
@@ -92,6 +114,8 @@ routes![
         "get_delivery",
         "GET",
         "/api/v1/deliveries/{id}",
+        None,
+        None,
         "delivery_response"
     ),
     (
@@ -99,6 +123,8 @@ routes![
         "update_delivery",
         "PUT",
         "/api/v1/deliveries/{id}",
+        Some("update_draft_request"),
+        None,
         "delivery_response"
     ),
     (
@@ -106,6 +132,8 @@ routes![
         "delete_delivery",
         "DELETE",
         "/api/v1/deliveries/{id}",
+        Some("revision_request"),
+        None,
         "delivery_response"
     ),
     (
@@ -113,6 +141,8 @@ routes![
         "validate",
         "POST",
         "/api/v1/deliveries/{id}/validate",
+        Some("revision_request"),
+        None,
         "validation_response"
     ),
     (
@@ -120,6 +150,8 @@ routes![
         "activate",
         "POST",
         "/api/v1/deliveries/{id}/activate",
+        Some("revision_request"),
+        None,
         "delivery_response"
     ),
     (
@@ -127,6 +159,8 @@ routes![
         "stop",
         "POST",
         "/api/v1/deliveries/{id}/stop",
+        Some("stop_request"),
+        None,
         "delivery_response"
     ),
     (
@@ -134,6 +168,8 @@ routes![
         "worker_logs",
         "GET",
         "/api/v1/deliveries/{id}/logs",
+        None,
+        None,
         "worker_logs_response"
     ),
     (
@@ -141,6 +177,8 @@ routes![
         "worker_log",
         "GET",
         "/api/v1/deliveries/{id}/logs/{worker_id}",
+        None,
+        Some("worker_log_read_query"),
         "worker_log_response"
     ),
 ];

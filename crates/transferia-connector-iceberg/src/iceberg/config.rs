@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 pub struct RestCatalogConfig {
     pub uri: String,
 
+    #[serde(default = "default_request_timeout_ms")]
+    pub request_timeout_ms: u64,
+
     #[serde(default)]
     pub warehouse: Option<String>,
 
@@ -86,10 +89,13 @@ impl fmt::Debug for OpenDalStorageConfig {
     }
 }
 
-#[derive(Clone, Default, Deserialize, JsonSchema, Serialize)]
+#[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct S3StorageConfig {
     pub bucket: String,
+
+    #[serde(default = "default_request_timeout_ms")]
+    pub request_timeout_ms: u64,
 
     #[serde(default)]
     pub region: Option<String>,
@@ -115,6 +121,22 @@ pub struct S3StorageConfig {
     pub allow_anonymous: bool,
 }
 
+impl Default for S3StorageConfig {
+    fn default() -> Self {
+        Self {
+            bucket: String::new(),
+            request_timeout_ms: default_request_timeout_ms(),
+            region: None,
+            endpoint: None,
+            access_key_id: None,
+            secret_access_key: None,
+            session_token: None,
+            path_style_access: false,
+            allow_anonymous: false,
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct HdfsStorageConfig {
@@ -123,6 +145,9 @@ pub struct HdfsStorageConfig {
 
     /// Authority expected in Iceberg `hdfs://authority/path` locations.
     pub authority: String,
+
+    #[serde(default = "default_request_timeout_ms")]
+    pub request_timeout_ms: u64,
 
     #[serde(default = "default_root")]
     pub root: String,
@@ -194,6 +219,10 @@ const fn default_target_file_size() -> usize {
 impl RestCatalogConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         validate_required("catalog.uri", &self.uri)?;
+        anyhow::ensure!(
+            self.request_timeout_ms > 0,
+            "catalog.request_timeout_ms must be positive"
+        );
         let uri = url::Url::parse(&self.uri)?;
         anyhow::ensure!(
             matches!(uri.scheme(), "http" | "https"),
@@ -238,11 +267,19 @@ impl RestCatalogConfig {
     }
 }
 
+const fn default_request_timeout_ms() -> u64 {
+    30_000
+}
+
 impl OpenDalStorageConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::S3(config) => {
                 validate_required("storage.bucket", &config.bucket)?;
+                anyhow::ensure!(
+                    config.request_timeout_ms > 0,
+                    "storage.request_timeout_ms must be positive"
+                );
                 if let Some(endpoint) = &config.endpoint {
                     validate_required("storage.endpoint", endpoint)?;
                     let url = url::Url::parse(endpoint)?;
@@ -260,6 +297,10 @@ impl OpenDalStorageConfig {
                 validate_required("storage.endpoint", &config.endpoint)?;
                 validate_required("storage.authority", &config.authority)?;
                 validate_required("storage.root", &config.root)?;
+                anyhow::ensure!(
+                    config.request_timeout_ms > 0,
+                    "storage.request_timeout_ms must be positive"
+                );
                 let url = url::Url::parse(&config.endpoint)?;
                 anyhow::ensure!(
                     matches!(url.scheme(), "http" | "https"),

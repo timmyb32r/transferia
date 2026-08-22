@@ -22,8 +22,8 @@ pub fn register(
                 vec![DeliveryMode::Batch],
                 false,
                 || serde_json::json!({
-                    "catalog": { "uri": "", "warehouse": null, "auth": { "type": "none" } },
-                    "storage": { "type": "s3", "bucket": "", "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
+                    "catalog": { "uri": "", "request_timeout_ms": 30000, "warehouse": null, "auth": { "type": "none" } },
+                    "storage": { "type": "s3", "bucket": "", "request_timeout_ms": 30000, "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
                     "table": { "namespace": ["default"], "name": "" }, "output_name": ""
                 }),
                 {
@@ -37,8 +37,8 @@ pub fn register(
             })
             .sink::<IcebergSinkConfig, _, _>(
                 || serde_json::json!({
-                    "catalog": { "uri": "", "warehouse": null, "auth": { "type": "none" } },
-                    "storage": { "type": "s3", "bucket": "", "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
+                    "catalog": { "uri": "", "request_timeout_ms": 30000, "warehouse": null, "auth": { "type": "none" } },
+                    "storage": { "type": "s3", "bucket": "", "request_timeout_ms": 30000, "region": null, "endpoint": null, "access_key_id": null, "secret_access_key": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
                     "tables": [{ "dataset": "", "namespace": ["default"], "name": "", "create_if_missing": false, "location": null }],
                     "target_file_size_bytes": 134_217_728
                 }),

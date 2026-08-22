@@ -1,3 +1,4 @@
+mod http;
 pub mod sink;
 pub mod src_batch;
 

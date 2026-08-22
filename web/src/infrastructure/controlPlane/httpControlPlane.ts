@@ -19,8 +19,11 @@ import type {
 } from "../../generated/apiContract";
 import {
   API_ROUTES,
+  type ApiRouteBody,
   type ApiRouteContract,
   type ApiRouteName,
+  type ApiRouteParameters,
+  type ApiRouteQuery,
 } from "../../generated/apiContract";
 
 export const OPTIONS_TRANSPORT_VERSION = "transferia-options-post-v1";
@@ -52,27 +55,51 @@ async function request<Name extends ApiContractName>(
   return decodeApi(contract, text ? JSON.parse(text) : undefined, path);
 }
 
-function json(value: object): string {
-  return JSON.stringify(value);
-}
+type BodyOption<Name extends ApiRouteName> = ApiRouteBody[Name] extends undefined
+  ? { body?: never }
+  : { body: ApiRouteBody[Name] };
+
+type QueryOption<Name extends ApiRouteName> =
+  ApiRouteQuery[Name] extends undefined
+    ? { query?: never }
+    : { query: ApiRouteQuery[Name] };
+
+type RouteOptions<Name extends ApiRouteName> = BodyOption<Name> &
+  QueryOption<Name> & { signal?: AbortSignal };
+
+type RouteArguments<Name extends ApiRouteName> =
+  ApiRouteBody[Name] extends undefined
+    ? ApiRouteQuery[Name] extends undefined
+      ? [options?: RouteOptions<Name>]
+      : [options: RouteOptions<Name>]
+    : [options: RouteOptions<Name>];
 
 function routeRequest<Name extends ApiRouteName>(
   name: Name,
-  parameters: Record<string, string> = {},
-  init?: RequestInit,
-  query?: URLSearchParams,
+  parameters: ApiRouteParameters[Name],
+  ...args: RouteArguments<Name>
 ): Promise<ApiRouteContract[Name]> {
+  const options = args[0];
   const route = API_ROUTES[name];
-  const path = `${routePath(name, parameters)}${query === undefined ? "" : `?${query}`}`;
+  const query = options?.query;
+  const search = new URLSearchParams();
+  if (query !== undefined) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined) search.set(key, String(value));
+    }
+  }
+  const path = `${routePath(name, parameters)}${search.size === 0 ? "" : `?${search}`}`;
+  const body = options?.body;
   return request(path, route.response, {
-    ...init,
+    ...(options?.signal === undefined ? {} : { signal: options.signal }),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     method: route.method,
   }) as Promise<ApiRouteContract[Name]>;
 }
 
 function routePath(
   name: ApiRouteName,
-  parameters: Record<string, string> = {},
+  parameters: Record<string, string>,
 ): string {
   let path: string = API_ROUTES[name].path;
   for (const [key, value] of Object.entries(parameters))
@@ -85,9 +112,7 @@ export const httpControlPlane: ControlPlanePort = {
     routeRequest(
       "catalog",
       {},
-      {
-        ...(signal === undefined ? {} : { signal }),
-      },
+      { ...(signal === undefined ? {} : { signal }) },
     ),
   options: ({
     key,
@@ -105,7 +130,7 @@ export const httpControlPlane: ControlPlanePort = {
       "options",
       { key },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -115,7 +140,7 @@ export const httpControlPlane: ControlPlanePort = {
       "check_connection",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     ),
@@ -124,7 +149,7 @@ export const httpControlPlane: ControlPlanePort = {
       "preview_message",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     ),
@@ -133,7 +158,7 @@ export const httpControlPlane: ControlPlanePort = {
       "sql_playground",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     ),
@@ -163,13 +188,14 @@ export const httpControlPlane: ControlPlanePort = {
     cursor?: number,
     signal?: AbortSignal,
   ) => {
-    const query = new URLSearchParams({ limit_bytes: String(128 * 1024) });
-    if (cursor !== undefined) query.set("cursor", String(cursor));
+    const query = {
+      limit_bytes: 128 * 1024,
+      ...(cursor === undefined ? {} : { cursor }),
+    };
     return routeRequest(
       "worker_log",
       { id, worker_id: workerId },
-      { ...(signal === undefined ? {} : { signal }) },
-      query,
+      { query, ...(signal === undefined ? {} : { signal }) },
     );
   },
   create: (
@@ -183,7 +209,7 @@ export const httpControlPlane: ControlPlanePort = {
       "create_delivery",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -208,7 +234,7 @@ export const httpControlPlane: ControlPlanePort = {
       "update_delivery",
       { id },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -227,7 +253,7 @@ export const httpControlPlane: ControlPlanePort = {
       "delete_delivery",
       { id },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -238,7 +264,7 @@ export const httpControlPlane: ControlPlanePort = {
       "render_yaml",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -249,7 +275,7 @@ export const httpControlPlane: ControlPlanePort = {
       "parse_yaml",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -260,7 +286,7 @@ export const httpControlPlane: ControlPlanePort = {
       "discover",
       {},
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -279,7 +305,7 @@ export const httpControlPlane: ControlPlanePort = {
       "validate",
       { id },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -298,7 +324,7 @@ export const httpControlPlane: ControlPlanePort = {
       "activate",
       { id },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );
@@ -319,7 +345,7 @@ export const httpControlPlane: ControlPlanePort = {
       "stop",
       { id },
       {
-        body: json(body),
+        body,
         ...(signal === undefined ? {} : { signal }),
       },
     );

@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
+import { useEndpointActions } from "./useEndpointActions";
 
 export function EndpointCard(props: {
   title: string;
@@ -36,116 +37,18 @@ export function EndpointCard(props: {
     props.endpoint === undefined
       ? {}
       : endpointValue(props.config, props.role, props.selectedKey);
-  const [check, setCheck] = useState<
-    | { state: "idle"; options: Record<string, string[]> }
-    | { state: "checking"; options: Record<string, string[]> }
-    | {
-        state: "success";
-        message?: string;
-        status: import("../generated/apiContract").ConnectionCheckStatus;
-        options: Record<string, string[]>;
-      }
-    | { state: "error"; message: string; options: Record<string, string[]> }
-  >({ state: "idle", options: {} });
-  const controller = useRef<AbortController>();
-  const previewController = useRef<AbortController>();
-  const [preview, setPreview] = useState<{
-    open: boolean;
-    loading: boolean;
-    result?: import("../generated/apiContract").MessagePreviewResult;
-    error?: string;
-  }>({ open: false, loading: false });
-  const endpointIdentity = `${props.role}:${props.selectedKey}`;
-  const configFingerprint = JSON.stringify(value);
-  const previousEndpointIdentity = useRef(endpointIdentity);
-  const previousConfigFingerprint = useRef(configFingerprint);
-  useEffect(() => {
-    if (previousEndpointIdentity.current === endpointIdentity) return;
-    previousEndpointIdentity.current = endpointIdentity;
-    previousConfigFingerprint.current = configFingerprint;
-    controller.current?.abort();
-    previewController.current?.abort();
-    controller.current = undefined;
-    previewController.current = undefined;
-    setCheck({ state: "idle", options: {} });
-    setPreview({ open: false, loading: false });
-  }, [endpointIdentity]);
-  useEffect(() => {
-    if (previousConfigFingerprint.current === configFingerprint) return;
-    previousConfigFingerprint.current = configFingerprint;
-    controller.current?.abort();
-    controller.current = undefined;
-    setCheck((current) => ({ state: "idle", options: current.options }));
-  }, [configFingerprint]);
-  useEffect(
-    () => () => {
-      controller.current?.abort();
-      previewController.current?.abort();
-    },
-    [],
-  );
-
-  const checkConnection = async () => {
-    controller.current?.abort();
-    const request = new AbortController();
-    controller.current = request;
-    setCheck((current) => ({ state: "checking", options: current.options }));
-    try {
-      const result = await api.checkConnection(
-        {
-          connector: props.selectedKey,
-          role: props.role,
-          config: isObject(value) ? value : {},
-        },
-        request.signal,
-      );
-      if (controller.current !== request) return;
-      setCheck({
-        state: "success",
-        ...(result.message === null || result.message === undefined
-          ? {}
-          : { message: result.message }),
-        status: result.status,
-        options: result.options,
-      });
-    } catch (error) {
-      if (request.signal.aborted || controller.current !== request) return;
-      setCheck({
-        state: "error",
-        message: error instanceof Error ? error.message : String(error),
-        options: {},
-      });
-    } finally {
-      if (controller.current === request) controller.current = undefined;
-    }
-  };
-  const previewMessage = async () => {
-    previewController.current?.abort();
-    const request = new AbortController();
-    previewController.current = request;
-    setPreview({ open: true, loading: true });
-    try {
-      const result = await api.previewMessage(
-        {
-          connector: props.selectedKey,
-          config: isObject(value) ? value : {},
-          max_bytes: 32 * 1024 * 1024,
-        },
-        request.signal,
-      );
-      if (previewController.current === request) {
-        setPreview({ open: true, loading: false, result });
-      }
-    } catch (error) {
-      if (!request.signal.aborted && previewController.current === request) {
-        setPreview({
-          open: true,
-          loading: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  };
+  const {
+    check,
+    preview,
+    checkConnection,
+    previewMessage,
+    closePreview,
+  } = useEndpointActions({
+    api,
+    connector: props.selectedKey,
+    role: props.role,
+    config: isObject(value) ? value : {},
+  });
   return (
     <article class={`card endpoint-card endpoint-card-${props.role}`}>
       <h2>{props.title}</h2>
@@ -258,10 +161,7 @@ export function EndpointCard(props: {
           error={preview.error}
           loading={preview.loading}
           allowApply={!props.readOnly}
-          onClose={() => {
-            previewController.current?.abort();
-            setPreview({ open: false, loading: false });
-          }}
+          onClose={closePreview}
           onApply={(detection) => {
             if (!isObject(detection.config)) return;
             props.onConfig({
@@ -273,7 +173,7 @@ export function EndpointCard(props: {
                 },
               },
             });
-            setPreview({ open: false, loading: false });
+            closePreview();
             requestAnimationFrame(() =>
               requestAnimationFrame(() => {
                 const parser = document.querySelector<HTMLElement>(

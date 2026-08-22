@@ -398,101 +398,145 @@ export const API_ROUTES = {
   health: {
     method: "GET",
     path: "/api/v1/health",
+    body: null,
+    query: null,
     response: "health_response",
   },
   catalog: {
     method: "GET",
     path: "/api/v1/catalog",
+    body: null,
+    query: null,
     response: "catalog_response",
   },
   options: {
     method: "POST",
     path: "/api/v1/options/{key}",
+    body: "dynamic_options_request",
+    query: null,
     response: "dynamic_options_response",
   },
   check_connection: {
     method: "POST",
     path: "/api/v1/check-connection",
+    body: "connection_check_request",
+    query: null,
     response: "connection_check_response",
   },
   preview_message: {
     method: "POST",
     path: "/api/v1/preview-message",
+    body: "message_preview_request",
+    query: null,
     response: "message_preview_response",
   },
   sql_playground: {
     method: "POST",
     path: "/api/v1/playground/sql",
+    body: "sql_playground_request",
+    query: null,
     response: "sql_playground_response",
   },
   render_yaml: {
     method: "POST",
     path: "/api/v1/config/yaml",
+    body: "config_request",
+    query: null,
     response: "yaml_response",
   },
   parse_yaml: {
     method: "POST",
     path: "/api/v1/config/from-yaml",
+    body: "yaml_request",
+    query: null,
     response: "config_response",
   },
   discover: {
     method: "POST",
     path: "/api/v1/discover",
+    body: "config_request",
+    query: null,
     response: "discovery_response",
   },
   list_deliveries: {
     method: "GET",
     path: "/api/v1/deliveries",
+    body: null,
+    query: null,
     response: "delivery_list_response",
   },
   create_delivery: {
     method: "POST",
     path: "/api/v1/deliveries",
+    body: "create_draft_request",
+    query: null,
     response: "delivery_response",
   },
   get_delivery: {
     method: "GET",
     path: "/api/v1/deliveries/{id}",
+    body: null,
+    query: null,
     response: "delivery_response",
   },
   update_delivery: {
     method: "PUT",
     path: "/api/v1/deliveries/{id}",
+    body: "update_draft_request",
+    query: null,
     response: "delivery_response",
   },
   delete_delivery: {
     method: "DELETE",
     path: "/api/v1/deliveries/{id}",
+    body: "revision_request",
+    query: null,
     response: "delivery_response",
   },
   validate: {
     method: "POST",
     path: "/api/v1/deliveries/{id}/validate",
+    body: "revision_request",
+    query: null,
     response: "validation_response",
   },
   activate: {
     method: "POST",
     path: "/api/v1/deliveries/{id}/activate",
+    body: "revision_request",
+    query: null,
     response: "delivery_response",
   },
   stop: {
     method: "POST",
     path: "/api/v1/deliveries/{id}/stop",
+    body: "stop_request",
+    query: null,
     response: "delivery_response",
   },
   worker_logs: {
     method: "GET",
     path: "/api/v1/deliveries/{id}/logs",
+    body: null,
+    query: null,
     response: "worker_logs_response",
   },
   worker_log: {
     method: "GET",
     path: "/api/v1/deliveries/{id}/logs/{worker_id}",
+    body: null,
+    query: "worker_log_read_query",
     response: "worker_log_response",
   },
 } as const satisfies Record<
   string,
-  { method: string; path: string; response: ApiContractName }
+  {
+    method: string;
+    path: string;
+    body: ApiContractName | null;
+    query: ApiContractName | null;
+    response: ApiContractName;
+  }
 >;
 export interface ApiRouteContract {
   health: ApiContract["health_response"];
@@ -514,5 +558,68 @@ export interface ApiRouteContract {
   stop: ApiContract["delivery_response"];
   worker_logs: ApiContract["worker_logs_response"];
   worker_log: ApiContract["worker_log_response"];
+}
+export interface ApiRouteBody {
+  health: undefined;
+  catalog: undefined;
+  options: ApiContract["dynamic_options_request"];
+  check_connection: ApiContract["connection_check_request"];
+  preview_message: ApiContract["message_preview_request"];
+  sql_playground: ApiContract["sql_playground_request"];
+  render_yaml: ApiContract["config_request"];
+  parse_yaml: ApiContract["yaml_request"];
+  discover: ApiContract["config_request"];
+  list_deliveries: undefined;
+  create_delivery: ApiContract["create_draft_request"];
+  get_delivery: undefined;
+  update_delivery: ApiContract["update_draft_request"];
+  delete_delivery: ApiContract["revision_request"];
+  validate: ApiContract["revision_request"];
+  activate: ApiContract["revision_request"];
+  stop: ApiContract["stop_request"];
+  worker_logs: undefined;
+  worker_log: undefined;
+}
+export interface ApiRouteQuery {
+  health: undefined;
+  catalog: undefined;
+  options: undefined;
+  check_connection: undefined;
+  preview_message: undefined;
+  sql_playground: undefined;
+  render_yaml: undefined;
+  parse_yaml: undefined;
+  discover: undefined;
+  list_deliveries: undefined;
+  create_delivery: undefined;
+  get_delivery: undefined;
+  update_delivery: undefined;
+  delete_delivery: undefined;
+  validate: undefined;
+  activate: undefined;
+  stop: undefined;
+  worker_logs: undefined;
+  worker_log: ApiContract["worker_log_read_query"];
+}
+export interface ApiRouteParameters {
+  health: Record<string, never>;
+  catalog: Record<string, never>;
+  options: { key: string };
+  check_connection: Record<string, never>;
+  preview_message: Record<string, never>;
+  sql_playground: Record<string, never>;
+  render_yaml: Record<string, never>;
+  parse_yaml: Record<string, never>;
+  discover: Record<string, never>;
+  list_deliveries: Record<string, never>;
+  create_delivery: Record<string, never>;
+  get_delivery: { id: string };
+  update_delivery: { id: string };
+  delete_delivery: { id: string };
+  validate: { id: string };
+  activate: { id: string };
+  stop: { id: string };
+  worker_logs: { id: string };
+  worker_log: { id: string; worker_id: string };
 }
 export type ApiRouteName = keyof ApiRouteContract;

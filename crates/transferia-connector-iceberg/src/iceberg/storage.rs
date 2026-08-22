@@ -14,6 +14,19 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::config::{HdfsStorageConfig, OpenDalStorageConfig, S3StorageConfig};
+use transferia_connector_support::outbound_http::OutboundHttpClient;
+
+fn secure_operator(builder: impl opendal::Builder, timeout_ms: u64) -> Result<Operator> {
+    let client = OutboundHttpClient::new(std::time::Duration::from_millis(timeout_ms), [])
+        .map_err(iceberg_unexpected)?
+        .transport();
+    Ok(Operator::new(builder)
+        .map_err(opendal_error)?
+        .layer(opendal::layers::HttpClientLayer::new(
+            opendal::raw::HttpClient::with(client),
+        ))
+        .finish())
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct IcebergOpenDalStorageFactory {
@@ -94,7 +107,7 @@ fn s3_operator(config: &S3StorageConfig, location: &str) -> Result<(Operator, St
     if config.allow_anonymous {
         builder = builder.allow_anonymous();
     }
-    let operator = Operator::new(builder).map_err(opendal_error)?.finish();
+    let operator = secure_operator(builder, config.request_timeout_ms)?;
     Ok((operator, url.path().trim_start_matches('/').to_owned()))
 }
 
@@ -145,7 +158,7 @@ fn hdfs_operator(config: &HdfsStorageConfig, location: &str) -> Result<(Operator
     if let Some(user) = &config.user {
         builder = builder.user_name(user);
     }
-    let operator = Operator::new(builder).map_err(opendal_error)?.finish();
+    let operator = secure_operator(builder, config.request_timeout_ms)?;
     Ok((operator, relative.to_owned()))
 }
 
@@ -249,6 +262,10 @@ impl FileWrite for OpenDalWriter {
 
 fn opendal_error(error: opendal::Error) -> Error {
     Error::new(ErrorKind::Unexpected, "OpenDAL storage operation failed").with_source(error)
+}
+
+fn iceberg_unexpected(error: impl std::error::Error + Send + Sync + 'static) -> Error {
+    Error::new(ErrorKind::Unexpected, "failed to build secure HTTP transport").with_source(error)
 }
 
 fn iceberg_invalid(error: url::ParseError) -> Error {

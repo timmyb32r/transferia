@@ -440,7 +440,10 @@ impl S3SinkConfig {
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
             .with_allow_http(self.allow_http)
-            .with_retry(store_retry);
+            .with_retry(store_retry)
+            .with_http_connector(super::super::http::NoRedirectConnector::new(
+                self.upload.operation_timeout.0,
+            )?);
         if let Some(endpoint) = self.custom_endpoint() {
             builder = builder.with_endpoint(endpoint);
         }

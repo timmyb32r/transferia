@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use iceberg::{Catalog, CatalogBuilder, TableIdent};
 use iceberg_catalog_rest::{
@@ -8,6 +9,7 @@ use iceberg_catalog_rest::{
 
 use super::config::{IcebergTableRef, OpenDalStorageConfig, RestCatalogAuth, RestCatalogConfig};
 use super::storage::IcebergOpenDalStorageFactory;
+use transferia_connector_support::outbound_http::OutboundHttpClient;
 
 pub async fn build_catalog(
     config: &RestCatalogConfig,
@@ -41,7 +43,13 @@ pub async fn build_catalog(
         }
     }
     let storage_factory = Arc::new(IcebergOpenDalStorageFactory::new(storage.clone()));
+    let client = OutboundHttpClient::new(
+        Duration::from_millis(config.request_timeout_ms),
+        [],
+    )?
+    .transport();
     let catalog = RestCatalogBuilder::default()
+        .with_client(client)
         .with_storage_factory(storage_factory)
         .load("transferia", properties)
         .await?;

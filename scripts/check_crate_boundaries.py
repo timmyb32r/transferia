@@ -202,6 +202,18 @@ def outbound_http_boundary_errors() -> list[str]:
                 f"{source_path.relative_to(ROOT)}: direct reqwest client construction is forbidden; "
                 "use transferia_connector_support::outbound_http"
             )
+    sdk_guards = {
+        "crates/transferia-connector-s3/src/connectors/s3/src_batch/config.rs": ".with_http_connector(",
+        "crates/transferia-connector-s3/src/connectors/s3/sink/config.rs": ".with_http_connector(",
+        "crates/transferia-connector-iceberg/src/iceberg/catalog.rs": ".with_client(client)",
+        "crates/transferia-connector-iceberg/src/iceberg/storage.rs": "HttpClientLayer::new(",
+    }
+    for relative_path, required in sdk_guards.items():
+        source_path = ROOT / relative_path
+        if required not in source_path.read_text():
+            errors.append(
+                f"{relative_path}: SDK HTTP transport must be installed through the shared no-redirect policy"
+            )
     return errors
 
 

@@ -1,116 +1,154 @@
 [
   {
+    "body": null,
     "method": "GET",
     "name": "health",
     "path": "/api/v1/health",
+    "query": null,
     "response": "health_response"
   },
   {
+    "body": null,
     "method": "GET",
     "name": "catalog",
     "path": "/api/v1/catalog",
+    "query": null,
     "response": "catalog_response"
   },
   {
+    "body": "dynamic_options_request",
     "method": "POST",
     "name": "options",
     "path": "/api/v1/options/{key}",
+    "query": null,
     "response": "dynamic_options_response"
   },
   {
+    "body": "connection_check_request",
     "method": "POST",
     "name": "check_connection",
     "path": "/api/v1/check-connection",
+    "query": null,
     "response": "connection_check_response"
   },
   {
+    "body": "message_preview_request",
     "method": "POST",
     "name": "preview_message",
     "path": "/api/v1/preview-message",
+    "query": null,
     "response": "message_preview_response"
   },
   {
+    "body": "sql_playground_request",
     "method": "POST",
     "name": "sql_playground",
     "path": "/api/v1/playground/sql",
+    "query": null,
     "response": "sql_playground_response"
   },
   {
+    "body": "config_request",
     "method": "POST",
     "name": "render_yaml",
     "path": "/api/v1/config/yaml",
+    "query": null,
     "response": "yaml_response"
   },
   {
+    "body": "yaml_request",
     "method": "POST",
     "name": "parse_yaml",
     "path": "/api/v1/config/from-yaml",
+    "query": null,
     "response": "config_response"
   },
   {
+    "body": "config_request",
     "method": "POST",
     "name": "discover",
     "path": "/api/v1/discover",
+    "query": null,
     "response": "discovery_response"
   },
   {
+    "body": null,
     "method": "GET",
     "name": "list_deliveries",
     "path": "/api/v1/deliveries",
+    "query": null,
     "response": "delivery_list_response"
   },
   {
+    "body": "create_draft_request",
     "method": "POST",
     "name": "create_delivery",
     "path": "/api/v1/deliveries",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": null,
     "method": "GET",
     "name": "get_delivery",
     "path": "/api/v1/deliveries/{id}",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": "update_draft_request",
     "method": "PUT",
     "name": "update_delivery",
     "path": "/api/v1/deliveries/{id}",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": "revision_request",
     "method": "DELETE",
     "name": "delete_delivery",
     "path": "/api/v1/deliveries/{id}",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": "revision_request",
     "method": "POST",
     "name": "validate",
     "path": "/api/v1/deliveries/{id}/validate",
+    "query": null,
     "response": "validation_response"
   },
   {
+    "body": "revision_request",
     "method": "POST",
     "name": "activate",
     "path": "/api/v1/deliveries/{id}/activate",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": "stop_request",
     "method": "POST",
     "name": "stop",
     "path": "/api/v1/deliveries/{id}/stop",
+    "query": null,
     "response": "delivery_response"
   },
   {
+    "body": null,
     "method": "GET",
     "name": "worker_logs",
     "path": "/api/v1/deliveries/{id}/logs",
+    "query": null,
     "response": "worker_logs_response"
   },
   {
+    "body": null,
     "method": "GET",
     "name": "worker_log",
     "path": "/api/v1/deliveries/{id}/logs/{worker_id}",
+    "query": "worker_log_read_query",
     "response": "worker_log_response"
   }
 ]

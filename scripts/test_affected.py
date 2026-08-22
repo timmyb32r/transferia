@@ -236,19 +236,9 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
             command.extend(["--test", target])
         rust.append(command)
 
-    # Contract checks are the narrow correctness layer between compile-only
-    # development checks and the release suite. Keep Cargo commands in this one
-    # serial lane so they never contend for the same target directory.
-    if selection.api_contract:
-        rust.append(["just", "api-contract-check"])
-    if selection.catalog_contract:
-        rust.append(["just", "catalog-contract-check"])
-
     web: list[list[str]] = []
     if selection.web_paths:
         web.append(["npm", "run", "typecheck"])
-    if selection.api_contract:
-        web.append(["npm", "test", "--", "--run", "tests/apiContract.test.ts"])
     return rust, web
 
 

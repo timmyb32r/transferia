@@ -77,7 +77,8 @@ impl S3SourceConfig {
         let mut builder = object_store::aws::AmazonS3Builder::new()
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
-            .with_allow_http(self.allow_http);
+            .with_allow_http(self.allow_http)
+            .with_http_connector(super::super::http::NoRedirectConnector::new(self.timeout())?);
         if let Some(endpoint) = self.custom_endpoint() {
             builder = builder.with_endpoint(endpoint);
         }
