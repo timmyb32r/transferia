@@ -2,6 +2,7 @@ import { createContext, type ComponentChildren } from "preact";
 import { useContext, useEffect, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { FormField } from "../ui/FormField";
 import { ExternalLinkIcon } from "../ui/icons";
 import { SelectControl } from "../ui/SelectControl";
@@ -182,7 +183,7 @@ function NodeEditor({
     case "boolean":
       return (
         <label class="toggle">
-          <input
+          <AutofillResistantInput
             id={controlId}
             type="checkbox"
             checked={value === true}
@@ -193,11 +194,9 @@ function NodeEditor({
       );
     case "number":
       return (
-        <input
+        <AutofillResistantInput
           id={controlId}
           type="number"
-          name={`transferia-${controlId ?? path}`}
-          autoComplete="off"
           value={typeof value === "number" ? value : ""}
           min={node.minimum}
           max={node.maximum}
@@ -275,11 +274,9 @@ function NodeEditor({
           return withExternalLink(
             node,
             typeof value === "string" ? value : "",
-            <input
+            <AutofillResistantInput
               id={controlId}
               type="text"
-              name={`transferia-${controlId ?? path}`}
-              autoComplete="off"
               value={typeof value === "string" ? value : ""}
               disabled={isDisabled}
               onInput={(event) => onChange(event.currentTarget.value)}
@@ -319,11 +316,9 @@ function NodeEditor({
       return withExternalLink(
         node,
         typeof value === "string" ? value : "",
-        <input
+        <AutofillResistantInput
           id={controlId}
           type="text"
-          name={`transferia-${controlId ?? path}`}
-          autoComplete="off"
           value={typeof value === "string" ? value : ""}
           disabled={isDisabled}
           onInput={(event) => onChange(event.currentTarget.value)}
@@ -357,7 +352,7 @@ function NullableNodeEditor({
   return (
     <div class="nullable-control">
       <label class="toggle">
-        <input
+        <AutofillResistantInput
           type="checkbox"
           aria-label="Enable optional settings"
           checked={enabled}

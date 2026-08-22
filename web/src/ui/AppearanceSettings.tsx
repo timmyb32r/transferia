@@ -1,5 +1,9 @@
 import { useState } from "preact/hooks";
 
+import {
+  AutofillResistantInput,
+  useOpaqueFieldName,
+} from "./AutofillResistantField";
 import { Button } from "./Button";
 import type { Appearance, ColorTheme, InterfaceDesign } from "./appearance";
 
@@ -42,6 +46,8 @@ export function AppearanceSettings({
   onChange: (appearance: Appearance) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const designGroupName = useOpaqueFieldName();
+  const themeGroupName = useOpaqueFieldName();
 
   return (
     <div class={open ? "appearance-settings open" : "appearance-settings"}>
@@ -70,9 +76,9 @@ export function AppearanceSettings({
                     : "design-option"
                 }
               >
-                <input
+                <AutofillResistantInput
                   type="radio"
-                  name="interface-design"
+                  opaqueGroupName={designGroupName}
                   value={design.value}
                   checked={value.design === design.value}
                   onChange={() => onChange({ ...value, design: design.value })}
@@ -104,9 +110,9 @@ export function AppearanceSettings({
                   key={theme.value}
                   class={value.theme === theme.value ? "selected" : undefined}
                 >
-                  <input
+                  <AutofillResistantInput
                     type="radio"
-                    name="color-theme"
+                    opaqueGroupName={themeGroupName}
                     value={theme.value}
                     checked={value.theme === theme.value}
                     onChange={() => onChange({ ...value, theme: theme.value })}
@@ -124,7 +130,7 @@ export function AppearanceSettings({
           <fieldset class="behavior-options">
             <legend>Behavior</legend>
             <label>
-              <input
+              <AutofillResistantInput
                 type="checkbox"
                 checked={value.autoShowSchemaWidget}
                 onChange={(event) =>

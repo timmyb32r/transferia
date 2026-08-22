@@ -2,6 +2,7 @@ import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { JsonValue } from "../../json";
+import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { Button } from "../../ui/Button";
 import { DragHandleIcon, TrashIcon } from "../../ui/icons";
 import { MultiSelectControl } from "../../ui/SelectControl";
@@ -339,7 +340,7 @@ export function ColumnMappingsEditor({
                       </Button>
                     </td>
                     <td class="selection-column">
-                      <input
+                      <AutofillResistantInput
                         type="checkbox"
                         aria-label={`Select output column ${index + 1}`}
                         checked={selected}
@@ -368,7 +369,7 @@ export function ColumnMappingsEditor({
                       );
                     })}
                     <td class="flag-column">
-                      <input
+                      <AutofillResistantInput
                         type="checkbox"
                         aria-label={`Column ${index + 1} not null`}
                         disabled={disabled}
@@ -386,7 +387,7 @@ export function ColumnMappingsEditor({
                         class={`flag-column tooltip-host ${isStringArrowType(column.arrow_type) ? "" : "disabled"}`}
                         data-tooltip="Low cardinality is meaningful only for string values"
                       >
-                        <input
+                        <AutofillResistantInput
                           type="checkbox"
                           aria-label={`Column ${index + 1} low cardinality`}
                           disabled={

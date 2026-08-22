@@ -7,6 +7,7 @@ const violations = [];
 
 await checkCssCustomProperties();
 await checkStableInteractiveHitTargets();
+await checkAutofillProtection();
 
 for (const file of sourceFiles) {
   const source = await readFile(file, "utf8");
@@ -84,9 +85,13 @@ async function checkCssCustomProperties() {
   }
   const inspector = css.match(/\.schema-inspector\s*\{([^}]*)\}/)?.[1] ?? "";
   if (!inspector.includes("overflow: scroll"))
-    violations.push("style.css: schema inspector must always reserve scrollbars");
+    violations.push(
+      "style.css: schema inspector must always reserve scrollbars",
+    );
   if (!inspector.includes("scrollbar-gutter: stable both-edges"))
-    violations.push("style.css: schema inspector must reserve a stable scrollbar gutter");
+    violations.push(
+      "style.css: schema inspector must reserve a stable scrollbar gutter",
+    );
   if (!inspector.includes("max-height: calc(100vh - 48px)"))
     violations.push(
       "style.css: schema inspector must keep its resize handle inside the initial viewport",
@@ -111,6 +116,38 @@ async function checkStableInteractiveHitTargets() {
     if (/\b(transform|scale)\s*:/.test(match[2]))
       violations.push(
         `style.css: active control '${match[1].trim()}' must not resize its hit target`,
+      );
+  }
+}
+
+async function checkAutofillProtection() {
+  const primitivePath = "ui/AutofillResistantField.tsx";
+  for (const file of sourceFiles) {
+    const path = relative(root, file).replaceAll("\\", "/");
+    if (path === primitivePath) continue;
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(/<(input|textarea|select)\b/g))
+      violations.push(
+        `${path}: raw <${match[1]}> bypasses the mandatory autofill-resistant field primitive`,
+      );
+    if (/\bcontentEditable\s*=|\bcontenteditable\s*=/.test(source))
+      violations.push(
+        `${path}: contenteditable bypasses the mandatory autofill-resistant field primitive`,
+      );
+  }
+
+  const primitive = await readFile(resolve(root, primitivePath), "utf8");
+  for (const contract of [
+    'autoComplete="none"',
+    'autocapitalize="off"',
+    'autocorrect="off"',
+    'data-1p-ignore="true"',
+    'data-lpignore="true"',
+    'data-form-type="other"',
+  ]) {
+    if (!primitive.includes(contract))
+      violations.push(
+        `${primitivePath}: mandatory autofill protection is missing ${contract}`,
       );
   }
 }

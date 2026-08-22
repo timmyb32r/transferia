@@ -5,6 +5,10 @@ import {
   SystemColumnsEditor,
 } from "../schema/controls";
 import type { WidgetPlugin } from "../schema/widgetPlugin";
+import {
+  AutofillResistantInput,
+  AutofillResistantTextarea,
+} from "../ui/AutofillResistantField";
 import { Disclosure } from "../ui/Disclosure";
 import { FormField } from "../ui/FormField";
 import { humanize } from "../schema/compiler";
@@ -17,10 +21,9 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
     node: (context) => {
       if (context.node.kind === "string")
         return (
-          <input
+          <AutofillResistantInput
             id={context.controlId}
             type="text"
-            autoComplete="off"
             value={typeof context.value === "string" ? context.value : ""}
             disabled={context.disabled}
             onInput={(event) => context.onChange(event.currentTarget.value)}
@@ -82,11 +85,9 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
     renderer: "node",
     node: (context) =>
       context.node.kind === "string" ? (
-        <textarea
+        <AutofillResistantTextarea
           id={context.controlId}
-          autoComplete="off"
           class="sql-input"
-          spellcheck={false}
           value={typeof context.value === "string" ? context.value : ""}
           disabled={context.disabled}
           onInput={(event) => context.onChange(event.currentTarget.value)}

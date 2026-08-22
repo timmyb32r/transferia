@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import type { JsonValue } from "../../json";
+import { AutofillResistantInput } from "../../ui/AutofillResistantField";
 import { parsePartitionIds } from "./partitionIds";
 
 export function PartitionRangesInput({
@@ -20,10 +21,9 @@ export function PartitionRangesInput({
   useEffect(() => setRaw(canonical), [canonical]);
   return (
     <div class="validated-input">
-      <input
+      <AutofillResistantInput
         id={id}
         type="text"
-        autoComplete="off"
         inputMode="numeric"
         placeholder="e.g. 1-5,7"
         value={raw}

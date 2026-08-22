@@ -1,5 +1,6 @@
 import { useRef, useState } from "preact/hooks";
 
+import { AutofillResistantTextarea } from "../ui/AutofillResistantField";
 import { Button } from "../ui/Button";
 import { SyntaxHighlight } from "../ui/SyntaxHighlight";
 
@@ -56,9 +57,8 @@ export function YamlEditorPanel({
         <pre ref={highlight} aria-hidden="true">
           <SyntaxHighlight value={`${value}\n`} language="yaml" />
         </pre>
-        <textarea
+        <AutofillResistantTextarea
           aria-label="YAML configuration"
-          spellcheck={false}
           value={value}
           disabled={disabled}
           onScroll={(event) => {

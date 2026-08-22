@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import type { WorkerLogView } from "../types";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { Button } from "../ui/Button";
 import { SelectControl } from "../ui/SelectControl";
 
@@ -107,7 +108,7 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
           />
         </label>
         <label class="delivery-logs-follow">
-          <input
+          <AutofillResistantInput
             type="checkbox"
             checked={follow}
             onChange={(event) => setFollow(event.currentTarget.checked)}
@@ -124,9 +125,7 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
           Clear view
         </Button>
         <span class="delivery-logs-progress-slot">
-          {loading && (
-            <span class="spinner" aria-label="Loading worker logs" />
-          )}
+          {loading && <span class="spinner" aria-label="Loading worker logs" />}
         </span>
         {cursor !== undefined && (
           <small>{cursor.toLocaleString()} bytes read</small>

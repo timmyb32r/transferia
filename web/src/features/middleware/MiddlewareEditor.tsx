@@ -5,6 +5,10 @@ import { useSourceSample } from "./SourceSampleContext";
 import { isObject } from "../../schema/value";
 import type { JsonObject, JsonValue } from "../../types";
 import { Button } from "../../ui/Button";
+import {
+  AutofillResistantInput,
+  AutofillResistantTextarea,
+} from "../../ui/AutofillResistantField";
 import { SelectControl } from "../../ui/SelectControl";
 
 interface PlaygroundState {
@@ -107,8 +111,7 @@ export function MiddlewareEditor({
               <div class="middleware-filter-fields">
                 <label>
                   <span>Column</span>
-                  <input
-                    autoComplete="off"
+                  <AutofillResistantInput
                     value={typeof raw.field === "string" ? raw.field : ""}
                     disabled={disabled}
                     onInput={(event) =>
@@ -120,8 +123,7 @@ export function MiddlewareEditor({
                 </label>
                 <label>
                   <span>Equals</span>
-                  <input
-                    autoComplete="off"
+                  <AutofillResistantInput
                     value={typeof raw.value === "string" ? raw.value : ""}
                     disabled={disabled}
                     onInput={(event) =>
@@ -138,9 +140,7 @@ export function MiddlewareEditor({
                   <span>
                     SQL over table <code>input</code>
                   </span>
-                  <textarea
-                    autoComplete="off"
-                    spellcheck={false}
+                  <AutofillResistantTextarea
                     value={typeof raw.sql === "string" ? raw.sql : ""}
                     disabled={disabled}
                     onInput={(event) =>

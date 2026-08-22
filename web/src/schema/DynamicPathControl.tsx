@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "preact/hooks";
 
 import { LatestJob } from "../effects";
 import type { DynamicOptions } from "../generated/apiContract";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { anchoredMenuStyle, useAnchoredOverlay } from "../ui/overlay";
 import {
   pathBrowseQuery,
@@ -104,18 +105,10 @@ export function DynamicPathControl({
   return (
     <div ref={root} class={`dynamic-path ${open ? "open" : ""}`}>
       <div class="dynamic-path-input-wrap">
-        <input
+        <AutofillResistantInput
           id={id}
-          ref={input}
+          inputRef={input}
           type="text"
-          name={`transferia-${id ?? menuId}`}
-          autoComplete="new-password"
-          autocapitalize="off"
-          autocorrect="off"
-          spellcheck={false}
-          data-1p-ignore
-          data-lpignore="true"
-          data-form-type="other"
           value={value}
           disabled={disabled}
           role="combobox"

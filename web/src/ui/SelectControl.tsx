@@ -1,5 +1,6 @@
 import { useId, useMemo } from "preact/hooks";
 
+import { AutofillResistantInput } from "./AutofillResistantField";
 import { anchoredMenuStyle, dismissActiveTextSelection } from "./overlay";
 import { rankSearchResults } from "./search";
 import { SearchHighlight } from "./SearchHighlight";
@@ -97,11 +98,7 @@ export function SelectControl({
           {selected?.label ?? placeholder}
         </span>
         <span class="select-trigger-indicator" aria-hidden="true">
-          {loading ? (
-            <span class="spinner" />
-          ) : (
-            <span class="chevron" />
-          )}
+          {loading ? <span class="spinner" /> : <span class="chevron" />}
         </span>
       </button>
       {open && (
@@ -110,17 +107,9 @@ export function SelectControl({
           style={anchoredMenuStyle(trigger.current)}
         >
           {searchable && (
-            <input
+            <AutofillResistantInput
               class="select-search"
               type="search"
-              name={`${menuId}-query`}
-              autoComplete="new-password"
-              autocapitalize="off"
-              autocorrect="off"
-              spellcheck={false}
-              data-1p-ignore
-              data-lpignore="true"
-              data-form-type="other"
               placeholder="Search"
               value={query}
               onInput={(event) => setQuery(event.currentTarget.value)}
@@ -221,17 +210,9 @@ export function MultiSelectControl({
           role="listbox"
           aria-multiselectable="true"
         >
-          <input
+          <AutofillResistantInput
             class="select-search"
             type="search"
-            name={`${menuId}-query`}
-            autoComplete="new-password"
-            autocapitalize="off"
-            autocorrect="off"
-            spellcheck={false}
-            data-1p-ignore
-            data-lpignore="true"
-            data-form-type="other"
             placeholder="Search"
             value={query}
             onInput={(event) => setQuery(event.currentTarget.value)}

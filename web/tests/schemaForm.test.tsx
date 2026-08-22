@@ -190,10 +190,12 @@ describe("schema form", () => {
     )!;
     const token =
       view.container.querySelector<HTMLInputElement>("#field---token")!;
-    expect(consumer.autocomplete).toBe("off");
-    expect(consumer.name).toContain("consumer_name");
-    expect(token.autocomplete).toBe("new-password");
-    expect(token.name).toContain("transferia-secret");
+    expect(consumer.autocomplete).toBe("none");
+    expect(consumer.name).toMatch(/^tf-/);
+    expect(consumer.name).not.toContain("consumer_name");
+    expect(token.autocomplete).toBe("none");
+    expect(token.name).toMatch(/^tf-/);
+    expect(token.name).not.toContain("token");
   });
 
   it("renders a separate safely encoded external-console link", () => {
@@ -510,7 +512,7 @@ describe("schema form", () => {
       button: 0,
     });
     const search = view.getByRole("searchbox") as HTMLInputElement;
-    expect(search.autocomplete).toBe("new-password");
+    expect(search.autocomplete).toBe("none");
     fireEvent.input(search, { target: { value: "int" } });
     expect(view.queryByRole("option", { name: "Utf8" })).toBeNull();
     expect(view.getByRole("option", { name: "Int64" })).toBeTruthy();
@@ -1016,7 +1018,7 @@ describe("schema form", () => {
       ".column-keys .select-search",
     );
     expect(search).not.toBeNull();
-    expect(search?.getAttribute("autocomplete")).toBe("new-password");
+    expect(search?.getAttribute("autocomplete")).toBe("none");
     expect(search?.getAttribute("data-form-type")).toBe("other");
     const id = getByRole("option", { name: /id/ });
     expect(id.closest(".select-menu-floating")).not.toBeNull();

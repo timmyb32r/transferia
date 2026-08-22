@@ -138,6 +138,31 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   unexpectedly. Every new asynchronous interaction must additionally test its
   immediate pressed/pending feedback and duplicate-activation protection.
 
+### Browser autofill must never interfere with editor fields
+
+- Every new native `input`, `textarea`, or `select` must use the shared
+  autofill-resistant primitive from
+  `web/src/ui/AutofillResistantField.tsx`. Raw editable HTML controls and
+  `contenteditable` are prohibited elsewhere in `web/src`; the frontend
+  architecture check enforces this rule.
+- The primitive deliberately uses the Yandex Browser-specific
+  `autocomplete="none"` mitigation, an opaque per-mount `name`, and the common
+  password-manager ignore attributes. Do not replace `none` with standard
+  `off`, `new-password`, or a semantic autocomplete token: Yandex Browser may
+  ignore those values or route the field into password/autofill heuristics.
+- Never expose configuration paths, labels, secret names, connector names, or
+  other semantic identifiers through a native field's `name`. Radio controls
+  that must share a native group name must obtain it from
+  `useOpaqueFieldName()` and pass it as `opaqueGroupName`.
+- Protection attributes must be stamped by the shared primitive after caller
+  props so a feature cannot accidentally override them. Any intentional change
+  to this contract must update its component tests and the architecture guard
+  in the same change.
+- This is the strongest application-side mitigation, not an absolute browser
+  security boundary. Yandex documents that a site cannot guarantee suppression
+  in every environment; users who require an absolute local prohibition must
+  disable form-autofill suggestions in browser settings.
+
 ## Outbound HTTP security
 
 - Every production outbound HTTP request must use the repository's shared HTTP

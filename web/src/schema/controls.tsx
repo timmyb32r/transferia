@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { JsonValue } from "../json";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { Button } from "../ui/Button";
 import { EyeIcon, EyeOffIcon } from "../ui/icons";
 import { SelectControl } from "../ui/SelectControl";
@@ -25,8 +26,8 @@ export function IndeterminateCheckbox({
     if (input.current) input.current.indeterminate = indeterminate;
   }, [indeterminate]);
   return (
-    <input
-      ref={input}
+    <AutofillResistantInput
+      inputRef={input}
       type="checkbox"
       aria-label={ariaLabel}
       checked={checked}
@@ -70,11 +71,9 @@ export function PasswordInput({
   const [visible, setVisible] = useState(false);
   return (
     <div class="password-control">
-      <input
+      <AutofillResistantInput
         id={id}
         type={visible ? "text" : "password"}
-        name={`transferia-secret-${id ?? "field"}`}
-        autoComplete="new-password"
         value={value}
         disabled={disabled}
         onInput={(event) => onChange(event.currentTarget.value)}
@@ -133,7 +132,7 @@ export function SystemColumnsEditor({
                 </span>
               )}
             </span>
-            <input
+            <AutofillResistantInput
               type="checkbox"
               checked={configured}
               disabled={disabled}
@@ -145,9 +144,8 @@ export function SystemColumnsEditor({
                 })
               }
             />
-            <input
+            <AutofillResistantInput
               type="text"
-              autoComplete="off"
               value={columnName}
               disabled={disabled || !configured}
               aria-label={`${humanize(name)} column name`}
@@ -182,10 +180,9 @@ export function ByteSizeInput({
   const unit = BYTE_UNITS[unitIndex]!;
   return (
     <div class="byte-size-input">
-      <input
+      <AutofillResistantInput
         id={id}
         type="number"
-        autoComplete="off"
         min={0}
         step="any"
         value={value === null ? "" : value / unit.factor}

@@ -2,6 +2,7 @@ import { Fragment, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import type { JsonObject } from "../json";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { Disclosure } from "../ui/Disclosure";
 import { branchMatches, type CompiledNode } from "./compiler";
 import type {
@@ -65,8 +66,8 @@ export function ObjectNodeEditor({
     .map((entry, index) => ({ entry, index }))
     .sort(
       (left, right) =>
-        (left.entry[1].xUi.order ?? 0) -
-          (right.entry[1].xUi.order ?? 0) || left.index - right.index,
+        (left.entry[1].xUi.order ?? 0) - (right.entry[1].xUi.order ?? 0) ||
+        left.index - right.index,
     )
     .map(({ entry }) => entry);
   const regular = visible.filter(
@@ -178,7 +179,7 @@ export function ObjectNodeEditor({
             <div class="form-row partition-mode-control">
               <span class="field-label">Specify partitions</span>
               <label class="toggle">
-                <input
+                <AutofillResistantInput
                   type="checkbox"
                   aria-label="Specify partitions"
                   checked={partitionRangesVisible}

@@ -13,6 +13,7 @@ import {
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import type { EditorState } from "../state";
 import type { JsonObject, UiCatalog } from "../types";
+import { AutofillResistantInput } from "../ui/AutofillResistantField";
 import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
@@ -89,10 +90,8 @@ export function DeliveryConfiguration({
             incomplete={!readOnly && editor.name.trim() === ""}
             invalid={requiredErrorScope !== "none" && editor.name.trim() === ""}
           >
-            <input
+            <AutofillResistantInput
               type="text"
-              name="transferia-delivery-name"
-              autoComplete="off"
               value={editor.name}
               disabled={readOnly}
               placeholder="e.g. Events to ClickHouse"
@@ -100,10 +99,8 @@ export function DeliveryConfiguration({
             />
           </TopField>
           <TopField label="Description">
-            <input
+            <AutofillResistantInput
               type="text"
-              name="transferia-delivery-description"
-              autoComplete="off"
               value={editor.description}
               disabled={readOnly}
               onInput={(event) => onDescription(event.currentTarget.value)}
@@ -172,39 +169,43 @@ export function DeliveryConfiguration({
             {routeSelectionComplete &&
               selection?.error === undefined &&
               selection?.source && (
-              <ParserDetailsForm
-                node={compiledSchema(selection.source.schema, widgets)}
-                value={endpointValue(
-                  editor.config,
-                  "source",
-                  selection.sourceKey,
-                )}
-                disabled={readOnly}
-                showRequiredErrors={requiredErrorScope !== "none"}
-                onChange={(next) =>
-                  onConfig({
-                    ...editor.config,
-                    source: { [selection.sourceKey]: next },
-                  })
-                }
-              />
-            )}
+                <ParserDetailsForm
+                  node={compiledSchema(selection.source.schema, widgets)}
+                  value={endpointValue(
+                    editor.config,
+                    "source",
+                    selection.sourceKey,
+                  )}
+                  disabled={readOnly}
+                  showRequiredErrors={requiredErrorScope !== "none"}
+                  onChange={(next) =>
+                    onConfig({
+                      ...editor.config,
+                      source: { [selection.sourceKey]: next },
+                    })
+                  }
+                />
+              )}
             {routeSelectionComplete &&
               selection?.error === undefined &&
               selection?.sink && (
-              <SerializerDetailsForm
-                node={compiledSchema(selection.sink.schema, widgets)}
-                value={endpointValue(editor.config, "sink", selection.sinkKey)}
-                disabled={readOnly}
-                showRequiredErrors={requiredErrorScope === "all"}
-                onChange={(next) =>
-                  onConfig({
-                    ...editor.config,
-                    sink: { [selection.sinkKey]: next },
-                  })
-                }
-              />
-            )}
+                <SerializerDetailsForm
+                  node={compiledSchema(selection.sink.schema, widgets)}
+                  value={endpointValue(
+                    editor.config,
+                    "sink",
+                    selection.sinkKey,
+                  )}
+                  disabled={readOnly}
+                  showRequiredErrors={requiredErrorScope === "all"}
+                  onChange={(next) =>
+                    onConfig({
+                      ...editor.config,
+                      sink: { [selection.sinkKey]: next },
+                    })
+                  }
+                />
+              )}
           </section>
         )}
         {routeSelectionComplete && selection?.error && (

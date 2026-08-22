@@ -35,7 +35,7 @@ describe("dynamic path control", () => {
     });
     const view = render(<Harness options={options} initialValue="a" />);
     const input = view.getByRole("combobox");
-    expect(input.getAttribute("autocomplete")).toBe("new-password");
+    expect(input.getAttribute("autocomplete")).toBe("none");
     expect(input.getAttribute("data-form-type")).toBe("other");
 
     fireEvent.focus(input);
