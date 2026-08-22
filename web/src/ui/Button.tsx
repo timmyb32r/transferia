@@ -37,6 +37,7 @@ export function Button({
   buttonRef,
   pending = false,
   disabled,
+  onClick,
   ...props
 }: ButtonProps) {
   const classes = [
@@ -52,8 +53,17 @@ export function Button({
       {...(buttonRef === undefined ? {} : { ref: buttonRef })}
       type={type}
       class={classes || undefined}
-      disabled={disabled || pending}
+      disabled={disabled}
+      aria-disabled={disabled || pending || undefined}
       aria-busy={pending}
+      onClick={(event) => {
+        if (pending) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        onClick?.(event);
+      }}
       {...props}
     >
       {children}

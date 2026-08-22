@@ -27,6 +27,7 @@ afterEach(() => {
 
 describe("delivery controllers", () => {
   it("does not let an old operation completion clear a newer operation", () => {
+    vi.useFakeTimers();
     const { result } = renderHook(() => useOperations());
 
     let oldRequest = 0;
@@ -35,12 +36,44 @@ describe("delivery controllers", () => {
       oldRequest = result.current.beginOperation("save", "old");
       currentRequest = result.current.beginOperation("save", "current");
       result.current.finishOperation("save", oldRequest);
+      vi.advanceTimersByTime(200);
     });
 
     expect(result.current.operations.save).toEqual({
       requestId: currentRequest,
       label: "current",
     });
+  });
+
+  it("never flashes progress for fast operations and keeps slow progress readable", () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useOperations());
+
+    let fastRequest = 0;
+    act(() => {
+      fastRequest = result.current.beginOperation("parseYaml", "Applying YAML…");
+      result.current.finishOperation("parseYaml", fastRequest);
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(result.current.operations.parseYaml).toBeUndefined();
+
+    let slowRequest = 0;
+    act(() => {
+      slowRequest = result.current.beginOperation("parseYaml", "Applying YAML…");
+      vi.advanceTimersByTime(200);
+    });
+    expect(result.current.operations.parseYaml?.label).toBe("Applying YAML…");
+
+    act(() => {
+      result.current.finishOperation("parseYaml", slowRequest);
+      vi.advanceTimersByTime(499);
+    });
+    expect(result.current.operations.parseYaml?.label).toBe("Applying YAML…");
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.operations.parseYaml).toBeUndefined();
   });
 
   it("cancels every editor-scoped latest job as one operation", async () => {

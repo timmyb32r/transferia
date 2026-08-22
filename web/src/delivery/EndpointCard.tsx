@@ -134,7 +134,7 @@ export function EndpointCard(props: {
                   <Button
                     variant="primary"
                     class="connection-check-button"
-                    disabled={check.state === "checking"}
+                    aria-disabled={check.state === "checking"}
                     onClick={() => void checkConnection()}
                   >
                     Check connection

@@ -153,7 +153,9 @@ export function MiddlewareEditor({
                 <section class="sql-playground" aria-label="Playground">
                   <Button
                     variant="primary"
-                    disabled={playground.loading || playground.loadingSample}
+                    pending={Boolean(
+                      playground.loading || playground.loadingSample,
+                    )}
                     onClick={async () => {
                       const { error: _error, ...pending } = playground;
                       setPlayground({ ...pending, loading: true });
@@ -188,9 +190,7 @@ export function MiddlewareEditor({
                       }
                     }}
                   >
-                    {playground.loading || playground.loadingSample
-                      ? "Running…"
-                      : "Run sample"}
+                    Run sample
                   </Button>
                   <div
                     class="editor-view-tabs sql-playground-tabs"

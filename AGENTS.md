@@ -86,6 +86,16 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   before awaiting it. Use a spinner, skeleton, progress state, or explicit
   status text appropriate to the control. Preserve the control's dimensions and
   surrounding layout across idle, pressed, pending, success, and error states.
+- **Notification flicker, toast flicker, and flashes of transient state are
+  forbidden.** Immediate feedback belongs on the initiating control or in a
+  permanently reserved status region. Do not briefly mount a toast, banner, or
+  verbose loading message for an operation that commonly completes before a
+  person can read it. Delay such secondary indicators by a short, documented
+  threshold; if the operation finishes first, never show them. Once a delayed
+  indicator becomes visible, keep it visible for a short minimum readable
+  duration unless an error supersedes it. The delay must never postpone the
+  control's immediate pressed/pending feedback, and neither appearance nor
+  disappearance may change layout.
 - Prevent accidental duplicate activation while an operation is pending. Use a
   disabled/busy state, request deduplication, or an explicitly safe idempotent
   interaction model. Keep enough visible feedback to make it obvious that the

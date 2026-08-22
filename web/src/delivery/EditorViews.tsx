@@ -246,13 +246,15 @@ export function DataSchemaInspector({
       >
         <strong>Final schema</strong>
         <span>Drag to move</span>
-        {loading && (
-          <span
-            class="schema-inspector-progress spinner"
-            role="status"
-            aria-label="Updating schema"
-          />
-        )}
+        <span class="schema-inspector-progress-slot">
+          {loading && (
+            <span
+              class="schema-inspector-progress spinner"
+              role="status"
+              aria-label="Updating schema"
+            />
+          )}
+        </span>
         <Button
           shape="icon"
           aria-label={

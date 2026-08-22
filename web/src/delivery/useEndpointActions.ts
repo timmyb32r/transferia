@@ -79,7 +79,7 @@ export function useEndpointActions({
   );
 
   const checkConnection = async () => {
-    checkController.current?.abort();
+    if (checkController.current !== undefined) return;
     const request = new AbortController();
     checkController.current = request;
     setCheck((current) => ({ state: "checking", options: current.options }));

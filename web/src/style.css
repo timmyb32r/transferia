@@ -1700,6 +1700,14 @@ button::after {
   color: var(--text-secondary);
 }
 
+.delivery-logs-progress-slot {
+  display: grid;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+}
+
 .delivery-log-viewer {
   box-sizing: border-box;
   width: 100%;
@@ -1793,6 +1801,13 @@ button::after {
   width: 14px;
   height: 14px;
   border-width: 2px;
+}
+
+.schema-inspector-progress-slot {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
 }
 
 .schema-inspector-drag-handle:active {

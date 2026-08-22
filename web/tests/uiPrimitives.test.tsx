@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, within } from "@testing-library/preact";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FormField } from "../src/ui/FormField";
 import { Button } from "../src/ui/Button";
@@ -27,13 +27,21 @@ describe("UI primitives", () => {
   });
 
   it("gives pending actions immediate feedback without changing their label", () => {
-    const view = render(<Button pending>Save</Button>);
+    const onClick = vi.fn();
+    const view = render(
+      <Button pending onClick={onClick}>
+        Save
+      </Button>,
+    );
     const button = view.getByRole("button", { name: "Save" });
 
     expect(button.getAttribute("aria-busy")).toBe("true");
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect((button as HTMLButtonElement).disabled).toBe(false);
     expect(button.classList.contains("interaction-pending")).toBe(true);
     expect(button.textContent).toBe("Save");
+    fireEvent.click(button);
+    expect(onClick).not.toHaveBeenCalled();
   });
 
   it("exposes field help as an accessible tooltip", () => {

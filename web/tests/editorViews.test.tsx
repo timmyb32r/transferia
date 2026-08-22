@@ -86,18 +86,20 @@ describe("endpoint connection check", () => {
     }
     const view = render(<Harness />);
 
-    fireEvent.click(view.getByRole("button", { name: "Check connection" }));
+    const checkButton = view.getByRole("button", {
+      name: "Check connection",
+    });
+    fireEvent.click(checkButton);
     expect(
       view.getByRole("button", { name: "Check connection" }).classList,
     ).toContain("primary");
+    expect((checkButton as HTMLButtonElement).disabled).toBe(false);
+    expect(checkButton.getAttribute("aria-disabled")).toBe("true");
     expect(
-      (
-        view.getByRole("button", {
-          name: "Check connection",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
-    expect(view.getByRole("status", { name: "Checking connection…" })).toBeTruthy();
+      view.getByRole("status", { name: "Checking connection…" }),
+    ).toBeTruthy();
+    fireEvent.click(checkButton);
+    expect(api.checkConnection).toHaveBeenCalledTimes(1);
     resolve({
       status: "verified",
       message: null,

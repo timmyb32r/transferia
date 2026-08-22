@@ -123,7 +123,11 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
         >
           Clear view
         </Button>
-        {loading && <span class="spinner" aria-label="Loading worker logs" />}
+        <span class="delivery-logs-progress-slot">
+          {loading && (
+            <span class="spinner" aria-label="Loading worker logs" />
+          )}
+        </span>
         {cursor !== undefined && (
           <small>{cursor.toLocaleString()} bytes read</small>
         )}
