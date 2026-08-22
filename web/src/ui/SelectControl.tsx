@@ -100,9 +100,7 @@ export function SelectControl({
           {loading ? (
             <span class="spinner" />
           ) : (
-            <svg class="chevron" viewBox="0 0 16 16" focusable="false">
-              <path d="m3.5 6 4.5 4 4.5-4" />
-            </svg>
+            <span class="chevron" />
           )}
         </span>
       </button>
@@ -213,9 +211,7 @@ export function MultiSelectControl({
         <span class={labels.length === 0 ? "placeholder" : ""}>
           {labels.length === 0 ? placeholder : labels.join(", ")}
         </span>
-        <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="m3.5 6 4.5 4 4.5-4" />
-        </svg>
+        <span class="chevron" aria-hidden="true" />
       </button>
       {open && (
         <div

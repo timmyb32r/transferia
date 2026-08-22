@@ -29,13 +29,16 @@ const editor = (runtime: EditorState["runtime"]): EditorState => ({
 describe("editor chrome", () => {
   afterEach(cleanup);
 
-  it("renders asynchronous operation feedback in one overlay", () => {
+  it("keeps asynchronous feedback dismissible from the whole notice", () => {
     const dismiss = vi.fn();
     const view = render(
       <OperationNotices
         operations={{
           save: { requestId: 1, label: "Saving…" },
-          validate: { requestId: 2, error: "Validation failed" },
+          validate: {
+            requestId: 2,
+            error: `Validation failed: ${"unbroken".repeat(100)}`,
+          },
           action: { requestId: 3, success: "Configuration is valid." },
         }}
         onDismiss={dismiss}
@@ -45,11 +48,13 @@ describe("editor chrome", () => {
     const overlay = view.getByLabelText("Operation status");
     expect(overlay.classList.contains("operation-notices")).toBe(true);
     expect(view.getAllByRole("status")).toHaveLength(1);
-    expect(overlay.contains(view.getByRole("alert"))).toBe(true);
+    const error = view.getByRole("alert");
+    expect(overlay.contains(error)).toBe(true);
+    expect(error.tabIndex).toBe(0);
     expect(view.getByText("Configuration is valid.")).toBeTruthy();
     fireEvent.click(view.getByText("Configuration is valid."));
     expect(dismiss).toHaveBeenCalledWith("action", 3);
-    fireEvent.click(view.getByRole("button", { name: "×" }));
+    fireEvent.click(error);
     expect(dismiss).toHaveBeenCalledWith("validate", 2);
   });
 

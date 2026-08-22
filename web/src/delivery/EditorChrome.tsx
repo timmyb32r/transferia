@@ -293,12 +293,31 @@ export function OperationNotices({
       {Object.entries(operations).map(
         ([key, operation]) =>
           operation?.error && (
-            <div class="notice error" key={key} role="alert">
+            <div
+              class="notice error"
+              key={key}
+              role="alert"
+              tabIndex={0}
+              aria-label={`Dismiss error: ${operation.error}`}
+              onClick={() =>
+                onDismiss(key as OperationKey, operation.requestId)
+              }
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onDismiss(key as OperationKey, operation.requestId);
+                }
+              }}
+            >
               <span>{operation.error}</span>
               <Button
-                onClick={() =>
+                shape="icon"
+                aria-label="Dismiss error"
+                title="Dismiss"
+                onClick={(event) => {
+                  event.stopPropagation();
                   onDismiss(key as OperationKey, operation.requestId)
-                }
+                }}
               >
                 ×
               </Button>
