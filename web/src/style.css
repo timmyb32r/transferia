@@ -598,6 +598,11 @@
 *::-webkit-scrollbar-corner {
   background: var(--surface-soft);
 }
+
+html {
+  overflow-y: scroll;
+}
+
 body {
   margin: 0;
   min-width: 320px;
