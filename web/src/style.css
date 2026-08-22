@@ -1572,7 +1572,14 @@ input[type="checkbox"]:focus-visible {
   outline-offset: 2px;
 }
 button:active:not(:disabled) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent);
+  /* Keep the real hit area stationary: transforming the button itself can move
+     an edge out from under the pointer and cancel the eventual click. These
+     inset layers create the same physical pressed-depth cue without changing
+     geometry or hit testing. */
+  box-shadow:
+    inset 0 2px 4px color-mix(in srgb, #000 22%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, currentColor 30%, transparent);
+  filter: brightness(0.94);
 }
 button.interaction-pending {
   position: relative;
@@ -1595,6 +1602,7 @@ button::before,
 button::after {
   user-select: none;
   -webkit-user-select: none;
+  pointer-events: none;
 }
 .primary {
   background: var(--blue);
