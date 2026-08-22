@@ -20,6 +20,7 @@ pub(super) struct DataGeneratorSource {
     counters: Arc<SourceCounters>,
     next_row: u64,
     total_rows: u64,
+    rows_per_batch: u64,
 }
 
 impl DataGeneratorSource {
@@ -28,13 +29,17 @@ impl DataGeneratorSource {
         memory: PipelineMemory,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        let total_rows = config.data_size_bytes / config.row_bytes()?;
+        let row_bytes = config.row_bytes()?;
+        let total_rows = config.data_size_bytes / row_bytes;
+        let memory_limit = u64::try_from(memory.limit())?;
+        let rows_per_batch = (memory_limit / row_bytes).max(1);
         Ok(Self {
             config,
             memory,
             counters,
             next_row: 0,
             total_rows,
+            rows_per_batch,
         })
     }
 }
@@ -46,7 +51,7 @@ impl Source for DataGeneratorSource {
                 return Ok(SourceBatch::Finished);
             }
             let remaining = self.total_rows - self.next_row;
-            let rows = remaining.min(self.config.batch_rows as u64);
+            let rows = remaining.min(self.rows_per_batch);
             let batch_bytes_u64 = rows
                 .checked_mul(self.config.row_bytes().map_err(DataPlaneFailure::fatal)?)
                 .ok_or_else(|| {

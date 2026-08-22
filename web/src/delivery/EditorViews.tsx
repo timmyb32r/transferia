@@ -189,6 +189,7 @@ export function DataSchemaInspector({
   const previousColumns = useRef(columnFingerprints(result));
   const highlightTimer = useRef<number>();
   const datasets = result.datasets;
+  const destinationTypesAvailable = result.sink !== "unselected";
   const selected =
     datasets.find((dataset) => dataset.name === selectedTable) ?? datasets[0];
 
@@ -196,6 +197,9 @@ export function DataSchemaInspector({
     if (selected !== undefined && selected.name !== selectedTable)
       setSelectedTable(selected.name);
   }, [selected?.name, selectedTable]);
+  useEffect(() => {
+    if (!destinationTypesAvailable) setTypeView("arrow");
+  }, [destinationTypesAvailable]);
   useEffect(() => {
     const next = columnFingerprints(result);
     const changed = new Set(
@@ -301,6 +305,12 @@ export function DataSchemaInspector({
                 role="tab"
                 aria-selected={typeView === "destination"}
                 class={typeView === "destination" ? "active" : undefined}
+                disabled={!destinationTypesAvailable}
+                title={
+                  destinationTypesAvailable
+                    ? "Show destination-native types"
+                    : "Complete destination settings to resolve destination-native types"
+                }
                 onClick={() => setTypeView("destination")}
               >
                 Destination types

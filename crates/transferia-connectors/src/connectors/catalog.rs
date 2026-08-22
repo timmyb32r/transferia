@@ -290,8 +290,7 @@ fn build_base_connector_catalog(
                 serde_json::json!({
                     "table_name": "",
                     "column_count": 10,
-                    "data_size_bytes": 107_374_182_400_u64,
-                    "batch_rows": 65_536
+                    "data_size_bytes": 107_374_182_400_u64
                 })
             },
             {

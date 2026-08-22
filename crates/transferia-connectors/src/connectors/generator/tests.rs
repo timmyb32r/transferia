@@ -15,7 +15,6 @@ fn config() -> DataGeneratorConfig {
         table_name: "my_table".to_owned(),
         column_count: 10,
         data_size_bytes: 1_600,
-        batch_rows: 7,
     }
 }
 

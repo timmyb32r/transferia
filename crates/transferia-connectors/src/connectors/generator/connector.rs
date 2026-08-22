@@ -28,9 +28,6 @@ pub struct DataGeneratorConfig {
 
     #[schemars(range(min = 1), extend("x-ui" = { "widget": "byte_size" }))]
     pub data_size_bytes: u64,
-
-    #[schemars(range(min = 1), extend("x-ui" = { "section": "advanced" }))]
-    pub batch_rows: usize,
 }
 
 impl DataGeneratorConfig {
@@ -43,7 +40,6 @@ impl DataGeneratorConfig {
             self.column_count > 0,
             "generator.column_count must be positive"
         );
-        anyhow::ensure!(self.batch_rows > 0, "generator.batch_rows must be positive");
         anyhow::ensure!(
             self.data_size_bytes > 0,
             "generator.data_size_bytes must be positive"

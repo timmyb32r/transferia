@@ -4721,6 +4721,7 @@
               "default": {
                 "type": "s3",
                 "bucket": "",
+                "request_timeout_ms": 30000,
                 "region": null,
                 "endpoint": null,
                 "access_key_id": null,
@@ -4749,6 +4750,12 @@
               "properties": {
                 "uri": {
                   "type": "string"
+                },
+                "request_timeout_ms": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 30000
                 },
                 "warehouse": {
                   "type": [
@@ -4849,6 +4856,12 @@
                     "bucket": {
                       "type": "string"
                     },
+                    "request_timeout_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 30000
+                    },
                     "region": {
                       "type": [
                         "string",
@@ -4919,6 +4932,12 @@
                     "authority": {
                       "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
                       "type": "string"
+                    },
+                    "request_timeout_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 30000
                     },
                     "root": {
                       "type": "string",
@@ -4972,6 +4991,7 @@
         "initial": {
           "catalog": {
             "uri": "",
+            "request_timeout_ms": 30000,
             "warehouse": null,
             "auth": {
               "type": "none"
@@ -4980,6 +5000,7 @@
           "storage": {
             "type": "s3",
             "bucket": "",
+            "request_timeout_ms": 30000,
             "region": null,
             "endpoint": null,
             "access_key_id": null,
@@ -5017,6 +5038,7 @@
               "default": {
                 "type": "s3",
                 "bucket": "",
+                "request_timeout_ms": 30000,
                 "region": null,
                 "endpoint": null,
                 "access_key_id": null,
@@ -5053,6 +5075,12 @@
               "properties": {
                 "uri": {
                   "type": "string"
+                },
+                "request_timeout_ms": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 30000
                 },
                 "warehouse": {
                   "type": [
@@ -5153,6 +5181,12 @@
                     "bucket": {
                       "type": "string"
                     },
+                    "request_timeout_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 30000
+                    },
                     "region": {
                       "type": [
                         "string",
@@ -5223,6 +5257,12 @@
                     "authority": {
                       "description": "Authority expected in Iceberg `hdfs://authority/path` locations.",
                       "type": "string"
+                    },
+                    "request_timeout_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 30000
                     },
                     "root": {
                       "type": "string",
@@ -5291,6 +5331,7 @@
         "initial": {
           "catalog": {
             "uri": "",
+            "request_timeout_ms": 30000,
             "warehouse": null,
             "auth": {
               "type": "none"
@@ -5299,6 +5340,7 @@
           "storage": {
             "type": "s3",
             "bucket": "",
+            "request_timeout_ms": 30000,
             "region": null,
             "endpoint": null,
             "access_key_id": null,
@@ -5666,29 +5708,19 @@
               "x-ui": {
                 "widget": "byte_size"
               }
-            },
-            "batch_rows": {
-              "type": "integer",
-              "format": "uint",
-              "minimum": 1,
-              "x-ui": {
-                "section": "advanced"
-              }
             }
           },
           "additionalProperties": false,
           "required": [
             "table_name",
             "column_count",
-            "data_size_bytes",
-            "batch_rows"
+            "data_size_bytes"
           ]
         },
         "initial": {
           "table_name": "",
           "column_count": 10,
-          "data_size_bytes": 107374182400,
-          "batch_rows": 65536
+          "data_size_bytes": 107374182400
         },
         "delivery_modes": [
           "batch"

@@ -91,18 +91,18 @@ async function checkCssCustomProperties() {
     violations.push(
       "style.css: schema inspector must keep its resize handle inside the initial viewport",
     );
+  const globalBoxRule = css.match(/\*\s*\{([^}]*)\}/)?.[1] ?? "";
   if (
-    !inspector.includes("scrollbar-color: auto") ||
-    !inspector.includes("scrollbar-width: auto")
+    !globalBoxRule.includes("scrollbar-color: auto") ||
+    !globalBoxRule.includes("scrollbar-width: auto")
   )
     violations.push(
-      "style.css: schema inspector must let its permanent WebKit scrollbar styling take precedence",
+      "style.css: every scroll container must let permanent WebKit scrollbar styling take precedence",
     );
-  const inspectorScrollbar =
-    css.match(/\.schema-inspector::\-webkit-scrollbar\s*\{([^}]*)\}/)?.[1] ??
-    "";
-  if (!inspectorScrollbar.includes("display: block"))
-    violations.push("style.css: schema inspector scrollbar must remain visible without hover");
+  const globalScrollbar =
+    css.match(/\*::\-webkit-scrollbar\s*\{([^}]*)\}/)?.[1] ?? "";
+  if (!globalScrollbar.includes("display: block"))
+    violations.push("style.css: scrollbars must remain visible without hover");
 }
 
 async function checkStableInteractiveHitTargets() {

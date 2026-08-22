@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::logs::WorkerLogReader;
 use super::store::{DeliveryStore, StoreError};
-use transferia_connectors::extension::Transferia;
+use transferia_connectors::extension::{EndpointRole, Transferia};
 use transferia_core::delivery::{
     DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimitsDescription,
 };
@@ -583,10 +583,58 @@ impl ControlPlane {
                 request: DeliveryDiscoveryRequest {
                     keep_system_columns: true,
                 },
-                cancellation,
+                cancellation: cancellation.child_token(),
             })
             .await
             .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+
+        let configured_sink = config
+            .get("sink")
+            .and_then(Value::as_object)
+            .filter(|sinks| sinks.len() == 1)
+            .and_then(|sinks| sinks.iter().next());
+        if let Some((sink_kind, sink_config)) = configured_sink {
+            let raw = serde_yaml::to_value(sink_config)
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            match self
+                .transferia
+                .registry()
+                .resolve_many(
+                    sink_kind,
+                    EndpointRole::Sink,
+                    raw,
+                    cancellation.child_token(),
+                )
+                .await
+            {
+                Ok(resolved) => {
+                    if let Some(sink_config) = resolved.into_iter().next() {
+                        match catalog.build_sink(sink_kind, sink_config) {
+                            Ok(sink_connector) => {
+                                return discovery_result(
+                                    source_kind.clone(),
+                                    sink_kind.clone(),
+                                    pipeline_count,
+                                    &discovery,
+                                    sink_connector.as_ref(),
+                                )
+                                .map_err(ServiceError::Internal);
+                            }
+                            Err(error) => tracing::debug!(
+                                sink = %sink_kind,
+                                error = %error,
+                                "destination type preview is waiting for a complete sink configuration",
+                            ),
+                        }
+                    }
+                }
+                Err(error) => tracing::debug!(
+                    sink = %sink_kind,
+                    error = %error,
+                    "destination type preview is waiting for a resolvable sink installation",
+                ),
+            }
+        }
         Ok(source_discovery_result(
             source_kind.clone(),
             pipeline_count,
