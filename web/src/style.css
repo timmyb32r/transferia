@@ -10,6 +10,27 @@
   border: 0;
 }
 
+/* Shared icons own their geometry and visibility. Component- or theme-level
+   button rules may change color, but must never collapse the SVG itself. */
+svg.ui-icon {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  color: inherit;
+  opacity: 1;
+  visibility: visible;
+}
+svg.ui-icon:not(.drag-handle-icon) {
+  fill: currentColor;
+  stroke: none;
+}
+svg.ui-icon.drag-handle-icon {
+  fill: currentColor;
+  stroke: none;
+}
+
 .parser-selector-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) calc(var(--control-height) * 2);

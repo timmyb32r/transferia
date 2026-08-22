@@ -1,6 +1,14 @@
 export function DragHandleIcon() {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
+    <svg
+      class="ui-icon drag-handle-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      stroke="none"
+      aria-hidden="true"
+    >
       <circle cx="5" cy="4" r="1" />
       <circle cx="11" cy="4" r="1" />
       <circle cx="5" cy="8" r="1" />
@@ -14,7 +22,9 @@ export function DragHandleIcon() {
 export function TrashIcon() {
   return (
     <svg
-      class="trash-icon"
+      class="ui-icon trash-icon"
+      width="16"
+      height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
       stroke="none"
@@ -32,7 +42,15 @@ export function TrashIcon() {
 
 export function EyeIcon() {
   return (
-    <svg class="eye-icon" viewBox="0 0 16 16" aria-hidden="true">
+    <svg
+      class="ui-icon eye-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      stroke="none"
+      aria-hidden="true"
+    >
       <path
         fill="currentColor"
         fill-rule="evenodd"
@@ -45,7 +63,15 @@ export function EyeIcon() {
 
 export function EyeOffIcon() {
   return (
-    <svg class="eye-icon eye-off-icon" viewBox="0 0 16 16" aria-hidden="true">
+    <svg
+      class="ui-icon eye-icon eye-off-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      stroke="none"
+      aria-hidden="true"
+    >
       <path
         fill="currentColor"
         fill-rule="evenodd"
