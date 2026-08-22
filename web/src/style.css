@@ -1440,10 +1440,31 @@ input[type="checkbox"]:disabled {
 }
 .dynamic-path-menu {
   min-height: 42px;
+  overflow-x: hidden;
 }
 .dynamic-path-message {
-  max-width: 420px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: start;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   white-space: normal;
+}
+.dynamic-path-error-close {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.dynamic-path-error-close:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
 }
 .password-control {
   position: relative;

@@ -9,6 +9,7 @@ import {
   rankSearchResults,
 } from "../ui/search";
 import { SearchHighlight } from "../ui/SearchHighlight";
+import { Button } from "../ui/Button";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
@@ -186,7 +187,18 @@ export function DynamicPathControl({
             <div class="select-empty">No matching paths</div>
           )}
           {!loading && error !== undefined && (
-            <div class="select-empty dynamic-path-message">{error}</div>
+            <div class="select-empty dynamic-path-message" role="alert">
+              <span>{error}</span>
+              <Button
+                shape="icon"
+                class="dynamic-path-error-close"
+                aria-label="Close path suggestion error"
+                title="Close"
+                onClick={close}
+              >
+                ×
+              </Button>
+            </div>
           )}
         </div>
       )}
