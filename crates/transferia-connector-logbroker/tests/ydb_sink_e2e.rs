@@ -64,7 +64,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
     });
 
     let connector = build_sink_connector(serde_yaml::from_str(&format!(
-        "host: '{}'\nport: {}\ntopic_path: '{TOPIC}'\nauth: {{ type: token, token: {TOKEN} }}\nserializer: {{ type: json }}\ndriver: ydb\ntrusted_plaintext: true\n",
+        "host: '{}'\nport: {}\ntopic: {{ type: topic, topic_path: '{TOPIC}' }}\nauth: {{ type: token, token: {TOKEN} }}\nserializer: {{ type: json }}\ndriver: ydb\ntrusted_plaintext: true\n",
         address.ip(),
         address.port()
     ))?)?;

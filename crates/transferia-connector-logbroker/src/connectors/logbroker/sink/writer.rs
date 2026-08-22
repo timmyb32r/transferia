@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -46,6 +46,12 @@ pub(super) struct YdbTopicSink {
 
 struct RequestStream(mpsc::Receiver<FromClient>);
 
+struct YdbWriteSession {
+    request_tx: mpsc::Sender<FromClient>,
+    responses: tonic::Streaming<FromServer>,
+    next_sequence: i64,
+}
+
 impl Stream for RequestStream {
     type Item = FromClient;
 
@@ -78,40 +84,7 @@ impl YdbTopicSink {
     }
 
     async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
-        let uri: http::Uri =
-            crate::connectors::address::url("http", &self.config.host, self.config.port)
-                .parse()
-                .map_err(|error| anyhow::anyhow!("Invalid YDB Topic sink endpoint: {error}"))?;
-        let transport =
-            connect_http2_prior_knowledge(&uri, NETWORK_TIMEOUT, &io.cancellation).await?;
-        let mut client = TopicServiceClient::with_origin(transport, uri)
-            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE)
-            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE);
-        let (request_tx, request_rx) = mpsc::channel(2);
-        let mut request = Request::new(RequestStream(request_rx));
-        set_ydb_headers(request.metadata_mut(), &self.token)?;
-        let mut responses = tokio::time::timeout(NETWORK_TIMEOUT, client.stream_write(request))
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB Topic writer connect timed out"))??
-            .into_inner();
-        request_tx
-            .send(init_message(&self.config, &self.producer_id))
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed before init"))?;
-        let init = next_response(&mut responses).await?;
-        let Some(ServerMessage::InitResponse(init)) = init.server_message else {
-            anyhow::bail!("YDB Topic writer expected InitResponse");
-        };
-        if let Some(codecs) = init.supported_codecs {
-            anyhow::ensure!(
-                codecs.codecs.contains(&(Codec::Raw as i32)),
-                "YDB Topic writer server does not support RAW codec"
-            );
-        }
-        let mut next_sequence = init
-            .last_seq_no
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("YDB Topic sequence overflow"))?;
+        let mut sessions = HashMap::<String, YdbWriteSession>::new();
         let mut serializer = DeliverySerializer::new(&self.config.serializer)?;
 
         while let Some(delivery) = io.deliveries.recv().await {
@@ -124,66 +97,31 @@ impl YdbTopicSink {
             )
             .await
             .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
-            let mut payloads = payloads.into_iter().peekable();
-            while payloads.peek().is_some() {
-                let mut request_payload_bytes = 0_usize;
-                let mut messages = Vec::new();
-                let mut expected_sequences = Vec::new();
-                while let Some(payload) = payloads.peek() {
-                    if !messages.is_empty()
-                        && request_payload_bytes.saturating_add(payload.len())
-                            > WRITE_PAYLOAD_BUDGET
-                    {
-                        break;
-                    }
-                    let payload = payloads
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("YDB Topic payload stream ended early"))?;
-                    request_payload_bytes = request_payload_bytes
-                        .checked_add(payload.len())
-                        .ok_or_else(|| anyhow::anyhow!("YDB Topic write size overflow"))?;
-                    let sequence = next_sequence;
-                    next_sequence = next_sequence
-                        .checked_add(1)
-                        .ok_or_else(|| anyhow::anyhow!("YDB Topic sequence overflow"))?;
-                    expected_sequences.push(sequence);
-                    messages.push((sequence, payload));
+            let mut payloads = payloads.into_iter();
+            for batch in &delivery.outputs {
+                let topic = self.config.topic.topic_for_table(&batch.table);
+                if !sessions.contains_key(&topic) {
+                    let session = self.connect_session(&topic, &io.cancellation).await?;
+                    sessions.insert(topic.clone(), session);
                 }
-                request_tx
-                    .send(write_message(messages)?)
-                    .await
-                    .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed"))?;
-                let response = next_response(&mut responses).await?;
-                let Some(ServerMessage::WriteResponse(response)) = response.server_message else {
-                    anyhow::bail!("YDB Topic writer expected WriteResponse");
-                };
-                for ack in &response.acks {
-                    match ack.message_write_status {
-                        Some(MessageWriteStatus::Written(_)) => {}
-                        Some(MessageWriteStatus::Skipped(skipped)) => anyhow::ensure!(
-                            skipped.reason == skipped::Reason::AlreadyWritten as i32,
-                            "YDB Topic writer skipped sequence {} for an unexpected reason",
-                            ack.seq_no
-                        ),
-                        Some(MessageWriteStatus::WrittenInTx(_)) => anyhow::bail!(
-                            "YDB Topic writer acknowledged sequence {} inside an unexpected transaction",
-                            ack.seq_no
-                        ),
-                        None => anyhow::bail!(
-                            "YDB Topic writer acknowledgement for sequence {} has no status",
-                            ack.seq_no
-                        ),
-                    }
-                }
-                validate_ack(
-                    &response
-                        .acks
-                        .iter()
-                        .map(|ack| ack.seq_no)
-                        .collect::<Vec<_>>(),
-                    &expected_sequences,
-                )?;
+                let session = sessions
+                    .get_mut(&topic)
+                    .ok_or_else(|| anyhow::anyhow!("YDB Topic writer session disappeared"))?;
+                let batch_payloads = (0..batch.rows())
+                    .map(|_| {
+                        payloads.next().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Logbroker serializer returned fewer payloads than input rows"
+                            )
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                session.write_payloads(batch_payloads).await?;
             }
+            anyhow::ensure!(
+                payloads.next().is_none(),
+                "Logbroker serializer returned more payloads than input rows"
+            );
             self.counters.add_rows(rows);
             self.counters.add_bytes(u64::try_from(
                 delivery
@@ -203,6 +141,122 @@ impl YdbTopicSink {
         }
         Ok(())
     }
+
+    async fn connect_session(
+        &self,
+        topic: &str,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<YdbWriteSession> {
+        let uri: http::Uri =
+            crate::connectors::address::url("http", &self.config.host, self.config.port)
+                .parse()
+                .map_err(|error| anyhow::anyhow!("Invalid YDB Topic sink endpoint: {error}"))?;
+        let transport =
+            connect_http2_prior_knowledge(&uri, NETWORK_TIMEOUT, cancellation).await?;
+        let mut client = TopicServiceClient::with_origin(transport, uri)
+            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE)
+            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE);
+        let (request_tx, request_rx) = mpsc::channel(2);
+        let mut request = Request::new(RequestStream(request_rx));
+        set_ydb_headers(request.metadata_mut(), &self.token)?;
+        let mut responses = tokio::time::timeout(NETWORK_TIMEOUT, client.stream_write(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB Topic writer connect timed out"))??
+            .into_inner();
+        request_tx
+            .send(init_message(
+                topic,
+                self.config.partition_id,
+                &self.producer_id,
+            ))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed before init"))?;
+        let init = next_response(&mut responses).await?;
+        let Some(ServerMessage::InitResponse(init)) = init.server_message else {
+            anyhow::bail!("YDB Topic writer expected InitResponse");
+        };
+        if let Some(codecs) = init.supported_codecs {
+            anyhow::ensure!(
+                codecs.codecs.contains(&(Codec::Raw as i32)),
+                "YDB Topic writer server does not support RAW codec"
+            );
+        }
+        let next_sequence = init
+            .last_seq_no
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("YDB Topic sequence overflow"))?;
+        Ok(YdbWriteSession {
+            request_tx,
+            responses,
+            next_sequence,
+        })
+    }
+}
+
+impl YdbWriteSession {
+    async fn write_payloads(&mut self, payloads: Vec<Vec<u8>>) -> anyhow::Result<()> {
+        let mut payloads = payloads.into_iter().peekable();
+        while payloads.peek().is_some() {
+            let mut request_payload_bytes = 0_usize;
+            let mut messages = Vec::new();
+            let mut expected_sequences = Vec::new();
+            while let Some(payload) = payloads.peek() {
+                if !messages.is_empty()
+                    && request_payload_bytes.saturating_add(payload.len()) > WRITE_PAYLOAD_BUDGET
+                {
+                    break;
+                }
+                let payload = payloads
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("YDB Topic payload stream ended early"))?;
+                request_payload_bytes = request_payload_bytes
+                    .checked_add(payload.len())
+                    .ok_or_else(|| anyhow::anyhow!("YDB Topic write size overflow"))?;
+                let sequence = self.next_sequence;
+                self.next_sequence = self
+                    .next_sequence
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("YDB Topic sequence overflow"))?;
+                expected_sequences.push(sequence);
+                messages.push((sequence, payload));
+            }
+            self.request_tx
+                .send(write_message(messages)?)
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB Topic writer request stream closed"))?;
+            let response = next_response(&mut self.responses).await?;
+            let Some(ServerMessage::WriteResponse(response)) = response.server_message else {
+                anyhow::bail!("YDB Topic writer expected WriteResponse");
+            };
+            for ack in &response.acks {
+                match ack.message_write_status {
+                    Some(MessageWriteStatus::Written(_)) => {}
+                    Some(MessageWriteStatus::Skipped(skipped)) => anyhow::ensure!(
+                        skipped.reason == skipped::Reason::AlreadyWritten as i32,
+                        "YDB Topic writer skipped sequence {} for an unexpected reason",
+                        ack.seq_no
+                    ),
+                    Some(MessageWriteStatus::WrittenInTx(_)) => anyhow::bail!(
+                        "YDB Topic writer acknowledged sequence {} inside an unexpected transaction",
+                        ack.seq_no
+                    ),
+                    None => anyhow::bail!(
+                        "YDB Topic writer acknowledgement for sequence {} has no status",
+                        ack.seq_no
+                    ),
+                }
+            }
+            validate_ack(
+                &response
+                    .acks
+                    .iter()
+                    .map(|ack| ack.seq_no)
+                    .collect::<Vec<_>>(),
+                &expected_sequences,
+            )?;
+        }
+        Ok(())
+    }
 }
 
 impl Sink for YdbTopicSink {
@@ -218,13 +272,13 @@ impl Sink for YdbTopicSink {
     }
 }
 
-fn init_message(config: &LogbrokerSinkConfig, producer_id: &str) -> FromClient {
+fn init_message(topic: &str, partition_id: Option<i64>, producer_id: &str) -> FromClient {
     FromClient {
         client_message: Some(ClientMessage::InitRequest(InitRequest {
-            path: config.topic_path.clone(),
+            path: topic.to_owned(),
             producer_id: producer_id.to_owned(),
             get_last_seq_no: true,
-            partitioning: Some(config.partition_id.map_or_else(
+            partitioning: Some(partition_id.map_or_else(
                 || Partitioning::MessageGroupId(producer_id.to_owned()),
                 Partitioning::PartitionId,
             )),

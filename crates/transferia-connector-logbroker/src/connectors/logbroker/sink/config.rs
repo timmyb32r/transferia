@@ -14,8 +14,7 @@ pub struct LogbrokerSinkConfig {
     #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: LogbrokerAuthConfig,
 
-    #[schemars(title = "Topic path")]
-    pub topic_path: String,
+    pub topic: LogbrokerTopicConfig,
 
     #[serde(default)]
     #[schemars(
@@ -44,20 +43,67 @@ pub struct LogbrokerSinkCheckConfig {
     pub auth: LogbrokerAuthConfig,
 
     #[serde(default)]
-    pub topic_path: String,
+    pub topic: Option<LogbrokerTopicConfig>,
 
     #[serde(default)]
     pub driver: Option<LogbrokerDriver>,
+}
+
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LogbrokerTopicConfig {
+    #[schemars(title = "Topic")]
+    Topic {
+        #[schemars(title = "Topic path")]
+        topic_path: String,
+    },
+
+    #[schemars(title = "Topic prefix")]
+    TopicPrefix {
+        #[schemars(
+            title = "Topic prefix",
+            description = "Each dataset is written to <topic_prefix>.<dataset_name>"
+        )]
+        topic_prefix: String,
+    },
+}
+
+impl LogbrokerTopicConfig {
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
+        let (value, label) = match self {
+            Self::Topic { topic_path } => (topic_path, "logbroker.topic_path"),
+            Self::TopicPrefix { topic_prefix } => {
+                (topic_prefix, "logbroker.topic_prefix")
+            }
+        };
+        anyhow::ensure!(!value.is_empty(), "{label} must not be empty");
+        anyhow::ensure!(
+            value == value.trim(),
+            "{label} must not have leading or trailing whitespace"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn fixed_topic(&self) -> Option<&str> {
+        match self {
+            Self::Topic { topic_path } => Some(topic_path),
+            Self::TopicPrefix { .. } => None,
+        }
+    }
+
+    pub(super) fn topic_for_table(&self, table: &str) -> String {
+        match self {
+            Self::Topic { topic_path } => topic_path.clone(),
+            Self::TopicPrefix { topic_prefix } => format!("{topic_prefix}.{table}"),
+        }
+    }
 }
 
 impl LogbrokerSinkConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         crate::connectors::address::validate_host("logbroker.host", &self.host)?;
         crate::connectors::address::validate_port("logbroker.port", self.port)?;
-        anyhow::ensure!(
-            !self.topic_path.trim().is_empty(),
-            "logbroker.topic_path must not be empty"
-        );
+        self.topic.validate()?;
         anyhow::ensure!(
             self.partition_id
                 .is_none_or(|partition_id| partition_id >= 0),

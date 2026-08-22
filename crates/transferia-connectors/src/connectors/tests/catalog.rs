@@ -302,7 +302,7 @@ async fn logbroker_checks_only_network_when_credentials_are_empty() -> anyhow::R
             serde_yaml::to_value(serde_json::json!({
                 "host": "127.0.0.1",
                 "port": port,
-                "topic_path": "",
+                "topic": { "type": "topic", "topic_path": "" },
                 "auth": { "type": "token", "token": "" }
             }))?,
         ),

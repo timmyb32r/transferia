@@ -1153,9 +1153,8 @@
                 "control_width": "auth"
               }
             },
-            "topic_path": {
-              "title": "Topic path",
-              "type": "string"
+            "topic": {
+              "$ref": "#/$defs/LogbrokerTopicConfig"
             },
             "partition_id": {
               "title": "Partition ID",
@@ -1187,7 +1186,7 @@
           "additionalProperties": false,
           "required": [
             "auth",
-            "topic_path",
+            "topic",
             "serializer",
             "driver",
             "installation"
@@ -1232,6 +1231,49 @@
                   "required": [
                     "type",
                     "token_file"
+                  ]
+                }
+              ]
+            },
+            "LogbrokerTopicConfig": {
+              "oneOf": [
+                {
+                  "title": "Topic",
+                  "type": "object",
+                  "properties": {
+                    "topic_path": {
+                      "title": "Topic path",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "topic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "topic_path"
+                  ]
+                },
+                {
+                  "title": "Topic prefix",
+                  "type": "object",
+                  "properties": {
+                    "topic_prefix": {
+                      "title": "Topic prefix",
+                      "description": "Each dataset is written to <topic_prefix>.<dataset_name>",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "topic_prefix"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "topic_prefix"
                   ]
                 }
               ]
@@ -1431,7 +1473,10 @@
             "type": "json"
           },
           "driver": "ydb",
-          "topic_path": "",
+          "topic": {
+            "type": "topic",
+            "topic_path": ""
+          },
           "partition_id": null,
           "auth": {
             "type": "token",

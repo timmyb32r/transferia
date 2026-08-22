@@ -73,7 +73,8 @@ pub fn register(
             })
             .sink::<logbroker::sink::LogbrokerSinkConfig, _, _>(
                 || serde_json::json!({
-                    "host": "", "port": 2135, "topic_path": "", "partition_id": null,
+                    "host": "", "port": 2135,
+                    "topic": { "type": "topic", "topic_path": "" }, "partition_id": null,
                     "auth": { "type": "token", "token": "" },
                     "serializer": { "type": "json" }, "driver": "ydb", "trusted_plaintext": true
                 }),
@@ -84,15 +85,17 @@ pub fn register(
                 if !config.auth.is_configured() {
                     logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult::network_reachable())
-                } else if config.topic_path.is_empty() {
+                } else if config.topic.as_ref().and_then(|topic| topic.fixed_topic()).is_none() {
                     logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult {
-                        message: Some("Logbroker is network-reachable. Authentication and topic access were not checked because the topic is incomplete.".to_owned()),
+                        message: Some("Logbroker is network-reachable. Authentication and topic access were not checked because a concrete topic is unavailable.".to_owned()),
                         ..transferia_registry::ConnectionCheckResult::network_reachable()
                     })
                 } else {
                     logbroker::src_stream::check_topic_connection(
-                        &config.host, config.port, &config.topic_path, &config.auth,
+                        &config.host, config.port,
+                        config.topic.as_ref().and_then(|topic| topic.fixed_topic()).ok_or_else(|| anyhow::anyhow!("Logbroker topic is unavailable"))?,
+                        &config.auth,
                         config.driver.unwrap_or(logbroker::LogbrokerDriver::Ydb), cancellation,
                     ).await?;
                     Ok(transferia_registry::ConnectionCheckResult::default())

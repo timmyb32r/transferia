@@ -39,6 +39,13 @@ pub fn build_sink_connector(config: LogbrokerSinkConfig) -> anyhow::Result<Box<d
     match config.driver {
         LogbrokerDriver::Ydb => Ok(Box::new(YdbDriverSinkConnector::from_config(config)?)),
         LogbrokerDriver::Pqv1 => {
+            let topic_path = config
+                .topic
+                .fixed_topic()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("logbroker.driver=pqv1 does not support topic_prefix")
+                })?
+                .to_owned();
             let partition_id = config.partition_id.ok_or_else(|| {
                 anyhow::anyhow!("logbroker.driver=pqv1 requires an explicit partition_id")
             })?;
@@ -61,7 +68,7 @@ pub fn build_sink_connector(config: LogbrokerSinkConfig) -> anyhow::Result<Box<d
             let pqv1 = crate::connectors::logbroker::pqv1::config::PqV1SinkConfig {
                 host: config.host,
                 port: config.port,
-                topic_path: config.topic_path,
+                topic_path,
                 message_group_id: None,
                 partition_group_id: partition_id,
                 auth,
@@ -81,10 +88,13 @@ pub async fn check_connection(
     cancellation: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     config.validate()?;
+    let topic_path = config.topic.fixed_topic().ok_or_else(|| {
+        anyhow::anyhow!("Logbroker topic-prefix mode can only check network reachability before a dataset is selected")
+    })?;
     crate::connectors::logbroker::src_stream::check_topic_connection(
         &config.host,
         config.port,
-        &config.topic_path,
+        topic_path,
         &config.auth,
         config.driver,
         cancellation,
