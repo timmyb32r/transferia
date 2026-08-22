@@ -10,6 +10,8 @@ export interface SelectOption {
   label: string;
 }
 
+const EMPTY_SELECTION_LABEL = "Not selected";
+
 interface SelectControlProps {
   id?: string | undefined;
   value: string;
@@ -40,13 +42,13 @@ export function SelectControl({
   const listbox = useListbox({ disabled, onOpen });
   const { open, query, root, trigger, close, toggle, setQuery, onKeyDown } =
     listbox;
-  const selected = options.find((option) => option.value === value);
+  const selected =
+    clearable && value === ""
+      ? { value: "", label: EMPTY_SELECTION_LABEL }
+      : options.find((option) => option.value === value);
   const filtered = useMemo(() => {
     const clearOption = clearable
-      ? (options.find((option) => option.value === "") ?? {
-          value: "",
-          label: placeholder,
-        })
+      ? { value: "", label: EMPTY_SELECTION_LABEL }
       : undefined;
     return [
       ...(clearOption === undefined ? [] : [clearOption]),

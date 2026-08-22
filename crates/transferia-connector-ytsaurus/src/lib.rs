@@ -52,8 +52,11 @@ pub fn register(
                     serde_json::json!({
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
-                        "timeout_ms": 30000, "path": "",
-                        "replace_tables": true, "format": "arrow"
+                        "timeout_ms": 30000,
+                        "tables": {
+                            "type": "static_tables", "path": "",
+                            "replace_tables": true, "format": "arrow"
+                        }
                     })
                 },
                 |config| {

@@ -44,6 +44,25 @@ describe("UI primitives", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("normalizes every clearable select empty option to Not selected", () => {
+    const view = render(
+      <SelectControl
+        value=""
+        placeholder=""
+        options={[{ value: "", label: "" }, { value: "hahn", label: "Hahn" }]}
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(view.getByRole("button", { name: "Not selected" })).toBeTruthy();
+    fireEvent.pointerDown(view.getByRole("button", { name: "Not selected" }), {
+      button: 0,
+    });
+    expect(
+      view.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(["Not selected", "Hahn"]);
+  });
+
   it("exposes field help as an accessible tooltip", () => {
     const view = render(
       <FormField

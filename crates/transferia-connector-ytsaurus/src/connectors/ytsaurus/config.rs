@@ -162,27 +162,82 @@ pub enum YTsaurusWriteFormat {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusSinkConfig {
+    #[schemars(title = "Table type")]
+    pub tables: YTsaurusTableMode,
+
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
+}
 
-    #[schemars(
-        title = "Path",
-        description = "Directory where dataset tables are stored"
-    )]
-    pub path: String,
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum YTsaurusTableMode {
+    #[schemars(title = "Static tables")]
+    StaticTables {
+        #[schemars(
+            title = "Path",
+            description = "Directory where dataset tables are stored"
+        )]
+        path: String,
 
-    pub replace_tables: bool,
+        replace_tables: bool,
 
-    #[serde(default)]
-    #[schemars(title = "Driver exchange format")]
-    pub format: YTsaurusWriteFormat,
+        #[serde(default)]
+        #[schemars(
+            title = "Driver exchange format",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        format: YTsaurusWriteFormat,
+    },
+
+    #[schemars(title = "Dynamic tables")]
+    DynamicTables {
+        #[schemars(
+            title = "Path",
+            description = "Directory where dataset tables are stored"
+        )]
+        path: String,
+
+        replace_tables: bool,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Driver exchange format",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        format: YTsaurusWriteFormat,
+    },
 }
 
 impl YTsaurusSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        validate_path(&self.path)?;
+        validate_path(self.path())?;
         Ok(())
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &str {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { path, .. }
+            | YTsaurusTableMode::DynamicTables { path, .. } => path,
+        }
+    }
+
+    #[must_use]
+    pub const fn replace_tables(&self) -> bool {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { replace_tables, .. }
+            | YTsaurusTableMode::DynamicTables { replace_tables, .. } => *replace_tables,
+        }
+    }
+
+    #[must_use]
+    pub const fn format(&self) -> YTsaurusWriteFormat {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { format, .. }
+            | YTsaurusTableMode::DynamicTables { format, .. } => *format,
+        }
     }
 
     pub fn path_for_dataset(&self, dataset: &str) -> anyhow::Result<String> {
@@ -197,7 +252,7 @@ impl YTsaurusSinkConfig {
                 && !dataset.contains('\0'),
             "YTsaurus dataset name '{dataset}' cannot be used as one table path segment"
         );
-        Ok(format!("{}/{dataset}", self.path.trim_end_matches('/')))
+        Ok(format!("{}/{dataset}", self.path().trim_end_matches('/')))
     }
 }
 

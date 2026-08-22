@@ -136,10 +136,10 @@ impl SinkConnector for YTsaurusSinkConnector {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            self.client.create_directory(&self.config.path).await?;
+            self.client.create_directory(self.config.path()).await?;
             for dataset in request.datasets {
                 let path = self.config.path_for_dataset(&dataset.table)?;
-                if self.config.replace_tables {
+                if self.config.replace_tables() {
                     self.client.remove_table(&path).await?;
                     self.client
                         .create_table(&path, schema_to_yt(&dataset.schema)?)
@@ -204,7 +204,7 @@ impl YTsaurusSink {
             } else {
                 project_user_columns(&batch.batch, &batch.system_columns)?
             };
-            let (format, payload) = match self.config.format {
+            let (format, payload) = match self.config.format() {
                 YTsaurusWriteFormat::Arrow => ("arrow", encode_arrow(&stored)?),
                 YTsaurusWriteFormat::Yson => ("yson", encode_yson(&stored)?),
             };

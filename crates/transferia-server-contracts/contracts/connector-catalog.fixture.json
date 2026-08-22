@@ -5577,6 +5577,10 @@
                 }
               ]
             },
+            "tables": {
+              "title": "Table type",
+              "$ref": "#/$defs/YTsaurusTableMode"
+            },
             "auth": {
               "$ref": "#/$defs/YTsaurusAuthConfig"
             },
@@ -5588,28 +5592,88 @@
               "x-ui": {
                 "widget": "hidden"
               }
-            },
-            "path": {
-              "title": "Path",
-              "description": "Directory where dataset tables are stored",
-              "type": "string"
-            },
-            "replace_tables": {
-              "type": "boolean"
-            },
-            "format": {
-              "title": "Driver exchange format",
-              "$ref": "#/$defs/YTsaurusWriteFormat"
             }
           },
           "additionalProperties": false,
           "required": [
+            "tables",
             "auth",
-            "path",
-            "replace_tables",
             "installation"
           ],
           "$defs": {
+            "YTsaurusTableMode": {
+              "oneOf": [
+                {
+                  "title": "Static tables",
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "title": "Path",
+                      "description": "Directory where dataset tables are stored",
+                      "type": "string"
+                    },
+                    "replace_tables": {
+                      "type": "boolean"
+                    },
+                    "format": {
+                      "title": "Driver exchange format",
+                      "$ref": "#/$defs/YTsaurusWriteFormat",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "static_tables"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "path",
+                    "replace_tables"
+                  ]
+                },
+                {
+                  "title": "Dynamic tables",
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "title": "Path",
+                      "description": "Directory where dataset tables are stored",
+                      "type": "string"
+                    },
+                    "replace_tables": {
+                      "type": "boolean"
+                    },
+                    "format": {
+                      "title": "Driver exchange format",
+                      "$ref": "#/$defs/YTsaurusWriteFormat",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "dynamic_tables"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "path",
+                    "replace_tables"
+                  ]
+                }
+              ]
+            },
+            "YTsaurusWriteFormat": {
+              "type": "string",
+              "enum": [
+                "arrow",
+                "yson"
+              ]
+            },
             "YTsaurusAuthConfig": {
               "oneOf": [
                 {
@@ -5652,13 +5716,6 @@
                   ]
                 }
               ]
-            },
-            "YTsaurusWriteFormat": {
-              "type": "string",
-              "enum": [
-                "arrow",
-                "yson"
-              ]
             }
           }
         },
@@ -5667,9 +5724,12 @@
             "type": "token",
             "token": ""
           },
-          "format": "arrow",
-          "replace_tables": true,
-          "path": "",
+          "tables": {
+            "type": "static_tables",
+            "path": "",
+            "replace_tables": true,
+            "format": "arrow"
+          },
           "timeout_ms": 30000,
           "installation": {
             "host": "",

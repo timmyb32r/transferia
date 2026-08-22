@@ -21,7 +21,7 @@ fn configs_derive_transport_and_use_paths_as_table_names() -> anyhow::Result<()>
     tls_source.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: relative\n"
+        "tables: { type: static_tables, replace_tables: false, path: relative }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n"
     )?
     .validate()
     .is_err());
@@ -31,9 +31,9 @@ fn configs_derive_transport_and_use_paths_as_table_names() -> anyhow::Result<()>
 #[test]
 fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\nreplace_tables: false\npath: //tmp/output\n",
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
-    assert_eq!(config.format, YTsaurusWriteFormat::Arrow);
+    assert_eq!(config.format(), YTsaurusWriteFormat::Arrow);
     assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");
     Ok(())
 }

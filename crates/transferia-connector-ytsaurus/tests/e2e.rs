@@ -233,7 +233,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
 
     let arrow_config: transferia_connector_ytsaurus::ytsaurus::YTsaurusSinkConfig =
         serde_yaml::from_str(&format!(
-        "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: arrow\npath: //tmp/arrow_output\n"
+        "tables: {{ type: static_tables, replace_tables: true, format: arrow, path: //tmp/arrow_output }}\nauth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\n"
     ))?;
     transferia_connector_ytsaurus::ytsaurus::check_connection(&arrow_config.connection).await?;
     let arrow_connector = YTsaurusSinkConnector::from_config(arrow_config)?;
@@ -260,7 +260,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     .await?;
 
     let yson_connector = YTsaurusSinkConnector::from_config(serde_yaml::from_str(&format!(
-        "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nreplace_tables: true\nformat: yson\npath: //tmp/yson_output\n"
+        "tables: {{ type: static_tables, replace_tables: true, format: yson, path: //tmp/yson_output }}\nauth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\n"
     ))?)?;
     yson_connector.limits().validate_discovery(&discovered)?;
     yson_connector
