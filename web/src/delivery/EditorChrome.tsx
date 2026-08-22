@@ -73,7 +73,7 @@ export function EditorActions({
         </Button>
         <Button
           variant="primary"
-          class={activationIsDiagnostic ? "diagnostic-disabled" : undefined}
+          class={`activate-action${activationIsDiagnostic ? " diagnostic-disabled" : ""}`}
           aria-disabled={!activationReady}
           disabled={blocked || (!activationReady && !activationIsDiagnostic)}
           onClick={activate}
@@ -93,7 +93,7 @@ export function EditorActions({
       </Button>
       <Button
         variant="primary"
-        class={activationIsDiagnostic ? "diagnostic-disabled" : undefined}
+        class={`activate-action${activationIsDiagnostic ? " diagnostic-disabled" : ""}`}
         aria-disabled={!activationReady}
         disabled={blocked || (!activationReady && !activationIsDiagnostic)}
         onClick={activate}
