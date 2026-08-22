@@ -3,6 +3,7 @@ import { useContext, useEffect, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import { FormField } from "../ui/FormField";
+import { ExternalLinkIcon } from "../ui/icons";
 import { SelectControl } from "../ui/SelectControl";
 import {
   createValue,
@@ -413,9 +414,7 @@ function withExternalLink(
           aria-label="Open in external console"
           title="Open in external console"
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M9.25 2a.75.75 0 0 1 .75-.75h3.25a1.5 1.5 0 0 1 1.5 1.5V6a.75.75 0 0 1-1.5 0V3.81L8.53 8.53a.75.75 0 0 1-1.06-1.06l4.72-4.72H10A.75.75 0 0 1 9.25 2ZM3.5 3.25h3a.75.75 0 0 1 0 1.5h-3a.75.75 0 0 0-.75.75v7c0 .414.336.75.75.75h7a.75.75 0 0 0 .75-.75v-3a.75.75 0 0 1 1.5 0v3a2.25 2.25 0 0 1-2.25 2.25h-7a2.25 2.25 0 0 1-2.25-2.25v-7A2.25 2.25 0 0 1 3.5 3.25Z" />
-          </svg>
+          <ExternalLinkIcon />
         </a>
       )}
     </div>
