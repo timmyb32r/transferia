@@ -32,7 +32,8 @@ export function UnionNodeEditor({
   const widget = node.xUi.widget;
   const action = widget === undefined ? undefined : variantUi.actions?.[widget];
   const selectionOnly =
-    widget !== undefined && variantUi.selectionOnly?.includes(widget) === true;
+    node.xUi.defer_variant_details === true ||
+    (widget !== undefined && variantUi.selectionOnly?.includes(widget) === true);
   return (
     <div class="union-editor">
       <div class={action !== undefined ? "parser-selector-row" : undefined}>

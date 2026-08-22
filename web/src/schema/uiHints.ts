@@ -17,6 +17,7 @@ export interface UiHints {
   item_label?: string;
   order?: number;
   reveal_rest_on_selection?: boolean;
+  defer_variant_details?: boolean;
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
@@ -33,6 +34,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "item_label",
   "order",
   "reveal_rest_on_selection",
+  "defer_variant_details",
 ]);
 
 export function decodeUiHints(
@@ -135,6 +137,12 @@ export function decodeUiHints(
     typeof revealRestOnSelection !== "boolean"
   )
     fail(`${path}: x-ui reveal_rest_on_selection must be a boolean`);
+  const deferVariantDetails = value.defer_variant_details;
+  if (
+    deferVariantDetails !== undefined &&
+    typeof deferVariantDetails !== "boolean"
+  )
+    fail(`${path}: x-ui defer_variant_details must be a boolean`);
 
   return {
     ...(typeof widget === "string" ? { widget } : {}),
@@ -160,6 +168,9 @@ export function decodeUiHints(
     ...(revealRestOnSelection === undefined
       ? {}
       : { reveal_rest_on_selection: revealRestOnSelection }),
+    ...(deferVariantDetails === undefined
+      ? {}
+      : { defer_variant_details: deferVariantDetails }),
   };
 }
 

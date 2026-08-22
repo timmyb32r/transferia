@@ -166,6 +166,7 @@ pub struct YTsaurusSinkConfig {
         title = "Table type",
         extend("x-ui" = {
             "control_width": "full",
+            "defer_variant_details": true,
             "order": -100,
             "reveal_rest_on_selection": true
         })

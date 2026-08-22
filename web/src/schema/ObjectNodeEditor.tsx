@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { JsonObject } from "../json";
 import { Disclosure } from "../ui/Disclosure";
 import { branchMatches, type CompiledNode } from "./compiler";
-import type { PropertyEditorComponent } from "./editorTypes";
+import type {
+  NodeEditorComponent,
+  PropertyEditorComponent,
+} from "./editorTypes";
 import {
   clearConfiguredPartitionRanges,
   hasConfiguredPartitionRanges,
   partitionRangesProperty,
 } from "./partitionRanges";
-import type { WidgetRegistry } from "./widgetRegistry";
+import { hasEditableContent, type WidgetRegistry } from "./widgetRegistry";
 
 type ObjectNode = Extract<CompiledNode, { kind: "object" }>;
 type PropertyEntry = [string, CompiledNode];
@@ -22,6 +25,7 @@ export function ObjectNodeEditor({
   path,
   connectionAction,
   widgets,
+  NodeEditor,
   PropertyEditor,
   onChange,
 }: {
@@ -31,6 +35,7 @@ export function ObjectNodeEditor({
   path: string;
   connectionAction?: ComponentChildren;
   widgets: WidgetRegistry;
+  NodeEditor: NodeEditorComponent;
   PropertyEditor: PropertyEditorComponent;
   onChange: (value: JsonObject) => void;
 }) {
@@ -107,6 +112,20 @@ export function ObjectNodeEditor({
   if (!gateSelected && revealGate !== undefined)
     return <div class="schema-object">{property(revealGate)}</div>;
 
+  const deferredVariants = regular.flatMap(([name, child]) => {
+    if (child.kind !== "union" || child.xUi.defer_variant_details !== true)
+      return [];
+    const branchIndex = child.branches.findIndex((branch) =>
+      branchMatches(branch, value[name] ?? null),
+    );
+    const branch = child.branches[branchIndex];
+    return branch === undefined ||
+      branch.constant !== undefined ||
+      !hasEditableContent(branch.node, widgets)
+      ? []
+      : [{ name, branchIndex, branch }];
+  });
+
   return (
     <div class="schema-object">
       {regular.map(([name, child]) => (
@@ -130,6 +149,17 @@ export function ObjectNodeEditor({
             connectionAnchor?.[0] === name &&
             connectionAction}
         </Fragment>
+      ))}
+      {deferredVariants.map(({ name, branchIndex, branch }) => (
+        <div class="nested-section deferred-variant-details" key={name}>
+          <NodeEditor
+            node={branch.node}
+            value={value[name] ?? {}}
+            disabled={disabled}
+            path={`${path}/${name}/branch-${branchIndex}`}
+            onChange={(next) => onChange({ ...value, [name]: next })}
+          />
+        </div>
       ))}
       {connectionAnchor === undefined && connectionAction}
       {shardGroup.length > 0 && (

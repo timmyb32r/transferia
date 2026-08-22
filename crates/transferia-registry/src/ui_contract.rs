@@ -21,6 +21,7 @@ struct UiHints {
     item_label: Option<String>,
     order: Option<i64>,
     reveal_rest_on_selection: Option<bool>,
+    defer_variant_details: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +86,7 @@ fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
                     hints.options,
                     hints.order,
                     hints.reveal_rest_on_selection,
+                    hints.defer_variant_details,
                 ));
             }
             for (key, value) in object {

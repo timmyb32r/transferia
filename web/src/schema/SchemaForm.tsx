@@ -134,6 +134,7 @@ function NodeEditor({
           path={path}
           connectionAction={connectionAction}
           widgets={widgets}
+          NodeEditor={NodeEditor}
           PropertyEditor={PropertyEditor}
           onChange={onChange}
         />
@@ -400,8 +401,9 @@ function PropertyEditor({
   const showRequiredErrors = useContext(RequiredErrorsContext);
   const variantUi = useContext(VariantUiContext);
   const selectionOnly =
-    node.xUi.widget !== undefined &&
-    variantUi.selectionOnly?.includes(node.xUi.widget) === true;
+    node.xUi.defer_variant_details === true ||
+    (node.xUi.widget !== undefined &&
+      variantUi.selectionOnly?.includes(node.xUi.widget) === true);
   const selectionComplete =
     node.kind === "union" &&
     node.branches.some((branch) => branchMatches(branch, value ?? null));
