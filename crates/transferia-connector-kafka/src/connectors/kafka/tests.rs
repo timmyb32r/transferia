@@ -1,6 +1,6 @@
 use super::{
     config::base_client_config, validate_sink_config, KafkaSaslMechanism, KafkaSecurityConfig,
-    KafkaSinkConfig,
+    KafkaSinkConfig, KafkaTopicConfig,
 };
 use crate::serializer::SerializerConfig;
 
@@ -8,7 +8,9 @@ use crate::serializer::SerializerConfig;
 fn sink_rejects_whitespace_in_topic() {
     let config = KafkaSinkConfig {
         brokers: vec!["localhost:9092".to_owned()],
-        topic: " topic".to_owned(),
+        topic: KafkaTopicConfig::Topic {
+            topic: " topic".to_owned(),
+        },
         security: KafkaSecurityConfig::Plaintext,
         serializer: SerializerConfig::Json,
         partition: None,
@@ -16,6 +18,24 @@ fn sink_rejects_whitespace_in_topic() {
         max_in_flight: 16,
     };
     assert!(validate_sink_config(&config).is_err());
+}
+
+#[test]
+fn sink_topic_selection_routes_fixed_and_prefixed_topics() -> anyhow::Result<()> {
+    let fixed = KafkaTopicConfig::Topic {
+        topic: "events".to_owned(),
+    };
+    fixed.validate()?;
+    assert_eq!(fixed.fixed_topic(), Some("events"));
+    assert_eq!(fixed.topic_for_table("orders"), "events");
+
+    let prefixed = KafkaTopicConfig::TopicPrefix {
+        topic_prefix: "replica".to_owned(),
+    };
+    prefixed.validate()?;
+    assert_eq!(prefixed.fixed_topic(), None);
+    assert_eq!(prefixed.topic_for_table("orders"), "replica.orders");
+    Ok(())
 }
 
 #[test]
@@ -48,6 +68,13 @@ fn source_and_sink_config_schemas_compile() {
     assert!(serde_json::to_value(source).unwrap().is_object());
     let sink = serde_json::to_value(sink).unwrap();
     assert!(sink.is_object());
+    assert_eq!(
+        sink.pointer("/$defs/KafkaTopicConfig/oneOf")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(2),
+        "Kafka sink topic must be a strict topic/topic-prefix union"
+    );
     for field in ["request_timeout_ms", "max_in_flight"] {
         assert_eq!(
             sink.pointer(&format!("/properties/{field}/x-ui/widget")),

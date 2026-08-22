@@ -48,7 +48,9 @@ pub fn register(
             .sink::<kafka::KafkaSinkConfig, _, _>(
                 || {
                     serde_json::json!({
-                        "brokers": [""], "topic": "", "security": { "type": "plaintext" },
+                        "brokers": [""],
+                        "topic": { "type": "topic", "topic": "" },
+                        "security": { "type": "plaintext" },
                         "serializer": { "type": "json" }, "partition": null,
                         "request_timeout_ms": 30_000, "max_in_flight": 16
                     })

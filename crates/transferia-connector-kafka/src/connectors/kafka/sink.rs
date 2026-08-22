@@ -49,25 +49,37 @@ impl KafkaSink {
         let payload_bytes = payloads.iter().map(Vec::len).sum::<usize>();
         let timeout = super::config::timeout(self.config.request_timeout_ms);
         let mut pending = FuturesUnordered::new();
-        for payload in payloads {
-            let producer = self.producer.clone();
-            let topic = Arc::clone(&self.config);
-            pending.push(async move {
-                let mut record =
-                    FutureRecord::<(), [u8]>::to(&topic.topic).payload(payload.as_ref());
-                if let Some(partition) = topic.partition {
-                    record = record.partition(partition);
+        let mut payloads = payloads.into_iter();
+        for batch in &delivery.outputs {
+            let topic: Arc<str> = self.config.topic.topic_for_table(&batch.table).into();
+            for _ in 0..batch.rows() {
+                let payload = payloads.next().ok_or_else(|| {
+                    anyhow::anyhow!("Kafka serializer returned fewer payloads than input rows")
+                })?;
+                let producer = self.producer.clone();
+                let topic = Arc::clone(&topic);
+                let partition = self.config.partition;
+                pending.push(async move {
+                    let mut record =
+                        FutureRecord::<(), [u8]>::to(topic.as_ref()).payload(payload.as_ref());
+                    if let Some(partition) = partition {
+                        record = record.partition(partition);
+                    }
+                    producer
+                        .send(record, timeout)
+                        .await
+                        .map_err(|(error, _)| anyhow::anyhow!("Kafka delivery failed: {error}"))?;
+                    Ok::<(), anyhow::Error>(())
+                });
+                if pending.len() >= self.config.max_in_flight {
+                    pending.next().await.transpose()?;
                 }
-                producer
-                    .send(record, timeout)
-                    .await
-                    .map_err(|(error, _)| anyhow::anyhow!("Kafka delivery failed: {error}"))?;
-                Ok::<(), anyhow::Error>(())
-            });
-            if pending.len() >= self.config.max_in_flight {
-                pending.next().await.transpose()?;
             }
         }
+        anyhow::ensure!(
+            payloads.next().is_none(),
+            "Kafka serializer returned more payloads than input rows"
+        );
         while let Some(result) = pending.next().await {
             result?;
         }

@@ -9,7 +9,10 @@ use futures_util::future::BoxFuture;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::FutureProducer;
 
-pub use config::{KafkaSaslMechanism, KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig};
+pub use config::{
+    KafkaSaslMechanism, KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig,
+    KafkaTopicConfig,
+};
 use sink::KafkaSink;
 
 use crate::metrics::{MetricsRegistry, SourceCounters};
@@ -268,11 +271,17 @@ pub async fn check_source_connection(config: &KafkaSourceConfig) -> anyhow::Resu
 
 pub async fn check_sink_connection(config: &KafkaSinkConfig) -> anyhow::Result<()> {
     validate_sink_config(config)?;
+    let topics = config
+        .topic
+        .fixed_topic()
+        .map(str::to_owned)
+        .into_iter()
+        .collect::<Vec<_>>();
     check_metadata(
         &config.brokers,
         &config.security,
         config.request_timeout_ms,
-        core::slice::from_ref(&config.topic),
+        &topics,
     )
     .await
 }
@@ -351,11 +360,7 @@ fn validate_source_config(config: &KafkaSourceConfig) -> anyhow::Result<()> {
 
 fn validate_sink_config(config: &KafkaSinkConfig) -> anyhow::Result<()> {
     config::validate_brokers(&config.brokers)?;
-    anyhow::ensure!(!config.topic.is_empty(), "kafka.topic must not be empty");
-    anyhow::ensure!(
-        config.topic == config.topic.trim(),
-        "Kafka topic must not have leading or trailing whitespace"
-    );
+    config.topic.validate()?;
     anyhow::ensure!(
         config.request_timeout_ms > 0,
         "kafka.request_timeout_ms must be positive"

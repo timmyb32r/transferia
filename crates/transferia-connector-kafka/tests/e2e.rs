@@ -63,7 +63,7 @@ async fn kafka_sink_source_and_offset_commit_use_a_real_broker() -> anyhow::Resu
     let topic = "transferia-kafka-e2e";
     let discovery = discovery();
     let sink_config: KafkaSinkConfig = serde_yaml::from_str(&format!(
-        "brokers: ['{broker}']\ntopic: {topic}\nsecurity: {{ type: plaintext }}\nserializer: {{ type: json }}\npartition: 0\nrequest_timeout_ms: 30000\nmax_in_flight: 4\n"
+        "brokers: ['{broker}']\ntopic: {{ type: topic, topic: {topic} }}\nsecurity: {{ type: plaintext }}\nserializer: {{ type: json }}\npartition: 0\nrequest_timeout_ms: 30000\nmax_in_flight: 4\n"
     ))?;
     let sink_connector = KafkaSinkConnector::from_config(sink_config)?;
     sink_connector.limits().validate_discovery(&discovery)?;

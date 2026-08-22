@@ -152,7 +152,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -1108,7 +1109,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -1460,7 +1462,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -2478,7 +2481,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -2596,7 +2600,8 @@
               ]
             },
             "topic": {
-              "type": "string"
+              "title": "Topic",
+              "$ref": "#/$defs/KafkaTopicConfig"
             },
             "serializer": {
               "$ref": "#/$defs/SerializerConfig",
@@ -2641,6 +2646,48 @@
             "installation"
           ],
           "$defs": {
+            "KafkaTopicConfig": {
+              "oneOf": [
+                {
+                  "title": "Topic",
+                  "type": "object",
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "topic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "topic"
+                  ]
+                },
+                {
+                  "title": "Topic prefix",
+                  "type": "object",
+                  "properties": {
+                    "topic_prefix": {
+                      "title": "Topic prefix",
+                      "description": "Each dataset is written to <topic_prefix>.<dataset_name>",
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "topic_prefix"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "topic_prefix"
+                  ]
+                }
+              ]
+            },
             "KafkaSecurityConfig": {
               "oneOf": [
                 {
@@ -2898,7 +2945,10 @@
         },
         "initial": {
           "max_in_flight": 16,
-          "topic": "",
+          "topic": {
+            "type": "topic",
+            "topic": ""
+          },
           "request_timeout_ms": 30000,
           "serializer": {
             "type": "json"
@@ -2932,7 +2982,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -3068,7 +3119,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -3170,7 +3222,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -3339,7 +3392,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -5380,7 +5434,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -5542,7 +5597,8 @@
             "installation": {
               "title": "Installation type",
               "x-ui": {
-                "control_width": "installation"
+                "control_width": "installation",
+                "order": -80
               },
               "oneOf": [
                 {
@@ -5579,7 +5635,13 @@
             },
             "tables": {
               "title": "Table type",
-              "$ref": "#/$defs/YTsaurusTableMode"
+              "$ref": "#/$defs/YTsaurusTableMode",
+              "x-ui": {
+                "control_width": "full",
+                "defer_variant_details": true,
+                "order": -100,
+                "reveal_rest_on_selection": true
+              }
             },
             "auth": {
               "$ref": "#/$defs/YTsaurusAuthConfig"
@@ -5723,12 +5785,6 @@
           "auth": {
             "type": "token",
             "token": ""
-          },
-          "tables": {
-            "type": "static_tables",
-            "path": "",
-            "replace_tables": true,
-            "format": "arrow"
           },
           "timeout_ms": 30000,
           "installation": {
