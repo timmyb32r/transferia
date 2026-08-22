@@ -3310,6 +3310,15 @@ svg.trash-icon {
   border-color: var(--field-border);
   background: var(--control);
 }
+:root[data-design="airy-v0"]
+  .config-table
+  td
+  .dynamic-path-input-wrap
+  input,
+:root[data-design="airy-v0"] .config-table td .validated-input input {
+  border-color: var(--field-border);
+  background: var(--control);
+}
 :root[data-design="airy-v0"] .appearance-panel {
   box-shadow: 0 16px 38px var(--shadow);
 }
