@@ -761,6 +761,42 @@ h3 {
 .editor-tab-tooltip {
   display: inline-flex;
 }
+.instant-tooltip-host {
+  position: relative;
+}
+.instant-tooltip-content {
+  position: absolute;
+  z-index: 80;
+  width: max-content;
+  max-width: 320px;
+  padding: 8px 10px;
+  border-radius: 5px;
+  background: var(--tooltip);
+  box-shadow: 0 8px 28px var(--shadow);
+  color: var(--tooltip-text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+.instant-tooltip-content.bottom {
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+.instant-tooltip-content.right {
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+}
+.instant-tooltip-host:hover > .instant-tooltip-content,
+.instant-tooltip-host:focus > .instant-tooltip-content,
+.instant-tooltip-host:focus-within > .instant-tooltip-content {
+  opacity: 1;
+  visibility: visible;
+}
 .editor-view-tabs button {
   min-width: 86px;
   height: 34px;

@@ -29,9 +29,9 @@ use transferia_server_contracts::{DeliveryRecord, RuntimeState, ValidationState}
 
 const MAX_MESSAGE_PREVIEW_BYTES: usize = 32 * 1024 * 1024;
 const INLINE_MESSAGE_PREVIEW_BYTES: usize = 16 * 1024;
-const CONNECTION_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const CONNECTION_CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 const CONNECTION_TIMEOUT_MESSAGE: &str =
-    "Connection timed out after 5 seconds; this usually means there is no network access to the endpoint.";
+    "Connection timed out after 3 seconds; this usually means there is no network access to the endpoint.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {

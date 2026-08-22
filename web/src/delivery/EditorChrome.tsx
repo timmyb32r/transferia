@@ -3,6 +3,7 @@ import { isDirty } from "../state";
 import type { DeliverySummary } from "../types";
 import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
+import { InstantTooltip } from "../ui/InstantTooltip";
 import type { Appearance } from "../ui/appearance";
 import { StatusPill } from "./EditorViews";
 import type { EditorView } from "./useYamlEditor";
@@ -162,9 +163,10 @@ export function DeliverySidebar({
           <p class="empty-list">No saved deliveries yet.</p>
         )}
       </nav>
-      <span
+      <InstantTooltip
         class="sidebar-tool-tooltip"
-        title={
+        placement="right"
+        content={
           dataWidgetAvailable
             ? dataWidgetVisible
               ? "Hide the data widget"
@@ -180,7 +182,7 @@ export function DeliverySidebar({
         >
           Data widget
         </Button>
-      </span>
+      </InstantTooltip>
       <AppearanceSettings value={appearance} onChange={onAppearance} />
     </aside>
   );
@@ -232,9 +234,9 @@ export function EditorTabs({
         >
           YAML
         </Button>
-        <span
+        <InstantTooltip
           class="editor-tab-tooltip"
-          title={
+          content={
             dataSchemaAvailable
               ? "Open the discovered data schema"
               : (dataSchemaUnavailableReason ??
@@ -260,7 +262,7 @@ export function EditorTabs({
           >
             Data schema
           </Button>
-        </span>
+        </InstantTooltip>
         <Button
           role="tab"
           aria-selected={active === "logs"}

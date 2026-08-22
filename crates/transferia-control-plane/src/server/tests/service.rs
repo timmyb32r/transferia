@@ -18,7 +18,7 @@ fn connection_check_reports_local_egress_denial_as_network_access_error() {
 #[test]
 fn connection_check_timeout_explains_the_likely_network_cause() {
     assert!(CONNECTION_TIMEOUT_MESSAGE.contains("usually means there is no network access"));
-    assert_eq!(CONNECTION_CHECK_TIMEOUT, std::time::Duration::from_secs(5));
+    assert_eq!(CONNECTION_CHECK_TIMEOUT, std::time::Duration::from_secs(3));
 }
 
 struct TestSupervisor {
