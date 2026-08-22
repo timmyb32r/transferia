@@ -6,7 +6,7 @@ use serde::Deserialize;
 use tokio::sync::RwLock;
 
 use super::{SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection};
-use crate::outbound_http::{OutboundHttpClient, OutboundHttpRequest};
+use crate::outbound_http::{NetworkPolicy, OutboundHttpClient, OutboundHttpRequest};
 
 #[derive(Clone)]
 pub struct RegistryClient {
@@ -44,6 +44,7 @@ impl RegistryClient {
         let client = OutboundHttpClient::new(
             Duration::from_millis(config.request_timeout_ms),
             certificates,
+            NetworkPolicy::AllowPrivateNetworks,
         )
         .context("failed to build Schema Registry HTTP client")?;
         Ok(Self {

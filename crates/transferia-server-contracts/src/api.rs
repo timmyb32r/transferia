@@ -9,7 +9,7 @@ use transferia_core::delivery::{
 };
 use transferia_delivery_contracts::parser::ParserDetection;
 use transferia_registry::{
-    ConnectionCheckResult, DynamicOptions, EndpointRole, OptionsRequest, ConnectorDefinition,
+    ConnectionCheckResult, ConnectorDefinition, DynamicOptions, EndpointRole, OptionsRequest,
 };
 use transferia_runtime::RunId;
 

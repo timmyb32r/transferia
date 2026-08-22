@@ -8,12 +8,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::logs::WorkerLogReader;
 use super::store::{DeliveryStore, StoreError};
+use transferia_connectors::extension::Transferia;
 use transferia_core::delivery::{
     DeliveryDiscovery, DeliveryDiscoveryRequest, SinkLimitsDescription,
 };
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::preparation::build_delivery_plan_with;
-use transferia_connectors::extension::Transferia;
 use transferia_registry::{
     Composition, DynamicOptions, OptionsRequest, SinkConnector, SourceDiscoveryContext,
 };

@@ -5,6 +5,8 @@ use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
 use iceberg::table::Table;
 use tokio_util::sync::CancellationToken;
+use transferia_connector_support::metrics::{MetricsRegistry, SourceCounters};
+use transferia_connector_support::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
@@ -18,9 +20,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_connector_support::metrics::{MetricsRegistry, SourceCounters};
-use transferia_connector_support::parsers::ParserPlan;
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 use super::catalog::{build_catalog, table_ident};
 use super::config::IcebergSourceConfig;

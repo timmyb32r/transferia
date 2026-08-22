@@ -15,7 +15,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 pub struct S3SourceConnector {
     config: S3SourceConfig,

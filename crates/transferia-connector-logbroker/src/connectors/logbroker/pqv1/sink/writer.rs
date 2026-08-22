@@ -9,7 +9,6 @@ use futures_util::{Stream, TryStreamExt as _};
 use tokio::sync::mpsc;
 use tonic::Request;
 
-use crate::metrics::SinkCounters;
 use crate::connectors::logbroker::pqv1::config::PqV1SinkConfig;
 use crate::connectors::logbroker::pqv1::pq_v1::{
     connect_http2_prior_knowledge, http_uri, parse_endpoint, set_ydb_headers,
@@ -18,6 +17,7 @@ use crate::connectors::logbroker::proto::pers_queue::v1::{
     streaming_write_client_message, streaming_write_server_message, Codec,
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
+use crate::metrics::SinkCounters;
 use crate::serializer::DeliverySerializer;
 use transferia_core::delivery::SinkLimits;
 use transferia_core::failure::DataPlaneFailure;

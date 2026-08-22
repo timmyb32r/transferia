@@ -1,8 +1,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::parsers::ParserConfig;
 use crate::connectors::logbroker::{LogbrokerAuthConfig, LogbrokerDriver};
+use crate::parsers::ParserConfig;
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

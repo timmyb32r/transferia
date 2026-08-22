@@ -10,12 +10,12 @@ use futures_util::future::BoxFuture;
 
 use super::config::{ClickHouseSourceConfig, TableConfig};
 use super::reader::ClickHouseSource;
-use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
 use crate::connectors::clickhouse::sink::client::probe_network;
 use crate::connectors::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::connectors::clickhouse::sink::identifier::validate_identifier;
 use crate::connectors::clickhouse::sink::table::quote_string_literal;
+use crate::metrics::{MetricsRegistry, SourceCounters};
+use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
@@ -25,7 +25,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 #[derive(Clone)]
 pub(super) struct DiscoveredTable {

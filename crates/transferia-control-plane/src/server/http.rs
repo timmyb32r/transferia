@@ -130,41 +130,54 @@ fn error_response(status: StatusCode, code: ApiErrorCode, message: String) -> Re
     response
 }
 
+macro_rules! declare_api_handlers {
+    ($($route:ident => $handler:expr),+ $(,)?) => {
+        #[cfg(test)]
+        const MOUNTED_API_ROUTE_NAMES: &[&str] = &[$(routes::$route.name),+];
+
+        fn mount_api_routes(router: Router<AppState>) -> Router<AppState> {
+            router$(.route(routes::$route.path, $handler))+
+        }
+    };
+}
+
+declare_api_handlers! {
+    HEALTH => get(health),
+    CATALOG => get(get_catalog),
+    OPTIONS => post(dynamic_options),
+    CHECK_CONNECTION => post(check_connection),
+    PREVIEW_MESSAGE => post(preview_message),
+    SQL_PLAYGROUND => post(sql_playground),
+    RENDER_YAML => post(render_yaml),
+    PARSE_YAML => post(parse_yaml),
+    DISCOVER => post(discover),
+    LIST_DELIVERIES => get(list_deliveries),
+    CREATE_DELIVERY => post(create_draft),
+    GET_DELIVERY => get(get_delivery),
+    UPDATE_DELIVERY => axum::routing::put(update_draft),
+    DELETE_DELIVERY => axum::routing::delete(delete_delivery),
+    VALIDATE => post(validate_saved),
+    ACTIVATE => post(activate),
+    STOP => post(stop),
+    WORKER_LOGS => get(worker_logs),
+    WORKER_LOG => get(worker_log),
+}
+
 pub fn router(control_plane: Arc<ControlPlane>, ui_catalog: UiCatalog) -> Router {
     let state = AppState {
         control_plane,
         catalog: ui_catalog,
     };
-    Router::new()
-        .route("/", get(index))
-        .route("/app.js", get(app_js))
-        .route("/style.css", get(style_css))
-        .route(routes::HEALTH.path, get(health))
-        .route(routes::CATALOG.path, get(get_catalog))
-        .route(routes::OPTIONS.path, post(dynamic_options))
-        .route(routes::CHECK_CONNECTION.path, post(check_connection))
-        .route(routes::PREVIEW_MESSAGE.path, post(preview_message))
-        .route(routes::SQL_PLAYGROUND.path, post(sql_playground))
-        .route(routes::RENDER_YAML.path, post(render_yaml))
-        .route(routes::PARSE_YAML.path, post(parse_yaml))
-        .route(routes::DISCOVER.path, post(discover))
-        .route(
-            routes::LIST_DELIVERIES.path,
-            get(list_deliveries).post(create_draft),
-        )
-        .route(
-            routes::GET_DELIVERY.path,
-            get(get_delivery).put(update_draft).delete(delete_delivery),
-        )
-        .route(routes::VALIDATE.path, post(validate_saved))
-        .route(routes::ACTIVATE.path, post(activate))
-        .route(routes::STOP.path, post(stop))
-        .route(routes::WORKER_LOGS.path, get(worker_logs))
-        .route(routes::WORKER_LOG.path, get(worker_log))
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .layer(axum::middleware::from_fn(no_store))
-        .layer(axum::middleware::from_fn(enforce_loopback_origin))
-        .with_state(state)
+    mount_api_routes(
+        Router::new()
+            .route("/", get(index))
+            .route("/app.js", get(app_js))
+            .route("/style.css", get(style_css)),
+    )
+    .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+    .layer(axum::middleware::from_fn(no_store))
+    .layer(axum::middleware::from_fn(enforce_loopback_origin))
+    .with_state(state)
 }
 
 async fn sql_playground(

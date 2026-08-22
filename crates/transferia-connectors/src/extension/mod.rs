@@ -579,7 +579,9 @@ impl ExtensionRegistry {
         raw: Value,
         cancellation: CancellationToken,
     ) -> anyhow::Result<Value> {
-        let mut resolved = self.resolve_many(connector, role, raw, cancellation).await?;
+        let mut resolved = self
+            .resolve_many(connector, role, raw, cancellation)
+            .await?;
         anyhow::ensure!(
             resolved.len() == 1,
             "{connector} installation expands to {} pipelines where exactly one endpoint is required",

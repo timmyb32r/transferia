@@ -24,5 +24,7 @@ fn derives_output_name_from_the_source_table() {
 #[test]
 fn supports_verified_tls() {
     let value = serde_yaml::from_str("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: /tmp/ca.pem\nusername: default\ntables: [{database: default, name: events}]\n").unwrap();
-    assert!(ClickHouseSourceConnector::from_config(value, Arc::new(MetricsRegistry::new())).is_ok());
+    assert!(
+        ClickHouseSourceConnector::from_config(value, Arc::new(MetricsRegistry::new())).is_ok()
+    );
 }

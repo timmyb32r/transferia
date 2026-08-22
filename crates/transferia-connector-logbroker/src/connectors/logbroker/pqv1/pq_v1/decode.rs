@@ -16,10 +16,10 @@ use super::{
     MAX_READ_MESSAGES_COUNT, MAX_READ_SIZE, MAX_ZSTD_WINDOW_LOG, MIN_VEC_ALLOCATION_CAPACITY,
     OUTPUT_MESSAGE_METADATA_BYTES,
 };
-use crate::metrics::SourceCounters;
 use crate::connectors::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_server_message, Codec, CommitCookie,
 };
+use crate::metrics::SourceCounters;
 use transferia_core::memory::MemoryReservation;
 
 /// One decompressed message within a partition part.
@@ -270,9 +270,9 @@ pub(super) fn validate_raw_data_batch(
                 .ok_or_else(|| anyhow!("PQv1 DataBatch extra-field count overflow"))?;
             bytes = checked_raw_add(
                 bytes,
-                checked_raw_capacity::<crate::connectors::logbroker::proto::pers_queue::v1::KeyValue>(
-                    message_batch.extra_fields.capacity(),
-                )?,
+                checked_raw_capacity::<
+                    crate::connectors::logbroker::proto::pers_queue::v1::KeyValue,
+                >(message_batch.extra_fields.capacity())?,
             )?;
             for field in &message_batch.extra_fields {
                 bytes = checked_raw_add(bytes, field.key.capacity())?;

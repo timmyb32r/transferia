@@ -1,8 +1,8 @@
 mod actor;
 pub(crate) mod client;
 pub(crate) mod config;
-pub(crate) mod identifier;
 mod connector;
+pub(crate) mod identifier;
 pub(crate) mod table;
 mod transport;
 

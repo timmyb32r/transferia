@@ -14,12 +14,16 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 
 use super::config::{HdfsStorageConfig, OpenDalStorageConfig, S3StorageConfig};
-use transferia_connector_support::outbound_http::OutboundHttpClient;
+use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpClient};
 
 fn secure_operator(builder: impl opendal::Builder, timeout_ms: u64) -> Result<Operator> {
-    let client = OutboundHttpClient::new(std::time::Duration::from_millis(timeout_ms), [])
-        .map_err(iceberg_unexpected)?
-        .transport();
+    let client = OutboundHttpClient::new(
+        std::time::Duration::from_millis(timeout_ms),
+        [],
+        NetworkPolicy::AllowPrivateNetworks,
+    )
+    .map_err(iceberg_unexpected)?
+    .transport();
     Ok(Operator::new(builder)
         .map_err(opendal_error)?
         .layer(opendal::layers::HttpClientLayer::new(
@@ -265,7 +269,11 @@ fn opendal_error(error: opendal::Error) -> Error {
 }
 
 fn iceberg_unexpected(error: impl std::error::Error + Send + Sync + 'static) -> Error {
-    Error::new(ErrorKind::Unexpected, "failed to build secure HTTP transport").with_source(error)
+    Error::new(
+        ErrorKind::Unexpected,
+        "failed to build secure HTTP transport",
+    )
+    .with_source(error)
 }
 
 fn iceberg_invalid(error: url::ParseError) -> Error {

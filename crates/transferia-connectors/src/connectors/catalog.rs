@@ -9,11 +9,11 @@ use crate::extension::{InstallationRegistration, OnPremiseResolver};
 use crate::metrics::MetricsRegistry;
 
 pub(crate) mod descriptor;
-pub use transferia_registry::{DeliveryMode, EndpointDefinition, ConnectorDefinition};
+pub use transferia_registry::{ConnectorDefinition, DeliveryMode, EndpointDefinition};
 pub type ConnectorCatalog = transferia_registry::Registry;
 
 pub(crate) use descriptor::{
-    installation_contract, connector_contracts, connector_roles, connector_supports_role,
+    connector_contracts, connector_roles, connector_supports_role, installation_contract,
 };
 use transferia_registry::{ComponentRegistration, RegistryBuilder};
 

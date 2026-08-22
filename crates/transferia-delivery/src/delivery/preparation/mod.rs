@@ -13,7 +13,7 @@ use transferia_delivery_contracts::semantics::{
 };
 use transferia_registry::durable::DurableContext;
 use transferia_registry::{
-    Composition, EndpointRole, SinkConnector, SourceDiscoveryContext, SourceConnector,
+    Composition, EndpointRole, SinkConnector, SourceConnector, SourceDiscoveryContext,
 };
 
 pub struct DeliveryPlan {

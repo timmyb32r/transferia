@@ -4,8 +4,8 @@ use futures_util::future::BoxFuture;
 use futures_util::SinkExt as _;
 
 use super::copy_binary;
-use crate::metrics::SinkCounters;
 use crate::connectors::postgres::common::quote_identifier;
+use crate::metrics::SinkCounters;
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;

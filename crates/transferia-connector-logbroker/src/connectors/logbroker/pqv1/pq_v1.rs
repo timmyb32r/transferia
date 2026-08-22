@@ -26,13 +26,13 @@ use anyhow::anyhow;
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
-use crate::metrics::SourceCounters;
 use crate::connectors::logbroker::proto::pers_queue::v1::{
     migration_streaming_read_client_message::{self, InitRequest, TopicReadSettings},
     migration_streaming_read_server_message, CommitCookie, MigrationStreamingReadClientMessage,
     MigrationStreamingReadServerMessage, ReadParams,
 };
 use crate::connectors::logbroker::proto::status_ids::StatusCode;
+use crate::metrics::SourceCounters;
 use tokio::sync::{mpsc, watch, Notify};
 use tokio_util::sync::CancellationToken;
 use tonic::Request;

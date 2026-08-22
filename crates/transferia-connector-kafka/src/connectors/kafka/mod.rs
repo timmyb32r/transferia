@@ -25,8 +25,8 @@ use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use transferia_registry::{
-    SinkBuildContext, SinkPrepare, SinkConnector, SourceBuildContext, SourceDiscoveryContext,
-    SourceConnector,
+    SinkBuildContext, SinkConnector, SinkPrepare, SourceBuildContext, SourceConnector,
+    SourceDiscoveryContext,
 };
 
 pub struct KafkaSourceConnector {

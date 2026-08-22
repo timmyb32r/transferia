@@ -261,7 +261,8 @@ fn ydb_driver_supports_benchmark_discard_without_a_schema() -> anyhow::Result<()
     let config: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: topic, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  benchmark_discard: {}\n",
     )?;
-    let connector = YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    let connector =
+        YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
     assert_eq!(connector.behavior, SourceBehavior::BenchmarkDiscard);
     let discovery = connector.configured_delivery_discovery(DeliveryDiscoveryRequest {
         keep_system_columns: true,
@@ -275,7 +276,8 @@ fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Resu
     let config: LogbrokerSourceConfig = serde_yaml::from_str(
         "host: localhost\nport: 2135\ntopics: [{ path: /account/first, partitions: [] }, { path: account/second, partitions: [] }]\nconsumer_name: consumer\nauth: { type: token, token: test }\ndriver: ydb\ntrusted_plaintext: true\nparser:\n  common: { table_naming: { type: from_topic_name } }\n  json_parser:\n    columns:\n      - { jsonpath: $.id, column_name: id, json_data_type: number, arrow_type: Int64, nullable: false }\n    conversion_error: fail\n    unknown_fields: { action: fail }\n",
     )?;
-    let connector = YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
+    let connector =
+        YdbDriverSourceConnector::from_config(config, Arc::new(MetricsRegistry::new()))?;
     let discovery = connector.configured_delivery_discovery(DeliveryDiscoveryRequest {
         keep_system_columns: false,
     })?;

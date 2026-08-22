@@ -6,18 +6,20 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, OnceCell, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
 use crate::connectors::logbroker::pqv1::credentials::load_access_token;
 use crate::connectors::logbroker::pqv1::pq_v1::{parse_endpoint, PqV1Client, PqV1Source};
-use crate::connectors::logbroker::proto::pers_queue::v1::{AutoPartitioningStrategy, TopicSettings};
+use crate::connectors::logbroker::proto::pers_queue::v1::{
+    AutoPartitioningStrategy, TopicSettings,
+};
+use crate::metrics::{MetricsRegistry, SourceCounters};
+use crate::parsers::ParserPlan;
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 const MIN_NETWORK_TIMEOUT_MS: u64 = 100;
 const ENDPOINT_CACHE_TTL: Duration = Duration::from_secs(30);

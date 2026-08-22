@@ -5,8 +5,8 @@ use object_store::ObjectStore;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::parsers::ParserConfig;
 use crate::connectors::s3::sink::S3CredentialsConfig;
+use crate::parsers::ParserConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -78,7 +78,9 @@ impl S3SourceConfig {
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
             .with_allow_http(self.allow_http)
-            .with_http_connector(super::super::http::NoRedirectConnector::new(self.timeout())?);
+            .with_http_connector(super::super::http::NoRedirectConnector::new(
+                self.timeout(),
+            )?);
         if let Some(endpoint) = self.custom_endpoint() {
             builder = builder.with_endpoint(endpoint);
         }

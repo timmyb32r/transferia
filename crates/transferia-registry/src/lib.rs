@@ -6,7 +6,7 @@ mod registry;
 mod traits;
 mod ui_contract;
 
-pub use definition::{DeliveryMode, EndpointDefinition, MiddlewareDefinition, ConnectorDefinition};
+pub use definition::{ConnectorDefinition, DeliveryMode, EndpointDefinition, MiddlewareDefinition};
 pub use registry::Composition;
 pub use registry::{
     ComponentRegistration, MiddlewarePreview, MiddlewarePreviewColumn, MiddlewareRegistration,
@@ -14,8 +14,8 @@ pub use registry::{
 };
 pub use traits::{
     ConnectionCheckResult, ConnectionCheckStatus, DatasetPrepare, DynamicOption, DynamicOptions,
-    EndpointRole, OptionsRequest, SinkBuildContext, SinkPrepare, SinkConnector, SourceBuildContext,
-    SourceDiscoveryContext, SourceConnector,
+    EndpointRole, OptionsRequest, SinkBuildContext, SinkConnector, SinkPrepare, SourceBuildContext,
+    SourceConnector, SourceDiscoveryContext,
 };
 
 #[cfg(test)]

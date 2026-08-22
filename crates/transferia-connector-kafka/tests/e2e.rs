@@ -17,6 +17,9 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+use transferia_connector_kafka::kafka::{
+    KafkaSinkConfig, KafkaSinkConnector, KafkaSourceConfig, KafkaSourceConnector,
+};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
@@ -24,9 +27,6 @@ use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia_core::source::Source as _;
 use transferia_delivery_contracts::metrics::{MetricsRegistry, SinkCounters};
-use transferia_connector_kafka::kafka::{
-    KafkaSinkConfig, KafkaSinkConnector, KafkaSourceConfig, KafkaSourceConnector,
-};
 use transferia_registry::{
     SinkBuildContext, SinkConnector as _, SourceBuildContext, SourceConnector as _,
 };

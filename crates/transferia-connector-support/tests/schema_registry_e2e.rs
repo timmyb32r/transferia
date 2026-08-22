@@ -10,16 +10,16 @@ use testcontainers::core::wait::HttpWaitStrategy;
 use testcontainers::core::{IntoContainerPort as _, WaitFor};
 use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
-use transferia_core::data::message::Message;
-use transferia_core::data::system_columns::SystemColumns;
-use transferia_core::delivery::{DeliveryDiscoveryRequest, SourceTopology, NO_LIMITS};
-use transferia_core::memory::PipelineMemory;
-use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch};
 use transferia_connector_support::parsers::{ParserConfig, ParserPlan};
 use transferia_connector_support::schema_registry::{
     ConfluentEnvelope, SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection,
 };
 use transferia_connector_support::serializer::{DeliverySerializer, SerializerConfig};
+use transferia_core::data::message::Message;
+use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::delivery::{DeliveryDiscoveryRequest, SourceTopology, NO_LIMITS};
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch};
 
 const REDPANDA_IMAGE: &str = "redpandadata/redpanda";
 const REDPANDA_TAG: &str = "v24.3.18";

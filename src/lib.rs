@@ -4,11 +4,11 @@
 //! contains no business logic: it is the stable dependency selected by external
 //! compile-time compositions.
 
+pub use transferia_connectors::{
+    connectors, durable, extension, metrics, outbound_http, parsers, schema_registry, serializer,
+};
 pub use transferia_core as core;
 pub use transferia_delivery as delivery;
-pub use transferia_connectors::{
-    durable, extension, metrics, outbound_http, parsers, connectors, schema_registry, serializer,
-};
 pub use transferia_registry as registry;
 pub use transferia_runtime as runtime_api;
 

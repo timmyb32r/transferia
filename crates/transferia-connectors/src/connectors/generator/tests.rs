@@ -5,7 +5,7 @@ use transferia_core::delivery::DeliveryDiscoveryRequest;
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::Source as _;
 use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
-use transferia_registry::{SourceDiscoveryContext, SourceConnector as _};
+use transferia_registry::{SourceConnector as _, SourceDiscoveryContext};
 
 use super::source::DataGeneratorSource;
 use super::{DataGeneratorConfig, DataGeneratorSourceConnector};

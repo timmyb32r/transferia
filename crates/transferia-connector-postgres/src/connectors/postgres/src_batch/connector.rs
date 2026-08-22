@@ -5,11 +5,11 @@ use futures_util::future::BoxFuture;
 
 use super::config::{PostgresSourceConfig, TableConfig};
 use super::reader::PostgresSource;
-use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
 use crate::connectors::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
+use crate::metrics::{MetricsRegistry, SourceCounters};
+use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
@@ -19,7 +19,7 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 #[derive(Clone)]
 struct DiscoveredTable {

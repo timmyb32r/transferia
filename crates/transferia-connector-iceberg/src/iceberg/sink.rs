@@ -24,7 +24,7 @@ use transferia_core::delivery::{
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
-use transferia_registry::{SinkBuildContext, SinkPrepare, SinkConnector};
+use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::catalog::{build_catalog, table_ident};
 use super::config::{IcebergSinkConfig, IcebergSinkTable};

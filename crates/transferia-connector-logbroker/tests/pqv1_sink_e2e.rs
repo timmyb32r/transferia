@@ -23,17 +23,17 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia_connector_logbroker::logbroker::pqv1::PqV1SinkConnector;
+use transferia_connector_logbroker::logbroker::proto::pers_queue::v1::{
+    streaming_write_client_message, streaming_write_server_message, Codec,
+    StreamingWriteClientMessage, StreamingWriteServerMessage,
+};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia_delivery_contracts::metrics::SinkCounters;
-use transferia_connector_logbroker::logbroker::pqv1::PqV1SinkConnector;
-use transferia_connector_logbroker::logbroker::proto::pers_queue::v1::{
-    streaming_write_client_message, streaming_write_server_message, Codec,
-    StreamingWriteClientMessage, StreamingWriteServerMessage,
-};
 use transferia_registry::{SinkBuildContext, SinkConnector as _};
 
 const TOKEN: &str = "pq-sink-token";

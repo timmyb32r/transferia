@@ -9,7 +9,7 @@ use iceberg_catalog_rest::{
 
 use super::config::{IcebergTableRef, OpenDalStorageConfig, RestCatalogAuth, RestCatalogConfig};
 use super::storage::IcebergOpenDalStorageFactory;
-use transferia_connector_support::outbound_http::OutboundHttpClient;
+use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpClient};
 
 pub async fn build_catalog(
     config: &RestCatalogConfig,
@@ -46,6 +46,7 @@ pub async fn build_catalog(
     let client = OutboundHttpClient::new(
         Duration::from_millis(config.request_timeout_ms),
         [],
+        NetworkPolicy::AllowPrivateNetworks,
     )?
     .transport();
     let catalog = RestCatalogBuilder::default()

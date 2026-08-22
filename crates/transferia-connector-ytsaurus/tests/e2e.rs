@@ -18,6 +18,7 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia_connector_ytsaurus::ytsaurus::{YTsaurusSinkConnector, YTsaurusSourceConnector};
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumns;
@@ -27,10 +28,9 @@ use transferia_core::delivery::{
 use transferia_core::memory::PipelineMemory;
 use transferia_core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia_delivery_contracts::metrics::{MetricsRegistry, SinkCounters};
-use transferia_connector_ytsaurus::ytsaurus::{YTsaurusSinkConnector, YTsaurusSourceConnector};
 use transferia_registry::{
-    SinkBuildContext, SinkPrepare, SinkConnector as _, SourceBuildContext, SourceDiscoveryContext,
-    SourceConnector as _,
+    SinkBuildContext, SinkConnector as _, SinkPrepare, SourceBuildContext, SourceConnector as _,
+    SourceDiscoveryContext,
 };
 
 const IMAGE: &str = "ghcr.io/ytsaurus/local";

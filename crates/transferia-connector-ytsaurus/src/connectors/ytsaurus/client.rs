@@ -1,5 +1,7 @@
 use serde_json::Value;
-use transferia_connector_support::outbound_http::{OutboundHttpClient, OutboundHttpRequest};
+use transferia_connector_support::outbound_http::{
+    NetworkPolicy, OutboundHttpClient, OutboundHttpRequest,
+};
 
 use super::config::YTsaurusConnectionConfig;
 
@@ -30,7 +32,11 @@ impl YTsaurusClient {
         Ok(Self {
             endpoint: config.endpoint().parse()?,
             token: config.auth.load_token()?,
-            client: OutboundHttpClient::new(config.timeout(), [])?,
+            client: OutboundHttpClient::new(
+                config.timeout(),
+                [],
+                NetworkPolicy::AllowPrivateNetworks,
+            )?,
         })
     }
 

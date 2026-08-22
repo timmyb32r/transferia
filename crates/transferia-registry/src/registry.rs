@@ -13,8 +13,8 @@ use transferia_delivery_contracts::middleware::Middleware;
 
 use crate::ui_contract::validate_ui_dialect;
 use crate::{
-    ConnectionCheckResult, DeliveryMode, EndpointDefinition, EndpointRole, MiddlewareDefinition,
-    ConnectorDefinition, SinkConnector, SourceConnector,
+    ConnectionCheckResult, ConnectorDefinition, DeliveryMode, EndpointDefinition, EndpointRole,
+    MiddlewareDefinition, SinkConnector, SourceConnector,
 };
 
 type ConnectionChecker = Box<

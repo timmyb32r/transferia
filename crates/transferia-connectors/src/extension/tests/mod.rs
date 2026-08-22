@@ -83,7 +83,8 @@ async fn public_composition_rejects_plugin_only_installations() -> anyhow::Resul
 }
 
 #[tokio::test]
-async fn resolution_rejects_unknown_connector_roles_before_using_raw_config() -> anyhow::Result<()> {
+async fn resolution_rejects_unknown_connector_roles_before_using_raw_config() -> anyhow::Result<()>
+{
     let transferia = Transferia::public()?;
     let error = transferia
         .registry()
@@ -95,7 +96,9 @@ async fn resolution_rejects_unknown_connector_roles_before_using_raw_config() ->
         )
         .await
         .expect_err("unknown connectors must not bypass installation resolution");
-    assert!(error.to_string().contains("unknown Source connector 'typo'"));
+    assert!(error
+        .to_string()
+        .contains("unknown Source connector 'typo'"));
     Ok(())
 }
 

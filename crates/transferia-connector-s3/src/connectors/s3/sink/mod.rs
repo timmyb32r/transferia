@@ -1,9 +1,9 @@
 mod actor;
 mod config;
+pub mod connector;
 mod journal;
 mod object_key;
 mod partitioning;
-pub mod connector;
 mod upload;
 
 pub use config::{

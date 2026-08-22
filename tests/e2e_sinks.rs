@@ -22,16 +22,16 @@ use testcontainers::{GenericImage, ImageExt as _};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use transferia::connectors::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkConnector};
+use transferia::connectors::discard::connector::DiscardSinkConnector;
+use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
 use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia::core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
 use transferia::core::memory::PipelineMemory;
 use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
 use transferia::metrics::SinkCounters;
-use transferia::connectors::clickhouse::{ClickHouseSinkConfig, ClickHouseSinkConnector};
-use transferia::connectors::discard::connector::DiscardSinkConnector;
-use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
-use transferia::registry::{SinkBuildContext, SinkPrepare, SinkConnector as _};
+use transferia::registry::{SinkBuildContext, SinkConnector as _, SinkPrepare};
 
 const CLICKHOUSE_IMAGE: &str = "clickhouse/clickhouse-server";
 const CLICKHOUSE_TAG: &str = "25.8.28.1";

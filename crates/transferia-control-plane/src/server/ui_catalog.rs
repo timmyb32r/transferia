@@ -1,9 +1,9 @@
 use schemars::{schema_for, JsonSchema};
 use serde_json::Value;
 
+use transferia_connectors::extension::Transferia;
 use transferia_delivery_contracts::metrics::MetricsConfig;
 use transferia_delivery_contracts::DeliveryType;
-use transferia_connectors::extension::Transferia;
 use transferia_registry::{Composition, MiddlewareDefinition};
 pub use transferia_server_contracts::api::UiCatalog;
 

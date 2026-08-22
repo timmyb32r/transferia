@@ -16,7 +16,7 @@ use transferia_delivery_contracts::parser::ParserFactory;
 use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
 use transferia_registry::durable::DurableContext;
 use transferia_registry::{
-    SinkBuildContext, SinkPrepare, SinkConnector, SourceBuildContext, SourceConnector,
+    SinkBuildContext, SinkConnector, SinkPrepare, SourceBuildContext, SourceConnector,
 };
 
 #[derive(Clone)]

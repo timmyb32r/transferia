@@ -4,6 +4,7 @@ use arrow::datatypes::DataType;
 use futures_util::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use transferia_connector_support::parsers::ParserPlan;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -13,8 +14,7 @@ use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_connector_support::parsers::ParserPlan;
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 use super::source::DataGeneratorSource;
 

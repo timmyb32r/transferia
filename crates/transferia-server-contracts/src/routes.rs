@@ -18,7 +18,15 @@ macro_rules! routes {
 }
 
 routes![
-    (HEALTH, "health", "GET", "/api/v1/health", None, None, "health_response"),
+    (
+        HEALTH,
+        "health",
+        "GET",
+        "/api/v1/health",
+        None,
+        None,
+        "health_response"
+    ),
     (
         CATALOG,
         "catalog",

@@ -10,15 +10,15 @@ use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 
+use crate::connectors::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use crate::connectors::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 #[cfg(test)]
 use crate::connectors::logbroker::LogbrokerAuthConfig;

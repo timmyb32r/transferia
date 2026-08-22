@@ -1,8 +1,8 @@
 use bytes::Bytes;
 
 use super::*;
-use crate::durable::test_support;
 use crate::connectors::s3::sink::object_key::ObjectKey;
+use crate::durable::test_support;
 
 fn object(key: &str, payload: &'static [u8]) -> ClosedObject {
     ClosedObject {

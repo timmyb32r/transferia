@@ -10,6 +10,21 @@ use crate::server::ui_catalog::build_ui_catalog;
 
 static TEST_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+#[test]
+fn every_contract_route_has_exactly_one_registered_handler() {
+    let mounted = MOUNTED_API_ROUTE_NAMES
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    let contracted = routes::API_ROUTES
+        .iter()
+        .map(|route| route.name)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(mounted.len(), MOUNTED_API_ROUTE_NAMES.len());
+    assert_eq!(mounted, contracted);
+}
+
 async fn test_router() -> anyhow::Result<(Router, std::path::PathBuf)> {
     test_router_with(transferia_connectors::extension::Transferia::public()?).await
 }

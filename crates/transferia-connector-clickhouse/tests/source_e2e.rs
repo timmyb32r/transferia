@@ -13,13 +13,13 @@ use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
 use tokio_util::sync::CancellationToken;
 
+use transferia_connector_clickhouse::clickhouse::ClickHouseSourceConnector;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::delivery::{DeliveryDiscoveryRequest, SchemaOrigin};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::Source as _;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
-use transferia_connector_clickhouse::clickhouse::ClickHouseSourceConnector;
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector as _};
+use transferia_registry::{SourceBuildContext, SourceConnector as _, SourceDiscoveryContext};
 
 const IMAGE: &str = "clickhouse/clickhouse-server";
 const TAG: &str = "25.8.28.1";

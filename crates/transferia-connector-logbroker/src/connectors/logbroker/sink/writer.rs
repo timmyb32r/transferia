@@ -22,10 +22,10 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 use ydb_grpc::ydb_proto::topic::Codec;
 
 use super::config::LogbrokerSinkConfig;
-use crate::metrics::SinkCounters;
 use crate::connectors::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::connectors::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
 use crate::connectors::logbroker::transport::connect_http2_prior_knowledge;
+use crate::metrics::SinkCounters;
 use crate::serializer::DeliverySerializer;
 use transferia_core::delivery::SinkLimits;
 use transferia_core::failure::DataPlaneFailure;

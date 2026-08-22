@@ -11,8 +11,8 @@ use futures_util::future::BoxFuture;
 use tokio_postgres::{Client, Row, Statement};
 
 use super::config::TableConfig;
-use crate::metrics::SourceCounters;
 use crate::connectors::postgres::common::quote_identifier;
+use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};

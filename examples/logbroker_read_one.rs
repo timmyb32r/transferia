@@ -4,13 +4,13 @@ use anyhow::Context as _;
 use clap::Parser;
 use tokio_util::sync::CancellationToken;
 
+use transferia::connectors::logbroker::YdbDriverSourceConnector;
 use transferia::core::data::message::SourceBatch;
 use transferia::core::delivery::DeliveryDiscoveryRequest;
 use transferia::core::memory::PipelineMemory;
 use transferia::delivery::config::yaml::Config;
 use transferia::metrics::MetricsRegistry;
-use transferia::connectors::logbroker::YdbDriverSourceConnector;
-use transferia::registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector as _};
+use transferia::registry::{SourceBuildContext, SourceConnector as _, SourceDiscoveryContext};
 
 #[derive(Parser)]
 struct Args {

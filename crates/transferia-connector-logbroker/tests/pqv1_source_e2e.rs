@@ -21,9 +21,6 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia_core::delivery::DeliveryDiscoveryRequest;
-use transferia_core::memory::PipelineMemory;
-use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_connector_logbroker::logbroker::pqv1::src_stream::PqV1SourceConnector;
 use transferia_connector_logbroker::logbroker::proto::discovery::{
     EndpointInfo, ListEndpointsResult,
@@ -37,7 +34,10 @@ use transferia_connector_logbroker::logbroker::proto::pers_queue::v1::{
     DescribeTopicResult, MigrationStreamingReadClientMessage, MigrationStreamingReadServerMessage,
     Path, TopicSettings,
 };
-use transferia_registry::{SourceBuildContext, SourceDiscoveryContext, SourceConnector};
+use transferia_core::delivery::DeliveryDiscoveryRequest;
+use transferia_core::memory::PipelineMemory;
+use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 const TOPIC: &str = "/Root/e2e-topic";
 const CONSUMER: &str = "e2e-consumer";

@@ -3,12 +3,12 @@ use clap::Parser;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 
+use transferia_connectors::extension::Transferia;
 use transferia_delivery::delivery::config::yaml::Config;
 use transferia_delivery::delivery::execution::runner::start_delivery;
 use transferia_delivery::delivery::preparation::{
     build_delivery_plan_with, build_resolved_delivery_document_with, ResolvedConfigDocument,
 };
-use transferia_connectors::extension::Transferia;
 use transferia_runtime_local::LocalWorkerSupervisor;
 
 use worker_control::WorkerControl;

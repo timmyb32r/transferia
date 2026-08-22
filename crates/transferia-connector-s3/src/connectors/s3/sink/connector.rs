@@ -12,7 +12,7 @@ use transferia_core::delivery::{
     ObjectKeyLimit, SinkLimits, SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
-use transferia_registry::{SinkBuildContext, SinkPrepare, SinkConnector};
+use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3SinkConfig};

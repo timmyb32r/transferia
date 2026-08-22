@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
+use reqwest::dns::Resolve as _;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::Notify,
 };
 
-use super::{OutboundHttpClient, OutboundHttpError};
+use super::{NetworkPolicy, OutboundHttpClient, OutboundHttpError, PolicyResolver};
 
 #[tokio::test]
 async fn rejects_redirect_without_contacting_target() {
@@ -39,7 +40,12 @@ async fn rejects_redirect_without_contacting_target() {
             .unwrap();
     });
 
-    let client = OutboundHttpClient::new(Duration::from_secs(1), []).unwrap();
+    let client = OutboundHttpClient::new(
+        Duration::from_secs(1),
+        [],
+        NetworkPolicy::AllowPrivateNetworks,
+    )
+    .unwrap();
     let error = client
         .get(
             format!("http://{redirector_address}/start")
@@ -59,4 +65,54 @@ async fn rejects_redirect_without_contacting_target() {
     );
     redirect_task.await.unwrap();
     target_task.abort();
+}
+
+#[tokio::test]
+async fn public_policy_rejects_private_ip_before_connecting() {
+    let client =
+        OutboundHttpClient::new(Duration::from_secs(1), [], NetworkPolicy::PublicInternet).unwrap();
+    let error = client
+        .get("http://169.254.169.254/latest/meta-data".parse().unwrap())
+        .send()
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        OutboundHttpError::InvalidUrl {
+            reason: "network policy forbids this IP address"
+        }
+    ));
+}
+
+#[tokio::test]
+async fn public_policy_rejects_dns_names_that_resolve_to_private_addresses() {
+    let name: reqwest::dns::Name = "localhost".parse().unwrap();
+    let result = PolicyResolver {
+        policy: NetworkPolicy::PublicInternet,
+    }
+    .resolve(name)
+    .await;
+    let Err(error) = result else {
+        panic!("private DNS resolution must be rejected")
+    };
+
+    assert!(error.to_string().contains("forbidden by PublicInternet"));
+}
+
+#[tokio::test]
+async fn private_network_policy_still_rejects_cloud_metadata_addresses() {
+    let client = OutboundHttpClient::new(
+        Duration::from_secs(1),
+        [],
+        NetworkPolicy::AllowPrivateNetworks,
+    )
+    .unwrap();
+    let error = client
+        .get("http://169.254.169.254/latest/meta-data".parse().unwrap())
+        .send()
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, OutboundHttpError::InvalidUrl { .. }));
 }

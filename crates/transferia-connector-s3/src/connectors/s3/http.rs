@@ -2,7 +2,7 @@ use std::fmt;
 use std::time::Duration;
 
 use object_store::client::{HttpClient, HttpConnector};
-use transferia_connector_support::outbound_http::OutboundHttpClient;
+use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpClient};
 
 #[derive(Clone)]
 pub(super) struct NoRedirectConnector {
@@ -12,7 +12,8 @@ pub(super) struct NoRedirectConnector {
 impl NoRedirectConnector {
     pub(super) fn new(timeout: Duration) -> anyhow::Result<Self> {
         Ok(Self {
-            client: OutboundHttpClient::new(timeout, [])?.transport(),
+            client: OutboundHttpClient::new(timeout, [], NetworkPolicy::AllowPrivateNetworks)?
+                .transport(),
         })
     }
 }
