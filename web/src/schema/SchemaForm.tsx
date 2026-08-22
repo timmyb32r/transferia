@@ -1,5 +1,5 @@
 import { createContext, type ComponentChildren } from "preact";
-import { useContext } from "preact/hooks";
+import { useContext, useEffect, useState } from "preact/hooks";
 
 import type { JsonObject, JsonValue } from "../types";
 import { FormField } from "../ui/FormField";
@@ -168,34 +168,14 @@ function NodeEditor({
       );
     }
     case "nullable": {
-      const enabled = value !== null && value !== undefined;
       return (
-        <div class="nullable-control">
-          <label class="toggle">
-            <input
-              type="checkbox"
-              aria-label="Enable optional settings"
-              checked={enabled}
-              disabled={isDisabled}
-              onChange={(event) =>
-                onChange(
-                  event.currentTarget.checked ? createValue(node.inner) : null,
-                )
-              }
-            />
-          </label>
-          {enabled && (
-            <div class="nested-section">
-              <NodeEditor
-                node={node.inner}
-                value={value}
-                disabled={isDisabled}
-                path={`${path}/nullable`}
-                onChange={onChange}
-              />
-            </div>
-          )}
-        </div>
+        <NullableNodeEditor
+          node={node}
+          value={value}
+          disabled={isDisabled}
+          path={path}
+          onChange={onChange}
+        />
       );
     }
     case "boolean":
@@ -349,6 +329,63 @@ function NodeEditor({
         />,
       );
   }
+}
+
+function NullableNodeEditor({
+  node,
+  value,
+  disabled,
+  path,
+  onChange,
+}: {
+  node: Extract<CompiledNode, { kind: "nullable" }>;
+  value: JsonValue;
+  disabled: boolean;
+  path: string;
+  onChange: (value: JsonValue) => void;
+}) {
+  const configured = value !== null && value !== undefined;
+  const [pendingEmptyPath, setPendingEmptyPath] = useState<string>();
+  const enabled = configured || pendingEmptyPath === path;
+
+  useEffect(() => {
+    if (configured) setPendingEmptyPath(undefined);
+  }, [configured]);
+  useEffect(() => setPendingEmptyPath(undefined), [path]);
+
+  return (
+    <div class="nullable-control">
+      <label class="toggle">
+        <input
+          type="checkbox"
+          aria-label="Enable optional settings"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(event) => {
+            if (!event.currentTarget.checked) {
+              setPendingEmptyPath(undefined);
+              onChange(null);
+              return;
+            }
+            const initial = createValue(node.inner);
+            if (initial === null) setPendingEmptyPath(path);
+            else onChange(initial);
+          }}
+        />
+      </label>
+      {enabled && (
+        <div class="nested-section">
+          <NodeEditor
+            node={node.inner}
+            value={configured ? value : createValue(node.inner)}
+            disabled={disabled}
+            path={`${path}/nullable`}
+            onChange={onChange}
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function withExternalLink(
