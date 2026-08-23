@@ -101,6 +101,13 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         "S3 parser must use the shared deferred full-width parser editor"
     );
     assert_eq!(
+        s3_source
+            .schema
+            .pointer("/$defs/S3JsonParserConfig/properties/json_framing/default"),
+        Some(&serde_json::json!("json_lines")),
+        "S3 JSON parser must default to JSON Lines"
+    );
+    assert_eq!(
         sink.initial.pointer("/auth/type"),
         Some(&serde_json::json!("token"))
     );

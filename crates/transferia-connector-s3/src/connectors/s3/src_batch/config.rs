@@ -1,8 +1,10 @@
+use std::borrow::Cow;
 use std::time::Duration;
 
 use futures_util::TryStreamExt as _;
 use object_store::ObjectStore;
-use schemars::JsonSchema;
+use schemars::generate::SchemaGenerator;
+use schemars::{JsonSchema, Schema};
 use serde::Deserialize;
 
 use crate::connectors::s3::sink::S3CredentialsConfig;
@@ -53,7 +55,7 @@ pub enum S3InputParser {
         )]
         common: S3JsonCommonConfig,
 
-        #[schemars(title = "JSON parser")]
+        #[schemars(with = "S3JsonParserSchema", title = "JSON parser")]
         json_parser: JsonParserConfig,
     },
 
@@ -96,6 +98,25 @@ pub struct S3JsonCommonConfig {
 #[derive(Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EmptyDiscardConfig {}
+
+struct S3JsonParserSchema;
+
+impl JsonSchema for S3JsonParserSchema {
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("S3JsonParserConfig")
+    }
+
+    fn json_schema(generator: &mut SchemaGenerator) -> Schema {
+        let schema = JsonParserConfig::json_schema(generator);
+        let mut value = serde_json::to_value(schema)
+            .expect("JsonParserConfig schema must serialize to JSON");
+        let framing = value
+            .pointer_mut("/properties/json_framing/default")
+            .expect("JsonParserConfig schema must define json_framing.default");
+        *framing = serde_json::Value::String("json_lines".to_owned());
+        Schema::try_from(value).expect("modified S3 JSON parser schema must remain valid")
+    }
+}
 
 impl S3SourceConfig {
     pub async fn check_connection(&self) -> anyhow::Result<()> {

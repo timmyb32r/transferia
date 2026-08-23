@@ -3762,7 +3762,7 @@
                     },
                     "json_parser": {
                       "title": "JSON parser",
-                      "$ref": "#/$defs/JsonParserConfig"
+                      "$ref": "#/$defs/S3JsonParserConfig"
                     },
                     "type": {
                       "type": "string",
@@ -3892,7 +3892,7 @@
               },
               "additionalProperties": false
             },
-            "JsonParserConfig": {
+            "S3JsonParserConfig": {
               "description": "JSON parser configuration deserialized from the `json_parser:` block.",
               "type": "object",
               "properties": {
@@ -3900,7 +3900,7 @@
                   "title": "JSON framing",
                   "description": "How incoming message bytes frame JSON records.",
                   "$ref": "#/$defs/JsonFramingMode",
-                  "default": "single_document",
+                  "default": "json_lines",
                   "x-ui": {
                     "control_width": "medium",
                     "labels": {
