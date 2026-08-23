@@ -37,7 +37,7 @@ pub struct LogbrokerSourceConfig {
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
     pub driver: LogbrokerDriver,
 
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(default = "default_trusted_plaintext", extend("x-ui" = { "widget": "hidden" }))]
     pub trusted_plaintext: bool,
 
     #[serde(default)]
@@ -117,4 +117,8 @@ pub(super) const fn default_read_buffer_bytes() -> usize {
 
 pub(super) const fn default_pqv1_decompression_concurrency() -> usize {
     4
+}
+
+const fn default_trusted_plaintext() -> bool {
+    true
 }

@@ -9,8 +9,8 @@ import { SelectControl } from "../ui/SelectControl";
 import {
   createValue,
   branchMatches,
+  firstCompletionIssue,
   humanize,
-  isComplete,
   type CompiledNode,
 } from "./compiler";
 import { ArrayNodeEditor } from "./ArrayNodeEditor";
@@ -438,11 +438,15 @@ function PropertyEditor({
   const selectionComplete =
     node.kind === "union" &&
     node.branches.some((branch) => branchMatches(branch, value ?? null));
-  const incompleteRequired =
-    required && (selectionOnly ? !selectionComplete : !isComplete(node, value));
-  const missingRequired = showRequiredErrors && incompleteRequired;
+  const issue = selectionOnly
+    ? undefined
+    : firstCompletionIssue(node, value, required, path);
+  const incompleteField = selectionOnly
+    ? (required || value !== undefined) && !selectionComplete
+    : issue !== undefined && !issue.hidden;
+  const visibleFieldError = showRequiredErrors && incompleteField;
   const guidanceClass =
-    !disabled && incompleteRequired ? "required-incomplete" : "";
+    !disabled && incompleteField ? "required-incomplete" : "";
   const effective = draftValue(node, value);
   const identifier = `field-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const presentation = widgets.presentation(node);
@@ -471,7 +475,7 @@ function PropertyEditor({
   if (customWidget !== undefined)
     return (
       <div
-        class={[guidanceClass, missingRequired ? "required-missing" : ""]
+        class={[guidanceClass, visibleFieldError ? "required-missing" : ""]
           .filter(Boolean)
           .join(" ")}
       >
@@ -485,7 +489,7 @@ function PropertyEditor({
       optional={!required}
       description={presentation?.hideDescription ? undefined : node.description}
       controlId={isDirectlyLabelled(node) ? identifier : undefined}
-      class={`${classes}${guidanceClass ? ` ${guidanceClass}` : ""}${missingRequired ? " required-missing" : ""}`}
+      class={`${classes}${guidanceClass ? ` ${guidanceClass}` : ""}${visibleFieldError ? " required-missing" : ""}`}
     >
       <NodeEditor
         node={node}

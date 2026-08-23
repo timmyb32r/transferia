@@ -354,9 +354,16 @@ describe("delivery controllers", () => {
     });
     await act(async () => result.current.showYaml());
     act(() => result.current.editYaml("source: {}"));
-    await act(async () => result.current.applyYamlAndShowUi());
+    let outcome;
+    await act(async () => {
+      outcome = await result.current.applyYamlAndShowUi();
+    });
 
     expect(applyConfig).toHaveBeenCalledWith({ source: {} });
+    expect(outcome).toEqual({
+      status: "applied",
+      context: { sessionId: "session", localRevision: 2 },
+    });
     expect(result.current.activeView).toBe("ui");
   });
 
@@ -383,7 +390,9 @@ describe("delivery controllers", () => {
       await vi.advanceTimersByTimeAsync(120);
     });
     await act(async () => result.current.showYaml());
-    await act(async () => result.current.applyYamlAndShowUi());
+    await act(async () => {
+      await result.current.applyYamlAndShowUi();
+    });
 
     expect(result.current.activeView).toBe("ui");
     expect(parseYaml).not.toHaveBeenCalled();

@@ -32,7 +32,7 @@ catalog-contract-check:
 
 # Release/merge gate. This is intentionally expensive and must not be used as
 # an ordinary agent completion gate.
-check-release: fmt-check
+check-release: fmt-check check-contracts
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     # Start the heavyweight Redpanda fixture before the other Docker E2Es. On
     # constrained developer runtimes it can otherwise starve during a long
@@ -40,6 +40,7 @@ check-release: fmt-check
     cargo test -p transferia-connector-support --test schema_registry_e2e --all-features
     cargo test --workspace --all-targets --all-features --exclude transferia-connector-support
     cargo test -p transferia-connector-support --lib --all-features
+    cd web && npm test
 
 # Normal agent development/completion gate: compile checking only. No linking,
 # formatting, linting, tests, E2E, Docker, or generated-artifact checks.

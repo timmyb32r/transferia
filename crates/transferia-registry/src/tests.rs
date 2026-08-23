@@ -128,6 +128,80 @@ fn registry_rejects_unknown_ui_dialect_hints() -> anyhow::Result<()> {
 }
 
 #[test]
+fn registry_rejects_hidden_required_scalars_without_defaults() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "region": {
+                "type": "string",
+                "x-ui": { "widget": "hidden" }
+            }
+        },
+        "required": ["region"]
+    });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("hidden required scalar without a default must fail composition");
+    assert!(error.to_string().contains("hidden required scalar"));
+    Ok(())
+}
+
+#[test]
+fn registry_rejects_blank_defaults_for_hidden_required_strings() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "region": {
+                "type": "string",
+                "default": "",
+                "x-ui": { "widget": "hidden" }
+            }
+        },
+        "required": ["region"]
+    });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("blank hidden required string defaults must fail composition");
+    assert!(error.to_string().contains("must not be empty"));
+    Ok(())
+}
+
+#[test]
+fn registry_revalidates_ui_contracts_after_definition_edits() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+
+    let error = registry
+        .edit_definitions(|definitions| {
+            definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "timeout_ms": {
+                        "type": "integer",
+                        "x-ui": { "widget": "hidden" }
+                    }
+                },
+                "required": ["timeout_ms"]
+            });
+            Ok(())
+        })
+        .expect_err("edited UI contracts must be revalidated");
+    assert!(error.to_string().contains("hidden required scalar"));
+    Ok(())
+}
+
+#[test]
 fn registry_preserves_explicit_composition_order() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("second")?)?;

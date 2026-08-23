@@ -31,8 +31,12 @@ pub struct LogbrokerSinkConfig {
     #[schemars(title = "Driver", extend("x-ui" = { "section": "advanced" }))]
     pub driver: LogbrokerDriver,
 
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(default = "default_trusted_plaintext", extend("x-ui" = { "widget": "hidden" }))]
     pub trusted_plaintext: bool,
+}
+
+const fn default_trusted_plaintext() -> bool {
+    true
 }
 
 #[derive(Deserialize)]

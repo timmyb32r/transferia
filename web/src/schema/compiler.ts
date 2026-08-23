@@ -13,6 +13,7 @@ interface NodeBase {
   title?: string;
   description?: string;
   defaultValue?: JsonValue;
+  hidden?: boolean;
   xUi: UiHints;
 }
 
@@ -117,6 +118,7 @@ export function compileSchema(
         ...base,
         kind: "string",
         enumValues,
+        ...(enumValues.length === 1 ? { hidden: true } : {}),
       };
     }
     const type = schema.type;
@@ -400,60 +402,161 @@ export function isComplete(
   node: CompiledNode,
   value: JsonValue | undefined,
 ): boolean {
-  if (value === undefined) return false;
+  return firstCompletionIssue(node, value) === undefined;
+}
+
+export function isFieldComplete(
+  node: CompiledNode,
+  value: JsonValue | undefined,
+  required: boolean,
+): boolean {
+  return firstCompletionIssue(node, value, required) === undefined;
+}
+
+export type CompletionIssueCode =
+  | "missing"
+  | "invalid_type"
+  | "invalid_value"
+  | "min_items"
+  | "unknown_property"
+  | "variant";
+
+export interface CompletionIssue {
+  path: string;
+  code: CompletionIssueCode;
+  /** No generated UI control can repair this issue. */
+  hidden: boolean;
+}
+
+/** Returns the same first blocker used by action readiness and field guidance. */
+export function firstCompletionIssue(
+  node: CompiledNode,
+  value: JsonValue | undefined,
+  required = true,
+  path = "#",
+): CompletionIssue | undefined {
+  return completionIssue(node, value, required, path, false);
+}
+
+function completionIssue(
+  node: CompiledNode,
+  value: JsonValue | undefined,
+  required: boolean,
+  path: string,
+  hiddenAncestor: boolean,
+): CompletionIssue | undefined {
+  const hidden = hiddenAncestor || node.hidden === true;
+  if (value === undefined) {
+    if (!required) return undefined;
+    if (node.kind === "object" && !hidden) {
+      for (const name of node.required) {
+        const issue = completionIssue(
+          node.properties[name]!,
+          undefined,
+          true,
+          `${path}/${escapePointerSegment(name)}`,
+          hidden,
+        );
+        if (issue !== undefined) return issue;
+      }
+    }
+    return { path, code: "missing", hidden };
+  }
   switch (node.kind) {
     case "nullable":
-      return value === null || isComplete(node.inner, value);
+      return value === null
+        ? undefined
+        : completionIssue(node.inner, value, required, path, hidden);
     case "union": {
       const branch = node.branches.find((candidate) =>
         branchMatches(candidate, value),
       );
-      return branch !== undefined && isComplete(branch.node, value);
+      return branch === undefined
+        ? { path, code: "variant", hidden }
+        : completionIssue(branch.node, value, required, path, hidden);
     }
     case "object": {
-      if (!isObject(value)) return false;
-      if (
-        node.additionalProperties === false &&
-        Object.keys(value).some((key) => node.properties[key] === undefined)
-      )
-        return false;
-      for (const required of node.required) {
-        if (
-          !(required in value) ||
-          !isComplete(node.properties[required]!, value[required])
-        )
-          return false;
+      if (!isObject(value)) return { path, code: "invalid_type", hidden };
+      if (node.additionalProperties === false) {
+        const unknown = Object.keys(value).find(
+          (key) => node.properties[key] === undefined,
+        );
+        if (unknown !== undefined)
+          return {
+            path: `${path}/${escapePointerSegment(unknown)}`,
+            code: "unknown_property",
+            hidden: true,
+          };
+      }
+      for (const name of node.required) {
+        const issue = completionIssue(
+          node.properties[name]!,
+          value[name],
+          true,
+          `${path}/${escapePointerSegment(name)}`,
+          hidden,
+        );
+        if (issue !== undefined) return issue;
       }
       for (const [name, childValue] of Object.entries(value)) {
+        if (node.required.has(name)) continue;
         const child = node.properties[name];
-        if (child !== undefined && !isComplete(child, childValue)) return false;
+        if (child === undefined) continue;
+        const issue = completionIssue(
+          child,
+          childValue,
+          false,
+          `${path}/${escapePointerSegment(name)}`,
+          hidden,
+        );
+        if (issue !== undefined) return issue;
       }
-      return true;
+      return undefined;
     }
-    case "array":
-      return (
-        Array.isArray(value) &&
-        (node.minItems === undefined || value.length >= node.minItems) &&
-        value.every((item) => isComplete(node.item, item))
-      );
+    case "array": {
+      if (!Array.isArray(value)) return { path, code: "invalid_type", hidden };
+      if (node.minItems !== undefined && value.length < node.minItems)
+        return { path, code: "min_items", hidden };
+      for (const [index, item] of value.entries()) {
+        const issue = completionIssue(
+          node.item,
+          item,
+          true,
+          `${path}/${index}`,
+          hidden,
+        );
+        if (issue !== undefined) return issue;
+      }
+      return undefined;
+    }
     case "boolean":
-      return typeof value === "boolean";
-    case "number":
-      return (
-        typeof value === "number" &&
-        Number.isFinite(value) &&
-        (!node.integer || Number.isSafeInteger(value)) &&
+      return typeof value === "boolean"
+        ? undefined
+        : { path, code: "invalid_type", hidden };
+    case "number": {
+      if (typeof value !== "number" || !Number.isFinite(value))
+        return { path, code: "invalid_type", hidden };
+      return (!node.integer || Number.isSafeInteger(value)) &&
         (node.minimum === undefined || value >= node.minimum) &&
         (node.maximum === undefined || value <= node.maximum)
-      );
-    case "string":
-      return (
-        typeof value === "string" &&
-        value.length > 0 &&
-        (node.enumValues === undefined ||
-          node.enumValues.some((candidate) => Object.is(candidate, value)))
-      );
+        ? undefined
+        : { path, code: "invalid_value", hidden };
+    }
+    case "string": {
+      if (typeof value !== "string")
+        return { path, code: "invalid_type", hidden };
+      if (required && value.length === 0)
+        return { path, code: "missing", hidden };
+      return node.enumValues === undefined ||
+        node.enumValues.some((candidate) => Object.is(candidate, value))
+        ? undefined
+        : { path, code: "invalid_value", hidden };
+    }
   }
+}
+
+function escapePointerSegment(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
 }
 
 const NUMERIC_FORMATS = new Set([
@@ -580,6 +683,9 @@ function baseNode(
   path: string,
   widgets: WidgetContracts,
 ): NodeBase {
+  const xUi = decodeUiHints(schema["x-ui"], path, failSchemaContract, widgets);
+  const widget =
+    xUi.widget === undefined ? undefined : widgets.definition(xUi.widget);
   return {
     ...(schema.title === undefined ? {} : { title: schema.title }),
     ...(schema.description === undefined
@@ -590,7 +696,8 @@ function baseNode(
       : schema.const !== undefined
         ? { defaultValue: schema.const }
         : {}),
-    xUi: decodeUiHints(schema["x-ui"], path, failSchemaContract, widgets),
+    ...(widget?.hidden === true ? { hidden: true } : {}),
+    xUi,
   };
 }
 

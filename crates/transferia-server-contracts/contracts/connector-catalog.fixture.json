@@ -172,6 +172,7 @@
                     },
                     "trusted_plaintext": {
                       "type": "boolean",
+                      "default": true,
                       "x-ui": {
                         "widget": "hidden"
                       }
@@ -1129,6 +1130,7 @@
                     },
                     "trusted_plaintext": {
                       "type": "boolean",
+                      "default": true,
                       "x-ui": {
                         "widget": "hidden"
                       }
@@ -1154,7 +1156,10 @@
               }
             },
             "topic": {
-              "$ref": "#/$defs/LogbrokerTopicConfig"
+              "$ref": "#/$defs/LogbrokerTopicConfig",
+              "x-ui": {
+                "control_width": "routing"
+              }
             },
             "partition_id": {
               "title": "Partition ID",
@@ -2646,7 +2651,10 @@
             },
             "topic": {
               "title": "Topic",
-              "$ref": "#/$defs/KafkaTopicConfig"
+              "$ref": "#/$defs/KafkaTopicConfig",
+              "x-ui": {
+                "control_width": "routing"
+              }
             },
             "serializer": {
               "$ref": "#/$defs/SerializerConfig",
@@ -3331,14 +3339,6 @@
                 "widget": "password"
               }
             },
-            "shard_group": {
-              "title": "Shard group",
-              "type": "string",
-              "default": "",
-              "x-ui": {
-                "section": "shard_group"
-              }
-            },
             "tables": {
               "type": "array",
               "items": {
@@ -3404,7 +3404,6 @@
           "batch_rows": 65536,
           "username": "",
           "password": "",
-          "shard_group": "",
           "tables": [
             {
               "database": "",
@@ -3653,6 +3652,7 @@
                     },
                     "region": {
                       "type": "string",
+                      "default": "us-east-1",
                       "x-ui": {
                         "widget": "hidden"
                       }
@@ -4279,6 +4279,7 @@
                     },
                     "region": {
                       "type": "string",
+                      "default": "us-east-1",
                       "x-ui": {
                         "widget": "hidden"
                       }
@@ -4342,32 +4343,31 @@
             "partitioning": {
               "$ref": "#/$defs/PartitioningConfig",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "rotation": {
-              "title": "Advanced writer settings",
               "$ref": "#/$defs/RotationConfig",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "buffering": {
               "$ref": "#/$defs/BufferingConfig",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "upload": {
               "$ref": "#/$defs/UploadConfig",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "retry": {
               "$ref": "#/$defs/RetryConfig",
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -4744,36 +4744,213 @@
           "title": "IcebergSourceConfig",
           "type": "object",
           "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "type": {
+                      "const": "on_premise"
+                    },
+                    "storage": {
+                      "title": "Storage",
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "title": "S3",
+                          "properties": {
+                            "type": {
+                              "const": "s3"
+                            },
+                            "bucket": {
+                              "type": "string",
+                              "title": "Bucket"
+                            },
+                            "endpoint": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Endpoint URL"
+                            },
+                            "credentials": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "title": "Authentication",
+                                  "properties": {
+                                    "access_key": {
+                                      "type": "string",
+                                      "title": "Access key ID"
+                                    },
+                                    "secret_key": {
+                                      "type": "string",
+                                      "title": "Secret access key",
+                                      "x-ui": {
+                                        "widget": "password"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "access_key",
+                                    "secret_key"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Authentication"
+                            },
+                            "request_timeout_ms": {
+                              "type": "integer",
+                              "default": 30000,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "region": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "session_token": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "path_style_access": {
+                              "type": "boolean",
+                              "default": false,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "allow_anonymous": {
+                              "type": "boolean",
+                              "default": false,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "bucket",
+                            "request_timeout_ms",
+                            "path_style_access",
+                            "allow_anonymous"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "HDFS",
+                          "properties": {
+                            "type": {
+                              "const": "hdfs"
+                            },
+                            "endpoint": {
+                              "type": "string",
+                              "title": "WebHDFS endpoint"
+                            },
+                            "authority": {
+                              "type": "string",
+                              "title": "Authority"
+                            },
+                            "root": {
+                              "type": "string",
+                              "title": "Root"
+                            },
+                            "user": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "User"
+                            },
+                            "request_timeout_ms": {
+                              "type": "integer",
+                              "default": 30000,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "endpoint",
+                            "authority",
+                            "root",
+                            "request_timeout_ms"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "storage"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
             "catalog": {
               "$ref": "#/$defs/RestCatalogConfig"
             },
-            "storage": {
-              "$ref": "#/$defs/OpenDalStorageConfig",
-              "default": {
-                "type": "s3",
-                "bucket": "",
-                "request_timeout_ms": 30000,
-                "region": null,
-                "endpoint": null,
-                "access_key_id": null,
-                "secret_access_key": null,
-                "session_token": null,
-                "path_style_access": false,
-                "allow_anonymous": false
-              }
-            },
-            "table": {
-              "$ref": "#/$defs/IcebergTableRef"
-            },
-            "output_name": {
+            "namespace": {
               "type": "string"
+            },
+            "table_names": {
+              "title": "Table names",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "x-ui": {
+                "item_label": "Table name"
+              }
             }
           },
           "additionalProperties": false,
           "required": [
             "catalog",
-            "table",
-            "output_name"
+            "namespace",
+            "table_names",
+            "installation"
           ],
           "$defs": {
             "RestCatalogConfig": {
@@ -4786,19 +4963,28 @@
                   "type": "integer",
                   "format": "uint64",
                   "minimum": 0,
-                  "default": 30000
+                  "default": 30000,
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
                 },
                 "warehouse": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "default": null
+                  "default": null,
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
                 },
                 "auth": {
                   "$ref": "#/$defs/RestCatalogAuth",
                   "default": {
                     "type": "none"
+                  },
+                  "x-ui": {
+                    "widget": "hidden"
                   }
                 }
               },
@@ -4891,14 +5077,20 @@
                       "type": "integer",
                       "format": "uint64",
                       "minimum": 0,
-                      "default": 30000
+                      "default": 30000,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "region": {
                       "type": [
                         "string",
                         "null"
                       ],
-                      "default": null
+                      "default": null,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "endpoint": {
                       "type": [
@@ -4907,22 +5099,17 @@
                       ],
                       "default": null
                     },
-                    "access_key_id": {
-                      "type": [
-                        "string",
-                        "null"
+                    "credentials": {
+                      "title": "Authentication",
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/S3StorageCredentials"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ],
                       "default": null
-                    },
-                    "secret_access_key": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "default": null,
-                      "x-ui": {
-                        "widget": "password"
-                      }
                     },
                     "session_token": {
                       "type": [
@@ -4931,16 +5118,22 @@
                       ],
                       "default": null,
                       "x-ui": {
-                        "widget": "password"
+                        "widget": "hidden"
                       }
                     },
                     "path_style_access": {
                       "type": "boolean",
-                      "default": false
+                      "default": false,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "allow_anonymous": {
                       "type": "boolean",
-                      "default": false
+                      "default": false,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "type": {
                       "type": "string",
@@ -4995,26 +5188,25 @@
                 }
               ]
             },
-            "IcebergTableRef": {
+            "S3StorageCredentials": {
               "type": "object",
               "properties": {
-                "namespace": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "x-ui": {
-                    "item_label": "Namespace level"
-                  }
-                },
-                "name": {
+                "access_key": {
+                  "title": "Access key ID",
                   "type": "string"
+                },
+                "secret_key": {
+                  "title": "Secret access key",
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "password"
+                  }
                 }
               },
               "additionalProperties": false,
               "required": [
-                "namespace",
-                "name"
+                "access_key",
+                "secret_key"
               ]
             }
           }
@@ -5028,25 +5220,24 @@
               "type": "none"
             }
           },
-          "storage": {
-            "type": "s3",
-            "bucket": "",
-            "request_timeout_ms": 30000,
-            "region": null,
-            "endpoint": null,
-            "access_key_id": null,
-            "secret_access_key": null,
-            "session_token": null,
-            "path_style_access": false,
-            "allow_anonymous": false
-          },
-          "table": {
-            "namespace": [
-              "default"
-            ],
-            "name": ""
-          },
-          "output_name": ""
+          "table_names": [
+            ""
+          ],
+          "namespace": "default",
+          "installation": {
+            "type": "on_premise",
+            "storage": {
+              "type": "s3",
+              "bucket": "",
+              "endpoint": null,
+              "credentials": null,
+              "request_timeout_ms": 30000,
+              "region": null,
+              "session_token": null,
+              "path_style_access": false,
+              "allow_anonymous": false
+            }
+          }
         },
         "delivery_modes": [
           "batch"
@@ -5061,44 +5252,218 @@
           "title": "IcebergSinkConfig",
           "type": "object",
           "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "type": {
+                      "const": "on_premise"
+                    },
+                    "storage": {
+                      "title": "Storage",
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "title": "S3",
+                          "properties": {
+                            "type": {
+                              "const": "s3"
+                            },
+                            "bucket": {
+                              "type": "string",
+                              "title": "Bucket"
+                            },
+                            "endpoint": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Endpoint URL"
+                            },
+                            "credentials": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "title": "Authentication",
+                                  "properties": {
+                                    "access_key": {
+                                      "type": "string",
+                                      "title": "Access key ID"
+                                    },
+                                    "secret_key": {
+                                      "type": "string",
+                                      "title": "Secret access key",
+                                      "x-ui": {
+                                        "widget": "password"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "access_key",
+                                    "secret_key"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "Authentication"
+                            },
+                            "request_timeout_ms": {
+                              "type": "integer",
+                              "default": 30000,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "region": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "session_token": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "path_style_access": {
+                              "type": "boolean",
+                              "default": false,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            },
+                            "allow_anonymous": {
+                              "type": "boolean",
+                              "default": false,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "bucket",
+                            "request_timeout_ms",
+                            "path_style_access",
+                            "allow_anonymous"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "title": "HDFS",
+                          "properties": {
+                            "type": {
+                              "const": "hdfs"
+                            },
+                            "endpoint": {
+                              "type": "string",
+                              "title": "WebHDFS endpoint"
+                            },
+                            "authority": {
+                              "type": "string",
+                              "title": "Authority"
+                            },
+                            "root": {
+                              "type": "string",
+                              "title": "Root"
+                            },
+                            "user": {
+                              "anyOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "title": "User"
+                            },
+                            "request_timeout_ms": {
+                              "type": "integer",
+                              "default": 30000,
+                              "x-ui": {
+                                "widget": "hidden"
+                              }
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "endpoint",
+                            "authority",
+                            "root",
+                            "request_timeout_ms"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "storage"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
             "catalog": {
               "$ref": "#/$defs/RestCatalogConfig"
             },
-            "storage": {
-              "$ref": "#/$defs/OpenDalStorageConfig",
-              "default": {
-                "type": "s3",
-                "bucket": "",
-                "request_timeout_ms": 30000,
-                "region": null,
-                "endpoint": null,
-                "access_key_id": null,
-                "secret_access_key": null,
-                "session_token": null,
-                "path_style_access": false,
-                "allow_anonymous": false
-              }
+            "namespace": {
+              "type": "string",
+              "default": "default"
             },
-            "tables": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/IcebergSinkTable"
-              },
+            "create_if_missing": {
+              "type": "boolean",
+              "default": false,
               "x-ui": {
-                "item_label": "Table"
+                "widget": "hidden"
               }
             },
             "target_file_size_bytes": {
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 134217728
+              "default": 134217728,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
           "required": [
             "catalog",
-            "tables"
+            "installation"
           ],
           "$defs": {
             "RestCatalogConfig": {
@@ -5111,19 +5476,28 @@
                   "type": "integer",
                   "format": "uint64",
                   "minimum": 0,
-                  "default": 30000
+                  "default": 30000,
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
                 },
                 "warehouse": {
                   "type": [
                     "string",
                     "null"
                   ],
-                  "default": null
+                  "default": null,
+                  "x-ui": {
+                    "widget": "hidden"
+                  }
                 },
                 "auth": {
                   "$ref": "#/$defs/RestCatalogAuth",
                   "default": {
                     "type": "none"
+                  },
+                  "x-ui": {
+                    "widget": "hidden"
                   }
                 }
               },
@@ -5216,14 +5590,20 @@
                       "type": "integer",
                       "format": "uint64",
                       "minimum": 0,
-                      "default": 30000
+                      "default": 30000,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "region": {
                       "type": [
                         "string",
                         "null"
                       ],
-                      "default": null
+                      "default": null,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "endpoint": {
                       "type": [
@@ -5232,22 +5612,17 @@
                       ],
                       "default": null
                     },
-                    "access_key_id": {
-                      "type": [
-                        "string",
-                        "null"
+                    "credentials": {
+                      "title": "Authentication",
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/S3StorageCredentials"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ],
                       "default": null
-                    },
-                    "secret_access_key": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "default": null,
-                      "x-ui": {
-                        "widget": "password"
-                      }
                     },
                     "session_token": {
                       "type": [
@@ -5256,16 +5631,22 @@
                       ],
                       "default": null,
                       "x-ui": {
-                        "widget": "password"
+                        "widget": "hidden"
                       }
                     },
                     "path_style_access": {
                       "type": "boolean",
-                      "default": false
+                      "default": false,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "allow_anonymous": {
                       "type": "boolean",
-                      "default": false
+                      "default": false,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "type": {
                       "type": "string",
@@ -5320,41 +5701,25 @@
                 }
               ]
             },
-            "IcebergSinkTable": {
+            "S3StorageCredentials": {
               "type": "object",
               "properties": {
-                "dataset": {
+                "access_key": {
+                  "title": "Access key ID",
                   "type": "string"
                 },
-                "namespace": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
+                "secret_key": {
+                  "title": "Secret access key",
+                  "type": "string",
                   "x-ui": {
-                    "item_label": "Namespace level"
+                    "widget": "password"
                   }
-                },
-                "name": {
-                  "type": "string"
-                },
-                "create_if_missing": {
-                  "type": "boolean",
-                  "default": false
-                },
-                "location": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "default": null
                 }
               },
               "additionalProperties": false,
               "required": [
-                "dataset",
-                "namespace",
-                "name"
+                "access_key",
+                "secret_key"
               ]
             }
           }
@@ -5368,30 +5733,23 @@
               "type": "none"
             }
           },
-          "storage": {
-            "type": "s3",
-            "bucket": "",
-            "request_timeout_ms": 30000,
-            "region": null,
-            "endpoint": null,
-            "access_key_id": null,
-            "secret_access_key": null,
-            "session_token": null,
-            "path_style_access": false,
-            "allow_anonymous": false
-          },
-          "tables": [
-            {
-              "dataset": "",
-              "namespace": [
-                "default"
-              ],
-              "name": "",
-              "create_if_missing": false,
-              "location": null
+          "target_file_size_bytes": 134217728,
+          "namespace": "default",
+          "create_if_missing": false,
+          "installation": {
+            "type": "on_premise",
+            "storage": {
+              "type": "s3",
+              "bucket": "",
+              "endpoint": null,
+              "credentials": null,
+              "request_timeout_ms": 30000,
+              "region": null,
+              "session_token": null,
+              "path_style_access": false,
+              "allow_anonymous": false
             }
-          ],
-          "target_file_size_bytes": 134217728
+          }
         },
         "delivery_modes": [],
         "partitioned": false,
@@ -5448,7 +5806,10 @@
               ]
             },
             "auth": {
-              "$ref": "#/$defs/YTsaurusAuthConfig"
+              "$ref": "#/$defs/YTsaurusAuthConfig",
+              "x-ui": {
+                "control_width": "auth"
+              }
             },
             "timeout_ms": {
               "type": "integer",
@@ -5621,7 +5982,10 @@
               }
             },
             "auth": {
-              "$ref": "#/$defs/YTsaurusAuthConfig"
+              "$ref": "#/$defs/YTsaurusAuthConfig",
+              "x-ui": {
+                "control_width": "auth"
+              }
             },
             "timeout_ms": {
               "type": "integer",

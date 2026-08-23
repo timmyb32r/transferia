@@ -540,6 +540,7 @@ impl Registry {
             definition_shape(&candidate) == runtime_shape,
             "connector definition editing changed executable component identity or roles"
         );
+        validate_definition_ui(&candidate)?;
         self.definitions = candidate;
         Ok(())
     }
@@ -552,14 +553,7 @@ impl Registry {
             definition_shape(&definitions) == definition_shape(&self.definitions),
             "connector definitions do not match the executable registry"
         );
-        for definition in &definitions {
-            if let Some(source) = &definition.source {
-                validate_ui_dialect(&source.schema)?;
-            }
-            if let Some(sink) = &definition.sink {
-                validate_ui_dialect(&sink.schema)?;
-            }
-        }
+        validate_definition_ui(&definitions)?;
         self.definitions = definitions;
         Ok(())
     }
@@ -621,6 +615,18 @@ impl Registry {
             .ok_or_else(|| anyhow::anyhow!("{kind} source does not support message preview"))?;
         previewer(raw, max_bytes, cancellation).await
     }
+}
+
+fn validate_definition_ui(definitions: &[ConnectorDefinition]) -> anyhow::Result<()> {
+    for definition in definitions {
+        if let Some(source) = &definition.source {
+            validate_ui_dialect(&source.schema)?;
+        }
+        if let Some(sink) = &definition.sink {
+            validate_ui_dialect(&sink.schema)?;
+        }
+    }
+    Ok(())
 }
 
 fn definition_shape(definitions: &[ConnectorDefinition]) -> Vec<(&'static str, bool, bool)> {

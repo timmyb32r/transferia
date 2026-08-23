@@ -1,4 +1,12 @@
-import { compileSchema, type CompiledNode } from "../schema/compiler";
+import {
+  compileSchema,
+  draftSeedError,
+  firstCompletionIssue,
+  isFieldComplete,
+  SchemaContractError,
+  type CompletionIssue,
+  type CompiledNode,
+} from "../schema/compiler";
 import type { WidgetContracts } from "../schema/widgetDefinitions";
 import type {
   EndpointDefinition,
@@ -32,13 +40,84 @@ export function validateCatalogSchemas(
   catalog: UiCatalog,
   widgets: WidgetContracts,
 ): void {
-  compiledSchema(catalog.common_schema, widgets);
+  const common = compiledSchema(catalog.common_schema, widgets);
+  if (common.kind !== "object")
+    throw new SchemaContractError("common schema must be an object");
+  validateInitial(
+    "common",
+    common,
+    Object.fromEntries(
+      Object.entries(catalog.initial).filter(
+        ([name]) => common.properties[name] !== undefined,
+      ),
+    ),
+  );
   for (const connector of catalog.connectors) {
-    if (connector.source !== undefined)
-      compiledSchema(connector.source.schema, widgets);
-    if (connector.sink !== undefined)
-      compiledSchema(connector.sink.schema, widgets);
+    for (const [role, endpoint] of [
+      ["source", connector.source],
+      ["sink", connector.sink],
+    ] as const) {
+      if (endpoint === undefined) continue;
+      const node = compiledSchema(endpoint.schema, widgets);
+      const owner = `${connector.key} ${role}`;
+      validateInitial(owner, node, endpoint.initial);
+      validateHiddenRequiredDefaults(owner, node);
+    }
   }
+}
+
+function validateHiddenRequiredDefaults(
+  owner: string,
+  node: CompiledNode,
+  path = "#",
+): void {
+  if (node.kind === "object") {
+    for (const [name, child] of Object.entries(node.properties)) {
+      const childPath = `${path}/${escapePointer(name)}`;
+      if (
+        node.required.has(name) &&
+        child.hidden === true &&
+        ["string", "number", "boolean"].includes(child.kind) &&
+        (child.defaultValue === undefined ||
+          !isFieldComplete(child, child.defaultValue, true))
+      )
+        throw new SchemaContractError(
+          `${owner} hidden required field ${childPath} must declare a valid default`,
+        );
+      validateHiddenRequiredDefaults(owner, child, childPath);
+    }
+    return;
+  }
+  if (node.kind === "array") {
+    validateHiddenRequiredDefaults(owner, node.item, `${path}/items`);
+    return;
+  }
+  if (node.kind === "nullable") {
+    validateHiddenRequiredDefaults(owner, node.inner, `${path}/nullable`);
+    return;
+  }
+  if (node.kind === "union")
+    node.branches.forEach((branch, index) =>
+      validateHiddenRequiredDefaults(
+        owner,
+        branch.node,
+        `${path}/branch-${index}`,
+      ),
+    );
+}
+
+function escapePointer(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function validateInitial(
+  owner: string,
+  node: CompiledNode,
+  initial: JsonValue,
+): void {
+  const error = draftSeedError(node, initial);
+  if (error !== undefined)
+    throw new SchemaContractError(`${owner} initial value is invalid: ${error}`);
 }
 
 export function freshConfig(catalog: UiCatalog): JsonObject {
@@ -97,6 +176,77 @@ export function selectedEndpoints(
     source,
     sink,
     ...(error === undefined ? {} : { error }),
+  };
+}
+
+export function configurationReadiness(
+  catalog: UiCatalog,
+  config: JsonObject,
+  widgets: WidgetContracts,
+): {
+  selection: ReturnType<typeof selectedEndpoints>;
+  commonIssue: CompletionIssue | undefined;
+  sourceIssue: CompletionIssue | undefined;
+  sinkIssue: CompletionIssue | undefined;
+  commonComplete: boolean;
+  sourceComplete: boolean;
+  sinkComplete: boolean;
+  sourceReady: boolean;
+  complete: boolean;
+} {
+  const selection = selectedEndpoints(catalog, config);
+  const commonIssue = firstCompletionIssue(
+    compiledSchema(catalog.common_schema, widgets),
+    config,
+  );
+  const sourceIssue =
+    selection.source === undefined
+      ? undefined
+      : prefixIssue(
+          firstCompletionIssue(
+            compiledSchema(selection.source.schema, widgets),
+            endpointValue(config, "source", selection.sourceKey),
+          ),
+          `#/source/${escapePointer(selection.sourceKey)}`,
+        );
+  const sinkIssue =
+    selection.sink === undefined
+      ? undefined
+      : prefixIssue(
+          firstCompletionIssue(
+            compiledSchema(selection.sink.schema, widgets),
+            endpointValue(config, "sink", selection.sinkKey),
+          ),
+          `#/sink/${escapePointer(selection.sinkKey)}`,
+        );
+  const commonComplete =
+    selection.error === undefined && commonIssue === undefined;
+  const sourceComplete =
+    selection.source !== undefined && sourceIssue === undefined;
+  const sinkComplete =
+    selection.sink !== undefined && sinkIssue === undefined;
+  const sourceReady = commonComplete && sourceComplete;
+  return {
+    selection,
+    commonIssue,
+    sourceIssue,
+    sinkIssue,
+    commonComplete,
+    sourceComplete,
+    sinkComplete,
+    sourceReady,
+    complete: sourceReady && sinkComplete,
+  };
+}
+
+function prefixIssue(
+  issue: CompletionIssue | undefined,
+  prefix: string,
+): CompletionIssue | undefined {
+  if (issue === undefined) return undefined;
+  return {
+    ...issue,
+    path: issue.path === "#" ? prefix : `${prefix}${issue.path.slice(1)}`,
   };
 }
 

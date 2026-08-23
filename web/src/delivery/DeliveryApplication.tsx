@@ -28,11 +28,9 @@ import {
 } from "./EditorViews";
 import { YamlEditorPanel } from "./YamlEditorPanel";
 import {
-  compiledSchema,
-  endpointValue,
+  configurationReadiness,
   errorMessage,
   freshConfig,
-  selectedEndpoints,
   validateCatalogSchemas,
 } from "./editorConfig";
 import { useDeliveryJobs, type EditorRequestContext } from "./useDeliveryJobs";
@@ -47,7 +45,6 @@ import {
   requestRequiredGuidance,
   REQUIRED_CONTROL_SELECTOR,
 } from "../ui/requiredGuidance";
-import { isComplete } from "../schema/compiler";
 import { useWidgetRegistry } from "../schema/widgetRegistry";
 import {
   editorReducer,
@@ -79,6 +76,15 @@ const EMPTY_STATE: EditorState = {
   runtime: { state: "stopped" },
 };
 
+type PostYamlIntent =
+  | { kind: "validate" }
+  | { kind: "reveal"; scope: "source" | "all" };
+
+interface PendingYamlIntent {
+  intent: PostYamlIntent;
+  context: EditorRequestContext;
+}
+
 export function DeliveryApplication() {
   const api = useControlPlane();
   const widgets = useWidgetRegistry();
@@ -90,6 +96,8 @@ export function DeliveryApplication() {
   const [requiredErrorScope, setRequiredErrorScope] = useState<
     "none" | "source" | "all"
   >("none");
+  const [pendingYamlIntent, setPendingYamlIntent] =
+    useState<PendingYamlIntent>();
   const [schemaInspectorVisible, setSchemaInspectorVisible] = useState(false);
   const [editor, dispatch] = useReducer(editorReducer, EMPTY_STATE);
   const {
@@ -200,32 +208,16 @@ export function DeliveryApplication() {
     onError: handlePollingError,
   });
 
-  const selection = useMemo(
+  const readiness = useMemo(
     () =>
       catalog === undefined
         ? undefined
-        : selectedEndpoints(catalog, editor.config),
-    [catalog, editor.config],
+        : configurationReadiness(catalog, editor.config, widgets),
+    [catalog, editor.config, widgets],
   );
-  const commonConfigComplete =
-    catalog !== undefined &&
-    selection !== undefined &&
-    selection.error === undefined &&
-    isComplete(compiledSchema(catalog.common_schema, widgets), editor.config);
-  const sourceSchemaComplete =
-    commonConfigComplete &&
-    selection?.source !== undefined &&
-    isComplete(
-      compiledSchema(selection.source!.schema, widgets),
-      endpointValue(editor.config, "source", selection!.sourceKey),
-    );
-  const structurallyComplete =
-    sourceSchemaComplete &&
-    selection?.sink !== undefined &&
-    isComplete(
-      compiledSchema(selection.sink!.schema, widgets),
-      endpointValue(editor.config, "sink", selection!.sinkKey),
-    );
+  const selection = readiness?.selection;
+  const sourceSchemaComplete = readiness?.sourceReady ?? false;
+  const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";
   const { discovery, setDiscovery } = useDiscovery({
@@ -317,6 +309,112 @@ export function DeliveryApplication() {
     showLogs,
   } = yamlEditor;
 
+  const revealRequiredNow = useCallback(
+    (scope: "source" | "all") => {
+      const reportUnrenderableIssue = () => {
+        const issue =
+          scope === "source"
+            ? (readiness?.commonIssue ?? readiness?.sourceIssue)
+            : (readiness?.commonIssue ??
+              readiness?.sourceIssue ??
+              readiness?.sinkIssue);
+        if (scope === "all") {
+          void mutations.validate();
+          return;
+        }
+        const requestId = beginOperation("discovery");
+        finishOperation(
+          "discovery",
+          requestId,
+          issue === undefined
+            ? "The source configuration contains an issue that is not editable in the UI. Open the YAML view to correct it."
+            : `The source configuration contains a non-editable issue at ${issue.path}. Open the YAML view to correct it.`,
+        );
+      };
+
+      setRequiredErrorScope(scope);
+      window.requestAnimationFrame(() => {
+        const container = workspace.current;
+        if (container === null) return;
+        const excluded =
+          scope === "source"
+            ? ".endpoint-card-sink, .serializer-details-card"
+            : undefined;
+        requestRequiredGuidance(container, excluded);
+        const missing = nextRequiredTarget(container, excluded);
+        if (missing === undefined) {
+          reportUnrenderableIssue();
+          return;
+        }
+        const control = missing.matches(REQUIRED_CONTROL_SELECTOR)
+          ? missing
+          : missing.querySelector<HTMLElement>(REQUIRED_CONTROL_SELECTOR);
+        if (control === null) {
+          reportUnrenderableIssue();
+          return;
+        }
+        missing.closest("details")?.setAttribute("open", "");
+        missing.scrollIntoView({ behavior: "smooth", block: "center" });
+        control.focus({ preventScroll: true });
+      });
+    },
+    [beginOperation, finishOperation, mutations, readiness],
+  );
+
+  const executePostYamlIntent = useCallback(
+    (intent: PostYamlIntent) => {
+      if (intent.kind === "reveal") {
+        revealRequiredNow(intent.scope);
+        return;
+      }
+      if (requiredFieldsComplete) void mutations.validate();
+      else revealRequiredNow("all");
+    },
+    [mutations, requiredFieldsComplete, revealRequiredNow],
+  );
+
+  useEffect(() => {
+    if (pendingYamlIntent === undefined) return;
+    if (
+      pendingYamlIntent.context.sessionId !== editor.sessionId ||
+      editor.localRevision > pendingYamlIntent.context.localRevision
+    ) {
+      setPendingYamlIntent(undefined);
+      return;
+    }
+    if (
+      editor.localRevision < pendingYamlIntent.context.localRevision ||
+      activeView !== "ui"
+    )
+      return;
+    setPendingYamlIntent(undefined);
+    executePostYamlIntent(pendingYamlIntent.intent);
+  }, [
+    activeView,
+    editor.localRevision,
+    editor.sessionId,
+    executePostYamlIntent,
+    pendingYamlIntent,
+  ]);
+
+  const runAfterYaml = useCallback(
+    (intent: PostYamlIntent) => {
+      if (activeView === "ui") {
+        executePostYamlIntent(intent);
+        return;
+      }
+      void applyYamlAndShowUi().then((result) => {
+        if (result.status === "failed") return;
+        if (result.status === "applied") {
+          setPendingYamlIntent({ intent, context: result.context });
+          return;
+        }
+        executePostYamlIntent(intent);
+      });
+    },
+    [activeView, applyYamlAndShowUi, executePostYamlIntent],
+  );
+
   if (catalog === undefined)
     return (
       <main class="loading-screen">
@@ -355,23 +453,8 @@ export function DeliveryApplication() {
   const validatePending =
     operationPending("save") || operationPending("validate");
   const activatePending = operationPending("action");
-  const revealMissingRequiredFields = (scope: "source" | "all" = "all") => {
-    setRequiredErrorScope(scope);
-    void applyYamlAndShowUi().then(() => {
-      window.requestAnimationFrame(() => {
-        const container = workspace.current;
-        if (container === null) return;
-        const excluded = scope === "source" ? ".endpoint-card-sink, .serializer-details-card" : undefined;
-        requestRequiredGuidance(container, excluded);
-        const missing = nextRequiredTarget(container, excluded);
-        missing?.closest("details")?.setAttribute("open", "");
-        missing?.scrollIntoView({ behavior: "smooth", block: "center" });
-        missing
-          ?.querySelector<HTMLElement>(REQUIRED_CONTROL_SELECTOR)
-          ?.focus({ preventScroll: true });
-      });
-    });
-  };
+  const revealMissingRequiredFields = (scope: "source" | "all" = "all") =>
+    runAfterYaml({ kind: "reveal", scope });
   const actionButtons = (
     <EditorActions
       editor={editor}
@@ -401,7 +484,7 @@ export function DeliveryApplication() {
         });
       }}
       onSave={() => void mutations.save()}
-      onValidate={() => void mutations.validate()}
+      onValidate={() => runAfterYaml({ kind: "validate" })}
       onActivate={() =>
         void mutations.runAction("Starting worker…", () =>
           api.activate(

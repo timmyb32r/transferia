@@ -9,6 +9,10 @@ import type { useOperations } from "./useOperations";
 type DeliveryJobs = ReturnType<typeof useDeliveryJobs>;
 type Operations = ReturnType<typeof useOperations>;
 export type EditorView = "ui" | "yaml" | "data_schema" | "logs";
+export type ApplyYamlResult =
+  | { status: "current" }
+  | { status: "applied"; context: EditorRequestContext }
+  | { status: "failed" };
 
 export function useYamlEditor({
   enabled,
@@ -107,16 +111,18 @@ export function useYamlEditor({
     operations.clearErrors();
   };
 
-  const applyYamlAndShow = async (target: Exclude<EditorView, "yaml">) => {
-    if (activeView === target) return;
+  const applyYamlAndShow = async (
+    target: Exclude<EditorView, "yaml">,
+  ): Promise<ApplyYamlResult> => {
+    if (activeView === target) return { status: "current" };
     if (activeView !== "yaml") {
       setActiveView(target);
-      return;
+      return { status: "current" };
     }
     if (!editable) {
       yamlEditing.current = false;
       setActiveView(target);
-      return;
+      return { status: "current" };
     }
     const requestId = operations.beginOperation("parseYaml", "Applying YAML…");
     const context = {
@@ -129,14 +135,22 @@ export function useYamlEditor({
       );
       if (result === undefined || !isCurrentContext(result.context)) {
         operations.finishOperation("parseYaml", requestId);
-        return;
+        return { status: "failed" };
       }
       applyConfig(result.value.config);
       yamlEditing.current = false;
       setActiveView(target);
       operations.finishOperation("parseYaml", requestId);
+      return {
+        status: "applied",
+        context: {
+          sessionId: result.context.sessionId,
+          localRevision: result.context.localRevision + 1,
+        },
+      };
     } catch (reason) {
       operations.finishOperation("parseYaml", requestId, errorMessage(reason));
+      return { status: "failed" };
     }
   };
 

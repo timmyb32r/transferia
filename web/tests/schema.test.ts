@@ -6,6 +6,7 @@ import {
   acceptsDraftSeed,
   compileSchema,
   createValue,
+  firstCompletionIssue,
   isComplete,
   SchemaContractError,
 } from "../src/schema/compiler";
@@ -41,6 +42,75 @@ describe("schema compiler", () => {
       ),
     ).toThrow(/compact_array.*does not support string/);
   });
+
+  it("rejects an invalid connector initial value before the catalog becomes interactive", () => {
+    expect(() =>
+      validateCatalogSchemas(
+        {
+          common_schema: { type: "object" },
+          initial: {},
+          connectors: [
+            {
+              key: "broken",
+              title: "Broken",
+              source: {
+                schema: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    optional_port: { type: "integer", minimum: 1 },
+                  },
+                  required: ["name"],
+                },
+                initial: { name: "", optional_port: 0 },
+                delivery_modes: ["batch"],
+                partitioned: false,
+                connection_check: false,
+                message_preview: false,
+              },
+            },
+          ],
+        },
+        productionWidgetRegistry,
+      ),
+    ).toThrow(/broken source initial.*optional_port/);
+  });
+
+  it("requires an explicit default for every hidden required scalar", () => {
+    expect(() =>
+      validateCatalogSchemas(
+        {
+          common_schema: { type: "object" },
+          initial: {},
+          connectors: [
+            {
+              key: "broken",
+              title: "Broken",
+              source: {
+                schema: {
+                  type: "object",
+                  properties: {
+                    hidden_region: {
+                      type: "string",
+                      "x-ui": { widget: "hidden" },
+                    },
+                  },
+                  required: ["hidden_region"],
+                },
+                initial: { hidden_region: "us-east-1" },
+                delivery_modes: ["batch"],
+                partitioned: false,
+                connection_check: false,
+                message_preview: false,
+              },
+            },
+          ],
+        },
+        productionWidgetRegistry,
+      ),
+    ).toThrow(/broken source.*hidden required field.*hidden_region.*default/);
+  });
+
   it("accepts safe external-console links and rejects unsafe templates", () => {
     const node = compileSchema({
       type: "string",
@@ -133,6 +203,46 @@ describe("schema compiler", () => {
 
     expect(isComplete(node, { cluster: "" })).toBe(false);
     expect(isComplete(node, { cluster: "logbroker" })).toBe(true);
+  });
+
+  it("reports the exact hidden path for an uneditable nested blocker", () => {
+    const node = compileSchema(
+      {
+        type: "object",
+        properties: {
+          connection: { type: "string" },
+          projection: {
+            type: "object",
+            "x-ui": { widget: "hidden" },
+            properties: {
+              columns: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string" },
+              },
+            },
+            required: ["columns"],
+          },
+        },
+        required: ["connection", "projection"],
+      },
+      productionWidgetRegistry,
+    );
+
+    expect(
+      firstCompletionIssue(node, {
+        connection: "https://registry.example",
+        projection: { columns: [] },
+      }),
+    ).toEqual({
+      path: "#/projection/columns",
+      code: "min_items",
+      hidden: true,
+    });
+    expect(isComplete(node, {
+      connection: "https://registry.example",
+      projection: { columns: [] },
+    })).toBe(false);
   });
 
   it("enforces minItems when deciding whether an array is complete", () => {
@@ -258,6 +368,22 @@ describe("schema compiler", () => {
       false,
     );
     expect(isComplete(node, { name: "delivery", optional_port: "9440" })).toBe(
+      false,
+    );
+  });
+
+  it("does not treat an empty optional string as a missing required field", () => {
+    const node = compileSchema({
+      type: "object",
+      properties: {
+        database: { type: "string" },
+        shard_group: { type: "string" },
+      },
+      required: ["database"],
+    });
+
+    expect(isComplete(node, { database: "db1", shard_group: "" })).toBe(true);
+    expect(isComplete(node, { database: "", shard_group: "analytics" })).toBe(
       false,
     );
   });

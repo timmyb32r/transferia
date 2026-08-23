@@ -283,6 +283,151 @@ describe("App request orchestration", () => {
     expect(api.validate).not.toHaveBeenCalled();
   });
 
+  it("sends an unrenderable configuration issue to backend validation", async () => {
+    const existing = {
+      ...delivery("existing", "Existing"),
+      config: {
+        delivery_id: "existing",
+        delivery_type: "batch",
+        source: { source: { unknown_option: true } },
+        sink: { sink: {} },
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      connectors: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: {
+              type: "object",
+              properties: {},
+              additionalProperties: false,
+            },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test destination",
+          sink: {
+            schema: {
+              type: "object",
+              properties: {},
+              additionalProperties: false,
+            },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    });
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await waitFor(() => expect(api.validate).toHaveBeenCalledOnce());
+  });
+
+  it("does not focus a visible sibling when only a hidden subtree is invalid", async () => {
+    const existing = {
+      ...delivery("existing", "Existing"),
+      config: {
+        delivery_id: "existing",
+        delivery_type: "batch",
+        source: {
+          source: {
+            connection: "https://registry.example",
+            projection: { columns: [] },
+          },
+        },
+        sink: { sink: {} },
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue({
+      ...CATALOG,
+      connectors: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: {
+              type: "object",
+              properties: {
+                connection: { type: "string", title: "Registry URL" },
+                projection: {
+                  type: "object",
+                  "x-ui": { widget: "hidden" },
+                  properties: {
+                    columns: {
+                      type: "array",
+                      minItems: 1,
+                      items: { type: "string" },
+                    },
+                  },
+                  required: ["columns"],
+                },
+              },
+              required: ["connection", "projection"],
+            },
+            initial: {
+              connection: "https://registry.example",
+              projection: { columns: [] },
+            },
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test destination",
+          sink: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    });
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    const registryUrl = app.getByLabelText("Registry URL");
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await waitFor(() => expect(api.validate).toHaveBeenCalledOnce());
+    expect(document.activeElement).not.toBe(registryUrl);
+    expect(
+      registryUrl.closest(".form-row")?.classList.contains("required-missing"),
+    ).toBe(false);
+  });
+
   it("does not let a save response overwrite a delivery opened meanwhile", async () => {
     const existing = delivery("existing", "Existing");
     installApiMocks([existing]);
@@ -547,6 +692,126 @@ describe("App request orchestration", () => {
     expect(view.container.querySelector(".syntax-key")?.textContent).toContain(
       "delivery_type",
     );
+  });
+
+  it("applies the edited YAML revision before validating it", async () => {
+    const catalog: UiCatalog = {
+      ...CATALOG,
+      connectors: [
+        {
+          key: "source",
+          title: "Test source",
+          source: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+        {
+          key: "sink",
+          title: "Test destination",
+          sink: {
+            schema: { type: "object", properties: {} },
+            initial: {},
+            delivery_modes: ["batch"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    };
+    const previousConfig = {
+      delivery_id: "existing",
+      delivery_type: "batch",
+      source: { source: {} },
+      sink: { sink: {} },
+      pipeline_memory_limit_bytes: 1,
+    };
+    const appliedConfig = {
+      ...previousConfig,
+      pipeline_memory_limit_bytes: 2,
+    };
+    const existing = {
+      ...delivery("existing", "Existing"),
+      config: previousConfig,
+    } satisfies DeliveryRecord;
+    const updated = {
+      ...existing,
+      config: appliedConfig,
+      revision: 2,
+      record_version: "2",
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.catalog).mockResolvedValue(catalog);
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.yaml).mockResolvedValue({ yaml: "previous: true" });
+    vi.mocked(api.parseYaml).mockResolvedValue({ config: appliedConfig });
+    vi.mocked(api.update).mockResolvedValue(updated);
+    vi.mocked(api.validate).mockResolvedValue({
+      delivery: {
+        ...updated,
+        record_version: "3",
+        validation: { state: "ready", revision: 2 },
+      },
+      discovery: discovery(),
+    });
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    fireEvent.click(app.getByRole("tab", { name: "YAML" }));
+    const yaml = await app.findByLabelText("YAML configuration");
+    fireEvent.input(yaml, { target: { value: "pipeline: changed" } });
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    await waitFor(() =>
+      expect(api.update).toHaveBeenCalledWith(
+        "existing",
+        1,
+        "1",
+        "Existing",
+        "",
+        appliedConfig,
+      ),
+    );
+    await waitFor(() =>
+      expect(api.validate).toHaveBeenCalledWith("existing", 2, "2"),
+    );
+    expect(
+      vi.mocked(api.parseYaml).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(api.update).mock.invocationCallOrder[0]!);
+    expect(
+      vi.mocked(api.update).mock.invocationCallOrder[0],
+    ).toBeLessThan(vi.mocked(api.validate).mock.invocationCallOrder[0]!);
+  });
+
+  it("does not validate stale state after YAML parsing fails", async () => {
+    const existing = delivery("existing", "Existing");
+    installApiMocks([existing]);
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    vi.mocked(api.parseYaml).mockRejectedValue(new Error("invalid YAML"));
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("Existing");
+    fireEvent.click(app.getByText("Existing").closest("button")!);
+    await app.findByRole("heading", { name: "Existing" });
+    fireEvent.click(app.getByRole("button", { name: "Edit" }));
+    fireEvent.click(app.getByRole("tab", { name: "YAML" }));
+    const yaml = await app.findByLabelText("YAML configuration");
+    fireEvent.input(yaml, { target: { value: "not: [valid" } });
+
+    fireEvent.click(app.getByRole("button", { name: "Validate" }));
+
+    expect(await app.findByText("invalid YAML")).toBeTruthy();
+    expect(api.update).not.toHaveBeenCalled();
+    expect(api.validate).not.toHaveBeenCalled();
   });
 
   it("validates the committed save even when sidebar refresh fails", async () => {

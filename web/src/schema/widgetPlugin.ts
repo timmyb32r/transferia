@@ -19,7 +19,6 @@ export interface WidgetPlugin extends WidgetDefinition {
     context: PropertyWidgetContext,
     services: EditorServices,
   ) => ComponentChildren;
-  hidden?: boolean;
 }
 
 export function createWidgetRegistry(
@@ -46,9 +45,7 @@ export function createWidgetRegistry(
       selected(context.node)?.node?.(context, services),
     renderProperty: (context, services) =>
       selected(context.node)?.property?.(context, services),
-    isHidden: (node) =>
-      selected(node)?.hidden === true ||
-      (node.kind === "string" && node.enumValues?.length === 1),
+    isHidden: (node) => node.hidden === true,
     presentation: (node) => selected(node),
   };
 }

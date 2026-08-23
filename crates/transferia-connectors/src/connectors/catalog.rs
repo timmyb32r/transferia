@@ -389,7 +389,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         serde_json::json!({
             "host": { "type": "string", "title": "Host" },
             "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-            "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
+            "trusted_plaintext": { "type": "boolean", "default": true, "x-ui": { "widget": "hidden" } }
         }),
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
@@ -466,7 +466,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         serde_json::json!({
             "host": { "type": "string", "title": "Host" },
             "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-            "trusted_plaintext": { "type": "boolean", "x-ui": { "widget": "hidden" } }
+            "trusted_plaintext": { "type": "boolean", "default": true, "x-ui": { "widget": "hidden" } }
         }),
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
@@ -495,7 +495,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
             serde_json::json!({
                 "bucket": { "type": "string", "title": "Bucket" },
                 "endpoint": { "type": "string", "title": "Endpoint URL" },
-                "region": { "type": "string", "x-ui": { "widget": "hidden" } },
+                "region": { "type": "string", "default": "us-east-1", "x-ui": { "widget": "hidden" } },
                 "credentials": {
                     "type": "object",
                     "title": "Authentication",
@@ -616,11 +616,11 @@ fn register_iceberg_on_premise(
                                     ],
                                     "title": "Authentication"
                                 },
-                                "request_timeout_ms": { "type": "integer", "x-ui": { "widget": "hidden" } },
+                                "request_timeout_ms": { "type": "integer", "default": 30000, "x-ui": { "widget": "hidden" } },
                                 "region": { "anyOf": [{ "type": "string" }, { "type": "null" }], "x-ui": { "widget": "hidden" } },
                                 "session_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "x-ui": { "widget": "hidden" } },
-                                "path_style_access": { "type": "boolean", "x-ui": { "widget": "hidden" } },
-                                "allow_anonymous": { "type": "boolean", "x-ui": { "widget": "hidden" } }
+                                "path_style_access": { "type": "boolean", "default": false, "x-ui": { "widget": "hidden" } },
+                                "allow_anonymous": { "type": "boolean", "default": false, "x-ui": { "widget": "hidden" } }
                             },
                             "required": ["type", "bucket", "request_timeout_ms", "path_style_access", "allow_anonymous"],
                             "additionalProperties": false
@@ -634,7 +634,7 @@ fn register_iceberg_on_premise(
                                 "authority": { "type": "string", "title": "Authority" },
                                 "root": { "type": "string", "title": "Root" },
                                 "user": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "User" },
-                                "request_timeout_ms": { "type": "integer", "x-ui": { "widget": "hidden" } }
+                                "request_timeout_ms": { "type": "integer", "default": 30000, "x-ui": { "widget": "hidden" } }
                             },
                             "required": ["type", "endpoint", "authority", "root", "request_timeout_ms"],
                             "additionalProperties": false
