@@ -134,7 +134,10 @@ pub struct KafkaSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "broker" }))]
     pub brokers: Vec<String>,
 
-    #[schemars(title = "Topic")]
+    #[schemars(
+        title = "Topic",
+        extend("x-ui" = { "control_width": "routing" })
+    )]
     pub topic: KafkaTopicConfig,
 
     pub security: KafkaSecurityConfig,

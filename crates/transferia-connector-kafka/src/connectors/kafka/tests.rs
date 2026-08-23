@@ -75,6 +75,11 @@ fn source_and_sink_config_schemas_compile() {
         Some(2),
         "Kafka sink topic must be a strict topic/topic-prefix union"
     );
+    assert_eq!(
+        sink.pointer("/properties/topic/x-ui/control_width"),
+        Some(&serde_json::json!("routing")),
+        "Kafka sink routing control must leave room for topic names",
+    );
     for field in ["request_timeout_ms", "max_in_flight"] {
         assert_eq!(
             sink.pointer(&format!("/properties/{field}/x-ui/widget")),

@@ -1594,6 +1594,12 @@ input[type="checkbox"]:disabled {
 .control-width-auth .nested-section .form-row:not(.form-row-wide) {
   grid-template-columns: minmax(80px, 30%) minmax(0, 1fr);
 }
+.control-width-routing > .field-control {
+  width: 100%;
+}
+.control-width-routing .nested-section .form-row:not(.form-row-wide) {
+  grid-template-columns: minmax(100px, 25%) minmax(0, 1fr);
+}
 .control-width-medium > .field-control {
   width: min(100%, 340px);
 }

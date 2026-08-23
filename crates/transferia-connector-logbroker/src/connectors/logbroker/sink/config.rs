@@ -14,6 +14,7 @@ pub struct LogbrokerSinkConfig {
     #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: LogbrokerAuthConfig,
 
+    #[schemars(extend("x-ui" = { "control_width": "routing" }))]
     pub topic: LogbrokerTopicConfig,
 
     #[serde(default)]

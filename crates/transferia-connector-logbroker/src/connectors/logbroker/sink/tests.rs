@@ -8,6 +8,16 @@ fn config(extra: &str) -> anyhow::Result<LogbrokerSinkConfig> {
 }
 
 #[test]
+fn topic_routing_control_uses_the_wide_layout() {
+    let schema = serde_json::to_value(schemars::schema_for!(LogbrokerSinkConfig))
+        .expect("Logbroker sink schema must serialize");
+    assert_eq!(
+        schema.pointer("/properties/topic/x-ui/control_width"),
+        Some(&serde_json::json!("routing")),
+    );
+}
+
+#[test]
 fn accepts_ydb_and_pqv1_drivers() -> anyhow::Result<()> {
     let ydb = config("")?;
     ydb.validate()?;
