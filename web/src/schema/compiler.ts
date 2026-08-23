@@ -298,8 +298,8 @@ function validateWidgetTree(
 }
 
 export function createValue(node: CompiledNode): JsonValue {
-  if (node.defaultValue !== undefined)
-    return structuredClone(node.defaultValue);
+  const deterministic = deterministicValue(node);
+  if (deterministic !== undefined) return deterministic;
   switch (node.kind) {
     case "nullable":
       return null;
@@ -325,6 +325,30 @@ export function createValue(node: CompiledNode): JsonValue {
     case "string":
       return "";
   }
+}
+
+/** A schema-authored or logically unique value; never an invented UI fallback. */
+export function deterministicValue(
+  node: CompiledNode,
+): JsonValue | undefined {
+  if (node.defaultValue !== undefined)
+    return structuredClone(node.defaultValue);
+  if (node.kind === "string" && node.enumValues?.length === 1)
+    return structuredClone(node.enumValues[0]!);
+  return undefined;
+}
+
+/** Creates exactly the value produced when the user selects this union branch. */
+export function materializeBranch(branch: UnionBranch): JsonValue {
+  const created = branch.constant ?? createValue(branch.node);
+  return branch.discriminator !== undefined && isObject(created)
+    ? {
+        ...created,
+        [branch.discriminator.key]: structuredClone(
+          branch.discriminator.value,
+        ),
+      }
+    : created;
 }
 
 export function acceptsDraftSeed(

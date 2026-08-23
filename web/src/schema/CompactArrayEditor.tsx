@@ -6,6 +6,7 @@ import { useStableRowIds } from "./controls";
 import { draftValue } from "./draft";
 import type { NodeEditorComponent } from "./editorTypes";
 import { isObject } from "./value";
+import { useWidgetRegistry } from "./widgetRegistry";
 
 export function CompactArrayEditor({
   node,
@@ -22,12 +23,13 @@ export function CompactArrayEditor({
   onChange: (value: JsonValue) => void;
   NodeEditor: NodeEditorComponent;
 }) {
+  const widgets = useWidgetRegistry();
   const rowIds = useStableRowIds(value.length);
   const fields =
     node.item.kind === "object"
       ? Object.entries(node.item.properties).filter(
           ([, child]) =>
-            child.xUi.widget !== "hidden" &&
+            !widgets.isHidden(child) &&
             (showPartitionRanges || child.xUi.widget !== "partition_ranges"),
         )
       : [];

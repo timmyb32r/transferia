@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
+import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
 import {
   acceptsDraftSeed,
@@ -11,11 +12,22 @@ import {
 
 describe("Rust catalog contract", () => {
   it("compiles every schema emitted by the Rust catalog", () => {
+    const injectedCatalog = (
+      globalThis as typeof globalThis & {
+        process?: { env?: Record<string, string | undefined> };
+      }
+    ).process?.env?.TRANSFERIA_CATALOG_CONTRACT;
     const catalog = decodeApi(
       "catalog_response",
-      catalogFixture,
+      injectedCatalog === undefined
+        ? catalogFixture
+        : JSON.parse(injectedCatalog),
       "catalog",
     );
+
+    expect(() =>
+      validateCatalogSchemas(catalog, productionWidgetRegistry),
+    ).not.toThrow();
 
     const common = compileSchema(
       catalog.common_schema,

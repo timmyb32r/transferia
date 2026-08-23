@@ -1,8 +1,11 @@
 import {
+  branchMatches,
   compileSchema,
+  deterministicValue,
   draftSeedError,
   firstCompletionIssue,
   isFieldComplete,
+  materializeBranch,
   SchemaContractError,
   type CompletionIssue,
   type CompiledNode,
@@ -44,15 +47,14 @@ export function validateCatalogSchemas(
   const common = compiledSchema(catalog.common_schema, widgets);
   if (common.kind !== "object")
     throw new SchemaContractError("common schema must be an object");
-  validateInitial(
-    "common",
-    common,
-    Object.fromEntries(
-      Object.entries(catalog.initial).filter(
-        ([name]) => common.properties[name] !== undefined,
-      ),
+  const commonInitial = Object.fromEntries(
+    Object.entries(catalog.initial).filter(
+      ([name]) => common.properties[name] !== undefined,
     ),
   );
+  validateInitial("common", common, commonInitial);
+  validateHiddenInitialValues("common", common, commonInitial);
+  validateEditorMaterialization("common", common);
   for (const connector of catalog.connectors) {
     for (const [role, endpoint] of [
       ["source", connector.source],
@@ -62,49 +64,196 @@ export function validateCatalogSchemas(
       const node = compiledSchema(endpoint.schema, widgets);
       const owner = `${connector.key} ${role}`;
       validateInitial(owner, node, endpoint.initial);
-      validateHiddenRequiredDefaults(owner, node);
+      validateHiddenInitialValues(owner, node, endpoint.initial);
+      validateEditorMaterialization(owner, node);
     }
   }
 }
 
-function validateHiddenRequiredDefaults(
+function validateHiddenInitialValues(
+  owner: string,
+  node: CompiledNode,
+  value: JsonValue | undefined,
+  required = true,
+  path = "#",
+): void {
+  const hidden = node.hidden === true;
+  if (hidden) {
+    if (value === undefined && !required) return;
+    const issue = firstCompletionIssue(node, value, required, path);
+    if (issue !== undefined)
+      throw new SchemaContractError(
+        `${owner} initial hidden field ${issue.path} is incomplete`,
+      );
+    return;
+  }
+  if (node.kind === "object") {
+    if (!isObject(value)) return;
+    for (const [name, child] of Object.entries(node.properties))
+      validateHiddenInitialValues(
+        owner,
+        child,
+        value[name],
+        node.required.has(name),
+        `${path}/${escapePointer(name)}`,
+      );
+    return;
+  }
+  if (node.kind === "array") {
+    if (!Array.isArray(value)) return;
+    value.forEach((item, index) =>
+      validateHiddenInitialValues(
+        owner,
+        node.item,
+        item,
+        true,
+        `${path}/${index}`,
+      ),
+    );
+    return;
+  }
+  if (node.kind === "nullable") {
+    if (value !== undefined && value !== null)
+      validateHiddenInitialValues(
+        owner,
+        node.inner,
+        value,
+        required,
+        path,
+      );
+    return;
+  }
+  if (node.kind === "union" && value !== undefined) {
+    const branch = node.branches.find((candidate) =>
+      branchMatches(candidate, value),
+    );
+    if (branch !== undefined)
+      validateHiddenInitialValues(
+        owner,
+        branch.node,
+        value,
+        required,
+        path,
+      );
+  }
+}
+
+function validateEditorMaterialization(
   owner: string,
   node: CompiledNode,
   path = "#",
+  required = true,
+  hiddenAncestor = false,
 ): void {
+  const hidden = hiddenAncestor || node.hidden === true;
+  const authored = deterministicValue(node);
+  if (hidden && (required || authored !== undefined)) {
+    const materialized = deterministicHiddenValue(node);
+    const issue =
+      materialized === undefined
+        ? undefined
+        : firstCompletionIssue(node, materialized, required, path);
+    if (materialized === undefined || issue !== undefined)
+      throw new SchemaContractError(
+        `${owner} hidden ${required ? "required " : ""}field ${issue?.path ?? path} cannot be materialized deterministically`,
+      );
+    return;
+  }
+  if (hidden) return;
   if (node.kind === "object") {
     for (const [name, child] of Object.entries(node.properties)) {
       const childPath = `${path}/${escapePointer(name)}`;
-      if (
-        node.required.has(name) &&
-        child.hidden === true &&
-        ["string", "number", "boolean"].includes(child.kind) &&
-        (child.defaultValue === undefined ||
-          !isFieldComplete(child, child.defaultValue, true))
-      )
-        throw new SchemaContractError(
-          `${owner} hidden required field ${childPath} must declare a valid default`,
-        );
-      validateHiddenRequiredDefaults(owner, child, childPath);
+      validateEditorMaterialization(
+        owner,
+        child,
+        childPath,
+        node.required.has(name),
+        hidden,
+      );
     }
     return;
   }
   if (node.kind === "array") {
-    validateHiddenRequiredDefaults(owner, node.item, `${path}/items`);
+    validateEditorMaterialization(
+      owner,
+      node.item,
+      `${path}/items`,
+      true,
+      hidden,
+    );
     return;
   }
   if (node.kind === "nullable") {
-    validateHiddenRequiredDefaults(owner, node.inner, `${path}/nullable`);
+    validateEditorMaterialization(
+      owner,
+      node.inner,
+      `${path}/nullable`,
+      true,
+      hidden,
+    );
     return;
   }
-  if (node.kind === "union")
-    node.branches.forEach((branch, index) =>
-      validateHiddenRequiredDefaults(
+  if (node.kind === "union") {
+    node.branches.forEach((branch, index) => {
+      const materialized = materializeBranch(branch);
+      const matches = node.branches.filter((candidate) =>
+        branchMatches(candidate, materialized),
+      );
+      if (matches.length !== 1 || matches[0] !== branch)
+        throw new SchemaContractError(
+          `${owner} union branch ${path}/branch-${index} does not materialize to one unique variant`,
+        );
+      validateEditorMaterialization(
         owner,
         branch.node,
         `${path}/branch-${index}`,
-      ),
-    );
+        true,
+        hidden,
+      );
+    });
+  }
+}
+
+/**
+ * Materializes a hidden node only when its value is authored by the schema or
+ * logically unique. Generic UI placeholders such as false, null, or an empty
+ * string are deliberately not accepted as configuration defaults.
+ */
+function deterministicHiddenValue(node: CompiledNode): JsonValue | undefined {
+  const direct = deterministicValue(node);
+  if (direct !== undefined) return direct;
+  if (node.kind === "object") {
+    const value: JsonObject = {};
+    for (const [name, child] of Object.entries(node.properties)) {
+      if (node.required.has(name)) {
+        const childValue = deterministicHiddenValue(child);
+        if (childValue === undefined) return undefined;
+        value[name] = childValue;
+      } else if (child.defaultValue !== undefined) {
+        value[name] = structuredClone(child.defaultValue);
+      }
+    }
+    return isFieldComplete(node, value, true) ? value : undefined;
+  }
+  if (node.kind === "union" && node.branches.length === 1) {
+    const branch = node.branches[0]!;
+    const created =
+      branch.constant === undefined
+        ? deterministicHiddenValue(branch.node)
+        : structuredClone(branch.constant);
+    if (created === undefined) return undefined;
+    const value =
+      branch.discriminator !== undefined && isObject(created)
+        ? {
+            ...created,
+            [branch.discriminator.key]: structuredClone(
+              branch.discriminator.value,
+            ),
+          }
+        : created;
+    return isFieldComplete(node, value, true) ? value : undefined;
+  }
+  return undefined;
 }
 
 function escapePointer(value: string): string {

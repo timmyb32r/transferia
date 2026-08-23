@@ -2,56 +2,25 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::parsers::json_parser::JsonParserConfig;
-use crate::parsers::schema_registry::SchemaRegistryParserConfig;
 use crate::parsers::ParserEntry;
 use transferia_core::data::system_columns::SystemColumnKind;
 
-/// Complete parser schema used by the control plane. Runtime dispatch remains
-/// registry-based, while this tagged union gives JSON Schema an explicit set
-/// of currently supported forms.
+/// Public parser schema used by the control plane. Runtime dispatch remains
+/// registry-based, while this tagged union lists the forms that the UI can
+/// configure completely.
+///
+/// Schema Registry parsing is intentionally not published here yet. Its runtime
+/// configuration still requires an explicit JSON projection, while the product
+/// contract requires the UI to derive that projection from the registry schema.
+/// Advertising the incomplete form would create a selectable parser that the UI
+/// cannot configure without a hidden required value.
 #[derive(JsonSchema)]
 #[serde(untagged)]
 pub enum ParserSchema {
     #[schemars(title = "JSON parser")]
     Json(JsonParserSchema),
-    #[schemars(title = "Schema Registry parser")]
-    SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Discard messages (for benchmarks)")]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
-}
-
-#[derive(JsonSchema)]
-pub struct SchemaRegistryParserSchema {
-    #[schemars(
-        title = "Parser settings",
-        default,
-        extend("x-ui" = { "widget": "parser_common" })
-    )]
-    pub common: SchemaRegistryCommonParserConfig,
-
-    #[schemars(title = "Schema Registry parser")]
-    pub schema_registry: SchemaRegistryParserConfig,
-}
-
-#[derive(Default, JsonSchema, Serialize)]
-pub struct SchemaRegistryCommonParserConfig {
-    #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
-    pub table_naming: TableNaming,
-
-    #[schemars(extend("x-ui" = { "widget": "system_columns" }))]
-    pub system_columns: SchemaRegistrySystemColumnsConfig,
-}
-
-#[derive(Default, JsonSchema, Serialize)]
-pub struct SchemaRegistrySystemColumnsConfig {
-    pub topic: Option<String>,
-
-    pub partition: Option<String>,
-
-    pub offset: Option<String>,
-
-    #[schemars(description = "Source-reported message write time as Unix epoch milliseconds")]
-    pub write_timestamp_ms: Option<String>,
 }
 
 #[derive(JsonSchema)]

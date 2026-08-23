@@ -6,39 +6,33 @@ use super::decoder::SchemaDecoder;
 use crate::schema_registry::{RegistrySchema, SchemaFormat};
 
 #[test]
-fn schema_registry_config_is_visible_in_parser_schema() {
-    let schema = schemars::schema_for!(crate::parsers::config::ParserSchema);
-    let json = serde_json::to_value(schema).expect("schema serializes");
-    assert!(json.to_string().contains("schema_registry"));
-    let connection = json
+fn schema_registry_runtime_config_is_explicit_but_not_published_to_the_ui() {
+    let public_schema = serde_json::to_value(schemars::schema_for!(
+        crate::parsers::config::ParserSchema
+    ))
+    .expect("public parser schema serializes");
+    assert!(!public_schema.to_string().contains("schema_registry"));
+
+    let runtime_schema = serde_json::to_value(schemars::schema_for!(
+        super::SchemaRegistryParserConfig
+    ))
+    .expect("runtime parser schema serializes");
+    let connection = runtime_schema
         .pointer("/$defs/SchemaRegistryConnection/properties")
         .and_then(serde_json::Value::as_object)
-        .expect("parser schema contains Schema Registry connection properties");
+        .expect("runtime schema contains Schema Registry connection properties");
     for field in ["url", "auth", "ca_certificate"] {
         assert!(
             connection.contains_key(field),
-            "parser schema is missing {field}"
+            "runtime schema is missing {field}"
         );
     }
     assert!(!connection.contains_key("subject"));
     assert!(!connection.contains_key("format"));
-    let projection = json
-        .pointer("/$defs/SchemaRegistryParserConfig/properties/json_parser/x-ui/widget")
-        .and_then(serde_json::Value::as_str);
-    assert_eq!(projection, Some("hidden"));
-    let system_columns = json
-        .pointer("/$defs/SchemaRegistrySystemColumnsConfig/properties")
-        .and_then(serde_json::Value::as_object)
-        .expect("schema contains Schema Registry system columns");
-    assert!(!system_columns.contains_key("message_index"));
     assert_eq!(
-        json.pointer(
-            "/$defs/SchemaRegistryParserSchema/properties/common/default/table_naming/type"
-        )
-        .and_then(serde_json::Value::as_str),
-        Some("from_topic_name")
+        runtime_schema.pointer("/properties/json_parser/x-ui/widget"),
+        None
     );
-    assert!(json.to_string().contains("From topic name"));
 }
 
 #[test]

@@ -158,9 +158,9 @@ describe("connector catalog readiness", () => {
           );
           const issue = firstCompletionIssue(node, value);
           expect(
-            issue === undefined || issue.hidden,
-            `${connector.key} ${role} ${scenario.label} retains a visible blocker at ${issue?.path}`,
-          ).toBe(true);
+            issue,
+            `${connector.key} ${role} ${scenario.label} retains a non-editable blocker at ${issue?.path}`,
+          ).toBeUndefined();
           variantCount += 1;
         }
       }
@@ -305,6 +305,7 @@ function unionScenarios(
     forces: Map<CompiledNode, number>;
   }> = [];
   if (path === "#") scenarios.push({ label: "initial branches", forces: ancestors });
+  if (node.hidden === true) return scenarios;
   switch (node.kind) {
     case "union":
       node.branches.forEach((branch, index) => {
@@ -353,11 +354,17 @@ function visibleWitness(
 ): JsonValue {
   if (node.hidden === true)
     return seed === undefined ? createValue(node) : structuredClone(seed);
-  if (seed !== undefined && isFieldComplete(node, seed, required))
+  const forcedInSubtree = containsForcedUnion(node, forces);
+  if (
+    !forcedInSubtree &&
+    seed !== undefined &&
+    isFieldComplete(node, seed, required)
+  )
     return structuredClone(seed);
   switch (node.kind) {
     case "nullable":
-      return seed === undefined || seed === null
+      return !containsForcedUnion(node.inner, forces) &&
+        (seed === undefined || seed === null)
         ? null
         : visibleWitness(node.inner, seed, required, forces);
     case "union": {
@@ -388,7 +395,8 @@ function visibleWitness(
         if (
           childRequired ||
           source[name] !== undefined ||
-          child.defaultValue !== undefined
+          child.defaultValue !== undefined ||
+          containsForcedUnion(child, forces)
         )
           value[name] = visibleWitness(
             child,
@@ -401,7 +409,11 @@ function visibleWitness(
     }
     case "array": {
       const source = Array.isArray(seed) ? seed : [];
-      const length = Math.max(source.length, node.minItems ?? 0);
+      const length = Math.max(
+        source.length,
+        node.minItems ?? 0,
+        containsForcedUnion(node.item, forces) ? 1 : 0,
+      );
       return Array.from({ length }, (_, index) =>
         visibleWitness(node.item, source[index], true, forces),
       );
@@ -419,6 +431,28 @@ function visibleWitness(
       return option ?? "configured";
     }
   }
+}
+
+function containsForcedUnion(
+  node: CompiledNode,
+  forces: ReadonlyMap<CompiledNode, number>,
+): boolean {
+  if (node.kind === "union")
+    return (
+      forces.has(node) ||
+      node.branches.some((branch) =>
+        containsForcedUnion(branch.node, forces),
+      )
+    );
+  if (node.kind === "object")
+    return Object.values(node.properties).some((child) =>
+      containsForcedUnion(child, forces),
+    );
+  if (node.kind === "array")
+    return containsForcedUnion(node.item, forces);
+  if (node.kind === "nullable")
+    return containsForcedUnion(node.inner, forces);
+  return false;
 }
 
 function isObject(value: JsonValue | undefined): value is JsonObject {

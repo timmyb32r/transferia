@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -40,18 +40,18 @@ enum DynamicOptionsControl {
 }
 
 pub fn validate_ui_dialect(value: &Value) -> anyhow::Result<()> {
-    validate_node(value, "#")
+    validate_node(value, value, "#")
 }
 
-fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
+fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> {
     match value {
         Value::Array(values) => {
             for (index, value) in values.iter().enumerate() {
-                validate_node(value, &format!("{path}/{index}"))?;
+                validate_node(root, value, &format!("{path}/{index}"))?;
             }
         }
         Value::Object(object) => {
-            validate_hidden_required_defaults(object, path)?;
+            validate_hidden_required_scalars(root, object, path)?;
             if let Some(hints) = object.get("x-ui") {
                 let hints: UiHints = serde_json::from_value(hints.clone())
                     .map_err(|error| anyhow::anyhow!("{path}: invalid x-ui contract: {error}"))?;
@@ -92,7 +92,7 @@ fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
                 ));
             }
             for (key, value) in object {
-                validate_node(value, &format!("{path}/{key}"))?;
+                validate_node(root, value, &format!("{path}/{key}"))?;
             }
         }
         _ => {}
@@ -100,7 +100,8 @@ fn validate_node(value: &Value, path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_hidden_required_defaults(
+fn validate_hidden_required_scalars(
+    root: &Value,
     object: &serde_json::Map<String, Value>,
     path: &str,
 ) -> anyhow::Result<()> {
@@ -114,26 +115,82 @@ fn validate_hidden_required_defaults(
         let Some(property) = properties.get(name).and_then(Value::as_object) else {
             continue;
         };
-        let hidden = property
+        let property = resolve_local_schema(
+            root,
+            property,
+            &format!("{path}/properties/{name}"),
+        )?;
+        let explicitly_hidden = property
             .get("x-ui")
             .and_then(Value::as_object)
             .and_then(|hints| hints.get("widget"))
             .and_then(Value::as_str)
             == Some("hidden");
+        let singleton_enum = property
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.len() == 1);
+        let constant = property.contains_key("const");
+        let hidden = explicitly_hidden || singleton_enum || constant;
         let scalar = matches!(
             property.get("type").and_then(Value::as_str),
             Some("string" | "number" | "integer" | "boolean")
         );
         if hidden && scalar {
-            let default = property.get("default").ok_or_else(|| {
-                anyhow::anyhow!(
-                    "{path}/properties/{name}: hidden required scalar must declare a default"
-                )
-            })?;
-            validate_scalar_default(property, default, &format!("{path}/properties/{name}"))?;
+            let materialized = property
+                .get("default")
+                .or_else(|| property.get("const"))
+                .or_else(|| {
+                    property
+                        .get("enum")
+                        .and_then(Value::as_array)
+                        .filter(|values| values.len() == 1)
+                        .and_then(|values| values.first())
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "{path}/properties/{name}: hidden required scalar must declare or imply a deterministic value"
+                    )
+                })?;
+            validate_scalar_default(
+                &property,
+                materialized,
+                &format!("{path}/properties/{name}"),
+            )?;
         }
     }
     Ok(())
+}
+
+fn resolve_local_schema(
+    root: &Value,
+    schema: &serde_json::Map<String, Value>,
+    path: &str,
+) -> anyhow::Result<serde_json::Map<String, Value>> {
+    let mut resolved = schema.clone();
+    let mut seen = BTreeSet::new();
+    while let Some(reference) = resolved.get("$ref").and_then(Value::as_str) {
+        anyhow::ensure!(
+            reference.starts_with("#/"),
+            "{path}: external schema reference is not supported: {reference}"
+        );
+        anyhow::ensure!(
+            seen.insert(reference.to_owned()),
+            "{path}: cyclic schema reference: {reference}"
+        );
+        let target = root
+            .pointer(&reference[1..])
+            .and_then(Value::as_object)
+            .ok_or_else(|| anyhow::anyhow!("{path}: unresolved schema reference: {reference}"))?;
+        let mut merged = target.clone();
+        for (name, value) in &resolved {
+            if name != "$ref" {
+                merged.insert(name.clone(), value.clone());
+            }
+        }
+        resolved = merged;
+    }
+    Ok(resolved)
 }
 
 fn validate_scalar_default(

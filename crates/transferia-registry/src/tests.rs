@@ -152,6 +152,78 @@ fn registry_rejects_hidden_required_scalars_without_defaults() -> anyhow::Result
 }
 
 #[test]
+fn registry_resolves_local_refs_before_validating_hidden_required_scalars() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "$defs": {
+            "Region": { "type": "string" }
+        },
+        "type": "object",
+        "properties": {
+            "region": {
+                "$ref": "#/$defs/Region",
+                "x-ui": { "widget": "hidden" }
+            }
+        },
+        "required": ["region"]
+    });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("a local ref must not bypass hidden-field validation");
+    assert!(error.to_string().contains("hidden required scalar"));
+    Ok(())
+}
+
+#[test]
+fn registry_materializes_required_singleton_enums() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "host_selection": {
+                "type": "string",
+                "enum": ["first_alive_replica"]
+            }
+        },
+        "required": ["host_selection"]
+    });
+
+    registry.replace_definitions(definitions)?;
+    Ok(())
+}
+
+#[test]
+fn registry_rejects_blank_required_singleton_enums() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "host_selection": {
+                "type": "string",
+                "enum": [""]
+            }
+        },
+        "required": ["host_selection"]
+    });
+
+    let error = registry
+        .replace_definitions(definitions)
+        .expect_err("blank singleton enum cannot satisfy a hidden required field");
+    assert!(error.to_string().contains("must not be empty"));
+    Ok(())
+}
+
+#[test]
 fn registry_rejects_blank_defaults_for_hidden_required_strings() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("source")?)?;

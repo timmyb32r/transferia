@@ -12,6 +12,7 @@ import {
 } from "../src/schema/compiler";
 import { draftValue } from "../src/schema/draft";
 import { validateCatalogSchemas } from "../src/delivery/editorConfig";
+import type { JsonSchema, JsonValue } from "../src/types";
 
 describe("schema compiler", () => {
   it("validates every connector schema before the catalog becomes interactive", () => {
@@ -76,7 +77,7 @@ describe("schema compiler", () => {
     ).toThrow(/broken source initial.*optional_port/);
   });
 
-  it("requires an explicit default for every hidden required scalar", () => {
+  it("requires every hidden required scalar to materialize a valid value", () => {
     expect(() =>
       validateCatalogSchemas(
         {
@@ -108,7 +109,281 @@ describe("schema compiler", () => {
         },
         productionWidgetRegistry,
       ),
-    ).toThrow(/broken source.*hidden required field.*hidden_region.*default/);
+    ).toThrow(
+      /broken source.*hidden required field.*hidden_region.*deterministically/,
+    );
+  });
+
+  it("rejects an incomplete hidden value supplied by an endpoint initial", () => {
+    expect(() =>
+      validateCatalogSchemas(
+        {
+          common_schema: { type: "object" },
+          initial: {},
+          connectors: [
+            {
+              key: "broken",
+              title: "Broken",
+              source: {
+                schema: {
+                  type: "object",
+                  properties: {
+                    hidden_region: {
+                      type: "string",
+                      default: "us-east-1",
+                      "x-ui": { widget: "hidden" },
+                    },
+                  },
+                  required: ["hidden_region"],
+                },
+                initial: { hidden_region: "" },
+                delivery_modes: ["batch"],
+                partitioned: false,
+                connection_check: false,
+                message_preview: false,
+              },
+            },
+          ],
+        },
+        productionWidgetRegistry,
+      ),
+    ).toThrow(/broken source initial hidden field.*hidden_region.*incomplete/);
+  });
+
+  it("applies hidden-field materialization rules to the common schema", () => {
+    expect(() =>
+      validateCatalogSchemas(
+        {
+          common_schema: {
+            type: "object",
+            properties: {
+              hidden_mode: {
+                type: "string",
+                "x-ui": { widget: "hidden" },
+              },
+            },
+            required: ["hidden_mode"],
+          },
+          initial: { hidden_mode: "configured" },
+          connectors: [],
+        },
+        productionWidgetRegistry,
+      ),
+    ).toThrow(
+      /common.*hidden required field.*hidden_mode.*deterministically/,
+    );
+  });
+
+  it("rejects every non-deterministic hidden composite and accepts a complete marker", () => {
+    const catalogWith = (hidden: JsonSchema, initial: JsonValue) => ({
+      common_schema: { type: "object" as const },
+      initial: {},
+      connectors: [
+        {
+          key: "composite",
+          title: "Composite",
+          source: {
+            schema: {
+              type: "object" as const,
+              properties: {
+                hidden: {
+                  ...hidden,
+                  "x-ui": { widget: "hidden" },
+                },
+              },
+              required: ["hidden"],
+            },
+            initial: { hidden: initial },
+            delivery_modes: ["batch" as const],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    });
+
+    const nestedRequired: JsonSchema = {
+      type: "object",
+      properties: { value: { type: "string" } },
+      required: ["value"],
+    };
+    const requiredArray: JsonSchema = {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", enum: ["fixed"] },
+    };
+    const ambiguousUnion: JsonSchema = {
+      oneOf: [
+        { type: "string", const: "left" },
+        { type: "string", const: "right" },
+      ],
+    };
+    const singleBranchWithGuessedBoolean: JsonSchema = {
+      oneOf: [
+        {
+          type: "object",
+          properties: { enabled: { type: "boolean" } },
+          required: ["enabled"],
+        },
+      ],
+    };
+    const nullable: JsonSchema = {
+      oneOf: [{ type: "null" }, { type: "string", const: "configured" }],
+    };
+
+    const invalidCases: Array<[JsonSchema, JsonValue]> = [
+      [nestedRequired, { value: "configured" }],
+      [requiredArray, ["fixed"]],
+      [ambiguousUnion, "left"],
+      [singleBranchWithGuessedBoolean, { enabled: true }],
+      [nullable, null],
+    ];
+    for (const [schema, initial] of invalidCases)
+      expect(() =>
+        validateCatalogSchemas(
+          catalogWith(schema, initial),
+          productionWidgetRegistry,
+        ),
+      ).toThrow(/hidden required field.*cannot be materialized deterministically/);
+
+    expect(() =>
+      validateCatalogSchemas(
+        catalogWith({ type: "object", additionalProperties: false }, {}),
+        productionWidgetRegistry,
+      ),
+    ).not.toThrow();
+  });
+
+  it("materializes a singleton enum used as a hidden fixed field", () => {
+    const schema: JsonSchema = {
+      type: "object",
+      properties: {
+        host_selection: {
+          type: "string",
+          enum: ["first_alive_replica"],
+        },
+      },
+      required: ["host_selection"],
+      additionalProperties: false,
+    };
+    const node = compileSchema(schema);
+
+    expect(createValue(node)).toEqual({
+      host_selection: "first_alive_replica",
+    });
+    expect(
+      createValue(
+        compileSchema({
+          type: "object",
+          properties: {
+            optional_mode: { type: "string", enum: ["fixed"] },
+          },
+        }),
+      ),
+    ).toEqual({});
+    expect(() =>
+      validateCatalogSchemas(
+        {
+          common_schema: { type: "object" },
+          initial: {},
+          connectors: [
+            {
+              key: "postgres",
+              title: "PostgreSQL",
+              source: {
+                schema,
+                initial: { host_selection: "first_alive_replica" },
+                delivery_modes: ["batch"],
+                partitioned: false,
+                connection_check: false,
+                message_preview: false,
+              },
+            },
+          ],
+        },
+        productionWidgetRegistry,
+      ),
+    ).not.toThrow();
+  });
+
+  it("validates hidden fixed fields in every unselected union branch", () => {
+    const deterministicBranch: JsonSchema = {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "managed" },
+        host_selection: {
+          type: "string",
+          enum: ["first_alive_replica"],
+        },
+      },
+      required: ["type", "host_selection"],
+      additionalProperties: false,
+    };
+    const brokenBranch: JsonSchema = {
+      type: "object",
+      properties: {
+        type: { type: "string", const: "on_premise" },
+        hidden_region: {
+          type: "string",
+          "x-ui": { widget: "hidden" },
+        },
+      },
+      required: ["type", "hidden_region"],
+      additionalProperties: false,
+    };
+    const catalogWith = (alternative: JsonSchema) => {
+      const endpoint = {
+        schema: { oneOf: [deterministicBranch, alternative] },
+        initial: {
+          type: "managed",
+          host_selection: "first_alive_replica",
+        },
+        delivery_modes: ["batch" as const],
+        partitioned: false,
+        connection_check: false,
+        message_preview: false,
+      };
+      return {
+        common_schema: {
+          type: "object" as const,
+          properties: {
+            common_mode: {
+              type: "string" as const,
+              enum: ["local"],
+            },
+          },
+          required: ["common_mode"],
+        },
+        initial: { common_mode: "local" },
+        connectors: [
+          {
+            key: "postgres",
+            title: "PostgreSQL",
+            source: endpoint,
+            sink: endpoint,
+          },
+        ],
+      };
+    };
+
+    expect(() =>
+      validateCatalogSchemas(
+        catalogWith(brokenBranch),
+        productionWidgetRegistry,
+      ),
+    ).toThrow(
+      /postgres source.*branch-1.*hidden_region.*deterministically/,
+    );
+
+    const repairedBranch = structuredClone(brokenBranch);
+    repairedBranch.properties!.hidden_region!.default = "us-east-1";
+    expect(() =>
+      validateCatalogSchemas(
+        catalogWith(repairedBranch),
+        productionWidgetRegistry,
+      ),
+    ).not.toThrow();
   });
 
   it("accepts safe external-console links and rejects unsafe templates", () => {

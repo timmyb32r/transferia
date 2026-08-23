@@ -1,6 +1,10 @@
 import type { JsonValue } from "../json";
 import { SelectControl } from "../ui/SelectControl";
-import { branchMatches, createValue, type CompiledNode } from "./compiler";
+import {
+  branchMatches,
+  materializeBranch,
+  type CompiledNode,
+} from "./compiler";
 import type { NodeEditorComponent } from "./editorTypes";
 import { hasEditableContent, type WidgetRegistry } from "./widgetRegistry";
 import type { VariantUi } from "./SchemaForm";
@@ -53,18 +57,7 @@ export function UnionNodeEditor({
             }
             const branch = node.branches[Number(raw)];
             if (branch === undefined) return;
-            const created = branch.constant ?? createValue(branch.node);
-            onChange(
-              branch.discriminator !== undefined &&
-                typeof created === "object" &&
-                created !== null &&
-                !Array.isArray(created)
-                ? {
-                    ...created,
-                    [branch.discriminator.key]: branch.discriminator.value,
-                  }
-                : created,
-            );
+            onChange(materializeBranch(branch));
             if (widget !== undefined) variantUi.onSelected?.(widget);
           }}
         />
