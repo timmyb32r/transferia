@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, UInt64Array};
-use arrow::datatypes::{DataType, Field, Schema};
+use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use transferia_core::data::message::SourceBatch;
@@ -72,8 +72,15 @@ impl Source for DataGeneratorSource {
                 })
                 .collect::<Vec<_>>();
             let schema = Arc::new(Schema::new(
-                (1..=self.config.column_count)
-                    .map(|index| Field::new(format!("column_{index}"), DataType::UInt64, false))
+                self.config
+                    .schema()
+                    .columns
+                    .into_iter()
+                    .map(|column| {
+                        let metadata = column.arrow_metadata();
+                        Field::new(column.name, column.data_type, column.nullable)
+                            .with_metadata(metadata)
+                    })
                     .collect::<Vec<_>>(),
             ));
             let batch = RecordBatch::try_new(schema, columns)

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use transferia_core::data::message::SourceBatch;
+use transferia_core::data::schema::META_PRIMARY_KEY;
 use transferia_core::delivery::DeliveryDiscoveryRequest;
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::Source as _;
@@ -35,6 +36,16 @@ async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Resul
             } => {
                 assert_eq!(tables[0].table.as_ref(), "my_table");
                 assert_eq!(tables[0].batch.num_columns(), 10);
+                assert_eq!(
+                    tables[0]
+                        .batch
+                        .schema()
+                        .field(0)
+                        .metadata()
+                        .get(META_PRIMARY_KEY)
+                        .map(String::as_str),
+                    Some("true")
+                );
                 rows += source_rows;
             }
             SourceBatch::Finished => break,

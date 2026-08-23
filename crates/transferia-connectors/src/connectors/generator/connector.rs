@@ -59,7 +59,7 @@ impl DataGeneratorConfig {
             .ok_or_else(|| anyhow::anyhow!("generator row width overflow"))
     }
 
-    fn schema(&self) -> DatasetSchema {
+    pub(super) fn schema(&self) -> DatasetSchema {
         DatasetSchema::new(
             (1..=self.column_count)
                 .map(|index| {
