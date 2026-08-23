@@ -353,7 +353,7 @@
               ]
             },
             "ParserSchema": {
-              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
+              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
               "anyOf": [
                 {
                   "title": "JSON parser",
@@ -1567,7 +1567,7 @@
               ]
             },
             "ParserSchema": {
-              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
+              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
               "anyOf": [
                 {
                   "title": "JSON parser",
@@ -5733,10 +5733,9 @@
             "table_name": {
               "type": "string"
             },
-            "column_count": {
-              "type": "integer",
-              "format": "uint",
-              "minimum": 1
+            "preset": {
+              "title": "Preset",
+              "$ref": "#/$defs/DataGeneratorPreset"
             },
             "data_size_bytes": {
               "type": "integer",
@@ -5750,13 +5749,56 @@
           "additionalProperties": false,
           "required": [
             "table_name",
-            "column_count",
+            "preset",
             "data_size_bytes"
-          ]
+          ],
+          "$defs": {
+            "DataGeneratorPreset": {
+              "oneOf": [
+                {
+                  "title": "Transfer logs",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "transfer_logs"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Numeric",
+                  "type": "object",
+                  "properties": {
+                    "column_count": {
+                      "title": "Column count",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "numeric"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "column_count"
+                  ]
+                }
+              ]
+            }
+          }
         },
         "initial": {
           "table_name": "",
-          "column_count": 10,
+          "preset": {
+            "type": "transfer_logs"
+          },
           "data_size_bytes": 107374182400
         },
         "delivery_modes": [
