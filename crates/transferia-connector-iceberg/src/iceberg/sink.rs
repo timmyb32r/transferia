@@ -37,7 +37,7 @@ pub struct IcebergSinkConnector {
 pub async fn check_connection(config: &IcebergSinkConfig) -> anyhow::Result<()> {
     config.validate()?;
     let catalog = build_catalog(&config.catalog, &config.storage).await?;
-    let namespace = iceberg::NamespaceIdent::from_vec(config.namespace.clone())?;
+    let namespace = iceberg::NamespaceIdent::new(config.namespace.clone());
     catalog.list_tables(&namespace).await?;
     Ok(())
 }
@@ -114,7 +114,7 @@ impl SinkLimits for IcebergSinkConfig {
 impl IcebergSinkConfig {
     fn table_for_dataset(&self, dataset: &str) -> anyhow::Result<IcebergTableRef> {
         let table = IcebergTableRef {
-            namespace: self.namespace.clone(),
+            namespace: vec![self.namespace.clone()],
             name: dataset.to_owned(),
         };
         table.validate("dataset table")?;

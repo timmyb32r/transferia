@@ -121,7 +121,7 @@ impl SourceConnector for IcebergSourceConnector {
                 });
             }
             Ok(DeliveryDiscovery {
-                source_name: Arc::from(self.config.namespace.join(".")),
+                source_name: Arc::from(self.config.namespace.as_str()),
                 source_topology: SourceTopology::StaticPartitions(
                     (0..tables.len() as i64).collect(),
                 ),

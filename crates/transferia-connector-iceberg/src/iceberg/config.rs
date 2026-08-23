@@ -186,7 +186,7 @@ pub struct IcebergSourceConfig {
     #[serde(default)]
     pub storage: OpenDalStorageConfig,
 
-    pub namespace: Vec<String>,
+    pub namespace: String,
 
     #[schemars(title = "Table names", extend("x-ui" = { "item_label": "Table name" }))]
     pub table_names: Vec<String>,
@@ -201,7 +201,7 @@ pub struct IcebergSinkConfig {
     pub storage: OpenDalStorageConfig,
 
     #[serde(default = "default_namespace")]
-    pub namespace: Vec<String>,
+    pub namespace: String,
 
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -212,8 +212,8 @@ pub struct IcebergSinkConfig {
     pub target_file_size_bytes: usize,
 }
 
-fn default_namespace() -> Vec<String> {
-    vec!["default".to_owned()]
+fn default_namespace() -> String {
+    "default".to_owned()
 }
 
 const fn default_target_file_size() -> usize {
@@ -333,7 +333,7 @@ impl IcebergTableRef {
 impl IcebergSourceConfig {
     pub(crate) fn table_ref(&self, table_name: &str) -> IcebergTableRef {
         IcebergTableRef {
-            namespace: self.namespace.clone(),
+            namespace: vec![self.namespace.clone()],
             name: table_name.to_owned(),
         }
     }
@@ -341,7 +341,7 @@ impl IcebergSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.catalog.validate()?;
         self.storage.validate()?;
-        validate_namespace("namespace", &self.namespace)?;
+        validate_required("namespace", &self.namespace)?;
         anyhow::ensure!(!self.table_names.is_empty(), "table_names must not be empty");
         let mut unique = HashSet::with_capacity(self.table_names.len());
         for (index, table_name) in self.table_names.iter().enumerate() {
@@ -363,17 +363,9 @@ impl IcebergSinkConfig {
             self.target_file_size_bytes > 0,
             "target_file_size_bytes must be positive"
         );
-        validate_namespace("namespace", &self.namespace)?;
+        validate_required("namespace", &self.namespace)?;
         Ok(())
     }
-}
-
-fn validate_namespace(path: &str, namespace: &[String]) -> anyhow::Result<()> {
-    anyhow::ensure!(!namespace.is_empty(), "{path} must not be empty");
-    for (index, level) in namespace.iter().enumerate() {
-        validate_required(&format!("{path}[{index}]"), level)?;
-    }
-    Ok(())
 }
 
 fn validate_required(path: &str, value: &str) -> anyhow::Result<()> {
