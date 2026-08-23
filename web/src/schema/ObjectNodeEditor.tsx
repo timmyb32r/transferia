@@ -170,7 +170,10 @@ export function ObjectNodeEditor({
         </Disclosure>
       )}
       {advancedParquet.length > 0 && (
-        <Disclosure label="Advanced Parquet settings">
+        <Disclosure
+          label="Advanced Parquet settings"
+          class="advanced-parquet-settings"
+        >
           {advancedParquet.map(property)}
         </Disclosure>
       )}

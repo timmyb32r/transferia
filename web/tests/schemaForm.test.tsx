@@ -884,6 +884,7 @@ describe("schema form", () => {
 
     const details = view.getByText("Advanced Parquet settings").closest("details")!;
     expect(details.open).toBe(false);
+    expect(details.classList.contains("advanced-parquet-settings")).toBe(true);
     fireEvent.click(view.getByText("Advanced Parquet settings"));
     expect(details.open).toBe(true);
     expect(view.container.querySelector("#field---compression")).toBeTruthy();

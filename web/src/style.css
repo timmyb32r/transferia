@@ -3029,6 +3029,32 @@ button::after {
   gap: 6px;
 }
 
+.advanced-parquet-settings {
+  width: 100%;
+  min-width: 0;
+}
+.advanced-parquet-settings > .foldout-content {
+  width: 100%;
+}
+.advanced-parquet-settings .form-row:not(.form-row-wide) {
+  grid-template-columns: minmax(160px, 34%) minmax(220px, 1fr);
+}
+.advanced-parquet-settings .field-control,
+.advanced-parquet-settings .control-width-enum > .field-control {
+  width: 100%;
+  min-width: 0;
+}
+.advanced-parquet-settings .byte-size-input {
+  grid-template-columns: minmax(130px, 1fr) 96px;
+}
+
+@media (max-width: 720px) {
+  .advanced-parquet-settings .form-row:not(.form-row-wide) {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
 /* Sidebar appearance controls */
 .sidebar-tool-tooltip {
   display: block;
