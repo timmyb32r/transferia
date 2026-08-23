@@ -66,6 +66,11 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         "wide"
     );
     assert_eq!(
+        generator.schema["$defs"]["GenerationAmount"]["oneOf"][0]["properties"]
+            ["row_count"]["x-ui"]["widget"],
+        "grouped_integer"
+    );
+    assert_eq!(
         generator.schema["$defs"]["GenerationAmount"]["oneOf"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("generator amount must be a selector"))?

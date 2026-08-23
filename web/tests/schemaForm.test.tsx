@@ -54,7 +54,7 @@ describe("schema form", () => {
                   row_count: {
                     kind: "number",
                     title: "Row count",
-                    xUi: {},
+                    xUi: { widget: "grouped_integer" },
                     integer: true,
                     minimum: 1,
                   },
@@ -75,15 +75,20 @@ describe("schema form", () => {
     );
     const amountRow = view.container.querySelector(".control-width-wide");
     expect(amountRow).not.toBeNull();
-    expect(amountRow?.classList.contains("form-row-wide")).toBe(true);
+    expect(amountRow?.classList.contains("form-row-wide")).toBe(false);
     expect(amountRow?.classList.contains("control-width-enum")).toBe(false);
     const rowCount = within(amountRow as HTMLElement).getByLabelText(
       "Row count",
     ) as HTMLInputElement;
-    expect(rowCount.type).toBe("number");
+    expect(rowCount.type).toBe("text");
+    expect(rowCount.inputMode).toBe("numeric");
+    expect(rowCount.value).toBe("50 000 000");
     expect(rowCount.autocomplete).toBe("none");
     expect(rowCount.name).toMatch(/^tf-/);
     expect(rowCount.getAttribute("data-form-type")).toBe("other");
+
+    fireEvent.focus(rowCount);
+    expect(rowCount.value).toBe("50000000");
   });
 
   it("keeps routing unions wide instead of applying the enum width", () => {

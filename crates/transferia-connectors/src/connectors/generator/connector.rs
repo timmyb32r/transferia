@@ -23,7 +23,11 @@ use super::DataGeneratorPreset;
 pub enum GenerationAmount {
     #[schemars(title = "Rows")]
     Rows {
-        #[schemars(title = "Row count", range(min = 1))]
+        #[schemars(
+            title = "Row count",
+            range(min = 1),
+            extend("x-ui" = { "widget": "grouped_integer" })
+        )]
         row_count: u64,
     },
     #[schemars(title = "Data size")]

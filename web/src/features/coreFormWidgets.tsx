@@ -11,9 +11,26 @@ import {
 } from "../ui/AutofillResistantField";
 import { Disclosure } from "../ui/Disclosure";
 import { FormField } from "../ui/FormField";
+import { GroupedIntegerInput } from "../ui/GroupedIntegerInput";
 import { humanize } from "../schema/compiler";
 
 export const coreFormWidgets: readonly WidgetPlugin[] = [
+  {
+    name: "grouped_integer",
+    kinds: ["number"],
+    renderer: "node",
+    node: (context) =>
+      context.node.kind === "number" ? (
+        <GroupedIntegerInput
+          id={context.controlId}
+          value={typeof context.value === "number" ? context.value : null}
+          minimum={context.node.minimum}
+          maximum={context.node.maximum}
+          disabled={context.disabled}
+          onChange={context.onChange}
+        />
+      ) : null,
+  },
   {
     name: "byte_size",
     kinds: ["number", "string"],

@@ -486,7 +486,7 @@ function PropertyEditor({
     node.kind === "object" ||
     (node.kind === "array" && node.xUi.widget !== "partition_ranges") ||
     presentation?.wide ||
-    ["full", "wide"].includes(node.xUi.control_width ?? "");
+    node.xUi.control_width === "full";
   const classes = `${wideRow ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField

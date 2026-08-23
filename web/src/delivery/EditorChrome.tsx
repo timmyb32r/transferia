@@ -213,9 +213,10 @@ export function DeliverySidebar({
                 ? "delivery-item active"
                 : "delivery-item"
             }
+            title={delivery.name}
             onClick={() => onOpen(delivery.id)}
           >
-            <span>{delivery.name}</span>
+            <span class="delivery-item-name">{delivery.name}</span>
             <StatusPill runtime={delivery.runtime.state} />
           </Button>
         ))}

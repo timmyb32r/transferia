@@ -732,16 +732,27 @@ select {
 }
 .delivery-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   text-align: left;
   gap: 8px;
   align-items: center;
   width: 100%;
+  height: auto;
+  min-height: 48px;
   border: 0;
   border-radius: 5px;
   background: transparent;
   color: var(--text-secondary);
-  padding: 9px 10px;
+  padding: 7px 10px;
+}
+.delivery-item-name {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .delivery-item:hover,
 .delivery-item.active {

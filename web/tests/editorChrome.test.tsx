@@ -365,11 +365,15 @@ describe("editor chrome", () => {
 
     fireEvent.click(view.getByRole("button", { name: "+ New delivery" }));
     fireEvent.click(view.getByRole("button", { name: "Open Transferia home" }));
-    fireEvent.click(view.getByRole("button", { name: /First/ }));
+    const deliveryItem = view.getByRole("button", { name: /First/ });
+    fireEvent.click(deliveryItem.querySelector(".delivery-item-name")!);
+    fireEvent.click(deliveryItem.querySelector(".status")!);
     fireEvent.click(view.getByRole("button", { name: "Data widget" }));
 
     expect(onNew).toHaveBeenCalledTimes(2);
-    expect(onOpen).toHaveBeenCalledWith("delivery-1");
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenNthCalledWith(1, "delivery-1");
+    expect(onOpen).toHaveBeenNthCalledWith(2, "delivery-1");
     expect(onToggleDataWidget).toHaveBeenCalledOnce();
   });
 });
