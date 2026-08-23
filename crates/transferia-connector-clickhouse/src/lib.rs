@@ -25,7 +25,7 @@ pub fn register(
                 || serde_json::json!({
                     "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
                     "trusted_plaintext": true, "username": "", "password": "",
-                    "shard_group": "", "tables": [{ "database": "", "name": "" }],
+                    "tables": [{ "database": "", "name": "" }],
                     "batch_rows": 65536, "connect_timeout_ms": 30000, "request_timeout_ms": 30000
                 }),
                 { let metrics = Arc::clone(metrics); move |config| Ok(Box::new(clickhouse::ClickHouseSourceConnector::from_config(config, Arc::clone(&metrics))?)) },
@@ -33,8 +33,7 @@ pub fn register(
             .source_checker::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>({
                 let metrics = Arc::clone(metrics);
                 move |config| { let metrics = Arc::clone(&metrics); async move {
-                    let checked = clickhouse::ClickHouseSourceConnector::check_connection(config, metrics).await?;
-                    Ok(connection_check_result(checked))
+                    clickhouse::ClickHouseSourceConnector::check_connection(config, metrics).await
                 }}
             })
             .sink::<clickhouse::ClickHouseSinkConfig, _, _>(
@@ -50,13 +49,13 @@ pub fn register(
             )?
             .sink_checker::<clickhouse::ClickHouseSinkConfig, _, _>(|config| async move {
                 let checked = clickhouse::ClickHouseSinkConnector::check_connection(config).await?;
-                Ok(connection_check_result(checked))
+                Ok(sink_connection_check_result(checked))
             }),
     )?;
     Ok(())
 }
 
-fn connection_check_result(
+fn sink_connection_check_result(
     checked: clickhouse::sink::ClickHouseConnectionCheck,
 ) -> transferia_registry::ConnectionCheckResult {
     match checked {

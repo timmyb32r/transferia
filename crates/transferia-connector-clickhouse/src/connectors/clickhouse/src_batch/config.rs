@@ -27,10 +27,6 @@ pub struct ClickHouseSourceConfig {
     #[schemars(extend("x-ui" = { "widget": "password" }))]
     pub password: String,
 
-    #[serde(default)]
-    #[schemars(title = "Shard group", extend("x-ui" = { "section": "shard_group" }))]
-    pub shard_group: String,
-
     pub tables: Vec<TableConfig>,
 
     #[serde(default = "default_batch_rows")]

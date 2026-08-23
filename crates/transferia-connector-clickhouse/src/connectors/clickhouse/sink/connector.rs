@@ -65,7 +65,7 @@ impl ClickHouseSinkConnector {
     }
 }
 
-pub async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<String>> {
+async fn query_shard_groups(client: &ReconnectingClient) -> anyhow::Result<Vec<String>> {
     let started = std::time::Instant::now();
     let batches = client.query_all(SHARD_GROUPS_QUERY).await;
     tracing::info!(
@@ -123,7 +123,7 @@ fn append_shard_groups(column: &dyn Array, groups: &mut Vec<String>) -> anyhow::
     )
 }
 
-pub fn validate_selected_shard_group(
+fn validate_selected_shard_group(
     selected: Option<&str>,
     available: &[String],
 ) -> anyhow::Result<()> {

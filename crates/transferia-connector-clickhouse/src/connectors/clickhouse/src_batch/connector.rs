@@ -25,7 +25,9 @@ use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
-use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
+use transferia_registry::{
+    ConnectionCheckResult, SourceBuildContext, SourceConnector, SourceDiscoveryContext,
+};
 
 #[derive(Clone)]
 pub(super) struct DiscoveredTable {
@@ -82,17 +84,13 @@ impl ClickHouseSourceConnector {
 
     pub async fn check_connection(
         config: ClickHouseSourceConfig,
-        metrics: Arc<MetricsRegistry>,
-    ) -> anyhow::Result<crate::connectors::clickhouse::sink::ClickHouseConnectionCheck> {
+        _metrics: Arc<MetricsRegistry>,
+    ) -> anyhow::Result<ConnectionCheckResult> {
         config.validate_connection()?;
         if config.username.is_empty() {
             probe_network(&config.hosts, config.port, config.connect_timeout()).await?;
-            return Ok(
-                crate::connectors::clickhouse::sink::ClickHouseConnectionCheck::NetworkReachable,
-            );
+            return Ok(ConnectionCheckResult::network_reachable());
         }
-        let selected = config.shard_group.clone();
-        drop(metrics);
         let builders = config
             .hosts
             .iter()
@@ -115,16 +113,11 @@ impl ClickHouseSourceConnector {
             config.connect_timeout(),
             config.request_timeout(),
         );
-        let groups = crate::connectors::clickhouse::sink::query_shard_groups(&client).await?;
-        crate::connectors::clickhouse::sink::validate_selected_shard_group(
-            (!selected.is_empty()).then_some(selected.as_str()),
-            &groups,
-        )?;
-        Ok(
-            crate::connectors::clickhouse::sink::ClickHouseConnectionCheck::Verified {
-                shard_groups: groups,
-            },
-        )
+        client
+            .ensure_connected()
+            .await
+            .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
+        Ok(ConnectionCheckResult::default())
     }
 
     async fn discovered_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
@@ -134,16 +127,6 @@ impl ClickHouseSourceConnector {
                     .ensure_connected()
                     .await
                     .map_err(|error| anyhow::anyhow!("ClickHouse connection failed: {error}"))?;
-                if !self.config.shard_group.is_empty() {
-                    let groups = crate::connectors::clickhouse::sink::query_shard_groups(
-                        self.client.as_ref(),
-                    )
-                    .await?;
-                    crate::connectors::clickhouse::sink::validate_selected_shard_group(
-                        Some(&self.config.shard_group),
-                        &groups,
-                    )?;
-                }
                 let mut tables = Vec::with_capacity(self.config.tables.len());
                 for table in &self.config.tables {
                     tables.push(discover_table(&self.client, table.clone()).await?);
