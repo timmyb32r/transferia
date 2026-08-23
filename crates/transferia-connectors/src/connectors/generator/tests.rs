@@ -46,6 +46,27 @@ async fn generator_produces_the_exact_configured_logical_size() -> anyhow::Resul
 }
 
 #[tokio::test]
+async fn generator_caps_batches_at_sixteen_mebibytes() -> anyhow::Result<()> {
+    const TARGET_BYTES: u64 = 16 * 1024 * 1024;
+    const ROW_BYTES: u64 = 10 * 8;
+    let aligned_target_bytes = TARGET_BYTES / ROW_BYTES * ROW_BYTES;
+    let mut config = config();
+    config.data_size_bytes = aligned_target_bytes * 2;
+    let mut source = DataGeneratorSource::new(
+        config,
+        PipelineMemory::new((TARGET_BYTES * 4) as usize),
+        Arc::new(SourceCounters::new()),
+    )?;
+
+    let SourceBatch::Typed { source_rows, .. } = source.read_batch().await? else {
+        panic!("generator did not return a typed batch");
+    };
+
+    assert_eq!(source_rows * ROW_BYTES, aligned_target_bytes);
+    Ok(())
+}
+
+#[tokio::test]
 async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
     let connector =
         DataGeneratorSourceConnector::from_config(config(), Arc::new(MetricsRegistry::new()))?;

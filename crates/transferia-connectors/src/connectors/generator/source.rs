@@ -14,6 +14,8 @@ use transferia_delivery_contracts::metrics::SourceCounters;
 
 use super::connector::DataGeneratorConfig;
 
+const GENERATED_BATCH_TARGET_BYTES: u64 = 16 * 1024 * 1024;
+
 pub(super) struct DataGeneratorSource {
     config: DataGeneratorConfig,
     memory: PipelineMemory,
@@ -32,7 +34,8 @@ impl DataGeneratorSource {
         let row_bytes = config.row_bytes()?;
         let total_rows = config.data_size_bytes / row_bytes;
         let memory_limit = u64::try_from(memory.limit())?;
-        let rows_per_batch = (memory_limit / row_bytes).max(1);
+        let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
+        let rows_per_batch = (batch_target_bytes / row_bytes).max(1);
         Ok(Self {
             config,
             memory,
