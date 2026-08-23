@@ -31,7 +31,7 @@ pub struct S3SourceConfig {
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
 
-    #[schemars(title = "Parser")]
+    #[schemars(title = "Parser", extend("x-ui" = { "widget": "parser" }))]
     pub parser: S3InputParser,
 
     #[serde(default = "default_timeout_ms")]

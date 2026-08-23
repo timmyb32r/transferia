@@ -3705,7 +3705,10 @@
             },
             "parser": {
               "title": "Parser",
-              "$ref": "#/$defs/S3InputParser"
+              "$ref": "#/$defs/S3InputParser",
+              "x-ui": {
+                "widget": "parser"
+              }
             },
             "timeout_ms": {
               "title": "Request timeout (ms)",

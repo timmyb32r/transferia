@@ -88,6 +88,18 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
     assert!(!sink_schema.contains("network_timeout_ms"));
     assert_eq!(sink.initial["driver"], "ydb");
     assert!(!sink_schema.contains("access_token"));
+
+    let s3_source = catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "s3")
+        .and_then(|definition| definition.source.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("missing S3 source definition"))?;
+    assert_eq!(
+        s3_source.schema.pointer("/properties/parser/x-ui/widget"),
+        Some(&serde_json::json!("parser")),
+        "S3 parser must use the shared deferred full-width parser editor"
+    );
     assert_eq!(
         sink.initial.pointer("/auth/type"),
         Some(&serde_json::json!("token"))
