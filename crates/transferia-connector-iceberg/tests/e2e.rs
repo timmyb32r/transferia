@@ -107,10 +107,10 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
         .await?
         .error_for_status()?;
     let storage_yaml = format!(
-        "type: s3\nbucket: iceberg-warehouse\nregion: us-east-1\nendpoint: http://{s3_host}:{s3_port}\naccess_key_id: test\nsecret_access_key: test\npath_style_access: true\n"
+        "type: s3\nbucket: iceberg-warehouse\nregion: us-east-1\nendpoint: http://{s3_host}:{s3_port}\ncredentials:\n  access_key: test\n  secret_key: test\npath_style_access: true\n"
     );
     let sink_config: IcebergSinkConfig = serde_yaml::from_str(&format!(
-        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}tables:\n  - dataset: events\n    namespace: [default]\n    name: events\n    create_if_missing: true\n    location: s3://iceberg-warehouse/events\ntarget_file_size_bytes: 1048576\n",
+        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}namespace: [default]\ncreate_if_missing: true\ntarget_file_size_bytes: 1048576\n",
         indent(&storage_yaml, 2)
     ))?;
     let connector = IcebergSinkConnector::from_config(sink_config)?;
@@ -189,7 +189,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     assert_eq!(event, Some(SinkEvent::CommittedThrough(DeliveryId::new(1))));
 
     let source_config: IcebergSourceConfig = serde_yaml::from_str(&format!(
-        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}table:\n  namespace: [default]\n  name: events\noutput_name: events\n",
+        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}table:\n  namespace: [default]\n  name: events\n",
         indent(&storage_yaml, 2)
     ))?;
     let source_connector =

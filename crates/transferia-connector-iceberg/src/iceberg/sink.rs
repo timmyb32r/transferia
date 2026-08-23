@@ -27,7 +27,7 @@ use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::catalog::{build_catalog, table_ident};
-use super::config::{IcebergSinkConfig, IcebergSinkTable};
+use super::config::{IcebergSinkConfig, IcebergTableRef};
 
 pub struct IcebergSinkConnector {
     config: Arc<IcebergSinkConfig>,
@@ -37,19 +37,8 @@ pub struct IcebergSinkConnector {
 pub async fn check_connection(config: &IcebergSinkConfig) -> anyhow::Result<()> {
     config.validate()?;
     let catalog = build_catalog(&config.catalog, &config.storage).await?;
-    for mapping in &config.tables {
-        let ident = table_ident(&mapping.table)?;
-        let exists = catalog
-            .list_tables(ident.namespace())
-            .await?
-            .contains(&ident);
-        anyhow::ensure!(
-            exists || mapping.create_if_missing,
-            "Iceberg table '{}.{}' does not exist and create_if_missing is false",
-            mapping.table.namespace.join("."),
-            mapping.table.name
-        );
-    }
+    let namespace = iceberg::NamespaceIdent::from_vec(config.namespace.clone())?;
+    catalog.list_tables(&namespace).await?;
     Ok(())
 }
 
@@ -103,15 +92,8 @@ impl SinkLimits for IcebergSinkConfig {
             !discovery.datasets.is_empty(),
             "Iceberg sink requires at least one dataset"
         );
-        anyhow::ensure!(
-            discovery.datasets.len() == self.tables.len(),
-            "Iceberg sink maps {} datasets but discovery contains {}",
-            self.tables.len(),
-            discovery.datasets.len()
-        );
         for dataset in &discovery.datasets {
-            let mapping = self.mapping(&dataset.name)?;
-            mapping.table.validate("tables[].table")?;
+            self.table_for_dataset(&dataset.name)?.validate("dataset table")?;
             validate_stored_projection(discovery, dataset)?;
             iceberg_schema(&dataset.stored_schema)?;
         }
@@ -124,19 +106,19 @@ impl SinkLimits for IcebergSinkConfig {
         batch: &transferia_core::sink::SinkBatch,
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
-        self.mapping(&batch.table)?;
+        self.table_for_dataset(&batch.table)?;
         Ok(())
     }
 }
 
 impl IcebergSinkConfig {
-    fn mapping(&self, dataset: &str) -> anyhow::Result<&IcebergSinkTable> {
-        self.tables
-            .iter()
-            .find(|mapping| mapping.dataset == dataset)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Iceberg sink has no table mapping for dataset '{dataset}'")
-            })
+    fn table_for_dataset(&self, dataset: &str) -> anyhow::Result<IcebergTableRef> {
+        let table = IcebergTableRef {
+            namespace: self.namespace.clone(),
+            name: dataset.to_owned(),
+        };
+        table.validate("dataset table")?;
+        Ok(table)
     }
 }
 
@@ -159,8 +141,8 @@ impl SinkConnector for IcebergSinkConnector {
         Box::pin(async move {
             let catalog = self.catalog().await?;
             for dataset in request.datasets {
-                let mapping = self.config.mapping(&dataset.table)?;
-                let ident = table_ident(&mapping.table)?;
+                let table_ref = self.config.table_for_dataset(&dataset.table)?;
+                let ident = table_ident(&table_ref)?;
                 let exists = catalog
                     .list_tables(ident.namespace())
                     .await?
@@ -169,13 +151,12 @@ impl SinkConnector for IcebergSinkConnector {
                     catalog.load_table(&ident).await?
                 } else {
                     anyhow::ensure!(
-                        mapping.create_if_missing,
+                        self.config.create_if_missing,
                         "Iceberg table '{ident}' does not exist and create_if_missing is false"
                     );
                     let creation = TableCreation::builder()
-                        .name(mapping.table.name.clone())
+                        .name(table_ref.name.clone())
                         .schema(iceberg_schema(&dataset.schema)?)
-                        .location_opt(mapping.location.clone())
                         .build();
                     catalog.create_table(ident.namespace(), creation).await?
                 };
@@ -252,10 +233,10 @@ impl IcebergSink {
         batches: Vec<RecordBatch>,
         delivery_id: u64,
     ) -> anyhow::Result<()> {
-        let mapping = self.config.mapping(dataset)?;
+        let table_ref = self.config.table_for_dataset(dataset)?;
         let table = self
             .catalog
-            .load_table(&table_ident(&mapping.table)?)
+            .load_table(&table_ident(&table_ref)?)
             .await?;
         let arrow_schema = Arc::new(iceberg::arrow::schema_to_arrow_schema(
             table.metadata().current_schema(),

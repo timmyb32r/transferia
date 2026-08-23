@@ -5,7 +5,9 @@ use schemars::JsonSchema;
 use serde_json::Value as JsonValue;
 
 use crate::extension::{EndpointRole, ExtensionRegistry, Transferia};
-use crate::extension::{InstallationRegistration, OnPremiseResolver};
+use crate::extension::{
+    InstallationRegistration, OnPremiseResolver, SelectedFieldInstallationResolver,
+};
 use crate::metrics::MetricsRegistry;
 
 pub(crate) mod descriptor;
@@ -514,6 +516,7 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
                 "credentials": { "access_key": "", "secret_key": "" }
             }),
         )?;
+        register_iceberg_on_premise(_registry, role)?;
     }
     Ok(())
 }
@@ -569,6 +572,91 @@ fn register_on_premise(
         initial,
         preferred: false,
         resolver: Arc::new(OnPremiseResolver),
+    })?;
+    Ok(())
+}
+
+fn register_iceberg_on_premise(
+    registry: &mut ExtensionRegistry,
+    role: EndpointRole,
+) -> anyhow::Result<()> {
+    registry.register_erased_installation(InstallationRegistration {
+        connector: "iceberg",
+        role,
+        kind: "on_premise",
+        title: "On-premise",
+        schema: serde_json::json!({
+            "type": "object",
+            "title": "On-premise",
+            "properties": {
+                "type": { "const": "on_premise" },
+                "storage": {
+                    "title": "Storage",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "title": "S3",
+                            "properties": {
+                                "type": { "const": "s3" },
+                                "bucket": { "type": "string", "title": "Bucket" },
+                                "endpoint": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "Endpoint URL" },
+                                "credentials": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "title": "Authentication",
+                                            "properties": {
+                                                "access_key": { "type": "string", "title": "Access key ID" },
+                                                "secret_key": { "type": "string", "title": "Secret access key", "x-ui": { "widget": "password" } }
+                                            },
+                                            "required": ["access_key", "secret_key"],
+                                            "additionalProperties": false
+                                        },
+                                        { "type": "null" }
+                                    ],
+                                    "title": "Authentication"
+                                },
+                                "request_timeout_ms": { "type": "integer", "x-ui": { "widget": "hidden" } },
+                                "region": { "anyOf": [{ "type": "string" }, { "type": "null" }], "x-ui": { "widget": "hidden" } },
+                                "session_token": { "anyOf": [{ "type": "string" }, { "type": "null" }], "x-ui": { "widget": "hidden" } },
+                                "path_style_access": { "type": "boolean", "x-ui": { "widget": "hidden" } },
+                                "allow_anonymous": { "type": "boolean", "x-ui": { "widget": "hidden" } }
+                            },
+                            "required": ["type", "bucket", "request_timeout_ms", "path_style_access", "allow_anonymous"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "title": "HDFS",
+                            "properties": {
+                                "type": { "const": "hdfs" },
+                                "endpoint": { "type": "string", "title": "WebHDFS endpoint" },
+                                "authority": { "type": "string", "title": "Authority" },
+                                "root": { "type": "string", "title": "Root" },
+                                "user": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "User" },
+                                "request_timeout_ms": { "type": "integer", "x-ui": { "widget": "hidden" } }
+                            },
+                            "required": ["type", "endpoint", "authority", "root", "request_timeout_ms"],
+                            "additionalProperties": false
+                        }
+                    ]
+                }
+            },
+            "required": ["type", "storage"],
+            "additionalProperties": false
+        }),
+        initial: serde_json::json!({
+            "type": "on_premise",
+            "storage": {
+                "type": "s3", "bucket": "", "endpoint": null,
+                "credentials": null, "request_timeout_ms": 30000, "region": null,
+                "session_token": null, "path_style_access": false, "allow_anonymous": false
+            }
+        }),
+        preferred: false,
+        resolver: Arc::new(SelectedFieldInstallationResolver {
+            field: "storage",
+        }),
     })?;
     Ok(())
 }

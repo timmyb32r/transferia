@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fmt;
 
 use schemars::JsonSchema;
@@ -10,9 +9,11 @@ pub struct RestCatalogConfig {
     pub uri: String,
 
     #[serde(default = "default_request_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub warehouse: Option<String>,
 
     #[serde(default)]
@@ -64,12 +65,8 @@ impl fmt::Debug for OpenDalStorageConfig {
                 .field("region", &config.region)
                 .field("endpoint", &config.endpoint)
                 .field(
-                    "access_key_id",
-                    &config.access_key_id.as_ref().map(|_| "[REDACTED]"),
-                )
-                .field(
-                    "secret_access_key",
-                    &config.secret_access_key.as_ref().map(|_| "[REDACTED]"),
+                    "credentials",
+                    &config.credentials.as_ref().map(|_| "[REDACTED]"),
                 )
                 .field(
                     "session_token",
@@ -95,30 +92,41 @@ pub struct S3StorageConfig {
     pub bucket: String,
 
     #[serde(default = "default_request_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub region: Option<String>,
 
     #[serde(default)]
     pub endpoint: Option<String>,
 
     #[serde(default)]
-    pub access_key_id: Option<String>,
+    #[schemars(title = "Authentication")]
+    pub credentials: Option<S3StorageCredentials>,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "password" }))]
-    pub secret_access_key: Option<String>,
-
-    #[serde(default)]
-    #[schemars(extend("x-ui" = { "widget": "password" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub session_token: Option<String>,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub path_style_access: bool,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub allow_anonymous: bool,
+}
+
+#[derive(Clone, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct S3StorageCredentials {
+    #[schemars(title = "Access key ID")]
+    pub access_key: String,
+
+    #[schemars(title = "Secret access key", extend("x-ui" = { "widget": "password" }))]
+    pub secret_key: String,
 }
 
 impl Default for S3StorageConfig {
@@ -128,8 +136,7 @@ impl Default for S3StorageConfig {
             request_timeout_ms: default_request_timeout_ms(),
             region: None,
             endpoint: None,
-            access_key_id: None,
-            secret_access_key: None,
+            credentials: None,
             session_token: None,
             path_style_access: false,
             allow_anonymous: false,
@@ -178,23 +185,6 @@ pub struct IcebergSourceConfig {
     pub storage: OpenDalStorageConfig,
 
     pub table: IcebergTableRef,
-
-    pub output_name: String,
-}
-
-#[derive(Clone, Deserialize, JsonSchema, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct IcebergSinkTable {
-    pub dataset: String,
-
-    #[serde(flatten)]
-    pub table: IcebergTableRef,
-
-    #[serde(default)]
-    pub create_if_missing: bool,
-
-    #[serde(default)]
-    pub location: Option<String>,
 }
 
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
@@ -205,11 +195,21 @@ pub struct IcebergSinkConfig {
     #[serde(default)]
     pub storage: OpenDalStorageConfig,
 
-    #[schemars(extend("x-ui" = { "item_label": "Table" }))]
-    pub tables: Vec<IcebergSinkTable>,
+    #[serde(default = "default_namespace")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub namespace: Vec<String>,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub create_if_missing: bool,
 
     #[serde(default = "default_target_file_size")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub target_file_size_bytes: usize,
+}
+
+fn default_namespace() -> Vec<String> {
+    vec!["default".to_owned()]
 }
 
 const fn default_target_file_size() -> usize {
@@ -288,10 +288,10 @@ impl OpenDalStorageConfig {
                         "storage.endpoint must use http or https"
                     );
                 }
-                anyhow::ensure!(
-                    config.access_key_id.is_some() == config.secret_access_key.is_some(),
-                    "S3 access_key_id and secret_access_key must be configured together"
-                );
+                if let Some(credentials) = &config.credentials {
+                    validate_required("storage.credentials.access_key", &credentials.access_key)?;
+                    validate_required("storage.credentials.secret_key", &credentials.secret_key)?;
+                }
             }
             Self::Hdfs(config) => {
                 validate_required("storage.endpoint", &config.endpoint)?;
@@ -330,8 +330,7 @@ impl IcebergSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.catalog.validate()?;
         self.storage.validate()?;
-        self.table.validate("table")?;
-        validate_required("output_name", &self.output_name)
+        self.table.validate("table")
     }
 }
 
@@ -339,34 +338,13 @@ impl IcebergSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.catalog.validate()?;
         self.storage.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "tables must not be empty");
         anyhow::ensure!(
             self.target_file_size_bytes > 0,
             "target_file_size_bytes must be positive"
         );
-        let mut datasets = HashSet::with_capacity(self.tables.len());
-        let mut tables = HashSet::with_capacity(self.tables.len());
-        for (index, mapping) in self.tables.iter().enumerate() {
-            validate_required(&format!("tables[{index}].dataset"), &mapping.dataset)?;
-            mapping.table.validate(&format!("tables[{index}]"))?;
-            anyhow::ensure!(
-                datasets.insert(mapping.dataset.as_str()),
-                "duplicate Iceberg dataset mapping '{}'",
-                mapping.dataset
-            );
-            anyhow::ensure!(
-                tables.insert((&mapping.table.namespace, mapping.table.name.as_str())),
-                "duplicate Iceberg destination table '{}.{}'",
-                mapping.table.namespace.join("."),
-                mapping.table.name
-            );
-            if let Some(location) = &mapping.location {
-                validate_required(&format!("tables[{index}].location"), location)?;
-                anyhow::ensure!(
-                    mapping.create_if_missing,
-                    "tables[{index}].location is valid only when create_if_missing is true"
-                );
-            }
+        anyhow::ensure!(!self.namespace.is_empty(), "namespace must not be empty");
+        for (index, level) in self.namespace.iter().enumerate() {
+            validate_required(&format!("namespace[{index}]"), level)?;
         }
         Ok(())
     }

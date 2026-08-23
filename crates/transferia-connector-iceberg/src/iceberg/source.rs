@@ -97,13 +97,13 @@ impl SourceConnector for IcebergSourceConnector {
             let arrow_schema = iceberg::arrow::schema_to_arrow_schema(iceberg_schema)?;
             let schema = dataset_schema(&arrow_schema, iceberg_schema);
             Ok(DeliveryDiscovery {
-                source_name: Arc::from(self.config.output_name.as_str()),
+                source_name: Arc::from(self.config.table.name.as_str()),
                 source_topology: SourceTopology::StaticPartitions(vec![0]),
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: context.request.keep_system_columns,
                 datasets: vec![DiscoveredDataset {
                     role: DatasetRole::Main,
-                    name: Arc::from(self.config.output_name.as_str()),
+                    name: Arc::from(self.config.table.name.as_str()),
                     incoming_schema: schema.clone(),
                     stored_schema: schema,
                     system_columns: Vec::new(),
@@ -126,7 +126,7 @@ impl SourceConnector for IcebergSourceConnector {
             let counters = self.counters();
             self.metrics.register_source(0, Arc::clone(&counters));
             Ok(Box::new(IcebergSource {
-                output_name: Arc::from(self.config.output_name.as_str()),
+                output_name: Arc::from(self.config.table.name.as_str()),
                 stream: Box::pin(stream),
                 cancellation: context.cancellation,
                 memory: context.memory,

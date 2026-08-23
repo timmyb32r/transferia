@@ -96,11 +96,10 @@ fn s3_operator(config: &S3StorageConfig, location: &str) -> Result<(Operator, St
     if let Some(endpoint) = &config.endpoint {
         builder = builder.endpoint(endpoint);
     }
-    if let Some(access_key_id) = &config.access_key_id {
-        builder = builder.access_key_id(access_key_id);
-    }
-    if let Some(secret_access_key) = &config.secret_access_key {
-        builder = builder.secret_access_key(secret_access_key);
+    if let Some(credentials) = &config.credentials {
+        builder = builder
+            .access_key_id(&credentials.access_key)
+            .secret_access_key(&credentials.secret_key);
     }
     if let Some(session_token) = &config.session_token {
         builder = builder.session_token(session_token);

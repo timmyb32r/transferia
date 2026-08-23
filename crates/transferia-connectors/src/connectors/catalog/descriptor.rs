@@ -71,10 +71,14 @@ const S3_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     networked: true,
 });
 
-const NETWORKED_PLAIN: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
-    installation: None,
+const ICEBERG_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["storage"],
+        required_output_fields: &["storage"],
+    }),
     networked: true,
 });
+
 const LOCAL_PLAIN: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: None,
     networked: false,
@@ -114,8 +118,8 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
     ConnectorDescriptor {
         key: "iceberg",
         title: "Apache Iceberg",
-        source: NETWORKED_PLAIN,
-        sink: NETWORKED_PLAIN,
+        source: ICEBERG_ROLE,
+        sink: ICEBERG_ROLE,
     },
     ConnectorDescriptor {
         key: "ytsaurus",

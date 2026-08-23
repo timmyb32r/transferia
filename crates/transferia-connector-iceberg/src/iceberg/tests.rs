@@ -7,8 +7,7 @@ use super::config::{IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig
 fn source_defaults_to_s3_storage() {
     let config: IcebergSourceConfig = serde_json::from_value(serde_json::json!({
         "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
-        "table": { "namespace": ["analytics"], "name": "events" },
-        "output_name": "events"
+        "table": { "namespace": ["analytics"], "name": "events" }
     }))
     .expect("valid source config");
     assert!(matches!(config.storage, OpenDalStorageConfig::S3(_)));
@@ -25,8 +24,7 @@ fn hdfs_is_an_explicit_storage_variant() {
             "root": "/warehouse",
             "user": "transferia"
         },
-        "table": { "namespace": ["analytics"], "name": "events" },
-        "output_name": "events"
+        "table": { "namespace": ["analytics"], "name": "events" }
     }))
     .expect("valid HDFS config");
     config.validate().expect("HDFS config validates");
@@ -38,8 +36,7 @@ fn config_rejects_silent_identifier_trimming() {
     let config: IcebergSourceConfig = serde_json::from_value(serde_json::json!({
         "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
         "storage": { "type": "s3", "bucket": "warehouse" },
-        "table": { "namespace": [" analytics"], "name": "events" },
-        "output_name": "events"
+        "table": { "namespace": [" analytics"], "name": "events" }
     }))
     .expect("syntactically valid config");
     let error = config.validate().expect_err("whitespace must be rejected");
@@ -47,20 +44,17 @@ fn config_rejects_silent_identifier_trimming() {
 }
 
 #[test]
-fn sink_rejects_duplicate_dataset_mappings() {
+fn sink_rejects_invalid_destination_namespace() {
     let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
         "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
         "storage": { "type": "s3", "bucket": "warehouse" },
-        "tables": [
-            { "dataset": "events", "namespace": ["analytics"], "name": "events", "create_if_missing": false },
-            { "dataset": "events", "namespace": ["analytics"], "name": "events_copy", "create_if_missing": false }
-        ],
+        "namespace": [" analytics"],
         "target_file_size_bytes": 1_048_576
     })).expect("syntactically valid config");
-    let error = config.validate().expect_err("duplicate mapping must fail");
+    let error = config.validate().expect_err("whitespace must fail");
     assert!(error
         .to_string()
-        .contains("duplicate Iceberg dataset mapping"));
+        .contains("leading or trailing whitespace"));
 }
 
 #[test]
@@ -80,8 +74,10 @@ fn storage_debug_output_redacts_every_s3_credential() {
     let storage: OpenDalStorageConfig = serde_json::from_value(serde_json::json!({
         "type": "s3",
         "bucket": "warehouse",
-        "access_key_id": "access-secret",
-        "secret_access_key": "key-secret",
+        "credentials": {
+            "access_key": "access-secret",
+            "secret_key": "key-secret"
+        },
         "session_token": "session-secret"
     }))
     .expect("valid storage");

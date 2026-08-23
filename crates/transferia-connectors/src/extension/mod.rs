@@ -1021,6 +1021,33 @@ impl InstallationResolver for OnPremiseResolver {
     }
 }
 
+pub(crate) struct SelectedFieldInstallationResolver {
+    pub field: &'static str,
+}
+
+#[async_trait]
+impl InstallationResolver for SelectedFieldInstallationResolver {
+    async fn resolve_many(
+        &self,
+        installation: Value,
+        _context: ResolveContext,
+    ) -> anyhow::Result<Vec<Mapping>> {
+        let mut installation = installation
+            .as_mapping()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("installation must be an object"))?;
+        let selected = installation
+            .remove(Value::String(self.field.to_owned()))
+            .ok_or_else(|| anyhow::anyhow!("installation is missing '{}'", self.field))?;
+        let mut output = Mapping::new();
+        output.insert(
+            Value::String(self.field.to_owned()),
+            selected,
+        );
+        Ok(vec![output])
+    }
+}
+
 #[cfg(test)]
 #[path = "tests/mod.rs"]
 mod tests;
