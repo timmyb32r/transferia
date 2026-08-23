@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use arrow::record_batch::RecordBatch;
@@ -29,14 +30,18 @@ pub struct IcebergSourceConnector {
     config: IcebergSourceConfig,
     metrics: Arc<MetricsRegistry>,
     parser: ParserPlan,
-    table: tokio::sync::OnceCell<Table>,
-    counters: Mutex<Option<Arc<SourceCounters>>>,
+    tables: tokio::sync::OnceCell<Vec<Table>>,
+    counters: Mutex<HashMap<i64, Arc<SourceCounters>>>,
 }
 
 pub async fn check_connection(config: &IcebergSourceConfig) -> anyhow::Result<()> {
     config.validate()?;
     let catalog = build_catalog(&config.catalog, &config.storage).await?;
-    catalog.load_table(&table_ident(&config.table)?).await?;
+    for table_name in &config.table_names {
+        catalog
+            .load_table(&table_ident(&config.table_ref(table_name))?)
+            .await?;
+    }
     Ok(())
 }
 
@@ -50,29 +55,38 @@ impl IcebergSourceConnector {
             config,
             metrics,
             parser: ParserPlan::native_source(),
-            table: tokio::sync::OnceCell::new(),
-            counters: Mutex::new(None),
+            tables: tokio::sync::OnceCell::new(),
+            counters: Mutex::new(HashMap::new()),
         })
     }
 
-    async fn load_table(&self) -> anyhow::Result<Table> {
-        self.table
+    async fn load_tables(&self) -> anyhow::Result<&Vec<Table>> {
+        self.tables
             .get_or_try_init(|| async {
                 let catalog = build_catalog(&self.config.catalog, &self.config.storage).await?;
-                Ok(catalog
-                    .load_table(&table_ident(&self.config.table)?)
-                    .await?)
+                let mut tables = Vec::with_capacity(self.config.table_names.len());
+                for table_name in &self.config.table_names {
+                    tables.push(
+                        catalog
+                            .load_table(&table_ident(&self.config.table_ref(table_name))?)
+                            .await?,
+                    );
+                }
+                Ok(tables)
             })
             .await
-            .cloned()
     }
 
-    fn counters(&self) -> Arc<SourceCounters> {
+    fn counters(&self, partition_id: i64) -> Arc<SourceCounters> {
         let mut counters = self
             .counters
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Arc::clone(counters.get_or_insert_with(|| Arc::new(SourceCounters::new())))
+        Arc::clone(
+            counters
+                .entry(partition_id)
+                .or_insert_with(|| Arc::new(SourceCounters::new())),
+        )
     }
 }
 
@@ -89,25 +103,31 @@ impl SourceConnector for IcebergSourceConnector {
         context: SourceDiscoveryContext,
     ) -> BoxFuture<'_, anyhow::Result<DeliveryDiscovery>> {
         Box::pin(async move {
-            let table = tokio::select! {
+            let tables = tokio::select! {
                 () = context.cancellation.cancelled() => anyhow::bail!("Iceberg discovery cancelled"),
-                result = self.load_table() => result?,
+                result = self.load_tables() => result?,
             };
-            let iceberg_schema = table.metadata().current_schema();
-            let arrow_schema = iceberg::arrow::schema_to_arrow_schema(iceberg_schema)?;
-            let schema = dataset_schema(&arrow_schema, iceberg_schema);
-            Ok(DeliveryDiscovery {
-                source_name: Arc::from(self.config.table.name.as_str()),
-                source_topology: SourceTopology::StaticPartitions(vec![0]),
-                schema_origin: SchemaOrigin::SourceNative,
-                keep_system_columns: context.request.keep_system_columns,
-                datasets: vec![DiscoveredDataset {
+            let mut datasets = Vec::with_capacity(tables.len());
+            for (table_name, table) in self.config.table_names.iter().zip(tables) {
+                let iceberg_schema = table.metadata().current_schema();
+                let arrow_schema = iceberg::arrow::schema_to_arrow_schema(iceberg_schema)?;
+                let schema = dataset_schema(&arrow_schema, iceberg_schema);
+                datasets.push(DiscoveredDataset {
                     role: DatasetRole::Main,
-                    name: Arc::from(self.config.table.name.as_str()),
+                    name: Arc::from(table_name.as_str()),
                     incoming_schema: schema.clone(),
                     stored_schema: schema,
                     system_columns: Vec::new(),
-                }],
+                });
+            }
+            Ok(DeliveryDiscovery {
+                source_name: Arc::from(self.config.namespace.join(".")),
+                source_topology: SourceTopology::StaticPartitions(
+                    (0..tables.len() as i64).collect(),
+                ),
+                schema_origin: SchemaOrigin::SourceNative,
+                keep_system_columns: context.request.keep_system_columns,
+                datasets,
             })
         })
     }
@@ -117,16 +137,25 @@ impl SourceConnector for IcebergSourceConnector {
         context: SourceBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Source>>> {
         Box::pin(async move {
-            anyhow::ensure!(
-                context.partition_id == 0,
-                "Iceberg source has only partition 0"
-            );
-            let table = self.load_table().await?;
+            let table_index = usize::try_from(context.partition_id)
+                .map_err(|_| anyhow::anyhow!("Iceberg partition does not fit usize"))?;
+            let table = self
+                .load_tables()
+                .await?
+                .get(table_index)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("unknown Iceberg partition {}", context.partition_id))?;
+            let table_name = self
+                .config
+                .table_names
+                .get(table_index)
+                .ok_or_else(|| anyhow::anyhow!("Iceberg table is missing for partition {}", context.partition_id))?;
             let stream = table.scan().build()?.to_arrow().await?;
-            let counters = self.counters();
-            self.metrics.register_source(0, Arc::clone(&counters));
+            let counters = self.counters(context.partition_id);
+            self.metrics
+                .register_source(context.partition_id, Arc::clone(&counters));
             Ok(Box::new(IcebergSource {
-                output_name: Arc::from(self.config.table.name.as_str()),
+                output_name: Arc::from(table_name.as_str()),
                 stream: Box::pin(stream),
                 cancellation: context.cancellation,
                 memory: context.memory,

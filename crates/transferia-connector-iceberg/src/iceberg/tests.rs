@@ -7,7 +7,8 @@ use super::config::{IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig
 fn source_defaults_to_s3_storage() {
     let config: IcebergSourceConfig = serde_json::from_value(serde_json::json!({
         "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
-        "table": { "namespace": ["analytics"], "name": "events" }
+        "namespace": ["analytics"],
+        "table_names": ["events"]
     }))
     .expect("valid source config");
     assert!(matches!(config.storage, OpenDalStorageConfig::S3(_)));
@@ -24,7 +25,8 @@ fn hdfs_is_an_explicit_storage_variant() {
             "root": "/warehouse",
             "user": "transferia"
         },
-        "table": { "namespace": ["analytics"], "name": "events" }
+        "namespace": ["analytics"],
+        "table_names": ["events"]
     }))
     .expect("valid HDFS config");
     config.validate().expect("HDFS config validates");
@@ -36,7 +38,8 @@ fn config_rejects_silent_identifier_trimming() {
     let config: IcebergSourceConfig = serde_json::from_value(serde_json::json!({
         "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
         "storage": { "type": "s3", "bucket": "warehouse" },
-        "table": { "namespace": [" analytics"], "name": "events" }
+        "namespace": [" analytics"],
+        "table_names": ["events"]
     }))
     .expect("syntactically valid config");
     let error = config.validate().expect_err("whitespace must be rejected");

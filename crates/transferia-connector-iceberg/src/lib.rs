@@ -24,7 +24,7 @@ pub fn register(
                 || serde_json::json!({
                     "catalog": { "uri": "", "request_timeout_ms": 30000, "warehouse": null, "auth": { "type": "none" } },
                     "storage": { "type": "s3", "bucket": "", "request_timeout_ms": 30000, "region": null, "endpoint": null, "credentials": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
-                    "table": { "namespace": ["default"], "name": "" }
+                    "namespace": ["default"], "table_names": [""]
                 }),
                 {
                     let metrics = Arc::clone(metrics);

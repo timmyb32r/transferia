@@ -189,7 +189,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     assert_eq!(event, Some(SinkEvent::CommittedThrough(DeliveryId::new(1))));
 
     let source_config: IcebergSourceConfig = serde_yaml::from_str(&format!(
-        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}table:\n  namespace: [default]\n  name: events\n",
+        "catalog:\n  uri: {catalog_uri}\n  auth: {{ type: none }}\nstorage:\n{}namespace: [default]\ntable_names: [events]\n",
         indent(&storage_yaml, 2)
     ))?;
     let source_connector =
