@@ -17,7 +17,30 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [follow, setFollow] = useState(true);
+  const [copyState, setCopyState] = useState<
+    "idle" | "copying" | "copied" | "error"
+  >("idle");
+  const [downloadStarted, setDownloadStarted] = useState(false);
   const viewport = useRef<HTMLPreElement>(null);
+
+  const copyToClipboard = async () => {
+    if (copyState === "copying" || text === "") return;
+    const snapshot = text;
+    setCopyState("copying");
+    try {
+      await navigator.clipboard.writeText(snapshot);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
+
+  const download = () => {
+    if (text === "") return;
+    const snapshot = text;
+    downloadLogSnapshot(snapshot, deliveryId, workerId);
+    setDownloadStarted(true);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +147,31 @@ export function DeliveryLogs({ deliveryId }: { deliveryId: string }) {
         >
           Clear view
         </Button>
+        <Button
+          disabled={text === "" || copyState === "copying"}
+          pending={copyState === "copying"}
+          onClick={() => void copyToClipboard()}
+        >
+          Copy to clipboard
+        </Button>
+        <Button disabled={text === ""} onClick={download}>
+          Download
+        </Button>
+        <span
+          class="delivery-logs-action-status"
+          role={copyState === "error" ? "alert" : "status"}
+          aria-live="polite"
+        >
+          {copyState === "copied"
+            ? "Copied"
+            : copyState === "error"
+              ? "Copy failed"
+              : copyState === "copying"
+                ? "Copying…"
+                : downloadStarted
+                  ? "Download started"
+                  : "Log actions status"}
+        </span>
         <span class="delivery-logs-progress-slot">
           {loading && <span class="spinner" aria-label="Loading worker logs" />}
         </span>
@@ -147,4 +195,22 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function downloadLogSnapshot(
+  snapshot: string,
+  deliveryId: string,
+  workerId: string,
+) {
+  const blob = new Blob([snapshot], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeFilename(deliveryId)}-${safeFilename(workerId || "worker")}.log`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function safeFilename(value: string): string {
+  return value.replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }

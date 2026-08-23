@@ -11,6 +11,53 @@ describe("delivery logs", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("copies an immutable snapshot while newer log lines arrive", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, "deliveryLogs").mockResolvedValue({
+      workers: [{ worker_id: "active-run", size_bytes: 12, active: true }],
+    });
+    vi.spyOn(api, "deliveryLog")
+      .mockResolvedValueOnce({
+        text: "first\n",
+        start_offset: 0,
+        next_offset: 6,
+        end_offset: 6,
+        truncated_before: false,
+      })
+      .mockResolvedValue({
+        text: "second\n",
+        start_offset: 6,
+        next_offset: 13,
+        end_offset: 13,
+        truncated_before: false,
+      });
+    let finishCopy: (() => void) | undefined;
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCopy = resolve;
+        }),
+    );
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const view = render(<DeliveryLogs deliveryId="delivery-1" />);
+    await vi.waitFor(() => expect(view.getByText(/first/)).toBeTruthy());
+    fireEvent.click(view.getByRole("button", { name: "Copy to clipboard" }));
+    expect(writeText).toHaveBeenCalledWith("first\n");
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.waitFor(() => expect(view.getByText(/second/)).toBeTruthy());
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledWith("first\n");
+
+    finishCopy?.();
+    await vi.waitFor(() => expect(view.getByRole("status").textContent).toBe("Copied"));
   });
 
   it("selects the active worker and follows bounded log chunks", async () => {
