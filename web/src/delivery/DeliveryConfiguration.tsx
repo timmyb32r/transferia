@@ -2,6 +2,7 @@ import {
   compiledSchema,
   endpointValue,
   isObject,
+  orderedEndpointConnectors,
   selectedEndpoints,
   stringValue,
 } from "./editorConfig";
@@ -49,12 +50,8 @@ export function DeliveryConfiguration({
     deliveryTypeSelected &&
     (selection?.sourceKey ?? "") !== "" &&
     (selection?.sinkKey ?? "") !== "";
-  const sourceConnectors = catalog.connectors.filter(
-    (connector) => connector.source !== undefined,
-  );
-  const sinkConnectors = catalog.connectors.filter(
-    (connector) => connector.sink !== undefined,
-  );
+  const sourceConnectors = orderedEndpointConnectors(catalog, "source");
+  const sinkConnectors = orderedEndpointConnectors(catalog, "sink");
   const sourceSampleLoader =
     selection?.error === undefined && selection?.source !== undefined
       ? async () => {

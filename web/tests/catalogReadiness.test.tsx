@@ -7,6 +7,7 @@ import catalogFixture from "../../crates/transferia-server-contracts/contracts/c
 import { decodeApi } from "../src/api/contractDecoder";
 import {
   configurationReadiness,
+  orderedEndpointConnectors,
   validateCatalogSchemas,
 } from "../src/delivery/editorConfig";
 import { productionWidgetRegistry } from "../src/features/formWidgetRegistry";
@@ -30,6 +31,43 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("orders regular endpoints alphabetically and keeps benchmark endpoints last", () => {
+    const catalog = decodeApi(
+      "catalog_response",
+      catalogFixture,
+      "catalog",
+    );
+
+    expect(
+      orderedEndpointConnectors(catalog, "source").map(
+        (connector) => connector.title,
+      ),
+    ).toEqual([
+      "Apache Iceberg",
+      "ClickHouse",
+      "Kafka",
+      "Logbroker",
+      "PostgreSQL",
+      "S3",
+      "YTsaurus",
+      "Data generator (for benchmarks)",
+    ]);
+    expect(
+      orderedEndpointConnectors(catalog, "sink").map(
+        (connector) => connector.title,
+      ),
+    ).toEqual([
+      "Apache Iceberg",
+      "ClickHouse",
+      "Kafka",
+      "Logbroker",
+      "PostgreSQL",
+      "S3",
+      "YTsaurus",
+      "Discard (for benchmarks)",
+    ]);
+  });
+
   it("accepts every current catalog schema and initial value at startup", () => {
     const catalog = decodeApi(
       "catalog_response",
