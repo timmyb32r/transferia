@@ -26,6 +26,66 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("keeps editable unions wide and protects their numeric fields from autofill", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["amount"]),
+      properties: {
+        amount: {
+          kind: "union",
+          title: "Amount",
+          xUi: { control_width: "wide" },
+          branches: [
+            {
+              label: "Rows",
+              requiredKeys: ["type", "row_count"],
+              discriminator: { key: "type", value: "rows" },
+              node: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["type", "row_count"]),
+                properties: {
+                  type: {
+                    kind: "string",
+                    xUi: {},
+                    enumValues: ["rows"],
+                  },
+                  row_count: {
+                    kind: "number",
+                    title: "Row count",
+                    xUi: {},
+                    integer: true,
+                    minimum: 1,
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ amount: { type: "rows", row_count: 50_000_000 } }}
+        onChange={() => undefined}
+      />,
+    );
+    const amountRow = view.container.querySelector(".control-width-wide");
+    expect(amountRow).not.toBeNull();
+    expect(amountRow?.classList.contains("form-row-wide")).toBe(true);
+    expect(amountRow?.classList.contains("control-width-enum")).toBe(false);
+    const rowCount = within(amountRow as HTMLElement).getByLabelText(
+      "Row count",
+    ) as HTMLInputElement;
+    expect(rowCount.type).toBe("number");
+    expect(rowCount.autocomplete).toBe("none");
+    expect(rowCount.name).toMatch(/^tf-/);
+    expect(rowCount.getAttribute("data-form-type")).toBe("other");
+  });
+
   it("keeps routing unions wide instead of applying the enum width", () => {
     const node: CompiledNode = {
       kind: "object",

@@ -1605,6 +1605,9 @@ input[type="checkbox"]:disabled {
 .control-width-medium > .field-control {
   width: min(100%, 340px);
 }
+.control-width-wide > .field-control {
+  width: min(100%, 560px);
+}
 .control-width-enum > .field-control {
   width: min(100%, 240px);
 }

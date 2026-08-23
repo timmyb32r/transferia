@@ -5752,7 +5752,10 @@
             },
             "amount": {
               "title": "Amount",
-              "$ref": "#/$defs/GenerationAmount"
+              "$ref": "#/$defs/GenerationAmount",
+              "x-ui": {
+                "control_width": "wide"
+              }
             }
           },
           "additionalProperties": false,

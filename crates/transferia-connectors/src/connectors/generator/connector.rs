@@ -67,7 +67,7 @@ pub struct DataGeneratorConfig {
     #[schemars(title = "Preset")]
     pub preset: DataGeneratorPreset,
 
-    #[schemars(title = "Amount")]
+    #[schemars(title = "Amount", extend("x-ui" = { "control_width": "wide" }))]
     pub amount: GenerationAmount,
 }
 

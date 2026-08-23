@@ -482,7 +482,12 @@ function PropertyEditor({
         {customWidget}
       </div>
     );
-  const classes = `${node.kind === "object" || (node.kind === "array" && node.xUi.widget !== "partition_ranges") || presentation?.wide || node.xUi.control_width === "full" ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
+  const wideRow =
+    node.kind === "object" ||
+    (node.kind === "array" && node.xUi.widget !== "partition_ranges") ||
+    presentation?.wide ||
+    ["full", "wide"].includes(node.xUi.control_width ?? "");
+  const classes = `${wideRow ? "form-row-wide" : ""} ${node.kind === "nullable" ? "form-row-nullable" : ""} ${node.xUi.control_width === "installation" ? "form-row-installation" : ""} ${controlWidth}`;
   return (
     <FormField
       label={node.title ?? humanize(name)}
@@ -520,6 +525,7 @@ function controlWidthClass(
   if (node.xUi.control_width === "table_name")
     return "control-width-table-name";
   if (node.xUi.control_width === "routing") return "control-width-routing";
+  if (node.xUi.control_width === "wide") return "control-width-wide";
   if (node.xUi.control_width === "full") return "control-width-full";
   if (
     node.kind === "union" ||
