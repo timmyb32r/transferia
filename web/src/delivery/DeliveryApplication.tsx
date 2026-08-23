@@ -16,7 +16,11 @@ import {
   EditorTabs,
   OperationNotices,
 } from "./EditorChrome";
-import type { OperationKey, OperationState } from "../application/operations";
+import {
+  isOperationPending,
+  type OperationKey,
+  type OperationState,
+} from "../application/operations";
 import {
   DataSchemaInspector,
   DataSchemaWorkspace,
@@ -234,7 +238,7 @@ export function DeliveryApplication() {
   const dataSchemaAvailable = (discovery?.datasets.length ?? 0) > 0;
   const dataSchemaUnavailableReason = (() => {
     if (dataSchemaAvailable) return undefined;
-    if (operations.discovery?.label !== undefined)
+    if (isOperationPending(operations.discovery))
       return "Discovering the data schema…";
     if (operations.discovery?.error !== undefined)
       return `Data schema discovery failed: ${operations.discovery.error}`;
@@ -342,9 +346,15 @@ export function DeliveryApplication() {
           : { [key]: structuredClone(endpoint.initial) },
     });
   };
+  const operationPending = (key: OperationKey) => {
+    return isOperationPending(operations[key]);
+  };
   const blockingOperation = (
     ["bootstrap", "open", "save", "validate", "action", "parseYaml"] as const
-  ).some((key) => operations[key]?.label !== undefined);
+  ).some(operationPending);
+  const validatePending =
+    operationPending("save") || operationPending("validate");
+  const activatePending = operationPending("action");
   const revealMissingRequiredFields = (scope: "source" | "all" = "all") => {
     setRequiredErrorScope(scope);
     void applyYamlAndShowUi().then(() => {
@@ -366,6 +376,8 @@ export function DeliveryApplication() {
     <EditorActions
       editor={editor}
       blocked={blockingOperation}
+      validatePending={validatePending}
+      activatePending={activatePending}
       requiredFieldsComplete={requiredFieldsComplete}
       onMissingRequired={revealMissingRequiredFields}
       onEdit={() => {
@@ -537,7 +549,7 @@ export function DeliveryApplication() {
         {schemaInspectorVisible && discovery !== undefined && (
           <DataSchemaInspector
             result={discovery}
-            loading={operations.discovery?.label !== undefined}
+            loading={isOperationPending(operations.discovery)}
             onHide={() => setSchemaInspectorVisible(false)}
           />
         )}

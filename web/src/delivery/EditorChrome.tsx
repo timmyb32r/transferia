@@ -12,6 +12,8 @@ import type { OperationKey, OperationState } from "../application/operations";
 export function EditorActions({
   editor,
   blocked,
+  validatePending = false,
+  activatePending = false,
   requiredFieldsComplete,
   onMissingRequired,
   onEdit,
@@ -23,6 +25,8 @@ export function EditorActions({
 }: {
   editor: EditorState;
   blocked: boolean;
+  validatePending?: boolean;
+  activatePending?: boolean;
   requiredFieldsComplete: boolean;
   onMissingRequired: () => void;
   onEdit: () => void;
@@ -52,6 +56,20 @@ export function EditorActions({
     editor.validation.state === "ready" &&
     editor.validation.revision === editor.persistedRevision;
   const activationIsDiagnostic = !activationReady && !requiredFieldsComplete;
+  const activationUnavailableReason = blocked
+    ? activatePending
+      ? "Starting the worker…"
+      : "Another operation is in progress"
+    : !requiredFieldsComplete
+      ? "Complete the required delivery, source, and destination fields"
+      : editor.id === undefined
+        ? "Save and validate the delivery first"
+        : isDirty(editor)
+          ? "Save and validate the current changes first"
+          : editor.validation.state !== "ready" ||
+              editor.validation.revision !== editor.persistedRevision
+            ? "Validate the current revision first"
+            : undefined;
   const activate = () =>
     activationIsDiagnostic ? onMissingRequired() : onActivate();
   const validate = () =>
@@ -69,18 +87,21 @@ export function EditorActions({
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
         </Button>
-        <Button disabled={blocked} onClick={validate}>
+        <Button
+          disabled={blocked}
+          pending={validatePending}
+          onClick={validate}
+        >
           Validate
         </Button>
-        <Button
-          variant="primary"
-          class={`activate-action${activationIsDiagnostic ? " diagnostic-disabled" : ""}`}
-          aria-disabled={!activationReady}
-          disabled={blocked || (!activationReady && !activationIsDiagnostic)}
+        <ActivationButton
+          ready={activationReady}
+          diagnostic={activationIsDiagnostic}
+          blocked={blocked}
+          pending={activatePending}
+          reason={activationUnavailableReason}
           onClick={activate}
-        >
-          Activate
-        </Button>
+        />
       </div>
     );
   }
@@ -89,19 +110,58 @@ export function EditorActions({
       <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
         Save
       </Button>
-      <Button disabled={blocked} onClick={validate}>
+      <Button
+        disabled={blocked}
+        pending={validatePending}
+        onClick={validate}
+      >
         Validate
       </Button>
-      <Button
-        variant="primary"
-        class={`activate-action${activationIsDiagnostic ? " diagnostic-disabled" : ""}`}
-        aria-disabled={!activationReady}
-        disabled={blocked || (!activationReady && !activationIsDiagnostic)}
+      <ActivationButton
+        ready={activationReady}
+        diagnostic={activationIsDiagnostic}
+        blocked={blocked}
+        pending={activatePending}
+        reason={activationUnavailableReason}
         onClick={activate}
-      >
-        Activate
-      </Button>
+      />
     </div>
+  );
+}
+
+function ActivationButton({
+  ready,
+  diagnostic,
+  blocked,
+  pending,
+  reason,
+  onClick,
+}: {
+  ready: boolean;
+  diagnostic: boolean;
+  blocked: boolean;
+  pending: boolean;
+  reason: string | undefined;
+  onClick: () => void;
+}) {
+  const button = (
+    <Button
+      variant="primary"
+      class={`activate-action${diagnostic ? " diagnostic-disabled" : ""}`}
+      aria-disabled={!ready || pending}
+      disabled={blocked || (!ready && !diagnostic)}
+      pending={pending}
+      onClick={onClick}
+    >
+      Activate
+    </Button>
+  );
+  return reason === undefined ? (
+    button
+  ) : (
+    <InstantTooltip content={reason} class="action-disabled-tooltip">
+      {button}
+    </InstantTooltip>
   );
 }
 

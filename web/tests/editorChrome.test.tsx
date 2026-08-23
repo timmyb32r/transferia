@@ -239,6 +239,59 @@ describe("editor chrome", () => {
 
     expect(onMissingRequired).toHaveBeenCalledOnce();
     expect(onActivate).not.toHaveBeenCalled();
+    expect(
+      view.getByRole("tooltip").textContent,
+    ).toBe("Complete the required delivery, source, and destination fields");
+  });
+
+  it("explains an inactive Activate immediately", () => {
+    const view = render(
+      <EditorActions
+        editor={{
+          ...editor({ state: "stopped" }),
+          validation: { state: "draft" },
+        }}
+        blocked={false}
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
+        onEdit={() => undefined}
+        onDelete={() => undefined}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />,
+    );
+
+    expect(
+      (view.getByRole("button", { name: "Activate" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(view.getByRole("tooltip").textContent).toBe(
+      "Validate the current revision first",
+    );
+  });
+
+  it("shows Validate pending feedback without waiting for a progress notice", () => {
+    const view = render(
+      <EditorActions
+        editor={editor({ state: "stopped" })}
+        blocked
+        validatePending
+        requiredFieldsComplete
+        onMissingRequired={() => undefined}
+        onEdit={() => undefined}
+        onDelete={() => undefined}
+        onSave={() => undefined}
+        onValidate={() => undefined}
+        onActivate={() => undefined}
+        onStop={() => undefined}
+      />,
+    );
+    const validate = view.getByRole("button", { name: "Validate" });
+
+    expect(validate.getAttribute("aria-busy")).toBe("true");
+    expect(validate.classList.contains("interaction-pending")).toBe(true);
   });
 
   it("lets Validate reveal missing required fields without submitting", () => {

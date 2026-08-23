@@ -11,6 +11,7 @@ import { useDiscovery } from "../src/delivery/useDiscovery";
 import { useOperations } from "../src/delivery/useOperations";
 import { useYamlEditor } from "../src/delivery/useYamlEditor";
 import { LatestJob } from "../src/effects";
+import { isOperationPending } from "../src/application/operations";
 import type { EditorState } from "../src/state";
 import type {
   DeliveryRecord,
@@ -26,6 +27,17 @@ afterEach(() => {
 });
 
 describe("delivery controllers", () => {
+  it("marks an operation pending immediately, before its delayed label appears", () => {
+    const operation = { requestId: 1 };
+
+    expect(isOperationPending(operation)).toBe(true);
+    expect(isOperationPending({ ...operation, label: "Validating…" })).toBe(
+      true,
+    );
+    expect(isOperationPending({ ...operation, success: "Done" })).toBe(false);
+    expect(isOperationPending({ ...operation, error: "Failed" })).toBe(false);
+  });
+
   it("does not let an old operation completion clear a newer operation", () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useOperations());

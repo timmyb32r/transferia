@@ -16,3 +16,13 @@ export interface OperationState {
   error?: string;
   success?: string;
 }
+
+export function isOperationPending(
+  operation: OperationState | undefined,
+): boolean {
+  return (
+    operation !== undefined &&
+    operation.error === undefined &&
+    operation.success === undefined
+  );
+}
