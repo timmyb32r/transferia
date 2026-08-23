@@ -13,6 +13,29 @@ use super::ClickHouseSinkConfig;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_registry::SinkPrepare;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TableEngine {
+    MergeTree,
+    ReplicatedMergeTree,
+}
+
+impl TableEngine {
+    const fn for_data_host_count(data_host_count: usize) -> Self {
+        if data_host_count > 1 {
+            Self::ReplicatedMergeTree
+        } else {
+            Self::MergeTree
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::MergeTree => "MergeTree",
+            Self::ReplicatedMergeTree => "ReplicatedMergeTree",
+        }
+    }
+}
+
 /// Validate the part of a discovered dataset that is materialized in
 /// `ClickHouse`. This is deliberately the same validation used by DDL
 /// generation, so discovery cannot approve a schema that table preparation
@@ -84,7 +107,15 @@ async fn create_table(
     schema: &DatasetSchema,
     sorting_key: &[String],
 ) -> anyhow::Result<()> {
-    let ddl = create_table_ddl(name, schema, sorting_key)?;
+    let data_host_count = config.effective_data_host_count();
+    let engine = TableEngine::for_data_host_count(data_host_count);
+    let ddl = create_table_ddl(name, schema, sorting_key, engine)?;
+    tracing::info!(
+        table = name,
+        engine = engine.as_str(),
+        data_host_count,
+        "preparing ClickHouse table"
+    );
     client
         .execute(&ddl)
         .await
@@ -100,6 +131,7 @@ fn create_table_ddl(
     name: &str,
     schema: &DatasetSchema,
     sorting_key: &[String],
+    engine: TableEngine,
 ) -> anyhow::Result<String> {
     let columns = validated_column_definitions(name, schema)?.join(", ");
     let mut unique_sorting_keys = BTreeSet::new();
@@ -120,8 +152,9 @@ fn create_table_ddl(
         &sorting_key
     };
     Ok(format!(
-        "CREATE TABLE IF NOT EXISTS {} ({columns}) ENGINE = MergeTree ORDER BY ({order_by})",
+        "CREATE TABLE IF NOT EXISTS {} ({columns}) ENGINE = {} ORDER BY ({order_by})",
         quote_identifier(name),
+        engine.as_str(),
     ))
 }
 

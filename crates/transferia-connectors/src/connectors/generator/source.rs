@@ -29,7 +29,7 @@ impl DataGeneratorSource {
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
         let row_bytes = config.row_bytes()?;
-        let total_rows = config.data_size_bytes / row_bytes;
+        let total_rows = config.total_rows()?;
         let memory_limit = u64::try_from(memory.limit())?;
         let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
         let rows_per_batch = (batch_target_bytes / row_bytes).max(1);

@@ -9,13 +9,17 @@ use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
 use transferia_registry::{SourceConnector as _, SourceDiscoveryContext};
 
 use super::source::DataGeneratorSource;
-use super::{DataGeneratorConfig, DataGeneratorPreset, DataGeneratorSourceConnector};
+use super::{
+    DataGeneratorConfig, DataGeneratorPreset, DataGeneratorSourceConnector, GenerationAmount,
+};
 
 fn config() -> DataGeneratorConfig {
     DataGeneratorConfig {
         table_name: "my_table".to_owned(),
         preset: DataGeneratorPreset::Numeric { column_count: 10 },
-        data_size_bytes: 1_600,
+        amount: GenerationAmount::DataSize {
+            data_size_bytes: 1_600,
+        },
     }
 }
 
@@ -62,7 +66,9 @@ async fn generator_caps_batches_at_sixteen_mebibytes() -> anyhow::Result<()> {
     const ROW_BYTES: u64 = 10 * 8;
     let aligned_target_bytes = TARGET_BYTES / ROW_BYTES * ROW_BYTES;
     let mut config = config();
-    config.data_size_bytes = aligned_target_bytes * 2;
+    config.amount = GenerationAmount::DataSize {
+        data_size_bytes: aligned_target_bytes * 2,
+    };
     let mut source = DataGeneratorSource::new(
         config,
         PipelineMemory::new((TARGET_BYTES * 4) as usize),
@@ -106,7 +112,7 @@ async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> a
     let config = DataGeneratorConfig {
         table_name: "logs".to_owned(),
         preset: DataGeneratorPreset::TransferLogs,
-        data_size_bytes: 512,
+        amount: GenerationAmount::Rows { row_count: 1 },
     };
     let connector = DataGeneratorSourceConnector::from_config(
         config.clone(),
@@ -167,10 +173,23 @@ async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> a
 #[test]
 fn generator_rejects_unrepresentable_requested_sizes() {
     let mut config = config();
-    config.data_size_bytes = 101;
+    config.amount = GenerationAmount::DataSize {
+        data_size_bytes: 101,
+    };
     assert!(config
         .validate()
         .unwrap_err()
         .to_string()
         .contains("must be divisible"));
+}
+
+#[test]
+fn generator_accepts_an_exact_row_count() -> anyhow::Result<()> {
+    let mut config = config();
+    config.amount = GenerationAmount::Rows {
+        row_count: 50_000_000,
+    };
+    config.validate()?;
+    assert_eq!(config.total_rows()?, 50_000_000);
+    Ok(())
 }

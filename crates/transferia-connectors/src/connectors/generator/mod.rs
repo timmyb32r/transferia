@@ -2,7 +2,7 @@ mod connector;
 mod preset;
 mod source;
 
-pub use connector::{DataGeneratorConfig, DataGeneratorSourceConnector};
+pub use connector::{DataGeneratorConfig, DataGeneratorSourceConnector, GenerationAmount};
 pub use preset::DataGeneratorPreset;
 
 #[cfg(test)]

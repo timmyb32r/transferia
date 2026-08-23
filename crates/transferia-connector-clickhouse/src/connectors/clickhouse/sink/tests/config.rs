@@ -15,6 +15,20 @@ fn parses_multiple_hosts_with_one_native_port() -> anyhow::Result<()> {
     )?;
     assert_eq!(config.hosts, ["ch-a", "ch-b"]);
     assert_eq!(config.port, 9000);
+    assert_eq!(config.effective_data_host_count(), 2);
+    Ok(())
+}
+
+#[test]
+fn resolved_topology_count_is_independent_from_connectivity_hosts() -> anyhow::Result<()> {
+    let config = parse_config(
+        "hosts: [ch-a]\ndata_host_count: 3\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n",
+    )?;
+    assert_eq!(config.effective_data_host_count(), 3);
+    assert!(parse_config(
+        "hosts: [ch-a]\ndata_host_count: 0\nport: 9000\ntrusted_plaintext: true\ndatabase: analytics\nusername: transferia\n"
+    )
+    .is_err());
     Ok(())
 }
 

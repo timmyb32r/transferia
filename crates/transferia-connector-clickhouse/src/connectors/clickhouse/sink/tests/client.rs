@@ -268,6 +268,7 @@ fn pins_lossless_insert_settings() {
         port: 9000,
         trusted_plaintext: true,
         tls_ca_file: None,
+        data_host_count: None,
         database: "default".into(),
         username: "default".into(),
         password: String::new(),

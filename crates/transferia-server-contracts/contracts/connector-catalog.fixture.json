@@ -3070,6 +3070,19 @@
                 }
               ]
             },
+            "data_host_count": {
+              "description": "Data-bearing hosts in the resolved cluster topology. Connectivity may\nintentionally use a smaller set of hosts, so it cannot carry this fact.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint",
+              "minimum": 0,
+              "default": null,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
             "database": {
               "type": "string"
             },
@@ -5737,20 +5750,16 @@
               "title": "Preset",
               "$ref": "#/$defs/DataGeneratorPreset"
             },
-            "data_size_bytes": {
-              "type": "integer",
-              "format": "uint64",
-              "minimum": 1,
-              "x-ui": {
-                "widget": "byte_size"
-              }
+            "amount": {
+              "title": "Amount",
+              "$ref": "#/$defs/GenerationAmount"
             }
           },
           "additionalProperties": false,
           "required": [
             "table_name",
             "preset",
-            "data_size_bytes"
+            "amount"
           ],
           "$defs": {
             "DataGeneratorPreset": {
@@ -5791,6 +5800,55 @@
                   ]
                 }
               ]
+            },
+            "GenerationAmount": {
+              "oneOf": [
+                {
+                  "title": "Rows",
+                  "type": "object",
+                  "properties": {
+                    "row_count": {
+                      "title": "Row count",
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 1
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "rows"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "row_count"
+                  ]
+                },
+                {
+                  "title": "Data size",
+                  "type": "object",
+                  "properties": {
+                    "data_size_bytes": {
+                      "title": "Data size",
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 1,
+                      "x-ui": {
+                        "widget": "byte_size"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "data_size"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "data_size_bytes"
+                  ]
+                }
+              ]
             }
           }
         },
@@ -5799,7 +5857,10 @@
           "preset": {
             "type": "transfer_logs"
           },
-          "data_size_bytes": 107374182400
+          "amount": {
+            "type": "rows",
+            "row_count": 50000000
+          }
         },
         "delivery_modes": [
           "batch"

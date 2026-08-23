@@ -20,6 +20,12 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub tls_ca_file: Option<String>,
 
+    /// Data-bearing hosts in the resolved cluster topology. Connectivity may
+    /// intentionally use a smaller set of hosts, so it cannot carry this fact.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub data_host_count: Option<usize>,
+
     pub database: String,
 
     pub username: String,
@@ -125,7 +131,15 @@ impl ClickHouseSinkConfig {
             self.request_timeout_ms > 0,
             "clickhouse.request_timeout_ms must be positive"
         );
+        anyhow::ensure!(
+            self.data_host_count != Some(0),
+            "clickhouse.data_host_count must be positive"
+        );
         Ok(())
+    }
+
+    pub(super) fn effective_data_host_count(&self) -> usize {
+        self.data_host_count.unwrap_or(self.hosts.len())
     }
 
     pub(super) fn effective_retry_max_attempts(&self) -> u32 {
@@ -150,6 +164,7 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("port", &self.port)
             .field("trusted_plaintext", &self.trusted_plaintext)
             .field("tls_ca_file", &self.tls_ca_file)
+            .field("data_host_count", &self.data_host_count)
             .field("database", &self.database)
             .field("username", &self.username)
             .field("password", &"<redacted>")

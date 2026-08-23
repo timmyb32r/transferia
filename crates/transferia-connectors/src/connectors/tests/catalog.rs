@@ -46,7 +46,8 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .and_then(|definition| definition.source.as_ref())
         .ok_or_else(|| anyhow::anyhow!("missing data generator source"))?;
     assert_eq!(generator.initial["preset"]["type"], "transfer_logs");
-    assert_eq!(generator.initial["data_size_bytes"], 107_374_182_400_u64);
+    assert_eq!(generator.initial["amount"]["type"], "rows");
+    assert_eq!(generator.initial["amount"]["row_count"], 50_000_000_u64);
     let preset = &generator.schema["properties"]["preset"];
     assert_eq!(preset["title"], "Preset");
     assert_eq!(preset["$ref"], "#/$defs/DataGeneratorPreset");
@@ -58,6 +59,16 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             .map(|variant| variant["title"].as_str())
             .collect::<Vec<_>>(),
         vec![Some("Transfer logs"), Some("Numeric")]
+    );
+    assert_eq!(generator.schema["properties"]["amount"]["title"], "Amount");
+    assert_eq!(
+        generator.schema["$defs"]["GenerationAmount"]["oneOf"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("generator amount must be a selector"))?
+            .iter()
+            .map(|variant| variant["title"].as_str())
+            .collect::<Vec<_>>(),
+        vec![Some("Rows"), Some("Data size")]
     );
     assert_eq!(
         catalog

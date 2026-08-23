@@ -19,6 +19,47 @@ use super::source::DataGeneratorSource;
 use super::DataGeneratorPreset;
 
 #[derive(Clone, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum GenerationAmount {
+    #[schemars(title = "Rows")]
+    Rows {
+        #[schemars(title = "Row count", range(min = 1))]
+        row_count: u64,
+    },
+    #[schemars(title = "Data size")]
+    DataSize {
+        #[schemars(
+            title = "Data size",
+            range(min = 1),
+            extend("x-ui" = { "widget": "byte_size" })
+        )]
+        data_size_bytes: u64,
+    },
+}
+
+impl GenerationAmount {
+    fn total_rows(&self, row_bytes: u64) -> anyhow::Result<u64> {
+        match self {
+            Self::Rows { row_count } => {
+                anyhow::ensure!(*row_count > 0, "generator.row_count must be positive");
+                Ok(*row_count)
+            }
+            Self::DataSize { data_size_bytes } => {
+                anyhow::ensure!(
+                    *data_size_bytes > 0,
+                    "generator.data_size_bytes must be positive"
+                );
+                anyhow::ensure!(
+                    data_size_bytes.is_multiple_of(row_bytes),
+                    "generator.data_size_bytes ({data_size_bytes}) must be divisible by the selected preset row width ({row_bytes} bytes)"
+                );
+                Ok(data_size_bytes / row_bytes)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DataGeneratorConfig {
     pub table_name: String,
@@ -26,8 +67,8 @@ pub struct DataGeneratorConfig {
     #[schemars(title = "Preset")]
     pub preset: DataGeneratorPreset,
 
-    #[schemars(range(min = 1), extend("x-ui" = { "widget": "byte_size" }))]
-    pub data_size_bytes: u64,
+    #[schemars(title = "Amount")]
+    pub amount: GenerationAmount,
 }
 
 impl DataGeneratorConfig {
@@ -37,17 +78,12 @@ impl DataGeneratorConfig {
             "generator.table_name must not be empty"
         );
         self.preset.validate()?;
-        anyhow::ensure!(
-            self.data_size_bytes > 0,
-            "generator.data_size_bytes must be positive"
-        );
-        let row_bytes = self.row_bytes()?;
-        anyhow::ensure!(
-            self.data_size_bytes.is_multiple_of(row_bytes),
-            "generator.data_size_bytes ({}) must be divisible by the selected preset row width ({row_bytes} bytes)",
-            self.data_size_bytes
-        );
+        let _ = self.total_rows()?;
         Ok(())
+    }
+
+    pub(super) fn total_rows(&self) -> anyhow::Result<u64> {
+        self.amount.total_rows(self.row_bytes()?)
     }
 
     pub(super) fn row_bytes(&self) -> anyhow::Result<u64> {

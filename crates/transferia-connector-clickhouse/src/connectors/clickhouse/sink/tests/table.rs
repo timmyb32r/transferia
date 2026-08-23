@@ -10,6 +10,14 @@ fn schema(columns: Vec<SchemaColumn>) -> DatasetSchema {
     DatasetSchema::new(columns)
 }
 
+fn merge_tree_ddl(
+    name: &str,
+    schema: &DatasetSchema,
+    sorting_key: &[String],
+) -> anyhow::Result<String> {
+    create_table_ddl(name, schema, sorting_key, TableEngine::MergeTree)
+}
+
 #[test]
 fn destination_type_matches_the_physical_clickhouse_ddl_type() -> anyhow::Result<()> {
     let mut column = SchemaColumn::new("name".into(), DataType::Utf8, true);
@@ -39,10 +47,29 @@ fn ddl_preserves_timestamp_timezone_and_quotes_it() -> anyhow::Result<()> {
         true,
     )]);
     assert_eq!(
-        create_table_ddl("events", &schema, &[])?,
+        merge_tree_ddl("events", &schema, &[])?,
         "CREATE TABLE IF NOT EXISTS `events` (`created_at` Nullable(DateTime64(6, 'Europe/Moscow'))) ENGINE = MergeTree ORDER BY (tuple())"
     );
     assert_eq!(quote_string_literal("db'\\name"), "'db\\'\\\\name'");
+    Ok(())
+}
+
+#[test]
+fn ddl_engine_follows_data_host_count() -> anyhow::Result<()> {
+    let schema = schema(vec![SchemaColumn::new(
+        "id".into(),
+        DataType::UInt64,
+        false,
+    )]);
+    for (data_host_count, expected_engine) in [
+        (1, "ENGINE = MergeTree"),
+        (2, "ENGINE = ReplicatedMergeTree"),
+        (3, "ENGINE = ReplicatedMergeTree"),
+    ] {
+        let engine = TableEngine::for_data_host_count(data_host_count);
+        let ddl = create_table_ddl("events", &schema, &[], engine)?;
+        assert!(ddl.contains(expected_engine), "{ddl}");
+    }
     Ok(())
 }
 
@@ -119,7 +146,7 @@ fn seconds_use_signed_datetime64_and_reject_lossy_datetime() -> anyhow::Result<(
         false,
     )]);
     assert_eq!(
-        create_table_ddl("events", &expected, &[])?,
+        merge_tree_ddl("events", &expected, &[])?,
         "CREATE TABLE IF NOT EXISTS `events` (`ts` DateTime64(0)) ENGINE = MergeTree ORDER BY (tuple())"
     );
 
@@ -137,7 +164,7 @@ fn date32_is_rejected_before_table_creation() {
         DataType::Date32,
         false,
     )]);
-    let error = create_table_ddl("events", &date32, &[]).unwrap_err();
+    let error = merge_tree_ddl("events", &date32, &[]).unwrap_err();
     assert!(error.to_string().contains("shifts values by 25,567 days"));
 }
 
@@ -148,7 +175,7 @@ fn date64_requires_an_explicit_parser_conversion() {
         DataType::Date64,
         false,
     )]);
-    let error = create_table_ddl("events", &date64, &[]).unwrap_err();
+    let error = merge_tree_ddl("events", &date64, &[]).unwrap_err();
     assert!(error.to_string().contains("explicit configured conversion"));
 }
 
@@ -170,7 +197,7 @@ fn target_schema_rejects_generated_input_columns_and_wrong_sorting_set() -> anyh
 #[test]
 fn ddl_rejects_duplicate_sorting_columns() {
     let schema = schema(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
-    let error = create_table_ddl("events", &schema, &["id".into(), "id".into()])
+    let error = merge_tree_ddl("events", &schema, &["id".into(), "id".into()])
         .expect_err("duplicate sorting columns must fail");
     assert!(error.to_string().contains("duplicate column 'id'"));
 }
@@ -183,7 +210,7 @@ fn ddl_materializes_low_cardinality_metadata() -> anyhow::Result<()> {
         false,
     )
     .with_constraints(true, true, Some(32))]);
-    let ddl = create_table_ddl("events", &schema, &["kind".into()])?;
+    let ddl = merge_tree_ddl("events", &schema, &["kind".into()])?;
     assert!(ddl.contains("`kind` LowCardinality(String)"), "{ddl}");
     assert!(ddl.contains("ORDER BY (`kind`)"), "{ddl}");
     Ok(())
@@ -215,14 +242,14 @@ fn ddl_rejects_identifiers_outside_the_canonical_ascii_subset() {
         DataType::Int64,
         false,
     )]);
-    assert!(create_table_ddl("events,archive", &valid_schema, &[]).is_err());
+    assert!(merge_tree_ddl("events,archive", &valid_schema, &[]).is_err());
 
     let invalid_schema = schema(vec![SchemaColumn::new(
         "nested.value".into(),
         DataType::Int64,
         false,
     )]);
-    assert!(create_table_ddl("events", &invalid_schema, &[]).is_err());
+    assert!(merge_tree_ddl("events", &invalid_schema, &[]).is_err());
 }
 
 #[test]
