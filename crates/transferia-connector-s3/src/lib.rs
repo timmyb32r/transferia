@@ -48,8 +48,8 @@ pub fn register(
                     "region": "us-east-1", "endpoint": null,
                     "credentials": { "access_key": "", "secret_key": "" },
                     "format": {
-                        "type": "parquet", "compression": "snappy",
-                        "row_group": { "max_rows": 1000000, "max_bytes": "128MiB" }
+                        "type": "parquet", "compression": "zstd",
+                        "row_group": { "max_rows": 1000000, "max_bytes": 134217728 }
                     },
                     "partitioning": { "type": "source" },
                     "rotation": { "max_rows": 10000, "max_bytes": "", "on_partition_path_change": "keep_epoch" },

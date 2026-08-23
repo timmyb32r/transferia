@@ -74,6 +74,7 @@ export function ObjectNodeEditor({
     ([, child]) => child.xUi.section === undefined,
   );
   const advanced = section(visible, "advanced");
+  const advancedParquet = section(visible, "advanced_parquet");
   const systemColumns = section(visible, "system_columns");
   const shardGroup = section(visible, "shard_group");
   const connectionAnchor =
@@ -166,6 +167,11 @@ export function ObjectNodeEditor({
       {shardGroup.length > 0 && (
         <Disclosure label="Shard group" class="shard-group-settings">
           {shardGroup.map(property)}
+        </Disclosure>
+      )}
+      {advancedParquet.length > 0 && (
+        <Disclosure label="Advanced Parquet settings">
+          {advancedParquet.map(property)}
         </Disclosure>
       )}
       {systemColumns.length > 0 && (

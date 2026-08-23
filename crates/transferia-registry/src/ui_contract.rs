@@ -28,6 +28,7 @@ struct UiHints {
 #[serde(rename_all = "snake_case")]
 enum UiSection {
     Advanced,
+    AdvancedParquet,
     SystemColumns,
     ShardGroup,
 }

@@ -93,9 +93,11 @@ pub enum S3OutputFormat {
     #[schemars(title = "Parquet")]
     Parquet {
         #[serde(default)]
+        #[schemars(extend("x-ui" = { "section": "advanced_parquet" }))]
         compression: ParquetCompression,
 
         #[serde(default)]
+        #[schemars(extend("x-ui" = { "section": "advanced_parquet" }))]
         row_group: ParquetRowGroupConfig,
     },
 }
@@ -104,9 +106,9 @@ pub enum S3OutputFormat {
 #[serde(rename_all = "snake_case")]
 pub enum ParquetCompression {
     Uncompressed,
-    #[default]
     Snappy,
     Gzip,
+    #[default]
     Zstd,
 }
 
@@ -117,7 +119,11 @@ pub struct ParquetRowGroupConfig {
     pub max_rows: usize,
 
     #[serde(default = "default_parquet_row_group_bytes")]
-    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
+    #[schemars(
+        title = "Max bytes",
+        with = "usize",
+        extend("x-ui" = { "widget": "byte_size" })
+    )]
     pub max_bytes: ByteSize,
 }
 

@@ -3717,7 +3717,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -4416,10 +4416,16 @@
                   "type": "object",
                   "properties": {
                     "compression": {
-                      "$ref": "#/$defs/ParquetCompression"
+                      "$ref": "#/$defs/ParquetCompression",
+                      "x-ui": {
+                        "section": "advanced_parquet"
+                      }
                     },
                     "row_group": {
-                      "$ref": "#/$defs/ParquetRowGroupConfig"
+                      "$ref": "#/$defs/ParquetRowGroupConfig",
+                      "x-ui": {
+                        "section": "advanced_parquet"
+                      }
                     },
                     "type": {
                       "type": "string",
@@ -4452,7 +4458,10 @@
                   "default": 1000000
                 },
                 "max_bytes": {
-                  "type": "string",
+                  "title": "Max bytes",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
                   "x-ui": {
                     "widget": "byte_size"
                   }
@@ -4700,10 +4709,10 @@
           },
           "format": {
             "type": "parquet",
-            "compression": "snappy",
+            "compression": "zstd",
             "row_group": {
               "max_rows": 1000000,
-              "max_bytes": "128MiB"
+              "max_bytes": 134217728
             }
           },
           "partitioning": {

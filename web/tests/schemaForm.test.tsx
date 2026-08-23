@@ -862,6 +862,33 @@ describe("schema form", () => {
     expect(document.activeElement).toBe(summary);
   });
 
+  it("groups Parquet-only controls under their dedicated disclosure", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(),
+      properties: {
+        compression: {
+          ...stringNode("Compression"),
+          xUi: { section: "advanced_parquet" },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ compression: "zstd" }}
+        onChange={() => undefined}
+      />,
+    );
+
+    const details = view.getByText("Advanced Parquet settings").closest("details")!;
+    expect(details.open).toBe(false);
+    fireEvent.click(view.getByText("Advanced Parquet settings"));
+    expect(details.open).toBe(true);
+    expect(view.container.querySelector("#field---compression")).toBeTruthy();
+  });
+
   it("does not render an empty nested panel for a discriminator-only branch", () => {
     const node: CompiledNode = {
       kind: "union",

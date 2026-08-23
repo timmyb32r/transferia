@@ -39,7 +39,7 @@ pub struct S3SourceConfig {
     #[serde(default = "default_timeout_ms")]
     #[schemars(
         title = "Request timeout (ms)",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub timeout_ms: u64,
 }

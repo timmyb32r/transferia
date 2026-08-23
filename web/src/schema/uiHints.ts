@@ -1,7 +1,11 @@
 import type { JsonSchema, JsonValue } from "../types";
 import type { WidgetContracts } from "./widgetDefinitions";
 
-export type UiSection = "advanced" | "system_columns" | "shard_group";
+export type UiSection =
+  | "advanced"
+  | "advanced_parquet"
+  | "system_columns"
+  | "shard_group";
 
 export interface UiHints {
   widget?: string;
@@ -61,6 +65,7 @@ export function decodeUiHints(
   if (
     section !== undefined &&
     section !== "advanced" &&
+    section !== "advanced_parquet" &&
     section !== "system_columns" &&
     section !== "shard_group"
   )
