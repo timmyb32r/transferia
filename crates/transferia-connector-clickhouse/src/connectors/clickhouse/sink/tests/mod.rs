@@ -33,6 +33,7 @@ struct FakeState {
     calls: AtomicUsize,
     active: AtomicUsize,
     max_active: AtomicUsize,
+    inserted_rows: Mutex<Vec<usize>>,
     plans: Mutex<VecDeque<Plan>>,
     gate: Semaphore,
     block: bool,
@@ -49,6 +50,7 @@ impl FakeTransport {
             calls: AtomicUsize::new(0),
             active: AtomicUsize::new(0),
             max_active: AtomicUsize::new(0),
+            inserted_rows: Mutex::new(Vec::new()),
             plans: Mutex::new(plans.into_iter().collect()),
             gate: Semaphore::new(0),
             block,
@@ -75,10 +77,15 @@ impl InsertTransport for FakeTransport {
     fn insert(
         &self,
         _table: Arc<str>,
-        _batches: Vec<RecordBatch>,
+        batches: Vec<RecordBatch>,
     ) -> BoxFuture<'static, Result<(), InsertError>> {
         let state = Arc::clone(&self.state);
         Box::pin(async move {
+            state
+                .inserted_rows
+                .lock()
+                .expect("inserted rows poisoned")
+                .push(batches.iter().map(RecordBatch::num_rows).sum());
             state.calls.fetch_add(1, Ordering::AcqRel);
             let active = state.active.fetch_add(1, Ordering::AcqRel) + 1;
             state.max_active.fetch_max(active, Ordering::AcqRel);
@@ -310,6 +317,36 @@ async fn full_buffer_starts_immediately_after_the_active_insert() {
     assert_eq!(state.max_active.load(Ordering::Acquire), 1);
     assert_eq!(counters.flushes_total(), 2);
     assert_eq!(counters.source_messages_total(), 2);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn backlog_is_split_at_the_configured_insert_target() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(true, []);
+    let (tx, mut events, cancellation, task) =
+        spawn_sink(transport, memory.clone(), Arc::clone(&counters));
+
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
+    wait_calls(&state, 1).await;
+    tx.send(delivery(&memory, 2, &["events"])).await.unwrap();
+    tx.send(delivery(&memory, 3, &["events"])).await.unwrap();
+    tokio::task::yield_now().await;
+
+    for expected_call in 2..=3 {
+        state.gate.add_permits(1);
+        events.recv().await.unwrap();
+        wait_calls(&state, expected_call).await;
+    }
+    state.gate.add_permits(1);
+    events.recv().await.unwrap();
+
+    assert_eq!(
+        *state.inserted_rows.lock().expect("inserted rows poisoned"),
+        vec![1, 1, 1]
+    );
     cancellation.cancel();
     task.await.unwrap().unwrap();
 }

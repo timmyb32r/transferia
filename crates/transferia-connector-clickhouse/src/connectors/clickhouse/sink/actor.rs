@@ -169,13 +169,34 @@ impl ClickHouseSink {
     fn take_insert(&mut self, table: &Arc<str>) -> anyhow::Result<ActiveInsert> {
         let buffer = self
             .buffers
-            .remove(table)
+            .get_mut(table)
             .ok_or_else(|| anyhow::anyhow!("missing ClickHouse buffer for table '{table}'"))?;
+        let mut rows = 0_usize;
+        let mut bytes = 0_usize;
+        let mut batch_count = 0_usize;
+        for buffered in &buffer.batches {
+            if batch_count > 0
+                && (rows >= self.config.insert_target_rows
+                    || bytes >= self.config.insert_target_bytes)
+            {
+                break;
+            }
+            rows = rows.saturating_add(buffered.batch.rows());
+            bytes = bytes.saturating_add(buffered.batch.bytes());
+            batch_count += 1;
+        }
+        let batches = buffer.batches.drain(..batch_count).collect();
+        buffer.rows = buffer.rows.saturating_sub(rows);
+        buffer.bytes = buffer.bytes.saturating_sub(bytes);
+        let table_name = Arc::clone(&buffer.table);
+        if buffer.batches.is_empty() {
+            self.buffers.remove(table);
+        }
         Ok(ActiveInsert {
-            table: buffer.table,
-            rows: buffer.rows,
-            bytes: buffer.bytes,
-            batches: buffer.batches,
+            table: table_name,
+            rows,
+            bytes,
+            batches,
         })
     }
 

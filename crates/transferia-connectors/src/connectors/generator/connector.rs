@@ -62,7 +62,10 @@ impl DataGeneratorConfig {
     fn schema(&self) -> DatasetSchema {
         DatasetSchema::new(
             (1..=self.column_count)
-                .map(|index| SchemaColumn::new(format!("column_{index}"), DataType::UInt64, false))
+                .map(|index| {
+                    SchemaColumn::new(format!("column_{index}"), DataType::UInt64, false)
+                        .with_constraints(index == 1, false, None)
+                })
                 .collect(),
         )
     }

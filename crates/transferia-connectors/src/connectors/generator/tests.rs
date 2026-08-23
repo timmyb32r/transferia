@@ -80,6 +80,13 @@ async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
         .await?;
     assert_eq!(discovery.datasets[0].name.as_ref(), "my_table");
     assert_eq!(discovery.datasets[0].stored_schema.columns.len(), 10);
+    assert!(discovery.datasets[0].stored_schema.columns[0].primary_key);
+    assert!(discovery.datasets[0]
+        .stored_schema
+        .columns
+        .iter()
+        .skip(1)
+        .all(|column| !column.primary_key));
     Ok(())
 }
 
