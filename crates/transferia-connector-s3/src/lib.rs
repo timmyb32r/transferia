@@ -25,10 +25,11 @@ pub fn register(
                 vec![DeliveryMode::Batch],
                 false,
                 || serde_json::json!({
-                    "bucket": "", "path_prefix": "", "region": "us-east-1", "endpoint": null,
+                    "bucket": "", "path_prefix": "", "table_name": "",
+                    "region": "us-east-1", "endpoint": null,
                     "credentials": { "access_key": "", "secret_key": "" },
-                    "format": {
-                        "type": "parquet", "table_name": "", "batch_rows": 65536
+                    "parser": {
+                        "type": "parquet", "batch_rows": 65536
                     },
                     "timeout_ms": 30000
                 }),

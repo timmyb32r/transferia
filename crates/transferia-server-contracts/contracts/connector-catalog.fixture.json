@@ -3699,9 +3699,13 @@
               "type": "string",
               "default": ""
             },
-            "format": {
-              "title": "Data format",
-              "$ref": "#/$defs/S3InputFormat"
+            "table_name": {
+              "title": "Table name",
+              "type": "string"
+            },
+            "parser": {
+              "title": "Parser",
+              "$ref": "#/$defs/S3InputParser"
             },
             "timeout_ms": {
               "title": "Request timeout (ms)",
@@ -3716,7 +3720,8 @@
           },
           "additionalProperties": false,
           "required": [
-            "format",
+            "table_name",
+            "parser",
             "installation"
           ],
           "$defs": {
@@ -3739,17 +3744,22 @@
                 "secret_key"
               ]
             },
-            "S3InputFormat": {
+            "S3InputParser": {
               "oneOf": [
                 {
                   "title": "JSON",
                   "type": "object",
                   "properties": {
-                    "parser": {
-                      "$ref": "#/$defs/ParserSchema",
+                    "common": {
+                      "title": "Parser settings",
+                      "$ref": "#/$defs/S3JsonCommonConfig",
                       "x-ui": {
-                        "widget": "parser"
+                        "widget": "parser_common"
                       }
+                    },
+                    "json_parser": {
+                      "title": "JSON parser",
+                      "$ref": "#/$defs/JsonParserConfig"
                     },
                     "type": {
                       "type": "string",
@@ -3759,17 +3769,17 @@
                   "additionalProperties": false,
                   "required": [
                     "type",
-                    "parser"
-                  ]
+                    "common",
+                    "json_parser"
+                  ],
+                  "x-ui": {
+                    "widget": "json_parser"
+                  }
                 },
                 {
                   "title": "Parquet",
                   "type": "object",
                   "properties": {
-                    "table_name": {
-                      "title": "Table name",
-                      "type": "string"
-                    },
                     "batch_rows": {
                       "type": "integer",
                       "format": "uint",
@@ -3786,62 +3796,40 @@
                   },
                   "additionalProperties": false,
                   "required": [
-                    "type",
-                    "table_name"
+                    "type"
+                  ]
+                },
+                {
+                  "title": "Discard messages (for benchmarks)",
+                  "type": "object",
+                  "properties": {
+                    "common": {
+                      "$ref": "#/$defs/S3JsonCommonConfig",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "discard": {
+                      "$ref": "#/$defs/EmptyDiscardConfig",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "discard"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
                   ]
                 }
               ]
             },
-            "ParserSchema": {
-              "description": "Complete parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union gives JSON Schema an explicit set\nof currently supported forms.",
-              "anyOf": [
-                {
-                  "title": "JSON parser",
-                  "$ref": "#/$defs/JsonParserSchema"
-                },
-                {
-                  "title": "Schema Registry parser",
-                  "$ref": "#/$defs/SchemaRegistryParserSchema"
-                },
-                {
-                  "title": "Discard messages (for benchmarks)",
-                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
-                }
-              ]
-            },
-            "JsonParserSchema": {
+            "S3JsonCommonConfig": {
               "type": "object",
               "properties": {
-                "common": {
-                  "title": "Parser settings",
-                  "$ref": "#/$defs/CommonParserConfig",
-                  "x-ui": {
-                    "widget": "parser_common"
-                  }
-                },
-                "json_parser": {
-                  "title": "JSON parser",
-                  "$ref": "#/$defs/JsonParserConfig"
-                }
-              },
-              "required": [
-                "common",
-                "json_parser"
-              ],
-              "x-ui": {
-                "widget": "json_parser"
-              }
-            },
-            "CommonParserConfig": {
-              "type": "object",
-              "properties": {
-                "table_naming": {
-                  "title": "Table name",
-                  "$ref": "#/$defs/TableNaming",
-                  "x-ui": {
-                    "control_width": "table_name"
-                  }
-                },
                 "system_columns": {
                   "$ref": "#/$defs/SystemColumnsConfig",
                   "default": {
@@ -3856,46 +3844,7 @@
                   }
                 }
               },
-              "additionalProperties": false,
-              "required": [
-                "table_naming"
-              ]
-            },
-            "TableNaming": {
-              "oneOf": [
-                {
-                  "title": "From config",
-                  "type": "object",
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "from_config"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "name"
-                  ]
-                },
-                {
-                  "title": "From topic name",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "from_topic_name"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                }
-              ]
+              "additionalProperties": false
             },
             "SystemColumnsConfig": {
               "type": "object",
@@ -4268,255 +4217,18 @@
                 }
               ]
             },
-            "SchemaRegistryParserSchema": {
+            "EmptyDiscardConfig": {
               "type": "object",
-              "properties": {
-                "common": {
-                  "title": "Parser settings",
-                  "$ref": "#/$defs/SchemaRegistryCommonParserConfig",
-                  "default": {
-                    "table_naming": {
-                      "type": "from_topic_name"
-                    },
-                    "system_columns": {
-                      "topic": null,
-                      "partition": null,
-                      "offset": null,
-                      "write_timestamp_ms": null
-                    }
-                  },
-                  "x-ui": {
-                    "widget": "parser_common"
-                  }
-                },
-                "schema_registry": {
-                  "title": "Schema Registry parser",
-                  "$ref": "#/$defs/SchemaRegistryParserConfig"
-                }
-              },
-              "required": [
-                "schema_registry"
-              ]
-            },
-            "SchemaRegistryCommonParserConfig": {
-              "type": "object",
-              "properties": {
-                "table_naming": {
-                  "title": "Table name",
-                  "$ref": "#/$defs/TableNaming",
-                  "x-ui": {
-                    "control_width": "table_name"
-                  }
-                },
-                "system_columns": {
-                  "$ref": "#/$defs/SchemaRegistrySystemColumnsConfig",
-                  "x-ui": {
-                    "widget": "system_columns"
-                  }
-                }
-              },
-              "required": [
-                "table_naming",
-                "system_columns"
-              ]
-            },
-            "SchemaRegistrySystemColumnsConfig": {
-              "type": "object",
-              "properties": {
-                "topic": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "partition": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "offset": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "write_timestamp_ms": {
-                  "description": "Source-reported message write time as Unix epoch milliseconds",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              }
-            },
-            "SchemaRegistryParserConfig": {
-              "type": "object",
-              "properties": {
-                "connection": {
-                  "$ref": "#/$defs/SchemaRegistryConnection"
-                },
-                "json_parser": {
-                  "$ref": "#/$defs/JsonParserConfig",
-                  "x-ui": {
-                    "widget": "hidden"
-                  }
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "connection",
-                "json_parser"
-              ]
-            },
-            "SchemaRegistryConnection": {
-              "type": "object",
-              "properties": {
-                "url": {
-                  "title": "Registry URL",
-                  "type": "string"
-                },
-                "request_timeout_ms": {
-                  "title": "Request timeout (ms)",
-                  "type": "integer",
-                  "format": "uint64",
-                  "minimum": 0,
-                  "x-ui": {
-                    "section": "advanced"
-                  }
-                },
-                "auth": {
-                  "title": "Authentication",
-                  "$ref": "#/$defs/SchemaRegistryAuth",
-                  "default": {
-                    "type": "none"
-                  }
-                },
-                "ca_certificate": {
-                  "title": "CA certificate (PEM)",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
-                  "default": null,
-                  "x-ui": {
-                    "section": "advanced"
-                  }
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "url",
-                "request_timeout_ms"
-              ]
-            },
-            "SchemaRegistryAuth": {
-              "oneOf": [
-                {
-                  "title": "No authentication",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "none"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "title": "Username and password",
-                  "type": "object",
-                  "properties": {
-                    "username": {
-                      "type": "string"
-                    },
-                    "password": {
-                      "type": "string",
-                      "x-ui": {
-                        "widget": "password"
-                      }
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "basic"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password"
-                  ]
-                },
-                {
-                  "title": "Bearer token",
-                  "type": "object",
-                  "properties": {
-                    "token": {
-                      "type": "string",
-                      "x-ui": {
-                        "widget": "password"
-                      }
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "bearer"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
-                }
-              ]
-            },
-            "BenchmarkDiscardParserSchema": {
-              "type": "object",
-              "properties": {
-                "common": {
-                  "$ref": "#/$defs/CommonParserConfig",
-                  "default": {
-                    "table_naming": {
-                      "type": "from_topic_name"
-                    },
-                    "system_columns": {
-                      "topic": null,
-                      "partition": null,
-                      "offset": null,
-                      "message_index": null,
-                      "write_timestamp_ms": null
-                    }
-                  },
-                  "x-ui": {
-                    "widget": "hidden"
-                  }
-                },
-                "benchmark_discard": {
-                  "$ref": "#/$defs/EmptyParserConfig",
-                  "x-ui": {
-                    "widget": "hidden"
-                  }
-                }
-              },
-              "required": [
-                "benchmark_discard"
-              ]
-            },
-            "EmptyParserConfig": {
-              "type": "object"
+              "additionalProperties": false
             }
           }
         },
         "initial": {
           "timeout_ms": 30000,
           "path_prefix": "",
-          "format": {
+          "table_name": "",
+          "parser": {
             "type": "parquet",
-            "table_name": "",
             "batch_rows": 65536
           },
           "installation": {

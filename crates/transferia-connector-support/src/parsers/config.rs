@@ -185,7 +185,13 @@ pub enum TableNaming {
 
 impl ParserConfig {
     pub fn resolve_table_name(&self, topic_path: &str) -> anyhow::Result<String> {
-        match &self.common.table_naming {
+        self.common.resolve_table_name(topic_path)
+    }
+}
+
+impl CommonParserConfig {
+    pub fn resolve_table_name(&self, topic_path: &str) -> anyhow::Result<String> {
+        match &self.table_naming {
             TableNaming::FromConfig { name } => {
                 (!name.is_empty()).then(|| name.clone()).ok_or_else(|| {
                     anyhow::anyhow!("table_naming.name is required for type 'from_config'")

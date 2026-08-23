@@ -97,43 +97,20 @@ impl ParserPlan {
 
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {
         config.common.system_columns.validate()?;
-        let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
         let kind = config.parser.kind()?;
         let (parser, dataset_schema, parses_rows, discovered_system_columns, primary_key) =
             match kind {
                 "json_parser" => {
                     let parser_config: json_parser::JsonParserConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
-                    let schema = parser_config.to_dataset_schema()?;
-                    let discovered_system_columns = config
-                        .common
-                        .system_columns
-                        .enabled()
-                        .map(|kind| DiscoveredSystemColumn {
-                            kind,
-                            name: Arc::from(config.common.system_columns.name(kind)),
-                        })
-                        .collect::<Vec<_>>();
-                    validate_primary_key(
+                    return Self::from_json_config(
+                        &config.common,
                         &parser_config,
-                        &config.common.system_columns,
-                        &schema,
-                        &discovered_system_columns,
-                    )?;
-                    let parser = Arc::new(json_parser::JsonParser::new(
-                        &parser_config,
-                        &config.common.system_columns,
-                        Arc::clone(&table),
-                    )?) as Arc<dyn ParserFactory>;
-                    (
-                        parser,
-                        schema,
-                        true,
-                        discovered_system_columns,
-                        Arc::from(parser_config.keys),
-                    )
+                        topic_path,
+                    );
                 }
                 "schema_registry" => {
+                    let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
                     anyhow::ensure!(
                         config.common.system_columns.message_index.is_none(),
                         "schema_registry parser does not support the message_index system column because one source message always produces one row"
@@ -173,16 +150,7 @@ impl ParserPlan {
                 "benchmark_discard" => {
                     let _: benchmark_discard::BenchmarkDiscardConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
-                    let parser = Arc::new(benchmark_discard::BenchmarkDiscardParser::new(
-                        Arc::clone(&table),
-                    )) as Arc<dyn ParserFactory>;
-                    (
-                        parser,
-                        DatasetSchema::default(),
-                        false,
-                        Vec::new(),
-                        Arc::from([]),
-                    )
+                    return Ok(Self::from_benchmark_discard(topic_path));
                 }
                 other => anyhow::bail!(
                     "unknown parser '{other}'; supported parsers: json_parser, schema_registry, benchmark_discard"
@@ -190,12 +158,64 @@ impl ParserPlan {
             };
         Ok(Self {
             parser,
-            table,
+            table: config.resolve_table_name(topic_path)?.into(),
             dataset_schema,
             parses_rows,
             discovered_system_columns,
             primary_key,
         })
+    }
+
+    pub fn from_json_config(
+        common: &CommonParserConfig,
+        parser_config: &json_parser::JsonParserConfig,
+        source_name: &str,
+    ) -> anyhow::Result<Self> {
+        common.system_columns.validate()?;
+        let table: Arc<str> = common.resolve_table_name(source_name)?.into();
+        let schema = parser_config.to_dataset_schema()?;
+        let discovered_system_columns = common
+            .system_columns
+            .enabled()
+            .map(|kind| DiscoveredSystemColumn {
+                kind,
+                name: Arc::from(common.system_columns.name(kind)),
+            })
+            .collect::<Vec<_>>();
+        validate_primary_key(
+            parser_config,
+            &common.system_columns,
+            &schema,
+            &discovered_system_columns,
+        )?;
+        let parser = Arc::new(json_parser::JsonParser::new(
+            parser_config,
+            &common.system_columns,
+            Arc::clone(&table),
+        )?) as Arc<dyn ParserFactory>;
+        Ok(Self {
+            parser,
+            table,
+            dataset_schema: schema,
+            parses_rows: true,
+            discovered_system_columns,
+            primary_key: Arc::from(parser_config.keys.clone()),
+        })
+    }
+
+    #[must_use]
+    pub fn from_benchmark_discard(source_name: &str) -> Self {
+        let table: Arc<str> = source_name.into();
+        Self {
+            parser: Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::clone(
+                &table,
+            ))),
+            table,
+            dataset_schema: DatasetSchema::default(),
+            parses_rows: false,
+            discovered_system_columns: Vec::new(),
+            primary_key: Arc::from([]),
+        }
     }
 
     /// Route each parsed batch to the source topic carried by its messages.

@@ -6,7 +6,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::connectors::s3::sink::S3CredentialsConfig;
-use crate::parsers::ParserConfig;
+use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::SystemColumnsConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -16,6 +17,9 @@ pub struct S3SourceConfig {
     #[serde(default)]
     #[schemars(title = "Path prefix")]
     pub path_prefix: String,
+
+    #[schemars(title = "Table name")]
+    pub table_name: String,
 
     #[serde(default = "default_region")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -27,8 +31,8 @@ pub struct S3SourceConfig {
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
 
-    #[schemars(title = "Data format")]
-    pub format: S3InputFormat,
+    #[schemars(title = "Parser")]
+    pub parser: S3InputParser,
 
     #[serde(default = "default_timeout_ms")]
     #[schemars(
@@ -40,45 +44,58 @@ pub struct S3SourceConfig {
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum S3InputFormat {
-    #[schemars(title = "JSON")]
+pub enum S3InputParser {
+    #[schemars(title = "JSON", extend("x-ui" = { "widget": "json_parser" }))]
     Json {
         #[schemars(
-            with = "crate::parsers::config::ParserSchema",
-            extend("x-ui" = { "widget": "parser" })
+            title = "Parser settings",
+            extend("x-ui" = { "widget": "parser_common" })
         )]
-        parser: ParserConfig,
+        common: S3JsonCommonConfig,
+
+        #[schemars(title = "JSON parser")]
+        json_parser: JsonParserConfig,
     },
 
     #[schemars(title = "Parquet")]
     Parquet {
-        #[schemars(title = "Table name")]
-        table_name: String,
-
         #[serde(default = "default_parquet_batch_rows")]
         #[schemars(extend("x-ui" = { "widget": "hidden" }))]
         batch_rows: usize,
     },
+
+    #[schemars(title = "Discard messages (for benchmarks)")]
+    Discard {
+        #[serde(default)]
+        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+        common: S3JsonCommonConfig,
+
+        #[serde(default)]
+        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+        discard: EmptyDiscardConfig,
+    },
 }
 
-impl S3InputFormat {
-    pub(super) fn parser(&self) -> Option<&ParserConfig> {
+impl S3InputParser {
+    pub(super) fn parquet_batch_rows(&self) -> Option<usize> {
         match self {
-            Self::Json { parser } => Some(parser),
-            Self::Parquet { .. } => None,
-        }
-    }
-
-    pub(super) fn parquet(&self) -> Option<(&str, usize)> {
-        match self {
-            Self::Parquet {
-                table_name,
-                batch_rows,
-            } => Some((table_name, *batch_rows)),
-            Self::Json { .. } => None,
+            Self::Parquet { batch_rows } => Some(*batch_rows),
+            Self::Json { .. } | Self::Discard { .. } => None,
         }
     }
 }
+
+#[derive(Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct S3JsonCommonConfig {
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "system_columns" }))]
+    pub system_columns: SystemColumnsConfig,
+}
+
+#[derive(Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EmptyDiscardConfig {}
 
 impl S3SourceConfig {
     pub async fn check_connection(&self) -> anyhow::Result<()> {
@@ -105,18 +122,20 @@ impl S3SourceConfig {
         }
         anyhow::ensure!(self.timeout_ms > 0, "s3.timeout_ms must be positive");
         self.validate_endpoint()?;
-        match &self.format {
-            S3InputFormat::Json { parser } => anyhow::ensure!(
-                parser.parser.kind()? == "json_parser",
-                "S3 JSON source supports only parser.json_parser"
-            ),
-            S3InputFormat::Parquet {
-                table_name,
-                batch_rows,
+        match &self.parser {
+            S3InputParser::Json {
+                common,
+                json_parser,
             } => {
-                anyhow::ensure!(!table_name.is_empty(), "s3.format.parquet.table_name is required");
-                anyhow::ensure!(*batch_rows > 0, "s3.format.parquet.batch_rows must be positive");
+                common.system_columns.validate()?;
+                json_parser.to_dataset_schema()?;
+                self.validate_table_name()?;
             }
+            S3InputParser::Parquet { batch_rows } => {
+                self.validate_table_name()?;
+                anyhow::ensure!(*batch_rows > 0, "s3.parser.parquet.batch_rows must be positive");
+            }
+            S3InputParser::Discard { .. } => {}
         }
         Ok(())
     }
@@ -154,6 +173,15 @@ impl S3SourceConfig {
             );
             anyhow::ensure!(parsed.host_str().is_some(), "s3.endpoint must include a host");
         }
+        Ok(())
+    }
+
+    fn validate_table_name(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.table_name.is_empty(), "s3.table_name is required");
+        anyhow::ensure!(
+            self.table_name == self.table_name.trim(),
+            "s3.table_name must not have leading or trailing whitespace"
+        );
         Ok(())
     }
 }

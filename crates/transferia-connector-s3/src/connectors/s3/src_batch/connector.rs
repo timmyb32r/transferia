@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::config::S3SourceConfig;
 use super::reader::S3Source;
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
+use crate::parsers::{CommonParserConfig, ParserPlan, TableNaming};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -36,9 +36,29 @@ impl S3SourceConnector {
         metrics: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
         config.validate()?;
-        let parser_plan = match config.format.parser() {
-            Some(parser) => ParserPlan::from_config(parser, &config.path_prefix)?,
-            None => ParserPlan::native_source(),
+        let source_name = if config.path_prefix.is_empty() {
+            config.bucket.as_str()
+        } else {
+            config.path_prefix.as_str()
+        };
+        let parser_plan = match &config.parser {
+            super::config::S3InputParser::Json {
+                common,
+                json_parser,
+            } => ParserPlan::from_json_config(
+                &CommonParserConfig {
+                    table_naming: TableNaming::FromConfig {
+                        name: config.table_name.clone(),
+                    },
+                    system_columns: common.system_columns.clone(),
+                },
+                json_parser,
+                source_name,
+            )?,
+            super::config::S3InputParser::Discard { .. } => {
+                ParserPlan::from_benchmark_discard(source_name)
+            }
+            super::config::S3InputParser::Parquet { .. } => ParserPlan::native_source(),
         };
         let store = config.build_store()?;
         Ok(Self {
@@ -131,7 +151,7 @@ impl SourceConnector for S3SourceConnector {
                 cancellation,
             } = context;
             drop(self.snapshot(&cancellation).await?);
-            if let Some((table_name, _)) = self.config.format.parquet() {
+            if self.config.parser.parquet_batch_rows().is_some() {
                 let schema = self.parquet_schema(&cancellation).await?;
                 let dataset_schema = DatasetSchema::new(
                     schema
@@ -157,7 +177,7 @@ impl SourceConnector for S3SourceConnector {
                     keep_system_columns: request.keep_system_columns,
                     datasets: vec![DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table_name),
+                        name: Arc::from(self.config.table_name.as_str()),
                         incoming_schema: dataset_schema.clone(),
                         stored_schema: dataset_schema,
                         system_columns: Vec::new(),
@@ -185,9 +205,9 @@ impl SourceConnector for S3SourceConnector {
             anyhow::ensure!(partition_id == 0, "S3 source has only partition 0");
             let keys = self.snapshot(&cancellation).await?;
             let counters = self.counters(partition_id);
-            let parquet = if let Some((table, batch_rows)) = self.config.format.parquet() {
+            let parquet = if let Some(batch_rows) = self.config.parser.parquet_batch_rows() {
                 Some((
-                    Arc::from(table),
+                    Arc::from(self.config.table_name.as_str()),
                     batch_rows,
                     self.parquet_schema(&cancellation).await?,
                 ))
