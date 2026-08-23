@@ -1588,7 +1588,12 @@ input[type="checkbox"]:disabled {
   width: max(100%, 340px);
   max-width: min(520px, calc(100vw - 48px));
 }
-.control-width-auth > .field-control,
+.control-width-auth > .field-control {
+  width: 100%;
+}
+.control-width-auth .nested-section .form-row:not(.form-row-wide) {
+  grid-template-columns: minmax(80px, 30%) minmax(0, 1fr);
+}
 .control-width-medium > .field-control {
   width: min(100%, 340px);
 }
@@ -3045,6 +3050,11 @@ button::after {
   width: 100%;
   min-width: 0;
 }
+.advanced-parquet-settings > .foldout-content > .form-row-wide {
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-inner);
+}
 .advanced-parquet-settings .byte-size-input {
   grid-template-columns: minmax(0, 1fr) minmax(72px, 40%);
 }
@@ -3482,6 +3492,11 @@ button::after {
   td
   .dynamic-path-input-wrap
   input,
+:root[data-design="airy-v0"]
+  .compact-array-table
+  td
+  input:not([type="checkbox"]),
+:root[data-design="airy-v0"] .compact-array-table td .select-trigger,
 :root[data-design="airy-v0"] .config-table td .validated-input input {
   border-color: var(--field-border);
   background: var(--control);

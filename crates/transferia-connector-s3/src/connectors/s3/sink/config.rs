@@ -60,26 +60,23 @@ pub struct S3SinkConfig {
     pub format: S3OutputFormat,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub partitioning: PartitioningConfig,
 
     #[serde(default)]
-    #[schemars(
-        title = "Advanced writer settings",
-        extend("x-ui" = { "section": "advanced" })
-    )]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub rotation: RotationConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub buffering: BufferingConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub upload: UploadConfig,
 
     #[serde(default)]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub retry: RetryConfig,
 }
 

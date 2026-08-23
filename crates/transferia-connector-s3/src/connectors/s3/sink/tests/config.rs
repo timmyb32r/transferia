@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn operational_tuning_is_hidden_from_the_sink_form() {
+    let schema = serde_json::to_value(schemars::schema_for!(S3SinkConfig))
+        .expect("S3 sink schema must serialize");
+
+    for field in ["partitioning", "rotation", "buffering", "upload", "retry"] {
+        assert_eq!(
+            schema
+                .pointer(&format!("/properties/{field}/x-ui/widget"))
+                .and_then(serde_json::Value::as_str),
+            Some("hidden"),
+            "{field} must not appear in the S3 sink form",
+        );
+    }
+}
+
+#[test]
 fn rejects_zero_parallel_object_uploads() -> anyhow::Result<()> {
     let config: S3SinkConfig =
         serde_yaml::from_str("bucket: test\nupload: { max_in_flight_objects: 0 }\n")?;

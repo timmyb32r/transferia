@@ -10,6 +10,18 @@ use super::src_batch::validate_read_schema;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
 #[test]
+fn auth_uses_the_wide_credentials_control() {
+    let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSourceConfig))
+        .expect("YTsaurus source schema must serialize");
+    assert_eq!(
+        schema
+            .pointer("/properties/auth/x-ui/control_width")
+            .and_then(serde_json::Value::as_str),
+        Some("auth"),
+    );
+}
+
+#[test]
 fn configs_derive_transport_and_use_paths_as_table_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
         "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n",

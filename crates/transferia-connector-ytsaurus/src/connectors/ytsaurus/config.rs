@@ -10,6 +10,7 @@ const DEFAULT_BATCH_ROWS: usize = 65_536;
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: YTsaurusAuthConfig,
 
     pub host: String,
