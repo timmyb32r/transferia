@@ -1598,7 +1598,9 @@ input[type="checkbox"]:disabled {
   width: 100%;
 }
 .control-width-routing .nested-section .form-row:not(.form-row-wide) {
-  grid-template-columns: minmax(100px, 25%) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
 }
 .control-width-medium > .field-control {
   width: min(100%, 340px);

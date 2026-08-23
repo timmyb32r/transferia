@@ -515,6 +515,7 @@ function controlWidthClass(
   if (node.xUi.control_width === "medium") return "control-width-medium";
   if (node.xUi.control_width === "table_name")
     return "control-width-table-name";
+  if (node.xUi.control_width === "routing") return "control-width-routing";
   if (node.xUi.control_width === "full") return "control-width-full";
   if (
     node.kind === "union" ||

@@ -26,6 +26,52 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("keeps routing unions wide instead of applying the enum width", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(["topic"]),
+      properties: {
+        topic: {
+          kind: "union",
+          title: "Topic",
+          xUi: { control_width: "routing" },
+          branches: [
+            {
+              label: "Topic",
+              requiredKeys: ["type", "topic"],
+              discriminator: { key: "type", value: "topic" },
+              node: {
+                kind: "object",
+                xUi: {},
+                required: new Set(["type", "topic"]),
+                properties: {
+                  type: {
+                    kind: "string",
+                    xUi: {},
+                    enumValues: ["topic"],
+                  },
+                  topic: stringNode("Topic"),
+                },
+              },
+            },
+          ],
+        },
+      },
+    };
+
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ topic: { type: "topic", topic: "" } }}
+        onChange={() => undefined}
+      />,
+    );
+    const routingRow = view.container.querySelector(".control-width-routing");
+    expect(routingRow).not.toBeNull();
+    expect(routingRow?.classList.contains("control-width-enum")).toBe(false);
+  });
+
   it("guides the first required parser setting after selecting a parser", async () => {
     const fromConfig: CompiledNode = {
       kind: "object",
