@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use arrow::datatypes::DataType;
 use futures_util::future::BoxFuture;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use transferia_connector_support::parsers::ParserPlan;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::schema::DatasetSchema;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
@@ -17,14 +16,15 @@ use transferia_delivery_contracts::semantics::{
 use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 use super::source::DataGeneratorSource;
+use super::DataGeneratorPreset;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DataGeneratorConfig {
     pub table_name: String,
 
-    #[schemars(range(min = 1))]
-    pub column_count: usize,
+    #[schemars(title = "Preset")]
+    pub preset: DataGeneratorPreset,
 
     #[schemars(range(min = 1), extend("x-ui" = { "widget": "byte_size" }))]
     pub data_size_bytes: u64,
@@ -36,10 +36,7 @@ impl DataGeneratorConfig {
             !self.table_name.is_empty(),
             "generator.table_name must not be empty"
         );
-        anyhow::ensure!(
-            self.column_count > 0,
-            "generator.column_count must be positive"
-        );
+        self.preset.validate()?;
         anyhow::ensure!(
             self.data_size_bytes > 0,
             "generator.data_size_bytes must be positive"
@@ -47,27 +44,18 @@ impl DataGeneratorConfig {
         let row_bytes = self.row_bytes()?;
         anyhow::ensure!(
             self.data_size_bytes.is_multiple_of(row_bytes),
-            "generator.data_size_bytes ({}) must be divisible by the generated row width ({row_bytes} bytes)",
+            "generator.data_size_bytes ({}) must be divisible by the selected preset row width ({row_bytes} bytes)",
             self.data_size_bytes
         );
         Ok(())
     }
 
     pub(super) fn row_bytes(&self) -> anyhow::Result<u64> {
-        u64::try_from(self.column_count)?
-            .checked_mul(8)
-            .ok_or_else(|| anyhow::anyhow!("generator row width overflow"))
+        self.preset.logical_row_bytes()
     }
 
     pub(super) fn schema(&self) -> DatasetSchema {
-        DatasetSchema::new(
-            (1..=self.column_count)
-                .map(|index| {
-                    SchemaColumn::new(format!("column_{index}"), DataType::UInt64, false)
-                        .with_constraints(index == 1, false, None)
-                })
-                .collect(),
-        )
+        self.preset.schema()
     }
 }
 

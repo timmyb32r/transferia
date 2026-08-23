@@ -9,12 +9,12 @@ use transferia_delivery_contracts::metrics::{MetricsRegistry, SourceCounters};
 use transferia_registry::{SourceConnector as _, SourceDiscoveryContext};
 
 use super::source::DataGeneratorSource;
-use super::{DataGeneratorConfig, DataGeneratorSourceConnector};
+use super::{DataGeneratorConfig, DataGeneratorPreset, DataGeneratorSourceConnector};
 
 fn config() -> DataGeneratorConfig {
     DataGeneratorConfig {
         table_name: "my_table".to_owned(),
-        column_count: 10,
+        preset: DataGeneratorPreset::Numeric { column_count: 10 },
         data_size_bytes: 1_600,
     }
 }
@@ -98,6 +98,69 @@ async fn discovery_matches_generated_table_and_columns() -> anyhow::Result<()> {
         .iter()
         .skip(1)
         .all(|column| !column.primary_key));
+    Ok(())
+}
+
+#[tokio::test]
+async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> anyhow::Result<()> {
+    let config = DataGeneratorConfig {
+        table_name: "logs".to_owned(),
+        preset: DataGeneratorPreset::TransferLogs,
+        data_size_bytes: 512,
+    };
+    let connector = DataGeneratorSourceConnector::from_config(
+        config.clone(),
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    let discovery = connector
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: tokio_util::sync::CancellationToken::new(),
+        })
+        .await?;
+    let primary_keys = discovery.datasets[0]
+        .stored_schema
+        .columns
+        .iter()
+        .filter(|column| column.primary_key)
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        primary_keys,
+        vec![
+            "_system_topic",
+            "_system_partition",
+            "_system_offset",
+            "_system_message_index"
+        ]
+    );
+
+    let mut source = DataGeneratorSource::new(
+        config,
+        PipelineMemory::new(16 * 1024 * 1024),
+        Arc::new(SourceCounters::new()),
+    )?;
+    let SourceBatch::Typed { tables, .. } = source.read_batch().await? else {
+        panic!("generator did not return a typed batch");
+    };
+    assert_eq!(tables[0].batch.num_columns(), 26);
+    assert_eq!(tables[0].batch.schema().field(0).name(), "caller");
+    assert_eq!(
+        tables[0].batch.schema().field(22).name(),
+        "_system_topic"
+    );
+    assert_eq!(
+        tables[0]
+            .batch
+            .schema()
+            .field(22)
+            .metadata()
+            .get(META_PRIMARY_KEY)
+            .map(String::as_str),
+        Some("true")
+    );
     Ok(())
 }
 

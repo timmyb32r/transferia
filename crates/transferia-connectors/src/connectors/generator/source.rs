@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, UInt64Array};
-use arrow::datatypes::{Field, Schema};
-use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::system_columns::SystemColumns;
@@ -64,27 +61,11 @@ impl Source for DataGeneratorSource {
                 .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
             let reservation = self.memory.reserve(batch_bytes).await;
             let start = self.next_row;
-            let columns = (0..self.config.column_count)
-                .map(|column| {
-                    Arc::new(UInt64Array::from_iter_values(
-                        (start..start + rows).map(|row| row ^ column as u64),
-                    )) as ArrayRef
-                })
-                .collect::<Vec<_>>();
-            let schema = Arc::new(Schema::new(
-                self.config
-                    .schema()
-                    .columns
-                    .into_iter()
-                    .map(|column| {
-                        let metadata = column.arrow_metadata();
-                        Field::new(column.name, column.data_type, column.nullable)
-                            .with_metadata(metadata)
-                    })
-                    .collect::<Vec<_>>(),
-            ));
-            let batch = RecordBatch::try_new(schema, columns)
-                .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+            let batch = self
+                .config
+                .preset
+                .batch(start, rows)
+                .map_err(DataPlaneFailure::fatal)?;
             self.next_row += rows;
             self.counters.add_messages(rows);
             self.counters.add_decompressed_bytes(batch_bytes_u64);

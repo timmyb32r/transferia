@@ -291,7 +291,7 @@ fn build_base_connector_catalog(
             || {
                 serde_json::json!({
                     "table_name": "",
-                    "column_count": 10,
+                    "preset": { "type": "transfer_logs" },
                     "data_size_bytes": 107_374_182_400_u64
                 })
             },
