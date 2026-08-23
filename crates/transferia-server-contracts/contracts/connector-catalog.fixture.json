@@ -3632,65 +3632,92 @@
           "title": "S3SourceConfig",
           "type": "object",
           "properties": {
-            "bucket": {
-              "type": "string"
-            },
-            "prefix": {
-              "type": "string",
-              "default": ""
-            },
-            "region": {
-              "type": "string",
-              "default": "us-east-1"
-            },
-            "host": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "default": null
-            },
-            "port": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint16",
-              "minimum": 0,
-              "maximum": 65535,
-              "default": null
-            },
-            "allow_http": {
-              "type": "boolean",
-              "default": false
-            },
-            "credentials": {
-              "anyOf": [
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
                 {
-                  "$ref": "#/$defs/S3CredentialsConfig"
-                },
-                {
-                  "type": "null"
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "bucket": {
+                      "type": "string",
+                      "title": "Bucket"
+                    },
+                    "endpoint": {
+                      "type": "string",
+                      "title": "Endpoint URL"
+                    },
+                    "region": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "credentials": {
+                      "type": "object",
+                      "title": "Authentication",
+                      "properties": {
+                        "access_key": {
+                          "type": "string",
+                          "title": "Access key ID"
+                        },
+                        "secret_key": {
+                          "type": "string",
+                          "title": "Secret access key",
+                          "x-ui": {
+                            "widget": "password"
+                          }
+                        }
+                      },
+                      "required": [
+                        "access_key",
+                        "secret_key"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "bucket",
+                    "endpoint",
+                    "region",
+                    "credentials",
+                    "type"
+                  ],
+                  "additionalProperties": false
                 }
               ]
             },
-            "parser": {
-              "$ref": "#/$defs/ParserSchema",
-              "x-ui": {
-                "widget": "parser"
-              }
+            "path_prefix": {
+              "title": "Path prefix",
+              "type": "string",
+              "default": ""
+            },
+            "format": {
+              "title": "Data format",
+              "$ref": "#/$defs/S3InputFormat"
             },
             "timeout_ms": {
+              "title": "Request timeout (ms)",
               "type": "integer",
               "format": "uint64",
               "minimum": 0,
-              "default": 30000
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
             }
           },
           "additionalProperties": false,
           "required": [
-            "bucket",
-            "parser"
+            "format",
+            "installation"
           ],
           "$defs": {
             "S3CredentialsConfig": {
@@ -3710,6 +3737,59 @@
               "required": [
                 "access_key",
                 "secret_key"
+              ]
+            },
+            "S3InputFormat": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "parser": {
+                      "$ref": "#/$defs/ParserSchema",
+                      "x-ui": {
+                        "widget": "parser"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "parser"
+                  ]
+                },
+                {
+                  "title": "Parquet",
+                  "type": "object",
+                  "properties": {
+                    "table_name": {
+                      "title": "Table name",
+                      "type": "string"
+                    },
+                    "batch_rows": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 65536,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "parquet"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "table_name"
+                  ]
+                }
               ]
             },
             "ParserSchema": {
@@ -4432,18 +4512,23 @@
           }
         },
         "initial": {
-          "bucket": "",
-          "prefix": "",
-          "region": "",
-          "host": "",
-          "port": 4566,
-          "allow_http": true,
-          "credentials": {
-            "access_key": "",
-            "secret_key": ""
+          "timeout_ms": 30000,
+          "path_prefix": "",
+          "format": {
+            "type": "parquet",
+            "table_name": "",
+            "batch_rows": 65536
           },
-          "parser": {},
-          "timeout_ms": 30000
+          "installation": {
+            "bucket": "",
+            "endpoint": "",
+            "region": "us-east-1",
+            "credentials": {
+              "access_key": "",
+              "secret_key": ""
+            },
+            "type": "on_premise"
+          }
         },
         "delivery_modes": [
           "batch"
@@ -4458,74 +4543,122 @@
           "title": "S3SinkConfig",
           "type": "object",
           "properties": {
-            "bucket": {
-              "type": "string"
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "bucket": {
+                      "type": "string",
+                      "title": "Bucket"
+                    },
+                    "endpoint": {
+                      "type": "string",
+                      "title": "Endpoint URL"
+                    },
+                    "region": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "credentials": {
+                      "type": "object",
+                      "title": "Authentication",
+                      "properties": {
+                        "access_key": {
+                          "type": "string",
+                          "title": "Access key ID"
+                        },
+                        "secret_key": {
+                          "type": "string",
+                          "title": "Secret access key",
+                          "x-ui": {
+                            "widget": "password"
+                          }
+                        }
+                      },
+                      "required": [
+                        "access_key",
+                        "secret_key"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "bucket",
+                    "endpoint",
+                    "region",
+                    "credentials",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
             },
             "object_layout_version": {
               "description": "Version of the deterministic object key/payload/epoch contract. Keep\nthis pinned while uncommitted source data can replay.",
               "type": "integer",
               "format": "uint32",
               "minimum": 0,
-              "default": 5
+              "default": 5,
+              "x-ui": {
+                "widget": "hidden"
+              }
             },
-            "prefix": {
+            "path_prefix": {
+              "title": "Path prefix",
               "type": "string",
               "default": ""
             },
-            "region": {
-              "type": "string",
-              "default": "us-east-1"
-            },
-            "host": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "default": null
-            },
-            "port": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint16",
-              "minimum": 0,
-              "maximum": 65535,
-              "default": null
-            },
-            "allow_http": {
-              "type": "boolean",
-              "default": false
-            },
-            "credentials": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/S3CredentialsConfig"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+            "format": {
+              "title": "Data format",
+              "$ref": "#/$defs/S3OutputFormat"
             },
             "partitioning": {
-              "$ref": "#/$defs/PartitioningConfig"
+              "$ref": "#/$defs/PartitioningConfig",
+              "x-ui": {
+                "section": "advanced"
+              }
             },
             "rotation": {
-              "$ref": "#/$defs/RotationConfig"
+              "title": "Advanced writer settings",
+              "$ref": "#/$defs/RotationConfig",
+              "x-ui": {
+                "section": "advanced"
+              }
             },
             "buffering": {
-              "$ref": "#/$defs/BufferingConfig"
+              "$ref": "#/$defs/BufferingConfig",
+              "x-ui": {
+                "section": "advanced"
+              }
             },
             "upload": {
-              "$ref": "#/$defs/UploadConfig"
+              "$ref": "#/$defs/UploadConfig",
+              "x-ui": {
+                "section": "advanced"
+              }
             },
             "retry": {
-              "$ref": "#/$defs/RetryConfig"
+              "$ref": "#/$defs/RetryConfig",
+              "x-ui": {
+                "section": "advanced"
+              }
             }
           },
           "additionalProperties": false,
           "required": [
-            "bucket"
+            "installation"
           ],
           "$defs": {
             "S3CredentialsConfig": {
@@ -4546,6 +4679,71 @@
                 "access_key",
                 "secret_key"
               ]
+            },
+            "S3OutputFormat": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Parquet",
+                  "type": "object",
+                  "properties": {
+                    "compression": {
+                      "$ref": "#/$defs/ParquetCompression"
+                    },
+                    "row_group": {
+                      "$ref": "#/$defs/ParquetRowGroupConfig"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "parquet"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                }
+              ]
+            },
+            "ParquetCompression": {
+              "type": "string",
+              "enum": [
+                "uncompressed",
+                "snappy",
+                "gzip",
+                "zstd"
+              ]
+            },
+            "ParquetRowGroupConfig": {
+              "type": "object",
+              "properties": {
+                "max_rows": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 1000000
+                },
+                "max_bytes": {
+                  "type": "string",
+                  "x-ui": {
+                    "widget": "byte_size"
+                  }
+                }
+              },
+              "additionalProperties": false
             },
             "PartitioningConfig": {
               "oneOf": [
@@ -4760,19 +4958,13 @@
           }
         },
         "initial": {
-          "bucket": "",
+          "retry": {
+            "initial_backoff": "",
+            "max_backoff": "",
+            "max_attempts": 10
+          },
           "object_layout_version": 5,
-          "region": "",
-          "host": "",
-          "port": 4566,
-          "allow_http": true,
-          "credentials": {
-            "access_key": "",
-            "secret_key": ""
-          },
-          "partitioning": {
-            "type": "source"
-          },
+          "path_prefix": "",
           "rotation": {
             "max_rows": 10000,
             "max_bytes": "",
@@ -4791,10 +4983,26 @@
             "max_in_flight_objects": 2,
             "operation_timeout": ""
           },
-          "retry": {
-            "initial_backoff": "",
-            "max_backoff": "",
-            "max_attempts": 10
+          "format": {
+            "type": "parquet",
+            "compression": "snappy",
+            "row_group": {
+              "max_rows": 1000000,
+              "max_bytes": "128MiB"
+            }
+          },
+          "partitioning": {
+            "type": "source"
+          },
+          "installation": {
+            "bucket": "",
+            "endpoint": "",
+            "region": "us-east-1",
+            "credentials": {
+              "access_key": "",
+              "secret_key": ""
+            },
+            "type": "on_premise"
           }
         },
         "delivery_modes": [],

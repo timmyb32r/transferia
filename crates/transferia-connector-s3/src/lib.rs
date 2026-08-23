@@ -25,10 +25,12 @@ pub fn register(
                 vec![DeliveryMode::Batch],
                 false,
                 || serde_json::json!({
-                    "bucket": "", "prefix": "", "region": "", "host": "",
-                    "port": 4566, "allow_http": true,
+                    "bucket": "", "path_prefix": "", "region": "us-east-1", "endpoint": null,
                     "credentials": { "access_key": "", "secret_key": "" },
-                    "parser": {}, "timeout_ms": 30000
+                    "format": {
+                        "type": "parquet", "table_name": "", "batch_rows": 65536
+                    },
+                    "timeout_ms": 30000
                 }),
                 {
                     let metrics = Arc::clone(metrics);
@@ -41,9 +43,13 @@ pub fn register(
             })
             .sink_draft::<s3::sink::S3SinkConfig, _, _>(
                 || serde_json::json!({
-                    "bucket": "", "object_layout_version": 5, "region": "", "host": "",
-                    "port": 4566, "allow_http": true,
+                    "bucket": "", "object_layout_version": 5, "path_prefix": "",
+                    "region": "us-east-1", "endpoint": null,
                     "credentials": { "access_key": "", "secret_key": "" },
+                    "format": {
+                        "type": "parquet", "compression": "snappy",
+                        "row_group": { "max_rows": 1000000, "max_bytes": "128MiB" }
+                    },
                     "partitioning": { "type": "source" },
                     "rotation": { "max_rows": 10000, "max_bytes": "", "on_partition_path_change": "keep_epoch" },
                     "buffering": { "max_epoch_buffers": 32, "max_pending_upload_objects": 64, "max_buffered_bytes": "", "max_epoch_bytes": "" },

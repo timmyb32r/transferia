@@ -38,40 +38,96 @@ pub struct S3SinkConfig {
     /// Version of the deterministic object key/payload/epoch contract. Keep
     /// this pinned while uncommitted source data can replay.
     #[serde(default = "default_object_layout_version")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub object_layout_version: u32,
 
     #[serde(default)]
-    pub prefix: String,
+    #[schemars(title = "Path prefix")]
+    pub path_prefix: String,
 
     #[serde(default = "default_region")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub region: String,
 
     #[serde(default)]
-    pub host: Option<String>,
-
-    #[serde(default)]
-    pub port: Option<u16>,
-
-    #[serde(default)]
-    pub allow_http: bool,
+    pub endpoint: Option<String>,
 
     #[serde(default)]
     pub credentials: Option<S3CredentialsConfig>,
 
     #[serde(default)]
+    #[schemars(title = "Data format")]
+    pub format: S3OutputFormat,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub partitioning: PartitioningConfig,
 
     #[serde(default)]
+    #[schemars(
+        title = "Advanced writer settings",
+        extend("x-ui" = { "section": "advanced" })
+    )]
     pub rotation: RotationConfig,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub buffering: BufferingConfig,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub upload: UploadConfig,
 
     #[serde(default)]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub retry: RetryConfig,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum S3OutputFormat {
+    #[default]
+    #[schemars(title = "JSON")]
+    Json,
+
+    #[schemars(title = "Parquet")]
+    Parquet {
+        #[serde(default)]
+        compression: ParquetCompression,
+
+        #[serde(default)]
+        row_group: ParquetRowGroupConfig,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParquetCompression {
+    Uncompressed,
+    #[default]
+    Snappy,
+    Gzip,
+    Zstd,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ParquetRowGroupConfig {
+    #[serde(default = "default_parquet_row_group_rows")]
+    pub max_rows: usize,
+
+    #[serde(default = "default_parquet_row_group_bytes")]
+    #[schemars(with = "String", extend("x-ui" = { "widget": "byte_size" }))]
+    pub max_bytes: ByteSize,
+}
+
+impl Default for ParquetRowGroupConfig {
+    fn default() -> Self {
+        Self {
+            max_rows: default_parquet_row_group_rows(),
+            max_bytes: default_parquet_row_group_bytes(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -260,6 +316,19 @@ fn parse_human_value(value: &str, suffixes: &[(&str, u64)]) -> anyhow::Result<u6
 }
 
 impl S3SinkConfig {
+    pub(super) fn parquet_settings(
+        &self,
+    ) -> anyhow::Result<(parquet::basic::Compression, ParquetRowGroupConfig)> {
+        let S3OutputFormat::Parquet {
+            compression,
+            row_group,
+        } = &self.format
+        else {
+            anyhow::bail!("S3 output format is not Parquet");
+        };
+        Ok((super::parquet::compression(*compression), row_group.clone()))
+    }
+
     pub async fn check_connection(&self) -> anyhow::Result<()> {
         self.validate()?;
         let store = self.build_store()?;
@@ -272,20 +341,22 @@ impl S3SinkConfig {
 
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.bucket.is_empty(), "s3.bucket must not be empty");
-        anyhow::ensure!(
-            self.host.is_some() == self.port.is_some(),
-            "s3.host and s3.port must be configured together"
-        );
-        if let (Some(host), Some(port)) = (&self.host, self.port) {
-            crate::connectors::address::validate_host("s3.host", host)?;
-            crate::connectors::address::validate_port("s3.port", port)?;
-        }
-        if !self.prefix.is_empty() {
-            let parsed = object_store::path::Path::parse(&self.prefix)
-                .map_err(|error| anyhow::anyhow!("invalid s3.prefix {:?}: {error}", self.prefix))?;
+        if let Some(endpoint) = &self.endpoint {
+            let parsed = reqwest::Url::parse(endpoint)
+                .map_err(|error| anyhow::anyhow!("invalid s3.endpoint: {error}"))?;
             anyhow::ensure!(
-                parsed.as_ref() == self.prefix,
-                "s3.prefix must be a normalized relative path without leading or trailing slashes"
+                matches!(parsed.scheme(), "http" | "https"),
+                "s3.endpoint must use http or https"
+            );
+            anyhow::ensure!(parsed.host_str().is_some(), "s3.endpoint must include a host");
+        }
+        if !self.path_prefix.is_empty() {
+            let parsed = object_store::path::Path::parse(&self.path_prefix).map_err(|error| {
+                anyhow::anyhow!("invalid s3.path_prefix {:?}: {error}", self.path_prefix)
+            })?;
+            anyhow::ensure!(
+                parsed.as_ref() == self.path_prefix,
+                "s3.path_prefix must be a normalized relative path without leading or trailing slashes"
             );
         }
         anyhow::ensure!(
@@ -294,6 +365,25 @@ impl S3SinkConfig {
             self.object_layout_version,
             default_object_layout_version()
         );
+        if let S3OutputFormat::Parquet { row_group, .. } = &self.format {
+            anyhow::ensure!(
+                row_group.max_rows > 0,
+                "s3.format.parquet.row_group.max_rows must be positive"
+            );
+            anyhow::ensure!(
+                row_group.max_bytes.0 > 0,
+                "s3.format.parquet.row_group.max_bytes must be positive"
+            );
+            anyhow::ensure!(
+                matches!(self.partitioning, PartitioningConfig::Source),
+                "S3 Parquet currently supports only source partitioning"
+            );
+            anyhow::ensure!(
+                self.rotation.record_time_interval.is_none()
+                    && self.rotation.wall_clock_interval.is_none(),
+                "S3 Parquet does not support time-based object rotation"
+            );
+        }
         anyhow::ensure!(
             self.rotation.max_rows > 0,
             "s3.rotation.max_rows must be positive"
@@ -439,13 +529,14 @@ impl S3SinkConfig {
         let mut builder = object_store::aws::AmazonS3Builder::new()
             .with_bucket_name(&self.bucket)
             .with_region(&self.region)
-            .with_allow_http(self.allow_http)
             .with_retry(store_retry)
             .with_http_connector(super::super::http::NoRedirectConnector::new(
                 self.upload.operation_timeout.0,
             )?);
-        if let Some(endpoint) = self.custom_endpoint() {
-            builder = builder.with_endpoint(endpoint);
+        if let Some(endpoint) = &self.endpoint {
+            builder = builder
+                .with_allow_http(endpoint.starts_with("http://"))
+                .with_endpoint(endpoint);
         }
         if let Some(credentials) = &self.credentials {
             builder = builder
@@ -455,15 +546,6 @@ impl S3SinkConfig {
         Ok(std::sync::Arc::new(builder.build()?))
     }
 
-    fn custom_endpoint(&self) -> Option<String> {
-        self.host.as_ref().zip(self.port).map(|(host, port)| {
-            crate::connectors::address::url(
-                if self.allow_http { "http" } else { "https" },
-                host,
-                port,
-            )
-        })
-    }
 }
 
 impl Default for RotationConfig {
@@ -519,6 +601,12 @@ fn default_time_path() -> String {
 }
 const fn default_max_rows() -> usize {
     100_000
+}
+const fn default_parquet_row_group_rows() -> usize {
+    1_000_000
+}
+const fn default_parquet_row_group_bytes() -> ByteSize {
+    ByteSize(128 * MIB)
 }
 const fn default_max_object_bytes() -> ByteSize {
     ByteSize(128 * MIB)

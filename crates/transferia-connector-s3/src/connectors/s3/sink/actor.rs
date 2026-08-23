@@ -158,7 +158,7 @@ impl S3Sink {
         let partitioner = Partitioner::new(&config.partitioning)?;
         let epoch_byte_limit = config.epoch_byte_limit();
         let config = S3ActorConfig {
-            prefix: config.prefix,
+            prefix: config.path_prefix,
             rotation: config.rotation,
             buffering: config.buffering,
             retry: config.retry,

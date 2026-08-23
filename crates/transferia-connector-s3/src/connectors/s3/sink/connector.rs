@@ -15,7 +15,8 @@ use transferia_core::sink::Sink;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::actor::S3Sink;
-use super::config::{PartitioningConfig, S3SinkConfig};
+use super::config::{PartitioningConfig, S3OutputFormat, S3SinkConfig};
+use super::parquet::S3ParquetSink;
 use super::object_key::{validate_path_component, ObjectKey, MAX_OBJECT_KEY_BYTES};
 use super::upload::{ObjectUploader, S3Uploader};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, S3Descriptor, S3Partitioning};
@@ -146,7 +147,7 @@ impl S3SinkConfig {
                 &source_path
             };
             ObjectKey::for_json_object(
-                &self.prefix,
+                &self.path_prefix,
                 &dataset.name,
                 partition_path,
                 &discovery.source_name,
@@ -295,7 +296,7 @@ impl SinkLimits for S3SinkConfig {
 
 pub struct S3SinkConnector {
     cfg: S3SinkConfig,
-    uploader: Arc<dyn ObjectUploader>,
+    uploader: Arc<S3Uploader>,
 }
 
 impl S3SinkConnector {
@@ -331,17 +332,26 @@ impl SinkConnector for S3SinkConnector {
         &self,
         column: &transferia_core::data::schema::SchemaColumn,
     ) -> anyhow::Result<String> {
-        crate::serializer::SerializerConfig::Json.destination_type(&column.data_type)
+        match &self.cfg.format {
+            S3OutputFormat::Json => {
+                crate::serializer::SerializerConfig::Json.destination_type(&column.data_type)
+            }
+            S3OutputFormat::Parquet { .. } => Ok(column.data_type.to_string()),
+        }
     }
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
-        let prefix = self.cfg.prefix.clone();
+        let prefix = self.cfg.path_prefix.clone();
+        let extension = match &self.cfg.format {
+            S3OutputFormat::Json => "json",
+            S3OutputFormat::Parquet { .. } => "parquet",
+        };
         Box::pin(async move {
             for dataset in request.datasets.iter().map(|dataset| &dataset.table) {
                 let candidate = if prefix.is_empty() {
-                    format!("{dataset}/partition=0/probe+0+0.json")
+                    format!("{dataset}/partition=0/probe+0+0.{extension}")
                 } else {
-                    format!("{prefix}/{dataset}/partition=0/probe+0+0.json")
+                    format!("{prefix}/{dataset}/partition=0/probe+0+0.{extension}")
                 };
                 object_store::path::Path::parse(&candidate).map_err(|error| {
                     anyhow::anyhow!("invalid S3 object namespace for dataset '{dataset}': {error}")
@@ -366,9 +376,20 @@ impl SinkConnector for S3SinkConnector {
         &self,
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
+        if matches!(self.cfg.format, S3OutputFormat::Parquet { .. }) {
+            let sink = S3ParquetSink::new(
+                self.cfg.clone(),
+                Arc::clone(&self.uploader),
+                context.counters,
+                context.partition_id,
+                context.keep_system_columns,
+            );
+            return Box::pin(async move { Ok(Box::new(sink) as Box<dyn Sink>) });
+        }
+        let uploader: Arc<dyn ObjectUploader> = self.uploader.clone();
         let sink = S3Sink::new(
             self.cfg.clone(),
-            Arc::clone(&self.uploader),
+            uploader,
             context.counters,
             context.keep_system_columns,
             context.partition_id,

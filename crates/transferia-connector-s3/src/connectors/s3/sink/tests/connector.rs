@@ -155,7 +155,7 @@ fn discovery_rejects_shared_main_and_dlq_namespace() -> anyhow::Result<()> {
 #[test]
 fn discovery_rejects_static_object_key_overhead() -> anyhow::Result<()> {
     let mut connector = S3SinkConnector::from_config(serde_yaml::from_str("bucket: test\n")?)?;
-    connector.cfg.prefix = "x".repeat(MAX_OBJECT_KEY_BYTES);
+    connector.cfg.path_prefix = "x".repeat(MAX_OBJECT_KEY_BYTES);
     assert!(connector
         .limits()
         .validate_discovery(&discovery(DataType::Utf8, false))
@@ -186,7 +186,7 @@ fn record_time_discovery_validates_the_rendered_namespace_without_rewriting() ->
     }
     connector.limits().validate_discovery(&discovered)?;
 
-    connector.cfg.prefix = "x".repeat(MAX_OBJECT_KEY_BYTES - probe.len());
+    connector.cfg.path_prefix = "x".repeat(MAX_OBJECT_KEY_BYTES - probe.len());
     assert!(connector.limits().validate_discovery(&discovered).is_err());
     Ok(())
 }

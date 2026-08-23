@@ -485,6 +485,36 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 8000, "trusted_plaintext": true }),
     )?;
+    for role in [EndpointRole::Source, EndpointRole::Sink] {
+        register_on_premise(
+            _registry,
+            "s3",
+            role,
+            serde_json::json!({
+                "bucket": { "type": "string", "title": "Bucket" },
+                "endpoint": { "type": "string", "title": "Endpoint URL" },
+                "region": { "type": "string", "x-ui": { "widget": "hidden" } },
+                "credentials": {
+                    "type": "object",
+                    "title": "Authentication",
+                    "properties": {
+                        "access_key": { "type": "string", "title": "Access key ID" },
+                        "secret_key": {
+                            "type": "string", "title": "Secret access key",
+                            "x-ui": { "widget": "password" }
+                        }
+                    },
+                    "required": ["access_key", "secret_key"],
+                    "additionalProperties": false
+                }
+            }),
+            &["bucket", "endpoint", "region", "credentials"],
+            serde_json::json!({
+                "bucket": "", "endpoint": "", "region": "us-east-1",
+                "credentials": { "access_key": "", "secret_key": "" }
+            }),
+        )?;
+    }
     Ok(())
 }
 

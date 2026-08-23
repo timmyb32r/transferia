@@ -63,6 +63,14 @@ const YTSAURUS_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescrip
     networked: true,
 });
 
+const S3_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["bucket", "endpoint", "region", "credentials"],
+        required_output_fields: &["bucket", "endpoint", "region", "credentials"],
+    }),
+    networked: true,
+});
+
 const NETWORKED_PLAIN: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: None,
     networked: true,
@@ -100,8 +108,8 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
     ConnectorDescriptor {
         key: "s3",
         title: "S3",
-        source: NETWORKED_PLAIN,
-        sink: NETWORKED_PLAIN,
+        source: S3_ROLE,
+        sink: S3_ROLE,
     },
     ConnectorDescriptor {
         key: "iceberg",

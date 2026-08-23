@@ -1844,7 +1844,7 @@ async fn overlong_static_prefix_fails_before_upload_and_is_non_retryable() {
     let uploader = FakeUploader::immediate(0);
     let memory = PipelineMemory::new(1 << 20);
     let mut sink_config = config("");
-    sink_config.prefix = "x".repeat(super::object_key::MAX_OBJECT_KEY_BYTES);
+    sink_config.path_prefix = "x".repeat(super::object_key::MAX_OBJECT_KEY_BYTES);
     let (tx, _events, _cancel, task) = spawn(sink_config, Arc::clone(&uploader), memory.clone());
     tx.send(delivery(&memory, 1, 4, 1_000, false).await)
         .await
