@@ -3037,7 +3037,8 @@ button::after {
   width: 100%;
 }
 .advanced-parquet-settings .form-row:not(.form-row-wide) {
-  grid-template-columns: minmax(160px, 34%) minmax(220px, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
 }
 .advanced-parquet-settings .field-control,
 .advanced-parquet-settings .control-width-enum > .field-control {
@@ -3045,14 +3046,7 @@ button::after {
   min-width: 0;
 }
 .advanced-parquet-settings .byte-size-input {
-  grid-template-columns: minmax(130px, 1fr) 96px;
-}
-
-@media (max-width: 720px) {
-  .advanced-parquet-settings .form-row:not(.form-row-wide) {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 40%);
 }
 
 /* Sidebar appearance controls */
