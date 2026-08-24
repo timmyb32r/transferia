@@ -1,11 +1,13 @@
 mod client;
 mod config;
+mod discard;
 mod schema;
 mod sink;
 pub mod src_batch;
 
 pub use config::{
-    YTsaurusAuthConfig, YTsaurusConnectionConfig, YTsaurusSinkConfig, YTsaurusSourceConfig,
+    YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusConnectionConfig,
+    YTsaurusReadFormat, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
     YTsaurusWriteFormat,
 };
 pub use sink::YTsaurusSinkConnector;

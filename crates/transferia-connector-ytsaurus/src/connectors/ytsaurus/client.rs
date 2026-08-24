@@ -8,7 +8,9 @@ use transferia_connector_support::outbound_http::{
     NetworkPolicy, OutboundHttpClient, OutboundHttpRequest,
 };
 
-use super::config::YTsaurusConnectionConfig;
+use super::config::{
+    YTsaurusConnectionConfig, YTsaurusTableReaderConfig,
+};
 
 #[derive(Debug)]
 pub struct YTsaurusHttpError {
@@ -179,17 +181,24 @@ impl YTsaurusClient {
         Ok(Self::checked(response).await?.json().await?)
     }
 
-    pub async fn read_arrow(
+    pub async fn read_table(
         &self,
         path: &str,
         start_row_index: i64,
+        output_format: &str,
+        unordered: bool,
+        table_reader: &YTsaurusTableReaderConfig,
     ) -> anyhow::Result<reqwest::Response> {
         anyhow::ensure!(
             start_row_index >= 0,
             "YTsaurus start row index must not be negative"
         );
         let path = rich_read_path(path, start_row_index);
-        let parameters = serde_json::json!({ "path": path });
+        let parameters = serde_json::json!({
+            "path": path,
+            "unordered": unordered,
+            "table_reader": table_reader,
+        });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .heavy_request(reqwest::Method::GET, "read_table")
@@ -197,11 +206,26 @@ impl YTsaurusClient {
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
-                    .header("X-YT-Output-Format", "\"arrow\"")
+                    .header("X-YT-Output-Format", output_format)
             })
             .send()
             .await?;
         Self::checked(response).await
+    }
+
+    pub async fn read_arrow(
+        &self,
+        path: &str,
+        start_row_index: i64,
+    ) -> anyhow::Result<reqwest::Response> {
+        self.read_table(
+            path,
+            start_row_index,
+            "\"arrow\"",
+            false,
+            &YTsaurusTableReaderConfig::default(),
+        )
+        .await
     }
 
     pub async fn write_table(

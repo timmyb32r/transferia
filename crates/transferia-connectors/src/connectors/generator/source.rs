@@ -18,7 +18,7 @@ pub(super) struct DataGeneratorSource {
     memory: PipelineMemory,
     counters: Arc<SourceCounters>,
     next_row: u64,
-    total_rows: u64,
+    end_row: u64,
     rows_per_batch: u64,
 }
 
@@ -30,6 +30,10 @@ impl DataGeneratorSource {
     ) -> anyhow::Result<Self> {
         let row_bytes = config.row_bytes()?;
         let total_rows = config.total_rows()?;
+        let next_row = config.start_row;
+        let end_row = next_row
+            .checked_add(total_rows)
+            .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
         let memory_limit = u64::try_from(memory.limit())?;
         let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
         let rows_per_batch = (batch_target_bytes / row_bytes).max(1);
@@ -37,8 +41,8 @@ impl DataGeneratorSource {
             config,
             memory,
             counters,
-            next_row: 0,
-            total_rows,
+            next_row,
+            end_row,
             rows_per_batch,
         })
     }
@@ -47,10 +51,10 @@ impl DataGeneratorSource {
 impl Source for DataGeneratorSource {
     fn read_batch(&mut self) -> BoxFuture<'_, DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
-            if self.next_row == self.total_rows {
+            if self.next_row == self.end_row {
                 return Ok(SourceBatch::Finished);
             }
-            let remaining = self.total_rows - self.next_row;
+            let remaining = self.end_row - self.next_row;
             let rows = remaining.min(self.rows_per_batch);
             let batch_bytes_u64 = rows
                 .checked_mul(self.config.row_bytes().map_err(DataPlaneFailure::fatal)?)

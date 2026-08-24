@@ -7,7 +7,7 @@ use arrow::array::{
     Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
     TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -270,10 +270,32 @@ fn project_user_columns(
 }
 
 pub(super) fn encode_arrow(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
+    // YTsaurus maps the physical Arrow type to its table schema and rejects
+    // Arrow extension annotations (for example `arrow.json`) even when their
+    // storage type is a supported lossless Utf8 value.  Keep application
+    // metadata in discovery, but send only the physical wire schema expected by
+    // YTsaurus.  Values, nullability, names, and physical types are unchanged.
+    let fields = batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| {
+            let mut metadata = field.metadata().clone();
+            metadata.retain(|key, _| !key.starts_with("ARROW:extension:"));
+            field.as_ref().clone().with_metadata(metadata)
+        })
+        .collect::<Vec<_>>();
+    let wire_batch = RecordBatch::try_new(
+        Arc::new(Schema::new_with_metadata(
+            fields,
+            batch.schema().metadata().clone(),
+        )),
+        batch.columns().to_vec(),
+    )?;
     let mut output = Vec::with_capacity(batch.get_array_memory_size());
     {
-        let mut writer = StreamWriter::try_new(&mut output, &batch.schema())?;
-        writer.write(batch)?;
+        let mut writer = StreamWriter::try_new(&mut output, &wire_batch.schema())?;
+        writer.write(&wire_batch)?;
         writer.finish()?;
     }
     Ok(output)

@@ -1,18 +1,21 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
 use arrow::buffer::Buffer;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamDecoder;
-use arrow::record_batch::RecordBatch;
+use arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
 use super::client::{classify_http_failure, YTsaurusClient};
-use super::config::{SourceTableConfig, YTsaurusSourceConfig};
+use super::config::{
+    SourceTableConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusSourceConfig,
+};
+use super::discard::{DiscardDecoder, output_format};
 use super::schema::{parse_schema, schemas_equal};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
@@ -108,7 +111,11 @@ impl YTsaurusSourceConnector {
 impl SourceConnector for YTsaurusSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YTsaurus(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: if self.config.benchmark_discard.is_some() {
+                SourceBehavior::BenchmarkDiscard
+            } else {
+                SourceBehavior::FiniteSnapshotRows
+            },
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }
@@ -133,6 +140,29 @@ impl SourceConnector for YTsaurusSourceConnector {
                 SystemColumnKind::Offset,
                 SystemColumnKind::MessageIndex,
             ];
+            if self.config.benchmark_discard.is_some() {
+                let datasets = tables
+                    .iter()
+                    .map(|table| DiscoveredDataset {
+                        role: DatasetRole::Main,
+                        name: Arc::from(table.config.name.as_str()),
+                        incoming_schema: DatasetSchema::default(),
+                        stored_schema: DatasetSchema::default(),
+                        system_columns: Vec::new(),
+                    })
+                    .collect();
+                return Ok(DeliveryDiscovery {
+                    source_name: Arc::from("ytsaurus"),
+                    source_topology: SourceTopology::StaticPartitions(
+                        (0..tables.len())
+                            .map(i64::try_from)
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                    schema_origin: SchemaOrigin::SourceNative,
+                    keep_system_columns: request.keep_system_columns,
+                    datasets,
+                });
+            }
             let discovered_system_columns = system_columns
                 .iter()
                 .copied()
@@ -220,12 +250,18 @@ impl SourceConnector for YTsaurusSourceConnector {
             let counters = self.counters(partition_id);
             self.metrics
                 .register_source(partition_id, Arc::clone(&counters));
+            let benchmark_discard = self
+                .config
+                .benchmark_discard
+                .as_ref()
+                .map(|config| BenchmarkDiscardState::new(config, &table.schema))
+                .transpose()?;
             let response = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YTsaurus read cancelled"),
                 response = tokio::time::timeout(
                     Duration::from_millis(self.config.stream_open_timeout_ms),
-                    self.client.read_arrow(&table.config.path, 0),
+                    read_response(&self.client, &table, benchmark_discard.as_ref(), 0),
                 ) => response
                     .map_err(|_| anyhow::anyhow!(
                         "YTsaurus snapshot stream did not open within {} ms",
@@ -239,7 +275,9 @@ impl SourceConnector for YTsaurusSourceConnector {
                 client: self.client.clone(),
                 stream: Box::pin(response.bytes_stream()),
                 decoder: StreamDecoder::new(),
+                benchmark_discard,
                 queued: VecDeque::new(),
+                queued_discard_rows: 0,
                 batch_rows: self.config.batch_rows,
                 stream_retry_max_attempts: self.config.stream_retry_max_attempts,
                 stream_retry_initial: Duration::from_millis(self.config.stream_retry_initial_ms),
@@ -248,6 +286,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                 stream_idle_timeout: Duration::from_millis(self.config.stream_idle_timeout_ms),
                 consecutive_stream_failures: 0,
                 offset: 0,
+                table_offset: 0,
                 finished: false,
                 counters,
             }) as Box<dyn Source>)
@@ -269,7 +308,9 @@ struct YTsaurusSource {
     client: YTsaurusClient,
     stream: ResponseStream,
     decoder: StreamDecoder,
+    benchmark_discard: Option<BenchmarkDiscardState>,
     queued: VecDeque<RecordBatch>,
+    queued_discard_rows: u64,
     batch_rows: usize,
     stream_retry_max_attempts: usize,
     stream_retry_initial: Duration,
@@ -278,11 +319,125 @@ struct YTsaurusSource {
     stream_idle_timeout: Duration,
     consecutive_stream_failures: usize,
     offset: i64,
+    table_offset: i64,
     finished: bool,
     counters: Arc<SourceCounters>,
 }
 
+struct BenchmarkDiscardState {
+    config: YTsaurusBenchmarkDiscardConfig,
+    output_format: String,
+    decoder: DiscardDecoder,
+    wire_bytes: u64,
+    last_progress: Instant,
+}
+
+impl BenchmarkDiscardState {
+    fn new(
+        config: &YTsaurusBenchmarkDiscardConfig,
+        schema: &DatasetSchema,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            config: config.clone(),
+            output_format: output_format(config.format, schema)?,
+            decoder: DiscardDecoder::new(config.format, schema)?,
+            wire_bytes: 0,
+            last_progress: Instant::now(),
+        })
+    }
+
+    fn reset_decoder(&mut self, schema: &DatasetSchema) -> anyhow::Result<()> {
+        self.decoder = DiscardDecoder::new(self.config.format, schema)?;
+        Ok(())
+    }
+}
+
+async fn read_response(
+    client: &YTsaurusClient,
+    table: &DiscoveredTable,
+    benchmark_discard: Option<&BenchmarkDiscardState>,
+    start_row_index: i64,
+) -> anyhow::Result<reqwest::Response> {
+    if let Some(benchmark_discard) = benchmark_discard {
+        client
+            .read_table(
+                &table.config.path,
+                start_row_index,
+                &benchmark_discard.output_format,
+                benchmark_discard.config.unordered,
+                &benchmark_discard.config.table_reader,
+            )
+            .await
+    } else {
+        client
+            .read_arrow(&table.config.path, start_row_index)
+            .await
+    }
+}
+
 impl YTsaurusSource {
+    fn decode_discard_bytes(&mut self, bytes: bytes::Bytes) -> anyhow::Result<()> {
+        let byte_count = bytes.len() as u64;
+        let started = Instant::now();
+        let state = self
+            .benchmark_discard
+            .as_mut()
+            .expect("discard decoder exists in benchmark mode");
+        let rows = state.decoder.decode(bytes)?;
+        state.wire_bytes = state.wire_bytes.saturating_add(byte_count);
+        self.queued_discard_rows = self.queued_discard_rows.saturating_add(rows);
+        self.counters.add_compressed_bytes(byte_count);
+        self.counters.add_decompressed_bytes(byte_count);
+        self.counters.add_decomp_busy(started.elapsed());
+        Ok(())
+    }
+
+    fn output_discard_batch(&mut self) -> anyhow::Result<SourceBatch> {
+        let rows = self
+            .queued_discard_rows
+            .min(u64::try_from(self.batch_rows)?);
+        self.queued_discard_rows -= rows;
+        let rows_usize = usize::try_from(rows)?;
+        let batch = RecordBatch::try_new_with_options(
+            Arc::new(Schema::empty()),
+            Vec::new(),
+            &RecordBatchOptions::new().with_row_count(Some(rows_usize)),
+        )?;
+        self.offset = self
+            .offset
+            .checked_add(i64::try_from(rows)?)
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus source offset overflow"))?;
+        self.table_offset = self
+            .table_offset
+            .checked_add(i64::try_from(rows)?)
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus table offset overflow"))?;
+        self.consecutive_stream_failures = 0;
+        self.counters.add_messages(rows);
+        if let Some(state) = &mut self.benchmark_discard {
+            if state.last_progress.elapsed() >= Duration::from_secs(1) {
+                tracing::info!(
+                    target: "transferia_benchmark",
+                    format = state.config.format.name(),
+                    rows_read = self.offset,
+                    wire_bytes = state.wire_bytes,
+                    "YTsaurus benchmark discard progress"
+                );
+                state.last_progress = Instant::now();
+            }
+        }
+        Ok(SourceBatch::Typed {
+            tables: vec![TableData::new(
+                Arc::from(self.table.config.name.as_str()),
+                false,
+                batch,
+                SystemColumns::new(Vec::new()),
+            )],
+            source_rows: rows,
+            commit_marker: Some(CommitMarker::new(self.offset)),
+            memory: Vec::new(),
+        })
+    }
+
     fn queue_validated(&mut self, batch: &RecordBatch) -> anyhow::Result<()> {
         let batch = normalize_read_batch(batch, &self.table.schema)?;
         validate_read_schema(&batch, &self.table.schema)?;
@@ -398,6 +553,15 @@ impl YTsaurusSource {
         mut failure: DataPlaneFailure,
     ) -> transferia_core::failure::DataPlaneResult<()> {
         loop {
+            if self
+                .benchmark_discard
+                .as_ref()
+                .is_some_and(|state| state.config.unordered)
+            {
+                return Err(DataPlaneFailure::fatal(failure.into_source().context(
+                    "unordered YTsaurus benchmark streams cannot resume without biasing row counts",
+                )));
+            }
             if !failure.is_retryable() {
                 return Err(failure);
             }
@@ -426,14 +590,29 @@ impl YTsaurusSource {
             tokio::time::sleep(delay).await;
             match tokio::time::timeout(
                 self.stream_open_timeout,
-                self.client.read_arrow(&self.table.config.path, self.offset),
+                read_response(
+                    &self.client,
+                    &self.table,
+                    self.benchmark_discard.as_ref(),
+                    if self.benchmark_discard.is_some() {
+                        self.table_offset
+                    } else {
+                        self.offset
+                    },
+                ),
             )
             .await
             {
                 Ok(Ok(response)) => {
                     self.stream = Box::pin(response.bytes_stream());
                     self.decoder = StreamDecoder::new();
+                    if let Some(state) = &mut self.benchmark_discard {
+                        state
+                            .reset_decoder(&self.table.schema)
+                            .map_err(DataPlaneFailure::fatal)?;
+                    }
                     self.queued.clear();
+                    self.queued_discard_rows = 0;
                     return Ok(());
                 }
                 Ok(Err(error)) => {
@@ -458,15 +637,29 @@ impl Source for YTsaurusSource {
     ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
             loop {
+                if self.queued_discard_rows > 0 {
+                    return self
+                        .output_discard_batch()
+                        .map_err(DataPlaneFailure::fatal);
+                }
                 if let Some(batch) = self.queued.pop_front() {
                     return self.output_batch(&batch).map_err(DataPlaneFailure::fatal);
                 }
                 if self.finished {
                     return Ok(SourceBatch::Finished);
                 }
-                match tokio::time::timeout(self.stream_idle_timeout, self.stream.next()).await {
+                let wait_started = Instant::now();
+                let response =
+                    tokio::time::timeout(self.stream_idle_timeout, self.stream.next()).await;
+                self.counters.add_response_wait(wait_started.elapsed());
+                match response {
                     Ok(Some(Ok(bytes))) => {
-                        self.decode_bytes(bytes).map_err(DataPlaneFailure::fatal)?;
+                        if self.benchmark_discard.is_some() {
+                            self.decode_discard_bytes(bytes)
+                                .map_err(DataPlaneFailure::fatal)?;
+                        } else {
+                            self.decode_bytes(bytes).map_err(DataPlaneFailure::fatal)?;
+                        }
                     }
                     Ok(Some(Err(error))) => {
                         let failure = DataPlaneFailure::retryable_or_passthrough(
@@ -475,9 +668,18 @@ impl Source for YTsaurusSource {
                         self.recover_stream(failure).await?;
                     }
                     Ok(None) => {
-                        self.decoder
-                            .finish()
-                            .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                        if let Some(state) = &mut self.benchmark_discard {
+                            let rows = state
+                                .decoder
+                                .finish()
+                                .map_err(DataPlaneFailure::fatal)?;
+                            self.queued_discard_rows =
+                                self.queued_discard_rows.saturating_add(rows);
+                        } else {
+                            self.decoder
+                                .finish()
+                                .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                        }
                         self.finished = true;
                     }
                     Err(_) => {
@@ -497,6 +699,20 @@ impl Source for YTsaurusSource {
         _markers: &'a [CommitMarker],
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
+    }
+}
+
+impl Drop for YTsaurusSource {
+    fn drop(&mut self) {
+        if let Some(state) = &self.benchmark_discard {
+            tracing::info!(
+                target: "transferia_benchmark",
+                format = state.config.format.name(),
+                rows_read = self.offset,
+                wire_bytes = state.wire_bytes,
+                "YTsaurus benchmark discard summary"
+            );
+        }
     }
 }
 

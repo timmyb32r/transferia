@@ -20,6 +20,7 @@ fn config() -> DataGeneratorConfig {
         amount: GenerationAmount::DataSize {
             data_size_bytes: 1_600,
         },
+        start_row: 0,
     }
 }
 
@@ -113,6 +114,7 @@ async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> a
         table_name: "logs".to_owned(),
         preset: DataGeneratorPreset::TransferLogs,
         amount: GenerationAmount::Rows { row_count: 1 },
+        start_row: 0,
     };
     let connector = DataGeneratorSourceConnector::from_config(
         config.clone(),
@@ -191,5 +193,35 @@ fn generator_accepts_an_exact_row_count() -> anyhow::Result<()> {
     };
     config.validate()?;
     assert_eq!(config.total_rows()?, 50_000_000);
+    Ok(())
+}
+
+#[tokio::test]
+async fn generator_can_produce_disjoint_row_identifier_ranges() -> anyhow::Result<()> {
+    let mut config = DataGeneratorConfig {
+        table_name: "logs".to_owned(),
+        preset: DataGeneratorPreset::TransferLogs,
+        amount: GenerationAmount::Rows { row_count: 2 },
+        start_row: 50_000_000,
+    };
+    config.validate()?;
+    let mut source = DataGeneratorSource::new(
+        config.clone(),
+        PipelineMemory::new(16 * 1024 * 1024),
+        Arc::new(SourceCounters::new()),
+    )?;
+
+    let SourceBatch::Typed { tables, .. } = source.read_batch().await? else {
+        panic!("generator did not return a typed batch");
+    };
+    let offsets = tables[0].batch.column(24)
+        .as_any()
+        .downcast_ref::<arrow::array::Int64Array>()
+        .expect("system offset must be Int64");
+    assert_eq!(offsets.values(), &[50_000_000, 50_000_001]);
+    assert!(matches!(source.read_batch().await?, SourceBatch::Finished));
+
+    config.start_row = u64::MAX;
+    assert!(config.validate().is_err());
     Ok(())
 }

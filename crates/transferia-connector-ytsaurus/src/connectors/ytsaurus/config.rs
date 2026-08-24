@@ -2,10 +2,13 @@ use std::time::Duration;
 use std::{collections::HashSet, fmt};
 
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_BATCH_ROWS: usize = 65_536;
+const DEFAULT_TABLE_READER_WINDOW_SIZE: u64 = 20 * 1024 * 1024;
+const DEFAULT_TABLE_READER_GROUP_SIZE: u64 = 15 * 1024 * 1024;
+const DEFAULT_TABLE_READER_MAX_BUFFER_SIZE: u64 = 100 * 1024 * 1024;
 const DEFAULT_STREAM_RETRY_MAX_ATTEMPTS: usize = 12;
 const DEFAULT_STREAM_RETRY_INITIAL_MS: u64 = 100;
 const DEFAULT_STREAM_RETRY_MAX_MS: u64 = 5_000;
@@ -128,6 +131,13 @@ pub struct YTsaurusSourceConfig {
 
     pub tables: Vec<SourceTableConfig>,
 
+    /// Explicit benchmark-only mode that counts wire rows without materializing
+    /// their values as Arrow arrays. Delivery semantics only permit this mode
+    /// with the discard destination.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub benchmark_discard: Option<YTsaurusBenchmarkDiscardConfig>,
+
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
@@ -151,6 +161,100 @@ pub struct YTsaurusSourceConfig {
     #[serde(default = "default_stream_idle_timeout_ms")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub stream_idle_timeout_ms: u64,
+}
+
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct YTsaurusBenchmarkDiscardConfig {
+    pub format: YTsaurusReadFormat,
+
+    #[serde(default)]
+    pub unordered: bool,
+
+    #[serde(default)]
+    pub table_reader: YTsaurusTableReaderConfig,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusReadFormat {
+    Arrow,
+    Skiff,
+    SchemafulDsv,
+    YsonBinary,
+    YsonText,
+    Json,
+}
+
+impl YTsaurusReadFormat {
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Arrow => "arrow",
+            Self::Skiff => "skiff",
+            Self::SchemafulDsv => "schemaful_dsv",
+            Self::YsonBinary => "yson_binary",
+            Self::YsonText => "yson_text",
+            Self::Json => "json",
+        }
+    }
+}
+
+#[derive(Clone, Default, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct YTsaurusTableReaderConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_size: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_size: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_buffer_size: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_parallel_readers: Option<u16>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_uncompressed_block_cache: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_out_of_order_blocks: Option<bool>,
+}
+
+impl YTsaurusTableReaderConfig {
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
+        let window_size = self.window_size.unwrap_or(DEFAULT_TABLE_READER_WINDOW_SIZE);
+        let group_size = self.group_size.unwrap_or(DEFAULT_TABLE_READER_GROUP_SIZE);
+        let max_buffer_size = self
+            .max_buffer_size
+            .unwrap_or(DEFAULT_TABLE_READER_MAX_BUFFER_SIZE);
+        anyhow::ensure!(window_size > 0, "ytsaurus.table_reader.window_size must be positive");
+        anyhow::ensure!(group_size > 0, "ytsaurus.table_reader.group_size must be positive");
+        anyhow::ensure!(
+            group_size <= window_size,
+            "ytsaurus.table_reader.group_size must not exceed window_size"
+        );
+        anyhow::ensure!(
+            max_buffer_size > 0,
+            "ytsaurus.table_reader.max_buffer_size must be positive"
+        );
+        anyhow::ensure!(
+            max_buffer_size <= 10 * 1024 * 1024 * 1024,
+            "ytsaurus.table_reader.max_buffer_size must not exceed 10 GiB"
+        );
+        anyhow::ensure!(
+            max_buffer_size >= window_size.saturating_mul(2),
+            "ytsaurus.table_reader.max_buffer_size must be at least twice window_size"
+        );
+        if let Some(max_parallel_readers) = self.max_parallel_readers {
+            anyhow::ensure!(
+                (1..=1000).contains(&max_parallel_readers),
+                "ytsaurus.table_reader.max_parallel_readers must be between 1 and 1000"
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -190,6 +294,9 @@ impl YTsaurusSourceConfig {
             self.stream_idle_timeout_ms > 0,
             "ytsaurus.stream_idle_timeout_ms must be positive"
         );
+        if let Some(benchmark_discard) = &self.benchmark_discard {
+            benchmark_discard.table_reader.validate()?;
+        }
         let mut paths = HashSet::new();
         let mut names = HashSet::new();
         for table in &self.tables {

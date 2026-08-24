@@ -73,6 +73,13 @@ pub struct DataGeneratorConfig {
 
     #[schemars(title = "Amount", extend("x-ui" = { "control_width": "wide" }))]
     pub amount: GenerationAmount,
+
+    /// First generated row identifier. This is useful when independently
+    /// generated ranges are later concatenated without duplicating primary-key
+    /// values.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub start_row: u64,
 }
 
 impl DataGeneratorConfig {
@@ -82,7 +89,11 @@ impl DataGeneratorConfig {
             "generator.table_name must not be empty"
         );
         self.preset.validate()?;
-        let _ = self.total_rows()?;
+        let total_rows = self.total_rows()?;
+        let _ = self
+            .start_row
+            .checked_add(total_rows)
+            .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
         Ok(())
     }
 
