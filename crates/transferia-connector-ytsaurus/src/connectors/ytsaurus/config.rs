@@ -6,6 +6,11 @@ use serde::Deserialize;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_BATCH_ROWS: usize = 65_536;
+const DEFAULT_STREAM_RETRY_MAX_ATTEMPTS: usize = 12;
+const DEFAULT_STREAM_RETRY_INITIAL_MS: u64 = 100;
+const DEFAULT_STREAM_RETRY_MAX_MS: u64 = 5_000;
+const DEFAULT_STREAM_OPEN_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 30_000;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -126,11 +131,37 @@ pub struct YTsaurusSourceConfig {
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
+
+    #[serde(default = "default_stream_retry_max_attempts")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub stream_retry_max_attempts: usize,
+
+    #[serde(default = "default_stream_retry_initial_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub stream_retry_initial_ms: u64,
+
+    #[serde(default = "default_stream_retry_max_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub stream_retry_max_ms: u64,
+
+    #[serde(default = "default_stream_open_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub stream_open_timeout_ms: u64,
+
+    #[serde(default = "default_stream_idle_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub stream_idle_timeout_ms: u64,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SourceTableConfig {
+    #[schemars(
+        title = "Table name",
+        description = "Logical dataset name emitted to the destination"
+    )]
+    pub name: String,
+
     pub path: String,
 }
 
@@ -139,17 +170,71 @@ impl YTsaurusSourceConfig {
         self.connection.validate()?;
         anyhow::ensure!(!self.tables.is_empty(), "ytsaurus.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "ytsaurus.batch_rows must be positive");
+        anyhow::ensure!(
+            self.stream_retry_max_attempts > 0,
+            "ytsaurus.stream_retry_max_attempts must be positive"
+        );
+        anyhow::ensure!(
+            self.stream_retry_initial_ms > 0,
+            "ytsaurus.stream_retry_initial_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.stream_retry_max_ms >= self.stream_retry_initial_ms,
+            "ytsaurus.stream_retry_max_ms must be at least stream_retry_initial_ms"
+        );
+        anyhow::ensure!(
+            self.stream_open_timeout_ms > 0,
+            "ytsaurus.stream_open_timeout_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.stream_idle_timeout_ms > 0,
+            "ytsaurus.stream_idle_timeout_ms must be positive"
+        );
         let mut paths = HashSet::new();
+        let mut names = HashSet::new();
         for table in &self.tables {
             validate_path(&table.path)?;
+            anyhow::ensure!(
+                !table.name.trim().is_empty(),
+                "ytsaurus.tables.name must not be empty"
+            );
+            anyhow::ensure!(
+                table.name == table.name.trim(),
+                "ytsaurus.tables.name must not have leading or trailing whitespace"
+            );
             anyhow::ensure!(
                 paths.insert(table.path.as_str()),
                 "ytsaurus.tables repeats path '{}'",
                 table.path
             );
+            anyhow::ensure!(
+                names.insert(table.name.as_str()),
+                "ytsaurus.tables repeats logical table name '{}'",
+                table.name
+            );
         }
         Ok(())
     }
+}
+
+const fn default_stream_retry_max_attempts() -> usize {
+    DEFAULT_STREAM_RETRY_MAX_ATTEMPTS
+}
+
+const fn default_stream_retry_initial_ms() -> u64 {
+    DEFAULT_STREAM_RETRY_INITIAL_MS
+}
+
+const fn default_stream_retry_max_ms() -> u64 {
+    DEFAULT_STREAM_RETRY_MAX_MS
+}
+
+const fn default_stream_open_timeout_ms() -> u64 {
+    DEFAULT_STREAM_OPEN_TIMEOUT_MS
+}
+
+const fn default_stream_idle_timeout_ms() -> u64 {
+    DEFAULT_STREAM_IDLE_TIMEOUT_MS
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]

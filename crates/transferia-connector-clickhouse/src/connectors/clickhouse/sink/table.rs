@@ -69,6 +69,7 @@ pub(super) async fn prepare_tables(
     client: &ReconnectingClient,
     config: &ClickHouseSinkConfig,
     request: &SinkPrepare,
+    shard_group: Option<&str>,
 ) -> anyhow::Result<()> {
     for dataset in &request.datasets {
         let schema_primary_key = dataset
@@ -95,7 +96,15 @@ pub(super) async fn prepare_tables(
                 dataset.table,
             );
         }
-        create_table(client, config, &dataset.table, &dataset.schema, sorting_key).await?;
+        create_table(
+            client,
+            config,
+            &dataset.table,
+            &dataset.schema,
+            sorting_key,
+            shard_group,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -106,10 +115,11 @@ async fn create_table(
     name: &str,
     schema: &DatasetSchema,
     sorting_key: &[String],
+    shard_group: Option<&str>,
 ) -> anyhow::Result<()> {
     let data_host_count = config.effective_data_host_count();
     let engine = TableEngine::for_data_host_count(data_host_count);
-    let ddl = create_table_ddl(name, schema, sorting_key, engine)?;
+    let ddl = create_table_ddl_for_cluster(name, schema, sorting_key, engine, shard_group)?;
     tracing::info!(
         table = name,
         engine = engine.as_str(),
@@ -127,11 +137,22 @@ async fn create_table(
     validate_sorting_key(name, sorting_key, &metadata.sorting_key)
 }
 
+#[cfg(test)]
 fn create_table_ddl(
     name: &str,
     schema: &DatasetSchema,
     sorting_key: &[String],
     engine: TableEngine,
+) -> anyhow::Result<String> {
+    create_table_ddl_for_cluster(name, schema, sorting_key, engine, None)
+}
+
+fn create_table_ddl_for_cluster(
+    name: &str,
+    schema: &DatasetSchema,
+    sorting_key: &[String],
+    engine: TableEngine,
+    shard_group: Option<&str>,
 ) -> anyhow::Result<String> {
     let columns = validated_column_definitions(name, schema)?.join(", ");
     let mut unique_sorting_keys = BTreeSet::new();
@@ -151,10 +172,18 @@ fn create_table_ddl(
     } else {
         &sorting_key
     };
+    let on_cluster = shard_group
+        .map(|cluster| format!(" ON CLUSTER {}", quote_identifier(cluster)))
+        .unwrap_or_default();
+    let engine_clause = match engine {
+        TableEngine::MergeTree => "MergeTree",
+        TableEngine::ReplicatedMergeTree => {
+            "ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')"
+        }
+    };
     Ok(format!(
-        "CREATE TABLE IF NOT EXISTS {} ({columns}) ENGINE = {} ORDER BY ({order_by})",
+        "CREATE TABLE IF NOT EXISTS {}{on_cluster} ({columns}) ENGINE = {engine_clause} ORDER BY ({order_by})",
         quote_identifier(name),
-        engine.as_str(),
     ))
 }
 
@@ -468,6 +497,7 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
     };
     match (expected, target_data_type) {
         (DataType::Utf8 | DataType::LargeUtf8, DataType::Utf8)
+        | (DataType::Binary | DataType::LargeBinary, DataType::Utf8)
         | (DataType::Boolean, DataType::UInt8) => true,
         (
             DataType::Decimal128(expected_precision, expected_scale),
@@ -539,7 +569,9 @@ pub(super) fn destination_type(column: &SchemaColumn) -> anyhow::Result<String> 
 )]
 fn clickhouse_type(data_type: &DataType) -> anyhow::Result<String> {
     Ok(match data_type {
-        DataType::Utf8 | DataType::LargeUtf8 => "String".into(),
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
+            "String".into()
+        }
         DataType::Int8 => "Int8".into(),
         DataType::Int16 => "Int16".into(),
         DataType::Int32 => "Int32".into(),

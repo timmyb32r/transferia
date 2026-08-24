@@ -247,6 +247,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovered),
@@ -271,6 +272,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovered),
@@ -317,7 +319,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n"
+            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - name: input\n    path: //tmp/input\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;
@@ -333,7 +335,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         source_discovery.datasets[0].stored_schema.columns.len(),
         input_schema.columns.len()
     );
-    assert_eq!(source_discovery.datasets[0].name.as_ref(), "//tmp/input");
+    assert_eq!(source_discovery.datasets[0].name.as_ref(), "input");
     let mut actor = source
         .build_source(SourceBuildContext {
             partition_id: 0,
@@ -346,7 +348,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     loop {
         match actor.read_batch().await? {
             SourceBatch::Typed { tables, .. } => {
-                assert_eq!(tables[0].table.as_ref(), "//tmp/input");
+                assert_eq!(tables[0].table.as_ref(), "input");
                 assert!(tables[0].batch.num_rows() <= 2);
                 rows += tables[0].batch.num_rows();
             }

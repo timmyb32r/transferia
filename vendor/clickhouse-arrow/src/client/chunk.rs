@@ -73,6 +73,8 @@ pub(crate) struct ChunkReader<R> {
     read_buffer: Vec<u8>, // Internal buffer for reading chunk data
     buffer_pos:  usize,   // Current position in the buffer
     chunk_size:  u32,     // Remaining bytes in the current chunk
+    header:      [u8; 4],
+    header_pos:  usize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -91,6 +93,8 @@ impl<R: ClickHouseRead> ChunkReader<R> {
             read_buffer: Vec::with_capacity(1024 * 1024),
             buffer_pos: 0,
             chunk_size: 0,
+            header: [0; 4],
+            header_pos: 0,
         }
     }
 }
@@ -122,19 +126,25 @@ impl<R: ClickHouseRead> AsyncRead for ChunkReader<R> {
             #[expect(clippy::cast_possible_truncation)]
             match this.state {
                 ReaderState::Header => {
-                    // Read the 4-byte chunk size (little-endian u32)
-                    let mut header = [0u8; 4];
-                    let mut header_buf = ReadBuf::new(&mut header);
+                    // `AsyncRead::poll_read` may legally return fewer than four bytes. Preserve
+                    // partial headers across polls instead of interpreting zero-filled bytes as
+                    // part of the chunk length and desynchronizing the native protocol stream.
+                    let mut header_buf = ReadBuf::new(&mut this.header[*this.header_pos..]);
                     ready!(this.inner.as_mut().poll_read(cx, &mut header_buf))?;
-
-                    if header.len() < 4 {
+                    let read = header_buf.filled().len();
+                    if read == 0 {
                         return Poll::Ready(Err(io::Error::new(
                             io::ErrorKind::UnexpectedEof,
                             "Incomplete chunk header",
                         )));
                     }
+                    *this.header_pos += read;
+                    if *this.header_pos < this.header.len() {
+                        continue;
+                    }
 
-                    *this.chunk_size = u32::from_le_bytes(header);
+                    *this.chunk_size = u32::from_le_bytes(*this.header);
+                    *this.header_pos = 0;
 
                     // Terminating sequence, stay in Header and continue
                     if *this.chunk_size == 0 {

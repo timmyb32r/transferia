@@ -92,6 +92,9 @@ pub(super) struct ExecutingQuery<T: Send + Sync> {
     header:          Option<Vec<(String, Type)>>,
     header_response: Option<oneshot::Sender<Vec<(String, Type)>>>,
     response:        ResponseSender<T>,
+    decoded_rows:    u64,
+    forwarded_rows:  u64,
+    profile_rows:    Option<u64>,
 }
 
 pub(super) struct PendingQuery<T: Send + Sync> {
@@ -134,6 +137,15 @@ impl<T: ClientFormat> InternalConn<T> {
             metadata,
             events,
             state,
+        }
+    }
+
+    pub(super) async fn fail_queries(&mut self, reason: &str) {
+        if let Some(executing) = self.executing.take() {
+            drop(executing.response.send(Err(Error::Client(reason.to_owned()))).await);
+        }
+        for pending in self.pending.drain(..) {
+            drop(pending.response.send(Err(Error::Client(reason.to_owned()))));
         }
     }
 
@@ -357,7 +369,15 @@ impl<T: ClientFormat> InternalConn<T> {
                 exec.header = Some(header);
             }
             ServerPacket::Data(ServerData { block }) => {
-                let _ = exec.response.send(Ok(block)).await.ok();
+                let rows = T::row_count(&block);
+                exec.decoded_rows = exec.decoded_rows.saturating_add(rows);
+                exec.response.send(Ok(block)).await.map_err(|_| {
+                    Error::Protocol(format!(
+                        "ClickHouse result consumer closed after {} of {} decoded rows",
+                        exec.forwarded_rows, exec.decoded_rows
+                    ))
+                })?;
+                exec.forwarded_rows = exec.forwarded_rows.saturating_add(rows);
             }
             ServerPacket::ProfileEvents(info) => {
                 let event = ClickHouseEvent::Profile(info);
@@ -378,7 +398,44 @@ impl<T: ClientFormat> InternalConn<T> {
                 T::finish_deser(&mut self.state);
             }
             ServerPacket::EndOfStream => {
-                debug!({ ATT_CON } = cid, { ATT_QID } = %qid, "END OF STREAM");
+                if let Some(profile_rows) = exec.profile_rows
+                    && profile_rows != exec.decoded_rows
+                {
+                    let error = Error::Protocol(format!(
+                        "ClickHouse result was truncated: decoded {} of {} rows reported by the server",
+                        exec.decoded_rows, profile_rows
+                    ));
+                    error!(
+                        { ATT_CON } = cid,
+                        { ATT_QID } = %qid,
+                        decoded_rows = exec.decoded_rows,
+                        profile_rows,
+                        "RESULT ROW COUNT MISMATCH"
+                    );
+                    let _ = exec.response.send(Err(error)).await.ok();
+                } else if exec.forwarded_rows != exec.decoded_rows {
+                    let error = Error::Protocol(format!(
+                        "ClickHouse result forwarding was truncated: forwarded {} of {} decoded rows",
+                        exec.forwarded_rows, exec.decoded_rows
+                    ));
+                    error!(
+                        { ATT_CON } = cid,
+                        { ATT_QID } = %qid,
+                        decoded_rows = exec.decoded_rows,
+                        forwarded_rows = exec.forwarded_rows,
+                        "RESULT FORWARDING ROW COUNT MISMATCH"
+                    );
+                    let _ = exec.response.send(Err(error)).await.ok();
+                } else {
+                    info!(
+                        { ATT_CON } = cid,
+                        { ATT_QID } = %qid,
+                        decoded_rows = exec.decoded_rows,
+                        forwarded_rows = exec.forwarded_rows,
+                        profile_rows = ?exec.profile_rows,
+                        "ClickHouse result stream completed"
+                    );
+                }
                 drop(self.executing.take());
                 T::finish_deser(&mut self.state);
             }
@@ -389,6 +446,7 @@ impl<T: ClientFormat> InternalConn<T> {
             // TODO: Should profile info be returned to caller?
             ServerPacket::ProfileInfo(info) => {
                 debug!(?info, "Profile info");
+                exec.profile_rows = Some(info.rows);
             }
             ServerPacket::Ignore(ignored) => trace!(ignored = ignored.as_ref(), "Ignored packet"),
 
@@ -462,6 +520,9 @@ impl<T: ClientFormat> InternalConn<T> {
             header: None,
             header_response: header,
             response: sender,
+            decoded_rows: 0,
+            forwarded_rows: 0,
+            profile_rows: None,
         });
 
         self.send_delimiter(writer, qid).await?;

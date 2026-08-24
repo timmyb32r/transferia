@@ -30,6 +30,10 @@ impl super::sealed::ClientFormatImpl<RecordBatch> for ArrowFormat {
     type Schema = SchemaRef;
     type Ser = ();
 
+    fn row_count(data: &RecordBatch) -> u64 {
+        u64::try_from(data.num_rows()).expect("Arrow RecordBatch row count must fit in u64")
+    }
+
     fn finish_deser(state: &mut DeserializerState<Self::Deser>) {
         state.deserializer().builders.clear();
         state.deserializer().buffer.clear();

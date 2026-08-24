@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
@@ -10,7 +12,7 @@ use transferia_connector_support::metrics::{MetricsRegistry, SourceCounters};
 use transferia_connector_support::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::data::system_columns::{SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -150,7 +152,12 @@ impl SourceConnector for IcebergSourceConnector {
                 .table_names
                 .get(table_index)
                 .ok_or_else(|| anyhow::anyhow!("Iceberg table is missing for partition {}", context.partition_id))?;
-            let stream = table.scan().build()?.to_arrow().await?;
+            let stream = table
+                .scan()
+                .with_batch_size(Some(self.config.read_batch_rows))
+                .build()?
+                .to_arrow()
+                .await?;
             let counters = self.counters(context.partition_id);
             self.metrics
                 .register_source(context.partition_id, Arc::clone(&counters));
@@ -160,6 +167,7 @@ impl SourceConnector for IcebergSourceConnector {
                 cancellation: context.cancellation,
                 memory: context.memory,
                 counters,
+                emitted_rows: 0,
             }) as Box<dyn Source>)
         })
     }
@@ -179,6 +187,7 @@ struct IcebergSource {
     cancellation: CancellationToken,
     memory: PipelineMemory,
     counters: Arc<SourceCounters>,
+    emitted_rows: u64,
 }
 
 impl Source for IcebergSource {
@@ -193,8 +202,17 @@ impl Source for IcebergSource {
             let Some(batch) = next else {
                 return Ok(SourceBatch::Finished);
             };
-            let batch = batch.map_err(|error| DataPlaneFailure::retryable(error.into()))?;
-            source_batch(&self.output_name, batch, &self.memory, &self.counters).await
+            let batch = match batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    return Err(classify_scan_failure(self.emitted_rows, error.into()));
+                }
+            };
+            let batch = restore_transferia_types(batch).map_err(DataPlaneFailure::fatal)?;
+            let rows = batch.num_rows() as u64;
+            let output = source_batch(&self.output_name, batch, &self.memory, &self.counters).await?;
+            self.emitted_rows = self.emitted_rows.saturating_add(rows);
+            Ok(output)
         })
     }
 
@@ -204,6 +222,18 @@ impl Source for IcebergSource {
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
+}
+
+pub(super) fn classify_scan_failure(
+    emitted_rows: u64,
+    error: anyhow::Error,
+) -> DataPlaneFailure {
+    if emitted_rows == 0 {
+        return DataPlaneFailure::retryable(error);
+    }
+    DataPlaneFailure::fatal(error.context(format!(
+        "Iceberg snapshot scan failed after emitting {emitted_rows} rows; restarting from the beginning would duplicate data"
+    )))
 }
 
 async fn source_batch(
@@ -245,7 +275,7 @@ fn dataset_schema(
             .map(|field| {
                 SchemaColumn::new(
                     field.name().clone(),
-                    field.data_type().clone(),
+                    logical_data_type(field.name(), field.data_type()),
                     field.is_nullable(),
                 )
                 .with_constraints(
@@ -256,4 +286,39 @@ fn dataset_schema(
             })
             .collect(),
     )
+}
+
+fn logical_data_type(name: &str, physical: &DataType) -> DataType {
+    if name == SystemColumnKind::MessageIndex.default_name()
+        && physical == &DataType::Decimal128(20, 0)
+    {
+        DataType::UInt64
+    } else {
+        physical.clone()
+    }
+}
+
+pub(super) fn restore_transferia_types(batch: RecordBatch) -> anyhow::Result<RecordBatch> {
+    let schema = batch.schema();
+    let mut changed = false;
+    let mut fields = Vec::with_capacity(schema.fields().len());
+    let mut columns = Vec::with_capacity(batch.num_columns());
+    for (field, column) in schema.fields().iter().zip(batch.columns()) {
+        let data_type = logical_data_type(field.name(), field.data_type());
+        if &data_type == field.data_type() {
+            fields.push(Arc::clone(field));
+            columns.push(Arc::clone(column));
+            continue;
+        }
+        changed = true;
+        fields.push(Arc::new(
+            Field::new(field.name(), data_type.clone(), field.is_nullable())
+                .with_metadata(field.metadata().clone()),
+        ));
+        columns.push(cast(column, &data_type)?);
+    }
+    if !changed {
+        return Ok(batch);
+    }
+    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)?)
 }

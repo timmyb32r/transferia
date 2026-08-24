@@ -1,7 +1,14 @@
+use std::sync::Arc;
+
+use arrow::array::{Decimal128Array, UInt64Array};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use schemars::schema_for;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
 use super::config::{IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig};
+use super::sink::IcebergCommitIdentity;
+use super::source::{classify_scan_failure, restore_transferia_types};
 
 #[test]
 fn source_defaults_to_s3_storage() {
@@ -12,6 +19,14 @@ fn source_defaults_to_s3_storage() {
     }))
     .expect("valid source config");
     assert!(matches!(config.storage, OpenDalStorageConfig::S3(_)));
+    assert_eq!(config.read_batch_rows, 65_536);
+}
+
+#[test]
+fn iceberg_sink_groups_deliveries_until_target_or_end_of_input() {
+    assert!(!super::sink::delivery_group_ready(64, 128, false));
+    assert!(super::sink::delivery_group_ready(128, 128, false));
+    assert!(super::sink::delivery_group_ready(64, 128, true));
 }
 
 #[test]
@@ -103,4 +118,97 @@ fn iceberg_schema_preserves_primary_key_columns() {
         .filter_map(|id| converted.name_by_field_id(id))
         .collect::<Vec<_>>();
     assert_eq!(identifiers, ["id"]);
+}
+
+#[test]
+fn iceberg_sink_losslessly_maps_full_uint64_range_to_decimal() {
+    let schema = DatasetSchema::new(vec![SchemaColumn::new(
+        "offset".to_owned(),
+        DataType::UInt64,
+        false,
+    )]);
+    let iceberg = super::sink::iceberg_schema(&schema).expect("Iceberg schema");
+    let target = Arc::new(
+        iceberg::arrow::schema_to_arrow_schema(&iceberg).expect("Iceberg Arrow schema"),
+    );
+    assert_eq!(target.field(0).data_type(), &DataType::Decimal128(20, 0));
+
+    let source = Arc::new(Schema::new(vec![Field::new(
+        "offset",
+        DataType::UInt64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        source,
+        vec![Arc::new(UInt64Array::from(vec![0, u64::MAX]))],
+    )
+    .expect("source batch");
+    let converted = super::sink::with_schema(&batch, target).expect("converted batch");
+    let values = converted
+        .column(0)
+        .as_any()
+        .downcast_ref::<Decimal128Array>()
+        .expect("decimal column");
+    assert_eq!(values.values(), &[0, i128::from(u64::MAX)]);
+}
+
+#[test]
+fn iceberg_source_restores_transferia_message_index_to_uint64() {
+    let physical = Arc::new(Schema::new(vec![Field::new(
+        "_system_message_index",
+        DataType::Decimal128(20, 0),
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        physical,
+        vec![Arc::new(
+            Decimal128Array::from(vec![0, i128::from(u64::MAX)])
+                .with_precision_and_scale(20, 0)
+                .expect("valid decimal metadata"),
+        )],
+    )
+    .expect("physical Iceberg batch");
+
+    let restored = restore_transferia_types(batch).expect("lossless UInt64 restoration");
+    assert_eq!(restored.schema().field(0).data_type(), &DataType::UInt64);
+    let values = restored
+        .column(0)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .expect("UInt64 column");
+    assert_eq!(values.values(), &[0, u64::MAX]);
+}
+
+#[test]
+fn iceberg_snapshot_scan_only_retries_before_emitting_rows() {
+    let initial = classify_scan_failure(0, anyhow::anyhow!("temporary read failure"));
+    assert!(initial.is_retryable());
+
+    let progressed = classify_scan_failure(1, anyhow::anyhow!("temporary read failure"));
+    assert!(!progressed.is_retryable());
+    assert!(progressed
+        .to_string()
+        .contains("restarting from the beginning would duplicate data"));
+}
+
+#[test]
+fn iceberg_commit_identity_is_stable_and_scoped() {
+    let table = uuid::Uuid::from_u128(1);
+    let first = IcebergCommitIdentity::new("delivery", 0, "events", table, 7);
+    let replay = IcebergCommitIdentity::new("delivery", 0, "events", table, 7);
+    assert_eq!(first.token, replay.token);
+    assert_eq!(first.durable_key, replay.durable_key);
+    assert_eq!(first.uuid, replay.uuid);
+
+    for distinct in [
+        IcebergCommitIdentity::new("other-delivery", 0, "events", table, 7),
+        IcebergCommitIdentity::new("delivery", 1, "events", table, 7),
+        IcebergCommitIdentity::new("delivery", 0, "other-events", table, 7),
+        IcebergCommitIdentity::new("delivery", 0, "events", uuid::Uuid::from_u128(2), 7),
+        IcebergCommitIdentity::new("delivery", 0, "events", table, 8),
+    ] {
+        assert_ne!(first.token, distinct.token);
+        assert_ne!(first.durable_key, distinct.durable_key);
+        assert_ne!(first.uuid, distinct.uuid);
+    }
 }

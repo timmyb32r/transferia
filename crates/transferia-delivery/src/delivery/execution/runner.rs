@@ -249,6 +249,7 @@ async fn run_partition_attempt(
         .sink_connector
         .build_sink(SinkBuildContext {
             partition_id,
+            finite_source: dependencies.finite_source,
             counters: sink_counters,
             keep_system_columns: dependencies.keep_system_columns,
             discovery: Arc::clone(&dependencies.discovery),
@@ -357,7 +358,8 @@ async fn run_partition_task(
             partition = partition_id,
             consecutive_failure,
             delay_ms = restart_delay.as_millis(),
-            "pipeline failed, restarting: {error}"
+            error = ?error,
+            "pipeline failed, restarting"
         );
         tokio::select! {
             () = dependencies.cancellation.cancelled() => return Ok(()),

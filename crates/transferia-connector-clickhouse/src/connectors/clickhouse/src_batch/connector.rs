@@ -17,7 +17,7 @@ use crate::connectors::clickhouse::sink::table::quote_string_literal;
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::data::system_columns::SystemColumnKind;
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
 };
@@ -33,7 +33,15 @@ use transferia_registry::{
 pub(super) struct DiscoveredTable {
     pub config: TableConfig,
     pub schema: DatasetSchema,
+    pub physical_system_columns: SystemColumns,
 }
+
+pub(super) const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
+    SystemColumnKind::Topic,
+    SystemColumnKind::Partition,
+    SystemColumnKind::Offset,
+    SystemColumnKind::MessageIndex,
+];
 
 pub struct ClickHouseSourceConnector {
     config: ClickHouseSourceConfig,
@@ -166,13 +174,7 @@ impl SourceConnector for ClickHouseSourceConnector {
                 cancellation,
             } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse discovery cancelled"), tables = self.discovered_tables() => tables? };
-            let system_columns = [
-                SystemColumnKind::Topic,
-                SystemColumnKind::Partition,
-                SystemColumnKind::Offset,
-                SystemColumnKind::MessageIndex,
-            ];
-            let discovered_system_columns = system_columns
+            let discovered_system_columns = SYSTEM_COLUMN_KINDS
                 .iter()
                 .copied()
                 .map(Into::into)
@@ -181,18 +183,27 @@ impl SourceConnector for ClickHouseSourceConnector {
                 .iter()
                 .map(|table| {
                     let mut incoming = table.schema.clone();
-                    incoming.columns.extend(system_columns.iter().map(|kind| {
-                        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
-                    }));
+                    if table.physical_system_columns.is_empty() {
+                        incoming.columns.extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
+                            SchemaColumn::new(
+                                kind.default_name().to_owned(),
+                                kind.data_type(),
+                                false,
+                            )
+                        }));
+                    }
+                    let stored_schema = if request.keep_system_columns {
+                        incoming.clone()
+                    } else if table.physical_system_columns.is_empty() {
+                        table.schema.clone()
+                    } else {
+                        without_system_columns(&table.schema, &table.physical_system_columns)
+                    };
                     DiscoveredDataset {
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name.as_str()),
                         incoming_schema: incoming.clone(),
-                        stored_schema: if request.keep_system_columns {
-                            incoming
-                        } else {
-                            table.schema.clone()
-                        },
+                        stored_schema,
                         system_columns: discovered_system_columns.clone(),
                     }
                 })
@@ -315,9 +326,31 @@ async fn discover_table(
             );
             anyhow::ensure!(default_values.value(row).is_empty(), "ClickHouse source column '{}.{}.{name}' is generated ({}) and cannot be snapshotted through SELECT *", table.database, table.name, default_values.value(row));
             let clickhouse_type = Type::from_str(type_values.value(row))?;
+            let data_type = source_arrow_type(&clickhouse_type)?;
+            let data_type = match system_column_kind(name) {
+                Some(kind) => {
+                    anyhow::ensure!(
+                        !clickhouse_type.is_nullable(),
+                        "ClickHouse source system column '{}.{}.{name}' must be non-nullable",
+                        table.database,
+                        table.name,
+                    );
+                    let expected = kind.data_type();
+                    let compatible = data_type == expected
+                        || (kind == SystemColumnKind::Topic && data_type == DataType::Binary);
+                    anyhow::ensure!(
+                        compatible,
+                        "ClickHouse source system column '{}.{}.{name}' has Arrow type {data_type:?}, expected {expected:?}",
+                        table.database,
+                        table.name,
+                    );
+                    expected
+                }
+                None => data_type,
+            };
             columns.push(SchemaColumn::new(
                 name.to_owned(),
-                source_arrow_type(&clickhouse_type)?,
+                data_type,
                 clickhouse_type.is_nullable(),
             ));
         }
@@ -328,10 +361,77 @@ async fn discover_table(
         table.database,
         table.name
     );
+    let schema = DatasetSchema::new(columns);
+    let physical_system_columns = classify_system_columns(&schema)?;
     Ok(DiscoveredTable {
         config: table,
-        schema: DatasetSchema::new(columns),
+        schema,
+        physical_system_columns,
     })
+}
+
+fn system_column_kind(name: &str) -> Option<SystemColumnKind> {
+    SYSTEM_COLUMN_KINDS
+        .into_iter()
+        .find(|kind| kind.default_name() == name)
+}
+
+pub(super) fn classify_system_columns(schema: &DatasetSchema) -> anyhow::Result<SystemColumns> {
+    let columns = schema
+        .columns
+        .iter()
+        .enumerate()
+        .filter_map(|(index, column)| {
+            system_column_kind(&column.name).map(|kind| (index, column, kind))
+        })
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Ok(SystemColumns::default());
+    }
+    anyhow::ensure!(
+        columns.len() == SYSTEM_COLUMN_KINDS.len(),
+        "ClickHouse source table contains only {}/{} reserved system columns; either all or none must be present",
+        columns.len(),
+        SYSTEM_COLUMN_KINDS.len(),
+    );
+    let mut result = Vec::with_capacity(columns.len());
+    for kind in SYSTEM_COLUMN_KINDS {
+        let (index, column, _) = columns
+            .iter()
+            .find(|(_, _, candidate)| *candidate == kind)
+            .ok_or_else(|| anyhow::anyhow!("missing ClickHouse source system column '{}'", kind.default_name()))?;
+        anyhow::ensure!(
+            column.data_type == kind.data_type() && !column.nullable,
+            "ClickHouse source system column '{}' must have Arrow type {:?} and be non-nullable",
+            column.name,
+            kind.data_type(),
+        );
+        result.push(SystemColumn {
+            kind,
+            index: *index,
+            name: Arc::from(column.name.as_str()),
+        });
+    }
+    Ok(SystemColumns::new(result))
+}
+
+fn without_system_columns(
+    schema: &DatasetSchema,
+    system_columns: &SystemColumns,
+) -> DatasetSchema {
+    let indexes = system_columns
+        .iter()
+        .map(|column| column.index)
+        .collect::<HashSet<_>>();
+    DatasetSchema::new(
+        schema
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !indexes.contains(index))
+            .map(|(_, column)| column.clone())
+            .collect(),
+    )
 }
 
 fn source_arrow_type(clickhouse_type: &Type) -> anyhow::Result<DataType> {

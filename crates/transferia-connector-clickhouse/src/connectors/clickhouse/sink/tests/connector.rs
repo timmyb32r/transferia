@@ -14,6 +14,25 @@ fn selected_shard_group_must_be_visible_to_the_user() {
 }
 
 #[test]
+fn multi_host_sink_uses_the_only_available_shard_group() -> anyhow::Result<()> {
+    let mut config: ClickHouseSinkConfig = serde_yaml::from_str(
+        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\ndata_host_count: 2\ndatabase: default\nusername: default\n",
+    )?;
+    let groups = vec!["default".to_owned()];
+
+    assert_eq!(effective_shard_group(&config, &groups)?, Some("default"));
+
+    let ambiguous = vec!["analytics".to_owned(), "default".to_owned()];
+    assert!(effective_shard_group(&config, &ambiguous)
+        .unwrap_err()
+        .to_string()
+        .contains("select a shard group explicitly"));
+    config.data_host_count = Some(1);
+    assert_eq!(effective_shard_group(&config, &[])?, None);
+    Ok(())
+}
+
+#[test]
 fn shard_group_query_materializes_low_cardinality_names_as_plain_strings() {
     assert!(SHARD_GROUPS_QUERY.contains("toString(cluster) AS cluster"));
 

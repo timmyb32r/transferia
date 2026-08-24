@@ -256,6 +256,7 @@ impl<T: ClientFormat> Connection<T> {
 
                 if let Err(error) = result {
                     error!(?error, "Internal connection lost");
+                    internal.fail_queries(&error.to_string()).await;
                     internal_status.store(ConnectionStatus::Error.into(), Ordering::Release);
                 } else {
                     info!("Internal connection closed");

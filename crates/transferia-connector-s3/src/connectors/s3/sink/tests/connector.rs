@@ -207,6 +207,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
         .build_sink(SinkBuildContext {
             durable: crate::durable::test_support::context(),
             partition_id: 1,
+            finite_source: true,
             counters: Arc::new(crate::metrics::SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovery),
@@ -216,6 +217,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
         .build_sink(SinkBuildContext {
             durable: crate::durable::test_support::context(),
             partition_id: 2,
+            finite_source: true,
             counters: Arc::new(crate::metrics::SinkCounters::new()),
             keep_system_columns: false,
             discovery,

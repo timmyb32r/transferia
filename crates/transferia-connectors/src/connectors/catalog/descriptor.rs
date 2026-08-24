@@ -47,9 +47,23 @@ const POSTGRES_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescrip
     networked: true,
 });
 
-const CLICKHOUSE_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+const CLICKHOUSE_SOURCE_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
+        required_output_fields: &["hosts", "port", "trusted_plaintext"],
+    }),
+    networked: true,
+});
+
+const CLICKHOUSE_SINK_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &[
+            "hosts",
+            "port",
+            "trusted_plaintext",
+            "tls_ca_file",
+            "data_host_count",
+        ],
         required_output_fields: &["hosts", "port", "trusted_plaintext"],
     }),
     networked: true,
@@ -106,8 +120,8 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
     ConnectorDescriptor {
         key: "clickhouse",
         title: "ClickHouse",
-        source: CLICKHOUSE_ROLE,
-        sink: CLICKHOUSE_ROLE,
+        source: CLICKHOUSE_SOURCE_ROLE,
+        sink: CLICKHOUSE_SINK_ROLE,
     },
     ConnectorDescriptor {
         key: "s3",

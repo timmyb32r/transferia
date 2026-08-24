@@ -122,6 +122,7 @@ async fn discard_sink_runs_through_the_connector_and_actor_boundary() -> anyhow:
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery,
@@ -218,6 +219,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovery),
@@ -359,6 +361,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
         .build_sink(SinkBuildContext {
             durable: durable.clone(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovery),
@@ -470,6 +473,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
             }
             .build("s3-e2e")?,
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery,

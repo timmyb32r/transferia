@@ -136,6 +136,29 @@ fn validate_selected_shard_group(
     Ok(())
 }
 
+fn effective_shard_group<'a>(
+    config: &ClickHouseSinkConfig,
+    available: &'a [String],
+) -> anyhow::Result<Option<&'a str>> {
+    if !config.shard_group.is_empty() {
+        validate_selected_shard_group(Some(&config.shard_group), available)?;
+        return Ok(available
+            .iter()
+            .find(|candidate| candidate.as_str() == config.shard_group)
+            .map(String::as_str));
+    }
+    if config.effective_data_host_count() <= 1 {
+        return Ok(None);
+    }
+    anyhow::ensure!(
+        available.len() == 1,
+        "ClickHouse has {} data hosts and {} available shard groups; select a shard group explicitly",
+        config.effective_data_host_count(),
+        available.len(),
+    );
+    Ok(available.first().map(String::as_str))
+}
+
 impl SinkLimits for ClickHouseSinkConfig {
     fn description(&self) -> SinkLimitsDescription {
         let identifier = TextLimit {
@@ -148,6 +171,7 @@ impl SinkLimits for ClickHouseSinkConfig {
             column_name: Some(identifier),
             supported_arrow_types: vec![
                 ArrowTypeFamily::Utf8,
+                ArrowTypeFamily::Binary,
                 ArrowTypeFamily::SignedInteger,
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
@@ -202,11 +226,22 @@ impl SinkConnector for ClickHouseSinkConnector {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             let client = self.shared_client().await?;
-            if !self.config.shard_group.is_empty() {
-                let groups = query_shard_groups(client.as_ref()).await?;
-                validate_selected_shard_group(Some(&self.config.shard_group), &groups)?;
+            let groups = if !self.config.shard_group.is_empty()
+                || self.config.effective_data_host_count() > 1
+            {
+                query_shard_groups(client.as_ref()).await?
+            } else {
+                Vec::new()
+            };
+            let shard_group = effective_shard_group(&self.config, &groups)?;
+            if let Some(shard_group) = shard_group {
+                tracing::info!(
+                    shard_group,
+                    data_host_count = self.config.effective_data_host_count(),
+                    "preparing ClickHouse tables on cluster"
+                );
             }
-            prepare_tables(client.as_ref(), &self.config, &request).await
+            prepare_tables(client.as_ref(), &self.config, &request, shard_group).await
         })
     }
 

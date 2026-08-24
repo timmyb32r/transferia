@@ -74,6 +74,27 @@ fn ddl_engine_follows_data_host_count() -> anyhow::Result<()> {
 }
 
 #[test]
+fn replicated_table_is_created_on_the_selected_cluster() -> anyhow::Result<()> {
+    let schema = schema(vec![SchemaColumn::new(
+        "id".into(),
+        DataType::UInt64,
+        false,
+    )]);
+    let ddl = create_table_ddl_for_cluster(
+        "events",
+        &schema,
+        &[],
+        TableEngine::ReplicatedMergeTree,
+        Some("default"),
+    )?;
+    assert_eq!(
+        ddl,
+        "CREATE TABLE IF NOT EXISTS `events` ON CLUSTER `default` (`id` UInt64) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}') ORDER BY (tuple())"
+    );
+    Ok(())
+}
+
+#[test]
 fn target_schema_allows_extra_and_more_nullable_columns() -> anyhow::Result<()> {
     let expected = schema(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),

@@ -281,6 +281,25 @@ fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn clickhouse_sink_installation_preserves_data_host_count() -> anyhow::Result<()> {
+    let source = crate::connectors::catalog::installation_contract(
+        "clickhouse",
+        EndpointRole::Source,
+    )
+    .ok_or_else(|| anyhow::anyhow!("missing ClickHouse source installation contract"))?;
+    let sink = crate::connectors::catalog::installation_contract(
+        "clickhouse",
+        EndpointRole::Sink,
+    )
+    .ok_or_else(|| anyhow::anyhow!("missing ClickHouse sink installation contract"))?;
+
+    assert!(!source.output_fields.contains(&"data_host_count"));
+    assert!(sink.output_fields.contains(&"data_host_count"));
+    assert!(!sink.required_output_fields.contains(&"data_host_count"));
+    Ok(())
+}
+
 #[tokio::test]
 async fn logbroker_connection_check_does_not_require_a_parser_configuration() -> anyhow::Result<()>
 {

@@ -1,4 +1,9 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use serde::Deserialize;
 use serde_json::Value;
+use tokio::sync::OnceCell;
 use transferia_connector_support::outbound_http::{
     NetworkPolicy, OutboundHttpClient, OutboundHttpRequest,
 };
@@ -24,6 +29,23 @@ pub struct YTsaurusClient {
     endpoint: reqwest::Url,
     token: String,
     client: OutboundHttpClient,
+    heavy_endpoints: Arc<OnceCell<Vec<reqwest::Url>>>,
+    next_heavy_endpoint: Arc<AtomicUsize>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum DiscoverProxiesResponse {
+    List(Vec<String>),
+    Object { proxies: Vec<String> },
+}
+
+impl DiscoverProxiesResponse {
+    fn into_proxies(self) -> Vec<String> {
+        match self {
+            Self::List(proxies) | Self::Object { proxies } => proxies,
+        }
+    }
 }
 
 impl YTsaurusClient {
@@ -37,15 +59,18 @@ impl YTsaurusClient {
                 [],
                 NetworkPolicy::AllowPrivateNetworks,
             )?,
+            heavy_endpoints: Arc::new(OnceCell::new()),
+            next_heavy_endpoint: Arc::new(AtomicUsize::new(0)),
         })
     }
 
-    fn request(
+    fn request_at(
         &self,
+        endpoint: &reqwest::Url,
         method: reqwest::Method,
         command: &str,
     ) -> anyhow::Result<OutboundHttpRequest> {
-        let mut url = self.endpoint.clone();
+        let mut url = endpoint.clone();
         let mut segments = url
             .path_segments_mut()
             .map_err(|()| anyhow::anyhow!("YTsaurus endpoint cannot be a base URL"))?;
@@ -58,6 +83,75 @@ impl YTsaurusClient {
                 format!("OAuth {}", self.token),
             )
         }))
+    }
+
+    fn request(
+        &self,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
+        self.request_at(&self.endpoint, method, command)
+    }
+
+    async fn discover_heavy_endpoints(&self) -> anyhow::Result<Vec<reqwest::Url>> {
+        let mut url = self.endpoint.clone();
+        url.set_path("/api/v4/discover_proxies");
+        url.query_pairs_mut()
+            .clear()
+            .append_pair("type", "http")
+            .append_pair(
+                "address_type",
+                if self.endpoint.scheme() == "https" {
+                    "https"
+                } else {
+                    "http"
+                },
+            );
+        let response = self
+            .client
+            .request(reqwest::Method::GET, url)
+            .configure(|request| {
+                request.header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("OAuth {}", self.token),
+                )
+            })
+            .send()
+            .await?;
+        let response = Self::checked(response).await?;
+        let proxies = response
+            .json::<DiscoverProxiesResponse>()
+            .await?
+            .into_proxies();
+        anyhow::ensure!(!proxies.is_empty(), "YTsaurus data proxy discovery returned no proxies");
+
+        proxies
+            .into_iter()
+            .map(|proxy| {
+                let mut endpoint = if proxy.contains("://") {
+                    proxy.parse::<reqwest::Url>()?
+                } else {
+                    format!("{}://{proxy}", self.endpoint.scheme()).parse::<reqwest::Url>()?
+                };
+                endpoint.set_path("");
+                endpoint.set_query(None);
+                endpoint.set_fragment(None);
+                Ok(endpoint)
+            })
+            .collect()
+    }
+
+    async fn heavy_request(
+        &self,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
+        let endpoints = self
+            .heavy_endpoints
+            .get_or_try_init(|| self.discover_heavy_endpoints())
+            .await?;
+        let index = self.next_heavy_endpoint.fetch_add(1, Ordering::Relaxed) % endpoints.len();
+        self.request_at(&endpoints[index], method, command)
     }
 
     async fn checked(response: reqwest::Response) -> anyhow::Result<reqwest::Response> {
@@ -85,11 +179,21 @@ impl YTsaurusClient {
         Ok(Self::checked(response).await?.json().await?)
     }
 
-    pub async fn read_arrow(&self, path: &str) -> anyhow::Result<reqwest::Response> {
+    pub async fn read_arrow(
+        &self,
+        path: &str,
+        start_row_index: i64,
+    ) -> anyhow::Result<reqwest::Response> {
+        anyhow::ensure!(
+            start_row_index >= 0,
+            "YTsaurus start row index must not be negative"
+        );
+        let path = rich_read_path(path, start_row_index);
         let parameters = serde_json::json!({ "path": path });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::GET, "read_table")?
+            .heavy_request(reqwest::Method::GET, "read_table")
+            .await?
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
@@ -109,7 +213,8 @@ impl YTsaurusClient {
         let parameters = serde_json::json!({ "path": format!("<append=%true>{path}") });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
-            .request(reqwest::Method::PUT, "write_table")?
+            .heavy_request(reqwest::Method::PUT, "write_table")
+            .await?
             .configure(|request| {
                 request
                     .header("X-YT-Parameters", parameters)
@@ -166,6 +271,13 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+}
+
+pub(super) fn rich_read_path(path: &str, start_row_index: i64) -> String {
+    if start_row_index == 0 {
+        return path.to_owned();
+    }
+    format!("<ranges=[{{lower_limit={{row_index={start_row_index}}}}}]>{path}")
 }
 
 pub fn classify_http_failure(error: anyhow::Error) -> anyhow::Error {

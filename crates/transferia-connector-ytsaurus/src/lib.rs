@@ -29,8 +29,13 @@ pub fn register(
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "timeout_ms": 30000,
-                        "tables": [{ "path": "" }],
-                        "batch_rows": 65536
+                        "tables": [{ "name": "", "path": "" }],
+                        "batch_rows": 65536,
+                        "stream_retry_max_attempts": 12,
+                        "stream_retry_initial_ms": 100,
+                        "stream_retry_max_ms": 5000,
+                        "stream_open_timeout_ms": 30000,
+                        "stream_idle_timeout_ms": 30000
                     })
                 },
                 {

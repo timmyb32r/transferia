@@ -84,6 +84,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            finite_source: false,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery,

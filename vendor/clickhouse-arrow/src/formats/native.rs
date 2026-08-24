@@ -28,6 +28,8 @@ impl super::sealed::ClientFormatImpl<Block> for NativeFormat {
     type Schema = Vec<(String, Type)>;
     type Ser = ();
 
+    fn row_count(data: &Block) -> u64 { data.rows }
+
     async fn read<R: ClickHouseRead + 'static>(
         reader: &mut R,
         revision: u64,

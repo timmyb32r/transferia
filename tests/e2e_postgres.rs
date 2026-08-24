@@ -110,6 +110,7 @@ async fn run_pipeline(
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery,
@@ -355,6 +356,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         .build_sink(SinkBuildContext {
             durable: support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: copy_discovery,

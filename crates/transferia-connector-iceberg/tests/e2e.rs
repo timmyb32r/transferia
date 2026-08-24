@@ -142,6 +142,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
         .build_sink(SinkBuildContext {
             durable: transferia_test_support::durable_context(),
             partition_id: 0,
+            finite_source: true,
             counters: Arc::new(SinkCounters::new()),
             keep_system_columns: false,
             discovery: Arc::clone(&discovery),

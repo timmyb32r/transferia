@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
-    Int16Array, Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
-    UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
+    TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
@@ -381,6 +381,23 @@ fn write_yson_value(output: &mut Vec<u8>, array: &dyn Array, row: usize) -> anyh
                 .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
                 .value(row),
         ),
+        DataType::LargeUtf8 => write_yson_string(
+            output,
+            array
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value(row)
+                .as_bytes(),
+        ),
+        DataType::LargeBinary => write_yson_string(
+            output,
+            array
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value(row),
+        ),
         DataType::Date32 => primitive_yson!(array, Date32Array, row, output),
         DataType::Date64 => primitive_yson!(array, Date64Array, row, output),
         DataType::Timestamp(TimeUnit::Microsecond, None) => {
@@ -416,6 +433,16 @@ pub(super) fn validate_row_weight(batch: &RecordBatch) -> anyhow::Result<()> {
                 DataType::Binary => array
                     .as_any()
                     .downcast_ref::<BinaryArray>()
+                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                    .value_length(row) as usize,
+                DataType::LargeUtf8 => array
+                    .as_any()
+                    .downcast_ref::<LargeStringArray>()
+                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                    .value_length(row) as usize,
+                DataType::LargeBinary => array
+                    .as_any()
+                    .downcast_ref::<LargeBinaryArray>()
                     .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
                     .value_length(row) as usize,
                 other => anyhow::bail!("Arrow type {other:?} is not supported by YTsaurus sink"),

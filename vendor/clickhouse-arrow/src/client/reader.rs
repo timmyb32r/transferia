@@ -11,7 +11,7 @@ use crate::native::progress::Progress;
 use crate::native::protocol::{
     ChunkedProtocolMode, DBMS_MIN_PROTOCOL_VERSION_WITH_CHUNKED_PACKETS,
     DBMS_MIN_PROTOCOL_VERSION_WITH_PASSWORD_COMPLEXITY_RULES,
-    DBMS_MIN_PROTOCOL_VERSION_WITH_PROFILE_EVENTS_IN_INSERT,
+    DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS,
     DBMS_MIN_PROTOCOL_VERSION_WITH_SERVER_QUERY_TIME_IN_PROGRESS,
     DBMS_MIN_PROTOCOL_VERSION_WITH_TOTAL_BYTES_IN_PROGRESS,
     DBMS_MIN_REVISION_WITH_CLIENT_WRITE_INFO, DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET_V2,
@@ -218,15 +218,15 @@ impl<R: ClickHouseRead + 'static> Reader<R> {
                 .ok()
                 .unwrap_or_default();
 
-                let cl_chunked_send = chunked_modes.0;
-                let cl_chunked_recv = chunked_modes.1;
-
-                (
-                    ChunkedProtocolMode::negotiate(srv_chunked_send, cl_chunked_send, "send")?,
-                    ChunkedProtocolMode::negotiate(srv_chunked_recv, cl_chunked_recv, "recv")?,
-                )
+                negotiate_chunked_modes(
+                    (srv_chunked_send, srv_chunked_recv),
+                    chunked_modes,
+                )?
             } else {
-                (ChunkedProtocolMode::default(), ChunkedProtocolMode::default())
+                // Revisions before chunked-packet negotiation always use the legacy,
+                // unchunked stream. `ChunkedProtocolMode::default()` is optional-chunked
+                // and would incorrectly wrap a legacy stream in `ChunkReader`.
+                (ChunkedProtocolMode::NotChunked, ChunkedProtocolMode::NotChunked)
             };
 
         tracing::trace!(
@@ -382,7 +382,7 @@ impl<R: ClickHouseRead + 'static> Reader<R> {
         revision: u64,
         metadata: ClientMetadata,
     ) -> Result<Vec<ProfileEvent>> {
-        if revision < DBMS_MIN_PROTOCOL_VERSION_WITH_PROFILE_EVENTS_IN_INSERT {
+        if revision < DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS {
             return Err(Error::Protocol(format!(
                 "unexpected profile events for revision {revision}"
             )));
@@ -497,4 +497,18 @@ impl<R: ClickHouseRead + 'static> Reader<R> {
         };
         Ok(Some(ServerData { block }))
     }
+}
+
+pub(super) fn negotiate_chunked_modes(
+    server: (ChunkedProtocolMode, ChunkedProtocolMode),
+    client: (ChunkedProtocolMode, ChunkedProtocolMode),
+) -> Result<(ChunkedProtocolMode, ChunkedProtocolMode)> {
+    let (server_send, server_recv) = server;
+    let (client_send, client_recv) = client;
+    Ok((
+        // The server's receive capability constrains what the client sends.
+        ChunkedProtocolMode::negotiate(server_recv, client_send, "send")?,
+        // The server's send capability constrains what the client receives.
+        ChunkedProtocolMode::negotiate(server_send, client_recv, "recv")?,
+    ))
 }

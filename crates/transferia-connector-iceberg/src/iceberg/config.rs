@@ -97,6 +97,18 @@ pub struct S3StorageConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 
+    #[serde(default = "default_retry_max_times")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub retry_max_times: usize,
+
+    #[serde(default = "default_retry_initial_delay_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub retry_initial_delay_ms: u64,
+
+    #[serde(default = "default_retry_max_delay_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub retry_max_delay_ms: u64,
+
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub region: Option<String>,
@@ -136,6 +148,9 @@ impl Default for S3StorageConfig {
         Self {
             bucket: String::new(),
             request_timeout_ms: default_request_timeout_ms(),
+            retry_max_times: default_retry_max_times(),
+            retry_initial_delay_ms: default_retry_initial_delay_ms(),
+            retry_max_delay_ms: default_retry_max_delay_ms(),
             region: None,
             endpoint: None,
             credentials: None,
@@ -157,6 +172,15 @@ pub struct HdfsStorageConfig {
 
     #[serde(default = "default_request_timeout_ms")]
     pub request_timeout_ms: u64,
+
+    #[serde(default = "default_retry_max_times")]
+    pub retry_max_times: usize,
+
+    #[serde(default = "default_retry_initial_delay_ms")]
+    pub retry_initial_delay_ms: u64,
+
+    #[serde(default = "default_retry_max_delay_ms")]
+    pub retry_max_delay_ms: u64,
 
     #[serde(default = "default_root")]
     pub root: String,
@@ -190,6 +214,10 @@ pub struct IcebergSourceConfig {
 
     #[schemars(title = "Table names", extend("x-ui" = { "item_label": "Table name" }))]
     pub table_names: Vec<String>,
+
+    #[serde(default = "default_read_batch_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub read_batch_rows: usize,
 }
 
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
@@ -218,6 +246,10 @@ fn default_namespace() -> String {
 
 const fn default_target_file_size() -> usize {
     128 * 1024 * 1024
+}
+
+const fn default_read_batch_rows() -> usize {
+    64 * 1024
 }
 
 impl RestCatalogConfig {
@@ -275,6 +307,18 @@ const fn default_request_timeout_ms() -> u64 {
     30_000
 }
 
+const fn default_retry_max_times() -> usize {
+    12
+}
+
+const fn default_retry_initial_delay_ms() -> u64 {
+    100
+}
+
+const fn default_retry_max_delay_ms() -> u64 {
+    5_000
+}
+
 impl OpenDalStorageConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
@@ -284,6 +328,11 @@ impl OpenDalStorageConfig {
                     config.request_timeout_ms > 0,
                     "storage.request_timeout_ms must be positive"
                 );
+                validate_retry_policy(
+                    config.retry_max_times,
+                    config.retry_initial_delay_ms,
+                    config.retry_max_delay_ms,
+                )?;
                 if let Some(endpoint) = &config.endpoint {
                     validate_required("storage.endpoint", endpoint)?;
                     let url = url::Url::parse(endpoint)?;
@@ -305,6 +354,11 @@ impl OpenDalStorageConfig {
                     config.request_timeout_ms > 0,
                     "storage.request_timeout_ms must be positive"
                 );
+                validate_retry_policy(
+                    config.retry_max_times,
+                    config.retry_initial_delay_ms,
+                    config.retry_max_delay_ms,
+                )?;
                 let url = url::Url::parse(&config.endpoint)?;
                 anyhow::ensure!(
                     matches!(url.scheme(), "http" | "https"),
@@ -315,6 +369,23 @@ impl OpenDalStorageConfig {
         }
         Ok(())
     }
+}
+
+fn validate_retry_policy(
+    max_times: usize,
+    initial_delay_ms: u64,
+    max_delay_ms: u64,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(max_times > 0, "storage.retry_max_times must be positive");
+    anyhow::ensure!(
+        initial_delay_ms > 0,
+        "storage.retry_initial_delay_ms must be positive"
+    );
+    anyhow::ensure!(
+        max_delay_ms >= initial_delay_ms,
+        "storage.retry_max_delay_ms must be at least storage.retry_initial_delay_ms"
+    );
+    Ok(())
 }
 
 impl IcebergTableRef {
@@ -343,6 +414,10 @@ impl IcebergSourceConfig {
         self.storage.validate()?;
         validate_required("namespace", &self.namespace)?;
         anyhow::ensure!(!self.table_names.is_empty(), "table_names must not be empty");
+        anyhow::ensure!(
+            self.read_batch_rows > 0,
+            "read_batch_rows must be positive"
+        );
         let mut unique = HashSet::with_capacity(self.table_names.len());
         for (index, table_name) in self.table_names.iter().enumerate() {
             validate_required(&format!("table_names[{index}]"), table_name)?;

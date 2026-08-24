@@ -439,19 +439,21 @@ async fn reader_loop(
     let mut next_id = DeliveryId::new(1);
     let mut backoff_ms = INITIAL_BACKOFF_MS;
     loop {
+        // `Source::read_batch` is not required to be cancellation-safe. A source may
+        // already have removed records from its transport into a call-local buffer
+        // before the future becomes ready. Selecting a sink commit event against that
+        // future would drop the buffer and silently lose those records. Only explicit
+        // pipeline cancellation may abandon an in-flight read; source progress has not
+        // been committed in that case, so a later run can replay it.
         let read = tokio::select! {
-            biased;
             () = cancellation.cancelled() => return Ok(()),
-            event = events.recv() => {
-                let event = event.ok_or_else(|| anyhow::anyhow!("sink event stream closed"))?;
-                let SinkEvent::CommittedThrough(id) = event;
-                commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
-                continue;
-            }
             read = source.read_batch() => read,
         };
 
         let batch = read?;
+        while let Ok(SinkEvent::CommittedThrough(id)) = events.try_recv() {
+            commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
+        }
         if matches!(batch, SourceBatch::Finished) {
             // Close the parser input before waiting for the durability ledger.
             // Finite sources need the parser and sink to observe EOF so that
@@ -464,6 +466,10 @@ async fn reader_loop(
                 let SinkEvent::CommittedThrough(id) = event;
                 commit_through(&mut source, &mut ledger, id, progress.as_ref()).await?;
             }
+            tracing::info!(
+                deliveries = next_id.get().saturating_sub(1),
+                "finite source durability ledger drained"
+            );
             return Ok(());
         }
         let (payload, mut batch_memory, mut marker, source_payload_bytes, source_messages) =

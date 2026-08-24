@@ -156,6 +156,9 @@ pub trait SinkConnector: Send + Sync {
 pub struct SinkBuildContext {
     pub partition_id: i64,
 
+    /// Whether the source replays the same finite snapshot after a partition restart.
+    pub finite_source: bool,
+
     pub counters: Arc<SinkCounters>,
 
     pub keep_system_columns: bool,

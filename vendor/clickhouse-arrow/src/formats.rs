@@ -41,6 +41,8 @@ pub(crate) mod sealed {
 
         fn finish_deser(_state: &mut DeserializerState<Self::Deser>) {}
 
+        fn row_count(data: &T) -> u64;
+
         fn write<'a, W: ClickHouseWrite>(
             writer: &'a mut W,
             data: T,

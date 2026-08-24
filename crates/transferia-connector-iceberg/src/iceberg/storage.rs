@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -9,6 +9,7 @@ use iceberg::io::{
 };
 use iceberg::{Error, ErrorKind, Result};
 use opendal::services::{Webhdfs, S3};
+use opendal::layers::RetryLayer;
 use opendal::{Operator, Writer};
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -16,7 +17,13 @@ use url::Url;
 use super::config::{HdfsStorageConfig, OpenDalStorageConfig, S3StorageConfig};
 use transferia_connector_support::outbound_http::{NetworkPolicy, OutboundHttpClient};
 
-fn secure_operator(builder: impl opendal::Builder, timeout_ms: u64) -> Result<Operator> {
+fn secure_operator(
+    builder: impl opendal::Builder,
+    timeout_ms: u64,
+    retry_max_times: usize,
+    retry_initial_delay_ms: u64,
+    retry_max_delay_ms: u64,
+) -> Result<Operator> {
     let client = OutboundHttpClient::new(
         std::time::Duration::from_millis(timeout_ms),
         [],
@@ -29,6 +36,13 @@ fn secure_operator(builder: impl opendal::Builder, timeout_ms: u64) -> Result<Op
         .layer(opendal::layers::HttpClientLayer::new(
             opendal::raw::HttpClient::with(client),
         ))
+        .layer(
+            RetryLayer::new()
+                .with_jitter()
+                .with_min_delay(std::time::Duration::from_millis(retry_initial_delay_ms))
+                .with_max_delay(std::time::Duration::from_millis(retry_max_delay_ms))
+                .with_max_times(retry_max_times),
+        )
         .finish())
 }
 
@@ -46,8 +60,10 @@ impl IcebergOpenDalStorageFactory {
 #[typetag::serde]
 impl StorageFactory for IcebergOpenDalStorageFactory {
     fn build(&self, _config: &StorageConfig) -> Result<Arc<dyn Storage>> {
+        let operator = build_operator(&self.config)?;
         Ok(Arc::new(IcebergOpenDalStorage {
             config: self.config.clone(),
+            operator: OnceLock::from(operator),
         }))
     }
 }
@@ -55,18 +71,42 @@ impl StorageFactory for IcebergOpenDalStorageFactory {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct IcebergOpenDalStorage {
     config: OpenDalStorageConfig,
+
+    #[serde(skip, default)]
+    operator: OnceLock<Operator>,
 }
 
 impl IcebergOpenDalStorage {
     fn operator_and_path(&self, location: &str) -> Result<(Operator, String)> {
-        match &self.config {
-            OpenDalStorageConfig::S3(config) => s3_operator(config, location),
-            OpenDalStorageConfig::Hdfs(config) => hdfs_operator(config, location),
+        let relative = relative_path(&self.config, location)?;
+        Ok((self.operator()?, relative))
+    }
+
+    fn operator(&self) -> Result<Operator> {
+        if let Some(operator) = self.operator.get() {
+            return Ok(operator.clone());
         }
+        let operator = build_operator(&self.config)?;
+        drop(self.operator.set(operator.clone()));
+        Ok(self.operator.get().cloned().unwrap_or(operator))
     }
 }
 
-fn s3_operator(config: &S3StorageConfig, location: &str) -> Result<(Operator, String)> {
+fn build_operator(config: &OpenDalStorageConfig) -> Result<Operator> {
+    match config {
+        OpenDalStorageConfig::S3(config) => s3_operator(config),
+        OpenDalStorageConfig::Hdfs(config) => hdfs_operator(config),
+    }
+}
+
+fn relative_path(config: &OpenDalStorageConfig, location: &str) -> Result<String> {
+    match config {
+        OpenDalStorageConfig::S3(config) => s3_relative_path(config, location),
+        OpenDalStorageConfig::Hdfs(config) => hdfs_relative_path(config, location),
+    }
+}
+
+fn s3_relative_path(config: &S3StorageConfig, location: &str) -> Result<String> {
     let url = Url::parse(location).map_err(iceberg_invalid)?;
     if !matches!(url.scheme(), "s3" | "s3a" | "s3n") {
         return Err(Error::new(
@@ -89,6 +129,10 @@ fn s3_operator(config: &S3StorageConfig, location: &str) -> Result<(Operator, St
             ),
         ));
     }
+    Ok(url.path().trim_start_matches('/').to_owned())
+}
+
+fn s3_operator(config: &S3StorageConfig) -> Result<Operator> {
     let mut builder = S3::default().bucket(&config.bucket);
     if let Some(region) = &config.region {
         builder = builder.region(region);
@@ -110,11 +154,16 @@ fn s3_operator(config: &S3StorageConfig, location: &str) -> Result<(Operator, St
     if config.allow_anonymous {
         builder = builder.allow_anonymous();
     }
-    let operator = secure_operator(builder, config.request_timeout_ms)?;
-    Ok((operator, url.path().trim_start_matches('/').to_owned()))
+    secure_operator(
+        builder,
+        config.request_timeout_ms,
+        config.retry_max_times,
+        config.retry_initial_delay_ms,
+        config.retry_max_delay_ms,
+    )
 }
 
-fn hdfs_operator(config: &HdfsStorageConfig, location: &str) -> Result<(Operator, String)> {
+fn hdfs_relative_path(config: &HdfsStorageConfig, location: &str) -> Result<String> {
     let url = Url::parse(location).map_err(iceberg_invalid)?;
     if url.scheme() != "hdfs" {
         return Err(Error::new(
@@ -155,14 +204,23 @@ fn hdfs_operator(config: &HdfsStorageConfig, location: &str) -> Result<(Operator
             })?
             .trim_start_matches('/')
     };
+    Ok(relative.to_owned())
+}
+
+fn hdfs_operator(config: &HdfsStorageConfig) -> Result<Operator> {
     let mut builder = Webhdfs::default()
         .endpoint(&config.endpoint)
         .root(&config.root);
     if let Some(user) = &config.user {
         builder = builder.user_name(user);
     }
-    let operator = secure_operator(builder, config.request_timeout_ms)?;
-    Ok((operator, relative.to_owned()))
+    secure_operator(
+        builder,
+        config.request_timeout_ms,
+        config.retry_max_times,
+        config.retry_initial_delay_ms,
+        config.retry_max_delay_ms,
+    )
 }
 
 #[typetag::serde]

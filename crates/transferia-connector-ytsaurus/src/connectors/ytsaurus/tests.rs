@@ -4,6 +4,7 @@ use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
 use super::config::{YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusWriteFormat};
+use super::client::rich_read_path;
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
 use super::src_batch::validate_read_schema;
@@ -22,22 +23,40 @@ fn auth_uses_the_wide_credentials_control() {
 }
 
 #[test]
-fn configs_derive_transport_and_use_paths_as_table_names() -> anyhow::Result<()> {
+fn source_tables_require_explicit_unique_logical_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - name: events\n    path: //tmp/input\n",
     )?;
     source.validate()?;
     let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - name: events\n    path: //tmp/input\n"
     )?;
     tls_source.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
+    assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n"
+    )
+    .is_err());
+    assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - { name: events, path: //tmp/a }\n  - { name: events, path: //tmp/b }\n"
+    )?
+    .validate()
+    .is_err());
     assert!(serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: relative }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n"
     )?
     .validate()
     .is_err());
     Ok(())
+}
+
+#[test]
+fn snapshot_recovery_materializes_an_exact_row_range() {
+    assert_eq!(rich_read_path("//tmp/input", 0), "//tmp/input");
+    assert_eq!(
+        rich_read_path("//tmp/input", 42_971_400),
+        "<ranges=[{lower_limit={row_index=42971400}}]>//tmp/input"
+    );
 }
 
 #[test]

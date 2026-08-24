@@ -30,10 +30,10 @@ pub(crate) const DBMS_MIN_REVISION_WITH_INTERSERVER_SECRET: u64 = 54441;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_DISTRIBUTED_DEPTH: u64 = 54448;
 
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_QUERY_START_TIME: u64 = 54449;
-// pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS: u64 = 54451;
+pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS: u64 = 54451;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_PARALLEL_REPLICAS: u64 = 54453;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION: u64 = 54454;
-pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_PROFILE_EVENTS_IN_INSERT: u64 = 54456;
+// pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_PROFILE_EVENTS_IN_INSERT: u64 = 54456;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_ADDENDUM: u64 = 54458;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_QUOTA_KEY: u64 = 54458;
 pub(crate) const DBMS_MIN_PROTOCOL_VERSION_WITH_PARAMETERS: u64 = 54459;
@@ -62,9 +62,18 @@ pub(crate) const DBMS_MIN_REVISION_WITH_QUERY_PLAN_SERIALIZATION: u64 = 54477;
 // Current
 pub(crate) const DBMS_MIN_REVISION_WITH_VERSIONED_CLUSTER_FUNCTION_PROTOCOL: u64 = 54479;
 
-// Active revision
+// Active revision. Never advertise a capability before both its reader and writer are
+// implemented. Revision 54453 enables parallel-replica packets, whose payloads are not yet
+// implemented below; revision 54454 additionally enables custom/sparse column serialization.
+// Advertising either capability can desynchronize the stream and silently lose result blocks.
 pub(crate) const DBMS_TCP_PROTOCOL_VERSION: u64 =
-    DBMS_MIN_REVISION_WITH_VERSIONED_CLUSTER_FUNCTION_PROTOCOL;
+    DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS;
+const _: () = assert!(
+    DBMS_TCP_PROTOCOL_VERSION < DBMS_MIN_PROTOCOL_VERSION_WITH_PARALLEL_REPLICAS
+);
+const _: () = assert!(
+    DBMS_TCP_PROTOCOL_VERSION < DBMS_MIN_PROTOCOL_VERSION_WITH_CUSTOM_SERIALIZATION
+);
 
 pub(crate) const DBMS_PARALLEL_REPLICAS_PROTOCOL_VERSION: u64 = 4;
 

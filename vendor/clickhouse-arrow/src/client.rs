@@ -2186,13 +2186,66 @@ fn record_query(qid: Option<Qid>, query: ParsedQuery, cid: u16) -> (String, Qid)
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::pin::Pin;
     use std::sync::Arc;
+    use std::task::{Context, Poll};
 
     use arrow::array::Int32Array;
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
+    use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 
     use super::*;
+
+    struct OneByteReader {
+        bytes: Vec<u8>,
+        position: usize,
+    }
+
+    impl AsyncRead for OneByteReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            if self.position == self.bytes.len() {
+                return Poll::Ready(Ok(()));
+            }
+            buffer.put_slice(&self.bytes[self.position..self.position + 1]);
+            self.position += 1;
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn chunk_reader_preserves_partial_headers() {
+        let mut framed = Vec::new();
+        framed.extend_from_slice(&3_u32.to_le_bytes());
+        framed.extend_from_slice(b"abc");
+        framed.extend_from_slice(&0_u32.to_le_bytes());
+        framed.extend_from_slice(&4_u32.to_le_bytes());
+        framed.extend_from_slice(b"defg");
+
+        let source = OneByteReader { bytes: framed, position: 0 };
+        let mut reader = chunk::ChunkReader::new(source);
+        let mut output = [0_u8; 7];
+        reader.read_exact(&mut output).await.unwrap();
+        assert_eq!(&output, b"abcdefg");
+    }
+
+    #[test]
+    fn chunked_negotiation_pairs_opposite_transport_directions() {
+        use crate::native::protocol::ChunkedProtocolMode::{Chunked, NotChunked};
+
+        let negotiated = reader::negotiate_chunked_modes(
+            (Chunked, NotChunked),
+            (NotChunked, Chunked),
+        )
+        .unwrap();
+
+        assert_eq!(negotiated, (NotChunked, Chunked));
+    }
 
     #[test]
     fn test_record_query_function() {

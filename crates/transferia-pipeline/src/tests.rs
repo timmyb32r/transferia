@@ -11,6 +11,26 @@ struct OverestimatedSession;
 
 struct OverestimatedFactory;
 
+struct CancellationSensitiveSource {
+    reads: u8,
+    second_read_started: Arc<tokio::sync::Notify>,
+    finish_second_read: Arc<tokio::sync::Notify>,
+    cancelled_reads: Arc<AtomicU64>,
+}
+
+struct ReadCancellationGuard {
+    completed: bool,
+    cancelled_reads: Arc<AtomicU64>,
+}
+
+impl Drop for ReadCancellationGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.cancelled_reads.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 impl ParserFactory for OverestimatedFactory {
     fn create_session(self: Arc<Self>, _memory_limit_bytes: usize) -> Box<dyn ParserSession> {
         Box::new(OverestimatedSession)
@@ -126,6 +146,67 @@ impl Source for RecordingSource {
                 .push(group);
             Ok(())
         })
+    }
+}
+
+impl Source for CancellationSensitiveSource {
+    fn read_batch(
+        &mut self,
+    ) -> futures_util::future::BoxFuture<
+        '_,
+        transferia_core::failure::DataPlaneResult<transferia_core::data::message::SourceBatch>,
+    > {
+        match self.reads {
+            0 => {
+                self.reads = 1;
+                Box::pin(async {
+                    let batch = RecordBatch::try_new(
+                        Arc::new(Schema::new(vec![Field::new(
+                            "value",
+                            arrow::datatypes::DataType::Int64,
+                            false,
+                        )])),
+                        vec![Arc::new(Int64Array::from(vec![1_i64]))],
+                    )
+                    .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
+                    Ok(SourceBatch::Typed {
+                        tables: vec![TableData::new(
+                            "events".into(),
+                            false,
+                            batch,
+                            transferia_core::data::system_columns::SystemColumns::default(),
+                        )],
+                        source_rows: 1,
+                        commit_marker: Some(CommitMarker::new(1_i64)),
+                        memory: Vec::new(),
+                    })
+                })
+            }
+            1 => {
+                self.reads = 2;
+                let started = Arc::clone(&self.second_read_started);
+                let finish = Arc::clone(&self.finish_second_read);
+                let cancelled_reads = Arc::clone(&self.cancelled_reads);
+                Box::pin(async move {
+                    let mut guard = ReadCancellationGuard {
+                        completed: false,
+                        cancelled_reads,
+                    };
+                    started.notify_one();
+                    finish.notified().await;
+                    guard.completed = true;
+                    Ok(SourceBatch::Finished)
+                })
+            }
+            _ => Box::pin(async { Ok(SourceBatch::Finished) }),
+        }
+    }
+
+    fn commit_offsets<'ctx>(
+        &'ctx mut self,
+        _markers: &'ctx [CommitMarker],
+    ) -> futures_util::future::BoxFuture<'ctx, transferia_core::failure::DataPlaneResult<()>> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -306,6 +387,42 @@ async fn commit_through_rejects_an_unknown_sink_delivery_as_fatal() {
         .expect("delivery protocol violations must keep their fatal disposition");
     assert!(!failure.is_retryable());
     assert_eq!(ledger.len(), 1);
+}
+
+#[tokio::test]
+async fn sink_commit_events_do_not_cancel_an_in_flight_source_read() {
+    let second_read_started = Arc::new(tokio::sync::Notify::new());
+    let finish_second_read = Arc::new(tokio::sync::Notify::new());
+    let cancelled_reads = Arc::new(AtomicU64::new(0));
+    let source: Box<dyn Source> = Box::new(CancellationSensitiveSource {
+        reads: 0,
+        second_read_started: Arc::clone(&second_read_started),
+        finish_second_read: Arc::clone(&finish_second_read),
+        cancelled_reads: Arc::clone(&cancelled_reads),
+    });
+    let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (event_tx, event_rx) = mpsc::channel(1);
+    let task = tokio::spawn(reader_loop(
+        source,
+        output_tx,
+        event_rx,
+        PipelineMemory::new(1 << 20),
+        CancellationToken::new(),
+        Arc::new(PipelineProgress::new()),
+    ));
+
+    let first = output_rx.recv().await.expect("source batch must be emitted");
+    assert_eq!(first.id, DeliveryId::new(1));
+    second_read_started.notified().await;
+    event_tx
+        .send(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    finish_second_read.notify_one();
+
+    task.await.unwrap().unwrap();
+    assert_eq!(cancelled_reads.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]

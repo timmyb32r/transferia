@@ -1,6 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
 use arrow::buffer::Buffer;
@@ -139,24 +140,52 @@ impl SourceConnector for YTsaurusSourceConnector {
                 .collect::<Vec<_>>();
             let datasets = tables
                 .iter()
-                .map(|table| {
+                .map(|table| -> anyhow::Result<DiscoveredDataset> {
+                    let system_names = system_columns
+                        .iter()
+                        .map(|kind| kind.default_name())
+                        .collect::<HashSet<_>>();
+                    let physical_system_columns = table
+                        .schema
+                        .columns
+                        .iter()
+                        .filter(|column| system_names.contains(column.name.as_str()))
+                        .count();
+                    anyhow::ensure!(
+                        physical_system_columns == 0
+                            || physical_system_columns == system_columns.len(),
+                        "YTsaurus table '{}' contains {physical_system_columns} of {} reserved system columns; either all or none must be present",
+                        table.config.path,
+                        system_columns.len(),
+                    );
                     let mut incoming = table.schema.clone();
-                    incoming.columns.extend(system_columns.iter().map(|kind| {
-                        SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
-                    }));
-                    DiscoveredDataset {
-                        role: DatasetRole::Main,
-                        name: Arc::from(table.config.path.as_str()),
-                        incoming_schema: incoming.clone(),
-                        stored_schema: if request.keep_system_columns {
-                            incoming
-                        } else {
-                            table.schema.clone()
-                        },
-                        system_columns: discovered_system_columns.clone(),
+                    if physical_system_columns == 0 {
+                        incoming.columns.extend(system_columns.iter().map(|kind| {
+                            SchemaColumn::new(
+                                kind.default_name().to_owned(),
+                                kind.data_type(),
+                                false,
+                            )
+                        }));
                     }
+                    let stored_schema = if request.keep_system_columns {
+                        incoming.clone()
+                    } else {
+                        let mut stored = table.schema.clone();
+                        stored
+                            .columns
+                            .retain(|column| !system_names.contains(column.name.as_str()));
+                        stored
+                    };
+                    Ok(DiscoveredDataset {
+                        role: DatasetRole::Main,
+                        name: Arc::from(table.config.name.as_str()),
+                        incoming_schema: incoming,
+                        stored_schema,
+                        system_columns: discovered_system_columns.clone(),
+                    })
                 })
-                .collect();
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Ok(DeliveryDiscovery {
                 source_name: Arc::from("ytsaurus"),
                 source_topology: SourceTopology::StaticPartitions(
@@ -194,15 +223,30 @@ impl SourceConnector for YTsaurusSourceConnector {
             let response = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YTsaurus read cancelled"),
-                response = self.client.read_arrow(&table.config.path) => response.map_err(classify_http_failure)?,
+                response = tokio::time::timeout(
+                    Duration::from_millis(self.config.stream_open_timeout_ms),
+                    self.client.read_arrow(&table.config.path, 0),
+                ) => response
+                    .map_err(|_| anyhow::anyhow!(
+                        "YTsaurus snapshot stream did not open within {} ms",
+                        self.config.stream_open_timeout_ms,
+                    ))?
+                    .map_err(classify_http_failure)?,
             };
             Ok(Box::new(YTsaurusSource {
                 table,
                 partition_id,
+                client: self.client.clone(),
                 stream: Box::pin(response.bytes_stream()),
                 decoder: StreamDecoder::new(),
                 queued: VecDeque::new(),
                 batch_rows: self.config.batch_rows,
+                stream_retry_max_attempts: self.config.stream_retry_max_attempts,
+                stream_retry_initial: Duration::from_millis(self.config.stream_retry_initial_ms),
+                stream_retry_max: Duration::from_millis(self.config.stream_retry_max_ms),
+                stream_open_timeout: Duration::from_millis(self.config.stream_open_timeout_ms),
+                stream_idle_timeout: Duration::from_millis(self.config.stream_idle_timeout_ms),
+                consecutive_stream_failures: 0,
                 offset: 0,
                 finished: false,
                 counters,
@@ -222,10 +266,17 @@ impl SourceConnector for YTsaurusSourceConnector {
 struct YTsaurusSource {
     table: DiscoveredTable,
     partition_id: i64,
+    client: YTsaurusClient,
     stream: ResponseStream,
     decoder: StreamDecoder,
     queued: VecDeque<RecordBatch>,
     batch_rows: usize,
+    stream_retry_max_attempts: usize,
+    stream_retry_initial: Duration,
+    stream_retry_max: Duration,
+    stream_open_timeout: Duration,
+    stream_idle_timeout: Duration,
+    consecutive_stream_failures: usize,
     offset: i64,
     finished: bool,
     counters: Arc<SourceCounters>,
@@ -233,7 +284,8 @@ struct YTsaurusSource {
 
 impl YTsaurusSource {
     fn queue_validated(&mut self, batch: &RecordBatch) -> anyhow::Result<()> {
-        validate_read_schema(batch, &self.table.schema)?;
+        let batch = normalize_read_batch(batch, &self.table.schema)?;
+        validate_read_schema(&batch, &self.table.schema)?;
         let mut offset = 0;
         while offset < batch.num_rows() {
             let len = self.batch_rows.min(batch.num_rows() - offset);
@@ -260,87 +312,143 @@ impl YTsaurusSource {
 
     fn output_batch(&mut self, batch: &RecordBatch) -> anyhow::Result<SourceBatch> {
         let rows = batch.num_rows();
-        let base = batch.num_columns();
         let len_i64 = i64::try_from(rows)?;
-        let mut fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
+        let schema = batch.schema();
+        let mut fields = schema.fields().iter().cloned().collect::<Vec<_>>();
         let mut arrays = batch.columns().to_vec();
-        fields.extend([
-            Arc::new(Field::new(
-                SystemColumnKind::Topic.default_name(),
-                DataType::Utf8,
-                false,
-            )),
-            Arc::new(Field::new(
-                SystemColumnKind::Partition.default_name(),
-                DataType::Int64,
-                false,
-            )),
-            Arc::new(Field::new(
-                SystemColumnKind::Offset.default_name(),
-                DataType::Int64,
-                false,
-            )),
-            Arc::new(Field::new(
-                SystemColumnKind::MessageIndex.default_name(),
-                DataType::UInt64,
-                false,
-            )),
-        ]);
-        arrays.extend([
-            Arc::new(StringArray::from(vec![
-                self.table.config.path.as_str();
-                rows
-            ])) as ArrayRef,
-            Arc::new(Int64Array::from(vec![self.partition_id; rows])) as ArrayRef,
-            Arc::new(Int64Array::from_iter_values(
-                self.offset
-                    ..self
-                        .offset
-                        .checked_add(len_i64)
-                        .ok_or_else(|| anyhow::anyhow!("YTsaurus source offset overflow"))?,
-            )) as ArrayRef,
-            Arc::new(UInt64Array::from(vec![0_u64; rows])) as ArrayRef,
-        ]);
+        let kinds = [
+            SystemColumnKind::Topic,
+            SystemColumnKind::Partition,
+            SystemColumnKind::Offset,
+            SystemColumnKind::MessageIndex,
+        ];
+        let mut system_indices = kinds
+            .iter()
+            .filter_map(|kind| {
+                schema
+                    .fields()
+                    .iter()
+                    .position(|field| field.name() == kind.default_name())
+            })
+            .collect::<Vec<_>>();
+        if system_indices.is_empty() {
+            let base = fields.len();
+            fields.extend(kinds.iter().map(|kind| {
+                Arc::new(Field::new(
+                    kind.default_name(),
+                    kind.data_type(),
+                    false,
+                ))
+            }));
+            arrays.extend([
+                Arc::new(StringArray::from(vec![
+                    self.table.config.path.as_str();
+                    rows
+                ])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![self.partition_id; rows])) as ArrayRef,
+                Arc::new(Int64Array::from_iter_values(
+                    self.offset
+                        ..self
+                            .offset
+                            .checked_add(len_i64)
+                            .ok_or_else(|| anyhow::anyhow!("YTsaurus source offset overflow"))?,
+                )) as ArrayRef,
+                Arc::new(UInt64Array::from(vec![0_u64; rows])) as ArrayRef,
+            ]);
+            system_indices = (base..base + kinds.len()).collect();
+        }
+        anyhow::ensure!(
+            system_indices.len() == kinds.len(),
+            "YTsaurus runtime batch contains a partial set of reserved system columns"
+        );
         let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
         self.offset = self
             .offset
             .checked_add(len_i64)
             .ok_or_else(|| anyhow::anyhow!("YTsaurus source offset overflow"))?;
+        self.consecutive_stream_failures = 0;
         self.counters.add_messages(rows as u64);
         let batch_bytes = batch.get_array_memory_size();
         self.counters.add_decompressed_bytes(batch_bytes as u64);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
-                Arc::from(self.table.config.path.as_str()),
+                Arc::from(self.table.config.name.as_str()),
                 false,
                 batch,
-                SystemColumns::new(vec![
-                    SystemColumn {
-                        kind: SystemColumnKind::Topic,
-                        name: Arc::from(SystemColumnKind::Topic.default_name()),
-                        index: base,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::Partition,
-                        name: Arc::from(SystemColumnKind::Partition.default_name()),
-                        index: base + 1,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::Offset,
-                        name: Arc::from(SystemColumnKind::Offset.default_name()),
-                        index: base + 2,
-                    },
-                    SystemColumn {
-                        kind: SystemColumnKind::MessageIndex,
-                        name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
-                        index: base + 3,
-                    },
-                ]),
+                SystemColumns::new(
+                    kinds
+                        .into_iter()
+                        .zip(system_indices)
+                        .map(|(kind, index)| SystemColumn {
+                            kind,
+                            name: Arc::from(kind.default_name()),
+                            index,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
             )],
             source_rows: rows as u64,
             commit_marker: Some(CommitMarker::new(self.offset)),
             memory: Vec::new(),
         })
+    }
+
+    async fn recover_stream(
+        &mut self,
+        mut failure: DataPlaneFailure,
+    ) -> transferia_core::failure::DataPlaneResult<()> {
+        loop {
+            if !failure.is_retryable() {
+                return Err(failure);
+            }
+            if self.consecutive_stream_failures >= self.stream_retry_max_attempts {
+                return Err(DataPlaneFailure::fatal(failure.into_source().context(format!(
+                    "YTsaurus snapshot stream could not resume at row {} after {} attempts",
+                    self.offset, self.stream_retry_max_attempts
+                ))));
+            }
+            self.consecutive_stream_failures += 1;
+            let exponent = u32::try_from(self.consecutive_stream_failures.saturating_sub(1))
+                .unwrap_or(u32::MAX)
+                .min(31);
+            let delay = self
+                .stream_retry_initial
+                .saturating_mul(1_u32 << exponent)
+                .min(self.stream_retry_max);
+            tracing::warn!(
+                row_index = self.offset,
+                attempt = self.consecutive_stream_failures,
+                max_attempts = self.stream_retry_max_attempts,
+                delay_ms = delay.as_millis(),
+                error = %failure,
+                "YTsaurus snapshot stream interrupted; resuming from the last emitted row"
+            );
+            tokio::time::sleep(delay).await;
+            match tokio::time::timeout(
+                self.stream_open_timeout,
+                self.client.read_arrow(&self.table.config.path, self.offset),
+            )
+            .await
+            {
+                Ok(Ok(response)) => {
+                    self.stream = Box::pin(response.bytes_stream());
+                    self.decoder = StreamDecoder::new();
+                    self.queued.clear();
+                    return Ok(());
+                }
+                Ok(Err(error)) => {
+                    failure = DataPlaneFailure::retryable_or_passthrough(
+                        classify_http_failure(error),
+                    );
+                }
+                Err(_) => {
+                    failure = DataPlaneFailure::retryable(anyhow::anyhow!(
+                        "YTsaurus snapshot stream did not open within {} ms",
+                        self.stream_open_timeout.as_millis()
+                    ));
+                }
+            }
+        }
     }
 }
 
@@ -356,18 +464,28 @@ impl Source for YTsaurusSource {
                 if self.finished {
                     return Ok(SourceBatch::Finished);
                 }
-                match self.stream.next().await {
-                    Some(Ok(bytes)) => self.decode_bytes(bytes).map_err(DataPlaneFailure::fatal)?,
-                    Some(Err(error)) => {
-                        return Err(DataPlaneFailure::retryable_or_passthrough(
-                            classify_http_failure(error.into()),
-                        ));
+                match tokio::time::timeout(self.stream_idle_timeout, self.stream.next()).await {
+                    Ok(Some(Ok(bytes))) => {
+                        self.decode_bytes(bytes).map_err(DataPlaneFailure::fatal)?;
                     }
-                    None => {
+                    Ok(Some(Err(error))) => {
+                        let failure = DataPlaneFailure::retryable_or_passthrough(
+                            classify_http_failure(error.into()),
+                        );
+                        self.recover_stream(failure).await?;
+                    }
+                    Ok(None) => {
                         self.decoder
                             .finish()
                             .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
                         self.finished = true;
+                    }
+                    Err(_) => {
+                        self.recover_stream(DataPlaneFailure::retryable(anyhow::anyhow!(
+                            "YTsaurus snapshot stream delivered no data for {} ms",
+                            self.stream_idle_timeout.as_millis()
+                        )))
+                        .await?;
                     }
                 }
             }
@@ -380,6 +498,66 @@ impl Source for YTsaurusSource {
     ) -> BoxFuture<'a, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async { Ok(()) })
     }
+}
+
+fn normalize_read_batch(
+    batch: &RecordBatch,
+    expected: &DatasetSchema,
+) -> anyhow::Result<RecordBatch> {
+    anyhow::ensure!(
+        batch.num_columns() == expected.columns.len(),
+        "YTsaurus read schema has {} columns, discovery declared {}",
+        batch.num_columns(),
+        expected.columns.len()
+    );
+    let schema = batch.schema();
+    let mut fields = Vec::with_capacity(expected.columns.len());
+    let mut columns = Vec::with_capacity(expected.columns.len());
+    for ((field, array), expected) in schema
+        .fields()
+        .iter()
+        .zip(batch.columns())
+        .zip(&expected.columns)
+    {
+        anyhow::ensure!(
+            field.name() == &expected.name,
+            "YTsaurus read column is '{}', expected '{}'",
+            field.name(),
+            expected.name
+        );
+        anyhow::ensure!(
+            field.is_nullable() == expected.nullable,
+            "YTsaurus read column '{}' has nullable={}, discovery declared nullable={}",
+            expected.name,
+            field.is_nullable(),
+            expected.nullable
+        );
+        let array = if field.data_type() == &expected.data_type {
+            Arc::clone(array)
+        } else if matches!(
+            field.data_type(),
+            DataType::Dictionary(_, value) if value.as_ref() == &expected.data_type
+        ) {
+            arrow::compute::cast(array.as_ref(), &expected.data_type)?
+        } else {
+            anyhow::bail!(
+                "YTsaurus read column '{}' has type {:?}, discovery declared {:?}",
+                expected.name,
+                field.data_type(),
+                expected.data_type
+            );
+        };
+        fields.push(Field::new(
+            expected.name.clone(),
+            expected.data_type.clone(),
+            expected.nullable,
+        ));
+        columns.push(array);
+    }
+    Ok(RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        columns,
+    )?)
 }
 
 pub(super) fn validate_read_schema(

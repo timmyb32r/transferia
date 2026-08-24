@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use arrow::datatypes::{Field, Schema};
+use arrow::compute::cast;
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use iceberg::table::Table;
@@ -16,6 +17,7 @@ use iceberg::writer::file_writer::ParquetWriterBuilder;
 use iceberg::writer::{IcebergWriter, IcebergWriterBuilder};
 use iceberg::{Catalog, TableCreation};
 use parquet::file::properties::WriterProperties;
+use sha2::{Digest as _, Sha256};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
@@ -24,6 +26,7 @@ use transferia_core::delivery::{
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_registry::durable::{CompareExchangeResult, DurableContext};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::catalog::{build_catalog, table_ident};
@@ -178,6 +181,9 @@ impl SinkConnector for IcebergSinkConnector {
                 counters: context.counters,
                 discovery: context.discovery,
                 keep_system_columns: context.keep_system_columns,
+                partition_id: context.partition_id,
+                durable: context.durable,
+                idempotent_snapshot_replay: context.finite_source,
             }) as Box<dyn Sink>)
         })
     }
@@ -189,28 +195,40 @@ struct IcebergSink {
     counters: Arc<transferia_delivery_contracts::metrics::SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     keep_system_columns: bool,
+    partition_id: i64,
+    durable: DurableContext,
+    idempotent_snapshot_replay: bool,
 }
 
 impl IcebergSink {
-    async fn write_delivery(&self, delivery: &Delivery) -> anyhow::Result<()> {
-        for batch in &delivery.outputs {
-            self.config.validate_batch(&self.discovery, batch)?;
+    async fn write_deliveries(&self, deliveries: &[Delivery]) -> anyhow::Result<()> {
+        for delivery in deliveries {
+            for batch in &delivery.outputs {
+                self.config.validate_batch(&self.discovery, batch)?;
+            }
         }
         let mut grouped = HashMap::<&str, Vec<RecordBatch>>::new();
-        for batch in &delivery.outputs {
-            if batch.rows() == 0 {
-                continue;
+        for delivery in deliveries {
+            for batch in &delivery.outputs {
+                if batch.rows() == 0 {
+                    continue;
+                }
+                let stored = if self.keep_system_columns {
+                    batch.batch.clone()
+                } else {
+                    project_user_columns(&batch.batch, &batch.system_columns)?
+                };
+                grouped
+                    .entry(batch.table.as_ref())
+                    .or_default()
+                    .push(stored);
             }
-            let stored = if self.keep_system_columns {
-                batch.batch.clone()
-            } else {
-                project_user_columns(&batch.batch, &batch.system_columns)?
-            };
-            grouped
-                .entry(batch.table.as_ref())
-                .or_default()
-                .push(stored);
         }
+        let delivery_id = deliveries
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("Iceberg sink cannot write an empty delivery group"))?
+            .id
+            .get();
         for (dataset, batches) in grouped {
             let started = Instant::now();
             let rows = batches.iter().map(RecordBatch::num_rows).sum::<usize>();
@@ -218,7 +236,7 @@ impl IcebergSink {
                 .iter()
                 .map(RecordBatch::get_array_memory_size)
                 .sum::<usize>();
-            self.append(dataset, batches, delivery.id.get()).await?;
+            self.append(dataset, batches, delivery_id).await?;
             self.counters.add_busy(started.elapsed());
             self.counters.add_rows(rows as u64);
             self.counters.add_bytes(bytes as u64);
@@ -238,12 +256,45 @@ impl IcebergSink {
             .catalog
             .load_table(&table_ident(&table_ref)?)
             .await?;
+        let commit = self.idempotent_snapshot_replay.then(|| {
+            IcebergCommitIdentity::new(
+                self.durable.delivery_id.as_ref(),
+                self.partition_id,
+                dataset,
+                table.metadata().uuid(),
+                delivery_id,
+            )
+        });
+        if let Some(commit) = &commit {
+            if self.commit_is_durable(commit).await? {
+                tracing::info!(
+                    dataset,
+                    delivery_id,
+                    "Iceberg append was already committed; skipping replay"
+                );
+                return Ok(());
+            }
+        }
+        if let Some(commit) = &commit {
+            if has_commit_token(&table, &commit.token) {
+                self.mark_commit_durable(commit).await?;
+                tracing::info!(
+                    dataset,
+                    delivery_id,
+                    "Iceberg snapshot proves append was already committed; skipping replay"
+                );
+                return Ok(());
+            }
+        }
         let arrow_schema = Arc::new(iceberg::arrow::schema_to_arrow_schema(
             table.metadata().current_schema(),
         )?);
         let location = DefaultLocationGenerator::new(table.metadata().clone())?;
+        let commit_uuid = commit
+            .as_ref()
+            .map_or_else(uuid::Uuid::new_v4, |commit| commit.uuid);
         let names = DefaultFileNameGenerator::new(
-            format!("transferia-{delivery_id}-{}", uuid::Uuid::new_v4()),
+            format!("transferia-{delivery_id}-{commit_uuid}"),
             None,
             iceberg::spec::DataFileFormat::Parquet,
         );
@@ -266,13 +317,122 @@ impl IcebergSink {
         }
         let files = writer.close().await?;
         let transaction = Transaction::new(&table);
-        let transaction = transaction
-            .fast_append()
-            .add_data_files(files)
-            .apply(transaction)?;
-        transaction.commit(self.catalog.as_ref()).await?;
+        let mut append = transaction.fast_append().add_data_files(files);
+        if let Some(commit) = &commit {
+            append = append.set_commit_uuid(commit.uuid).set_snapshot_properties(HashMap::from([(
+                ICEBERG_COMMIT_TOKEN_PROPERTY.to_owned(),
+                commit.token.clone(),
+            )]));
+        }
+        let transaction = append.apply(transaction)?;
+        if let Err(commit_error) = transaction.commit(self.catalog.as_ref()).await {
+            let committed_after_error = if let Some(commit) = &commit {
+                let refreshed = self.catalog.load_table(&table_ident(&table_ref)?).await;
+                matches!(
+                    refreshed.as_ref(),
+                    Ok(table) if has_commit_token(table, &commit.token)
+                )
+            } else {
+                false
+            };
+            if !committed_after_error {
+                return Err(commit_error.into());
+            }
+            tracing::warn!(
+                dataset,
+                delivery_id,
+                error = %commit_error,
+                "Iceberg commit response was ambiguous, but the committed snapshot was found"
+            );
+        }
+        if let Some(commit) = &commit {
+            self.mark_commit_durable(commit).await?;
+        }
         Ok(())
     }
+
+    async fn commit_is_durable(&self, commit: &IcebergCommitIdentity) -> anyhow::Result<bool> {
+        let Some(value) = self.durable.storage.read(&commit.durable_key).await? else {
+            return Ok(false);
+        };
+        anyhow::ensure!(
+            value.payload == commit.token.as_bytes(),
+            "Iceberg durable commit record '{}' is corrupt",
+            commit.durable_key
+        );
+        Ok(true)
+    }
+
+    async fn mark_commit_durable(&self, commit: &IcebergCommitIdentity) -> anyhow::Result<()> {
+        match self
+            .durable
+            .storage
+            .compare_exchange(&commit.durable_key, None, commit.token.as_bytes())
+            .await?
+        {
+            CompareExchangeResult::Applied(_) => Ok(()),
+            CompareExchangeResult::Conflict(Some(value))
+                if value.payload == commit.token.as_bytes() =>
+            {
+                Ok(())
+            }
+            CompareExchangeResult::Conflict(_) => anyhow::bail!(
+                "Iceberg durable commit record '{}' conflicts with this append",
+                commit.durable_key
+            ),
+        }
+    }
+}
+
+const ICEBERG_COMMIT_TOKEN_PROPERTY: &str = "transferia.commit-token";
+
+pub(super) struct IcebergCommitIdentity {
+    pub(super) token: String,
+    pub(super) durable_key: String,
+    pub(super) uuid: uuid::Uuid,
+}
+
+impl IcebergCommitIdentity {
+    pub(super) fn new(
+        delivery: &str,
+        partition: i64,
+        dataset: &str,
+        table_uuid: uuid::Uuid,
+        delivery_id: u64,
+    ) -> Self {
+        let mut hasher = Sha256::new();
+        for component in [
+            delivery.as_bytes(),
+            &partition.to_be_bytes(),
+            dataset.as_bytes(),
+            table_uuid.as_bytes(),
+            &delivery_id.to_be_bytes(),
+        ] {
+            hasher.update((component.len() as u64).to_be_bytes());
+            hasher.update(component);
+        }
+        let digest = hasher.finalize();
+        let token = format!("v1:{digest:x}");
+        let mut uuid_bytes = [0_u8; 16];
+        uuid_bytes.copy_from_slice(&digest[..16]);
+        uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x50;
+        uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80;
+        Self {
+            durable_key: format!("iceberg-sink/commits/{digest:x}"),
+            token,
+            uuid: uuid::Uuid::from_bytes(uuid_bytes),
+        }
+    }
+}
+
+fn has_commit_token(table: &Table, token: &str) -> bool {
+    table.metadata().snapshots().any(|snapshot| {
+        snapshot
+            .summary()
+            .additional_properties
+            .get(ICEBERG_COMMIT_TOKEN_PROPERTY)
+            .is_some_and(|candidate| candidate == token)
+    })
 }
 
 impl Sink for IcebergSink {
@@ -281,11 +441,45 @@ impl Sink for IcebergSink {
         mut io: SinkIo,
     ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            while let Some(delivery) = tokio::select! { () = io.cancellation.cancelled() => None, delivery = io.deliveries.recv() => delivery }
-            {
-                let id = delivery.id;
-                let source_messages = delivery.meta.source_messages;
-                self.write_delivery(&delivery)
+            let mut committed_deliveries = 0_u64;
+            let mut committed_rows = 0_u64;
+            let mut last_delivery_id = None;
+            let mut pending = Vec::new();
+            let mut pending_bytes = 0_usize;
+            loop {
+                let next = tokio::select! {
+                    () = io.cancellation.cancelled() => return Ok(()),
+                    delivery = io.deliveries.recv() => delivery,
+                };
+                let input_closed = next.is_none();
+                if let Some(delivery) = next {
+                    pending_bytes = pending_bytes.saturating_add(
+                        delivery.outputs.iter().map(|batch| batch.bytes()).sum::<usize>(),
+                    );
+                    pending.push(delivery);
+                }
+                if pending.is_empty() {
+                    if input_closed {
+                        break;
+                    }
+                    continue;
+                }
+                if !delivery_group_ready(
+                    pending_bytes,
+                    self.config.target_file_size_bytes,
+                    input_closed,
+                ) {
+                    continue;
+                }
+                let id = pending
+                    .last()
+                    .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("missing pending Iceberg delivery")))?
+                    .id;
+                let source_messages = pending
+                    .iter()
+                    .map(|delivery| delivery.meta.source_messages)
+                    .sum::<u64>();
+                self.write_deliveries(&pending)
                     .await
                     .map_err(DataPlaneFailure::retryable_or_passthrough)?;
                 self.counters.add_source_messages(source_messages);
@@ -297,10 +491,32 @@ impl Sink for IcebergSink {
                             "Iceberg sink event receiver closed"
                         ))
                     })?;
+                committed_deliveries = committed_deliveries.saturating_add(pending.len() as u64);
+                committed_rows = committed_rows.saturating_add(source_messages);
+                last_delivery_id = Some(id.get());
+                pending.clear();
+                pending_bytes = 0;
+                if input_closed {
+                    break;
+                }
             }
+            tracing::info!(
+                committed_deliveries,
+                committed_rows,
+                last_delivery_id,
+                "Iceberg sink drained all deliveries"
+            );
             Ok(())
         })
     }
+}
+
+pub(super) const fn delivery_group_ready(
+    pending_bytes: usize,
+    target_bytes: usize,
+    input_closed: bool,
+) -> bool {
+    input_closed || pending_bytes >= target_bytes
 }
 
 pub(super) fn iceberg_schema(schema: &DatasetSchema) -> anyhow::Result<iceberg::spec::Schema> {
@@ -309,16 +525,7 @@ pub(super) fn iceberg_schema(schema: &DatasetSchema) -> anyhow::Result<iceberg::
         .iter()
         .map(|column| column.primary_key)
         .collect::<Vec<_>>();
-    let arrow = Schema::new(
-        schema
-            .columns
-            .iter()
-            .map(|column| {
-                Field::new(&column.name, column.data_type.clone(), column.nullable)
-                    .with_metadata(column.arrow_metadata())
-            })
-            .collect::<Vec<_>>(),
-    );
+    let arrow = iceberg_arrow_schema(schema);
     let converted = iceberg::arrow::arrow_schema_to_schema_auto_assign_ids(&arrow)?;
     let identifier_ids = converted
         .as_struct()
@@ -340,41 +547,87 @@ fn ensure_table_schema(table: &Table, expected: &DatasetSchema) -> anyhow::Resul
         table.identifier()
     );
     let actual = iceberg::arrow::schema_to_arrow_schema(table.metadata().current_schema())?;
-    let expected = Schema::new(
-        expected
-            .columns
-            .iter()
-            .map(|column| Field::new(&column.name, column.data_type.clone(), column.nullable))
-            .collect::<Vec<_>>(),
-    );
+    let expected = iceberg_arrow_schema(expected);
+    let mismatches = actual
+        .fields()
+        .iter()
+        .zip(expected.fields())
+        .filter(|(actual, expected)| {
+            actual.name() != expected.name()
+                || actual.data_type() != expected.data_type()
+                || actual.is_nullable() != expected.is_nullable()
+        })
+        .map(|(actual, expected)| format!("actual={actual:?}, expected={expected:?}"))
+        .collect::<Vec<_>>();
     anyhow::ensure!(
-        actual.fields().len() == expected.fields().len()
-            && actual
-                .fields()
-                .iter()
-                .zip(expected.fields())
-                .all(|(actual, expected)| actual.name() == expected.name()
-                    && actual.data_type() == expected.data_type()
-                    && actual.is_nullable() == expected.is_nullable()),
-        "Iceberg table '{}' schema differs from the discovered dataset",
-        table.identifier()
+        actual.fields().len() == expected.fields().len() && mismatches.is_empty(),
+        "Iceberg table '{}' schema differs from the discovered dataset: column_count actual={} expected={}; {}",
+        table.identifier(),
+        actual.fields().len(),
+        expected.fields().len(),
+        mismatches.join("; ")
     );
     Ok(())
 }
 
-fn with_schema(batch: &RecordBatch, schema: Arc<Schema>) -> anyhow::Result<RecordBatch> {
+pub(super) fn with_schema(batch: &RecordBatch, schema: Arc<Schema>) -> anyhow::Result<RecordBatch> {
     anyhow::ensure!(
-        batch
-            .schema()
-            .fields()
-            .iter()
-            .zip(schema.fields())
-            .all(|(actual, expected)| actual.name() == expected.name()
-                && actual.data_type() == expected.data_type()
-                && actual.is_nullable() == expected.is_nullable()),
-        "runtime Arrow batch does not match Iceberg table schema"
+        batch.num_columns() == schema.fields().len(),
+        "runtime Arrow batch has {} columns but Iceberg table has {}",
+        batch.num_columns(),
+        schema.fields().len()
     );
-    Ok(RecordBatch::try_new(schema, batch.columns().to_vec())?)
+    let actual = batch.schema();
+    let columns = actual
+        .fields()
+        .iter()
+        .zip(schema.fields())
+        .zip(batch.columns())
+        .map(|((actual, expected), column)| {
+            anyhow::ensure!(
+                actual.name() == expected.name() && actual.is_nullable() == expected.is_nullable(),
+                "runtime Arrow field '{}' does not match Iceberg field '{}'",
+                actual.name(),
+                expected.name()
+            );
+            if actual.data_type() == expected.data_type() {
+                Ok(Arc::clone(column))
+            } else {
+                Ok(cast(column, expected.data_type())?)
+            }
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(RecordBatch::try_new(schema, columns)?)
+}
+
+fn iceberg_arrow_schema(schema: &DatasetSchema) -> Schema {
+    Schema::new(
+        schema
+            .columns
+            .iter()
+            .map(|column| {
+                Field::new(
+                    &column.name,
+                    iceberg_arrow_data_type(&column.data_type),
+                    column.nullable,
+                )
+                .with_metadata(column.arrow_metadata())
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn iceberg_arrow_data_type(data_type: &DataType) -> DataType {
+    match data_type {
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => DataType::Utf8,
+        DataType::Binary | DataType::LargeBinary | DataType::BinaryView => DataType::LargeBinary,
+        DataType::Int8 | DataType::Int16 | DataType::Int32 => DataType::Int32,
+        DataType::UInt8 | DataType::UInt16 => DataType::Int32,
+        DataType::UInt32 => DataType::Int64,
+        DataType::UInt64 => DataType::Decimal128(20, 0),
+        DataType::Float16 | DataType::Float32 => DataType::Float32,
+        other => other.clone(),
+    }
 }
 
 fn project_user_columns(
