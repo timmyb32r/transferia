@@ -258,6 +258,7 @@ export function EditorTabs({
   onYaml,
   onDataSchema,
   onDataSchemaUnavailable,
+  onPerformanceAdvice,
   onLogs,
 }: {
   active: EditorView;
@@ -268,6 +269,7 @@ export function EditorTabs({
   onYaml: () => void;
   onDataSchema: () => void;
   onDataSchemaUnavailable?: (() => void) | undefined;
+  onPerformanceAdvice: () => void;
   onLogs?: () => void;
 }) {
   return (
@@ -324,6 +326,15 @@ export function EditorTabs({
             Data schema
           </Button>
         </InstantTooltip>
+        <Button
+          role="tab"
+          aria-selected={active === "performance_advice"}
+          class={active === "performance_advice" ? "active" : ""}
+          disabled={disabled}
+          onClick={onPerformanceAdvice}
+        >
+          Performance advice
+        </Button>
         <Button
           role="tab"
           aria-selected={active === "logs"}

@@ -867,6 +867,7 @@ h3 {
   color: var(--muted);
   font-size: 13px;
   font-weight: 400;
+  white-space: nowrap;
 }
 .editor-view-tabs button + button {
   margin-left: -1px;
@@ -1821,6 +1822,104 @@ button::after {
 
 .data-schema-empty {
   color: var(--text-secondary);
+}
+
+.performance-advice-workspace {
+  min-height: 620px;
+}
+
+.performance-advice-header {
+  margin-bottom: 20px;
+}
+
+.performance-advice-header h2,
+.performance-advice-header p {
+  margin: 0;
+}
+
+.performance-advice-header p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.performance-advice-empty {
+  min-height: 72px;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+  color: var(--text-secondary);
+}
+
+.performance-advice-empty.success {
+  border-color: color-mix(in srgb, var(--success-text) 38%, var(--line));
+}
+
+.performance-advice-list {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.performance-advice-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--blue);
+  border-radius: var(--radius-panel);
+  background: var(--card);
+}
+
+.performance-advice-card.warning {
+  border-left-color: var(--warning-text);
+}
+
+.performance-advice-card h3,
+.performance-advice-card p {
+  margin: 0;
+}
+
+.performance-advice-card h3 {
+  margin-top: 10px;
+  font-size: 16px;
+}
+
+.performance-advice-card p {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.performance-advice-title,
+.performance-advice-paths {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.performance-advice-severity,
+.performance-advice-paths code,
+.performance-advice-title code {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--sidebar);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.performance-advice-card.warning .performance-advice-severity {
+  color: var(--warning-text);
+}
+
+.performance-advice-remediation strong {
+  color: var(--text-primary);
+}
+
+.performance-advice-paths {
+  margin-top: 12px;
 }
 
 .delivery-logs {

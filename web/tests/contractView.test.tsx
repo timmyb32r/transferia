@@ -26,6 +26,7 @@ describe("data schema view", () => {
           source: "source",
           sink: "sink",
           pipeline_count: 1,
+          performance_advice: [],
           datasets: [dataset("first"), dataset("second", "DeadLetterQueue")],
           sink_limits: { sink: "sink", supported_arrow_types: [] },
         }}
@@ -57,6 +58,7 @@ describe("data schema view", () => {
           source: "logbroker",
           sink: "clickhouse",
           pipeline_count: 1,
+          performance_advice: [],
           datasets: [
             {
               role: "Main",
@@ -106,6 +108,7 @@ describe("data schema view", () => {
       source: "logbroker",
       sink: "clickhouse",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [
         {
           role: "Main",
@@ -155,6 +158,7 @@ describe("data schema view", () => {
       source: "logbroker",
       sink: "clickhouse",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [
         {
           role: "Main",
@@ -185,6 +189,7 @@ describe("data schema view", () => {
       source: "source",
       sink: "unselected",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [
         {
           role: "Main",
@@ -218,6 +223,7 @@ describe("data schema view", () => {
       source: "source",
       sink: "unselected",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [
         {
           role: "Main",
@@ -272,6 +278,7 @@ describe("data schema view", () => {
       source: "source",
       sink: "unselected",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [],
       sink_limits: { sink: "unselected", supported_arrow_types: [] },
     };

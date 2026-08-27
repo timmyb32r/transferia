@@ -8,7 +8,12 @@ import type { useOperations } from "./useOperations";
 
 type DeliveryJobs = ReturnType<typeof useDeliveryJobs>;
 type Operations = ReturnType<typeof useOperations>;
-export type EditorView = "ui" | "yaml" | "data_schema" | "logs";
+export type EditorView =
+  | "ui"
+  | "yaml"
+  | "data_schema"
+  | "performance_advice"
+  | "logs";
 export type ApplyYamlResult =
   | { status: "current" }
   | { status: "applied"; context: EditorRequestContext }
@@ -171,6 +176,7 @@ export function useYamlEditor({
     showYaml,
     applyYamlAndShowUi: () => applyYamlAndShow("ui"),
     showDataSchema: () => applyYamlAndShow("data_schema"),
+    showPerformanceAdvice: () => applyYamlAndShow("performance_advice"),
     showLogs: () => applyYamlAndShow("logs"),
     reset,
   };

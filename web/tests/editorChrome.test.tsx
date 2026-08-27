@@ -60,6 +60,7 @@ describe("editor chrome", () => {
 
   it("exposes Data schema as a peer configuration view", () => {
     const onDataSchema = vi.fn();
+    const onPerformanceAdvice = vi.fn();
     const onLogs = vi.fn();
     const view = render(
       <EditorTabs
@@ -69,6 +70,7 @@ describe("editor chrome", () => {
         onUi={() => undefined}
         onYaml={() => undefined}
         onDataSchema={onDataSchema}
+        onPerformanceAdvice={onPerformanceAdvice}
         onLogs={onLogs}
       />,
     );
@@ -76,6 +78,8 @@ describe("editor chrome", () => {
     fireEvent.click(view.getByRole("tab", { name: "Data schema" }));
 
     expect(onDataSchema).toHaveBeenCalledOnce();
+    fireEvent.click(view.getByRole("tab", { name: "Performance advice" }));
+    expect(onPerformanceAdvice).toHaveBeenCalledOnce();
     fireEvent.click(view.getByRole("tab", { name: "Logs" }));
     expect(onLogs).toHaveBeenCalledOnce();
   });
@@ -92,6 +96,7 @@ describe("editor chrome", () => {
         onYaml={() => undefined}
         onDataSchema={() => undefined}
         onDataSchemaUnavailable={onDataSchemaUnavailable}
+        onPerformanceAdvice={() => undefined}
       />,
     );
     const tab = view.getByRole("tab", {

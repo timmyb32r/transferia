@@ -81,6 +81,7 @@
         "role": "Main"
       }
     ],
+    "performance_advice": [],
     "pipeline_count": 1,
     "sink": "clickhouse",
     "sink_limits": {

@@ -427,6 +427,12 @@
           },
           "type": "array"
         },
+        "performance_advice": {
+          "items": {
+            "$ref": "#/$defs/PerformanceAdvice"
+          },
+          "type": "array"
+        },
         "pipeline_count": {
           "format": "uint",
           "minimum": 0,
@@ -447,6 +453,7 @@
         "sink",
         "pipeline_count",
         "datasets",
+        "performance_advice",
         "sink_limits"
       ],
       "type": "object"
@@ -870,6 +877,49 @@
         "truncated"
       ],
       "type": "object"
+    },
+    "PerformanceAdvice": {
+      "additionalProperties": false,
+      "description": "Actionable connector guidance derived during source discovery.\n\nStable codes and structured fields let control planes render advice without\nparsing connector log text.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "config_paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/PerformanceAdviceSeverity"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "summary",
+        "explanation",
+        "remediation",
+        "config_paths"
+      ],
+      "type": "object"
+    },
+    "PerformanceAdviceSeverity": {
+      "enum": [
+        "info",
+        "warning"
+      ],
+      "type": "string"
     },
     "RevisionRequest": {
       "additionalProperties": false,

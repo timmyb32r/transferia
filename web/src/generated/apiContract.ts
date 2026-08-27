@@ -124,6 +124,7 @@ export type DestinationColumnView = {
 
 export type DiscoveryResult = {
   datasets: Array<DatasetView>;
+  performance_advice: Array<PerformanceAdvice>;
   pipeline_count: number;
   sink: string;
   sink_limits: SinkLimitsDescription;
@@ -238,6 +239,17 @@ export type ParserPreviewTab = {
   label: string;
   truncated: boolean;
 };
+
+export type PerformanceAdvice = {
+  code: string;
+  config_paths: Array<string>;
+  explanation: string;
+  remediation: string;
+  severity: PerformanceAdviceSeverity;
+  summary: string;
+};
+
+export type PerformanceAdviceSeverity = "info" | "warning";
 
 export type RevisionRequest = {
   expected_record_version: string;

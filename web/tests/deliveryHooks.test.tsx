@@ -239,6 +239,7 @@ describe("delivery controllers", () => {
       source: "source",
       sink: "sink",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [],
       sink_limits: { sink: "sink", supported_arrow_types: [] },
     };
@@ -270,6 +271,7 @@ describe("delivery controllers", () => {
       source: "source",
       sink: "sink",
       pipeline_count: 1,
+      performance_advice: [],
       datasets: [],
       sink_limits: { sink: "sink", supported_arrow_types: [] },
     };

@@ -10,6 +10,7 @@ import {
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { DeliveryConfiguration } from "./DeliveryConfiguration";
 import { DeliveryLogs } from "./DeliveryLogs";
+import { PerformanceAdviceWorkspace } from "./PerformanceAdviceWorkspace";
 import {
   DeliverySidebar,
   EditorActions,
@@ -306,6 +307,7 @@ export function DeliveryApplication() {
     showYaml,
     applyYamlAndShowUi,
     showDataSchema,
+    showPerformanceAdvice,
     showLogs,
   } = yamlEditor;
 
@@ -591,6 +593,7 @@ export function DeliveryApplication() {
           onYaml={() => void showYaml()}
           onDataSchema={() => void showDataSchema()}
           onDataSchemaUnavailable={() => revealMissingRequiredFields("source")}
+          onPerformanceAdvice={() => void showPerformanceAdvice()}
           onLogs={() => void showLogs()}
         />
         <OperationNotices
@@ -620,6 +623,8 @@ export function DeliveryApplication() {
           />
         ) : activeView === "data_schema" && discovery !== undefined ? (
           <DataSchemaWorkspace result={discovery} />
+        ) : activeView === "performance_advice" ? (
+          <PerformanceAdviceWorkspace result={discovery} />
         ) : activeView === "logs" ? (
           editor.id === undefined ? (
             <p class="data-schema-empty">

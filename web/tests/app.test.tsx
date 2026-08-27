@@ -935,6 +935,7 @@ function discovery(): DiscoveryResult {
     source: "source",
     sink: "sink",
     pipeline_count: 1,
+    performance_advice: [],
     datasets: [],
     sink_limits: {
       sink: "sink",
