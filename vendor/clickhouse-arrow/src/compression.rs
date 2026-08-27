@@ -47,27 +47,14 @@ pub(crate) async fn compress_data<W: ClickHouseWrite>(
     raw: Vec<u8>,
     compression: CompressionMethod,
 ) -> Result<()> {
-    let decompressed_size = raw.len();
-    let mut out = match compression {
-        // ZSTD with default compression level (1)
-        CompressionMethod::ZSTD => zstd::bulk::compress(&raw, 1)
-            .map_err(|e| Error::SerializeError(format!("ZSTD compress error: {e}")))?,
-        // LZ4
-        CompressionMethod::LZ4 => lz4_flex::compress(&raw),
-        // None
-        CompressionMethod::None => return Ok(()),
-    };
-
-    let mut new_out = Vec::with_capacity(out.len() + 13);
-    new_out.push(compression.byte());
-    new_out.extend_from_slice(&(out.len() as u32 + 9).to_le_bytes()[..]);
-    new_out.extend_from_slice(&(decompressed_size as u32).to_le_bytes()[..]);
-    new_out.append(&mut out);
-
-    let hash = cityhash_rs::cityhash_102_128(&new_out[..]);
+    if compression == CompressionMethod::None {
+        return Ok(());
+    }
+    let frame = compressed_frame(&raw, compression)?;
+    let hash = cityhash_rs::cityhash_102_128(&frame);
     writer.write_u64_le((hash >> 64) as u64).await?;
     writer.write_u64_le(hash as u64).await?;
-    writer.write_all(&new_out[..]).await?;
+    writer.write_all(&frame).await?;
 
     Ok(())
 }
@@ -78,29 +65,33 @@ pub(crate) async fn compress_data_sync<W: ClickHouseWrite>(
     raw: bytes::Bytes,
     compression: CompressionMethod,
 ) -> Result<()> {
-    let decompressed_size = raw.len();
-    let mut out = match compression {
-        // ZSTD with default compression level (1)
-        CompressionMethod::ZSTD => zstd::bulk::compress(&raw, 1)
-            .map_err(|e| Error::SerializeError(format!("ZSTD compress error: {e}")))?,
-        // LZ4
-        CompressionMethod::LZ4 => lz4_flex::compress(&raw),
-        // None
-        CompressionMethod::None => return Ok(()),
-    };
-
-    let mut new_out = Vec::with_capacity(out.len() + 13);
-    new_out.push(compression.byte());
-    new_out.extend_from_slice(&(out.len() as u32 + 9).to_le_bytes()[..]);
-    new_out.extend_from_slice(&(decompressed_size as u32).to_le_bytes()[..]);
-    new_out.append(&mut out);
-
-    let hash = cityhash_rs::cityhash_102_128(&new_out[..]);
+    if compression == CompressionMethod::None {
+        return Ok(());
+    }
+    let frame = compressed_frame(&raw, compression)?;
+    let hash = cityhash_rs::cityhash_102_128(&frame);
     writer.write_u64_le((hash >> 64) as u64).await?;
     writer.write_u64_le(hash as u64).await?;
-    writer.write_all(&new_out[..]).await?;
+    writer.write_all(&frame).await?;
 
     Ok(())
+}
+
+#[expect(clippy::cast_possible_truncation)]
+fn compressed_frame(raw: &[u8], compression: CompressionMethod) -> Result<Vec<u8>> {
+    let mut frame = match compression {
+        CompressionMethod::LZ4 => lz4_flex::compress(raw),
+        CompressionMethod::ZSTD => zstd::bulk::compress(raw, 1)
+            .map_err(|error| Error::SerializeError(format!("ZSTD compress error: {error}")))?,
+        CompressionMethod::None => unreachable!("handled before allocating the frame"),
+    };
+    let compressed_size = frame.len();
+    frame.resize(compressed_size + 9, 0);
+    frame.copy_within(..compressed_size, 9);
+    frame[0] = compression.byte();
+    frame[1..5].copy_from_slice(&(compressed_size as u32 + 9).to_le_bytes());
+    frame[5..9].copy_from_slice(&(raw.len() as u32).to_le_bytes());
+    Ok(frame)
 }
 
 /// Reads and decompresses a single compression chunk.

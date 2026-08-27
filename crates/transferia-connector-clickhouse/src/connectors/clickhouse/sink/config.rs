@@ -3,6 +3,27 @@ use core::fmt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClickHouseCompression {
+    None,
+
+    #[default]
+    Lz4,
+
+    Zstd,
+}
+
+impl From<ClickHouseCompression> for clickhouse_arrow::CompressionMethod {
+    fn from(value: ClickHouseCompression) -> Self {
+        match value {
+            ClickHouseCompression::None => Self::None,
+            ClickHouseCompression::Lz4 => Self::LZ4,
+            ClickHouseCompression::Zstd => Self::ZSTD,
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ClickHouseSinkConfig {
@@ -45,6 +66,27 @@ pub struct ClickHouseSinkConfig {
     #[serde(default = "default_insert_bytes")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_target_bytes: usize,
+
+    /// Maximum number of concurrently active INSERTs. Values above one are an
+    /// explicit throughput choice; ordered delivery progress is still committed
+    /// only after the contiguous INSERT prefix completes.
+    #[serde(default = "default_insert_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub insert_concurrency: usize,
+
+    /// Native-protocol compression. LZ4 is the default low-CPU mode; ZSTD can
+    /// improve a network-bound delivery and `none` avoids compression work on
+    /// a sufficiently fast trusted network.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub compression: ClickHouseCompression,
+
+    /// Let ClickHouse coalesce concurrent native INSERTs server-side. Waiting
+    /// remains mandatory, so a successful response still means the buffered
+    /// data has reached the table rather than merely entering an async queue.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub async_insert: bool,
 
     #[serde(default = "default_flush_interval")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -89,6 +131,10 @@ impl ClickHouseSinkConfig {
         anyhow::ensure!(
             self.insert_target_bytes > 0,
             "clickhouse.insert_target_bytes must be positive"
+        );
+        anyhow::ensure!(
+            (1..=32).contains(&self.insert_concurrency),
+            "clickhouse.insert_concurrency must be between 1 and 32"
         );
         anyhow::ensure!(
             self.flush_interval_ms > 0,
@@ -171,6 +217,9 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("shard_group", &self.shard_group)
             .field("insert_target_rows", &self.insert_target_rows)
             .field("insert_target_bytes", &self.insert_target_bytes)
+            .field("insert_concurrency", &self.insert_concurrency)
+            .field("compression", &self.compression)
+            .field("async_insert", &self.async_insert)
             .field("flush_interval_ms", &self.flush_interval_ms)
             .field("retry_initial_ms", &self.retry_initial_ms)
             .field("retry_max_ms", &self.retry_max_ms)
@@ -199,6 +248,10 @@ pub fn validate_native_port(port: u16) -> anyhow::Result<()> {
 
 const fn default_insert_bytes() -> usize {
     64 * 1024 * 1024
+}
+
+const fn default_insert_concurrency() -> usize {
+    1
 }
 
 const fn default_flush_interval() -> u64 {

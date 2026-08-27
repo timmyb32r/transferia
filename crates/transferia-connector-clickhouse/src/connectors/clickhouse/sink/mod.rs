@@ -10,7 +10,7 @@ mod transport;
 mod tests;
 
 pub use actor::ClickHouseSink;
-pub use config::ClickHouseSinkConfig;
+pub use config::{ClickHouseCompression, ClickHouseSinkConfig};
 pub use connector::ClickHouseConnectionCheck;
 pub use connector::ClickHouseSinkConnector;
 pub use transport::{InsertError, InsertTransport};

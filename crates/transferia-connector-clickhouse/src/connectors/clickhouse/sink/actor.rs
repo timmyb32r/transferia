@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
+use futures_util::stream::FuturesUnordered;
+use futures_util::StreamExt as _;
 use tokio::time::{Duration, Instant};
 use tokio_util::task::AbortOnDropHandle;
 
@@ -208,8 +210,13 @@ impl ClickHouseSink {
         let transport = Arc::clone(&self.transport);
         let counters = Arc::clone(&self.counters);
         let config = self.config.clone();
-        let retry_seed =
-            self.partition_retry_seed.rotate_left(17) ^ stable_retry_seed(active.table.as_bytes());
+        let first_delivery_id = active
+            .batches
+            .first()
+            .map_or(0, |batch| batch.delivery_id.get());
+        let retry_seed = self.partition_retry_seed.rotate_left(17)
+            ^ stable_retry_seed(active.table.as_bytes())
+            ^ stable_retry_seed(&first_delivery_id.to_le_bytes());
         AbortOnDropHandle::new(tokio::spawn(async move {
             let mut attempts = 0_u32;
             let max_attempts = config.effective_retry_max_attempts();
@@ -285,7 +292,7 @@ impl ClickHouseSink {
             self.progress.complete(buffered.delivery_id, 1)?;
             drop(buffered);
         }
-        tracing::info!(rows = active.rows, bytes = active.bytes, table = %active.table, "ClickHouse INSERT completed");
+        tracing::debug!(rows = active.rows, bytes = active.bytes, table = %active.table, "ClickHouse INSERT completed");
         Ok(())
     }
 
@@ -304,41 +311,26 @@ impl ClickHouseSink {
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut active: Option<AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>> = None;
+        let mut active = FuturesUnordered::<
+            AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>,
+        >::new();
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
 
-            if let Some(mut task) = active.take() {
-                let mut completed = None;
-                tokio::select! {
-                    () = io.cancellation.cancelled() => {
-                        task.abort();
-                        drop((&mut task).await);
-                        return Ok(());
-                    }
-                    result = &mut task => completed = Some(result),
-                    delivery = io.deliveries.recv(), if !input_closed => {
-                        match delivery {
-                            Some(delivery) => self.accept(delivery)?,
-                            None => input_closed = true,
-                        }
-                    }
+            while active.len() < self.config.insert_concurrency {
+                let memory_pressure = io.memory.is_transform_pressured();
+                let Some((table, deadline)) = self.next_flush(input_closed, memory_pressure) else {
+                    break;
+                };
+                if deadline > Instant::now() {
+                    break;
                 }
-                if let Some(result) = completed {
-                    match result.map_err(|error| {
-                        anyhow::anyhow!("ClickHouse insert task failed: {error}")
-                    })? {
-                        Ok(insert) => self.complete_insert(insert)?,
-                        Err(failure) => return Err(failure.into()),
-                    }
-                } else {
-                    active = Some(task);
-                }
-                continue;
+                let insert = self.take_insert(&table)?;
+                active.push(self.start_insert(insert, io.cancellation.clone()));
             }
 
-            if input_closed && self.buffers.is_empty() {
+            if input_closed && self.buffers.is_empty() && active.is_empty() {
                 self.emit_committed(&io.events).await?;
                 anyhow::ensure!(
                     self.progress.is_empty(),
@@ -347,38 +339,31 @@ impl ClickHouseSink {
                 return Ok(());
             }
 
-            let memory_pressure = io.memory.is_transform_pressured();
-            let Some((table, deadline)) = self.next_flush(input_closed, memory_pressure) else {
-                tokio::select! {
-                    () = io.cancellation.cancelled() => return Ok(()),
-                    delivery = io.deliveries.recv(), if !input_closed => {
-                        match delivery {
-                            Some(delivery) => self.accept(delivery)?,
-                            None => input_closed = true,
-                        }
-                    }
-                }
-                continue;
-            };
-
-            if deadline <= Instant::now() {
-                let insert = self.take_insert(&table)?;
-                active = Some(self.start_insert(insert, io.cancellation.clone()));
-                continue;
-            }
+            let next_deadline = (active.len() < self.config.insert_concurrency)
+                .then(|| {
+                    self.next_flush(input_closed, io.memory.is_transform_pressured())
+                        .map(|(_, deadline)| deadline)
+                })
+                .flatten();
 
             tokio::select! {
                 () = io.cancellation.cancelled() => return Ok(()),
+                result = active.next(), if !active.is_empty() => {
+                    match result
+                        .expect("active INSERT set cannot yield None")
+                        .map_err(|error| anyhow::anyhow!("ClickHouse insert task failed: {error}"))?
+                    {
+                        Ok(insert) => self.complete_insert(insert)?,
+                        Err(failure) => return Err(failure.into()),
+                    }
+                }
                 delivery = io.deliveries.recv(), if !input_closed => {
                     match delivery {
                         Some(delivery) => self.accept(delivery)?,
                         None => input_closed = true,
                     }
                 }
-                () = tokio::time::sleep_until(deadline) => {
-                    let insert = self.take_insert(&table)?;
-                    active = Some(self.start_insert(insert, io.cancellation.clone()));
-                }
+                () = tokio::time::sleep_until(next_deadline.unwrap_or_else(Instant::now)), if next_deadline.is_some() => {}
             }
         }
     }

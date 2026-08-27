@@ -7,6 +7,8 @@ use tokio::sync::Notify;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
+use crate::connectors::clickhouse::sink::config::ClickHouseCompression;
+
 use super::*;
 
 const TEST_CA_FILE: &str = concat!(
@@ -261,9 +263,8 @@ fn insert_names_escaped_table_and_columns() {
     );
 }
 
-#[test]
-fn pins_lossless_insert_settings() {
-    let builders = configured_builders(&ClickHouseSinkConfig {
+fn client_config(insert_concurrency: usize) -> ClickHouseSinkConfig {
+    ClickHouseSinkConfig {
         hosts: vec!["localhost".into()],
         port: 9000,
         trusted_plaintext: true,
@@ -275,17 +276,53 @@ fn pins_lossless_insert_settings() {
         shard_group: String::new(),
         insert_target_rows: 1,
         insert_target_bytes: 1,
+        insert_concurrency,
+        compression: Default::default(),
+        async_insert: false,
         flush_interval_ms: 1,
         retry_initial_ms: 1,
         retry_max_ms: 1,
         retry_max_attempts: Some(1),
         connect_timeout_ms: 1,
         request_timeout_ms: 1,
-    });
+    }
+}
+
+#[test]
+fn pins_lossless_insert_settings() {
+    let builders = configured_builders(&client_config(1));
     let builder = builders.first().expect("one host must produce one builder");
     let settings = builder.settings().expect("insert settings must be pinned");
     let values = settings.encode_to_key_value_strings();
     assert!(values.contains(&("async_insert".into(), "0".into())));
     assert!(values.contains(&("wait_for_async_insert".into(), "1".into())));
     assert!(values.contains(&("insert_deduplicate".into(), "0".into())));
+}
+
+#[test]
+fn applies_explicit_async_insert_and_compression_without_weakening_waits() {
+    let mut config = client_config(8);
+    config.async_insert = true;
+    config.compression = ClickHouseCompression::Zstd;
+    let builders = configured_builders(&config);
+    let builder = builders.first().expect("one host must produce one builder");
+    assert_eq!(builder.options().compression, clickhouse_arrow::CompressionMethod::ZSTD);
+    let settings = builder.settings().expect("insert settings must be pinned");
+    let values = settings.encode_to_key_value_strings();
+    assert!(values.contains(&("async_insert".into(), "1".into())));
+    assert!(values.contains(&("wait_for_async_insert".into(), "1".into())));
+}
+
+#[test]
+fn native_connection_pool_tracks_insert_concurrency() {
+    for (insert_concurrency, expected_pool_size) in [(1, 2), (8, 8), (16, 16), (32, 32)] {
+        let builders = configured_builders(&client_config(insert_concurrency));
+        let builder = builders.first().expect("one host must produce one builder");
+
+        assert_eq!(
+            builder.options().ext.fast_mode_size,
+            Some(expected_pool_size),
+            "insert concurrency {insert_concurrency}"
+        );
+    }
 }

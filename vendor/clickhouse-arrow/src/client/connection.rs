@@ -98,7 +98,6 @@ pub(super) struct Connection<T: ClientFormat> {
     metadata:      ClientMetadata,
     #[cfg(not(feature = "inner_pool"))]
     state:         Arc<ConnectState<T::Data>>,
-    /// NOTE: Max connections must remain at 4, unless algorithm changes
     #[cfg(feature = "inner_pool")]
     state:         Vec<ArcSwap<ConnectState<T::Data>>>,
     #[cfg(feature = "inner_pool")]
@@ -154,7 +153,8 @@ impl<T: ClientFormat> Connection<T> {
         let mut state = vec![ArcSwap::from(state)];
 
         // Inner pool: Spawn additional connections for improved concurrency.
-        // Default is 4, max is 16. User can configure via fast_mode_size option.
+        // Default is 4. User can configure up to the explicit bounded maximum through
+        // fast_mode_size; every connection has independent I/O state and load accounting.
         #[cfg(feature = "inner_pool")]
         let inner_pool_size = options
             .ext
@@ -506,13 +506,13 @@ mod load {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     pub(super) const DEFAULT_MAX_CONNECTIONS: u8 = 4;
-    pub(super) const ABSOLUTE_MAX_CONNECTIONS: u8 = 16;
+    pub(super) const ABSOLUTE_MAX_CONNECTIONS: u8 = 32;
 
     /// Array-based load balancer for distributing operations across multiple connections.
     ///
     /// Each connection has a dedicated 64-bit atomic counter tracking its current load.
     /// This prevents the overflow issues inherent in bit-packed approaches and allows
-    /// scaling up to 16 concurrent connections.
+    /// scaling up to 32 concurrent connections.
     #[derive(Debug)]
     pub(super) struct AtomicLoad {
         load_counters:   Box<[AtomicUsize]>,
@@ -524,7 +524,7 @@ mod load {
         ///
         /// # Panics
         /// - If `max_connections` is 0
-        /// - If `max_connections` exceeds 16
+        /// - If `max_connections` exceeds 32
         pub(super) fn new(max_connections: u8) -> Self {
             assert!(max_connections > 0, "At least 1 connection required");
             assert!(
@@ -577,19 +577,16 @@ mod load {
         use super::*;
 
         #[test]
-        fn test_atomic_load_supports_16_connections() {
-            let load = AtomicLoad::new(16);
+        fn test_atomic_load_supports_32_connections() {
+            let load = AtomicLoad::new(32);
 
-            // Assign 1000 tasks across 16 connections
-            let assignments: Vec<_> = (0..1000).map(|_| load.assign(None, 1)).collect();
+            // Assign enough tasks to exercise every connection repeatedly.
+            let assignments: Vec<_> = (0..2048).map(|_| load.assign(None, 1)).collect();
 
-            // Verify reasonable distribution (should be ~62-63 per connection)
-            for i in 0..16 {
+            // The least-loaded selection should distribute exactly evenly.
+            for i in 0..32 {
                 let count = assignments.iter().filter(|&&idx| idx == i).count();
-                assert!(
-                    (50..=75).contains(&count),
-                    "Connection {i} got {count} assignments (expected ~62)"
-                );
+                assert_eq!(count, 64, "connection {i} received an uneven assignment count");
             }
         }
 
@@ -641,8 +638,8 @@ mod load {
         }
 
         #[test]
-        #[should_panic(expected = "Max 16 connections")]
-        fn test_rejects_too_many_connections() { drop(AtomicLoad::new(17)); }
+        #[should_panic(expected = "Max 32 connections")]
+        fn test_rejects_too_many_connections() { drop(AtomicLoad::new(33)); }
 
         #[test]
         #[should_panic(expected = "At least 1 connection")]

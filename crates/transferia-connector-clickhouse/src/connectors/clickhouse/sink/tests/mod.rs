@@ -127,6 +127,9 @@ fn config() -> ClickHouseSinkConfig {
         shard_group: String::new(),
         insert_target_rows: 1,
         insert_target_bytes: usize::MAX,
+        insert_concurrency: 1,
+        compression: Default::default(),
+        async_insert: false,
         flush_interval_ms: 100,
         retry_initial_ms: 10,
         retry_max_ms: 100,
@@ -193,6 +196,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
                 system_columns: Vec::new(),
             },
         ],
+        performance_advice: Vec::new(),
     })
 }
 
@@ -318,6 +322,41 @@ async fn full_buffer_starts_immediately_after_the_active_insert() {
     assert_eq!(state.max_active.load(Ordering::Acquire), 1);
     assert_eq!(counters.flushes_total(), 2);
     assert_eq!(counters.source_messages_total(), 2);
+    cancellation.cancel();
+    task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn explicit_insert_concurrency_uses_parallel_connections_and_commits_a_prefix() {
+    let memory = PipelineMemory::new(1_000_000);
+    let counters = Arc::new(SinkCounters::new());
+    let (transport, state) = FakeTransport::new(true, []);
+    let mut sink_config = config();
+    sink_config.insert_concurrency = 2;
+    let (tx, mut events, cancellation, task) = spawn_sink_with_config(
+        sink_config,
+        transport,
+        memory.clone(),
+        Arc::clone(&counters),
+    );
+
+    tx.send(delivery(&memory, 1, &["events"])).await.unwrap();
+    tx.send(delivery(&memory, 2, &["events"])).await.unwrap();
+    wait_calls(&state, 2).await;
+    assert_eq!(state.max_active.load(Ordering::Acquire), 2);
+    assert!(events.try_recv().is_err());
+
+    state.gate.add_permits(2);
+    let mut committed_through = DeliveryId::new(0);
+    while committed_through != DeliveryId::new(2) {
+        let Some(SinkEvent::CommittedThrough(delivery_id)) = events.recv().await else {
+            panic!("ClickHouse sink stopped before committing both concurrent INSERTs");
+        };
+        committed_through = delivery_id;
+    }
+    assert_eq!(counters.flushes_total(), 2);
+    assert_eq!(counters.source_messages_total(), 2);
+
     cancellation.cancel();
     task.await.unwrap().unwrap();
 }

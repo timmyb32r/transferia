@@ -416,6 +416,7 @@ impl Drop for InvalidateOnDrop<'_> {
 }
 
 fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
+    let insert_connections = config.insert_concurrency.max(2);
     config
         .hosts
         .iter()
@@ -425,10 +426,21 @@ fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
                 .with_database(config.database.as_str())
                 .with_username(config.username.as_str())
                 .with_password(config.password.as_str())
-                // The sink owns batching and acknowledges source offsets as soon as the
-                // native INSERT completes. Never inherit a server/user profile that can
-                // acknowledge an asynchronous insert before it is flushed.
-                .with_setting("async_insert", 0_i64)
+                .with_compression(config.compression.into())
+                // `clickhouse-arrow` otherwise fixes its native connection pool at
+                // four sockets. A larger sink concurrency would then only queue
+                // more INSERT futures behind those four connections instead of
+                // increasing transport parallelism.
+                .with_ext(|extension| {
+                    extension.with_fast_mode_size(
+                        u8::try_from(insert_connections)
+                            .expect("validated ClickHouse concurrency fits in u8"),
+                    )
+                })
+                // Pin both settings instead of inheriting a server/user profile. When
+                // async inserts are selected, waiting remains mandatory: source offsets
+                // are acknowledged only after ClickHouse flushes the buffered INSERT.
+                .with_setting("async_insert", i64::from(config.async_insert))
                 .with_setting("wait_for_async_insert", 1_i64)
                 // ReplicatedMergeTree deduplication is unsafe for this at-least-once
                 // sink: two distinct source offsets may legitimately contain identical

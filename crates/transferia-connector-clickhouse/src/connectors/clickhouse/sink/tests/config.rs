@@ -87,6 +87,19 @@ fn validates_hosts_and_native_port() {
 fn defaults_to_finite_retries() -> anyhow::Result<()> {
     let config = parse_config(BASE)?;
     assert_eq!(config.effective_retry_max_attempts(), 20);
+    assert_eq!(config.insert_concurrency, 1);
+    assert_eq!(config.compression, ClickHouseCompression::Lz4);
+    assert!(!config.async_insert);
+    Ok(())
+}
+
+#[test]
+fn parses_explicit_native_insert_transport_tuning() -> anyhow::Result<()> {
+    let config = parse_config(&format!(
+        "{BASE}compression: zstd\nasync_insert: true\n"
+    ))?;
+    assert_eq!(config.compression, ClickHouseCompression::Zstd);
+    assert!(config.async_insert);
     Ok(())
 }
 
@@ -97,6 +110,8 @@ fn validates_retry_policy() {
         "retry_initial_ms: 20\nretry_max_ms: 10\n",
         "connect_timeout_ms: 0\n",
         "request_timeout_ms: 0\n",
+        "insert_concurrency: 0\n",
+        "insert_concurrency: 33\n",
     ] {
         assert!(parse_config(&format!("{BASE}{suffix}")).is_err());
     }
