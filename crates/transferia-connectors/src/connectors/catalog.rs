@@ -476,16 +476,36 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         "ytsaurus",
         EndpointRole::Source,
         ytsaurus_on_premise_schema(),
-        &["host", "port", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 8000, "trusted_plaintext": true }),
+        &[
+            "host",
+            "port",
+            "trusted_plaintext",
+            "trusted_native_rpc_plaintext",
+        ],
+        serde_json::json!({
+            "host": "",
+            "port": 8000,
+            "trusted_plaintext": true,
+            "trusted_native_rpc_plaintext": false
+        }),
     )?;
     register_on_premise(
         _registry,
         "ytsaurus",
         EndpointRole::Sink,
         ytsaurus_on_premise_schema(),
-        &["host", "port", "trusted_plaintext"],
-        serde_json::json!({ "host": "", "port": 8000, "trusted_plaintext": true }),
+        &[
+            "host",
+            "port",
+            "trusted_plaintext",
+            "trusted_native_rpc_plaintext",
+        ],
+        serde_json::json!({
+            "host": "",
+            "port": 8000,
+            "trusted_plaintext": true,
+            "trusted_native_rpc_plaintext": false
+        }),
     )?;
     for role in [EndpointRole::Source, EndpointRole::Sink] {
         register_on_premise(
@@ -525,7 +545,13 @@ fn ytsaurus_on_premise_schema() -> JsonValue {
     serde_json::json!({
         "host": { "type": "string", "title": "Host" },
         "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
-        "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+        "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+        "trusted_native_rpc_plaintext": {
+            "type": "boolean",
+            "title": "Trust plaintext native RPC",
+            "description": "Explicitly allow credentials and table data over the unencrypted YTsaurus native RPC transport",
+            "x-ui": { "section": "advanced" }
+        }
     })
 }
 

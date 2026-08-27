@@ -71,8 +71,18 @@ const CLICKHOUSE_SINK_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRole
 
 const YTSAURUS_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
-        output_fields: &["host", "port", "trusted_plaintext"],
-        required_output_fields: &["host", "port", "trusted_plaintext"],
+        output_fields: &[
+            "host",
+            "port",
+            "trusted_plaintext",
+            "trusted_native_rpc_plaintext",
+        ],
+        required_output_fields: &[
+            "host",
+            "port",
+            "trusted_plaintext",
+            "trusted_native_rpc_plaintext",
+        ],
     }),
     networked: true,
 });
