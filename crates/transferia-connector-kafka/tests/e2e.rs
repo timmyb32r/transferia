@@ -176,6 +176,7 @@ fn discovery() -> Arc<DeliveryDiscovery> {
             stored_schema: schema,
             system_columns: Vec::new(),
         }],
+        performance_advice: Vec::new(),
     })
 }
 

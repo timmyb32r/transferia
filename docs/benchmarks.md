@@ -88,12 +88,50 @@ profile-specific `PQ_CONSUMER_*` prefix is expected to differ. The recorded
 binary hashes identify the exact baseline and candidate executables even for
 `--skip-build` or dirty worktrees.
 
-The command exits with status `2` only when median PQ message throughput falls
+The command exits with status `2` only when median source-record throughput falls
 by more than 5% and at least four of five paired repetitions also fall by more
 than 5%. Treat CPU, RSS, response wait, busy time, backpressure, and stage rates
 in the JSON as diagnostics rather than replacing the primary throughput
 criterion. `response_wait_percent` is wall time awaiting any PQ server response,
 including control-plane traffic; it is not downloader CPU utilization.
+
+Every connector reports the same source-stage contract:
+
+```text
+source: <rate> records/s | network-raw <bytes/s> | network-decoded <bytes/s> | response-wait <duty> | network-decode <duty> busy
+```
+
+`records` means source messages for queue transports and source rows for typed
+snapshot readers. `network-raw` is counted only where the connector can observe
+the actual response payload before local transport decoding or decompression;
+it is zero when a client library exposes only decoded values. `network-decoded`
+is the corresponding locally decoded payload or Arrow representation, not a
+guess at unavailable wire bytes. `network-decode` measures local transport,
+decompression, and wire-to-Arrow decode work. It is summed across concurrent
+source workers and may exceed 100%; it is not process CPU utilization.
+Generated data has no network stage and therefore reports both network rates as
+zero. `stats_avg.py` and the single-partition runner consume this exact
+vocabulary.
+
+The native YTsaurus source reports the row-stream block envelope observed by
+its in-process pure-Rust RPC client as `network-raw` and the enclosed Arrow IPC
+payload as `network-decoded`. Direct data-node reads report compressed block
+bytes as raw and the decompressed columnar block bytes as decoded. Accounting
+reads existing buffers without copying their contents and never substitutes
+Arrow array memory size for unavailable transport bytes.
+
+All native YTsaurus streams prefetch raw blocks through bounded channels so
+counting or consuming one block does not delay the next network read. Arrow IPC
+decoding runs on bounded blocking workers instead of the async network executor.
+Each single ordered or unordered stream preserves one stateful decoder;
+PartitionTables streams decode independent partitions concurrently. Bounded
+channels preserve backpressure and ordering without allowing network reads to
+allocate unbounded buffered payloads.
+
+The native Bus connection also separates payload reads from its bounded control
+writer. Streaming ACK and read-position feedback retain wire order but are
+written asynchronously, matching the C++ client's flow-control behavior instead
+of serializing the next payload read behind a control-packet socket write.
 
 The current PQv1 session deliberately allows one source batch in progress per
 partition to keep source memory bounded and control-plane ACK/Release messages

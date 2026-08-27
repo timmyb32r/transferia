@@ -1017,8 +1017,8 @@ where
                 }
                 let _shrunk = raw_memory.shrink_to(retained_bytes);
                 let pending_batch = PendingDataBatch { kind, raw_memory };
-                source_counters.add_compressed_bytes(compressed_bytes);
-                source_counters.add_messages(message_count);
+                source_counters.add_network_raw_bytes(compressed_bytes);
+                source_counters.add_records(message_count);
                 if let Err(failure) = enqueue_pending_data(&data_tx, pending_batch) {
                     terminal_error = Some(failure);
                     break;

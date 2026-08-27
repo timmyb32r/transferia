@@ -92,6 +92,7 @@ impl ParserPlan {
             schema_origin: SchemaOrigin::ParserProjection,
             keep_system_columns: request.keep_system_columns,
             datasets,
+            performance_advice: Vec::new(),
         })
     }
 

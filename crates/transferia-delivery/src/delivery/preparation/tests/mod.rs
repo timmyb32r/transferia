@@ -67,6 +67,7 @@ fn semantic_errors_short_circuit_sink_limit_validation() {
         schema_origin: transferia_core::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
+        performance_advice: Vec::new(),
     };
     let source = transferia_delivery_contracts::semantics::EndpointDescriptor::Logbroker(
         transferia_delivery_contracts::semantics::SourceDescriptor {

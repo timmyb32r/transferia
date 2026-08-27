@@ -182,6 +182,7 @@ impl SourceConnector for S3SourceConnector {
                         stored_schema: dataset_schema,
                         system_columns: Vec::new(),
                     }],
+                    performance_advice: Vec::new(),
                 });
             }
             self.parser_plan.delivery_discovery(

@@ -135,6 +135,7 @@ impl SourceConnector for PostgresSourceConnector {
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: request.keep_system_columns,
                 datasets,
+                performance_advice: Vec::new(),
             })
         })
     }

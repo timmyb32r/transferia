@@ -78,6 +78,7 @@ async fn pqv1_sink_serializes_json_and_commits_only_after_real_grpc_ack() -> any
             stored_schema: schema,
             system_columns: Vec::new(),
         }],
+        performance_advice: Vec::new(),
     });
     connector.limits().validate_discovery(&discovery)?;
     let sink = connector

@@ -447,13 +447,21 @@ repeated full-workspace commands.
   and `SinkCounters` so the standard reporter emits one stable, parseable line per
   partition and interval. Do not invent connector-local throughput log formats.
 - Preserve the named `[stats p=<partition>]` sections and units emitted by
-  `src/metrics/mod.rs`: source message/compressed/decompressed rates and response
-  wait, parser rows/Arrow/DLQ/source-message rates, sink rows/bytes/flushes/source-
+  `transferia-delivery-contracts`: source record/raw-network/decoded-network rates,
+  response wait and network-decode duty, parser rows/Arrow/DLQ/source-message
+  rates, sink rows/bytes/flushes/source-
   message rates, attempt load, retries, buffering/object gauges, backpressure,
   delivery guarantee, CPU, and RSS.
 - A connector that does not perform a stage must report zero/`N/A` through the
   common counters; it must not remove or reorder fields. Sink `busy` is attempt
   load, not CPU utilization, and may exceed 100% when operations are concurrent.
+  Source `network-decode` is likewise summed decode work across concurrent
+  source workers and may exceed 100%.
+- `network-raw` must count only bytes observed before transport decompression or
+  decoding. When a client library exposes only decoded payloads, leave the raw
+  counter at zero rather than inventing an on-wire estimate. `network-decoded`
+  counts the corresponding payload after transport decoding, not generic parser
+  output or generated in-memory data.
 - Any deliberate log-contract change must update `scripts/stats_avg.py`,
   `scripts/run_single_partition_benchmark.py`, their separate tests, and
   `docs/benchmarks.md` in the same commit.

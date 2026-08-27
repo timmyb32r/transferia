@@ -35,28 +35,28 @@ fn registry_merges_source_and_parse() {
 #[test]
 fn counters_accumulate() {
     let s = Arc::new(SourceCounters::new());
-    s.add_messages(10);
-    s.add_compressed_bytes(100);
-    s.add_decompressed_bytes(200);
+    s.add_records(10);
+    s.add_network_raw_bytes(100);
+    s.add_network_decoded_bytes(200);
     s.add_response_wait(Duration::from_nanos(42));
-    s.add_decomp_busy(Duration::from_nanos(7));
+    s.add_network_decode_busy(Duration::from_nanos(7));
     let snap = src_snap(Some(&s));
-    assert_eq!(snap.messages, 10);
-    assert_eq!(snap.compressed_bytes, 100);
-    assert_eq!(snap.decompressed_bytes, 200);
+    assert_eq!(snap.records, 10);
+    assert_eq!(snap.network_raw_bytes, 100);
+    assert_eq!(snap.network_decoded_bytes, 200);
     assert_eq!(snap.response_wait_nanos, 42);
-    assert_eq!(snap.decomp_busy_nanos, 7);
+    assert_eq!(snap.network_decode_busy_nanos, 7);
 }
 
 #[test]
 fn reporter_tolerates_counter_generation_reset() {
     let current_source = SourceSnapshot::default();
     let previous_source = SourceSnapshot {
-        messages: 100,
-        compressed_bytes: 100,
-        decompressed_bytes: 100,
+        records: 100,
+        network_raw_bytes: 100,
+        network_decoded_bytes: 100,
         response_wait_nanos: 100,
-        decomp_busy_nanos: 100,
+        network_decode_busy_nanos: 100,
     };
     let line = format_line(
         1,
@@ -90,6 +90,6 @@ fn reporter_tolerates_counter_generation_reset() {
         0,
         0,
     );
-    assert!(line.contains("source: 0 msg/s"));
+    assert!(line.contains("source: 0 records/s"));
     assert!(line.contains("guarantee: at-least-once"));
 }

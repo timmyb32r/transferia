@@ -488,7 +488,7 @@ impl YdbTopicSource {
         })
         .await
         .map_err(|error| fatal(anyhow!("YDB Topic decoder task failed: {error}")))??;
-        self.counters.add_decomp_busy(started.elapsed());
+        self.counters.add_network_decode_busy(started.elapsed());
         let decompressed_bytes = decoded
             .iter()
             .flat_map(|(_, _, _, decoded)| &decoded.messages)
@@ -502,7 +502,7 @@ impl YdbTopicSource {
                 .ok_or_else(|| fatal(anyhow!("YDB Topic batch accounting overflow")))?,
         )?;
         let _ = reservation.shrink_to(decompressed_bytes);
-        self.counters.add_messages(
+        self.counters.add_records(
             u64::try_from(
                 decoded
                     .iter()
@@ -512,9 +512,9 @@ impl YdbTopicSource {
             .unwrap_or(u64::MAX),
         );
         self.counters
-            .add_compressed_bytes(u64::try_from(compressed_bytes).unwrap_or(u64::MAX));
+            .add_network_raw_bytes(u64::try_from(compressed_bytes).unwrap_or(u64::MAX));
         self.counters
-            .add_decompressed_bytes(u64::try_from(decompressed_bytes).unwrap_or(u64::MAX));
+            .add_network_decoded_bytes(u64::try_from(decompressed_bytes).unwrap_or(u64::MAX));
         let mut topic_batches =
             BTreeMap::<Arc<str>, (Vec<Message>, Vec<PartitionCommitMarker>)>::new();
         for (session_id, topic_path, partition_id, decoded) in decoded {

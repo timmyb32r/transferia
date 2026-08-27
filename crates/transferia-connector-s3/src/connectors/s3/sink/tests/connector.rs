@@ -65,6 +65,7 @@ fn discovery(value_type: DataType, value_nullable: bool) -> DeliveryDiscovery {
                 value_nullable,
             ),
         ],
+        performance_advice: Vec::new(),
     }
 }
 
@@ -200,6 +201,7 @@ async fn partition_sinks_share_one_uploader() -> anyhow::Result<()> {
         schema_origin: transferia_core::delivery::SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
+        performance_advice: Vec::new(),
     });
     assert_eq!(Arc::strong_count(&connector.uploader), 1);
 

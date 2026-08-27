@@ -97,9 +97,9 @@ impl Source for PostgresSource {
                 .ok_or_else(|| {
                     DataPlaneFailure::fatal(anyhow::anyhow!("PostgreSQL source offset overflow"))
                 })?;
-            self.counters.add_messages(source_rows);
+            self.counters.add_records(source_rows);
             self.counters
-                .add_decompressed_bytes(batch.get_array_memory_size() as u64);
+                .add_network_decoded_bytes(batch.get_array_memory_size() as u64);
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.table.name.as_str()),

@@ -71,8 +71,7 @@ impl Source for DataGeneratorSource {
                 .batch(start, rows)
                 .map_err(DataPlaneFailure::fatal)?;
             self.next_row += rows;
-            self.counters.add_messages(rows);
-            self.counters.add_decompressed_bytes(batch_bytes_u64);
+            self.counters.add_records(rows);
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.config.table_name.as_str()),

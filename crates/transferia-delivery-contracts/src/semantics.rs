@@ -234,24 +234,14 @@ pub fn validate_pipeline(
             }],
         };
     }
-    if matches!(
-        source,
-        EndpointDescriptor::Logbroker(SourceDescriptor {
-            behavior: SourceBehavior::BenchmarkDiscard,
-            ..
-        })
-    ) {
+    if source.source_behavior() == Some(SourceBehavior::BenchmarkDiscard) {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::NoDurability,
             diagnostics: vec![error(
                 DiagnosticCode::BenchmarkSourceDiscard,
-                &[
-                    "source.logbroker.pqv1_discard_before_decompression",
-                    "source.logbroker.parser.benchmark_discard",
-                    "sink",
-                ],
-                "the PQv1 source is configured to discard payloads, so a durable sink would acknowledge and commit data it never stored",
-                Some("disable benchmark_discard_before_decompression and configure a row-producing parser, or use the benchmark-only discard sink"),
+                &["source", "sink"],
+                "the source is configured to discard records before producing rows, so a durable sink would acknowledge data it never stored",
+                Some("disable the source benchmark-discard mode, or use the benchmark-only discard sink"),
             )],
         };
     }

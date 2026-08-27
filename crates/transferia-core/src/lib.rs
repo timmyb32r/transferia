@@ -13,7 +13,8 @@ pub use data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 pub use data::table_data::TableData;
 pub use delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset,
-    DiscoveredSystemColumn, SchemaOrigin, SinkLimits, SinkLimitsDescription, SourceTopology,
+    DiscoveredSystemColumn, PerformanceAdvice, PerformanceAdviceSeverity, SchemaOrigin, SinkLimits,
+    SinkLimitsDescription, SourceTopology,
 };
 pub use failure::{DataPlaneFailure, DataPlaneResult, FailureDisposition};
 pub use memory::{MemoryReservation, PipelineMemory};

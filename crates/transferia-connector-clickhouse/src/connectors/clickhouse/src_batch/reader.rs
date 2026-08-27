@@ -129,9 +129,9 @@ impl ClickHouseSource {
             .offset
             .checked_add(rows_i64)
             .ok_or_else(|| anyhow::anyhow!("ClickHouse source offset overflow"))?;
-        self.counters.add_messages(rows as u64);
+        self.counters.add_records(rows as u64);
         self.counters
-            .add_decompressed_bytes(batch.get_array_memory_size() as u64);
+            .add_network_decoded_bytes(batch.get_array_memory_size() as u64);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
                 Arc::from(self.table.config.name.as_str()),

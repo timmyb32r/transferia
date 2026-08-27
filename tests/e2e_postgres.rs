@@ -344,6 +344,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
             stored_schema: copy_schema,
             system_columns: Vec::new(),
         }],
+        performance_advice: Vec::new(),
     });
     let postgres_sink = PostgresSinkConnector::from_config(serde_yaml::from_str(&format!(
         "host: '{pg_host}'\nport: {pg_port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\n"

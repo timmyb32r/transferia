@@ -77,6 +77,7 @@ fn discovery(
                 system_columns: system_columns.iter().copied().map(Into::into).collect(),
             },
         ],
+        performance_advice: Vec::new(),
     })
 }
 
@@ -116,6 +117,7 @@ async fn discard_sink_runs_through_the_connector_and_actor_boundary() -> anyhow:
         schema_origin: SchemaOrigin::ParserProjection,
         keep_system_columns: false,
         datasets: Vec::new(),
+        performance_advice: Vec::new(),
     });
     connector.limits().validate_discovery(&discovery)?;
     let sink = connector

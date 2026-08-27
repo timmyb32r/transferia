@@ -131,6 +131,7 @@ pub struct DeliveryDiscovery {
     pub schema_origin: SchemaOrigin,
     pub keep_system_columns: bool,
     pub datasets: Vec<DiscoveredDataset>,
+    pub performance_advice: Vec<PerformanceAdvice>,
 }
 
 impl DeliveryDiscovery {
@@ -158,6 +159,33 @@ impl DeliveryDiscovery {
                 anyhow::anyhow!("delivery discovery has no {role:?} dataset named '{name}'")
             })
     }
+}
+
+/// Actionable connector guidance derived during source discovery.
+///
+/// Stable codes and structured fields let control planes render advice without
+/// parsing connector log text.
+#[derive(Debug, Clone, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerformanceAdvice {
+    pub code: String,
+
+    pub severity: PerformanceAdviceSeverity,
+
+    pub summary: String,
+
+    pub explanation: String,
+
+    pub remediation: String,
+
+    pub config_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, JsonSchema, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PerformanceAdviceSeverity {
+    Info,
+    Warning,
 }
 
 #[derive(Debug, Clone, Copy, JsonSchema, PartialEq, Eq, Serialize)]

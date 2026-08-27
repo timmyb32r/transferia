@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use transferia_core::delivery::{
-    ArrowTypeFamily, DatasetRole, NameSyntax, SinkLimitsDescription, TextLimit,
+    ArrowTypeFamily, DatasetRole, NameSyntax, PerformanceAdvice, SinkLimitsDescription, TextLimit,
 };
 use transferia_delivery_contracts::parser::ParserDetection;
 use transferia_registry::{
@@ -246,6 +246,8 @@ pub struct DiscoveryResult {
     pub pipeline_count: usize,
 
     pub datasets: Vec<DatasetView>,
+
+    pub performance_advice: Vec<PerformanceAdvice>,
 
     pub sink_limits: SinkLimitsDescription,
 }
@@ -541,6 +543,7 @@ pub fn fixture() -> anyhow::Result<Value> {
                 destination_type: "LowCardinality(String)".to_owned(),
             }],
         }],
+        performance_advice: Vec::new(),
         sink_limits: SinkLimitsDescription {
             sink: "clickhouse",
             dataset_name: Some(TextLimit {

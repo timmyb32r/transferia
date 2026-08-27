@@ -440,6 +440,7 @@ fn test_discovery(keep_system_columns: bool) -> Arc<DeliveryDiscovery> {
             system_columns: system_columns.iter().copied().map(Into::into).collect(),
         })
         .collect(),
+        performance_advice: Vec::new(),
     })
 }
 

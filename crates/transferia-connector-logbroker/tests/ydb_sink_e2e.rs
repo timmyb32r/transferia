@@ -84,6 +84,7 @@ async fn logbroker_ydb_sink_commits_only_after_real_grpc_ack() -> anyhow::Result
             stored_schema: schema,
             system_columns: Vec::new(),
         }],
+        performance_advice: Vec::new(),
     });
     connector.limits().validate_discovery(&discovery)?;
     let sink = connector

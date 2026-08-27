@@ -1203,6 +1203,7 @@ fn discovery_result(
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?,
+        performance_advice: discovery.performance_advice.clone(),
         sink_limits: sink_connector.limits().description(),
     })
 }
@@ -1242,6 +1243,7 @@ fn source_discovery_result(
                 }
             })
             .collect(),
+        performance_advice: discovery.performance_advice.clone(),
         sink_limits: SinkLimitsDescription {
             sink: "unselected",
             dataset_name: None,

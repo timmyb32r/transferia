@@ -99,6 +99,7 @@ fn discovery(table: &str, data_type: DataType) -> DeliveryDiscovery {
                 system_columns: Vec::new(),
             },
         ],
+        performance_advice: Vec::new(),
     }
 }
 

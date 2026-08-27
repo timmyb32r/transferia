@@ -28,6 +28,7 @@ fn projection_discovery(keep_system_columns: bool) -> DeliveryDiscovery {
             stored_schema,
             system_columns: vec![SystemColumnKind::Offset.into()],
         }],
+        performance_advice: Vec::new(),
     }
 }
 

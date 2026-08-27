@@ -130,6 +130,7 @@ impl SourceConnector for IcebergSourceConnector {
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: context.request.keep_system_columns,
                 datasets,
+                performance_advice: Vec::new(),
             })
         })
     }
@@ -245,8 +246,8 @@ async fn source_batch(
     let bytes = batch.get_array_memory_size();
     let rows = batch.num_rows() as u64;
     let lease = memory.reserve_progress_source(bytes).await;
-    counters.add_messages(rows);
-    counters.add_decompressed_bytes(bytes as u64);
+    counters.add_records(rows);
+    counters.add_network_decoded_bytes(bytes as u64);
     Ok(SourceBatch::Typed {
         tables: vec![TableData::new(
             Arc::clone(output_name),

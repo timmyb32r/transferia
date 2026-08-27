@@ -2,8 +2,8 @@
 //! background stats reporter.
 //!
 //! Two counter sets, both per partition:
-//! - [`SourceCounters`] — filled by every source connector (messages, compressed
-//!   and decompressed bytes, downloader and decompressor busy time).
+//! - [`SourceCounters`] — filled by every source connector (records, raw and
+//!   decoded network bytes, response-wait and network-decode busy time).
 //! - [`ParseCounters`] — filled by the parser thread (rows, Arrow bytes, DLQ
 //!   rows, source messages, parser busy time).
 //!
@@ -50,50 +50,51 @@ const fn default_metrics_interval_ms() -> u64 {
 // ---------------------------------------------------------------------------
 
 /// Per-partition source counters. Filled by the connector's background session
-/// (bytes + response-wait/decompress duty) and `read_batch` (messages).
+/// (network bytes + response-wait/decode duty) and `read_batch` (records).
 pub struct SourceCounters {
-    messages: AtomicU64,
-    compressed_bytes: AtomicU64,
-    decompressed_bytes: AtomicU64,
+    records: AtomicU64,
+    network_raw_bytes: AtomicU64,
+    network_decoded_bytes: AtomicU64,
     response_wait_nanos: AtomicU64,
-    decomp_busy_nanos: AtomicU64,
+    network_decode_busy_nanos: AtomicU64,
 }
 
 impl SourceCounters {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            messages: AtomicU64::new(0),
-            compressed_bytes: AtomicU64::new(0),
-            decompressed_bytes: AtomicU64::new(0),
+            records: AtomicU64::new(0),
+            network_raw_bytes: AtomicU64::new(0),
+            network_decoded_bytes: AtomicU64::new(0),
             response_wait_nanos: AtomicU64::new(0),
-            decomp_busy_nanos: AtomicU64::new(0),
+            network_decode_busy_nanos: AtomicU64::new(0),
         }
     }
 
     #[inline]
-    pub fn add_messages(&self, n: u64) {
-        self.messages.fetch_add(n, RELAXED);
+    pub fn add_records(&self, n: u64) {
+        self.records.fetch_add(n, RELAXED);
     }
     #[inline]
-    pub fn add_compressed_bytes(&self, n: u64) {
-        self.compressed_bytes.fetch_add(n, RELAXED);
+    pub fn add_network_raw_bytes(&self, n: u64) {
+        self.network_raw_bytes.fetch_add(n, RELAXED);
     }
     #[inline]
-    pub fn add_decompressed_bytes(&self, n: u64) {
-        self.decompressed_bytes.fetch_add(n, RELAXED);
+    pub fn add_network_decoded_bytes(&self, n: u64) {
+        self.network_decoded_bytes.fetch_add(n, RELAXED);
     }
-    /// Wall time spent awaiting the next PQ server response. This includes
-    /// data and control-plane responses and is latency, not CPU utilization.
+    /// Wall time spent awaiting the next source-transport response. This may
+    /// include data and control-plane responses and is latency, not CPU use.
     #[inline]
     pub fn add_response_wait(&self, d: Duration) {
         self.response_wait_nanos
             .fetch_add(d.as_nanos() as u64, RELAXED);
     }
-    /// Decompressor busy = time inside `decompress()`.
+    /// Network decode busy = time spent decompressing or decoding transport
+    /// frames before the generic parser receives records.
     #[inline]
-    pub fn add_decomp_busy(&self, d: Duration) {
-        self.decomp_busy_nanos
+    pub fn add_network_decode_busy(&self, d: Duration) {
+        self.network_decode_busy_nanos
             .fetch_add(d.as_nanos() as u64, RELAXED);
     }
 }
@@ -272,11 +273,11 @@ impl Default for SinkCounters {
 
 #[derive(Clone, Copy, Default)]
 struct SourceSnapshot {
-    messages: u64,
-    compressed_bytes: u64,
-    decompressed_bytes: u64,
+    records: u64,
+    network_raw_bytes: u64,
+    network_decoded_bytes: u64,
     response_wait_nanos: u64,
-    decomp_busy_nanos: u64,
+    network_decode_busy_nanos: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -305,11 +306,11 @@ struct SinkSnapshot {
 
 fn src_snap(c: Option<&Arc<SourceCounters>>) -> SourceSnapshot {
     c.map_or_else(SourceSnapshot::default, |s| SourceSnapshot {
-        messages: s.messages.load(RELAXED),
-        compressed_bytes: s.compressed_bytes.load(RELAXED),
-        decompressed_bytes: s.decompressed_bytes.load(RELAXED),
+        records: s.records.load(RELAXED),
+        network_raw_bytes: s.network_raw_bytes.load(RELAXED),
+        network_decoded_bytes: s.network_decoded_bytes.load(RELAXED),
         response_wait_nanos: s.response_wait_nanos.load(RELAXED),
-        decomp_busy_nanos: s.decomp_busy_nanos.load(RELAXED),
+        network_decode_busy_nanos: s.network_decode_busy_nanos.load(RELAXED),
     })
 }
 
@@ -563,19 +564,19 @@ fn aggregate_line(
             .unwrap_or((cur_src, cur_parse, cur_sink, now));
         let wall = now.saturating_duration_since(ptime).as_nanos() as u64;
         if wall > 0 {
-            s.messages += cur_src.messages.saturating_sub(psrc.messages);
-            s.compressed_bytes += cur_src
-                .compressed_bytes
-                .saturating_sub(psrc.compressed_bytes);
-            s.decompressed_bytes += cur_src
-                .decompressed_bytes
-                .saturating_sub(psrc.decompressed_bytes);
+            s.records += cur_src.records.saturating_sub(psrc.records);
+            s.network_raw_bytes += cur_src
+                .network_raw_bytes
+                .saturating_sub(psrc.network_raw_bytes);
+            s.network_decoded_bytes += cur_src
+                .network_decoded_bytes
+                .saturating_sub(psrc.network_decoded_bytes);
             s.response_wait_nanos += cur_src
                 .response_wait_nanos
                 .saturating_sub(psrc.response_wait_nanos);
-            s.decomp_busy_nanos += cur_src
-                .decomp_busy_nanos
-                .saturating_sub(psrc.decomp_busy_nanos);
+            s.network_decode_busy_nanos += cur_src
+                .network_decode_busy_nanos
+                .saturating_sub(psrc.network_decode_busy_nanos);
             p.rows += cur_parse.rows.saturating_sub(pparse.rows);
             p.arrow_bytes += cur_parse.arrow_bytes.saturating_sub(pparse.arrow_bytes);
             p.dlq_rows += cur_parse.dlq_rows.saturating_sub(pparse.dlq_rows);
@@ -647,32 +648,32 @@ fn format_line(
     rss: u64,
 ) -> String {
     let sec = wall_ns as f64 / NANOS_PER_SEC_F;
-    let d_msg = cur_src.messages.saturating_sub(prev_src.messages);
-    let d_comp = cur_src
-        .compressed_bytes
-        .saturating_sub(prev_src.compressed_bytes);
-    let d_decomp = cur_src
-        .decompressed_bytes
-        .saturating_sub(prev_src.decompressed_bytes);
+    let d_records = cur_src.records.saturating_sub(prev_src.records);
+    let d_network_raw = cur_src
+        .network_raw_bytes
+        .saturating_sub(prev_src.network_raw_bytes);
+    let d_network_decoded = cur_src
+        .network_decoded_bytes
+        .saturating_sub(prev_src.network_decoded_bytes);
     let response_wait_pct = pct(
         cur_src
             .response_wait_nanos
             .saturating_sub(prev_src.response_wait_nanos),
         wall_ns,
     );
-    let decomp_pct = pct(
+    let network_decode_pct = pct(
         cur_src
-            .decomp_busy_nanos
-            .saturating_sub(prev_src.decomp_busy_nanos),
+            .network_decode_busy_nanos
+            .saturating_sub(prev_src.network_decode_busy_nanos),
         wall_ns,
     );
     let source_part = format!(
-        "source: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
-        ((d_msg as f64) / sec) as u64,
-        fmt_bytes(d_comp as f64 / sec),
-        fmt_bytes(d_decomp as f64 / sec),
+        "source: {} records/s | network-raw {} | network-decoded {} | response-wait {}% | network-decode {}% busy",
+        ((d_records as f64) / sec) as u64,
+        fmt_bytes(d_network_raw as f64 / sec),
+        fmt_bytes(d_network_decoded as f64 / sec),
         response_wait_pct,
-        decomp_pct,
+        network_decode_pct,
     );
     let source_message_rate =
         |messages: u64| format!("{} source-msg/s", ((messages as f64) / sec) as u64);
@@ -751,14 +752,14 @@ fn format_line_avg(
 ) -> String {
     let sec = wall_ns_sum as f64 / NANOS_PER_SEC_F;
     let response_wait_pct = pct(s.response_wait_nanos, wall_ns_sum);
-    let decomp_pct = pct(s.decomp_busy_nanos, wall_ns_sum);
+    let network_decode_pct = pct(s.network_decode_busy_nanos, wall_ns_sum);
     let source_part = format!(
-        "source: {} msg/s | comp {} | decomp {} | response-wait {}% | decomp {}% busy",
-        ((s.messages as f64) / sec) as u64,
-        fmt_bytes(s.compressed_bytes as f64 / sec),
-        fmt_bytes(s.decompressed_bytes as f64 / sec),
+        "source: {} records/s | network-raw {} | network-decoded {} | response-wait {}% | network-decode {}% busy",
+        ((s.records as f64) / sec) as u64,
+        fmt_bytes(s.network_raw_bytes as f64 / sec),
+        fmt_bytes(s.network_decoded_bytes as f64 / sec),
         response_wait_pct,
-        decomp_pct,
+        network_decode_pct,
     );
     let source_message_rate =
         |messages: u64| format!("{} source-msg/s", ((messages as f64) / sec) as u64);

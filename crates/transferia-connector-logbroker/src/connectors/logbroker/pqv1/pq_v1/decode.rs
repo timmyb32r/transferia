@@ -493,8 +493,8 @@ pub(super) fn decode_parts_with_cancellation(
                 }
                 Err(error) => {
                     decomp_busy += started.elapsed();
-                    counters.add_decomp_busy(decomp_busy);
-                    counters.add_decompressed_bytes(decompressed_bytes);
+                    counters.add_network_decode_busy(decomp_busy);
+                    counters.add_network_decoded_bytes(decompressed_bytes);
                     return Err(anyhow!(
                         "PQv1 decompress failed: codec={codec} offset={offset}: {error}"
                     ));
@@ -516,8 +516,8 @@ pub(super) fn decode_parts_with_cancellation(
                 write_timestamp_ms: message.write_timestamp_ms,
             });
         }
-        counters.add_decomp_busy(decomp_busy);
-        counters.add_decompressed_bytes(decompressed_bytes);
+        counters.add_network_decode_busy(decomp_busy);
+        counters.add_network_decoded_bytes(decompressed_bytes);
         decoded_parts.push(DecodedPart {
             pid,
             cookie,

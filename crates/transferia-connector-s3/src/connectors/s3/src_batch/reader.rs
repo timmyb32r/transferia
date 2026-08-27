@@ -143,8 +143,8 @@ impl S3Source {
         let bytes = batch.get_array_memory_size();
         let rows = batch.num_rows() as u64;
         let memory = self.memory.reserve_progress_source(bytes).await;
-        self.counters.add_messages(rows);
-        self.counters.add_decompressed_bytes(bytes as u64);
+        self.counters.add_records(rows);
+        self.counters.add_network_decoded_bytes(bytes as u64);
         Ok(Some(SourceBatch::Typed {
             tables: vec![TableData::new(
                 table,
@@ -200,9 +200,10 @@ impl Source for S3Source {
             let offset =
                 i64::try_from(self.next).map_err(|error| DataPlaneFailure::fatal(error.into()))?;
             self.next += 1;
-            self.counters.add_messages(1);
-            self.counters.add_compressed_bytes(payload.len() as u64);
-            self.counters.add_decompressed_bytes(payload.len() as u64);
+            self.counters.add_records(1);
+            self.counters.add_network_raw_bytes(payload.len() as u64);
+            self.counters
+                .add_network_decoded_bytes(payload.len() as u64);
             Ok(SourceBatch::Raw {
                 messages: vec![Message {
                     value: payload,

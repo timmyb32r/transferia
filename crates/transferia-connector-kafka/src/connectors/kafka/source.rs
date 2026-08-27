@@ -125,11 +125,11 @@ impl KafkaSource {
             });
         }
         self.counters
-            .add_messages(u64::try_from(messages.len()).unwrap_or(u64::MAX));
+            .add_records(u64::try_from(messages.len()).unwrap_or(u64::MAX));
+        // librdkafka exposes payloads after Kafka batch decompression. Do not
+        // misreport those decoded payload bytes as raw network throughput.
         self.counters
-            .add_compressed_bytes(u64::try_from(payload_bytes).unwrap_or(u64::MAX));
-        self.counters
-            .add_decompressed_bytes(u64::try_from(payload_bytes).unwrap_or(u64::MAX));
+            .add_network_decoded_bytes(u64::try_from(payload_bytes).unwrap_or(u64::MAX));
         Ok(SourceBatch::Raw {
             messages,
             commit_marker: Some(CommitMarker::new(KafkaCommitMarker { offsets })),

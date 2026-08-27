@@ -131,6 +131,7 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
             stored_schema: schema,
             system_columns: Vec::new(),
         }],
+        performance_advice: Vec::new(),
     });
     connector.limits().validate_discovery(&discovery)?;
     connector

@@ -43,6 +43,7 @@ fn discovery() -> DeliveryDiscovery {
                 SystemColumnKind::WriteTimestampMs.into(),
             ],
         }],
+        performance_advice: Vec::new(),
     }
 }
 
@@ -119,27 +120,38 @@ fn discard_sink_accepts_a_row_producing_parser() {
 
 #[test]
 fn durable_sinks_reject_a_discarding_source() {
-    let mut source_endpoint = source();
-    let EndpointDescriptor::Logbroker(source) = &mut source_endpoint else {
+    let mut logbroker = source();
+    let EndpointDescriptor::Logbroker(source) = &mut logbroker else {
         panic!("test source must be YDB Topic")
     };
     source.behavior = SourceBehavior::BenchmarkDiscard;
+    let ytsaurus = EndpointDescriptor::YTsaurus(SourceDescriptor {
+        behavior: SourceBehavior::BenchmarkDiscard,
+        delivery_modes: SourceDeliveryModes::BATCH,
+    });
 
-    for sink_endpoint in [
-        EndpointDescriptor::ClickHouse,
-        sink(S3Partitioning::Source, false),
-    ] {
-        let report = validate_pipeline(&source_endpoint, &sink_endpoint, &discovery(), false);
-        assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
-        assert!(report.ensure_valid().is_err());
-        assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == DiagnosticCode::BenchmarkSourceDiscard
-                && diagnostic.severity == DiagnosticSeverity::Error
-        }));
+    for source_endpoint in [&logbroker, &ytsaurus] {
+        for sink_endpoint in [
+            EndpointDescriptor::ClickHouse,
+            sink(S3Partitioning::Source, false),
+        ] {
+            let report = validate_pipeline(
+                source_endpoint,
+                &sink_endpoint,
+                &discovery(),
+                false,
+            );
+            assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
+            assert!(report.ensure_valid().is_err());
+            assert!(report.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == DiagnosticCode::BenchmarkSourceDiscard
+                    && diagnostic.severity == DiagnosticSeverity::Error
+            }));
+        }
     }
 
     let benchmark = validate_pipeline(
-        &source_endpoint,
+        &ytsaurus,
         &EndpointDescriptor::Discard,
         &discovery(),
         false,
