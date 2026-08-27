@@ -77,6 +77,36 @@ describe("dynamic path control", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("navigates suggestions with arrows and accepts the active option with Tab", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({
+      options: ["aaa/first", "aaa/second", "aaa/third"].map((value) => ({
+        value,
+        label: value,
+      })),
+    }));
+    const view = render(<Harness options={options} initialValue="aaa/" />);
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    const suggestions = await view.findAllByRole("option");
+    expect(suggestions.every((option) => option.getAttribute("tabindex") === "-1")).toBe(true);
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(suggestions[0]?.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(suggestions[1]?.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(suggestions[0]?.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input).toHaveProperty("value", "aaa/first");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("does not fetch or edit while read-only", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({ options: [] }));
@@ -93,6 +123,41 @@ describe("dynamic path control", () => {
 
     expect(options).not.toHaveBeenCalled();
     expect(input).toHaveProperty("disabled", true);
+  });
+
+  it("keeps empty and single-slash YTsaurus paths quiet until the root is complete", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({ options: [] }));
+    const view = render(
+      <Harness
+        options={options}
+        source="yandex.ytsaurus.tables"
+        initialValue=""
+      />,
+    );
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(options).not.toHaveBeenCalled();
+    expect(view.queryByRole("alert")).toBeNull();
+
+    fireEvent.input(input, { target: { value: "/" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(options).not.toHaveBeenCalled();
+    expect(view.queryByRole("alert")).toBeNull();
+
+    fireEvent.input(input, { target: { value: "//" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(options).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "//" }),
+    );
   });
 
   it("shows a prerequisite warning instead of claiming there are no paths", async () => {
@@ -138,24 +203,57 @@ describe("dynamic path control", () => {
         .map((option) => option.querySelector("span:last-child")?.textContent),
     ).toEqual(["dca/", "dcc_logbroker/", "cdc/"]);
   });
+
+  it("searches and highlights only inside the current directory", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({
+      options: ["//home/logfeller/logforwarder/", "//home/logfeller/logs/"].map(
+        (value) => ({ value, label: value }),
+      ),
+    }));
+    const view = render(
+      <Harness options={options} initialValue="//home/logfeller/log" />,
+    );
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    expect(options).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "//home/logfeller/" }),
+    );
+    for (const option of await view.findAllByRole("option")) {
+      expect(option.querySelector("span:last-child")?.textContent).toMatch(
+        /^\/\/home\/logfeller\/log(?:forwarder|s)\/$/,
+      );
+      expect(
+        [...option.querySelectorAll("strong")]
+          .map((character) => character.textContent)
+          .join(""),
+      ).toBe("log");
+    }
+  });
 });
 
 function Harness({
   options,
   initialValue,
+  source = "endpoint.paths",
   disabled = false,
 }: {
   options: (request: DynamicOptionsQuery) => Promise<{
     options: Array<{ value: string; label: string }>;
   }>;
   initialValue: string;
+  source?: string;
   disabled?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
   return (
     <FormEnvironmentProvider environment={{ options }}>
       <DynamicPathControl
-        source="endpoint.paths"
+        source={source}
         dependencies={{ installation: "cluster-a" }}
         value={value}
         disabled={disabled}

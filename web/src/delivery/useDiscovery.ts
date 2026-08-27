@@ -27,14 +27,19 @@ export function useDiscovery({
 }) {
   const api = useControlPlane();
   const [discovery, setDiscovery] = useState<DiscoveryResult>();
+  const [error, setError] = useState<string>();
 
-  useEffect(() => setDiscovery(undefined), [editor.sessionId]);
+  useEffect(() => {
+    setDiscovery(undefined);
+    setError(undefined);
+  }, [editor.sessionId]);
 
   useEffect(() => {
     job.cancel();
     operations.clearOperation("discovery");
     if (!structurallyComplete) {
       setDiscovery(undefined);
+      setError(undefined);
       return;
     }
     const context = {
@@ -42,6 +47,7 @@ export function useDiscovery({
       localRevision: editor.localRevision,
     };
     const timer = window.setTimeout(() => {
+      setError(undefined);
       const requestId = operations.beginOperation(
         "discovery",
         "Discovering topology and schema…",
@@ -56,13 +62,10 @@ export function useDiscovery({
           }
           operations.finishOperation("discovery", requestId);
         })
-        .catch((reason: unknown) =>
-          operations.finishOperation(
-            "discovery",
-            requestId,
-            errorMessage(reason),
-          ),
-        );
+        .catch((reason: unknown) => {
+          if (isCurrentContext(context)) setError(errorMessage(reason));
+          operations.finishOperation("discovery", requestId);
+        });
     }, 450);
     return () => {
       window.clearTimeout(timer);
@@ -75,7 +78,7 @@ export function useDiscovery({
     structurallyComplete,
   ]);
 
-  return { discovery, setDiscovery };
+  return { discovery, setDiscovery, error };
 }
 
 function errorMessage(reason: unknown): string {

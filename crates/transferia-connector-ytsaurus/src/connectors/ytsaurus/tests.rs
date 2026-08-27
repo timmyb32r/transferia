@@ -16,7 +16,8 @@ use super::config::{
     YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 use super::client::{
-    ListedNode, rich_read_path, suggestion_directory, table_path_suggestions,
+    ListedNode, resolved_link_suggestion, rich_read_path, suggestion_directory,
+    table_path_suggestions,
 };
 use super::columnar_chunk::validate_direct_schema;
 use super::discard::{DiscardDecoder, output_format};
@@ -239,6 +240,14 @@ fn table_path_suggestions_include_only_directories_and_tables() -> anyhow::Resul
     assert_eq!(
         table_path_suggestions("/", root_nodes),
         vec!["//events", "//home/"]
+    );
+    assert_eq!(
+        resolved_link_suggestion("//logs".to_owned(), "map_node"),
+        Some("//logs/".to_owned())
+    );
+    assert_eq!(
+        resolved_link_suggestion("//latest".to_owned(), "table"),
+        Some("//latest".to_owned())
     );
     Ok(())
 }

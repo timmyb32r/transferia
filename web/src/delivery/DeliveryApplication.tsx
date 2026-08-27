@@ -221,7 +221,7 @@ export function DeliveryApplication() {
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";
-  const { discovery, setDiscovery } = useDiscovery({
+  const { discovery, setDiscovery, error: discoveryError } = useDiscovery({
     editor,
     structurallyComplete: sourceSchemaComplete,
     job: discoveryJob,
@@ -233,8 +233,8 @@ export function DeliveryApplication() {
     if (dataSchemaAvailable) return undefined;
     if (isOperationPending(operations.discovery))
       return "Discovering the data schema…";
-    if (operations.discovery?.error !== undefined)
-      return `Data schema discovery failed: ${operations.discovery.error}`;
+    if (discoveryError !== undefined)
+      return `Data schema discovery failed: ${discoveryError}`;
     if (catalog === undefined) return "Loading the connector catalog…";
     if (selection?.error !== undefined) return selection.error;
     if (selection?.source === undefined) return "Choose a source first";

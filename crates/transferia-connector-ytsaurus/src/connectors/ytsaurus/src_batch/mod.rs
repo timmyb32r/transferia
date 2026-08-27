@@ -292,6 +292,23 @@ impl YTsaurusSourceConnector {
                 let mut tables = Vec::with_capacity(self.config.tables.len());
                 for table in &self.config.tables {
                     let dataset_name = Arc::from(table.dataset_name()?);
+                    let node_type = self
+                        .client
+                        .get_json(&format!("{}/@type", table.path))
+                        .await?
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "YTsaurus source path '{}' returned an invalid node type",
+                                table.path
+                            )
+                        })?;
+                    anyhow::ensure!(
+                        node_type == "table",
+                        "YTsaurus source path '{}' is a {node_type}, not a table; select a table path from the suggestions",
+                        table.path
+                    );
                     let dynamic = self
                         .client
                         .get_json(&format!("{}/@dynamic", table.path))

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use futures_util::stream::{self, StreamExt as _};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::OnceCell;
@@ -20,7 +21,11 @@ pub struct YTsaurusHttpError {
 
 impl core::fmt::Display for YTsaurusHttpError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "YTsaurus HTTP {}: {}", self.status, self.body)
+        let message = serde_json::from_str::<Value>(&self.body)
+            .ok()
+            .and_then(|body| body.get("message")?.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "the server rejected the request".to_owned());
+        write!(f, "YTsaurus request failed ({}): {message}", self.status)
     }
 }
 
@@ -218,7 +223,38 @@ impl YTsaurusClient {
             .await?
             .json::<Vec<ListedNode>>()
             .await?;
-        Ok(table_path_suggestions(&directory, nodes))
+        let prefix = suggestion_prefix(&directory);
+        let links = nodes
+            .iter()
+            .filter_map(|node| match node {
+                ListedNode::WithAttributes { name, attributes }
+                    if attributes.node_type == "link" =>
+                {
+                    Some(format!("{prefix}{name}"))
+                }
+                ListedNode::Name(_) | ListedNode::WithAttributes { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        let mut suggestions = table_path_suggestions(&directory, nodes);
+        suggestions.extend(
+            stream::iter(links)
+                .map(|path| async move {
+                    let node_type = self
+                        .get_json(&format!("{path}/@type"))
+                        .await
+                        .ok()?
+                        .as_str()?
+                        .to_owned();
+                    resolved_link_suggestion(path, &node_type)
+                })
+                .buffer_unordered(8)
+                .filter_map(std::future::ready)
+                .collect::<Vec<_>>()
+                .await,
+        );
+        suggestions.sort_unstable();
+        suggestions.dedup();
+        Ok(suggestions)
     }
 
     pub async fn read_table(
@@ -388,18 +424,17 @@ pub(super) fn suggestion_directory(query: &str) -> anyhow::Result<String> {
 }
 
 pub(super) fn table_path_suggestions(directory: &str, nodes: Vec<ListedNode>) -> Vec<String> {
-    let prefix = if directory == "/" {
-        "//".to_owned()
-    } else {
-        format!("{directory}/")
-    };
+    let prefix = suggestion_prefix(directory);
     let mut suggestions = nodes
         .into_iter()
         .filter_map(|node| match node {
             ListedNode::WithAttributes { name, attributes }
                 if attributes.node_type == "table" => Some(format!("{prefix}{name}")),
             ListedNode::WithAttributes { name, attributes }
-                if matches!(attributes.node_type.as_str(), "map_node" | "portal_entrance") =>
+                if matches!(
+                    attributes.node_type.as_str(),
+                    "map_node" | "portal_entrance" | "rootstock"
+                ) =>
             {
                 Some(format!("{prefix}{name}/"))
             }
@@ -409,6 +444,22 @@ pub(super) fn table_path_suggestions(directory: &str, nodes: Vec<ListedNode>) ->
         .collect::<Vec<_>>();
     suggestions.sort_unstable();
     suggestions
+}
+
+fn suggestion_prefix(directory: &str) -> String {
+    if directory == "/" {
+        "//".to_owned()
+    } else {
+        format!("{directory}/")
+    }
+}
+
+pub(super) fn resolved_link_suggestion(path: String, node_type: &str) -> Option<String> {
+    match node_type {
+        "table" => Some(path),
+        "map_node" | "portal_entrance" | "rootstock" => Some(format!("{path}/")),
+        _ => None,
+    }
 }
 
 pub(super) fn rich_read_path(path: &str, start_row_index: i64) -> String {

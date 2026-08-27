@@ -15,6 +15,17 @@ import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
 
+function splitPathLabel(label: string) {
+  const trailingSlash = label.endsWith("/") ? "/" : "";
+  const path = trailingSlash === "" ? label : label.slice(0, -1);
+  const separator = path.lastIndexOf("/");
+  return {
+    prefix: path.slice(0, separator + 1),
+    name: path.slice(separator + 1),
+    trailingSlash,
+  };
+}
+
 export function DynamicPathControl({
   id,
   source,
@@ -37,6 +48,7 @@ export function DynamicPathControl({
   const [options, setOptions] = useState<
     Array<{ value: string; label: string }>
   >([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const root = useRef<HTMLDivElement>(null);
@@ -44,12 +56,21 @@ export function DynamicPathControl({
   const job = useRef(new LatestJob<string, string, DynamicOptions>()).current;
   const dependencyKey = JSON.stringify(dependencies);
 
-  const close = () => setOpen(false);
+  const close = () => {
+    setOpen(false);
+    setActiveIndex(-1);
+  };
   useAnchoredOverlay({ open, root, trigger: input, onClose: close });
 
   useEffect(() => {
-    if (!open || disabled) {
+    const incompleteYtsaurusRoot =
+      source === "yandex.ytsaurus.tables" &&
+      (value.trim() === "" || value.trim() === "/");
+    if (!open || disabled || incompleteYtsaurusRoot) {
       setLoading(false);
+      setOptions([]);
+      setActiveIndex(-1);
+      setError(undefined);
       return;
     }
     setLoading(true);
@@ -73,11 +94,13 @@ export function DynamicPathControl({
               (option) => option.label.split("/").filter(Boolean).at(-1) ?? "",
             ),
           );
+          setActiveIndex(-1);
           setError(result.value.warning);
           setLoading(false);
         })
         .catch((reason: unknown) => {
           setOptions([]);
+          setActiveIndex(-1);
           setError(reason instanceof Error ? reason.message : String(reason));
           setLoading(false);
         });
@@ -92,6 +115,13 @@ export function DynamicPathControl({
     if (disabled) close();
   }, [disabled]);
 
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    root.current
+      ?.querySelector<HTMLElement>(`[data-option-index="${activeIndex}"]`)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex]);
+
   const choose = (next: string) => {
     onChange(next);
     if (next.endsWith("/")) {
@@ -100,6 +130,11 @@ export function DynamicPathControl({
     } else {
       close();
     }
+  };
+
+  const chooseAndLeave = (next: string) => {
+    onChange(next);
+    close();
   };
 
   return (
@@ -115,25 +150,48 @@ export function DynamicPathControl({
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls={menuId}
+          aria-activedescendant={
+            activeIndex >= 0 ? `${menuId}-option-${activeIndex}` : undefined
+          }
           placeholder="Start typing a path"
           onFocus={() => setOpen(true)}
           onInput={(event) => {
             onChange(event.currentTarget.value);
+            setActiveIndex(-1);
             setOpen(true);
           }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
               close();
+              return;
             }
             if (event.key === "ArrowDown") {
               event.preventDefault();
               setOpen(true);
-              queueMicrotask(() =>
-                root.current
-                  ?.querySelector<HTMLButtonElement>('[role="option"]')
-                  ?.focus(),
+              setActiveIndex((current) =>
+                options.length === 0 ? -1 : (current + 1) % options.length,
               );
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((current) =>
+                options.length === 0
+                  ? -1
+                  : (current <= 0 ? options.length : current) - 1,
+              );
+              return;
+            }
+            if (
+              (event.key === "Tab" || event.key === "Enter") &&
+              activeIndex >= 0
+            ) {
+              const active = options[activeIndex];
+              if (active === undefined) return;
+              if (event.key === "Enter") event.preventDefault();
+              chooseAndLeave(active.value);
             }
           }}
         />
@@ -149,15 +207,20 @@ export function DynamicPathControl({
           role="listbox"
           aria-label="Path suggestions"
         >
-          {options.map((option) => {
+          {options.map((option, index) => {
             const directory = option.value.endsWith("/");
+            const label = splitPathLabel(option.label);
             return (
               <button
+                id={`${menuId}-option-${index}`}
                 key={option.value}
                 type="button"
                 role="option"
-                aria-selected={option.value === value}
+                aria-selected={index === activeIndex}
+                tabIndex={-1}
+                data-option-index={index}
                 class="select-option dynamic-path-option"
+                onPointerEnter={() => setActiveIndex(index)}
                 onPointerDown={(event) => {
                   if (event.button !== 0) return;
                   event.preventDefault();
@@ -168,10 +231,12 @@ export function DynamicPathControl({
                   {directory ? "▸" : ""}
                 </span>
                 <span>
+                  {label.prefix}
                   <SearchHighlight
-                    text={option.label}
+                    text={label.name}
                     query={pathSearchFragment(value)}
                   />
+                  {label.trailingSlash}
                 </span>
               </button>
             );
