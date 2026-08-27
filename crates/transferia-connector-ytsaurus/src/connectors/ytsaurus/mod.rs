@@ -1,14 +1,18 @@
 mod client;
+mod columnar_chunk;
 mod config;
 mod discard;
+mod direct_data_node;
+mod native_rpc;
 mod schema;
 mod sink;
+mod yt_wire;
 pub mod src_batch;
 
 pub use config::{
     YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusConnectionConfig,
-    YTsaurusReadFormat, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
-    YTsaurusWriteFormat,
+    YTsaurusBenchmarkTransport, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
+    YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 pub use sink::YTsaurusSinkConnector;
 pub use src_batch::YTsaurusSourceConnector;

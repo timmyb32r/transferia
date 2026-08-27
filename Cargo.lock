@@ -6018,6 +6018,8 @@ dependencies = [
  "hyper",
  "hyper-util",
  "itoa",
+ "lz4_flex",
+ "prost",
  "reqwest 0.12.28",
  "ryu",
  "schemars 1.2.2",
@@ -6035,6 +6037,7 @@ dependencies = [
  "transferia-delivery-contracts",
  "transferia-registry",
  "transferia-test-support",
+ "uuid",
 ]
 
 [[package]]

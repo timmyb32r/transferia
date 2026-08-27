@@ -217,15 +217,47 @@ impl YTsaurusClient {
         &self,
         path: &str,
         start_row_index: i64,
+        unordered: bool,
     ) -> anyhow::Result<reqwest::Response> {
         self.read_table(
             path,
             start_row_index,
             "\"arrow\"",
-            false,
+            unordered,
             &YTsaurusTableReaderConfig::default(),
         )
         .await
+    }
+
+    pub async fn discover_rpc_endpoints(&self) -> anyhow::Result<Vec<String>> {
+        let mut url = self.endpoint.clone();
+        url.set_path("/api/v4/discover_proxies");
+        url.query_pairs_mut().clear().append_pair("type", "rpc");
+        let response = self
+            .client
+            .request(reqwest::Method::GET, url)
+            .configure(|request| {
+                request.header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("OAuth {}", self.token),
+                )
+            })
+            .send()
+            .await?;
+        let endpoints = Self::checked(response)
+            .await?
+            .json::<DiscoverProxiesResponse>()
+            .await?
+            .into_proxies();
+        anyhow::ensure!(
+            !endpoints.is_empty(),
+            "YTsaurus RPC proxy discovery returned no proxies"
+        );
+        Ok(endpoints)
+    }
+
+    pub(crate) fn token(&self) -> &str {
+        &self.token
     }
 
     pub async fn write_table(

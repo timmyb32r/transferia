@@ -28,8 +28,12 @@ pub fn register(
                     serde_json::json!({
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
+                        "trusted_native_rpc_plaintext": false,
                         "timeout_ms": 30000,
                         "tables": [{ "name": "", "path": "" }],
+                        "read_ordering": { "type": "ordered" },
+                        "native_rpc_service_ticket_file": null,
+                        "table_reader": {},
                         "batch_rows": 65536,
                         "stream_retry_max_attempts": 12,
                         "stream_retry_initial_ms": 100,
@@ -57,6 +61,7 @@ pub fn register(
                     serde_json::json!({
                         "auth": { "type": "token", "token": "" },
                         "host": "", "port": 8000, "trusted_plaintext": true,
+                        "trusted_native_rpc_plaintext": false,
                         "timeout_ms": 30000
                     })
                 },

@@ -11,6 +11,9 @@ pub(super) fn output_format(
 ) -> anyhow::Result<String> {
     Ok(match format {
         YTsaurusReadFormat::Arrow => serde_json::to_string("arrow")?,
+        YTsaurusReadFormat::YtWire => {
+            anyhow::bail!("YT wire rowsets are available only through native RPC")
+        }
         YTsaurusReadFormat::Json => serde_json::to_string("json")?,
         YTsaurusReadFormat::YsonBinary => serde_json::to_string("yson")?,
         YTsaurusReadFormat::YsonText => serde_json::to_string(&json!({
@@ -120,6 +123,9 @@ impl DiscardDecoder {
     ) -> anyhow::Result<Self> {
         Ok(match format {
             YTsaurusReadFormat::Arrow => Self::Arrow(ArrowRowCounter::default()),
+            YTsaurusReadFormat::YtWire => {
+                anyhow::bail!("YT wire discard blocks use the native row-count fast path")
+            }
             YTsaurusReadFormat::Json | YTsaurusReadFormat::SchemafulDsv => {
                 Self::Lines(LineRowCounter::default())
             }

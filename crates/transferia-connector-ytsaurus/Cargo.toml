@@ -14,6 +14,8 @@ http.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 itoa.workspace = true
+lz4_flex.workspace = true
+prost.workspace = true
 reqwest.workspace = true
 ryu.workspace = true
 schemars.workspace = true
@@ -24,6 +26,7 @@ time.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
 transferia-connector-support = { path = "../transferia-connector-support" }

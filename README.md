@@ -232,13 +232,34 @@ and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
 
 ### YTsaurus static tables
 
-YTsaurus source mappings always require both `path` and `output_name`; sink
+YTsaurus source mappings always require both the physical `path` and explicit
+logical dataset `name`; sink
 mappings always require both `dataset` and `path`. The runtime never derives,
 renames, escapes, truncates, or hashes identifiers. Discovery rejects dynamic
 tables, unsupported or drifting schemas, duplicate mappings, column names over
 256 characters, reserved `@` column names, and unsupported Arrow types before
 workers start. Representative configs are
 `config_ytsaurus_source_to_clickhouse.yaml` and `config_ytsaurus_sink.yaml`.
+
+The ordinary source uses Transferia's in-process, pure-Rust YTsaurus Bus/RPC
+client. It requests Arrow rowsets only after `@chunk_format_statistics` proves
+that every physical chunk is `table_unversioned_columnar`; a server-side Arrow
+fallback in that state is an explicit fatal protocol error. Other physical
+layouts use native YT-wire rowsets and are decoded directly into Arrow arrays.
+The common source metrics report both bytes received from the network and bytes
+materialized after network decoding.
+
+`read_ordering: { type: ordered }` is the default and resumes at the exact row
+index after a transient stream failure. The explicit
+`read_ordering: { type: unordered }` mode lets YTsaurus return ready blocks out
+of order for maximum single-stream throughput, but fails on interruption because
+an exact continuation would risk silent loss. The third advanced mode,
+`read_ordering: { type: partition_tables, ... }`, asks YTsaurus to partition the
+table into cookies with embedded node descriptors and reads those partitions
+concurrently. It is intended for maximum distributed throughput and is also
+explicitly non-resumable. Every mode still emits one logical Transferia source
+partition and uses bounded backpressure before the ordinary pipeline memory
+budget.
 
 The YTsaurus sink appends to static tables. `format: arrow` is the default and
 uses Arrow IPC streaming directly; `format: yson` is an explicit alternative

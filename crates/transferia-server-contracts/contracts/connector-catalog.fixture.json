@@ -3070,19 +3070,6 @@
                 }
               ]
             },
-            "data_host_count": {
-              "description": "Data-bearing hosts in the resolved cluster topology. Connectivity may\nintentionally use a smaller set of hosts, so it cannot carry this fact.",
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint",
-              "minimum": 0,
-              "default": null,
-              "x-ui": {
-                "widget": "hidden"
-              }
-            },
             "database": {
               "type": "string"
             },
@@ -3118,6 +3105,16 @@
               "format": "uint",
               "minimum": 0,
               "default": 67108864,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "insert_concurrency": {
+              "description": "Maximum number of concurrently active INSERTs. Values above one are an\nexplicit throughput choice; ordered delivery progress is still committed\nonly after the contiguous INSERT prefix completes.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 1,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -4536,6 +4533,15 @@
               "x-ui": {
                 "item_label": "Table name"
               }
+            },
+            "read_batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -4675,6 +4681,33 @@
                         "widget": "hidden"
                       }
                     },
+                    "retry_max_times": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 12,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "retry_initial_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 100,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "retry_max_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 5000,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
                     "region": {
                       "type": [
                         "string",
@@ -4755,6 +4788,24 @@
                       "format": "uint64",
                       "minimum": 0,
                       "default": 30000
+                    },
+                    "retry_max_times": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 12
+                    },
+                    "retry_initial_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 100
+                    },
+                    "retry_max_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 5000
                     },
                     "root": {
                       "type": "string",
@@ -5188,6 +5239,33 @@
                         "widget": "hidden"
                       }
                     },
+                    "retry_max_times": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 12,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "retry_initial_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 100,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "retry_max_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 5000,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
                     "region": {
                       "type": [
                         "string",
@@ -5268,6 +5346,24 @@
                       "format": "uint64",
                       "minimum": 0,
                       "default": 30000
+                    },
+                    "retry_max_times": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 12
+                    },
+                    "retry_initial_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 100
+                    },
+                    "retry_max_delay_ms": {
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 5000
                     },
                     "root": {
                       "type": "string",
@@ -5419,11 +5515,89 @@
                 "$ref": "#/$defs/SourceTableConfig"
               }
             },
+            "read_ordering": {
+              "title": "Read mode",
+              "description": "Ordered reads resume at the last row after a transient failure. Unordered reads maximize single-stream throughput but fail on interruption. PartitionTables performs concurrent distributed reads and is also non-resumable.",
+              "$ref": "#/$defs/YTsaurusReadOrdering",
+              "default": {
+                "type": "ordered"
+              },
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "table_reader": {
+              "title": "Native reader settings",
+              "$ref": "#/$defs/YTsaurusTableReaderConfig",
+              "default": {},
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "benchmark_discard": {
+              "description": "Explicit benchmark-only mode that counts wire rows without materializing\ntheir values as Arrow arrays. Delivery semantics only permit this mode\nwith the discard destination.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/YTsaurusBenchmarkDiscardConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
             "batch_rows": {
               "type": "integer",
               "format": "uint",
               "minimum": 0,
               "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "stream_retry_max_attempts": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 12,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "stream_retry_initial_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 100,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "stream_retry_max_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 5000,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "stream_open_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "stream_idle_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -5482,13 +5656,285 @@
             "SourceTableConfig": {
               "type": "object",
               "properties": {
+                "name": {
+                  "title": "Table name",
+                  "description": "Logical dataset name emitted to the destination",
+                  "type": "string"
+                },
                 "path": {
                   "type": "string"
                 }
               },
               "additionalProperties": false,
               "required": [
+                "name",
                 "path"
+              ]
+            },
+            "YTsaurusReadOrdering": {
+              "oneOf": [
+                {
+                  "title": "Ordered (resumable)",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "ordered"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Unordered (maximum throughput, non-resumable)",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "unordered"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "PartitionTables (distributed, non-resumable)",
+                  "type": "object",
+                  "properties": {
+                    "compressed_data_size_per_partition": {
+                      "title": "Compressed bytes per partition",
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "default": 268435456
+                    },
+                    "max_partition_count": {
+                      "title": "Maximum partition count",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 64
+                    },
+                    "concurrency": {
+                      "title": "Concurrent partition readers",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 16
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "partition_tables"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                }
+              ]
+            },
+            "YTsaurusTableReaderConfig": {
+              "type": "object",
+              "properties": {
+                "window_size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "group_size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "max_buffer_size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "max_parallel_readers": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint16",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "use_uncompressed_block_cache": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "group_out_of_order_blocks": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "use_block_cache": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "use_async_block_cache": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "populate_cache": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "enable_workload_fifo_scheduling": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "use_read_blocks_batcher": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "prefer_local_data_center": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "disk_queue_size_factor": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "net_queue_size_factor": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "cached_block_count_factor": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "cached_block_size_factor": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "format": "double"
+                },
+                "use_direct_io": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "fetch_from_peers": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "probe_peer_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint16",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "use_chunk_prober": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "enable_chunk_meta_cache": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "block_rpc_hedging_delay_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            },
+            "YTsaurusBenchmarkDiscardConfig": {
+              "type": "object",
+              "properties": {
+                "transport": {
+                  "$ref": "#/$defs/YTsaurusBenchmarkTransport",
+                  "default": "http"
+                },
+                "format": {
+                  "$ref": "#/$defs/YTsaurusReadFormat"
+                },
+                "unordered": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "table_reader": {
+                  "$ref": "#/$defs/YTsaurusTableReaderConfig",
+                  "default": {}
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "format"
+              ]
+            },
+            "YTsaurusBenchmarkTransport": {
+              "type": "string",
+              "enum": [
+                "http",
+                "native_rpc"
+              ]
+            },
+            "YTsaurusReadFormat": {
+              "type": "string",
+              "enum": [
+                "arrow",
+                "yt_wire",
+                "skiff",
+                "schemaful_dsv",
+                "yson_binary",
+                "yson_text",
+                "json"
               ]
             }
           }
@@ -5498,13 +5944,23 @@
             "type": "token",
             "token": ""
           },
-          "batch_rows": 65536,
+          "stream_idle_timeout_ms": 30000,
+          "stream_open_timeout_ms": 30000,
+          "stream_retry_max_ms": 5000,
+          "timeout_ms": 30000,
           "tables": [
             {
+              "name": "",
               "path": ""
             }
           ],
-          "timeout_ms": 30000,
+          "read_ordering": {
+            "type": "ordered"
+          },
+          "table_reader": {},
+          "batch_rows": 65536,
+          "stream_retry_max_attempts": 12,
+          "stream_retry_initial_ms": 100,
           "installation": {
             "host": "",
             "port": 8000,
@@ -5755,6 +6211,16 @@
               "$ref": "#/$defs/GenerationAmount",
               "x-ui": {
                 "control_width": "wide"
+              }
+            },
+            "start_row": {
+              "description": "First generated row identifier. This is useful when independently\ngenerated ranges are later concatenated without duplicating primary-key\nvalues.",
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 0,
+              "x-ui": {
+                "widget": "hidden"
               }
             }
           },

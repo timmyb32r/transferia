@@ -118,6 +118,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 ydb-grpc = "0.2.2"
 zstd = "0.13"
+lz4_flex = "0.12"
 
 [patch.crates-io]
 clickhouse-arrow = { path = "vendor/clickhouse-arrow" }

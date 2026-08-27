@@ -9,8 +9,17 @@ pub const MAX_COLUMNS: usize = 32_768;
 
 #[derive(Deserialize)]
 struct SchemaEnvelope {
+    #[serde(rename = "$attributes", default)]
+    attributes: SchemaAttributes,
+
     #[serde(rename = "$value")]
     columns: Vec<YtColumn>,
+}
+
+#[derive(Default, Deserialize)]
+struct SchemaAttributes {
+    #[serde(default)]
+    unique_keys: bool,
 }
 
 #[derive(Deserialize)]
@@ -19,6 +28,15 @@ struct YtColumn {
     #[serde(rename = "type")]
     legacy_type: String,
     required: bool,
+    #[serde(default)]
+    sort_order: Option<YtSortOrder>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum YtSortOrder {
+    Ascending,
+    Descending,
 }
 
 pub fn parse_schema(value: Value) -> anyhow::Result<DatasetSchema> {
@@ -32,6 +50,7 @@ pub fn parse_schema(value: Value) -> anyhow::Result<DatasetSchema> {
         envelope.columns.len() <= MAX_COLUMNS,
         "YTsaurus table schema exceeds {MAX_COLUMNS} columns"
     );
+    let unique_keys = envelope.attributes.unique_keys;
     let mut names = std::collections::HashSet::new();
     let columns = envelope
         .columns
@@ -43,11 +62,14 @@ pub fn parse_schema(value: Value) -> anyhow::Result<DatasetSchema> {
                 "YTsaurus schema repeats column '{}'",
                 column.name
             );
-            Ok(SchemaColumn::new(
-                column.name,
-                yt_to_arrow(&column.legacy_type)?,
-                !column.required,
-            ))
+            Ok(
+                SchemaColumn::new(
+                    column.name,
+                    yt_to_arrow(&column.legacy_type)?,
+                    !column.required,
+                )
+                .with_constraints(unique_keys && column.sort_order.is_some(), false, None),
+            )
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(DatasetSchema::new(columns))

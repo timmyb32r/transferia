@@ -2,22 +2,167 @@ use arrow::array::{ArrayRef, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
+use bytes::Bytes;
+use prost::Message as _;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 
 use super::config::{
-    YTsaurusReadFormat, YTsaurusSinkConfig, YTsaurusSourceConfig,
+    YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
     YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 use super::client::rich_read_path;
+use super::columnar_chunk::validate_direct_schema;
 use super::discard::{DiscardDecoder, output_format};
+use super::direct_data_node::{
+    DirectReadBlock, DirectReadPayload, ReadLimit, signature_payload, validate_row_only_limit,
+};
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
-use super::src_batch::validate_read_schema;
+use super::src_batch::{
+    DiscoveredTable, PhysicalChunkLayout, dataset_arrow_schema, direct_block_to_chunk,
+    normalize_read_batch, performance_advice, system_column_layout,
+};
+use super::native_rpc::{
+    NativeReadFormat, RequestCredentials, checksum_matches, crc64, credentials,
+    receive_read_worker_item, rowset_payload,
+};
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
 };
+
+#[test]
+fn optimized_bus_crc64_matches_protocol_vectors() {
+    assert_eq!(crc64(b""), 0x0000_0000_0000_0000);
+    assert_eq!(crc64(b"a"), 0x74b4_2565_ce62_32d5);
+    assert_eq!(crc64(b"123456789"), 0xb3f7_fb23_2cb9_9be2);
+    assert_eq!(crc64(b"YTsaurus native RPC"), 0x22de_79d3_2a71_78ff);
+    assert_eq!(
+        crc64(&(0_u8..=u8::MAX).collect::<Vec<_>>()),
+        0x1102_45d7_f122_49d9,
+    );
+    let bytes = (0_u16..=4096)
+        .map(|value| (value.wrapping_mul(131) ^ (value >> 3)) as u8)
+        .collect::<Vec<_>>();
+    for length in 0..=bytes.len() {
+        assert_eq!(crc64(&bytes[..length]), reference_yt_crc64(&bytes[..length]));
+    }
+}
+
+#[test]
+fn bus_null_checksum_skips_verification() {
+    let bytes = b"YTsaurus unchecked Bus attachment";
+    assert!(checksum_matches(0, bytes));
+    assert!(checksum_matches(crc64(bytes), bytes));
+    assert!(!checksum_matches(crc64(b"different attachment"), bytes));
+}
+
+fn reference_yt_crc64(bytes: &[u8]) -> u64 {
+    const POLYNOMIAL: u64 = 0xe543_2797_6592_7881;
+    let mut remainder = u64::MAX;
+    for byte in bytes {
+        remainder ^= u64::from(*byte) << 56;
+        for _ in 0..8 {
+            remainder = (remainder << 1)
+                ^ if remainder & (1 << 63) == 0 {
+                    0
+                } else {
+                    POLYNOMIAL
+                };
+        }
+    }
+    !remainder
+}
+
+#[test]
+fn partition_cookie_extracts_a_binary_yson_payload() -> anyhow::Result<()> {
+    // Binary YSON strings contain exactly one zig-zag encoded length after the
+    // string marker. The signed PartitionTables cookie stores its protobuf in
+    // a `payload` string inside such a map.
+    let cookie = b"{\x01\x0epayload=\x01\x06abc;}";
+    assert_eq!(signature_payload(cookie)?, Bytes::from_static(b"abc"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn partition_worker_failure_cannot_be_mistaken_for_clean_eof() {
+    let (_sender, mut receiver) = mpsc::channel::<anyhow::Result<()>>(1);
+    let mut tasks = JoinSet::new();
+    tasks.spawn(async { panic!("simulated worker failure") });
+
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        receive_read_worker_item(&mut receiver, &mut tasks, "test reader"),
+    )
+        .await
+        .expect("worker failure must be observed without waiting for channel closure")
+        .expect_err("a panicked worker must fail the source");
+
+    assert!(error.to_string().contains("test reader worker failed"));
+}
+
+#[test]
+fn direct_reader_rejects_non_row_partition_boundaries() {
+    let row_limit = ReadLimit {
+        row_index: Some(42),
+        ..ReadLimit::default()
+    };
+    validate_row_only_limit(Some(&row_limit), "lower")
+        .expect("a row-index limit must be supported");
+
+    let key_limit = ReadLimit {
+        key_bound_prefix: Some(vec![1, 2, 3]),
+        key_bound_is_inclusive: Some(true),
+        ..ReadLimit::default()
+    };
+    let error = validate_row_only_limit(Some(&key_limit), "upper")
+        .expect_err("a key boundary must not be silently ignored");
+    assert!(error.to_string().contains("key_bound_prefix"));
+    assert!(error.to_string().contains("sorted-table boundary"));
+}
+
+#[test]
+fn direct_reader_preserves_worker_decode_time_for_source_metrics() {
+    let decode_duration = Duration::from_millis(17);
+    let chunk = direct_block_to_chunk(DirectReadBlock {
+        network_raw_bytes: 42,
+        network_decoded_bytes: 84,
+        network_decode_duration: decode_duration,
+        payload: DirectReadPayload::Count,
+        stream_id: 3,
+        end_of_stream: false,
+        cumulative_rows: Some(19),
+    });
+
+    assert_eq!(chunk.network_raw_bytes, 42);
+    assert_eq!(chunk.network_decoded_bytes, 84);
+    assert_eq!(chunk.network_decode_duration, decode_duration);
+    assert_eq!(chunk.cumulative_rows, Some(19));
+}
+
+#[test]
+fn direct_reader_rejects_unsupported_types_before_opening_data_nodes() {
+    let supported = DatasetSchema::new(vec![SchemaColumn::new(
+        "payload".into(),
+        DataType::Utf8,
+        false,
+    )]);
+    validate_direct_schema(&supported).expect("Utf8 must be supported");
+
+    let unsupported = DatasetSchema::new(vec![SchemaColumn::new(
+        "amount".into(),
+        DataType::Decimal128(20, 2),
+        false,
+    )]);
+    let error = validate_direct_schema(&unsupported)
+        .expect_err("unsupported direct-read types must fail during discovery");
+    assert!(error.to_string().contains("amount"));
+    assert!(error.to_string().contains("Decimal128"));
+}
 
 #[test]
 fn auth_uses_the_wide_credentials_control() {
@@ -32,6 +177,15 @@ fn auth_uses_the_wide_credentials_control() {
 }
 
 #[test]
+fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
+    let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSourceConfig))
+        .expect("YTsaurus source schema must serialize");
+    let ordering = &schema["properties"]["read_ordering"];
+    assert_eq!(ordering["x-ui"]["section"], "advanced");
+    assert!(ordering["oneOf"].is_array());
+}
+
+#[test]
 fn source_tables_require_explicit_unique_logical_names() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
         "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - name: events\n    path: //tmp/input\n",
@@ -40,7 +194,7 @@ fn source_tables_require_explicit_unique_logical_names() -> anyhow::Result<()> {
     let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
         "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - name: events\n    path: //tmp/input\n"
     )?;
-    tls_source.validate()?;
+    tls_source.connection.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
         "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n"
@@ -114,6 +268,85 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
 }
 
 #[test]
+fn sorted_schema_marks_every_key_column_as_primary() -> anyhow::Result<()> {
+    let parsed = parse_schema(serde_json::json!({
+        "$attributes": { "strict": true, "unique_keys": true },
+        "$value": [
+            {
+                "name": "topic",
+                "type": "utf8",
+                "required": true,
+                "sort_order": "ascending"
+            },
+            {
+                "name": "offset",
+                "type": "int64",
+                "required": true,
+                "sort_order": "descending"
+            },
+            { "name": "payload", "type": "utf8", "required": true }
+        ]
+    }))?;
+
+    assert!(parsed.columns[0].primary_key);
+    assert!(parsed.columns[1].primary_key);
+    assert!(!parsed.columns[2].primary_key);
+    Ok(())
+}
+
+#[test]
+fn non_unique_sort_columns_are_not_primary_keys() -> anyhow::Result<()> {
+    let parsed = parse_schema(serde_json::json!({
+        "$attributes": { "strict": true, "unique_keys": false },
+        "$value": [{
+            "name": "group",
+            "type": "utf8",
+            "required": true,
+            "sort_order": "ascending"
+        }]
+    }))?;
+
+    assert!(!parsed.columns[0].primary_key);
+    Ok(())
+}
+
+#[test]
+fn source_rejects_partial_or_mistyped_system_column_layouts() {
+    let partial = DatasetSchema::new(vec![SchemaColumn::new(
+        "_system_topic".into(),
+        DataType::Utf8,
+        false,
+    )]);
+    assert!(system_column_layout(&partial).is_err());
+
+    let wrong_type = DatasetSchema::new(vec![
+        SchemaColumn::new("_system_topic".into(), DataType::Utf8, false),
+        SchemaColumn::new("_system_partition".into(), DataType::Int64, false),
+        SchemaColumn::new("_system_offset".into(), DataType::Int64, false),
+        SchemaColumn::new(
+            "_system_message_index".into(),
+            DataType::Int64,
+            false,
+        ),
+    ]);
+    assert!(system_column_layout(&wrong_type).is_err());
+
+    let complete = DatasetSchema::new(vec![
+        SchemaColumn::new("_system_topic".into(), DataType::Utf8, false),
+        SchemaColumn::new("_system_partition".into(), DataType::Int64, false),
+        SchemaColumn::new("_system_offset".into(), DataType::Int64, false),
+        SchemaColumn::new(
+            "_system_message_index".into(),
+            DataType::UInt64,
+            false,
+        ),
+    ]);
+    let (present, columns) = system_column_layout(&complete).unwrap();
+    assert!(present);
+    assert_eq!(columns.iter().count(), 4);
+}
+
+#[test]
 fn arrow_writer_strips_extension_annotations_from_the_ytsaurus_wire_schema() -> anyhow::Result<()> {
     let field = Field::new("payload", DataType::Utf8, false).with_metadata(HashMap::from([(
         "ARROW:extension:name".to_owned(),
@@ -145,6 +378,7 @@ fn unsupported_types_and_invalid_names_fail_during_validation() {
 #[test]
 fn source_rejects_read_type_or_nullability_drift_instead_of_casting() -> anyhow::Result<()> {
     let expected = DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)]);
+    let expected_arrow = dataset_arrow_schema(&expected);
     let wrong_type = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)])),
         vec![Arc::new(StringArray::from(vec!["1"])) as ArrayRef],
@@ -154,8 +388,39 @@ fn source_rejects_read_type_or_nullability_drift_instead_of_casting() -> anyhow:
         vec![Arc::new(Int64Array::from(vec![Some(1)])) as ArrayRef],
     )?;
 
-    assert!(validate_read_schema(&wrong_type, &expected).is_err());
-    assert!(validate_read_schema(&nullable, &expected).is_err());
+    assert!(normalize_read_batch(wrong_type, &expected, &expected_arrow).is_err());
+    assert!(normalize_read_batch(nullable, &expected, &expected_arrow).is_err());
+    Ok(())
+}
+
+#[test]
+fn source_restores_discovered_arrow_metadata_without_copying_arrays() -> anyhow::Result<()> {
+    let expected = DatasetSchema::new(vec![
+        SchemaColumn::new("payload".into(), DataType::Utf8, false)
+            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
+    ]);
+    let values: ArrayRef = Arc::new(StringArray::from(vec!["{}"]));
+    let input = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "payload",
+            DataType::Utf8,
+            false,
+        )])),
+        vec![Arc::clone(&values)],
+    )?;
+
+    let normalized = normalize_read_batch(input, &expected, &dataset_arrow_schema(&expected))?;
+
+    assert_eq!(
+        normalized
+            .schema()
+            .field(0)
+            .metadata()
+            .get("ARROW:extension:name")
+            .map(String::as_str),
+        Some(ARROW_JSON_EXTENSION_NAME),
+    );
+    assert!(Arc::ptr_eq(normalized.column(0), &values));
     Ok(())
 }
 
@@ -242,4 +507,336 @@ fn benchmark_table_reader_validates_effective_server_limits() {
     }
     .validate()
     .is_err());
+    assert!(YTsaurusTableReaderConfig {
+        net_queue_size_factor: Some(f64::NAN),
+        ..YTsaurusTableReaderConfig::default()
+    }
+    .validate()
+    .is_err());
+    assert!(YTsaurusTableReaderConfig {
+        probe_peer_count: Some(0),
+        ..YTsaurusTableReaderConfig::default()
+    }
+    .validate()
+    .is_err());
+}
+
+#[test]
+fn native_table_reader_serializes_typed_yson_without_json_coercion() {
+    let config = YTsaurusTableReaderConfig {
+        window_size: Some(256 * 1024 * 1024),
+        group_size: Some(128 * 1024 * 1024),
+        max_buffer_size: Some(1024 * 1024 * 1024),
+        max_parallel_readers: Some(1000),
+        use_uncompressed_block_cache: Some(false),
+        group_out_of_order_blocks: Some(true),
+        use_block_cache: Some(false),
+        use_async_block_cache: Some(true),
+        populate_cache: Some(false),
+        enable_workload_fifo_scheduling: Some(false),
+        use_read_blocks_batcher: Some(true),
+        prefer_local_data_center: Some(false),
+        disk_queue_size_factor: Some(0.0),
+        net_queue_size_factor: Some(2.0),
+        cached_block_count_factor: Some(1.0),
+        cached_block_size_factor: Some(1.5),
+        use_direct_io: Some(true),
+        fetch_from_peers: Some(false),
+        probe_peer_count: Some(10),
+        use_chunk_prober: Some(true),
+        enable_chunk_meta_cache: Some(false),
+        block_rpc_hedging_delay_ms: Some(100),
+    };
+
+    assert_eq!(
+        config.to_yson(),
+        concat!(
+            "{window_size=268435456;group_size=134217728;",
+            "max_buffer_size=1073741824;max_parallel_readers=1000;",
+            "use_uncompressed_block_cache=%false;group_out_of_order_blocks=%true;",
+            "use_block_cache=%false;use_async_block_cache=%true;populate_cache=%false;",
+            "enable_workload_fifo_scheduling=%false;use_read_blocks_batcher=%true;",
+            "prefer_local_data_center=%false;disk_queue_size_factor=0;",
+            "net_queue_size_factor=2;cached_block_count_factor=1;",
+            "cached_block_size_factor=1.5;use_direct_io=%true;fetch_from_peers=%false;",
+            "probe_peer_count=10;use_chunk_prober=%true;enable_chunk_meta_cache=%false;",
+            "block_rpc_hedging_delay=100;}"
+        )
+    );
+}
+
+#[test]
+fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow::Result<()> {
+    let native_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n\
+         read_ordering: { type: unordered }\n",
+    )?;
+    native_source.validate()?;
+    assert_eq!(native_source.read_ordering, YTsaurusReadOrdering::Unordered);
+
+    let default_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n",
+    )?;
+    assert_eq!(default_source.read_ordering, YTsaurusReadOrdering::Ordered);
+
+    let partitioned = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n\
+         read_ordering:\n\
+           type: partition_tables\n\
+           compressed_data_size_per_partition: 268435456\n\
+           max_partition_count: 64\n\
+           concurrency: 16\n",
+    )?;
+    partitioned.validate()?;
+    assert_eq!(
+        partitioned
+            .read_ordering
+            .partition_tables()
+            .expect("PartitionTables settings")
+            .direct_blocks_per_request,
+        16,
+    );
+    assert!(matches!(
+        partitioned.read_ordering,
+        YTsaurusReadOrdering::PartitionTables { concurrency: 16, .. }
+    ));
+    Ok(())
+}
+
+#[test]
+fn native_rpc_requires_explicit_plaintext_trust() -> anyhow::Result<()> {
+    let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 9013\n\
+         trusted_plaintext: false\n\
+         trusted_native_rpc_plaintext: false\n\
+         tables: [{ name: events, path: //tmp/input }]\n",
+    )?;
+
+    assert_eq!(
+        source.validate().unwrap_err().to_string(),
+        "ytsaurus native_rpc transport is plaintext; set trusted_native_rpc_plaintext=true to acknowledge that credentials and data will not be encrypted"
+    );
+
+    let trusted = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: false\n\
+         trusted_native_rpc_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n",
+    )?;
+    trusted.validate()?;
+    assert_eq!(
+        trusted.connection.endpoint(),
+        "https://cluster-a.example.net:443"
+    );
+    Ok(())
+}
+
+#[test]
+fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()> {
+    let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: false\n\
+         trusted_native_rpc_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n\
+         read_ordering:\n\
+           type: partition_tables\n\
+           direct_data_node_access: true\n",
+    )?;
+    assert_eq!(
+        source.validate().unwrap_err().to_string(),
+        "ytsaurus.native_rpc_service_ticket_file is required for direct data-node access"
+    );
+
+    let configured = serde_yaml::from_str::<YTsaurusSourceConfig>(
+        "auth: { type: token, token: test }\n\
+         host: cluster-a.example.net\n\
+         port: 443\n\
+         trusted_plaintext: false\n\
+         trusted_native_rpc_plaintext: true\n\
+         tables: [{ name: events, path: //tmp/input }]\n\
+         native_rpc_service_ticket_file: ~/.tvm/service-ticket\n\
+         read_ordering:\n\
+           type: partition_tables\n\
+           direct_data_node_access: true\n",
+    )?;
+    configured.validate()?;
+    Ok(())
+}
+
+#[test]
+fn native_rpc_sends_only_the_credential_expected_by_each_server() {
+    let proxy = credentials(RequestCredentials::Token("oauth"));
+    assert_eq!(proxy.token.as_deref(), Some("oauth"));
+    assert_eq!(proxy.service_ticket, None);
+
+    let data_node = credentials(RequestCredentials::ServiceTicket("ticket"));
+    assert_eq!(data_node.token, None);
+    assert_eq!(data_node.service_ticket.as_deref(), Some("ticket"));
+}
+
+#[test]
+fn physical_chunk_layout_requires_complete_aggregate_statistics() -> anyhow::Result<()> {
+    let columnar = PhysicalChunkLayout::from_statistics(
+        3,
+        &serde_json::json!({
+            "table_unversioned_columnar": { "chunk_count": 3 }
+        }),
+    )?;
+    assert!(columnar.all_columnar());
+
+    let mixed = PhysicalChunkLayout::from_statistics(
+        3,
+        &serde_json::json!({
+            "table_unversioned_columnar": { "chunk_count": 2 },
+            "table_unversioned_schemaless_horizontal": { "chunk_count": 1 }
+        }),
+    )?;
+    assert!(!mixed.all_columnar());
+    assert!(PhysicalChunkLayout::from_statistics(
+        4,
+        &serde_json::json!({
+            "table_unversioned_columnar": { "chunk_count": 3 }
+        }),
+    )
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn physical_layout_advice_is_structured_and_actionable() {
+    let table = |optimize_for_scan, physical_layout| DiscoveredTable {
+        config: super::config::SourceTableConfig {
+            name: "events".to_owned(),
+            path: "//tmp/events".to_owned(),
+        },
+        schema: DatasetSchema::default(),
+        optimize_for_scan,
+        physical_layout,
+    };
+    let lookup = performance_advice(&[table(
+        false,
+        PhysicalChunkLayout {
+            total: 2,
+            columnar: 2,
+            non_columnar: 0,
+        },
+    )]);
+    assert_eq!(lookup[0].code, "YT_OPTIMIZE_FOR_LOOKUP");
+
+    let mixed_scan = performance_advice(&[table(
+        true,
+        PhysicalChunkLayout {
+            total: 2,
+            columnar: 1,
+            non_columnar: 1,
+        },
+    )]);
+    assert_eq!(mixed_scan[0].code, "YT_SCAN_HAS_NON_COLUMNAR_CHUNKS");
+
+    assert!(
+        performance_advice(&[table(
+            true,
+            PhysicalChunkLayout {
+                total: 2,
+                columnar: 2,
+                non_columnar: 0,
+            },
+        )])
+        .is_empty()
+    );
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct TestRowsetDescriptor {
+    #[prost(int32, optional, tag = "4")]
+    rowset_format: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct TestDataStatistics {
+    #[prost(int64, optional, tag = "3")]
+    row_count: Option<i64>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct TestRowsetStatistics {
+    #[prost(int64, required, tag = "1")]
+    total_row_count: i64,
+
+    #[prost(message, required, tag = "2")]
+    data_statistics: TestDataStatistics,
+}
+
+fn pack_refs(parts: &[&[u8]]) -> Bytes {
+    let mut packed = Vec::new();
+    packed.extend_from_slice(&i32::try_from(parts.len()).unwrap().to_le_bytes());
+    for part in parts {
+        packed.extend_from_slice(&i64::try_from(part.len()).unwrap().to_le_bytes());
+        packed.extend_from_slice(part);
+    }
+    Bytes::from(packed)
+}
+
+#[test]
+fn native_discard_uses_protocol_row_statistics_without_decoding_arrow() -> anyhow::Result<()> {
+    let descriptor = TestRowsetDescriptor {
+        rowset_format: Some(1),
+    }
+    .encode_to_vec();
+    let arbitrary_arrow_payload = b"not decoded by the row counter";
+    let rows = pack_refs(&[&descriptor, arbitrary_arrow_payload]);
+    let statistics = TestRowsetStatistics {
+        total_row_count: 50_000_000,
+        data_statistics: TestDataStatistics {
+            row_count: Some(12_345_678),
+        },
+    }
+    .encode_to_vec();
+    let envelope = pack_refs(&[&rows, &statistics]);
+
+    let decoded = rowset_payload(&envelope, NativeReadFormat::Arrow, true)?
+        .expect("non-empty Arrow rowset");
+    assert_eq!(decoded.payload, Bytes::from_static(arbitrary_arrow_payload));
+    assert_eq!(decoded.cumulative_rows, Some(12_345_678));
+    assert_eq!(decoded.format, NativeReadFormat::Arrow);
+    Ok(())
+}
+
+#[test]
+fn native_arrow_accepts_only_the_empty_wire_stream_terminator() -> anyhow::Result<()> {
+    let wire_descriptor = TestRowsetDescriptor {
+        rowset_format: Some(0),
+    }
+    .encode_to_vec();
+    let empty_wire_payload = 0_u64.to_le_bytes();
+    let empty_rowset = pack_refs(&[&wire_descriptor, &empty_wire_payload]);
+
+    assert!(rowset_payload(&empty_rowset, NativeReadFormat::Arrow, false)?.is_none());
+
+    let one_row_payload = 1_u64.to_le_bytes();
+    let non_empty_rowset = pack_refs(&[&wire_descriptor, &one_row_payload]);
+    let error = match rowset_payload(&non_empty_rowset, NativeReadFormat::Arrow, false) {
+        Ok(_) => anyhow::bail!("non-empty wire fallback must fail closed"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("refusing the fallback"));
+    Ok(())
 }

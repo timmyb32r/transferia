@@ -1,5 +1,6 @@
+use std::collections::HashSet;
+use std::fmt::{self, Write as _};
 use std::time::Duration;
-use std::{collections::HashSet, fmt};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,10 @@ const DEFAULT_STREAM_RETRY_INITIAL_MS: u64 = 100;
 const DEFAULT_STREAM_RETRY_MAX_MS: u64 = 5_000;
 const DEFAULT_STREAM_OPEN_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_PARTITION_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+const DEFAULT_PARTITION_COUNT: usize = 64;
+const DEFAULT_PARTITION_CONCURRENCY: usize = 16;
+const DEFAULT_DIRECT_BLOCKS_PER_REQUEST: usize = 16;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -26,6 +31,14 @@ pub struct YTsaurusConnectionConfig {
     pub port: u16,
 
     pub trusted_plaintext: bool,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Trust plaintext native RPC",
+        description = "Explicitly allow credentials and table data over the unencrypted YTsaurus native RPC transport",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub trusted_native_rpc_plaintext: bool,
 
     #[serde(default = "default_timeout_ms")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -131,6 +144,29 @@ pub struct YTsaurusSourceConfig {
 
     pub tables: Vec<SourceTableConfig>,
 
+    #[serde(default)]
+    #[schemars(
+        title = "Read mode",
+        description = "Ordered reads resume at the last row after a transient failure. Unordered reads maximize single-stream throughput but fail on interruption. PartitionTables performs concurrent distributed reads and is also non-resumable.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub read_ordering: YTsaurusReadOrdering,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Native RPC service ticket file",
+        description = "Path to a rotating TVM service-ticket file used only for direct data-node RPC. The file is reloaded while the delivery is running. The ticket's source TVM ID must be accepted by the YTsaurus cluster; successful ticket issuance alone does not grant data-node access.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub native_rpc_service_ticket_file: Option<String>,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Native reader settings",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub table_reader: YTsaurusTableReaderConfig,
+
     /// Explicit benchmark-only mode that counts wire rows without materializing
     /// their values as Arrow arrays. Delivery semantics only permit this mode
     /// with the discard destination.
@@ -163,9 +199,92 @@ pub struct YTsaurusSourceConfig {
     pub stream_idle_timeout_ms: u64,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum YTsaurusReadOrdering {
+    #[default]
+    #[schemars(title = "Ordered (resumable)")]
+    Ordered,
+
+    #[schemars(title = "Unordered (maximum throughput, non-resumable)")]
+    Unordered,
+
+    #[schemars(title = "PartitionTables (distributed, non-resumable)")]
+    PartitionTables {
+        #[serde(default = "default_partition_compressed_bytes")]
+        #[schemars(title = "Compressed bytes per partition")]
+        compressed_data_size_per_partition: u64,
+
+        #[serde(default = "default_partition_count")]
+        #[schemars(title = "Maximum partition count")]
+        max_partition_count: usize,
+
+        #[serde(default = "default_partition_concurrency")]
+        #[schemars(title = "Concurrent partition readers")]
+        concurrency: usize,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Direct access to data nodes",
+            description = "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy."
+        )]
+        direct_data_node_access: bool,
+
+        #[serde(default = "default_direct_blocks_per_request")]
+        #[schemars(
+            title = "Direct blocks per request",
+            description = "Number of chunk blocks fetched in one data-node RPC when direct access is enabled"
+        )]
+        direct_blocks_per_request: usize,
+    },
+}
+
+impl YTsaurusReadOrdering {
+    #[must_use]
+    pub const fn is_unordered(&self) -> bool {
+        matches!(self, Self::Unordered | Self::PartitionTables { .. })
+    }
+
+    #[must_use]
+    pub(super) const fn partition_tables(&self) -> Option<YTsaurusPartitionTablesConfig> {
+        match self {
+            Self::PartitionTables {
+                compressed_data_size_per_partition,
+                max_partition_count,
+                concurrency,
+                direct_data_node_access,
+                direct_blocks_per_request,
+            } => Some(YTsaurusPartitionTablesConfig {
+                compressed_data_size_per_partition: *compressed_data_size_per_partition,
+                max_partition_count: *max_partition_count,
+                concurrency: *concurrency,
+                direct_data_node_access: *direct_data_node_access,
+                direct_blocks_per_request: *direct_blocks_per_request,
+            }),
+            Self::Ordered | Self::Unordered => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct YTsaurusPartitionTablesConfig {
+    pub compressed_data_size_per_partition: u64,
+
+    pub max_partition_count: usize,
+
+    pub concurrency: usize,
+
+    pub direct_data_node_access: bool,
+
+    pub direct_blocks_per_request: usize,
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusBenchmarkDiscardConfig {
+    #[serde(default)]
+    pub transport: YTsaurusBenchmarkTransport,
+
     pub format: YTsaurusReadFormat,
 
     #[serde(default)]
@@ -175,10 +294,19 @@ pub struct YTsaurusBenchmarkDiscardConfig {
     pub table_reader: YTsaurusTableReaderConfig,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusBenchmarkTransport {
+    #[default]
+    Http,
+    NativeRpc,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum YTsaurusReadFormat {
     Arrow,
+    YtWire,
     Skiff,
     SchemafulDsv,
     YsonBinary,
@@ -191,6 +319,7 @@ impl YTsaurusReadFormat {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Arrow => "arrow",
+            Self::YtWire => "yt_wire",
             Self::Skiff => "skiff",
             Self::SchemafulDsv => "schemaful_dsv",
             Self::YsonBinary => "yson_binary",
@@ -220,9 +349,110 @@ pub struct YTsaurusTableReaderConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_out_of_order_blocks: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_block_cache: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_async_block_cache: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub populate_cache: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_workload_fifo_scheduling: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_read_blocks_batcher: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_local_data_center: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk_queue_size_factor: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net_queue_size_factor: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_block_count_factor: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_block_size_factor: Option<f64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_direct_io: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fetch_from_peers: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub probe_peer_count: Option<u16>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_chunk_prober: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_chunk_meta_cache: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_rpc_hedging_delay_ms: Option<u64>,
 }
 
 impl YTsaurusTableReaderConfig {
+    pub(super) fn to_yson(&self) -> String {
+        let mut yson = String::from("{");
+        macro_rules! number {
+            ($field:ident) => {
+                if let Some(value) = self.$field {
+                    write!(&mut yson, "{}={value};", stringify!($field))
+                        .expect("writing to a String cannot fail");
+                }
+            };
+        }
+        macro_rules! boolean {
+            ($field:ident) => {
+                if let Some(value) = self.$field {
+                    write!(
+                        &mut yson,
+                        "{}={};",
+                        stringify!($field),
+                        if value { "%true" } else { "%false" },
+                    )
+                    .expect("writing to a String cannot fail");
+                }
+            };
+        }
+
+        number!(window_size);
+        number!(group_size);
+        number!(max_buffer_size);
+        number!(max_parallel_readers);
+        boolean!(use_uncompressed_block_cache);
+        boolean!(group_out_of_order_blocks);
+        boolean!(use_block_cache);
+        boolean!(use_async_block_cache);
+        boolean!(populate_cache);
+        boolean!(enable_workload_fifo_scheduling);
+        boolean!(use_read_blocks_batcher);
+        boolean!(prefer_local_data_center);
+        number!(disk_queue_size_factor);
+        number!(net_queue_size_factor);
+        number!(cached_block_count_factor);
+        number!(cached_block_size_factor);
+        boolean!(use_direct_io);
+        boolean!(fetch_from_peers);
+        number!(probe_peer_count);
+        boolean!(use_chunk_prober);
+        boolean!(enable_chunk_meta_cache);
+        if let Some(value) = self.block_rpc_hedging_delay_ms {
+            write!(&mut yson, "block_rpc_hedging_delay={value};")
+                .expect("writing to a String cannot fail");
+        }
+        yson.push('}');
+        yson
+    }
+
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         let window_size = self.window_size.unwrap_or(DEFAULT_TABLE_READER_WINDOW_SIZE);
         let group_size = self.group_size.unwrap_or(DEFAULT_TABLE_READER_GROUP_SIZE);
@@ -240,10 +470,6 @@ impl YTsaurusTableReaderConfig {
             "ytsaurus.table_reader.max_buffer_size must be positive"
         );
         anyhow::ensure!(
-            max_buffer_size <= 10 * 1024 * 1024 * 1024,
-            "ytsaurus.table_reader.max_buffer_size must not exceed 10 GiB"
-        );
-        anyhow::ensure!(
             max_buffer_size >= window_size.saturating_mul(2),
             "ytsaurus.table_reader.max_buffer_size must be at least twice window_size"
         );
@@ -251,6 +477,25 @@ impl YTsaurusTableReaderConfig {
             anyhow::ensure!(
                 (1..=1000).contains(&max_parallel_readers),
                 "ytsaurus.table_reader.max_parallel_readers must be between 1 and 1000"
+            );
+        }
+        for (name, factor) in [
+            ("disk_queue_size_factor", self.disk_queue_size_factor),
+            ("net_queue_size_factor", self.net_queue_size_factor),
+            ("cached_block_count_factor", self.cached_block_count_factor),
+            ("cached_block_size_factor", self.cached_block_size_factor),
+        ] {
+            if let Some(factor) = factor {
+                anyhow::ensure!(
+                    factor.is_finite(),
+                    "ytsaurus.table_reader.{name} must be finite"
+                );
+            }
+        }
+        if let Some(probe_peer_count) = self.probe_peer_count {
+            anyhow::ensure!(
+                probe_peer_count > 0,
+                "ytsaurus.table_reader.probe_peer_count must be positive"
             );
         }
         Ok(())
@@ -272,6 +517,13 @@ pub struct SourceTableConfig {
 impl YTsaurusSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
+        let uses_native_rpc = self.benchmark_discard.as_ref().is_none_or(|benchmark| {
+            benchmark.transport == YTsaurusBenchmarkTransport::NativeRpc
+        });
+        anyhow::ensure!(
+            !uses_native_rpc || self.connection.trusted_native_rpc_plaintext,
+            "ytsaurus native_rpc transport is plaintext; set trusted_native_rpc_plaintext=true to acknowledge that credentials and data will not be encrypted"
+        );
         anyhow::ensure!(!self.tables.is_empty(), "ytsaurus.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "ytsaurus.batch_rows must be positive");
         anyhow::ensure!(
@@ -296,7 +548,54 @@ impl YTsaurusSourceConfig {
         );
         if let Some(benchmark_discard) = &self.benchmark_discard {
             benchmark_discard.table_reader.validate()?;
+            match benchmark_discard.transport {
+                YTsaurusBenchmarkTransport::Http => anyhow::ensure!(
+                    benchmark_discard.format != YTsaurusReadFormat::YtWire,
+                    "ytsaurus benchmark YT wire format requires native_rpc transport"
+                ),
+                YTsaurusBenchmarkTransport::NativeRpc => anyhow::ensure!(
+                    matches!(
+                        benchmark_discard.format,
+                        YTsaurusReadFormat::Arrow | YTsaurusReadFormat::YtWire
+                    ),
+                    "ytsaurus native_rpc benchmark transport supports only arrow or yt_wire"
+                ),
+            }
         }
+        if let Some(partition_tables) = self.read_ordering.partition_tables() {
+            anyhow::ensure!(
+                partition_tables.compressed_data_size_per_partition > 0,
+                "ytsaurus.read_ordering.compressed_data_size_per_partition must be positive"
+            );
+            anyhow::ensure!(
+                partition_tables.max_partition_count > 0,
+                "ytsaurus.read_ordering.max_partition_count must be positive"
+            );
+            anyhow::ensure!(
+                partition_tables.concurrency > 0,
+                "ytsaurus.read_ordering.concurrency must be positive"
+            );
+            anyhow::ensure!(
+                partition_tables.concurrency <= partition_tables.max_partition_count,
+                "ytsaurus.read_ordering.concurrency must not exceed max_partition_count"
+            );
+            anyhow::ensure!(
+                partition_tables.direct_blocks_per_request > 0,
+                "ytsaurus.read_ordering.direct_blocks_per_request must be positive"
+            );
+            if partition_tables.direct_data_node_access {
+                let service_ticket_file = self
+                    .native_rpc_service_ticket_file
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty());
+                anyhow::ensure!(
+                    service_ticket_file.is_some(),
+                    "ytsaurus.native_rpc_service_ticket_file is required for direct data-node access"
+                );
+            }
+        }
+        self.table_reader.validate()?;
         let mut paths = HashSet::new();
         let mut names = HashSet::new();
         for table in &self.tables {
@@ -342,6 +641,22 @@ const fn default_stream_open_timeout_ms() -> u64 {
 
 const fn default_stream_idle_timeout_ms() -> u64 {
     DEFAULT_STREAM_IDLE_TIMEOUT_MS
+}
+
+const fn default_partition_compressed_bytes() -> u64 {
+    DEFAULT_PARTITION_COMPRESSED_BYTES
+}
+
+const fn default_partition_count() -> usize {
+    DEFAULT_PARTITION_COUNT
+}
+
+const fn default_partition_concurrency() -> usize {
+    DEFAULT_PARTITION_CONCURRENCY
+}
+
+const fn default_direct_blocks_per_request() -> usize {
+    DEFAULT_DIRECT_BLOCKS_PER_REQUEST
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
