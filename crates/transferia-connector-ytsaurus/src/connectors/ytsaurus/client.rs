@@ -372,12 +372,12 @@ impl YTsaurusClient {
 pub(super) fn suggestion_directory(query: &str) -> anyhow::Result<String> {
     let query = query.trim();
     let directory = if matches!(query, "" | "/" | "//") {
-        "//"
+        "/"
     } else {
         query.trim_end_matches('/')
     };
     anyhow::ensure!(
-        directory == "//" || (directory.starts_with("//") && directory.len() > 2),
+        directory == "/" || (directory.starts_with("//") && directory.len() > 2),
         "YTsaurus path suggestion query must be empty or start with '//'"
     );
     anyhow::ensure!(
@@ -388,7 +388,7 @@ pub(super) fn suggestion_directory(query: &str) -> anyhow::Result<String> {
 }
 
 pub(super) fn table_path_suggestions(directory: &str, nodes: Vec<ListedNode>) -> Vec<String> {
-    let prefix = if directory == "//" {
+    let prefix = if directory == "/" {
         "//".to_owned()
     } else {
         format!("{directory}/")

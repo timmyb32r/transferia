@@ -217,7 +217,8 @@ fn source_table_names_are_derived_from_unique_path_basenames() -> anyhow::Result
 
 #[test]
 fn table_path_suggestions_include_only_directories_and_tables() -> anyhow::Result<()> {
-    assert_eq!(suggestion_directory("")?, "//");
+    assert_eq!(suggestion_directory("")?, "/");
+    assert_eq!(suggestion_directory("//")?, "/");
     assert_eq!(suggestion_directory("//home/logs/")?, "//home/logs");
     assert!(suggestion_directory("relative/path").is_err());
 
@@ -229,6 +230,15 @@ fn table_path_suggestions_include_only_directories_and_tables() -> anyhow::Resul
     assert_eq!(
         table_path_suggestions("//home/logs", nodes),
         vec!["//home/logs/events", "//home/logs/nested/"]
+    );
+
+    let root_nodes = serde_json::from_value::<Vec<ListedNode>>(serde_json::json!([
+        { "$value": "home", "$attributes": { "type": "map_node" } },
+        { "$value": "events", "$attributes": { "type": "table" } }
+    ]))?;
+    assert_eq!(
+        table_path_suggestions("/", root_nodes),
+        vec!["//events", "//home/"]
     );
     Ok(())
 }
