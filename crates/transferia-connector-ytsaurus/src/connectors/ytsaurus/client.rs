@@ -240,7 +240,7 @@ impl YTsaurusClient {
             stream::iter(links)
                 .map(|path| async move {
                     let node_type = self
-                        .get_json(&format!("{path}/@type"))
+                        .get_json(&super::attribute_path(&path, "type"))
                         .await
                         .ok()?
                         .as_str()?

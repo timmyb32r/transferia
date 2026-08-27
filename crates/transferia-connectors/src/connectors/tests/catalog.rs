@@ -350,6 +350,34 @@ async fn incomplete_logbroker_source_check_only_requires_network_access() -> any
 }
 
 #[tokio::test]
+async fn incomplete_logbroker_sink_check_only_requires_network_access() -> anyhow::Result<()> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    let catalog = build_connector_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let config = serde_yaml::to_value(serde_json::json!({
+        "host": "127.0.0.1",
+        "port": port,
+        "topic": { "type": "topic", "topic_path": "" },
+        "auth": { "type": "token", "token": "test" }
+    }))?;
+
+    let result = catalog
+        .check_connection("logbroker", crate::extension::EndpointRole::Sink, config)
+        .await?;
+    assert!(matches!(
+        result.status,
+        transferia_registry::ConnectionCheckStatus::NetworkReachable
+    ));
+    assert_eq!(
+        result.message.as_deref(),
+        Some(
+            "Logbroker is network-reachable. Authentication and entity access were not checked because topic is incomplete."
+        )
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn logbroker_checks_only_network_when_credentials_are_empty() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
     let port = listener.local_addr()?.port();

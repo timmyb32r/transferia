@@ -385,6 +385,44 @@ describe("dynamic path control", () => {
     );
   });
 
+  it("adds the canonical YTsaurus root when typing or pasting a path", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({
+      options: [{ value: "//home/", label: "//home/" }],
+    }));
+    const view = render(
+      <Harness
+        options={options}
+        source="yandex.ytsaurus.tables"
+        initialValue=""
+      />,
+    );
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      fireEvent.input(input, { target: { value: "home" } });
+      await Promise.resolve();
+    });
+    expect(input).toHaveProperty("value", "//home");
+    expect(input).toHaveProperty("selectionEnd", "//home".length);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(options).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "//" }),
+    );
+
+    await act(async () => {
+      fireEvent.input(input, { target: { value: "/tmp" } });
+      await Promise.resolve();
+    });
+    expect(input).toHaveProperty("value", "//tmp");
+
+    fireEvent.input(input, { target: { value: "" } });
+    expect(input).toHaveProperty("value", "");
+  });
+
   it("shows a prerequisite warning instead of claiming there are no paths", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({

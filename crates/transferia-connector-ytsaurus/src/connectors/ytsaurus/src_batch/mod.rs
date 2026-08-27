@@ -294,7 +294,7 @@ impl YTsaurusSourceConnector {
                     let dataset_name = Arc::from(table.dataset_name()?);
                     let node_type = self
                         .client
-                        .get_json(&format!("{}/@type", table.path))
+                        .get_json(&super::attribute_path(&table.path, "type"))
                         .await?
                         .as_str()
                         .map(str::to_owned)
@@ -311,7 +311,7 @@ impl YTsaurusSourceConnector {
                     );
                     let dynamic = self
                         .client
-                        .get_json(&format!("{}/@dynamic", table.path))
+                        .get_json(&super::attribute_path(&table.path, "dynamic"))
                         .await?;
                     anyhow::ensure!(
                         dynamic == serde_json::Value::Bool(false),
@@ -320,7 +320,7 @@ impl YTsaurusSourceConnector {
                     );
                     let optimize_for = self
                         .client
-                        .get_json(&format!("{}/@optimize_for", table.path))
+                        .get_json(&super::attribute_path(&table.path, "optimize_for"))
                         .await?
                         .as_str()
                         .map(str::to_owned)
@@ -345,7 +345,7 @@ impl YTsaurusSourceConnector {
                     }
                     let chunk_count = self
                         .client
-                        .get_json(&format!("{}/@chunk_count", table.path))
+                        .get_json(&super::attribute_path(&table.path, "chunk_count"))
                         .await?
                         .as_u64()
                         .ok_or_else(|| {
@@ -358,7 +358,10 @@ impl YTsaurusSourceConnector {
                         chunk_count,
                         &self
                             .client
-                            .get_json(&format!("{}/@chunk_format_statistics", table.path))
+                            .get_json(&super::attribute_path(
+                                &table.path,
+                                "chunk_format_statistics",
+                            ))
                             .await?,
                     )?;
                     if optimize_for == "scan" && !physical_layout.all_columnar() {
@@ -379,7 +382,7 @@ impl YTsaurusSourceConnector {
                     }
                     let schema = parse_schema(
                         self.client
-                            .get_json(&format!("{}/@schema", table.path))
+                            .get_json(&super::attribute_path(&table.path, "schema"))
                             .await?,
                     )?;
                     if direct_data_node_access {

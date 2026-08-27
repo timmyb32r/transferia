@@ -91,9 +91,10 @@ impl LogbrokerTopicConfig {
 
     pub(crate) fn fixed_topic(&self) -> Option<&str> {
         match self {
-            Self::Topic { topic_path } => Some(topic_path),
+            Self::Topic { topic_path } => Some(topic_path.as_str()),
             Self::TopicPrefix { .. } => None,
         }
+        .filter(|topic_path| !topic_path.trim().is_empty())
     }
 
     pub(super) fn topic_for_table(&self, table: &str) -> String {

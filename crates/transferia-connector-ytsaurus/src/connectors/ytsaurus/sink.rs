@@ -145,13 +145,19 @@ impl SinkConnector for YTsaurusSinkConnector {
                         .create_table(&path, schema_to_yt(&dataset.schema)?)
                         .await?;
                 } else {
-                    let dynamic = self.client.get_json(&format!("{path}/@dynamic")).await?;
+                    let dynamic = self
+                        .client
+                        .get_json(&super::attribute_path(&path, "dynamic"))
+                        .await?;
                     anyhow::ensure!(
                         dynamic == serde_json::Value::Bool(false),
                         "YTsaurus sink table '{path}' must be static"
                     );
-                    let existing =
-                        parse_schema(self.client.get_json(&format!("{path}/@schema")).await?)?;
+                    let existing = parse_schema(
+                        self.client
+                            .get_json(&super::attribute_path(&path, "schema"))
+                            .await?,
+                    )?;
                     anyhow::ensure!(
                         schemas_equal(&existing, &dataset.schema),
                         "YTsaurus sink table '{path}' schema differs from discovered dataset '{}'",

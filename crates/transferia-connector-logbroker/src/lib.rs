@@ -88,7 +88,7 @@ pub fn register(
                 } else if config.topic.as_ref().and_then(|topic| topic.fixed_topic()).is_none() {
                     logbroker::check_network_connection(&config.host, config.port, cancellation).await?;
                     Ok(transferia_registry::ConnectionCheckResult {
-                        message: Some("Logbroker is network-reachable. Authentication and topic access were not checked because a concrete topic is unavailable.".to_owned()),
+                        message: Some("Logbroker is network-reachable. Authentication and entity access were not checked because topic is incomplete.".to_owned()),
                         ..transferia_registry::ConnectionCheckResult::network_reachable()
                     })
                 } else {

@@ -59,6 +59,18 @@ function splitPathLabel(label: string) {
   };
 }
 
+function canonicalInput(source: string, value: string) {
+  if (
+    source !== "yandex.ytsaurus.tables" ||
+    value === "" ||
+    value === "/" ||
+    value.startsWith("//")
+  ) {
+    return value;
+  }
+  return `//${value.replace(/^\/+/, "")}`;
+}
+
 function PathKindIcon({
   source,
   directory,
@@ -242,7 +254,14 @@ export function DynamicPathControl({
           onFocus={() => setOpen(true)}
           onInput={(event) => {
             keyboardSelection.current = false;
-            onChange(event.currentTarget.value);
+            const entered = event.currentTarget.value;
+            const next = canonicalInput(source, entered);
+            onChange(next);
+            if (next !== entered) {
+              queueMicrotask(() => {
+                input.current?.setSelectionRange(next.length, next.length);
+              });
+            }
             setActiveIndex(options.length === 0 ? -1 : 0);
             setOpen(true);
           }}

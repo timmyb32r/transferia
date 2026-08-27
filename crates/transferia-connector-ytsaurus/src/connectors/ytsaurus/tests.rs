@@ -39,6 +39,20 @@ use transferia_core::data::schema::{
 };
 
 #[test]
+fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {
+    let path = "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/";
+
+    assert_eq!(
+        super::attribute_path(path, "type"),
+        "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/@type"
+    );
+    assert_eq!(
+        super::attribute_path(path.trim_end_matches('/'), "type"),
+        "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/@type"
+    );
+}
+
+#[test]
 fn optimized_bus_crc64_matches_protocol_vectors() {
     assert_eq!(crc64(b""), 0x0000_0000_0000_0000);
     assert_eq!(crc64(b"a"), 0x74b4_2565_ce62_32d5);

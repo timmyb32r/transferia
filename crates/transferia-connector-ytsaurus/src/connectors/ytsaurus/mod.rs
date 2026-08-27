@@ -71,12 +71,17 @@ async fn checked_client(
 
 async fn node_type(client: &client::YTsaurusClient, path: &str) -> anyhow::Result<String> {
     client
-        .get_json(&format!("{path}/@type"))
+        .get_json(&attribute_path(path, "type"))
         .await
         .map_err(|error| anyhow::anyhow!("cannot access YTsaurus entity '{path}': {error}"))?
         .as_str()
         .map(str::to_owned)
         .ok_or_else(|| anyhow::anyhow!("YTsaurus entity '{path}' returned a non-string type"))
+}
+
+fn attribute_path(path: &str, attribute: &str) -> String {
+    let separator = if path.ends_with('/') { "" } else { "/" };
+    format!("{path}{separator}@{attribute}")
 }
 
 #[cfg(test)]
