@@ -11,7 +11,13 @@ import {
 } from "../ui/search";
 import { SearchHighlight } from "../ui/SearchHighlight";
 import { Button } from "../ui/Button";
-import { YTsaurusFolderIcon, YTsaurusTableIcon } from "../ui/icons";
+import {
+  LogbrokerConsumerIcon,
+  LogbrokerDirectoryIcon,
+  LogbrokerTopicIcon,
+  YTsaurusFolderIcon,
+  YTsaurusTableIcon,
+} from "../ui/icons";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
@@ -51,6 +57,22 @@ function splitPathLabel(label: string) {
     name: path.slice(separator + 1),
     trailingSlash,
   };
+}
+
+function PathKindIcon({
+  source,
+  directory,
+}: {
+  source: string;
+  directory: boolean;
+}) {
+  if (source === "yandex.logbroker.topics") {
+    return directory ? <LogbrokerDirectoryIcon /> : <LogbrokerTopicIcon />;
+  }
+  if (source === "yandex.logbroker.consumers") {
+    return directory ? <LogbrokerDirectoryIcon /> : <LogbrokerConsumerIcon />;
+  }
+  return directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />;
 }
 
 export function DynamicPathControl({
@@ -301,7 +323,7 @@ export function DynamicPathControl({
               title={browseQuery}
             >
               <span class="dynamic-path-kind">
-                <YTsaurusFolderIcon />
+                <PathKindIcon source={source} directory />
               </span>
               <strong class="dynamic-path-directory-path">
                 {browseQuery}
@@ -337,7 +359,7 @@ export function DynamicPathControl({
                 onClick={() => choose(option.value)}
               >
                 <span class="dynamic-path-kind" aria-hidden="true">
-                  {directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />}
+                  <PathKindIcon source={source} directory={directory} />
                 </span>
                 <span class="dynamic-path-label" title={option.label}>
                   <SearchHighlight

@@ -115,6 +115,75 @@ describe("dynamic path control", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("uses Logbroker directory and topic glyphs for topic suggestions", async () => {
+    vi.useFakeTimers();
+    const view = render(
+      <Harness
+        source="yandex.logbroker.topics"
+        options={async () => ({
+          options: [
+            {
+              value: "cdc/prod/control-plane/",
+              label: "cdc/prod/control-plane/",
+            },
+            { value: "cdc/prod/logs", label: "cdc/prod/logs" },
+          ],
+        })}
+        initialValue="cdc/prod/"
+      />,
+    );
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    expect(
+      view.container.querySelector(
+        ".dynamic-path-directory .logbroker-directory-icon",
+      ),
+    ).toBeTruthy();
+    expect(
+      (
+        await view.findByRole("option", { name: "cdc/prod/control-plane/" })
+      ).querySelector(".logbroker-directory-icon"),
+    ).toBeTruthy();
+    expect(
+      (await view.findByRole("option", { name: "cdc/prod/logs" })).querySelector(
+        ".logbroker-topic-icon",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("uses the Logbroker consumer glyph for consumer suggestions", async () => {
+    vi.useFakeTimers();
+    const view = render(
+      <Harness
+        source="yandex.logbroker.consumers"
+        options={async () => ({
+          options: [
+            {
+              value: "cdc/prod/logfeller-important",
+              label: "cdc/prod/logfeller-important",
+            },
+          ],
+        })}
+        initialValue="cdc/prod/"
+      />,
+    );
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    expect(
+      (await view.findByRole("option", {
+        name: "cdc/prod/logfeller-important",
+      })).querySelector(".logbroker-consumer-icon"),
+    ).toBeTruthy();
+  });
+
   it("keeps long path suggestions on one stable row and exposes the full label", async () => {
     vi.useFakeTimers();
     const longPath =

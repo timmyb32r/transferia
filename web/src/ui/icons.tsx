@@ -25,3 +25,15 @@ export function YTsaurusFolderIcon() {
 export function YTsaurusTableIcon() {
   return <span class="ui-icon ytsaurus-table-icon" aria-hidden="true" />;
 }
+
+export function LogbrokerDirectoryIcon() {
+  return <span class="ui-icon logbroker-directory-icon" aria-hidden="true" />;
+}
+
+export function LogbrokerTopicIcon() {
+  return <span class="ui-icon logbroker-topic-icon" aria-hidden="true" />;
+}
+
+export function LogbrokerConsumerIcon() {
+  return <span class="ui-icon logbroker-consumer-icon" aria-hidden="true" />;
+}
