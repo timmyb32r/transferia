@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 
 import { LatestJob } from "../effects";
 import type { DynamicOptions } from "../generated/apiContract";
@@ -11,9 +11,36 @@ import {
 } from "../ui/search";
 import { SearchHighlight } from "../ui/SearchHighlight";
 import { Button } from "../ui/Button";
+import { YTsaurusFolderIcon, YTsaurusTableIcon } from "../ui/icons";
 import { useFormEnvironment } from "./formEnvironment";
 
 const QUERY_DEBOUNCE_MS = 160;
+const DIRECTORY_CACHE_CAPACITY = 64;
+
+function readCachedDirectory(
+  cache: Map<string, DynamicOptions>,
+  key: string,
+): DynamicOptions | undefined {
+  const cached = cache.get(key);
+  if (cached === undefined) return undefined;
+  cache.delete(key);
+  cache.set(key, cached);
+  return cached;
+}
+
+function cacheDirectory(
+  cache: Map<string, DynamicOptions>,
+  key: string,
+  value: DynamicOptions,
+) {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > DIRECTORY_CACHE_CAPACITY) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) return;
+    cache.delete(oldest);
+  }
+}
 
 function splitPathLabel(label: string) {
   const trailingSlash = label.endsWith("/") ? "/" : "";
@@ -45,7 +72,7 @@ export function DynamicPathControl({
   const menuId = `${id ?? generatedId}-path-listbox`;
   const { options: loadOptions } = useFormEnvironment();
   const [open, setOpen] = useState(false);
-  const [options, setOptions] = useState<
+  const [directoryOptions, setDirectoryOptions] = useState<
     Array<{ value: string; label: string }>
   >([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -54,7 +81,25 @@ export function DynamicPathControl({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const job = useRef(new LatestJob<string, string, DynamicOptions>()).current;
-  const dependencyKey = JSON.stringify(dependencies);
+  const directoryCache = useRef(new Map<string, DynamicOptions>()).current;
+  const dependencyKey = JSON.stringify(
+    Object.entries(dependencies).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+  const browseQuery = pathBrowseQuery(value);
+  const searchFragment = pathSearchFragment(value);
+  const directoryCacheKey = `${source}\u0000${dependencyKey}\u0000${browseQuery}`;
+  const incompleteYtsaurusRoot =
+    source === "yandex.ytsaurus.tables" &&
+    (value.trim() === "" || value.trim() === "/");
+  const options = useMemo(
+    () =>
+      rankSearchResults(directoryOptions, searchFragment, (option) =>
+        option.label.split("/").filter(Boolean).at(-1) ?? "",
+      ),
+    [directoryOptions, searchFragment],
+  );
 
   const close = () => {
     setOpen(false);
@@ -63,43 +108,45 @@ export function DynamicPathControl({
   useAnchoredOverlay({ open, root, trigger: input, onClose: close });
 
   useEffect(() => {
-    const incompleteYtsaurusRoot =
-      source === "yandex.ytsaurus.tables" &&
-      (value.trim() === "" || value.trim() === "/");
     if (!open || disabled || incompleteYtsaurusRoot) {
       setLoading(false);
-      setOptions([]);
+      setDirectoryOptions([]);
       setActiveIndex(-1);
       setError(undefined);
       return;
     }
+    const cached = readCachedDirectory(directoryCache, directoryCacheKey);
+    if (cached !== undefined) {
+      setDirectoryOptions(cached.options);
+      setActiveIndex(-1);
+      setError(cached.warning);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setDirectoryOptions([]);
     setError(undefined);
     const timer = window.setTimeout(() => {
       void job
-        .run(`${source}:${dependencyKey}:${value}`, source, (key, signal) =>
+        .run(directoryCacheKey, source, (key, signal) =>
           loadOptions({
             key,
-            query: pathBrowseQuery(value),
+            query: browseQuery,
             dependencies,
             signal,
           }),
         )
         .then((result) => {
           if (result === undefined) return;
-          setOptions(
-            rankSearchResults(
-              result.value.options,
-              pathSearchFragment(value),
-              (option) => option.label.split("/").filter(Boolean).at(-1) ?? "",
-            ),
-          );
+          if (result.value.warning === undefined)
+            cacheDirectory(directoryCache, directoryCacheKey, result.value);
+          setDirectoryOptions(result.value.options);
           setActiveIndex(-1);
           setError(result.value.warning);
           setLoading(false);
         })
         .catch((reason: unknown) => {
-          setOptions([]);
+          setDirectoryOptions([]);
           setActiveIndex(-1);
           setError(reason instanceof Error ? reason.message : String(reason));
           setLoading(false);
@@ -109,7 +156,14 @@ export function DynamicPathControl({
       window.clearTimeout(timer);
       job.cancel();
     };
-  }, [open, disabled, source, dependencyKey, value]);
+  }, [
+    open,
+    disabled,
+    source,
+    directoryCacheKey,
+    browseQuery,
+    incompleteYtsaurusRoot,
+  ]);
 
   useEffect(() => {
     if (disabled) close();
@@ -126,15 +180,13 @@ export function DynamicPathControl({
     onChange(next);
     if (next.endsWith("/")) {
       setOpen(true);
-      queueMicrotask(() => input.current?.focus());
     } else {
       close();
     }
-  };
-
-  const chooseAndLeave = (next: string) => {
-    onChange(next);
-    close();
+    queueMicrotask(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(next.length, next.length);
+    });
   };
 
   return (
@@ -184,14 +236,16 @@ export function DynamicPathControl({
               );
               return;
             }
-            if (
+            const acceptsActiveOption =
               (event.key === "Tab" || event.key === "Enter") &&
-              activeIndex >= 0
-            ) {
-              const active = options[activeIndex];
+              activeIndex >= 0;
+            const acceptsFirstOption =
+              event.key === "Tab" && activeIndex < 0 && options.length > 0;
+            if (acceptsActiveOption || acceptsFirstOption) {
+              const active = options[activeIndex < 0 ? 0 : activeIndex];
               if (active === undefined) return;
-              if (event.key === "Enter") event.preventDefault();
-              chooseAndLeave(active.value);
+              event.preventDefault();
+              choose(active.value);
             }
           }}
         />
@@ -234,13 +288,13 @@ export function DynamicPathControl({
                 onClick={() => choose(option.value)}
               >
                 <span class="dynamic-path-kind" aria-hidden="true">
-                  {directory ? "▸" : ""}
+                  {directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />}
                 </span>
                 <span>
                   {label.prefix}
                   <SearchHighlight
                     text={label.name}
-                    query={pathSearchFragment(value)}
+                    query={searchFragment}
                   />
                   {label.trailingSlash}
                 </span>

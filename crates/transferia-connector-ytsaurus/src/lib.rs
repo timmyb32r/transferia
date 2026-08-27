@@ -13,7 +13,9 @@ pub use connectors::ytsaurus;
 use std::sync::Arc;
 
 use transferia_delivery_contracts::metrics::MetricsRegistry;
-use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
+use transferia_registry::{
+    ComponentRegistration, ConnectionCheckResult, DeliveryMode, RegistryBuilder,
+};
 
 pub fn register(
     registry: &mut RegistryBuilder,
@@ -52,10 +54,7 @@ pub fn register(
                     }
                 },
             )?
-            .source_checker::<ytsaurus::YTsaurusSourceConfig, _, _>(|config| async move {
-                ytsaurus::check_connection(&config.connection).await?;
-                Ok(transferia_registry::ConnectionCheckResult::default())
-            })
+            .source_checker::<ytsaurus::YTsaurusSourceConfig, _, _>(check_source_connection)
             .sink_draft::<ytsaurus::YTsaurusSinkConfig, _, _>(
                 || {
                     serde_json::json!({
@@ -71,10 +70,50 @@ pub fn register(
                     )?))
                 },
             )?
-            .sink_checker::<ytsaurus::YTsaurusSinkConfig, _, _>(|config| async move {
-                ytsaurus::check_connection(&config.connection).await?;
-                Ok(transferia_registry::ConnectionCheckResult::default())
-            }),
+            .sink_checker::<ytsaurus::YTsaurusSinkConfig, _, _>(check_sink_connection),
     )?;
     Ok(())
 }
+
+async fn check_source_connection(
+    config: ytsaurus::YTsaurusSourceConfig,
+) -> anyhow::Result<ConnectionCheckResult> {
+    let paths = configured_source_paths(&config);
+    let Some(paths) = paths else {
+        ytsaurus::check_connection(&config.connection).await?;
+        return Ok(incomplete_entities_result(
+            "YTsaurus connection and authentication are verified, but source table access was not checked because at least one table path is empty.",
+        ));
+    };
+    ytsaurus::check_source_tables(&config.connection, &paths).await?;
+    Ok(ConnectionCheckResult::default())
+}
+
+async fn check_sink_connection(
+    config: ytsaurus::YTsaurusSinkConfig,
+) -> anyhow::Result<ConnectionCheckResult> {
+    let path = config.path().trim();
+    if path.is_empty() {
+        ytsaurus::check_connection(&config.connection).await?;
+        return Ok(incomplete_entities_result(
+            "YTsaurus connection and authentication are verified, but destination entity access was not checked because Path is empty.",
+        ));
+    }
+    ytsaurus::check_sink_directory(&config.connection, path).await?;
+    Ok(ConnectionCheckResult::default())
+}
+
+fn configured_source_paths(config: &ytsaurus::YTsaurusSourceConfig) -> Option<Vec<String>> {
+    (!config.tables.is_empty() && config.tables.iter().all(|table| !table.path.trim().is_empty()))
+        .then(|| config.tables.iter().map(|table| table.path.clone()).collect())
+}
+
+fn incomplete_entities_result(message: &str) -> ConnectionCheckResult {
+    ConnectionCheckResult {
+        message: Some(message.to_owned()),
+        ..ConnectionCheckResult::network_reachable()
+    }
+}
+
+#[cfg(test)]
+mod tests;

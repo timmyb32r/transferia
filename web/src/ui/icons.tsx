@@ -17,3 +17,11 @@ export function EyeOffIcon() {
 export function ExternalLinkIcon() {
   return <span class="ui-icon external-link-icon" aria-hidden="true" />;
 }
+
+export function YTsaurusFolderIcon() {
+  return <span class="ui-icon ytsaurus-folder-icon" aria-hidden="true" />;
+}
+
+export function YTsaurusTableIcon() {
+  return <span class="ui-icon ytsaurus-table-icon" aria-hidden="true" />;
+}

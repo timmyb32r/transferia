@@ -26,12 +26,57 @@ pub async fn list_table_path_suggestions(
 }
 
 pub async fn check_connection(config: &YTsaurusConnectionConfig) -> anyhow::Result<()> {
+    checked_client(config).await?;
+    Ok(())
+}
+
+pub(crate) async fn check_source_tables(
+    config: &YTsaurusConnectionConfig,
+    paths: &[String],
+) -> anyhow::Result<()> {
+    let client = checked_client(config).await?;
+    for path in paths {
+        let node_type = node_type(&client, path).await?;
+        anyhow::ensure!(
+            node_type == "table",
+            "configured YTsaurus source path '{path}' is a {node_type}, not a table"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) async fn check_sink_directory(
+    config: &YTsaurusConnectionConfig,
+    path: &str,
+) -> anyhow::Result<()> {
+    let client = checked_client(config).await?;
+    let node_type = node_type(&client, path).await?;
+    anyhow::ensure!(
+        matches!(node_type.as_str(), "map_node" | "portal_entrance" | "rootstock"),
+        "configured YTsaurus destination path '{path}' is a {node_type}, not a directory"
+    );
+    Ok(())
+}
+
+async fn checked_client(
+    config: &YTsaurusConnectionConfig,
+) -> anyhow::Result<client::YTsaurusClient> {
     let client = client::YTsaurusClient::new(config)?;
     client
         .get_json("//sys/@id")
         .await
         .map_err(|error| anyhow::anyhow!("YTsaurus connection check failed: {error}"))?;
-    Ok(())
+    Ok(client)
+}
+
+async fn node_type(client: &client::YTsaurusClient, path: &str) -> anyhow::Result<String> {
+    client
+        .get_json(&format!("{path}/@type"))
+        .await
+        .map_err(|error| anyhow::anyhow!("cannot access YTsaurus entity '{path}': {error}"))?
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("YTsaurus entity '{path}' returned a non-string type"))
 }
 
 #[cfg(test)]

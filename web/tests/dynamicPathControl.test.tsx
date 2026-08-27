@@ -56,7 +56,11 @@ describe("dynamic path control", () => {
       await vi.advanceTimersByTimeAsync(160);
     });
     await waitFor(() => expect(requests.at(-1)?.query).toBe("aaa/"));
-    expect(await view.findByRole("option", { name: "aaa/bb/" })).toBeTruthy();
+    expect(
+      (await view.findByRole("option", { name: "aaa/bb/" })).querySelector(
+        ".ytsaurus-folder-icon",
+      ),
+    ).toBeTruthy();
   });
 
   it("uses the standard spinner without changing the input layout", async () => {
@@ -103,7 +107,9 @@ describe("dynamic path control", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(160);
     });
-    fireEvent.click(await view.findByRole("option", { name: "aaa/topic" }));
+    const option = await view.findByRole("option", { name: "aaa/topic" });
+    expect(option.querySelector(".ytsaurus-table-icon")).toBeTruthy();
+    fireEvent.click(option);
 
     expect(input).toHaveProperty("value", "aaa/topic");
     expect(input.getAttribute("aria-expanded")).toBe("false");
@@ -134,9 +140,43 @@ describe("dynamic path control", () => {
     fireEvent.keyDown(input, { key: "ArrowUp" });
     expect(suggestions[0]?.getAttribute("aria-selected")).toBe("true");
 
-    fireEvent.keyDown(input, { key: "Tab" });
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Tab" });
+      await Promise.resolve();
+    });
     expect(input).toHaveProperty("value", "aaa/first");
     expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(input);
+    expect(input).toHaveProperty("selectionStart", "aaa/first".length);
+    expect(input).toHaveProperty("selectionEnd", "aaa/first".length);
+  });
+
+  it("accepts the first suggestion with Tab when no option is active", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async () => ({
+      options: ["aaa/first", "aaa/second"].map((value) => ({
+        value,
+        label: value,
+      })),
+    }));
+    const view = render(<Harness options={options} initialValue="aaa/f" />);
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(
+      (await view.findAllByRole("option"))[0]?.getAttribute("aria-selected"),
+    ).toBe("false");
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "Tab" });
+      await Promise.resolve();
+    });
+    expect(input).toHaveProperty("value", "aaa/first");
+    expect(document.activeElement).toBe(input);
+    expect(input).toHaveProperty("selectionEnd", "aaa/first".length);
   });
 
   it("does not fetch or edit while read-only", async () => {
@@ -265,6 +305,60 @@ describe("dynamic path control", () => {
           .join(""),
       ).toBe("log");
     }
+  });
+
+  it("loads each directory once and filters subsequent input from its LRU cache", async () => {
+    vi.useFakeTimers();
+    const options = vi.fn(async (request: DynamicOptionsQuery) => ({
+      options:
+        request.query === "//home/"
+          ? [{ value: "//home/logfeller/", label: "//home/logfeller/" }]
+          : [
+              { value: "//logs/", label: "//logs/" },
+              { value: "//logfeller/", label: "//logfeller/" },
+            ],
+    }));
+    const view = render(
+      <Harness
+        options={options}
+        source="yandex.ytsaurus.tables"
+        initialValue="//l"
+      />,
+    );
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(options).toHaveBeenCalledTimes(1);
+    expect(options).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "//" }),
+    );
+
+    fireEvent.input(input, { target: { value: "//lo" } });
+    fireEvent.input(input, { target: { value: "//log" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(options).toHaveBeenCalledTimes(1);
+    expect(view.getAllByRole("option")).toHaveLength(2);
+
+    fireEvent.input(input, { target: { value: "//home/l" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(options).toHaveBeenCalledTimes(2);
+    expect(options).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: "//home/" }),
+    );
+
+    fireEvent.input(input, { target: { value: "//lo" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(options).toHaveBeenCalledTimes(2);
+    expect(view.getAllByRole("option")).toHaveLength(2);
   });
 });
 
