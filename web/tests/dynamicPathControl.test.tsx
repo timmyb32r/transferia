@@ -115,6 +115,30 @@ describe("dynamic path control", () => {
     expect(input.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("keeps long path suggestions on one stable row and exposes the full label", async () => {
+    vi.useFakeTimers();
+    const longPath =
+      "//home/logfeller/tmp/TM-10373/yt-read-throughput-direct-count-20260826/";
+    const view = render(
+      <Harness
+        options={async () => ({
+          options: [{ value: longPath, label: longPath }],
+        })}
+        initialValue="//home/logfeller/tmp/TM-10373/"
+      />,
+    );
+
+    fireEvent.focus(view.getByRole("combobox"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+
+    const option = await view.findByRole("option", { name: longPath });
+    const label = option.querySelector(".dynamic-path-label");
+    expect(label?.getAttribute("title")).toBe(longPath);
+    expect(label?.classList.contains("dynamic-path-label")).toBe(true);
+  });
+
   it("navigates suggestions with arrows and accepts the active option with Tab", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({
@@ -132,9 +156,8 @@ describe("dynamic path control", () => {
     });
     const suggestions = await view.findAllByRole("option");
     expect(suggestions.every((option) => option.getAttribute("tabindex") === "-1")).toBe(true);
-
-    fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(suggestions[0]?.getAttribute("aria-selected")).toBe("true");
+
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(suggestions[1]?.getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(input, { key: "ArrowUp" });
@@ -151,7 +174,7 @@ describe("dynamic path control", () => {
     expect(input).toHaveProperty("selectionEnd", "aaa/first".length);
   });
 
-  it("accepts the first suggestion with Tab when no option is active", async () => {
+  it("highlights and accepts the first suggestion with Tab by default", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({
       options: ["aaa/first", "aaa/second"].map((value) => ({
@@ -168,7 +191,7 @@ describe("dynamic path control", () => {
     });
     expect(
       (await view.findAllByRole("option"))[0]?.getAttribute("aria-selected"),
-    ).toBe("false");
+    ).toBe("true");
 
     await act(async () => {
       fireEvent.keyDown(input, { key: "Tab" });
@@ -177,6 +200,61 @@ describe("dynamic path control", () => {
     expect(input).toHaveProperty("value", "aaa/first");
     expect(document.activeElement).toBe(input);
     expect(input).toHaveProperty("selectionEnd", "aaa/first".length);
+  });
+
+  it("accepts an arrow-selected suggestion with ArrowRight", async () => {
+    vi.useFakeTimers();
+    const view = render(
+      <Harness
+        options={async () => ({
+          options: ["aaa/first", "aaa/second"].map((path) => ({
+            value: path,
+            label: path,
+          })),
+        })}
+        initialValue="aaa/"
+      />,
+    );
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect((await view.findAllByRole("option"))[1]?.getAttribute("aria-selected")).toBe(
+      "true",
+    );
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: "ArrowRight" });
+      await Promise.resolve();
+    });
+    expect(input).toHaveProperty("value", "aaa/second");
+    expect(document.activeElement).toBe(input);
+    expect(input).toHaveProperty("selectionEnd", "aaa/second".length);
+  });
+
+  it("keeps ArrowRight as caret navigation before arrow-selecting a suggestion", async () => {
+    vi.useFakeTimers();
+    const view = render(
+      <Harness
+        options={async () => ({
+          options: [{ value: "aaa/first", label: "aaa/first" }],
+        })}
+        initialValue="aaa/f"
+      />,
+    );
+    const input = view.getByRole("combobox");
+
+    fireEvent.focus(input);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+
+    expect(input).toHaveProperty("value", "aaa/f");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("does not fetch or edit while read-only", async () => {
@@ -299,8 +377,11 @@ describe("dynamic path control", () => {
       expect(option.querySelector("span:last-child")?.textContent).toMatch(
         /^\/\/home\/logfeller\/log(?:forwarder|s)\/$/,
       );
+      expect(option.querySelector(".dynamic-path-prefix")?.textContent).toBe(
+        "//home/logfeller/",
+      );
       expect(
-        [...option.querySelectorAll("strong")]
+        [...option.querySelectorAll("strong:not(.dynamic-path-prefix)")]
           .map((character) => character.textContent)
           .join(""),
       ).toBe("log");

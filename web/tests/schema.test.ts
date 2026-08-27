@@ -402,6 +402,32 @@ describe("schema compiler", () => {
         "x-ui": { external_link_template: "javascript:{value}" },
       }),
     ).toThrow(/must be an HTTPS URL/);
+
+    const dependent = compileSchema({
+      type: "string",
+      "x-ui": {
+        external_link_template:
+          "https://console.example/{cluster}/navigation?path=//{value}",
+        external_link_dependencies: {
+          cluster: "/installation/cluster",
+        },
+      },
+    });
+    expect(dependent.xUi.external_link_dependencies).toEqual({
+      cluster: "/installation/cluster",
+    });
+    expect(() =>
+      compileSchema({
+        type: "string",
+        "x-ui": {
+          external_link_template:
+            "https://console.example/{undeclared}/items/{value}",
+          external_link_dependencies: {
+            cluster: "/installation/cluster",
+          },
+        },
+      }),
+    ).toThrow(/declared placeholder/);
   });
 
   it("accepts dependency-aware dynamic options emitted for managed MDB fields", () => {

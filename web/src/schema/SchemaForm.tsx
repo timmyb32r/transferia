@@ -225,6 +225,7 @@ function NodeEditor({
         return withExternalLink(
           node,
           current,
+          rootValue,
           <SelectControl
             searchable
             id={controlId}
@@ -274,6 +275,7 @@ function NodeEditor({
           return withExternalLink(
             node,
             typeof value === "string" ? value : "",
+            rootValue,
             <AutofillResistantInput
               id={controlId}
               type="text"
@@ -286,6 +288,7 @@ function NodeEditor({
         return withExternalLink(
           node,
           typeof value === "string" ? value : "",
+          rootValue,
           <DynamicControl
             id={controlId}
             source={node.xUi.dynamic_options}
@@ -300,6 +303,7 @@ function NodeEditor({
         return withExternalLink(
           node,
           typeof value === "string" ? value : "",
+          rootValue,
           <SelectControl
             id={controlId}
             value={typeof value === "string" ? value : ""}
@@ -316,6 +320,7 @@ function NodeEditor({
       return withExternalLink(
         node,
         typeof value === "string" ? value : "",
+        rootValue,
         <AutofillResistantInput
           id={controlId}
           type="text"
@@ -387,6 +392,7 @@ function NullableNodeEditor({
 function withExternalLink(
   node: CompiledNode,
   value: string,
+  rootValue: JsonValue,
   control: ComponentChildren,
 ): ComponentChildren {
   const template = node.xUi.external_link_template;
@@ -396,7 +402,14 @@ function withExternalLink(
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  const href = template.replace("{value}", encodedValue);
+  let href = template.replace("{value}", encodedValue);
+  for (const [name, pointer] of Object.entries(
+    node.xUi.external_link_dependencies ?? {},
+  )) {
+    const dependency = jsonPointer(rootValue, pointer);
+    if (typeof dependency !== "string" || dependency === "") return control;
+    href = href.replace(`{${name}}`, encodeURIComponent(dependency));
+  }
   return (
     <div class="linked-control">
       {control}

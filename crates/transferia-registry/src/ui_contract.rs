@@ -15,6 +15,7 @@ struct UiHints {
     dynamic_options_dependencies: Option<BTreeMap<String, String>>,
     dynamic_options_control: Option<DynamicOptionsControl>,
     external_link_template: Option<String>,
+    external_link_dependencies: Option<BTreeMap<String, String>>,
     labels: Option<BTreeMap<String, String>>,
     options: Option<Vec<Value>>,
     control_width: Option<String>,
@@ -63,12 +64,24 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                         "{path}: dynamic option dependencies must be absolute JSON pointers"
                     );
                 }
-                if let Some(template) = hints.external_link_template {
+                if let Some(dependencies) = &hints.external_link_dependencies {
                     anyhow::ensure!(
-                        template.starts_with("https://")
-                            && template.matches(EXTERNAL_LINK_VALUE_PLACEHOLDER).count() == 1,
-                        "{path}: external link template must be HTTPS and contain one {{value}}"
+                        dependencies.iter().all(|(name, pointer)| {
+                            !name.is_empty()
+                                && name.bytes().all(|byte| {
+                                    byte.is_ascii_alphanumeric() || byte == b'_'
+                                })
+                                && pointer.starts_with('/')
+                        }),
+                        "{path}: external link dependencies must have safe names and absolute JSON pointers"
                     );
+                }
+                if let Some(template) = &hints.external_link_template {
+                    validate_external_link_template(
+                        path,
+                        template,
+                        hints.external_link_dependencies.as_ref(),
+                    )?;
                 }
                 for (name, value) in [
                     ("widget", hints.widget.as_deref()),
@@ -84,6 +97,7 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     hints.section,
                     hints.initial_items,
                     hints.dynamic_options_control,
+                    hints.external_link_dependencies,
                     hints.labels,
                     hints.options,
                     hints.order,
@@ -97,6 +111,32 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn validate_external_link_template(
+    path: &str,
+    template: &str,
+    dependencies: Option<&BTreeMap<String, String>>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        template.starts_with("https://")
+            && template.matches(EXTERNAL_LINK_VALUE_PLACEHOLDER).count() == 1,
+        "{path}: external link template must be HTTPS and contain one {{value}}"
+    );
+    let mut unmatched = template.replace(EXTERNAL_LINK_VALUE_PLACEHOLDER, "");
+    for name in dependencies.into_iter().flat_map(BTreeMap::keys) {
+        let placeholder = format!("{{{name}}}");
+        anyhow::ensure!(
+            template.matches(&placeholder).count() == 1,
+            "{path}: external link template must contain one {placeholder}"
+        );
+        unmatched = unmatched.replace(&placeholder, "");
+    }
+    anyhow::ensure!(
+        !unmatched.contains(['{', '}']),
+        "{path}: external link template contains an undeclared placeholder"
+    );
     Ok(())
 }
 

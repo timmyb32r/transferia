@@ -1490,10 +1490,17 @@ input[type="checkbox"]:disabled {
   grid-template-columns: 14px minmax(0, 1fr);
   gap: 7px;
   align-items: center;
+  min-height: 32px;
 }
 .dynamic-path-kind {
   color: var(--muted);
   text-align: center;
+}
+.dynamic-path-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dynamic-path-menu {
   min-height: 42px;

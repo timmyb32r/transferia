@@ -80,6 +80,7 @@ export function DynamicPathControl({
   const [error, setError] = useState<string>();
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const keyboardSelection = useRef(false);
   const job = useRef(new LatestJob<string, string, DynamicOptions>()).current;
   const directoryCache = useRef(new Map<string, DynamicOptions>()).current;
   const dependencyKey = JSON.stringify(
@@ -100,8 +101,15 @@ export function DynamicPathControl({
       ),
     [directoryOptions, searchFragment],
   );
+  const highlightedIndex =
+    open && options.length > 0
+      ? activeIndex >= 0 && activeIndex < options.length
+        ? activeIndex
+        : 0
+      : -1;
 
   const close = () => {
+    keyboardSelection.current = false;
     setOpen(false);
     setActiveIndex(-1);
   };
@@ -118,7 +126,7 @@ export function DynamicPathControl({
     const cached = readCachedDirectory(directoryCache, directoryCacheKey);
     if (cached !== undefined) {
       setDirectoryOptions(cached.options);
-      setActiveIndex(-1);
+      setActiveIndex(cached.options.length === 0 ? -1 : 0);
       setError(cached.warning);
       setLoading(false);
       return;
@@ -141,7 +149,7 @@ export function DynamicPathControl({
           if (result.value.warning === undefined)
             cacheDirectory(directoryCache, directoryCacheKey, result.value);
           setDirectoryOptions(result.value.options);
-          setActiveIndex(-1);
+          setActiveIndex(result.value.options.length === 0 ? -1 : 0);
           setError(result.value.warning);
           setLoading(false);
         })
@@ -170,13 +178,14 @@ export function DynamicPathControl({
   }, [disabled]);
 
   useEffect(() => {
-    if (activeIndex < 0) return;
+    if (highlightedIndex < 0) return;
     root.current
-      ?.querySelector<HTMLElement>(`[data-option-index="${activeIndex}"]`)
+      ?.querySelector<HTMLElement>(`[data-option-index="${highlightedIndex}"]`)
       ?.scrollIntoView?.({ block: "nearest" });
-  }, [activeIndex]);
+  }, [highlightedIndex]);
 
   const choose = (next: string) => {
+    keyboardSelection.current = false;
     onChange(next);
     if (next.endsWith("/")) {
       setOpen(true);
@@ -203,13 +212,16 @@ export function DynamicPathControl({
           aria-expanded={open}
           aria-controls={menuId}
           aria-activedescendant={
-            activeIndex >= 0 ? `${menuId}-option-${activeIndex}` : undefined
+            highlightedIndex >= 0
+              ? `${menuId}-option-${highlightedIndex}`
+              : undefined
           }
           placeholder="Start typing a path"
           onFocus={() => setOpen(true)}
           onInput={(event) => {
+            keyboardSelection.current = false;
             onChange(event.currentTarget.value);
-            setActiveIndex(-1);
+            setActiveIndex(options.length === 0 ? -1 : 0);
             setOpen(true);
           }}
           onKeyDown={(event) => {
@@ -220,29 +232,43 @@ export function DynamicPathControl({
             }
             if (event.key === "ArrowDown") {
               event.preventDefault();
+              keyboardSelection.current = true;
               setOpen(true);
-              setActiveIndex((current) =>
-                options.length === 0 ? -1 : (current + 1) % options.length,
+              setActiveIndex(
+                options.length === 0
+                  ? -1
+                  : (highlightedIndex + 1) % options.length,
               );
               return;
             }
             if (event.key === "ArrowUp") {
               event.preventDefault();
+              keyboardSelection.current = true;
               setOpen(true);
-              setActiveIndex((current) =>
+              setActiveIndex(
                 options.length === 0
                   ? -1
-                  : (current <= 0 ? options.length : current) - 1,
+                  : (highlightedIndex <= 0
+                      ? options.length
+                      : highlightedIndex) - 1,
               );
               return;
             }
             const acceptsActiveOption =
               (event.key === "Tab" || event.key === "Enter") &&
-              activeIndex >= 0;
+              highlightedIndex >= 0;
+            const acceptsKeyboardSelection =
+              event.key === "ArrowRight" &&
+              keyboardSelection.current &&
+              highlightedIndex >= 0;
             const acceptsFirstOption =
-              event.key === "Tab" && activeIndex < 0 && options.length > 0;
-            if (acceptsActiveOption || acceptsFirstOption) {
-              const active = options[activeIndex < 0 ? 0 : activeIndex];
+              event.key === "Tab" && highlightedIndex < 0 && options.length > 0;
+            if (
+              acceptsActiveOption ||
+              acceptsKeyboardSelection ||
+              acceptsFirstOption
+            ) {
+              const active = options[highlightedIndex < 0 ? 0 : highlightedIndex];
               if (active === undefined) return;
               event.preventDefault();
               choose(active.value);
@@ -276,11 +302,14 @@ export function DynamicPathControl({
                 key={option.value}
                 type="button"
                 role="option"
-                aria-selected={index === activeIndex}
+                aria-selected={index === highlightedIndex}
                 tabIndex={-1}
                 data-option-index={index}
                 class="select-option dynamic-path-option"
-                onPointerEnter={() => setActiveIndex(index)}
+                onPointerEnter={() => {
+                  keyboardSelection.current = false;
+                  setActiveIndex(index);
+                }}
                 onPointerDown={(event) => {
                   if (event.button !== 0) return;
                   event.preventDefault();
@@ -290,8 +319,8 @@ export function DynamicPathControl({
                 <span class="dynamic-path-kind" aria-hidden="true">
                   {directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />}
                 </span>
-                <span>
-                  {label.prefix}
+                <span class="dynamic-path-label" title={option.label}>
+                  <strong class="dynamic-path-prefix">{label.prefix}</strong>
                   <SearchHighlight
                     text={label.name}
                     query={searchFragment}

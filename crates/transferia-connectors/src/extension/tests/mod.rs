@@ -32,6 +32,22 @@ fn external_links_require_a_safe_unambiguous_template() -> anyhow::Result<()> {
             "javascript:{value}",
         )
         .is_err());
+    registry.register_external_link_with_dependencies(
+        "ytsaurus",
+        EndpointRole::Source,
+        "/properties/path",
+        "https://console.example/{cluster}/navigation?path=//{value}",
+        [("cluster", "/installation/cluster")],
+    )?;
+    assert!(registry
+        .register_external_link_with_dependencies(
+            "ytsaurus",
+            EndpointRole::Sink,
+            "/properties/path",
+            "https://console.example/{undeclared}/navigation?path=//{value}",
+            [("cluster", "/installation/cluster")],
+        )
+        .is_err());
     Ok(())
 }
 

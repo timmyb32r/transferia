@@ -106,6 +106,8 @@ pub(crate) struct ExternalLinkBinding {
     pub schema_pointer: &'static str,
 
     pub url_template: &'static str,
+
+    pub dependencies: BTreeMap<&'static str, &'static str>,
 }
 
 #[async_trait]
@@ -457,6 +459,23 @@ impl ExtensionRegistry {
         schema_pointer: &'static str,
         url_template: &'static str,
     ) -> anyhow::Result<()> {
+        self.register_external_link_with_dependencies(
+            connector,
+            role,
+            schema_pointer,
+            url_template,
+            std::iter::empty::<(&'static str, &'static str)>(),
+        )
+    }
+
+    pub fn register_external_link_with_dependencies(
+        &mut self,
+        connector: &'static str,
+        role: EndpointRole,
+        schema_pointer: &'static str,
+        url_template: &'static str,
+        dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !connector.is_empty(),
             "external link connector must not be empty"
@@ -470,11 +489,43 @@ impl ExtensionRegistry {
                 && url_template.matches("{value}").count() == 1,
             "external link URL template must be HTTPS and contain exactly one '{{value}}' placeholder"
         );
+        let mut dependencies_by_name = BTreeMap::new();
+        for (name, pointer) in dependencies {
+            anyhow::ensure!(
+                !name.is_empty()
+                    && name
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+                "external link dependency names must use only ASCII letters, digits, and underscores"
+            );
+            anyhow::ensure!(
+                pointer.starts_with('/'),
+                "external link dependency pointers must be absolute JSON pointers"
+            );
+            anyhow::ensure!(
+                dependencies_by_name.insert(name, pointer).is_none(),
+                "external link dependency '{name}' is registered more than once"
+            );
+        }
+        let mut unmatched_template = url_template.replace("{value}", "");
+        for name in dependencies_by_name.keys() {
+            let placeholder = format!("{{{name}}}");
+            anyhow::ensure!(
+                url_template.matches(&placeholder).count() == 1,
+                "external link URL template must contain exactly one '{placeholder}' placeholder"
+            );
+            unmatched_template = unmatched_template.replace(&placeholder, "");
+        }
+        anyhow::ensure!(
+            !unmatched_template.contains(['{', '}']),
+            "external link URL template contains an undeclared placeholder"
+        );
         let binding = ExternalLinkBinding {
             connector,
             role,
             schema_pointer,
             url_template,
+            dependencies: dependencies_by_name,
         };
         let key = (connector, role, schema_pointer);
         anyhow::ensure!(

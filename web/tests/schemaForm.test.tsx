@@ -344,6 +344,62 @@ describe("schema form", () => {
     expect(view.container.querySelector("a")).toBeNull();
   });
 
+  it("builds dependency-aware external links and hides them until dependencies exist", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      required: new Set(["installation", "path"]),
+      additionalProperties: false,
+      xUi: {},
+      properties: {
+        installation: {
+          kind: "object",
+          required: new Set(["cluster"]),
+          additionalProperties: false,
+          xUi: {},
+          properties: {
+            cluster: { kind: "string", xUi: {} },
+          },
+        },
+        path: {
+          kind: "string",
+          xUi: {
+            external_link_template:
+              "https://yt.example/{cluster}/navigation?path=//{value}",
+            external_link_dependencies: {
+              cluster: "/installation/cluster",
+            },
+          },
+        },
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{
+          installation: { cluster: "hume" },
+          path: "//home/logfeller/tmp/TM-10373/",
+        }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(
+      view
+        .getByRole("link", { name: "Open in external console" })
+        .getAttribute("href"),
+    ).toBe(
+      "https://yt.example/hume/navigation?path=//home/logfeller/tmp/TM-10373/",
+    );
+
+    view.rerender(
+      <SchemaForm
+        node={node}
+        value={{ installation: { cluster: "" }, path: "//home/table" }}
+        onChange={() => undefined}
+      />,
+    );
+    expect(view.queryByRole("link", { name: "Open in external console" })).toBeNull();
+  });
+
   it("keeps focus when an external-console link appears after typing", () => {
     const node: CompiledNode = {
       kind: "string",

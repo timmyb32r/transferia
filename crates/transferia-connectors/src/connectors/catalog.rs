@@ -201,6 +201,12 @@ fn apply_external_link_bindings(
             "external_link_template".to_owned(),
             JsonValue::String(binding.url_template.to_owned()),
         );
+        if !binding.dependencies.is_empty() {
+            ui.insert(
+                "external_link_dependencies".to_owned(),
+                serde_json::to_value(&binding.dependencies)?,
+            );
+        }
     }
     Ok(())
 }

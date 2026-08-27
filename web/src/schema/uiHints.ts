@@ -15,6 +15,7 @@ export interface UiHints {
   dynamic_options_dependencies?: Readonly<Record<string, string>>;
   dynamic_options_control?: "path";
   external_link_template?: string;
+  external_link_dependencies?: Readonly<Record<string, string>>;
   labels?: Readonly<Record<string, string>>;
   options?: readonly JsonValue[];
   control_width?: string;
@@ -32,6 +33,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "dynamic_options_dependencies",
   "dynamic_options_control",
   "external_link_template",
+  "external_link_dependencies",
   "labels",
   "options",
   "control_width",
@@ -100,15 +102,29 @@ export function decodeUiHints(
       `${path}: x-ui dynamic_options_dependencies must map names to absolute JSON pointers`,
     );
 
+  const linkDependencies = stringRecord(
+    value.external_link_dependencies,
+    `${path}: x-ui external_link_dependencies must map names to absolute JSON pointers`,
+    fail,
+  );
+  if (
+    linkDependencies !== undefined &&
+    (!Object.entries(linkDependencies).every(
+      ([name, pointer]) => /^[a-zA-Z0-9_]+$/.test(name) && pointer.startsWith("/"),
+    ))
+  )
+    fail(
+      `${path}: x-ui external_link_dependencies must map safe names to absolute JSON pointers`,
+    );
   const linkTemplate = value.external_link_template;
   if (
     linkTemplate !== undefined &&
     (typeof linkTemplate !== "string" ||
       !linkTemplate.startsWith("https://") ||
-      linkTemplate.split("{value}").length !== 2)
+      !validExternalLinkTemplate(linkTemplate, linkDependencies))
   )
     fail(
-      `${path}: x-ui external_link_template must be an HTTPS URL containing exactly one {value} placeholder`,
+      `${path}: x-ui external_link_template must be an HTTPS URL containing exactly one declared placeholder each`,
     );
 
   const labels = stringRecord(
@@ -165,6 +181,9 @@ export function decodeUiHints(
     ...(linkTemplate === undefined
       ? {}
       : { external_link_template: linkTemplate }),
+    ...(linkDependencies === undefined
+      ? {}
+      : { external_link_dependencies: linkDependencies }),
     ...(labels === undefined ? {} : { labels }),
     ...(options === undefined ? {} : { options }),
     ...(controlWidth === undefined ? {} : { control_width: controlWidth }),
@@ -177,6 +196,23 @@ export function decodeUiHints(
       ? {}
       : { defer_variant_details: deferVariantDetails }),
   };
+}
+
+function validExternalLinkTemplate(
+  template: string,
+  dependencies: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const expected = ["value", ...Object.keys(dependencies ?? {})];
+  const placeholders = [...template.matchAll(/\{([^{}]+)\}/g)].map(
+    (match) => match[1],
+  );
+  return (
+    placeholders.length === expected.length &&
+    expected.every(
+      (name) => placeholders.filter((placeholder) => placeholder === name).length === 1,
+    ) &&
+    template.replaceAll(/\{[^{}]+\}/g, "").match(/[{}]/) === null
+  );
 }
 
 function optionalString(
