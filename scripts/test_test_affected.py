@@ -21,6 +21,20 @@ class AffectedChecksTest(unittest.TestCase):
         self.assertEqual(rust, [])
         self.assertEqual(web, [["npm", "run", "typecheck"]])
 
+    def test_cross_cutting_rust_change_keeps_frontend_typecheck(self):
+        selection = test_affected.select([
+            "crates/transferia-core/src/delivery.rs",
+            "web/src/delivery/EditorChrome.tsx",
+        ])
+        rust, web = test_affected.commands(selection)
+
+        self.assertTrue(selection.full)
+        self.assertEqual(
+            rust,
+            [["cargo", "check", "--workspace", "--all-targets", "--all-features"]],
+        )
+        self.assertEqual(web, [["npm", "run", "typecheck"]])
+
     def test_connector_change_runs_only_its_cargo_check(self):
         selection = test_affected.select([
             "crates/transferia-connector-clickhouse/src/connectors/clickhouse/sink/client.rs"

@@ -107,9 +107,10 @@ def select(paths: list[str]) -> Selection:
             continue
 
         if path in CROSS_CUTTING or path.startswith(("proto/", "vendor/")):
-            result.full = True
-            result.reason = f"cross-cutting build input changed: {path}"
-            return result
+            if not result.full:
+                result.full = True
+                result.reason = f"cross-cutting build input changed: {path}"
+            continue
 
         if path.startswith("web/"):
             result.web_paths.add(path.removeprefix("web/"))
@@ -132,9 +133,10 @@ def select(paths: list[str]) -> Selection:
             continue
 
         if path.startswith("crates/transferia-core/"):
-            result.full = True
-            result.reason = f"shared data-plane contract changed: {path}"
-            return result
+            if not result.full:
+                result.full = True
+                result.reason = f"shared data-plane contract changed: {path}"
+            continue
 
         if path.startswith("crates/"):
             parts = Path(path).parts
@@ -175,9 +177,10 @@ def select(paths: list[str]) -> Selection:
             continue
 
         if path.startswith("src/") and path.endswith(".rs"):
-            result.full = True
-            result.reason = f"public facade changed: {path}"
-            return result
+            if not result.full:
+                result.full = True
+                result.reason = f"public facade changed: {path}"
+            continue
 
         if path == "justfile" or path.startswith("scripts/"):
             continue
@@ -185,9 +188,9 @@ def select(paths: list[str]) -> Selection:
         if path.startswith(("docs/", ".github/")) or path.endswith((".md", ".txt")):
             continue
 
-        result.full = True
-        result.reason = f"unmapped file changed: {path}"
-        return result
+        if not result.full:
+            result.full = True
+            result.reason = f"unmapped file changed: {path}"
     return result
 
 
@@ -213,7 +216,7 @@ def commands(selection: Selection) -> tuple[list[list[str]], list[list[str]]]:
     if selection.full:
         return (
             [["cargo", "check", "--workspace", "--all-targets", "--all-features"]],
-            [],
+            [["npm", "run", "typecheck"]] if selection.web_paths else [],
         )
 
     rust: list[list[str]] = []
