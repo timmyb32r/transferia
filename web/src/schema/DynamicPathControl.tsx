@@ -195,9 +195,15 @@ export function DynamicPathControl({
             }
           }}
         />
-        {loading && (
-          <span class="spinner dynamic-path-spinner" aria-label="Loading" />
-        )}
+        <span class="dynamic-path-spinner-slot" aria-live="polite">
+          {loading && (
+            <span
+              class="spinner"
+              role="status"
+              aria-label="Loading path suggestions"
+            />
+          )}
+        </span>
       </div>
       {open && (
         <div

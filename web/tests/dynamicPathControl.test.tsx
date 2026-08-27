@@ -59,6 +59,38 @@ describe("dynamic path control", () => {
     expect(await view.findByRole("option", { name: "aaa/bb/" })).toBeTruthy();
   });
 
+  it("uses the standard spinner without changing the input layout", async () => {
+    vi.useFakeTimers();
+    let resolveOptions!: (value: {
+      options: Array<{ value: string; label: string }>;
+    }) => void;
+    const pending = new Promise<{
+      options: Array<{ value: string; label: string }>;
+    }>((resolve) => {
+      resolveOptions = resolve;
+    });
+    const view = render(
+      <Harness options={() => pending} initialValue="//home/log" />,
+    );
+
+    fireEvent.focus(view.getByRole("combobox"));
+    const slot = view.container.querySelector(".dynamic-path-spinner-slot");
+    expect(slot).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(160);
+    });
+    expect(slot?.querySelector(".spinner")).toBeTruthy();
+
+    await act(async () => {
+      resolveOptions({ options: [] });
+      await pending;
+    });
+    expect(slot?.querySelector(".spinner")).toBeNull();
+    expect(view.container.querySelector(".dynamic-path-spinner-slot")).toBe(
+      slot,
+    );
+  });
+
   it("commits a leaf and closes the suggestion list", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({

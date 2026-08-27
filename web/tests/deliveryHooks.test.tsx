@@ -265,6 +265,47 @@ describe("delivery controllers", () => {
     expect(result.current.discovery).toEqual(discovered);
   });
 
+  it("keeps automatic discovery progress out of global notices", async () => {
+    vi.useFakeTimers();
+    let resolveDiscovery!: (value: DiscoveryResult) => void;
+    const pending = new Promise<DiscoveryResult>((resolve) => {
+      resolveDiscovery = resolve;
+    });
+    vi.spyOn(api, "discover").mockReturnValue(pending);
+    const editor = newEditor();
+    const { result } = renderHook(() => {
+      const jobs = useDeliveryJobs();
+      const operations = useOperations();
+      const discovery = useDiscovery({
+        editor,
+        structurallyComplete: true,
+        job: jobs.discovery,
+        operations,
+        isCurrentContext: () => true,
+      });
+      return { discovery, operations: operations.operations };
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(650);
+    });
+    expect(isOperationPending(result.current.operations.discovery)).toBe(true);
+    expect(result.current.operations.discovery?.label).toBeUndefined();
+
+    await act(async () => {
+      resolveDiscovery({
+        source: "source",
+        sink: "sink",
+        pipeline_count: 1,
+        performance_advice: [],
+        datasets: [],
+        sink_limits: { sink: "sink", supported_arrow_types: [] },
+      });
+      await pending;
+    });
+    expect(result.current.operations.discovery).toBeUndefined();
+  });
+
   it("keeps the previous schema visible while refreshed discovery is pending", async () => {
     vi.useFakeTimers();
     const previous: DiscoveryResult = {

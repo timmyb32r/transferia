@@ -48,10 +48,10 @@ export function useDiscovery({
     };
     const timer = window.setTimeout(() => {
       setError(undefined);
-      const requestId = operations.beginOperation(
-        "discovery",
-        "Discovering topology and schema…",
-      );
+      // Automatic discovery is background work. Its progress is rendered by
+      // the controls that consume it; a global notice would be unrelated to
+      // the user's current interaction and would flicker while editing.
+      const requestId = operations.beginOperation("discovery");
       void job
         .run(context, editor.config, (config, signal) =>
           api.discover(config, signal),

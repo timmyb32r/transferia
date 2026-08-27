@@ -1463,11 +1463,13 @@ input[type="checkbox"]:disabled {
   width: 100%;
   padding-right: 34px;
 }
-.dynamic-path-spinner {
+.dynamic-path-spinner-slot {
   position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
+  inset: 0 0 0 auto;
+  display: grid;
+  width: 34px;
+  place-items: center;
+  pointer-events: none;
 }
 .dynamic-path-option {
   display: grid;
