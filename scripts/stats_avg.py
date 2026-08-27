@@ -51,14 +51,14 @@ def diagnosis(averages: dict[str, Any]) -> list[str]:
         notes.append("sink backpressure dominated at least half of sampled wall time")
     if averages["parse_busy_percent"] is not None and averages["parse_busy_percent"] >= 90:
         notes.append("parser was near saturation")
-    if averages["decompression_busy_percent"] >= 90:
-        notes.append("decompression was near saturation")
+    if averages["network_decode_busy_percent"] >= 90:
+        notes.append("network decoding was near saturation")
     if averages["sink_busy_percent"] >= 90:
         notes.append(
             "sink attempt load was high; for concurrent S3 uploads it may legitimately exceed 100%"
         )
-    if averages["source_messages_per_s"] == 0:
-        notes.append("source produced no messages during the sampled ticks")
+    if averages["source_records_per_s"] == 0:
+        notes.append("source produced no records during the sampled ticks")
     return notes
 
 
@@ -83,11 +83,11 @@ def render_text(averages: dict[str, Any]) -> str:
         f"samples: {averages['sample_count']}  partitions: {averages['partition_ids']}",
         f"guarantees: {', '.join(averages['delivery_guarantees'])}",
         "",
-        f"source: {format_rate(averages['source_messages_per_s'])} msg/s, "
-        f"{format_bytes(averages['compressed_bytes_per_s'])} compressed, "
-        f"{format_bytes(averages['decompressed_bytes_per_s'])} decompressed, "
+        f"source: {format_rate(averages['source_records_per_s'])} records/s, "
+        f"{format_bytes(averages['network_raw_bytes_per_s'])} network raw, "
+        f"{format_bytes(averages['network_decoded_bytes_per_s'])} network decoded, "
         f"{averages['response_wait_percent']:.0f}% response-wait, "
-        f"{averages['decompression_busy_percent']:.0f}% decompression busy",
+        f"{averages['network_decode_busy_percent']:.0f}% network-decode busy",
         f"parser: {format_rate(averages['parse_rows_per_s'])} rows/s, "
         f"{format_bytes(averages['parse_arrow_bytes_per_s'])} Arrow, "
         + ("N/A" if parse_busy is None else f"{parse_busy:.0f}% busy"),

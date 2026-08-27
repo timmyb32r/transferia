@@ -16,7 +16,7 @@ SPEC.loader.exec_module(BENCH)
 
 def comparison_document(**overrides):
     document = {
-        "schema_version": 2,
+        "schema_version": 3,
         "config_sha256": "same-config",
         "binary_sha256": "binary",
         "rustc": "rustc 1.0",
@@ -49,8 +49,9 @@ class StatsParsingTest(unittest.TestCase):
 
     def test_parses_partition_zero_stats_line(self):
         line = (
-            "[stats p=0] source: 1200 msg/s | comp 1.5 MiB/s | decomp 2.0 GiB/s | "
-            "response-wait 20% | decomp 40% busy || parse: 1100 rows/s | 2.5 MiB/s arrow | "
+            "[stats p=0] source: 1200 records/s | network-raw 1.5 MiB/s | "
+            "network-decoded 2.0 GiB/s | response-wait 20% | network-decode 40% busy || "
+            "parse: 1100 rows/s | 2.5 MiB/s arrow | "
             "3 dlq/s | 1000 source-msg/s | 60% busy || sink: 1000 rows/s | "
             "3.0 MiB/s | 2 flushes/s | 1000 source-msg/s | 70% busy | 1 retries | "
             "buffered 4 MiB | objects 1/2/3 | 10% backpressure || "
@@ -60,9 +61,9 @@ class StatsParsingTest(unittest.TestCase):
         sample = BENCH.parse_stats_line(line)
 
         self.assertEqual(sample["partition_id"], 0)
-        self.assertEqual(sample["source_messages_per_s"], 1200)
-        self.assertEqual(sample["compressed_bytes_per_s"], 1.5 * 1024 * 1024)
-        self.assertEqual(sample["decompressed_bytes_per_s"], 2 * 1024**3)
+        self.assertEqual(sample["source_records_per_s"], 1200)
+        self.assertEqual(sample["network_raw_bytes_per_s"], 1.5 * 1024 * 1024)
+        self.assertEqual(sample["network_decoded_bytes_per_s"], 2 * 1024**3)
         self.assertEqual(sample["response_wait_percent"], 20)
         self.assertEqual(sample["parse_rows_per_s"], 1100)
         self.assertEqual(sample["sink_rows_per_s"], 1000)
@@ -72,8 +73,9 @@ class StatsParsingTest(unittest.TestCase):
     def test_ignores_other_lines_and_exposes_discard_mode(self):
         self.assertIsNone(BENCH.parse_stats_line("unrelated log line"))
         line = (
-            "[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-            "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
+            "[stats p=0] source: 42 records/s | network-raw 42 B/s | "
+            "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
+            "parse: benchmark-discard || "
             "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
             "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
             "guarantee: destructive-benchmark | cpu: 5% rss: N/A"
@@ -84,8 +86,9 @@ class StatsParsingTest(unittest.TestCase):
 
     def test_rejects_removed_downloader_busy_field(self):
         line = (
-            "[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-            "dl 7% busy | decomp 0% busy || parse: benchmark-discard || "
+            "[stats p=0] source: 42 records/s | network-raw 42 B/s | "
+            "network-decoded 0 B/s | response-wait 1% | downloader 7% busy | "
+            "network-decode 0% busy || parse: benchmark-discard || "
             "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
             "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
             "guarantee: destructive-benchmark | cpu: 5% rss: N/A"
@@ -116,11 +119,11 @@ class StatsParsingTest(unittest.TestCase):
 class SummaryTest(unittest.TestCase):
     def test_reports_robust_distribution(self):
         samples = [
-            {"partition_id": 0, "source_messages_per_s": value}
+            {"partition_id": 0, "source_records_per_s": value}
             for value in (10, 20, 30, 40, 1000)
         ]
         summary = BENCH.summarize_samples(samples)
-        metric = summary["source_messages_per_s"]
+        metric = summary["source_records_per_s"]
         self.assertEqual(metric["count"], 5)
         self.assertEqual(metric["median"], 30)
         self.assertEqual(metric["mad"], 10)
@@ -355,8 +358,9 @@ class RunnerTest(unittest.TestCase):
                 "signal.signal(signal.SIGTERM, stop)\n"
                 "print('rep=' + os.environ['BENCHMARK_REPETITION'], flush=True)\n"
                 "print('destination=' + os.environ['BENCHMARK_RUN_NAMESPACE'], flush=True)\n"
-                "line = '[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-                "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
+                "line = '[stats p=0] source: 42 records/s | network-raw 42 B/s | "
+                "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
+                "parse: benchmark-discard || "
                 "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
                 "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
                 "guarantee: destructive-benchmark | cpu: 5% rss: N/A'\n"
@@ -372,7 +376,7 @@ class RunnerTest(unittest.TestCase):
             result = BENCH.run_once(binary, config, root, 3, 0.05, 0.5, 3)
 
             self.assertGreaterEqual(result["sample_count"], 3)
-            self.assertEqual(result["summary"]["source_messages_per_s"]["median"], 42)
+            self.assertEqual(result["summary"]["source_records_per_s"]["median"], 42)
             log = (root / "run-03.log").read_text()
             self.assertIn("[stats p=0]", log)
             self.assertIn("rep=3", log)
@@ -384,8 +388,9 @@ class RunnerTest(unittest.TestCase):
         process.stdout = iter(
             [
                 "pipeline failed, restarting: boom\n",
-                "[stats p=0] source: 42 msg/s | comp 42 B/s | decomp 0 B/s | "
-                "response-wait 1% | decomp 0% busy || parse: benchmark-discard || "
+                "[stats p=0] source: 42 records/s | network-raw 42 B/s | "
+                "network-decoded 0 B/s | response-wait 1% | network-decode 0% busy || "
+                "parse: benchmark-discard || "
                 "sink: 0 rows/s | 0 B/s | 0 flushes/s | 0 source-msg/s | 0% busy | "
                 "0 retries | buffered N/A | objects 0/0/0 | 0% backpressure || "
                 "guarantee: destructive-benchmark | cpu: 5% rss: N/A\n",

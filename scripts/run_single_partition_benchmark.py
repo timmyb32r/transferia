@@ -27,10 +27,10 @@ from typing import Any
 
 STATS_PREFIX = re.compile(r"\[stats p=(?P<partition>-?\d+)]")
 SOURCE = re.compile(
-    r"source: (?P<messages>\d+) msg/s \| comp (?P<compressed>.+?) \| "
-    r"decomp (?P<decompressed>.+?) \| "
+    r"source: (?P<records>\d+) records/s \| network-raw (?P<network_raw>.+?) \| "
+    r"network-decoded (?P<network_decoded>.+?) \| "
     r"response-wait (?P<response_wait>\d+)% \| "
-    r"decomp (?P<decomp_busy>\d+)% busy"
+    r"network-decode (?P<network_decode_busy>\d+)% busy"
 )
 PARSE = re.compile(
     r"parse: (?P<rows>\d+) rows/s \| (?P<arrow>.+?) arrow \| "
@@ -84,11 +84,11 @@ REPRODUCIBILITY_ENV_KEYS = (
     "S3_ACCESS_KEY",
 )
 NUMERIC_SAMPLE_KEYS = (
-    "source_messages_per_s",
-    "compressed_bytes_per_s",
-    "decompressed_bytes_per_s",
+    "source_records_per_s",
+    "network_raw_bytes_per_s",
+    "network_decoded_bytes_per_s",
     "response_wait_percent",
-    "decompression_busy_percent",
+    "network_decode_busy_percent",
     "parse_rows_per_s",
     "parse_arrow_bytes_per_s",
     "parse_busy_percent",
@@ -144,11 +144,11 @@ def parse_stats_line(line: str) -> dict[str, Any] | None:
     parse = PARSE.search(line)
     return {
         "partition_id": int(partition.group("partition")),
-        "source_messages_per_s": int(source.group("messages")),
-        "compressed_bytes_per_s": parse_bytes(source.group("compressed")),
-        "decompressed_bytes_per_s": parse_bytes(source.group("decompressed")),
+        "source_records_per_s": int(source.group("records")),
+        "network_raw_bytes_per_s": parse_bytes(source.group("network_raw")),
+        "network_decoded_bytes_per_s": parse_bytes(source.group("network_decoded")),
         "response_wait_percent": int(source.group("response_wait")),
-        "decompression_busy_percent": int(source.group("decomp_busy")),
+        "network_decode_busy_percent": int(source.group("network_decode_busy")),
         "parse_rows_per_s": int(parse.group("rows")) if parse else None,
         "parse_arrow_bytes_per_s": parse_bytes(parse.group("arrow")) if parse else None,
         "parse_busy_percent": int(parse.group("busy")) if parse else None,
@@ -348,6 +348,7 @@ def summarize_samples(samples: list[dict[str, Any]]) -> dict[str, dict[str, floa
         deviations = [abs(value - median) for value in values]
         summary[key] = {
             "count": len(values),
+            "mean": statistics.fmean(values),
             "median": median,
             "mad": statistics.median(deviations),
             "p10": percentile(values, 0.10),
@@ -370,7 +371,7 @@ def compare_primary_runs(
     baseline_median = statistics.median(baseline)
     median_ratio = current_median / baseline_median if baseline_median > 0 else 1.0
     return {
-        "metric": "source_messages_per_s",
+        "metric": "source_records_per_s",
         "current_median": current_median,
         "baseline_median": baseline_median,
         "median_ratio": median_ratio,
@@ -495,9 +496,11 @@ def run_once(
         raise RuntimeError("pipeline failures occurred during benchmark: " + "; ".join(failures))
     if len(samples) < min_samples:
         raise RuntimeError(f"only {len(samples)} stats samples captured; expected at least {min_samples}")
-    nonzero = sum(sample["source_messages_per_s"] > 0 for sample in samples)
+    nonzero = sum(sample["source_records_per_s"] > 0 for sample in samples)
     if nonzero < min_samples:
-        raise RuntimeError(f"only {nonzero} non-zero PQ samples captured; backlog may have drained")
+        raise RuntimeError(
+            f"only {nonzero} non-zero source samples captured; the finite input may have drained"
+        )
     return {
         "repetition": repetition,
         "namespace": environment["BENCHMARK_RUN_NAMESPACE"],
@@ -509,9 +512,9 @@ def run_once(
 
 def load_primary_runs(document: dict[str, Any]) -> list[float]:
     try:
-        return [float(run["summary"]["source_messages_per_s"]["median"]) for run in document["runs"]]
+        return [float(run["summary"]["source_records_per_s"]["median"]) for run in document["runs"]]
     except (KeyError, TypeError, ValueError) as error:
-        raise ValueError("baseline does not contain per-run source_messages_per_s medians") from error
+        raise ValueError("baseline does not contain per-run source_records_per_s medians") from error
 
 
 def parse_args() -> argparse.Namespace:
@@ -551,7 +554,7 @@ def main() -> int:
     config_bytes = config.read_bytes()
     config_text = config_bytes.decode("utf-8")
     document: dict[str, Any] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "config": str(config),
         "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
@@ -588,8 +591,8 @@ def main() -> int:
             document["runs"].append(run)
         primary = load_primary_runs(document)
         document["primary_summary"] = summarize_samples(
-            [{"partition_id": 0, "source_messages_per_s": value} for value in primary]
-        )["source_messages_per_s"]
+            [{"partition_id": 0, "source_records_per_s": value} for value in primary]
+        )["source_records_per_s"]
         exit_code = 0
         if args.baseline:
             baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
