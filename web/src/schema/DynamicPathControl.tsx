@@ -293,15 +293,35 @@ export function DynamicPathControl({
           role="listbox"
           aria-label="Path suggestions"
         >
+          {browseQuery !== "" && (
+            <div
+              class="dynamic-path-directory"
+              role="presentation"
+              aria-hidden="true"
+              title={browseQuery}
+            >
+              <span class="dynamic-path-kind">
+                <YTsaurusFolderIcon />
+              </span>
+              <strong class="dynamic-path-directory-path">
+                {browseQuery}
+              </strong>
+            </div>
+          )}
           {options.map((option, index) => {
             const directory = option.value.endsWith("/");
             const label = splitPathLabel(option.label);
+            const labelWithinDirectory = option.label.startsWith(browseQuery);
+            const displayName = labelWithinDirectory
+              ? option.label.slice(browseQuery.length)
+              : `${label.name}${label.trailingSlash}`;
             return (
               <button
                 id={`${menuId}-option-${index}`}
                 key={option.value}
                 type="button"
                 role="option"
+                aria-label={option.label}
                 aria-selected={index === highlightedIndex}
                 tabIndex={-1}
                 data-option-index={index}
@@ -320,12 +340,10 @@ export function DynamicPathControl({
                   {directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />}
                 </span>
                 <span class="dynamic-path-label" title={option.label}>
-                  <strong class="dynamic-path-prefix">{label.prefix}</strong>
                   <SearchHighlight
-                    text={label.name}
+                    text={displayName}
                     query={searchFragment}
                   />
-                  {label.trailingSlash}
                 </span>
               </button>
             );

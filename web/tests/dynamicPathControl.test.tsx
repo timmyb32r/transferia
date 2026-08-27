@@ -136,7 +136,13 @@ describe("dynamic path control", () => {
     const option = await view.findByRole("option", { name: longPath });
     const label = option.querySelector(".dynamic-path-label");
     expect(label?.getAttribute("title")).toBe(longPath);
+    expect(label?.textContent).toBe(
+      "yt-read-throughput-direct-count-20260826/",
+    );
     expect(label?.classList.contains("dynamic-path-label")).toBe(true);
+    expect(
+      view.container.querySelector(".dynamic-path-directory-path")?.textContent,
+    ).toBe("//home/logfeller/tmp/TM-10373/");
   });
 
   it("navigates suggestions with arrows and accepts the active option with Tab", async () => {
@@ -375,17 +381,17 @@ describe("dynamic path control", () => {
     );
     for (const option of await view.findAllByRole("option")) {
       expect(option.querySelector("span:last-child")?.textContent).toMatch(
-        /^\/\/home\/logfeller\/log(?:forwarder|s)\/$/,
-      );
-      expect(option.querySelector(".dynamic-path-prefix")?.textContent).toBe(
-        "//home/logfeller/",
+        /^log(?:forwarder|s)\/$/,
       );
       expect(
-        [...option.querySelectorAll("strong:not(.dynamic-path-prefix)")]
+        [...option.querySelectorAll("strong")]
           .map((character) => character.textContent)
           .join(""),
       ).toBe("log");
     }
+    expect(
+      view.container.querySelector(".dynamic-path-directory-path")?.textContent,
+    ).toBe("//home/logfeller/");
   });
 
   it("loads each directory once and filters subsequent input from its LRU cache", async () => {
