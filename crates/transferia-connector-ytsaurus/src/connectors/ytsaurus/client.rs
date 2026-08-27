@@ -42,6 +42,24 @@ enum DiscoverProxiesResponse {
     Object { proxies: Vec<String> },
 }
 
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum ListedNode {
+    Name(String),
+    WithAttributes {
+        #[serde(rename = "$value")]
+        name: String,
+        #[serde(rename = "$attributes")]
+        attributes: ListedNodeAttributes,
+    },
+}
+
+#[derive(Deserialize)]
+pub(super) struct ListedNodeAttributes {
+    #[serde(rename = "type")]
+    node_type: String,
+}
+
 impl DiscoverProxiesResponse {
     fn into_proxies(self) -> Vec<String> {
         match self {
@@ -179,6 +197,28 @@ impl YTsaurusClient {
             .send()
             .await?;
         Ok(Self::checked(response).await?.json().await?)
+    }
+
+    pub async fn list_table_paths(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        let directory = suggestion_directory(query)?;
+        let parameters = serde_json::json!({
+            "path": directory,
+            "attributes": ["type"],
+        });
+        let response = self
+            .request(reqwest::Method::GET, "list")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters.to_string())
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
+            .send()
+            .await?;
+        let nodes = Self::checked(response)
+            .await?
+            .json::<Vec<ListedNode>>()
+            .await?;
+        Ok(table_path_suggestions(&directory, nodes))
     }
 
     pub async fn read_table(
@@ -327,6 +367,48 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+}
+
+pub(super) fn suggestion_directory(query: &str) -> anyhow::Result<String> {
+    let query = query.trim();
+    let directory = if matches!(query, "" | "/" | "//") {
+        "//"
+    } else {
+        query.trim_end_matches('/')
+    };
+    anyhow::ensure!(
+        directory == "//" || (directory.starts_with("//") && directory.len() > 2),
+        "YTsaurus path suggestion query must be empty or start with '//'"
+    );
+    anyhow::ensure!(
+        !directory.contains('<') && !directory.contains('>') && !directory.contains('\0'),
+        "YTsaurus path suggestion query must not contain rich-path attributes or NUL"
+    );
+    Ok(directory.to_owned())
+}
+
+pub(super) fn table_path_suggestions(directory: &str, nodes: Vec<ListedNode>) -> Vec<String> {
+    let prefix = if directory == "//" {
+        "//".to_owned()
+    } else {
+        format!("{directory}/")
+    };
+    let mut suggestions = nodes
+        .into_iter()
+        .filter_map(|node| match node {
+            ListedNode::WithAttributes { name, attributes }
+                if attributes.node_type == "table" => Some(format!("{prefix}{name}")),
+            ListedNode::WithAttributes { name, attributes }
+                if matches!(attributes.node_type.as_str(), "map_node" | "portal_entrance") =>
+            {
+                Some(format!("{prefix}{name}/"))
+            }
+            ListedNode::Name(_name) => None,
+            ListedNode::WithAttributes { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    suggestions.sort_unstable();
+    suggestions
 }
 
 pub(super) fn rich_read_path(path: &str, start_row_index: i64) -> String {

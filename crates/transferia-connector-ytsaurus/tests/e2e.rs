@@ -320,7 +320,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - name: input\n    path: //tmp/input\n"
+            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

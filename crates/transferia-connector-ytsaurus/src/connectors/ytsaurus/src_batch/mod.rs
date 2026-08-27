@@ -160,6 +160,7 @@ enum ReadChunkPayload {
 #[derive(Clone)]
 pub(super) struct DiscoveredTable {
     pub(super) config: SourceTableConfig,
+    pub(super) dataset_name: Arc<str>,
     pub(super) schema: DatasetSchema,
     pub(super) optimize_for_scan: bool,
     pub(super) physical_layout: PhysicalChunkLayout,
@@ -224,7 +225,7 @@ pub(super) fn performance_advice(tables: &[DiscoveredTable]) -> Vec<PerformanceA
                     severity: PerformanceAdviceSeverity::Info,
                     summary: format!(
                         "Table '{}' is optimized for point lookups",
-                        table.config.name
+                        table.dataset_name
                     ),
                     explanation: format!(
                         "YTsaurus table '{}' has optimize_for=lookup; sequential snapshot reads may be slower.",
@@ -239,7 +240,7 @@ pub(super) fn performance_advice(tables: &[DiscoveredTable]) -> Vec<PerformanceA
                 severity: PerformanceAdviceSeverity::Warning,
                 summary: format!(
                     "Table '{}' contains non-columnar chunks",
-                    table.config.name
+                    table.dataset_name
                 ),
                 explanation: format!(
                     "YTsaurus table '{}' has optimize_for=scan, but only {} of {} physical chunks are table_unversioned_columnar; Transferia will use YT wire rowsets instead of Arrow.",
@@ -290,6 +291,7 @@ impl YTsaurusSourceConnector {
                     .is_some_and(|partition| partition.direct_data_node_access);
                 let mut tables = Vec::with_capacity(self.config.tables.len());
                 for table in &self.config.tables {
+                    let dataset_name = Arc::from(table.dataset_name()?);
                     let dynamic = self
                         .client
                         .get_json(&format!("{}/@dynamic", table.path))
@@ -375,6 +377,7 @@ impl YTsaurusSourceConnector {
                     }
                     tables.push(DiscoveredTable {
                         config: table.clone(),
+                        dataset_name,
                         schema,
                         optimize_for_scan: optimize_for == "scan",
                         physical_layout,
@@ -430,7 +433,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                     .iter()
                     .map(|table| DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table.config.name.as_str()),
+                        name: Arc::clone(&table.dataset_name),
                         incoming_schema: DatasetSchema::default(),
                         stored_schema: DatasetSchema::default(),
                         system_columns: Vec::new(),
@@ -485,7 +488,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                     };
                     Ok(DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table.config.name.as_str()),
+                        name: Arc::clone(&table.dataset_name),
                         incoming_schema: incoming,
                         stored_schema,
                         system_columns: discovered_system_columns.clone(),
@@ -545,7 +548,7 @@ impl SourceConnector for YTsaurusSourceConnector {
             let native_token = uses_native_rpc.then(|| self.client.token().to_owned());
             let native_service_ticket_file =
                 self.config.native_rpc_service_ticket_file.clone();
-            let dataset_name = Arc::from(table.config.name.as_str());
+            let dataset_name = Arc::clone(&table.dataset_name);
             let expected_arrow_schema = dataset_arrow_schema(&table.schema);
             let (source_has_system_columns, system_columns) =
                 system_column_layout(&table.schema)?;

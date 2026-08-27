@@ -15,7 +15,9 @@ use super::config::{
     YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
     YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
-use super::client::rich_read_path;
+use super::client::{
+    ListedNode, rich_read_path, suggestion_directory, table_path_suggestions,
+};
 use super::columnar_chunk::validate_direct_schema;
 use super::discard::{DiscardDecoder, output_format};
 use super::direct_data_node::{
@@ -186,22 +188,22 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
 }
 
 #[test]
-fn source_tables_require_explicit_unique_logical_names() -> anyhow::Result<()> {
+fn source_table_names_are_derived_from_unique_path_basenames() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - name: events\n    path: //tmp/input\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n",
     )?;
     source.validate()?;
+    assert_eq!(source.tables[0].dataset_name()?, "input");
     let tls_source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - name: events\n    path: //tmp/input\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: false\ntables:\n  - path: //tmp/input\n"
     )?;
     tls_source.connection.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
         "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n"
-    )
-    .is_err());
+    )?.validate().is_ok());
     assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - { name: events, path: //tmp/a }\n  - { name: events, path: //tmp/b }\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - { path: //tmp/a/events }\n  - { path: //tmp/b/events }\n"
     )?
     .validate()
     .is_err());
@@ -210,6 +212,24 @@ fn source_tables_require_explicit_unique_logical_names() -> anyhow::Result<()> {
     )?
     .validate()
     .is_err());
+    Ok(())
+}
+
+#[test]
+fn table_path_suggestions_include_only_directories_and_tables() -> anyhow::Result<()> {
+    assert_eq!(suggestion_directory("")?, "//");
+    assert_eq!(suggestion_directory("//home/logs/")?, "//home/logs");
+    assert!(suggestion_directory("relative/path").is_err());
+
+    let nodes = serde_json::from_value::<Vec<ListedNode>>(serde_json::json!([
+        { "$value": "nested", "$attributes": { "type": "map_node" } },
+        { "$value": "events", "$attributes": { "type": "table" } },
+        { "$value": "link", "$attributes": { "type": "link" } }
+    ]))?;
+    assert_eq!(
+        table_path_suggestions("//home/logs", nodes),
+        vec!["//home/logs/events", "//home/logs/nested/"]
+    );
     Ok(())
 }
 
@@ -572,7 +592,7 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n\
+         tables: [{ path: //tmp/input }]\n\
          read_ordering: { type: unordered }\n",
     )?;
     native_source.validate()?;
@@ -583,7 +603,7 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n",
+         tables: [{ path: //tmp/input }]\n",
     )?;
     assert_eq!(default_source.read_ordering, YTsaurusReadOrdering::Ordered);
 
@@ -592,7 +612,7 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n\
+         tables: [{ path: //tmp/input }]\n\
          read_ordering:\n\
            type: partition_tables\n\
            compressed_data_size_per_partition: 268435456\n\
@@ -623,7 +643,7 @@ fn native_rpc_requires_explicit_plaintext_trust() -> anyhow::Result<()> {
          port: 9013\n\
          trusted_plaintext: false\n\
          trusted_native_rpc_plaintext: false\n\
-         tables: [{ name: events, path: //tmp/input }]\n",
+         tables: [{ path: //tmp/input }]\n",
     )?;
 
     assert_eq!(
@@ -637,7 +657,7 @@ fn native_rpc_requires_explicit_plaintext_trust() -> anyhow::Result<()> {
          port: 443\n\
          trusted_plaintext: false\n\
          trusted_native_rpc_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n",
+         tables: [{ path: //tmp/input }]\n",
     )?;
     trusted.validate()?;
     assert_eq!(
@@ -655,7 +675,7 @@ fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()
          port: 443\n\
          trusted_plaintext: false\n\
          trusted_native_rpc_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n\
+         tables: [{ path: //tmp/input }]\n\
          read_ordering:\n\
            type: partition_tables\n\
            direct_data_node_access: true\n",
@@ -671,7 +691,7 @@ fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()
          port: 443\n\
          trusted_plaintext: false\n\
          trusted_native_rpc_plaintext: true\n\
-         tables: [{ name: events, path: //tmp/input }]\n\
+         tables: [{ path: //tmp/input }]\n\
          native_rpc_service_ticket_file: ~/.tvm/service-ticket\n\
          read_ordering:\n\
            type: partition_tables\n\
@@ -724,9 +744,9 @@ fn physical_chunk_layout_requires_complete_aggregate_statistics() -> anyhow::Res
 fn physical_layout_advice_is_structured_and_actionable() {
     let table = |optimize_for_scan, physical_layout| DiscoveredTable {
         config: super::config::SourceTableConfig {
-            name: "events".to_owned(),
             path: "//tmp/events".to_owned(),
         },
+        dataset_name: Arc::from("events"),
         schema: DatasetSchema::default(),
         optimize_for_scan,
         physical_layout,

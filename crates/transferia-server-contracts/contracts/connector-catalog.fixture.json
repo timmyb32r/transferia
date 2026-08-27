@@ -5656,18 +5656,14 @@
             "SourceTableConfig": {
               "type": "object",
               "properties": {
-                "name": {
-                  "title": "Table name",
-                  "description": "Logical dataset name emitted to the destination",
-                  "type": "string"
-                },
                 "path": {
+                  "title": "Path",
+                  "description": "Absolute YTsaurus table path. The final path component is used as the logical dataset name.",
                   "type": "string"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "name",
                 "path"
               ]
             },
@@ -5950,7 +5946,6 @@
           "timeout_ms": 30000,
           "tables": [
             {
-              "name": "",
               "path": ""
             }
           ],

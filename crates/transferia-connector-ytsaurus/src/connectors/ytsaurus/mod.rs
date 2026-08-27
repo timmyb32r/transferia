@@ -17,6 +17,14 @@ pub use config::{
 pub use sink::YTsaurusSinkConnector;
 pub use src_batch::YTsaurusSourceConnector;
 
+pub async fn list_table_path_suggestions(
+    config: &YTsaurusConnectionConfig,
+    query: &str,
+) -> anyhow::Result<Vec<String>> {
+    let client = client::YTsaurusClient::new(config)?;
+    client.list_table_paths(query).await
+}
+
 pub async fn check_connection(config: &YTsaurusConnectionConfig) -> anyhow::Result<()> {
     let client = client::YTsaurusClient::new(config)?;
     client

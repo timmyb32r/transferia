@@ -30,7 +30,7 @@ pub fn register(
                         "host": "", "port": 8000, "trusted_plaintext": true,
                         "trusted_native_rpc_plaintext": false,
                         "timeout_ms": 30000,
-                        "tables": [{ "name": "", "path": "" }],
+                        "tables": [{ "path": "" }],
                         "read_ordering": { "type": "ordered" },
                         "native_rpc_service_ticket_file": null,
                         "table_reader": {},

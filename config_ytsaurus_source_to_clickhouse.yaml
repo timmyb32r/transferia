@@ -10,8 +10,7 @@ source:
       trusted_plaintext: true
     batch_rows: 65536
     tables:
-      - name: events
-        path: //tmp/events
+      - path: //tmp/events
 sink:
   clickhouse:
     installation:

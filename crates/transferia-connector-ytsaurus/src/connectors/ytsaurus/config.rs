@@ -506,12 +506,25 @@ impl YTsaurusTableReaderConfig {
 #[serde(deny_unknown_fields)]
 pub struct SourceTableConfig {
     #[schemars(
-        title = "Table name",
-        description = "Logical dataset name emitted to the destination"
+        title = "Path",
+        description = "Absolute YTsaurus table path. The final path component is used as the logical dataset name."
     )]
-    pub name: String,
-
     pub path: String,
+}
+
+impl SourceTableConfig {
+    pub fn dataset_name(&self) -> anyhow::Result<&str> {
+        self.path
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "YTsaurus table path '{}' must end with a table name",
+                    self.path
+                )
+            })
+    }
 }
 
 impl YTsaurusSourceConfig {
@@ -600,23 +613,16 @@ impl YTsaurusSourceConfig {
         let mut names = HashSet::new();
         for table in &self.tables {
             validate_path(&table.path)?;
-            anyhow::ensure!(
-                !table.name.trim().is_empty(),
-                "ytsaurus.tables.name must not be empty"
-            );
-            anyhow::ensure!(
-                table.name == table.name.trim(),
-                "ytsaurus.tables.name must not have leading or trailing whitespace"
-            );
+            let name = table.dataset_name()?;
             anyhow::ensure!(
                 paths.insert(table.path.as_str()),
                 "ytsaurus.tables repeats path '{}'",
                 table.path
             );
             anyhow::ensure!(
-                names.insert(table.name.as_str()),
-                "ytsaurus.tables repeats logical table name '{}'",
-                table.name
+                names.insert(name),
+                "YTsaurus table paths must have unique final components; '{}' is repeated",
+                name
             );
         }
         Ok(())
