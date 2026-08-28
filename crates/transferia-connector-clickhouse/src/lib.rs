@@ -24,9 +24,15 @@ pub fn register(
                 vec![DeliveryMode::Batch], false,
                 || serde_json::json!({
                     "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
+                    "http_port": 8123,
                     "trusted_plaintext": true, "username": "", "password": "",
                     "tables": [{ "database": "", "name": "" }],
-                    "batch_rows": 65409, "max_threads": 16, "compression": "zstd",
+                    "batch_rows": 65409,
+                    "snapshot_reader": {
+                        "type": "parquet", "compression": "zstd", "max_threads": 32,
+                        "row_group_rows": 250000, "decode_threads": 16,
+                        "max_response_bytes": 2147483648_u64
+                    },
                     "connect_timeout_ms": 30000, "request_timeout_ms": 30000
                 }),
                 { let metrics = Arc::clone(metrics); move |config| Ok(Box::new(clickhouse::ClickHouseSourceConnector::from_config(config, Arc::clone(&metrics))?)) },

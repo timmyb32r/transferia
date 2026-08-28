@@ -22,15 +22,53 @@ fn source_contract_has_no_shard_group() {
 }
 
 #[test]
-fn source_defaults_use_bounded_high_throughput_native_settings() {
+fn source_defaults_use_bounded_high_throughput_parquet_settings() {
     let config: ClickHouseSourceConfig = serde_yaml::from_str(
         "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n",
     )
     .unwrap();
 
     assert_eq!(config.batch_rows, 65_409);
-    assert_eq!(config.max_threads, 16);
-    assert_eq!(config.compression, ClickHouseCompression::Zstd);
+    assert_eq!(config.http_port, 8123);
+    assert!(matches!(
+        config.snapshot_reader,
+        ClickHouseSnapshotReader::Parquet {
+            compression: ClickHouseParquetCompression::Zstd,
+            max_threads: 32,
+            row_group_rows: 250_000,
+            decode_threads: 16,
+            max_response_bytes: 2_147_483_648,
+        }
+    ));
+}
+
+#[test]
+fn source_accepts_zstd_parquet_and_native_reader_profiles() {
+    let base = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n";
+    let parquet: ClickHouseSourceConfig = serde_yaml::from_str(&format!(
+        "{base}snapshot_reader: {{ type: parquet, compression: zstd, max_threads: 32, row_group_rows: 250000, decode_threads: 16, max_response_bytes: 1073741824 }}\n"
+    ))
+    .unwrap();
+    assert!(matches!(
+        parquet.snapshot_reader,
+        ClickHouseSnapshotReader::Parquet {
+            compression: ClickHouseParquetCompression::Zstd,
+            row_group_rows: 250_000,
+            ..
+        }
+    ));
+
+    let native: ClickHouseSourceConfig = serde_yaml::from_str(&format!(
+        "{base}snapshot_reader: {{ type: native, max_threads: 16, compression: zstd }}\n"
+    ))
+    .unwrap();
+    assert!(matches!(
+        native.snapshot_reader,
+        ClickHouseSnapshotReader::Native {
+            max_threads: 16,
+            compression: ClickHouseCompression::Zstd,
+        }
+    ));
 }
 
 #[test]
@@ -52,7 +90,11 @@ fn derives_output_name_from_the_source_table() {
 
 #[test]
 fn supports_verified_tls() {
-    let value = serde_yaml::from_str("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: /tmp/ca.pem\nusername: default\ntables: [{database: default, name: events}]\n").unwrap();
+    let ca = format!(
+        "{}/src/connectors/clickhouse/sink/tests/fixtures/localhost-ca.pem",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let value = serde_yaml::from_str(&format!("hosts: [localhost]\nport: 9440\ntrusted_plaintext: false\ntls_ca_file: {ca}\nusername: default\ntables: [{{database: default, name: events}}]\n")).unwrap();
     assert!(
         ClickHouseSourceConnector::from_config(value, Arc::new(MetricsRegistry::new())).is_ok()
     );

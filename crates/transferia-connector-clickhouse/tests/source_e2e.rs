@@ -63,7 +63,7 @@ async fn clickhouse_source_discovers_and_streams_a_deterministic_native_snapshot
     }
 
     let connector = ClickHouseSourceConnector::from_config(
-        serde_yaml::from_str(&format!("hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\nusername: default\nbatch_rows: 2\ntables:\n  - database: default\n    name: events\n"))?,
+        serde_yaml::from_str(&format!("hosts: ['{host}']\nport: {native_port}\ntrusted_plaintext: true\nusername: default\nbatch_rows: 2\nsnapshot_reader: {{ type: native, max_threads: 1, compression: lz4 }}\ntables:\n  - database: default\n    name: events\n"))?,
         Arc::new(MetricsRegistry::new()),
     )?;
     let discovery = connector

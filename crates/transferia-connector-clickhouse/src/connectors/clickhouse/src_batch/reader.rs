@@ -6,7 +6,9 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
+use futures_util::Stream;
 use futures_util::StreamExt as _;
+use std::pin::Pin;
 
 use super::connector::DiscoveredTable;
 use crate::metrics::SourceCounters;
@@ -19,7 +21,7 @@ use transferia_core::source::{CommitMarker, Source};
 pub(super) struct ClickHouseSource {
     table: DiscoveredTable,
     partition_id: i64,
-    stream: crate::connectors::clickhouse::sink::client::QueryStream,
+    stream: SnapshotStream,
     pending: Option<(RecordBatch, usize)>,
     batch_rows: usize,
     request_timeout: Duration,
@@ -28,11 +30,14 @@ pub(super) struct ClickHouseSource {
     counters: Arc<SourceCounters>,
 }
 
+pub(super) type SnapshotStream =
+    Pin<Box<dyn Stream<Item = anyhow::Result<RecordBatch>> + Send + 'static>>;
+
 impl ClickHouseSource {
     pub(super) const fn new(
         table: DiscoveredTable,
         partition_id: i64,
-        stream: crate::connectors::clickhouse::sink::client::QueryStream,
+        stream: SnapshotStream,
         batch_rows: usize,
         request_timeout: Duration,
         counters: Arc<SourceCounters>,
@@ -176,10 +181,10 @@ impl Source for ClickHouseSource {
                     })?;
                 match next {
                     Some(Ok(batch)) if batch.num_rows() > 0 => {
-                        // This is the payload after native transport decompression and
+                        // This is the payload after transport decompression and
                         // ClickHouse-to-Arrow decoding, before Transferia adds synthetic
-                        // system columns. The client does not expose compressed frame
-                        // sizes, so network-raw deliberately remains zero.
+                        // system columns. Transports that expose compressed response
+                        // sizes account for network-raw at their own boundary.
                         self.counters.add_network_decoded_bytes(
                             u64::try_from(batch.get_array_memory_size()).unwrap_or(u64::MAX),
                         );

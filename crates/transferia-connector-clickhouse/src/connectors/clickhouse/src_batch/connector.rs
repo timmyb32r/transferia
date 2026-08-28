@@ -7,9 +7,12 @@ use arrow::compute::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use clickhouse_arrow::{ClientBuilder, Type};
 use futures_util::future::BoxFuture;
+use futures_util::StreamExt as _;
 
-use super::config::{ClickHouseSourceConfig, TableConfig};
+use super::config::{ClickHouseSnapshotReader, ClickHouseSourceConfig, TableConfig};
+use super::parquet::{ParquetReadSettings, ParquetTransport};
 use super::reader::ClickHouseSource;
+use super::reader::SnapshotStream;
 use crate::connectors::clickhouse::sink::client::probe_network;
 use crate::connectors::clickhouse::sink::client::{quote_identifier, ReconnectingClient};
 use crate::connectors::clickhouse::sink::identifier::validate_identifier;
@@ -46,6 +49,7 @@ pub(super) const SYSTEM_COLUMN_KINDS: [SystemColumnKind; 4] = [
 pub struct ClickHouseSourceConnector {
     config: ClickHouseSourceConfig,
     client: Arc<ReconnectingClient>,
+    parquet: Option<ParquetTransport>,
     parser_plan: ParserPlan,
     metrics: Arc<MetricsRegistry>,
     discovered: tokio::sync::OnceCell<Arc<Vec<DiscoveredTable>>>,
@@ -60,8 +64,32 @@ impl ClickHouseSourceConnector {
         config.validate()?;
         let batch_rows = i64::try_from(config.batch_rows)
             .expect("validated ClickHouse batch_rows fits in i64");
-        let max_threads = i64::try_from(config.max_threads)
-            .expect("validated ClickHouse max_threads fits in i64");
+        let (native_max_threads, native_compression, parquet_settings) =
+            match &config.snapshot_reader {
+                ClickHouseSnapshotReader::Parquet {
+                    compression,
+                    max_threads,
+                    row_group_rows,
+                    decode_threads,
+                    max_response_bytes,
+                } => (
+                    1,
+                    crate::connectors::clickhouse::sink::ClickHouseCompression::Lz4,
+                    Some(ParquetReadSettings {
+                        compression: *compression,
+                        max_threads: *max_threads,
+                        row_group_rows: *row_group_rows,
+                        decode_threads: *decode_threads,
+                        max_response_bytes: *max_response_bytes,
+                    }),
+                ),
+                ClickHouseSnapshotReader::Native {
+                    max_threads,
+                    compression,
+                } => (*max_threads, *compression, None),
+            };
+        let native_max_threads = i64::try_from(native_max_threads)
+            .expect("validated ClickHouse native read threads fit in i64");
         let builders = config
             .hosts
             .iter()
@@ -71,13 +99,13 @@ impl ClickHouseSourceConnector {
                     .with_database("default")
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
-                    .with_compression(config.compression.into())
+                    .with_compression(native_compression.into())
                     .with_setting("max_block_size", batch_rows)
                     // ClickHouse otherwise targets roughly 1 MiB result blocks. That
                     // produces many small Arrow batches for wide rows and forces the
                     // client to spend time on framing instead of useful transfer work.
                     .with_setting("preferred_block_size_bytes", 0_i64)
-                    .with_setting("max_threads", max_threads)
+                    .with_setting("max_threads", native_max_threads)
                     .with_tls(!config.trusted_plaintext);
                 if let Some(path) = &config.tls_ca_file {
                     builder.with_cafile(path)
@@ -86,6 +114,9 @@ impl ClickHouseSourceConnector {
                 }
             })
             .collect();
+        let parquet = parquet_settings
+            .map(|settings| ParquetTransport::new(&config, settings))
+            .transpose()?;
         let client = Arc::new(ReconnectingClient::from_connections(
             builders,
             config.connect_timeout(),
@@ -94,6 +125,7 @@ impl ClickHouseSourceConnector {
         Ok(Self {
             config,
             client,
+            parquet,
             parser_plan: ParserPlan::native_source(),
             metrics,
             discovered: tokio::sync::OnceCell::new(),
@@ -254,8 +286,18 @@ impl SourceConnector for ClickHouseSourceConnector {
             let counters = self.counters(partition_id);
             self.metrics
                 .register_source(partition_id, Arc::clone(&counters));
-            let query = snapshot_query(&table.config);
-            let stream = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse read cancelled"), stream = self.client.query_stream(&query) => stream.map_err(|error| anyhow::anyhow!("ClickHouse snapshot query failed: {error}"))? };
+            let stream: SnapshotStream = if let Some(parquet) = &self.parquet {
+                parquet.snapshot_stream(
+                    table.clone(),
+                    self.config.batch_rows,
+                    Arc::clone(&counters),
+                    cancellation.clone(),
+                )
+            } else {
+                let query = snapshot_query(&table.config);
+                let stream = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("ClickHouse read cancelled"), stream = self.client.query_stream(&query) => stream.map_err(|error| anyhow::anyhow!("ClickHouse snapshot query failed: {error}"))? };
+                Box::pin(stream.map(|result| result.map_err(anyhow::Error::from)))
+            };
             Ok(Box::new(ClickHouseSource::new(
                 table,
                 partition_id,
