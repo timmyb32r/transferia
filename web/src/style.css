@@ -1417,6 +1417,12 @@ input[type="checkbox"]:disabled {
 .select-trigger .placeholder {
   color: var(--placeholder);
 }
+.select-trigger > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .select-trigger-indicator {
   display: grid;
   flex: 0 0 14px;
@@ -1471,13 +1477,21 @@ input[type="checkbox"]:disabled {
 .select-option {
   display: block;
   width: 100%;
+  height: auto;
+  min-height: var(--button-height);
   border: 0;
   background: transparent;
   color: var(--text-primary);
-  padding: 7px 8px;
+  padding: 8px 10px;
   border-radius: var(--radius-panel);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
   text-align: left;
   font-weight: 400;
+  white-space: normal;
+}
+.select-option + .select-option {
+  margin-top: 2px;
 }
 .select-option:hover,
 .select-option[aria-selected="true"] {
