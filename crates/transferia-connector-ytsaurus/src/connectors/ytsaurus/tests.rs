@@ -200,6 +200,52 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
     let ordering = &schema["properties"]["read_ordering"];
     assert_eq!(ordering["x-ui"]["section"], "advanced");
     assert!(ordering["oneOf"].is_array());
+
+    let properties = schema["properties"]
+        .as_object()
+        .expect("YTsaurus source properties must be an object");
+    let advanced = properties
+        .iter()
+        .filter_map(|(name, property)| {
+            (property.pointer("/x-ui/section").and_then(serde_json::Value::as_str)
+                == Some("advanced"))
+            .then_some(name.as_str())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(advanced, ["read_ordering"]);
+    for name in [
+        "trusted_native_rpc_plaintext",
+        "native_rpc_service_ticket_file",
+        "table_reader",
+    ] {
+        assert_eq!(
+            properties[name]
+                .pointer("/x-ui/widget")
+                .and_then(serde_json::Value::as_str),
+            Some("hidden"),
+            "{name} must remain configurable through YAML but hidden from the source form",
+        );
+    }
+
+    let partition = schema
+        .pointer("/$defs/YTsaurusReadOrdering/oneOf/2/properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("PartitionTables schema must expose its configured properties");
+    for name in [
+        "compressed_data_size_per_partition",
+        "max_partition_count",
+        "concurrency",
+        "direct_data_node_access",
+        "direct_blocks_per_request",
+    ] {
+        assert_eq!(
+            partition[name]
+                .pointer("/x-ui/widget")
+                .and_then(serde_json::Value::as_str),
+            Some("hidden"),
+            "{name} must not expand beneath the read-mode selector",
+        );
+    }
 }
 
 #[test]

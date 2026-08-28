@@ -36,7 +36,7 @@ pub struct YTsaurusConnectionConfig {
     #[schemars(
         title = "Trust plaintext native RPC",
         description = "Explicitly allow credentials and table data over the unencrypted YTsaurus native RPC transport",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub trusted_native_rpc_plaintext: bool,
 
@@ -156,14 +156,14 @@ pub struct YTsaurusSourceConfig {
     #[schemars(
         title = "Native RPC service ticket file",
         description = "Path to a rotating TVM service-ticket file used only for direct data-node RPC. The file is reloaded while the delivery is running. The ticket's source TVM ID must be accepted by the YTsaurus cluster; successful ticket issuance alone does not grant data-node access.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub native_rpc_service_ticket_file: Option<String>,
 
     #[serde(default)]
     #[schemars(
         title = "Native reader settings",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub table_reader: YTsaurusTableReaderConfig,
 
@@ -212,28 +212,39 @@ pub enum YTsaurusReadOrdering {
     #[schemars(title = "PartitionTables (distributed, non-resumable)")]
     PartitionTables {
         #[serde(default = "default_partition_compressed_bytes")]
-        #[schemars(title = "Compressed bytes per partition")]
+        #[schemars(
+            title = "Compressed bytes per partition",
+            extend("x-ui" = { "widget": "hidden" })
+        )]
         compressed_data_size_per_partition: u64,
 
         #[serde(default = "default_partition_count")]
-        #[schemars(title = "Maximum partition count")]
+        #[schemars(
+            title = "Maximum partition count",
+            extend("x-ui" = { "widget": "hidden" })
+        )]
         max_partition_count: usize,
 
         #[serde(default = "default_partition_concurrency")]
-        #[schemars(title = "Concurrent partition readers")]
+        #[schemars(
+            title = "Concurrent partition readers",
+            extend("x-ui" = { "widget": "hidden" })
+        )]
         concurrency: usize,
 
         #[serde(default)]
         #[schemars(
             title = "Direct access to data nodes",
-            description = "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy."
+            description = "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy.",
+            extend("x-ui" = { "widget": "hidden" })
         )]
         direct_data_node_access: bool,
 
         #[serde(default = "default_direct_blocks_per_request")]
         #[schemars(
             title = "Direct blocks per request",
-            description = "Number of chunk blocks fetched in one data-node RPC when direct access is enabled"
+            description = "Number of chunk blocks fetched in one data-node RPC when direct access is enabled",
+            extend("x-ui" = { "widget": "hidden" })
         )]
         direct_blocks_per_request: usize,
     },

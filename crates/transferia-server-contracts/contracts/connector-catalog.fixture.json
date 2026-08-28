@@ -5679,7 +5679,7 @@
               ],
               "default": null,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "table_reader": {
@@ -5687,7 +5687,7 @@
               "$ref": "#/$defs/YTsaurusTableReaderConfig",
               "default": {},
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "benchmark_discard": {
@@ -5862,27 +5862,39 @@
                       "type": "integer",
                       "format": "uint64",
                       "minimum": 0,
-                      "default": 268435456
+                      "default": 268435456,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "max_partition_count": {
                       "title": "Maximum partition count",
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
-                      "default": 64
+                      "default": 64,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "concurrency": {
                       "title": "Concurrent partition readers",
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
-                      "default": 16
+                      "default": 16,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "direct_data_node_access": {
                       "title": "Direct access to data nodes",
                       "description": "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy.",
                       "type": "boolean",
-                      "default": false
+                      "default": false,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "direct_blocks_per_request": {
                       "title": "Direct blocks per request",
@@ -5890,7 +5902,10 @@
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
-                      "default": 16
+                      "default": 16,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "type": {
                       "type": "string",
