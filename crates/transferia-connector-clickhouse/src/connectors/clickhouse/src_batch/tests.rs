@@ -4,6 +4,7 @@ use arrow::array::{ArrayRef, BinaryArray, Int64Array, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 
+use crate::connectors::clickhouse::ClickHouseCompression;
 use crate::metrics::MetricsRegistry;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::SystemColumnKind;
@@ -18,6 +19,18 @@ fn source_contract_has_no_shard_group() {
 
     let legacy = "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\nshard_group: legacy\ntables: [{database: default, name: events}]\n";
     assert!(serde_yaml::from_str::<ClickHouseSourceConfig>(legacy).is_err());
+}
+
+#[test]
+fn source_defaults_use_bounded_high_throughput_native_settings() {
+    let config: ClickHouseSourceConfig = serde_yaml::from_str(
+        "hosts: [localhost]\nport: 9000\ntrusted_plaintext: true\nusername: default\ntables: [{database: default, name: events}]\n",
+    )
+    .unwrap();
+
+    assert_eq!(config.batch_rows, 65_409);
+    assert_eq!(config.max_threads, 16);
+    assert_eq!(config.compression, ClickHouseCompression::Zstd);
 }
 
 #[test]
