@@ -218,6 +218,26 @@ pub struct IcebergSourceConfig {
     #[serde(default = "default_read_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub read_batch_rows: usize,
+
+    #[serde(default = "default_read_data_file_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub read_data_file_concurrency: usize,
+
+    #[serde(default = "default_read_manifest_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub read_manifest_concurrency: usize,
+
+    #[serde(default = "default_parquet_metadata_size_hint_bytes")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_metadata_size_hint_bytes: usize,
+
+    #[serde(default = "default_parquet_range_coalesce_bytes")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_range_coalesce_bytes: u64,
+
+    #[serde(default = "default_parquet_range_fetch_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_range_fetch_concurrency: usize,
 }
 
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
@@ -250,6 +270,26 @@ const fn default_target_file_size() -> usize {
 
 const fn default_read_batch_rows() -> usize {
     64 * 1024
+}
+
+const fn default_read_data_file_concurrency() -> usize {
+    32
+}
+
+const fn default_read_manifest_concurrency() -> usize {
+    32
+}
+
+const fn default_parquet_metadata_size_hint_bytes() -> usize {
+    512 * 1024
+}
+
+const fn default_parquet_range_coalesce_bytes() -> u64 {
+    1024 * 1024
+}
+
+const fn default_parquet_range_fetch_concurrency() -> usize {
+    10
 }
 
 impl RestCatalogConfig {
@@ -418,6 +458,26 @@ impl IcebergSourceConfig {
             "table_names must not be empty"
         );
         anyhow::ensure!(self.read_batch_rows > 0, "read_batch_rows must be positive");
+        anyhow::ensure!(
+            self.read_data_file_concurrency > 0,
+            "read_data_file_concurrency must be positive"
+        );
+        anyhow::ensure!(
+            self.read_manifest_concurrency > 0,
+            "read_manifest_concurrency must be positive"
+        );
+        anyhow::ensure!(
+            self.parquet_metadata_size_hint_bytes > 0,
+            "parquet_metadata_size_hint_bytes must be positive"
+        );
+        anyhow::ensure!(
+            self.parquet_range_coalesce_bytes > 0,
+            "parquet_range_coalesce_bytes must be positive"
+        );
+        anyhow::ensure!(
+            self.parquet_range_fetch_concurrency > 0,
+            "parquet_range_fetch_concurrency must be positive"
+        );
         let mut unique = HashSet::with_capacity(self.table_names.len());
         for (index, table_name) in self.table_names.iter().enumerate() {
             validate_required(&format!("table_names[{index}]"), table_name)?;

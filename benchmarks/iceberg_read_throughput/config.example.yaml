@@ -1,0 +1,38 @@
+iceberg:
+  catalog_uri: http://127.0.0.1:8181
+  namespace: benchmark_namespace
+  table: my_table
+  s3:
+    endpoint: https://s3.example.com
+    region: us-east-1
+    bucket: benchmark-bucket
+    access_key_id: replace-me
+    secret:
+      file: ~/.s3/token
+
+tools:
+  rust_binary: ~/arcadia/junk/timmyb32r/rust/target/release/transferia-internal
+
+run:
+  measurement_seconds: 120
+  repetitions: 3
+  scan_timeout_seconds: 300
+  pipeline_memory_limit_bytes: 4294967296
+
+candidates:
+  - name: trunk-default
+    settings:
+      read_batch_rows: 65536
+      read_data_file_concurrency: 32
+      read_manifest_concurrency: 32
+      parquet_metadata_size_hint_bytes: 524288
+      parquet_range_coalesce_bytes: 1048576
+      parquet_range_fetch_concurrency: 10
+  - name: bounded-16-batch-262k
+    settings:
+      read_batch_rows: 262144
+      read_data_file_concurrency: 16
+      read_manifest_concurrency: 16
+      parquet_metadata_size_hint_bytes: 524288
+      parquet_range_coalesce_bytes: 1048576
+      parquet_range_fetch_concurrency: 10

@@ -20,6 +20,25 @@ fn source_defaults_to_s3_storage() {
     .expect("valid source config");
     assert!(matches!(config.storage, OpenDalStorageConfig::S3(_)));
     assert_eq!(config.read_batch_rows, 65_536);
+    assert_eq!(config.read_data_file_concurrency, 32);
+    assert_eq!(config.read_manifest_concurrency, 32);
+    assert_eq!(config.parquet_metadata_size_hint_bytes, 512 * 1024);
+    assert_eq!(config.parquet_range_coalesce_bytes, 1024 * 1024);
+    assert_eq!(config.parquet_range_fetch_concurrency, 10);
+}
+
+#[test]
+fn iceberg_source_rejects_zero_read_parallelism() {
+    let config: IcebergSourceConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics",
+        "table_names": ["events"],
+        "read_data_file_concurrency": 0
+    }))
+    .expect("syntactically valid config");
+    let error = config.validate().expect_err("zero concurrency must fail");
+    assert!(error.to_string().contains("read_data_file_concurrency"));
 }
 
 #[test]

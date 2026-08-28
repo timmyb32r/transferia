@@ -6,6 +6,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
+use iceberg::arrow::ArrowReaderBuilder;
 use iceberg::table::Table;
 use tokio_util::sync::CancellationToken;
 use transferia_connector_support::metrics::{MetricsRegistry, SourceCounters};
@@ -156,12 +157,21 @@ impl SourceConnector for IcebergSourceConnector {
                     context.partition_id
                 )
             })?;
-            let stream = table
+            let scan = table
                 .scan()
                 .with_batch_size(Some(self.config.read_batch_rows))
-                .build()?
-                .to_arrow()
-                .await?;
+                .with_concurrency_limit(self.config.read_manifest_concurrency)
+                .with_data_file_concurrency_limit(self.config.read_data_file_concurrency)
+                .build()?;
+            let tasks = scan.plan_files().await?;
+            let stream = ArrowReaderBuilder::new(table.file_io().clone())
+                .with_data_file_concurrency_limit(self.config.read_data_file_concurrency)
+                .with_batch_size(self.config.read_batch_rows)
+                .with_metadata_size_hint(self.config.parquet_metadata_size_hint_bytes)
+                .with_range_coalesce_bytes(self.config.parquet_range_coalesce_bytes)
+                .with_range_fetch_concurrency(self.config.parquet_range_fetch_concurrency)
+                .build()
+                .read(tasks)?;
             let counters = self.counters(context.partition_id);
             self.metrics
                 .register_source(context.partition_id, Arc::clone(&counters));
