@@ -19,6 +19,7 @@ export function InstantTooltip({
       class={["instant-tooltip-host", className].filter(Boolean).join(" ")}
       tabindex={0}
       aria-describedby={tooltipId}
+      title={content}
     >
       {children}
       <span

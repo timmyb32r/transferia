@@ -4,8 +4,8 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::connectors::clickhouse::sink::ClickHouseCompression;
 use crate::connectors::clickhouse::sink::identifier::validate_identifier;
+use crate::connectors::clickhouse::sink::ClickHouseCompression;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -69,10 +69,7 @@ pub enum ClickHouseSnapshotReader {
         compression: ClickHouseParquetCompression,
 
         #[serde(default = "default_parquet_max_threads")]
-        #[schemars(
-            title = "ClickHouse encoding threads",
-            range(min = 1)
-        )]
+        #[schemars(title = "ClickHouse encoding threads", range(min = 1))]
         max_threads: usize,
 
         #[serde(default = "default_parquet_row_group_rows")]
@@ -235,20 +232,29 @@ impl ClickHouseSnapshotReader {
             ),
             Self::Native { max_threads, .. } => (*max_threads, None, None, None),
         };
-        anyhow::ensure!(max_threads > 0, "clickhouse snapshot read threads must be positive");
+        anyhow::ensure!(
+            max_threads > 0,
+            "clickhouse snapshot read threads must be positive"
+        );
         anyhow::ensure!(
             i64::try_from(max_threads).is_ok(),
             "clickhouse snapshot read threads must fit a signed 64-bit ClickHouse setting"
         );
         if let Some(value) = row_group_rows {
-            anyhow::ensure!(value > 0, "clickhouse Parquet row_group_rows must be positive");
+            anyhow::ensure!(
+                value > 0,
+                "clickhouse Parquet row_group_rows must be positive"
+            );
             anyhow::ensure!(
                 i64::try_from(value).is_ok(),
                 "clickhouse Parquet row_group_rows must fit a signed 64-bit ClickHouse setting"
             );
         }
         if let Some(value) = decode_threads {
-            anyhow::ensure!(value > 0, "clickhouse Parquet decode_threads must be positive");
+            anyhow::ensure!(
+                value > 0,
+                "clickhouse Parquet decode_threads must be positive"
+            );
         }
         if let Some(value) = max_response_bytes {
             anyhow::ensure!(

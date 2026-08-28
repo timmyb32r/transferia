@@ -411,7 +411,10 @@ async fn sink_commit_events_do_not_cancel_an_in_flight_source_read() {
         Arc::new(PipelineProgress::new()),
     ));
 
-    let first = output_rx.recv().await.expect("source batch must be emitted");
+    let first = output_rx
+        .recv()
+        .await
+        .expect("source batch must be emitted");
     assert_eq!(first.id, DeliveryId::new(1));
     second_read_started.notified().await;
     event_tx

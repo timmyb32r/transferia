@@ -1,17 +1,17 @@
 mod client;
 mod columnar_chunk;
 mod config;
-mod discard;
 mod direct_data_node;
+mod discard;
 mod native_rpc;
 mod schema;
 mod sink;
-mod yt_wire;
 pub mod src_batch;
+mod yt_wire;
 
 pub use config::{
-    YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusConnectionConfig,
-    YTsaurusBenchmarkTransport, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
+    YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusBenchmarkTransport,
+    YTsaurusConnectionConfig, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
     YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 pub use sink::YTsaurusSinkConnector;
@@ -52,7 +52,10 @@ pub(crate) async fn check_sink_directory(
     let client = checked_client(config).await?;
     let node_type = node_type(&client, path).await?;
     anyhow::ensure!(
-        matches!(node_type.as_str(), "map_node" | "portal_entrance" | "rootstock"),
+        matches!(
+            node_type.as_str(),
+            "map_node" | "portal_entrance" | "rootstock"
+        ),
         "configured YTsaurus destination path '{path}' is a {node_type}, not a directory"
     );
     Ok(())

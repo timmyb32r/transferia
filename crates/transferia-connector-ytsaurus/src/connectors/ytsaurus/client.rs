@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use futures_util::stream::{self, StreamExt as _};
 use serde::Deserialize;
@@ -9,9 +9,7 @@ use transferia_connector_support::outbound_http::{
     NetworkPolicy, OutboundHttpClient, OutboundHttpRequest,
 };
 
-use super::config::{
-    YTsaurusConnectionConfig, YTsaurusTableReaderConfig,
-};
+use super::config::{YTsaurusConnectionConfig, YTsaurusTableReaderConfig};
 
 #[derive(Debug)]
 pub struct YTsaurusHttpError {
@@ -148,7 +146,10 @@ impl YTsaurusClient {
             .json::<DiscoverProxiesResponse>()
             .await?
             .into_proxies();
-        anyhow::ensure!(!proxies.is_empty(), "YTsaurus data proxy discovery returned no proxies");
+        anyhow::ensure!(
+            !proxies.is_empty(),
+            "YTsaurus data proxy discovery returned no proxies"
+        );
 
         proxies
             .into_iter()
@@ -161,6 +162,14 @@ impl YTsaurusClient {
                 endpoint.set_path("");
                 endpoint.set_query(None);
                 endpoint.set_fragment(None);
+                if endpoint.host_str().is_some_and(is_loopback_host)
+                    && self.endpoint.host_str().is_some_and(is_loopback_host)
+                {
+                    endpoint = self.endpoint.clone();
+                    endpoint.set_path("");
+                    endpoint.set_query(None);
+                    endpoint.set_fragment(None);
+                }
                 Ok(endpoint)
             })
             .collect()
@@ -405,6 +414,13 @@ impl YTsaurusClient {
     }
 }
 
+pub(super) fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
 pub(super) fn suggestion_directory(query: &str) -> anyhow::Result<String> {
     let query = query.trim();
     let directory = if matches!(query, "" | "/" | "//") {
@@ -428,8 +444,9 @@ pub(super) fn table_path_suggestions(directory: &str, nodes: Vec<ListedNode>) ->
     let mut suggestions = nodes
         .into_iter()
         .filter_map(|node| match node {
-            ListedNode::WithAttributes { name, attributes }
-                if attributes.node_type == "table" => Some(format!("{prefix}{name}")),
+            ListedNode::WithAttributes { name, attributes } if attributes.node_type == "table" => {
+                Some(format!("{prefix}{name}"))
+            }
             ListedNode::WithAttributes { name, attributes }
                 if matches!(
                     attributes.node_type.as_str(),

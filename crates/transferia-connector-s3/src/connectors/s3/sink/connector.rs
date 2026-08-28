@@ -16,8 +16,8 @@ use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::actor::S3Sink;
 use super::config::{PartitioningConfig, S3OutputFormat, S3SinkConfig};
-use super::parquet::S3ParquetSink;
 use super::object_key::{validate_path_component, ObjectKey, MAX_OBJECT_KEY_BYTES};
+use super::parquet::S3ParquetSink;
 use super::upload::{ObjectUploader, S3Uploader};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, S3Descriptor, S3Partitioning};
 

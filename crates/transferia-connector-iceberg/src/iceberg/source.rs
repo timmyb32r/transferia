@@ -125,7 +125,7 @@ impl SourceConnector for IcebergSourceConnector {
             Ok(DeliveryDiscovery {
                 source_name: Arc::from(self.config.namespace.as_str()),
                 source_topology: SourceTopology::StaticPartitions(
-                    (0..tables.len() as i64).collect(),
+                    (0..i64::try_from(tables.len())?).collect(),
                 ),
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: context.request.keep_system_columns,
@@ -147,12 +147,15 @@ impl SourceConnector for IcebergSourceConnector {
                 .await?
                 .get(table_index)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("unknown Iceberg partition {}", context.partition_id))?;
-            let table_name = self
-                .config
-                .table_names
-                .get(table_index)
-                .ok_or_else(|| anyhow::anyhow!("Iceberg table is missing for partition {}", context.partition_id))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("unknown Iceberg partition {}", context.partition_id)
+                })?;
+            let table_name = self.config.table_names.get(table_index).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Iceberg table is missing for partition {}",
+                    context.partition_id
+                )
+            })?;
             let stream = table
                 .scan()
                 .with_batch_size(Some(self.config.read_batch_rows))
@@ -211,7 +214,8 @@ impl Source for IcebergSource {
             };
             let batch = restore_transferia_types(batch).map_err(DataPlaneFailure::fatal)?;
             let rows = batch.num_rows() as u64;
-            let output = source_batch(&self.output_name, batch, &self.memory, &self.counters).await?;
+            let output =
+                source_batch(&self.output_name, batch, &self.memory, &self.counters).await?;
             self.emitted_rows = self.emitted_rows.saturating_add(rows);
             Ok(output)
         })
@@ -225,10 +229,7 @@ impl Source for IcebergSource {
     }
 }
 
-pub(super) fn classify_scan_failure(
-    emitted_rows: u64,
-    error: anyhow::Error,
-) -> DataPlaneFailure {
+pub(super) fn classify_scan_failure(emitted_rows: u64, error: anyhow::Error) -> DataPlaneFailure {
     if emitted_rows == 0 {
         return DataPlaneFailure::retryable(error);
     }
@@ -321,5 +322,8 @@ pub(super) fn restore_transferia_types(batch: RecordBatch) -> anyhow::Result<Rec
     if !changed {
         return Ok(batch);
     }
-    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)?)
+    Ok(RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        columns,
+    )?)
 }

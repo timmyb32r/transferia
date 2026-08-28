@@ -155,10 +155,7 @@ async fn transfer_logs_preset_matches_the_declared_schema_and_primary_key() -> a
     };
     assert_eq!(tables[0].batch.num_columns(), 26);
     assert_eq!(tables[0].batch.schema().field(0).name(), "caller");
-    assert_eq!(
-        tables[0].batch.schema().field(22).name(),
-        "_system_topic"
-    );
+    assert_eq!(tables[0].batch.schema().field(22).name(), "_system_topic");
     assert_eq!(
         tables[0]
             .batch
@@ -214,7 +211,9 @@ async fn generator_can_produce_disjoint_row_identifier_ranges() -> anyhow::Resul
     let SourceBatch::Typed { tables, .. } = source.read_batch().await? else {
         panic!("generator did not return a typed batch");
     };
-    let offsets = tables[0].batch.column(24)
+    let offsets = tables[0]
+        .batch
+        .column(24)
         .as_any()
         .downcast_ref::<arrow::array::Int64Array>()
         .expect("system offset must be Int64");

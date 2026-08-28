@@ -122,7 +122,7 @@ async fn write_delivery(
 ) -> anyhow::Result<()> {
     let (delivery_tx, delivery_rx) = mpsc::channel(1);
     let (event_tx, mut event_rx) = mpsc::channel(1);
-    let task = tokio::spawn(sink.run(SinkIo {
+    let mut task = tokio::spawn(sink.run(SinkIo {
         deliveries: delivery_rx,
         events: event_tx,
         memory: memory.clone(),
@@ -150,12 +150,20 @@ async fn write_delivery(
         })
         .await?;
     drop(delivery_tx);
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(30), event_rx.recv())
-            .await?
-            .expect("YTsaurus sink event"),
-        SinkEvent::CommittedThrough(DeliveryId::new(1))
-    );
+    let event = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::select! {
+            biased;
+            event = event_rx.recv() => event.ok_or_else(|| anyhow::anyhow!(
+                "YTsaurus sink closed its event channel before committing"
+            )),
+            result = &mut task => {
+                result??;
+                anyhow::bail!("YTsaurus sink stopped before committing")
+            }
+        }
+    })
+    .await??;
+    assert_eq!(event, SinkEvent::CommittedThrough(DeliveryId::new(1)));
     task.await??;
     Ok(())
 }
@@ -194,33 +202,43 @@ async fn read_arrow(
 
 #[tokio::test]
 async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow::Result<()> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let host_port = listener.local_addr()?.port();
+    drop(listener);
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+    let rpc_port = listener.local_addr()?.port();
+    drop(listener);
+    let proxy_config = format!("{{coordinator={{public_fqdn=\"localhost:{host_port}\"}};}}");
     let container = GenericImage::new(IMAGE, TAG)
         .with_exposed_port(80.tcp())
+        .with_exposed_port(rpc_port.tcp())
         .with_wait_for(WaitFor::message_on_either_std("Local YT started"))
+        .with_mapped_port(host_port, 80.tcp())
+        .with_mapped_port(rpc_port, rpc_port.tcp())
         .with_platform("linux/amd64")
         .with_startup_timeout(Duration::from_mins(3))
-        .with_cmd([
-            "--fqdn",
-            "localhost",
-            "--port-range-start",
-            "24400",
-            "--node-port-set-size",
-            "100",
-            "--proxy-config",
-            "{coordinator={public_fqdn=\"localhost:80\"};}",
-            "--rpc-proxy-count",
-            "0",
-            "--rpc-proxy-port",
-            "8002",
-            "--node-count",
-            "1",
-            "--queue-agent-count",
-            "0",
-            "--address-resolver-config",
-            "{enable_ipv4=%true;enable_ipv6=%false;}",
-            "--native-client-supported",
-            "--id",
-            "locasaurus",
+        .with_cmd(vec![
+            "--fqdn".to_owned(),
+            "localhost".to_owned(),
+            "--port-range-start".to_owned(),
+            "24400".to_owned(),
+            "--node-port-set-size".to_owned(),
+            "100".to_owned(),
+            "--proxy-config".to_owned(),
+            proxy_config,
+            "--rpc-proxy-count".to_owned(),
+            "1".to_owned(),
+            "--rpc-proxy-port".to_owned(),
+            rpc_port.to_string(),
+            "--node-count".to_owned(),
+            "1".to_owned(),
+            "--queue-agent-count".to_owned(),
+            "0".to_owned(),
+            "--address-resolver-config".to_owned(),
+            "{enable_ipv4=%true;enable_ipv6=%false;}".to_owned(),
+            "--native-client-supported".to_owned(),
+            "--id".to_owned(),
+            "locasaurus".to_owned(),
         ])
         .start()
         .await?;
@@ -320,7 +338,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
         .error_for_status()?;
     let source = YTsaurusSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n"
+            "auth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\nbatch_rows: 2\ntables:\n  - path: //tmp/input\n"
         ))?,
         Arc::new(MetricsRegistry::new()),
     )?;

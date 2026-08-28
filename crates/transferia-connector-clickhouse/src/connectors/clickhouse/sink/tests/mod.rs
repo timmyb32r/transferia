@@ -12,7 +12,9 @@ use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::actor::without_system_columns;
-use super::{ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport};
+use super::{
+    ClickHouseCompression, ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
+};
 use crate::metrics::SinkCounters;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
@@ -128,7 +130,7 @@ fn config() -> ClickHouseSinkConfig {
         insert_target_rows: 1,
         insert_target_bytes: usize::MAX,
         insert_concurrency: 1,
-        compression: Default::default(),
+        compression: ClickHouseCompression::default(),
         async_insert: false,
         flush_interval_ms: 100,
         retry_initial_ms: 10,

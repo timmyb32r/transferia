@@ -675,7 +675,7 @@ describe("schema form", () => {
       />,
     );
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Arrow type" }), {
+    fireEvent.pointerDown(view.getByRole("button", { name: "Not selected" }), {
       button: 0,
     });
     const search = view.getByRole("searchbox") as HTMLInputElement;
@@ -744,10 +744,11 @@ describe("schema form", () => {
       </>,
     );
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "First" }));
+    const triggers = view.getAllByRole("button", { name: "Not selected" });
+    fireEvent.pointerDown(triggers[0]!);
     expect(view.getByRole("option", { name: "First option" })).toBeTruthy();
 
-    fireEvent.pointerDown(view.getByRole("button", { name: "Second" }));
+    fireEvent.pointerDown(triggers[1]!);
     expect(view.queryByRole("option", { name: "First option" })).toBeNull();
     expect(view.getByRole("option", { name: "Second option" })).toBeTruthy();
   });
@@ -853,7 +854,9 @@ describe("schema form", () => {
     fireEvent.pointerDown(form.getByRole("button", { name: "Not selected" }));
 
     expect(
-      form.getByRole("button", { name: "Loading…" }).querySelector(".spinner"),
+      form
+        .getByRole("button", { name: "Not selected" })
+        .querySelector(".spinner"),
     ).toBeTruthy();
     expect((await form.findByRole("status")).textContent).toContain("Loading…");
     expect(form.queryByText("No matches")).toBeNull();

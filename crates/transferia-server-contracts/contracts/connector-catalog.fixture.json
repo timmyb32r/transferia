@@ -3237,7 +3237,7 @@
               }
             },
             "async_insert": {
-              "description": "Let ClickHouse coalesce concurrent native INSERTs server-side. Waiting\nremains mandatory, so a successful response still means the buffered\ndata has reached the table rather than merely entering an async queue.",
+              "description": "Let `ClickHouse` coalesce concurrent native INSERTs server-side. Waiting\nremains mandatory, so a successful response still means the buffered\ndata has reached the table rather than merely entering an async queue.",
               "type": "boolean",
               "default": false,
               "x-ui": {

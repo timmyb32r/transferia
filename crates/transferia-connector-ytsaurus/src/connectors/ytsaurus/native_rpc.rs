@@ -1,6 +1,17 @@
+#![allow(
+    clippy::tuple_array_conversions,
+    clippy::expect_used,
+    clippy::items_after_statements,
+    clippy::needless_pass_by_ref_mut,
+    clippy::match_same_arms,
+    clippy::struct_field_names,
+    clippy::unnecessary_wraps,
+    reason = "protocol parsing checks widths before fixed-size conversions and protobuf wire names intentionally mirror YTsaurus"
+)]
+
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use arrow::buffer::Buffer;
@@ -9,8 +20,8 @@ use arrow::record_batch::RecordBatch;
 use bytes::{BufMut as _, Bytes, BytesMut};
 use prost::Message as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -44,88 +55,286 @@ pub(super) const PARTITION_MODE_UNORDERED: i32 = 2;
 const YSON_STRING: u8 = 0x01;
 const YSON_INT64: u8 = 0x02;
 
-const CRC64_TABLE: [u64; 256] = [
-    0x0000000000000000_u64, 0x81789265972743e5_u64, 0x8389b6aeb968c52f_u64, 0x02f124cb2e4f86ca_u64,
-    0x06136d5d73d18a5f_u64, 0x876bff38e4f6c9ba_u64, 0x859adbf3cab94f70_u64, 0x04e249965d9e0c95_u64,
-    0x0c26dabae6a215bf_u64, 0x8d5e48df7185565a_u64, 0x8faf6c145fcad090_u64, 0x0ed7fe71c8ed9375_u64,
-    0x0a35b7e795739fe0_u64, 0x8b4d25820254dc05_u64, 0x89bc01492c1b5acf_u64, 0x08c4932cbb3c192a_u64,
-    0x993426105a62689b_u64, 0x184cb475cd452b7e_u64, 0x1abd90bee30aadb4_u64, 0x9bc502db742dee51_u64,
-    0x9f274b4d29b3e2c4_u64, 0x1e5fd928be94a121_u64, 0x1caefde390db27eb_u64, 0x9dd66f8607fc640e_u64,
-    0x9512fcaabcc07d24_u64, 0x146a6ecf2be73ec1_u64, 0x169b4a0405a8b80b_u64, 0x97e3d861928ffbee_u64,
-    0x930191f7cf11f77b_u64, 0x127903925836b49e_u64, 0x1088275976793254_u64, 0x91f0b53ce15e71b1_u64,
-    0xb311de4523e393d3_u64, 0x32694c20b4c4d036_u64, 0x309868eb9a8b56fc_u64, 0xb1e0fa8e0dac1519_u64,
-    0xb502b3185032198c_u64, 0x347a217dc7155a69_u64, 0x368b05b6e95adca3_u64, 0xb7f397d37e7d9f46_u64,
-    0xbf3704ffc541866c_u64, 0x3e4f969a5266c589_u64, 0x3cbeb2517c294343_u64, 0xbdc62034eb0e00a6_u64,
-    0xb92469a2b6900c33_u64, 0x385cfbc721b74fd6_u64, 0x3aaddf0c0ff8c91c_u64, 0xbbd54d6998df8af9_u64,
-    0x2a25f8557981fb48_u64, 0xab5d6a30eea6b8ad_u64, 0xa9ac4efbc0e93e67_u64, 0x28d4dc9e57ce7d82_u64,
-    0x2c3695080a507117_u64, 0xad4e076d9d7732f2_u64, 0xafbf23a6b338b438_u64, 0x2ec7b1c3241ff7dd_u64,
-    0x260322ef9f23eef7_u64, 0xa77bb08a0804ad12_u64, 0xa58a9441264b2bd8_u64, 0x24f20624b16c683d_u64,
-    0x20104fb2ecf264a8_u64, 0xa168ddd77bd5274d_u64, 0xa399f91c559aa187_u64, 0x22e16b79c2bde262_u64,
-    0xe75b2eeed1e16442_u64, 0x6623bc8b46c627a7_u64, 0x64d298406889a16d_u64, 0xe5aa0a25ffaee288_u64,
-    0xe14843b3a230ee1d_u64, 0x6030d1d63517adf8_u64, 0x62c1f51d1b582b32_u64, 0xe3b967788c7f68d7_u64,
-    0xeb7df454374371fd_u64, 0x6a056631a0643218_u64, 0x68f442fa8e2bb4d2_u64, 0xe98cd09f190cf737_u64,
-    0xed6e99094492fba2_u64, 0x6c160b6cd3b5b847_u64, 0x6ee72fa7fdfa3e8d_u64, 0xef9fbdc26add7d68_u64,
-    0x7e6f08fe8b830cd9_u64, 0xff179a9b1ca44f3c_u64, 0xfde6be5032ebc9f6_u64, 0x7c9e2c35a5cc8a13_u64,
-    0x787c65a3f8528686_u64, 0xf904f7c66f75c563_u64, 0xfbf5d30d413a43a9_u64, 0x7a8d4168d61d004c_u64,
-    0x7249d2446d211966_u64, 0xf3314021fa065a83_u64, 0xf1c064ead449dc49_u64, 0x70b8f68f436e9fac_u64,
-    0x745abf191ef09339_u64, 0xf5222d7c89d7d0dc_u64, 0xf7d309b7a7985616_u64, 0x76ab9bd230bf15f3_u64,
-    0x544af0abf202f791_u64, 0xd53262ce6525b474_u64, 0xd7c346054b6a32be_u64, 0x56bbd460dc4d715b_u64,
-    0x52599df681d37dce_u64, 0xd3210f9316f43e2b_u64, 0xd1d02b5838bbb8e1_u64, 0x50a8b93daf9cfb04_u64,
-    0x586c2a1114a0e22e_u64, 0xd914b8748387a1cb_u64, 0xdbe59cbfadc82701_u64, 0x5a9d0eda3aef64e4_u64,
-    0x5e7f474c67716871_u64, 0xdf07d529f0562b94_u64, 0xddf6f1e2de19ad5e_u64, 0x5c8e6387493eeebb_u64,
-    0xcd7ed6bba8609f0a_u64, 0x4c0644de3f47dcef_u64, 0x4ef7601511085a25_u64, 0xcf8ff270862f19c0_u64,
-    0xcb6dbbe6dbb11555_u64, 0x4a1529834c9656b0_u64, 0x48e40d4862d9d07a_u64, 0xc99c9f2df5fe939f_u64,
-    0xc1580c014ec28ab5_u64, 0x40209e64d9e5c950_u64, 0x42d1baaff7aa4f9a_u64, 0xc3a928ca608d0c7f_u64,
-    0xc74b615c3d1300ea_u64, 0x4633f339aa34430f_u64, 0x44c2d7f2847bc5c5_u64, 0xc5ba4597135c8620_u64,
-    0xceb75cdca3c3c984_u64, 0x4fcfceb934e48a61_u64, 0x4d3eea721aab0cab_u64, 0xcc4678178d8c4f4e_u64,
-    0xc8a43181d01243db_u64, 0x49dca3e44735003e_u64, 0x4b2d872f697a86f4_u64, 0xca55154afe5dc511_u64,
-    0xc29186664561dc3b_u64, 0x43e91403d2469fde_u64, 0x411830c8fc091914_u64, 0xc060a2ad6b2e5af1_u64,
-    0xc482eb3b36b05664_u64, 0x45fa795ea1971581_u64, 0x470b5d958fd8934b_u64, 0xc673cff018ffd0ae_u64,
-    0x57837accf9a1a11f_u64, 0xd6fbe8a96e86e2fa_u64, 0xd40acc6240c96430_u64, 0x55725e07d7ee27d5_u64,
-    0x519017918a702b40_u64, 0xd0e885f41d5768a5_u64, 0xd219a13f3318ee6f_u64, 0x5361335aa43fad8a_u64,
-    0x5ba5a0761f03b4a0_u64, 0xdadd32138824f745_u64, 0xd82c16d8a66b718f_u64, 0x595484bd314c326a_u64,
-    0x5db6cd2b6cd23eff_u64, 0xdcce5f4efbf57d1a_u64, 0xde3f7b85d5bafbd0_u64, 0x5f47e9e0429db835_u64,
-    0x7da6829980205a57_u64, 0xfcde10fc170719b2_u64, 0xfe2f343739489f78_u64, 0x7f57a652ae6fdc9d_u64,
-    0x7bb5efc4f3f1d008_u64, 0xfacd7da164d693ed_u64, 0xf83c596a4a991527_u64, 0x7944cb0fddbe56c2_u64,
-    0x7180582366824fe8_u64, 0xf0f8ca46f1a50c0d_u64, 0xf209ee8ddfea8ac7_u64, 0x73717ce848cdc922_u64,
-    0x7793357e1553c5b7_u64, 0xf6eba71b82748652_u64, 0xf41a83d0ac3b0098_u64, 0x756211b53b1c437d_u64,
-    0xe492a489da4232cc_u64, 0x65ea36ec4d657129_u64, 0x671b1227632af7e3_u64, 0xe6638042f40db406_u64,
-    0xe281c9d4a993b893_u64, 0x63f95bb13eb4fb76_u64, 0x61087f7a10fb7dbc_u64, 0xe070ed1f87dc3e59_u64,
-    0xe8b47e333ce02773_u64, 0x69ccec56abc76496_u64, 0x6b3dc89d8588e25c_u64, 0xea455af812afa1b9_u64,
-    0xeea7136e4f31ad2c_u64, 0x6fdf810bd816eec9_u64, 0x6d2ea5c0f6596803_u64, 0xec5637a5617e2be6_u64,
-    0x29ec72327222adc6_u64, 0xa894e057e505ee23_u64, 0xaa65c49ccb4a68e9_u64, 0x2b1d56f95c6d2b0c_u64,
-    0x2fff1f6f01f32799_u64, 0xae878d0a96d4647c_u64, 0xac76a9c1b89be2b6_u64, 0x2d0e3ba42fbca153_u64,
-    0x25caa8889480b879_u64, 0xa4b23aed03a7fb9c_u64, 0xa6431e262de87d56_u64, 0x273b8c43bacf3eb3_u64,
-    0x23d9c5d5e7513226_u64, 0xa2a157b0707671c3_u64, 0xa050737b5e39f709_u64, 0x2128e11ec91eb4ec_u64,
-    0xb0d854222840c55d_u64, 0x31a0c647bf6786b8_u64, 0x3351e28c91280072_u64, 0xb22970e9060f4397_u64,
-    0xb6cb397f5b914f02_u64, 0x37b3ab1accb60ce7_u64, 0x35428fd1e2f98a2d_u64, 0xb43a1db475dec9c8_u64,
-    0xbcfe8e98cee2d0e2_u64, 0x3d861cfd59c59307_u64, 0x3f773836778a15cd_u64, 0xbe0faa53e0ad5628_u64,
-    0xbaede3c5bd335abd_u64, 0x3b9571a02a141958_u64, 0x3964556b045b9f92_u64, 0xb81cc70e937cdc77_u64,
-    0x9afdac7751c13e15_u64, 0x1b853e12c6e67df0_u64, 0x19741ad9e8a9fb3a_u64, 0x980c88bc7f8eb8df_u64,
-    0x9ceec12a2210b44a_u64, 0x1d96534fb537f7af_u64, 0x1f6777849b787165_u64, 0x9e1fe5e10c5f3280_u64,
-    0x96db76cdb7632baa_u64, 0x17a3e4a82044684f_u64, 0x1552c0630e0bee85_u64, 0x942a5206992cad60_u64,
-    0x90c81b90c4b2a1f5_u64, 0x11b089f55395e210_u64, 0x1341ad3e7dda64da_u64, 0x92393f5beafd273f_u64,
-    0x03c98a670ba3568e_u64, 0x82b118029c84156b_u64, 0x80403cc9b2cb93a1_u64, 0x0138aeac25ecd044_u64,
-    0x05dae73a7872dcd1_u64, 0x84a2755fef559f34_u64, 0x86535194c11a19fe_u64, 0x072bc3f1563d5a1b_u64,
-    0x0fef50dded014331_u64, 0x8e97c2b87a2600d4_u64, 0x8c66e6735469861e_u64, 0x0d1e7416c34ec5fb_u64,
-    0x09fc3d809ed0c96e_u64, 0x8884afe509f78a8b_u64, 0x8a758b2e27b80c41_u64, 0x0b0d194bb09f4fa4_u64,
+// Values are copied verbatim from YTsaurus' CRC64 protocol table. Separators
+// would make comparison with the upstream generated table harder to audit.
+#[allow(
+    clippy::unreadable_literal,
+    reason = "values mirror the upstream YTsaurus CRC table verbatim"
+)]
+static CRC64_TABLE: [u64; 256] = [
+    0x0000000000000000_u64,
+    0x81789265972743e5_u64,
+    0x8389b6aeb968c52f_u64,
+    0x02f124cb2e4f86ca_u64,
+    0x06136d5d73d18a5f_u64,
+    0x876bff38e4f6c9ba_u64,
+    0x859adbf3cab94f70_u64,
+    0x04e249965d9e0c95_u64,
+    0x0c26dabae6a215bf_u64,
+    0x8d5e48df7185565a_u64,
+    0x8faf6c145fcad090_u64,
+    0x0ed7fe71c8ed9375_u64,
+    0x0a35b7e795739fe0_u64,
+    0x8b4d25820254dc05_u64,
+    0x89bc01492c1b5acf_u64,
+    0x08c4932cbb3c192a_u64,
+    0x993426105a62689b_u64,
+    0x184cb475cd452b7e_u64,
+    0x1abd90bee30aadb4_u64,
+    0x9bc502db742dee51_u64,
+    0x9f274b4d29b3e2c4_u64,
+    0x1e5fd928be94a121_u64,
+    0x1caefde390db27eb_u64,
+    0x9dd66f8607fc640e_u64,
+    0x9512fcaabcc07d24_u64,
+    0x146a6ecf2be73ec1_u64,
+    0x169b4a0405a8b80b_u64,
+    0x97e3d861928ffbee_u64,
+    0x930191f7cf11f77b_u64,
+    0x127903925836b49e_u64,
+    0x1088275976793254_u64,
+    0x91f0b53ce15e71b1_u64,
+    0xb311de4523e393d3_u64,
+    0x32694c20b4c4d036_u64,
+    0x309868eb9a8b56fc_u64,
+    0xb1e0fa8e0dac1519_u64,
+    0xb502b3185032198c_u64,
+    0x347a217dc7155a69_u64,
+    0x368b05b6e95adca3_u64,
+    0xb7f397d37e7d9f46_u64,
+    0xbf3704ffc541866c_u64,
+    0x3e4f969a5266c589_u64,
+    0x3cbeb2517c294343_u64,
+    0xbdc62034eb0e00a6_u64,
+    0xb92469a2b6900c33_u64,
+    0x385cfbc721b74fd6_u64,
+    0x3aaddf0c0ff8c91c_u64,
+    0xbbd54d6998df8af9_u64,
+    0x2a25f8557981fb48_u64,
+    0xab5d6a30eea6b8ad_u64,
+    0xa9ac4efbc0e93e67_u64,
+    0x28d4dc9e57ce7d82_u64,
+    0x2c3695080a507117_u64,
+    0xad4e076d9d7732f2_u64,
+    0xafbf23a6b338b438_u64,
+    0x2ec7b1c3241ff7dd_u64,
+    0x260322ef9f23eef7_u64,
+    0xa77bb08a0804ad12_u64,
+    0xa58a9441264b2bd8_u64,
+    0x24f20624b16c683d_u64,
+    0x20104fb2ecf264a8_u64,
+    0xa168ddd77bd5274d_u64,
+    0xa399f91c559aa187_u64,
+    0x22e16b79c2bde262_u64,
+    0xe75b2eeed1e16442_u64,
+    0x6623bc8b46c627a7_u64,
+    0x64d298406889a16d_u64,
+    0xe5aa0a25ffaee288_u64,
+    0xe14843b3a230ee1d_u64,
+    0x6030d1d63517adf8_u64,
+    0x62c1f51d1b582b32_u64,
+    0xe3b967788c7f68d7_u64,
+    0xeb7df454374371fd_u64,
+    0x6a056631a0643218_u64,
+    0x68f442fa8e2bb4d2_u64,
+    0xe98cd09f190cf737_u64,
+    0xed6e99094492fba2_u64,
+    0x6c160b6cd3b5b847_u64,
+    0x6ee72fa7fdfa3e8d_u64,
+    0xef9fbdc26add7d68_u64,
+    0x7e6f08fe8b830cd9_u64,
+    0xff179a9b1ca44f3c_u64,
+    0xfde6be5032ebc9f6_u64,
+    0x7c9e2c35a5cc8a13_u64,
+    0x787c65a3f8528686_u64,
+    0xf904f7c66f75c563_u64,
+    0xfbf5d30d413a43a9_u64,
+    0x7a8d4168d61d004c_u64,
+    0x7249d2446d211966_u64,
+    0xf3314021fa065a83_u64,
+    0xf1c064ead449dc49_u64,
+    0x70b8f68f436e9fac_u64,
+    0x745abf191ef09339_u64,
+    0xf5222d7c89d7d0dc_u64,
+    0xf7d309b7a7985616_u64,
+    0x76ab9bd230bf15f3_u64,
+    0x544af0abf202f791_u64,
+    0xd53262ce6525b474_u64,
+    0xd7c346054b6a32be_u64,
+    0x56bbd460dc4d715b_u64,
+    0x52599df681d37dce_u64,
+    0xd3210f9316f43e2b_u64,
+    0xd1d02b5838bbb8e1_u64,
+    0x50a8b93daf9cfb04_u64,
+    0x586c2a1114a0e22e_u64,
+    0xd914b8748387a1cb_u64,
+    0xdbe59cbfadc82701_u64,
+    0x5a9d0eda3aef64e4_u64,
+    0x5e7f474c67716871_u64,
+    0xdf07d529f0562b94_u64,
+    0xddf6f1e2de19ad5e_u64,
+    0x5c8e6387493eeebb_u64,
+    0xcd7ed6bba8609f0a_u64,
+    0x4c0644de3f47dcef_u64,
+    0x4ef7601511085a25_u64,
+    0xcf8ff270862f19c0_u64,
+    0xcb6dbbe6dbb11555_u64,
+    0x4a1529834c9656b0_u64,
+    0x48e40d4862d9d07a_u64,
+    0xc99c9f2df5fe939f_u64,
+    0xc1580c014ec28ab5_u64,
+    0x40209e64d9e5c950_u64,
+    0x42d1baaff7aa4f9a_u64,
+    0xc3a928ca608d0c7f_u64,
+    0xc74b615c3d1300ea_u64,
+    0x4633f339aa34430f_u64,
+    0x44c2d7f2847bc5c5_u64,
+    0xc5ba4597135c8620_u64,
+    0xceb75cdca3c3c984_u64,
+    0x4fcfceb934e48a61_u64,
+    0x4d3eea721aab0cab_u64,
+    0xcc4678178d8c4f4e_u64,
+    0xc8a43181d01243db_u64,
+    0x49dca3e44735003e_u64,
+    0x4b2d872f697a86f4_u64,
+    0xca55154afe5dc511_u64,
+    0xc29186664561dc3b_u64,
+    0x43e91403d2469fde_u64,
+    0x411830c8fc091914_u64,
+    0xc060a2ad6b2e5af1_u64,
+    0xc482eb3b36b05664_u64,
+    0x45fa795ea1971581_u64,
+    0x470b5d958fd8934b_u64,
+    0xc673cff018ffd0ae_u64,
+    0x57837accf9a1a11f_u64,
+    0xd6fbe8a96e86e2fa_u64,
+    0xd40acc6240c96430_u64,
+    0x55725e07d7ee27d5_u64,
+    0x519017918a702b40_u64,
+    0xd0e885f41d5768a5_u64,
+    0xd219a13f3318ee6f_u64,
+    0x5361335aa43fad8a_u64,
+    0x5ba5a0761f03b4a0_u64,
+    0xdadd32138824f745_u64,
+    0xd82c16d8a66b718f_u64,
+    0x595484bd314c326a_u64,
+    0x5db6cd2b6cd23eff_u64,
+    0xdcce5f4efbf57d1a_u64,
+    0xde3f7b85d5bafbd0_u64,
+    0x5f47e9e0429db835_u64,
+    0x7da6829980205a57_u64,
+    0xfcde10fc170719b2_u64,
+    0xfe2f343739489f78_u64,
+    0x7f57a652ae6fdc9d_u64,
+    0x7bb5efc4f3f1d008_u64,
+    0xfacd7da164d693ed_u64,
+    0xf83c596a4a991527_u64,
+    0x7944cb0fddbe56c2_u64,
+    0x7180582366824fe8_u64,
+    0xf0f8ca46f1a50c0d_u64,
+    0xf209ee8ddfea8ac7_u64,
+    0x73717ce848cdc922_u64,
+    0x7793357e1553c5b7_u64,
+    0xf6eba71b82748652_u64,
+    0xf41a83d0ac3b0098_u64,
+    0x756211b53b1c437d_u64,
+    0xe492a489da4232cc_u64,
+    0x65ea36ec4d657129_u64,
+    0x671b1227632af7e3_u64,
+    0xe6638042f40db406_u64,
+    0xe281c9d4a993b893_u64,
+    0x63f95bb13eb4fb76_u64,
+    0x61087f7a10fb7dbc_u64,
+    0xe070ed1f87dc3e59_u64,
+    0xe8b47e333ce02773_u64,
+    0x69ccec56abc76496_u64,
+    0x6b3dc89d8588e25c_u64,
+    0xea455af812afa1b9_u64,
+    0xeea7136e4f31ad2c_u64,
+    0x6fdf810bd816eec9_u64,
+    0x6d2ea5c0f6596803_u64,
+    0xec5637a5617e2be6_u64,
+    0x29ec72327222adc6_u64,
+    0xa894e057e505ee23_u64,
+    0xaa65c49ccb4a68e9_u64,
+    0x2b1d56f95c6d2b0c_u64,
+    0x2fff1f6f01f32799_u64,
+    0xae878d0a96d4647c_u64,
+    0xac76a9c1b89be2b6_u64,
+    0x2d0e3ba42fbca153_u64,
+    0x25caa8889480b879_u64,
+    0xa4b23aed03a7fb9c_u64,
+    0xa6431e262de87d56_u64,
+    0x273b8c43bacf3eb3_u64,
+    0x23d9c5d5e7513226_u64,
+    0xa2a157b0707671c3_u64,
+    0xa050737b5e39f709_u64,
+    0x2128e11ec91eb4ec_u64,
+    0xb0d854222840c55d_u64,
+    0x31a0c647bf6786b8_u64,
+    0x3351e28c91280072_u64,
+    0xb22970e9060f4397_u64,
+    0xb6cb397f5b914f02_u64,
+    0x37b3ab1accb60ce7_u64,
+    0x35428fd1e2f98a2d_u64,
+    0xb43a1db475dec9c8_u64,
+    0xbcfe8e98cee2d0e2_u64,
+    0x3d861cfd59c59307_u64,
+    0x3f773836778a15cd_u64,
+    0xbe0faa53e0ad5628_u64,
+    0xbaede3c5bd335abd_u64,
+    0x3b9571a02a141958_u64,
+    0x3964556b045b9f92_u64,
+    0xb81cc70e937cdc77_u64,
+    0x9afdac7751c13e15_u64,
+    0x1b853e12c6e67df0_u64,
+    0x19741ad9e8a9fb3a_u64,
+    0x980c88bc7f8eb8df_u64,
+    0x9ceec12a2210b44a_u64,
+    0x1d96534fb537f7af_u64,
+    0x1f6777849b787165_u64,
+    0x9e1fe5e10c5f3280_u64,
+    0x96db76cdb7632baa_u64,
+    0x17a3e4a82044684f_u64,
+    0x1552c0630e0bee85_u64,
+    0x942a5206992cad60_u64,
+    0x90c81b90c4b2a1f5_u64,
+    0x11b089f55395e210_u64,
+    0x1341ad3e7dda64da_u64,
+    0x92393f5beafd273f_u64,
+    0x03c98a670ba3568e_u64,
+    0x82b118029c84156b_u64,
+    0x80403cc9b2cb93a1_u64,
+    0x0138aeac25ecd044_u64,
+    0x05dae73a7872dcd1_u64,
+    0x84a2755fef559f34_u64,
+    0x86535194c11a19fe_u64,
+    0x072bc3f1563d5a1b_u64,
+    0x0fef50dded014331_u64,
+    0x8e97c2b87a2600d4_u64,
+    0x8c66e6735469861e_u64,
+    0x0d1e7416c34ec5fb_u64,
+    0x09fc3d809ed0c96e_u64,
+    0x8884afe509f78a8b_u64,
+    0x8a758b2e27b80c41_u64,
+    0x0b0d194bb09f4fa4_u64,
 ];
 
-const CRC64_SLICING_TABLES: [[u64; 256]; 16] = crc64_slicing_tables();
+static CRC64_SLICING_TABLES: LazyLock<Vec<[u64; 256]>> = LazyLock::new(crc64_slicing_tables);
 
-const fn crc64_slicing_tables() -> [[u64; 256]; 16] {
-    let mut tables = [[0_u64; 256]; 16];
-    tables[0] = CRC64_TABLE;
-    let mut slice = 1;
-    while slice < tables.len() {
+fn crc64_slicing_tables() -> Vec<[u64; 256]> {
+    let mut tables = Vec::with_capacity(16);
+    tables.push(CRC64_TABLE);
+    while tables.len() < 16 {
+        let slice = tables.len();
+        let mut table = [0_u64; 256];
         let mut index = 0;
-        while index < tables[slice].len() {
+        while index < table.len() {
             let previous = tables[slice - 1][index];
-            tables[slice][index] =
-                CRC64_TABLE[(previous as u8) as usize] ^ (previous >> 8);
+            table[index] = CRC64_TABLE[(previous as u8) as usize] ^ (previous >> 8);
             index += 1;
         }
-        slice += 1;
+        tables.push(table);
     }
     tables
 }
@@ -374,7 +583,7 @@ struct ProtoError {
     message: Option<String>,
 
     #[prost(message, repeated, tag = "4")]
-    inner_errors: Vec<ProtoError>,
+    inner_errors: Vec<Self>,
 }
 
 impl ProtoError {
@@ -389,7 +598,11 @@ impl ProtoError {
     }
 
     fn collect_messages(&self, output: &mut Vec<String>) {
-        if let Some(message) = self.message.as_deref().filter(|message| !message.is_empty()) {
+        if let Some(message) = self
+            .message
+            .as_deref()
+            .filter(|message| !message.is_empty())
+        {
             output.push(message.to_owned());
         }
         for inner in &self.inner_errors {
@@ -699,9 +912,7 @@ impl NativePartitionedReadStream {
                 .enumerate()
                 .skip(worker)
                 .step_by(concurrency)
-                .map(|(index, partition)| {
-                    (index, partition.cookie.clone(), partition.row_count)
-                })
+                .map(|(index, partition)| (index, partition.cookie.clone(), partition.row_count))
                 .collect::<Vec<_>>();
             let endpoints = Arc::clone(&endpoints);
             let token = Arc::clone(&token);
@@ -898,9 +1109,7 @@ impl NativePartitionedReadStream {
             queued: None,
         };
         stream.queued = Some(stream.receive_block().await?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "YTsaurus PartitionTables readers ended before returning a rowset"
-            )
+            anyhow::anyhow!("YTsaurus PartitionTables readers ended before returning a rowset")
         })?);
         Ok(stream)
     }
@@ -1067,15 +1276,8 @@ async fn invoke_unary<Response>(
 where
     Response: prost::Message + Default,
 {
-    let (body, attachments) = invoke_unary_raw(
-        endpoint,
-        token,
-        "ApiService",
-        1,
-        method,
-        request_body,
-    )
-    .await?;
+    let (body, attachments) =
+        invoke_unary_raw(endpoint, token, "ApiService", 1, method, request_body).await?;
     anyhow::ensure!(
         attachments.is_empty(),
         "YTsaurus unary {method} unexpectedly returned {} attachments",
@@ -1214,10 +1416,9 @@ async fn invoke_unary_raw_on_stream(
         }
         let mut parts = packet.parts.into_iter();
         parts.next();
-        let body = parts
-            .next()
-            .flatten()
-            .ok_or_else(|| anyhow::anyhow!("YTsaurus unary {service}.{method} response has no body"))?;
+        let body = parts.next().flatten().ok_or_else(|| {
+            anyhow::anyhow!("YTsaurus unary {service}.{method} response has no body")
+        })?;
         return Ok((body, parts.collect()));
     }
 }
@@ -1312,12 +1513,7 @@ impl NativeReadStream {
             let attempt = if opened.is_empty() {
                 attempts.join_next().await
             } else {
-                match tokio::time::timeout(
-                    RPC_PROXY_SELECTION_GRACE,
-                    attempts.join_next(),
-                )
-                .await
-                {
+                match tokio::time::timeout(RPC_PROXY_SELECTION_GRACE, attempts.join_next()).await {
                     Ok(attempt) => attempt,
                     Err(_) => {
                         attempts.abort_all();
@@ -1359,9 +1555,10 @@ impl NativeReadStream {
                         probe_mib_per_second = bytes_per_second / 1024.0 / 1024.0,
                         "YTsaurus native RPC proxy candidate measured"
                     );
-                    if best.as_ref().is_none_or(
-                        |(_, _, best_rate): &(_, _, f64)| bytes_per_second > *best_rate,
-                    ) {
+                    if best
+                        .as_ref()
+                        .is_none_or(|(_, _, best_rate): &(_, _, f64)| bytes_per_second > *best_rate)
+                    {
                         best = Some((endpoint, stream, bytes_per_second));
                     }
                 }
@@ -1406,7 +1603,10 @@ impl NativeReadStream {
                 break;
             }
         }
-        anyhow::ensure!(bytes > 0, "YTsaurus RPC proxy probe returned no rowset bytes");
+        anyhow::ensure!(
+            bytes > 0,
+            "YTsaurus RPC proxy probe returned no rowset bytes"
+        );
         for block in sampled.into_iter().rev() {
             self.queued.push_front(block);
         }
@@ -1422,7 +1622,10 @@ impl NativeReadStream {
         table_reader: &YTsaurusTableReaderConfig,
         requested_format: NativeReadFormat,
     ) -> anyhow::Result<Self> {
-        anyhow::ensure!(start_row_index >= 0, "YTsaurus start row index must not be negative");
+        anyhow::ensure!(
+            start_row_index >= 0,
+            "YTsaurus start row index must not be negative"
+        );
         let table_reader_yson = table_reader.to_yson();
         let request = ReadTableRequest {
             path: binary_rich_read_path(path, start_row_index)?,
@@ -1693,7 +1896,9 @@ impl NativeReadStream {
         );
 
         for attachment in attachments {
-            let compressed_size = attachment.as_ref().map_or(1_usize, |bytes| bytes.len().max(1));
+            let compressed_size = attachment
+                .as_ref()
+                .map_or(1_usize, |bytes| bytes.len().max(1));
             self.read_position = self
                 .read_position
                 .checked_add(i64::try_from(compressed_size)?)
@@ -1710,7 +1915,9 @@ impl NativeReadStream {
                 self.finished = true;
                 continue;
             };
-            if let Some(payload) = rowset_payload(block, self.requested_format, self.with_statistics)? {
+            if let Some(payload) =
+                rowset_payload(block, self.requested_format, self.with_statistics)?
+            {
                 self.queued.push_back(NativeReadBlock {
                     network_raw_bytes: u64::try_from(block.len())?,
                     network_decoded_bytes: u64::try_from(payload.payload.len())?,
@@ -1749,13 +1956,8 @@ impl NativeReadStream {
             read_position: self.read_position,
         };
         let parts = vec![Some(proto_part(RPC_STREAMING_FEEDBACK, &feedback)?)];
-        self.send_packet(
-            BUS_MESSAGE,
-            REQUEST_ACKNOWLEDGEMENT,
-            Guid::random(),
-            parts,
-        )
-        .await
+        self.send_packet(BUS_MESSAGE, REQUEST_ACKNOWLEDGEMENT, Guid::random(), parts)
+            .await
     }
 
     async fn send_packet(
@@ -1875,11 +2077,11 @@ fn binary_yson_string(output: &mut Vec<u8>, value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn zig_zag_i32(value: i32) -> u32 {
+const fn zig_zag_i32(value: i32) -> u32 {
     ((value << 1) ^ (value >> 31)) as u32
 }
 
-fn zig_zag_i64(value: i64) -> u64 {
+const fn zig_zag_i64(value: i64) -> u64 {
     ((value << 1) ^ (value >> 63)) as u64
 }
 
@@ -1961,8 +2163,9 @@ async fn read_packet(stream: &mut (impl AsyncRead + Unpin)) -> anyhow::Result<Pa
         u32::from_le_bytes(fixed[16..20].try_into().expect("four fixed bytes")),
         u32::from_le_bytes(fixed[20..24].try_into().expect("four fixed bytes")),
     ]);
-    let part_count =
-        usize::try_from(u32::from_le_bytes(fixed[24..28].try_into().expect("four fixed bytes")))?;
+    let part_count = usize::try_from(u32::from_le_bytes(
+        fixed[24..28].try_into().expect("four fixed bytes"),
+    ))?;
     if packet_type != BUS_MESSAGE && part_count == 0 {
         return Ok(Packet {
             packet_type,
@@ -2119,10 +2322,8 @@ pub(super) fn rowset_payload(
     } else {
         (block.clone(), None)
     };
-    let (descriptor, payload) = unpack_two_refs(
-        &rows,
-        "YTsaurus rowset must contain descriptor and payload",
-    )?;
+    let (descriptor, payload) =
+        unpack_two_refs(&rows, "YTsaurus rowset must contain descriptor and payload")?;
     // Arrow does not use YT's name table. Decode only the rowset-format tag on
     // that hot path so prost skips the repeated names without allocating a
     // `String` for every column in every streamed block.
@@ -2149,15 +2350,20 @@ pub(super) fn rowset_payload(
             format.name()
         );
     }
-    anyhow::ensure!(format == requested_format, "YTsaurus returned {} rowsets after {} was selected", format.name(), requested_format.name());
+    anyhow::ensure!(
+        format == requested_format,
+        "YTsaurus returned {} rowsets after {} was selected",
+        format.name(),
+        requested_format.name()
+    );
     let name_table_entries = if format == NativeReadFormat::YtWire {
         RowsetDescriptor::decode(descriptor)?
             .name_table_entries
             .into_iter()
             .map(|entry| {
-                entry.name.ok_or_else(|| {
-                    anyhow::anyhow!("YTsaurus rowset name-table entry has no name")
-                })
+                entry
+                    .name
+                    .ok_or_else(|| anyhow::anyhow!("YTsaurus rowset name-table entry has no name"))
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     } else {
@@ -2215,10 +2421,8 @@ pub(super) fn crc64(bytes: &[u8]) -> u64 {
     let mut crc = 0_u64;
     let mut chunks = bytes.chunks_exact(16);
     for chunk in &mut chunks {
-        let first = crc
-            ^ u64::from_le_bytes(chunk[..8].try_into().expect("eight-byte chunk"));
-        let second =
-            u64::from_le_bytes(chunk[8..].try_into().expect("eight-byte chunk"));
+        let first = crc ^ u64::from_le_bytes(chunk[..8].try_into().expect("eight-byte chunk"));
+        let second = u64::from_le_bytes(chunk[8..].try_into().expect("eight-byte chunk"));
         crc = CRC64_SLICING_TABLES[15][(first & 0xff) as usize]
             ^ CRC64_SLICING_TABLES[14][((first >> 8) & 0xff) as usize]
             ^ CRC64_SLICING_TABLES[13][((first >> 16) & 0xff) as usize]

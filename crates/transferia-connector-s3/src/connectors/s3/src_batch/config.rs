@@ -1,3 +1,8 @@
+#![allow(
+    clippy::expect_used,
+    reason = "the generated JsonParser schema has a compile-time-owned shape and must remain serializable"
+)]
+
 use std::borrow::Cow;
 use std::time::Duration;
 
@@ -79,7 +84,7 @@ pub enum S3InputParser {
 }
 
 impl S3InputParser {
-    pub(super) fn parquet_batch_rows(&self) -> Option<usize> {
+    pub(super) const fn parquet_batch_rows(&self) -> Option<usize> {
         match self {
             Self::Parquet { batch_rows } => Some(*batch_rows),
             Self::Json { .. } | Self::Discard { .. } => None,
@@ -108,8 +113,8 @@ impl JsonSchema for S3JsonParserSchema {
 
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         let schema = JsonParserConfig::json_schema(generator);
-        let mut value = serde_json::to_value(schema)
-            .expect("JsonParserConfig schema must serialize to JSON");
+        let mut value =
+            serde_json::to_value(schema).expect("JsonParserConfig schema must serialize to JSON");
         let framing = value
             .pointer_mut("/properties/json_framing/default")
             .expect("JsonParserConfig schema must define json_framing.default");
@@ -154,7 +159,10 @@ impl S3SourceConfig {
             }
             S3InputParser::Parquet { batch_rows } => {
                 self.validate_table_name()?;
-                anyhow::ensure!(*batch_rows > 0, "s3.parser.parquet.batch_rows must be positive");
+                anyhow::ensure!(
+                    *batch_rows > 0,
+                    "s3.parser.parquet.batch_rows must be positive"
+                );
             }
             S3InputParser::Discard { .. } => {}
         }
@@ -192,7 +200,10 @@ impl S3SourceConfig {
                 matches!(parsed.scheme(), "http" | "https"),
                 "s3.endpoint must use http or https"
             );
-            anyhow::ensure!(parsed.host_str().is_some(), "s3.endpoint must include a host");
+            anyhow::ensure!(
+                parsed.host_str().is_some(),
+                "s3.endpoint must include a host"
+            );
         }
         Ok(())
     }

@@ -151,8 +151,7 @@ impl YdbTopicSink {
             crate::connectors::address::url("http", &self.config.host, self.config.port)
                 .parse()
                 .map_err(|error| anyhow::anyhow!("Invalid YDB Topic sink endpoint: {error}"))?;
-        let transport =
-            connect_http2_prior_knowledge(&uri, NETWORK_TIMEOUT, cancellation).await?;
+        let transport = connect_http2_prior_knowledge(&uri, NETWORK_TIMEOUT, cancellation).await?;
         let mut client = TopicServiceClient::with_origin(transport, uri)
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE)
             .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE);

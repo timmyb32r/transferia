@@ -104,8 +104,18 @@ async fn check_sink_connection(
 }
 
 fn configured_source_paths(config: &ytsaurus::YTsaurusSourceConfig) -> Option<Vec<String>> {
-    (!config.tables.is_empty() && config.tables.iter().all(|table| !table.path.trim().is_empty()))
-        .then(|| config.tables.iter().map(|table| table.path.clone()).collect())
+    (!config.tables.is_empty()
+        && config
+            .tables
+            .iter()
+            .all(|table| !table.path.trim().is_empty()))
+    .then(|| {
+        config
+            .tables
+            .iter()
+            .map(|table| table.path.clone())
+            .collect()
+    })
 }
 
 fn incomplete_entities_result(message: &str) -> ConnectionCheckResult {

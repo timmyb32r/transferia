@@ -135,12 +135,7 @@ fn durable_sinks_reject_a_discarding_source() {
             EndpointDescriptor::ClickHouse,
             sink(S3Partitioning::Source, false),
         ] {
-            let report = validate_pipeline(
-                source_endpoint,
-                &sink_endpoint,
-                &discovery(),
-                false,
-            );
+            let report = validate_pipeline(source_endpoint, &sink_endpoint, &discovery(), false);
             assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
             assert!(report.ensure_valid().is_err());
             assert!(report.diagnostics.iter().any(|diagnostic| {
@@ -150,12 +145,7 @@ fn durable_sinks_reject_a_discarding_source() {
         }
     }
 
-    let benchmark = validate_pipeline(
-        &ytsaurus,
-        &EndpointDescriptor::Discard,
-        &discovery(),
-        false,
-    );
+    let benchmark = validate_pipeline(&ytsaurus, &EndpointDescriptor::Discard, &discovery(), false);
     assert!(benchmark.ensure_valid().is_ok());
 }
 

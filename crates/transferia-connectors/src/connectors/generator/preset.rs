@@ -1,15 +1,11 @@
 use std::sync::Arc;
 
-use arrow::array::{
-    ArrayRef, Float64Array, Int64Array, StringArray, UInt64Array,
-};
+use arrow::array::{ArrayRef, Float64Array, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -146,7 +142,7 @@ fn transfer_log_arrays(start: u64, rows: usize) -> Vec<ArrayRef> {
         strings(indices.clone(), |_| Some("ydb")),
         integers(indices.clone(), |row| (row % 3 == 2).then_some(200)),
         integers(indices.clone(), |row| {
-            (row % 3 == 1).then_some(185_528 + row as i64)
+            (row % 3 == 1).then_some(185_528 + row.cast_signed())
         }),
         strings(indices.clone(), |_| {
             Some("slot-135.klg1-9644-exe-node-vanga.klg.yp-c.yandex.net")
@@ -155,14 +151,13 @@ fn transfer_log_arrays(start: u64, rows: usize) -> Vec<ArrayRef> {
         strings(indices.clone(), |_| {
             Some("191f7211-e42e2e24-3f60384-1001405")
         }),
-        Arc::new(Int64Array::from_iter_values(
-            indices.clone().map(|_| 1_i64),
-        )),
-        Arc::new(Float64Array::from_iter(
+        Arc::new(Int64Array::from_iter_values(indices.clone().map(|_| 1_i64))),
+        Arc::new(
             indices
                 .clone()
-                .map(|row| (row % 3 == 2).then_some(0.456_616_41)),
-        )),
+                .map(|row| (row % 3 == 2).then_some(0.456_616_41))
+                .collect::<Float64Array>(),
+        ),
         integers(indices.clone(), |row| (row % 3 == 1).then_some(200)),
         strings(indices.clone(), |_| Some("INFO")),
         strings(indices.clone(), |row| match row % 3 {
@@ -174,39 +169,27 @@ fn transfer_log_arrays(start: u64, rows: usize) -> Vec<ArrayRef> {
         }),
         strings(indices.clone(), |_| Some("20729271")),
         strings(indices.clone(), |_| Some("yt")),
-        strings(indices.clone(), |row| {
-            (row % 3 == 1).then_some("858 kB")
-        }),
+        strings(indices.clone(), |row| (row % 3 == 1).then_some("858 kB")),
         strings(indices.clone(), |_| Some("lf")),
-        strings(indices.clone(), |row| {
-            (row % 3 == 1).then_some("333ms")
-        }),
+        strings(indices.clone(), |row| (row % 3 == 1).then_some("333ms")),
         strings(indices.clone(), |_| Some("2026-08-22T08:29:37.215+0300")),
         strings(indices.clone(), |_| {
             Some("d94589b8-3c75384f-3f603e8-cb56576a")
         }),
         strings(indices.clone(), |_| Some("{}")),
         strings(indices.clone(), |_| Some("cdc/prod/logs")),
+        Arc::new(Int64Array::from_iter_values(indices.clone().map(|_| 0_i64))),
         Arc::new(Int64Array::from_iter_values(
-            indices.clone().map(|_| 0_i64),
-        )),
-        Arc::new(Int64Array::from_iter_values(
-            indices.clone().map(|row| row as i64),
+            indices.clone().map(u64::cast_signed),
         )),
         Arc::new(UInt64Array::from_iter_values(indices.map(|_| 0_u64))),
     ]
 }
 
-fn strings(
-    rows: std::ops::Range<u64>,
-    value: impl Fn(u64) -> Option<&'static str>,
-) -> ArrayRef {
-    Arc::new(StringArray::from_iter(rows.map(value)))
+fn strings(rows: std::ops::Range<u64>, value: impl Fn(u64) -> Option<&'static str>) -> ArrayRef {
+    Arc::new(rows.map(value).collect::<StringArray>())
 }
 
-fn integers(
-    rows: std::ops::Range<u64>,
-    value: impl Fn(u64) -> Option<i64>,
-) -> ArrayRef {
-    Arc::new(Int64Array::from_iter(rows.map(value)))
+fn integers(rows: std::ops::Range<u64>, value: impl Fn(u64) -> Option<i64>) -> ArrayRef {
+    Arc::new(rows.map(value).collect::<Int64Array>())
 }

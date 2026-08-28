@@ -277,7 +277,7 @@ fn client_config(insert_concurrency: usize) -> ClickHouseSinkConfig {
         insert_target_rows: 1,
         insert_target_bytes: 1,
         insert_concurrency,
-        compression: Default::default(),
+        compression: ClickHouseCompression::default(),
         async_insert: false,
         flush_interval_ms: 1,
         retry_initial_ms: 1,
@@ -306,7 +306,10 @@ fn applies_explicit_async_insert_and_compression_without_weakening_waits() {
     config.compression = ClickHouseCompression::Zstd;
     let builders = configured_builders(&config);
     let builder = builders.first().expect("one host must produce one builder");
-    assert_eq!(builder.options().compression, clickhouse_arrow::CompressionMethod::ZSTD);
+    assert_eq!(
+        builder.options().compression,
+        clickhouse_arrow::CompressionMethod::ZSTD
+    );
     let settings = builder.settings().expect("insert settings must be pinned");
     let values = settings.encode_to_key_value_strings();
     assert!(values.contains(&("async_insert".into(), "1".into())));

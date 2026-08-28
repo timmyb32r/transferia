@@ -463,7 +463,10 @@ describe("dynamic path control", () => {
     expect(
       view
         .getAllByRole("option")
-        .map((option) => option.querySelector("span:last-child")?.textContent),
+        .map(
+          (option) =>
+            option.querySelector(".dynamic-path-label")?.textContent,
+        ),
     ).toEqual(["dca/", "dcc_logbroker/", "cdc/"]);
   });
 
@@ -487,7 +490,7 @@ describe("dynamic path control", () => {
       expect.objectContaining({ query: "//home/logfeller/" }),
     );
     for (const option of await view.findAllByRole("option")) {
-      expect(option.querySelector("span:last-child")?.textContent).toMatch(
+      expect(option.querySelector(".dynamic-path-label")?.textContent).toMatch(
         /^log(?:forwarder|s)\/$/,
       );
       expect(

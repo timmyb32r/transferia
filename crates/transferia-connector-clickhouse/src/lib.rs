@@ -21,38 +21,61 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("clickhouse", "ClickHouse")
             .source::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>(
-                vec![DeliveryMode::Batch], false,
-                || serde_json::json!({
-                    "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
-                    "http_port": 8123,
-                    "trusted_plaintext": true, "username": "", "password": "",
-                    "tables": [{ "database": "", "name": "" }],
-                    "batch_rows": 65409,
-                    "snapshot_reader": {
-                        "type": "parquet", "compression": "zstd", "max_threads": 32,
-                        "row_group_rows": 250000, "decode_threads": 16,
-                        "max_response_bytes": 2147483648_u64
-                    },
-                    "connect_timeout_ms": 30000, "request_timeout_ms": 30000
-                }),
-                { let metrics = Arc::clone(metrics); move |config| Ok(Box::new(clickhouse::ClickHouseSourceConnector::from_config(config, Arc::clone(&metrics))?)) },
+                vec![DeliveryMode::Batch],
+                false,
+                || {
+                    serde_json::json!({
+                        "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
+                        "http_port": 8123,
+                        "trusted_plaintext": true, "username": "", "password": "",
+                        "tables": [{ "database": "", "name": "" }],
+                        "batch_rows": 65409,
+                        "snapshot_reader": {
+                            "type": "parquet", "compression": "zstd", "max_threads": 32,
+                            "row_group_rows": 250_000, "decode_threads": 16,
+                            "max_response_bytes": 2_147_483_648_u64
+                        },
+                        "connect_timeout_ms": 30000, "request_timeout_ms": 30000
+                    })
+                },
+                {
+                    let metrics = Arc::clone(metrics);
+                    move |config| {
+                        Ok(Box::new(
+                            clickhouse::ClickHouseSourceConnector::from_config(
+                                config,
+                                Arc::clone(&metrics),
+                            )?,
+                        ))
+                    }
+                },
             )?
             .source_checker::<clickhouse::src_batch::ClickHouseSourceConfig, _, _>({
                 let metrics = Arc::clone(metrics);
-                move |config| { let metrics = Arc::clone(&metrics); async move {
-                    clickhouse::ClickHouseSourceConnector::check_connection(config, metrics).await
-                }}
+                move |config| {
+                    let metrics = Arc::clone(&metrics);
+                    async move {
+                        clickhouse::ClickHouseSourceConnector::check_connection(config, metrics)
+                            .await
+                    }
+                }
             })
             .sink::<clickhouse::ClickHouseSinkConfig, _, _>(
-                || serde_json::json!({
-                    "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
-                    "trusted_plaintext": true, "database": "", "username": "",
-                    "password": "", "shard_group": "", "insert_target_rows": 100_000,
-                    "insert_target_bytes": 67_108_864, "flush_interval_ms": 100,
-                    "retry_initial_ms": 50, "retry_max_ms": 30000,
-                    "connect_timeout_ms": 30000, "request_timeout_ms": 30000
-                }),
-                |config| Ok(Box::new(clickhouse::ClickHouseSinkConnector::from_config(config)?)),
+                || {
+                    serde_json::json!({
+                        "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
+                        "trusted_plaintext": true, "database": "", "username": "",
+                        "password": "", "shard_group": "", "insert_target_rows": 100_000,
+                        "insert_target_bytes": 67_108_864, "flush_interval_ms": 100,
+                        "retry_initial_ms": 50, "retry_max_ms": 30000,
+                        "connect_timeout_ms": 30000, "request_timeout_ms": 30000
+                    })
+                },
+                |config| {
+                    Ok(Box::new(clickhouse::ClickHouseSinkConnector::from_config(
+                        config,
+                    )?))
+                },
             )?
             .sink_checker::<clickhouse::ClickHouseSinkConfig, _, _>(|config| async move {
                 let checked = clickhouse::ClickHouseSinkConnector::check_connection(config).await?;

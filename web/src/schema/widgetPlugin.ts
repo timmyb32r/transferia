@@ -45,7 +45,9 @@ export function createWidgetRegistry(
       selected(context.node)?.node?.(context, services),
     renderProperty: (context, services) =>
       selected(context.node)?.property?.(context, services),
-    isHidden: (node) => node.hidden === true,
+    isHidden: (node) =>
+      node.hidden === true ||
+      (node.kind === "string" && node.enumValues?.length === 1),
     presentation: (node) => selected(node),
   };
 }

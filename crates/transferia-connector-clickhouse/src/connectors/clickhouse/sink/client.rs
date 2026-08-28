@@ -432,10 +432,8 @@ fn configured_builders(config: &ClickHouseSinkConfig) -> Vec<ClientBuilder> {
                 // more INSERT futures behind those four connections instead of
                 // increasing transport parallelism.
                 .with_ext(|extension| {
-                    extension.with_fast_mode_size(
-                        u8::try_from(insert_connections)
-                            .expect("validated ClickHouse concurrency fits in u8"),
-                    )
+                    extension
+                        .with_fast_mode_size(u8::try_from(insert_connections).unwrap_or(u8::MAX))
                 })
                 // Pin both settings instead of inheriting a server/user profile. When
                 // async inserts are selected, waiting remains mandatory: source offsets

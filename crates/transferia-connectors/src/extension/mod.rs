@@ -1091,10 +1091,7 @@ impl InstallationResolver for SelectedFieldInstallationResolver {
             .remove(Value::String(self.field.to_owned()))
             .ok_or_else(|| anyhow::anyhow!("installation is missing '{}'", self.field))?;
         let mut output = Mapping::new();
-        output.insert(
-            Value::String(self.field.to_owned()),
-            selected,
-        );
+        output.insert(Value::String(self.field.to_owned()), selected);
         Ok(vec![output])
     }
 }

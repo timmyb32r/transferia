@@ -20,5 +20,8 @@ fn incomplete_entity_result_is_explicitly_partial() {
         result.status,
         ConnectionCheckStatus::NetworkReachable
     ));
-    assert_eq!(result.message.as_deref(), Some("entity access was not checked"));
+    assert_eq!(
+        result.message.as_deref(),
+        Some("entity access was not checked")
+    );
 }

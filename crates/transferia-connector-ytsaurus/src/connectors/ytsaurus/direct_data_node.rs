@@ -1,24 +1,30 @@
+#![allow(
+    clippy::expect_used,
+    clippy::struct_field_names,
+    clippy::unnecessary_wraps,
+    reason = "validated direct-reader state makes accesses infallible and wire names follow YTsaurus"
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
 use arrow::record_batch::RecordBatch;
+use bytes::Bytes;
 use prost::Message as _;
 use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use transferia_core::data::schema::DatasetSchema;
 
 use super::columnar_chunk::{
-    ChunkMeta, ColumnarChunkDecoder, DataBlockMetaExt, EXTENSION_COLUMN_META,
-    EXTENSION_DATA_BLOCK_META, EXTENSION_MISC, data_block_meta, has_extension,
+    data_block_meta, has_extension, ChunkMeta, ColumnarChunkDecoder, DataBlockMetaExt,
+    EXTENSION_COLUMN_META, EXTENSION_DATA_BLOCK_META, EXTENSION_MISC,
 };
 use super::config::YTsaurusPartitionTablesConfig;
 use super::native_rpc::{
-    DataNodeRpcClient, PARTITION_MODE_UNORDERED, crc64, receive_read_worker_item,
-    partition_tables,
+    crc64, partition_tables, receive_read_worker_item, DataNodeRpcClient, PARTITION_MODE_UNORDERED,
 };
 
 const WORKLOAD_CATEGORY_USER_BATCH: i32 = 3;
@@ -129,9 +135,7 @@ impl NativeDirectPartitionedReadStream {
             queued: None,
         };
         stream.queued = Some(stream.receive_block().await?.ok_or_else(|| {
-            anyhow::anyhow!(
-                "YTsaurus direct data-node readers ended before returning a block"
-            )
+            anyhow::anyhow!("YTsaurus direct data-node readers ended before returning a block")
         })?);
         Ok(stream)
     }
@@ -243,11 +247,9 @@ async fn read_partition(
         "YTsaurus direct data-node reader expected an unordered PartitionTables cookie, got {:?}",
         cookie.partition_mode
     );
-    let directory = cookie
-        .node_directory
-        .ok_or_else(|| anyhow::anyhow!(
-            "YTsaurus partition {partition_index} cookie has no data-node directory"
-        ))?;
+    let directory = cookie.node_directory.ok_or_else(|| {
+        anyhow::anyhow!("YTsaurus partition {partition_index} cookie has no data-node directory")
+    })?;
     let nodes = node_endpoints(directory)?;
     let chunks = cookie
         .table_input_specs
@@ -345,14 +347,15 @@ async fn prepare_chunk(
         .clone()
         .ok_or_else(|| anyhow::anyhow!("YTsaurus chunk spec has no chunk id"))?;
     let replicas = chunk_replicas(chunk, nodes)?;
-    anyhow::ensure!(!replicas.is_empty(), "YTsaurus chunk has no reachable data-node replica");
+    anyhow::ensure!(
+        !replicas.is_empty(),
+        "YTsaurus chunk has no reachable data-node replica"
+    );
     let embedded_meta = chunk.chunk_meta.as_ref().filter(|meta| {
         has_extension(meta, EXTENSION_DATA_BLOCK_META)
-            && (!include_columns
-                || {
-                    has_extension(meta, EXTENSION_MISC)
-                        && has_extension(meta, EXTENSION_COLUMN_META)
-                })
+            && (!include_columns || {
+                has_extension(meta, EXTENSION_MISC) && has_extension(meta, EXTENSION_COLUMN_META)
+            })
     });
     let meta = if let Some(meta) = embedded_meta {
         meta.clone()
@@ -416,11 +419,7 @@ async fn read_prepared_chunk(
     )
     .await?;
     loop {
-        let decode = decode_direct_blocks(
-            decoder.clone(),
-            current_blocks,
-            current_selections,
-        );
+        let decode = decode_direct_blocks(decoder.clone(), current_blocks, current_selections);
         let next = if let Some(next_selections) = selection_groups.next() {
             let fetch = fetch_block_group(
                 &chunk.chunk_id,
@@ -533,13 +532,8 @@ async fn emit_direct_blocks(
     sender: &mpsc::Sender<anyhow::Result<DirectReadBlock>>,
     partition_index: usize,
 ) -> anyhow::Result<bool> {
-    for (
-        block_bytes,
-        network_decoded_bytes,
-        block_rows,
-        payload,
-        network_decode_duration,
-    ) in decoded
+    for (block_bytes, network_decoded_bytes, block_rows, payload, network_decode_duration) in
+        decoded
     {
         *network_bytes = (*network_bytes)
             .checked_add(block_bytes)
@@ -587,13 +581,7 @@ async fn fetch_chunk_meta_from_replicas(
         let endpoint = replica.endpoint.clone();
         let result = async {
             let client = data_node_client(clients, replica, service_ticket).await?;
-            fetch_chunk_meta(
-                client,
-                chunk_id.clone(),
-                replica.encoded,
-                include_columns,
-            )
-            .await
+            fetch_chunk_meta(client, chunk_id.clone(), replica.encoded, include_columns).await
         }
         .await;
         match result {
@@ -725,7 +713,10 @@ async fn fetch_chunk_meta(
     let (response, attachments): (GetChunkMetaResponse, _) = client
         .invoke("GetChunkMeta", Bytes::from(request.encode_to_vec()))
         .await?;
-    anyhow::ensure!(attachments.is_empty(), "GetChunkMeta unexpectedly returned attachments");
+    anyhow::ensure!(
+        attachments.is_empty(),
+        "GetChunkMeta unexpectedly returned attachments"
+    );
     response
         .chunk_meta
         .ok_or_else(|| anyhow::anyhow!("data node returned no chunk metadata"))
@@ -774,7 +765,11 @@ fn selected_block_ranges(
         .and_then(|limit| limit.row_index)
         .map(relative)
         .transpose()?
-        .or_else(|| chunk.row_count_override.and_then(|count| lower.checked_add(count)))
+        .or_else(|| {
+            chunk
+                .row_count_override
+                .and_then(|count| lower.checked_add(count))
+        })
         .unwrap_or(total_rows);
     anyhow::ensure!(
         0 <= lower && lower <= upper && upper <= total_rows,
@@ -795,17 +790,17 @@ fn selected_block_ranges(
             });
         }
     }
-    selections.sort_unstable_by_key(|selection| {
-        (selection.lower_row_index, selection.block_index)
-    });
+    selections.sort_unstable_by_key(|selection| (selection.lower_row_index, selection.block_index));
     selections.dedup_by_key(|selection| selection.block_index);
-    let covered_until = selections.iter().try_fold(lower, |covered_until, selection| {
-        anyhow::ensure!(
-            selection.lower_row_index == covered_until,
-            "YTsaurus data-block metadata has a gap or overlap at row {covered_until}"
-        );
-        Ok::<_, anyhow::Error>(selection.upper_row_index)
-    })?;
+    let covered_until = selections
+        .iter()
+        .try_fold(lower, |covered_until, selection| {
+            anyhow::ensure!(
+                selection.lower_row_index == covered_until,
+                "YTsaurus data-block metadata has a gap or overlap at row {covered_until}"
+            );
+            Ok::<_, anyhow::Error>(selection.upper_row_index)
+        })?;
     anyhow::ensure!(
         covered_until == upper,
         "YTsaurus data-block metadata covers rows [{lower}, {covered_until}), expected [{lower}, {upper})"
@@ -867,16 +862,14 @@ fn chunk_replicas(chunk: &ChunkSpec, nodes: &HashMap<u32, String>) -> anyhow::Re
         .filter_map(|encoded| {
             let node_id = u32::try_from(encoded & NODE_ID_MASK).ok()?;
             let endpoint = nodes.get(&node_id)?.clone();
-            seen.insert((node_id, medium_index(encoded))).then_some(Replica {
-                encoded,
-                endpoint,
-            })
+            seen.insert((node_id, medium_index(encoded)))
+                .then_some(Replica { encoded, endpoint })
         })
         .collect::<Vec<_>>();
     Ok(replicas)
 }
 
-fn medium_index(encoded_replica: u64) -> i32 {
+const fn medium_index(encoded_replica: u64) -> i32 {
     ((encoded_replica >> MEDIUM_INDEX_SHIFT) & MEDIUM_INDEX_MASK) as i32
 }
 
@@ -906,7 +899,7 @@ fn node_endpoints(directory: NodeDirectory) -> anyhow::Result<HashMap<u32, Strin
         .collect()
 }
 
-fn user_batch_workload() -> WorkloadDescriptor {
+const fn user_batch_workload() -> WorkloadDescriptor {
     WorkloadDescriptor {
         category: WORKLOAD_CATEGORY_USER_BATCH,
         band: 0,
@@ -932,7 +925,7 @@ struct BinaryYsonMap<'a> {
 }
 
 impl<'a> BinaryYsonMap<'a> {
-    fn new(input: &'a [u8]) -> Self {
+    const fn new(input: &'a [u8]) -> Self {
         Self {
             input,
             position: 0,
@@ -953,7 +946,10 @@ impl<'a> BinaryYsonMap<'a> {
         if self.peek() == Some(b'}') {
             self.position += 1;
             self.skip_space();
-            anyhow::ensure!(self.position == self.input.len(), "trailing bytes after YSON map");
+            anyhow::ensure!(
+                self.position == self.input.len(),
+                "trailing bytes after YSON map"
+            );
             self.finished = true;
             return Ok(None);
         }
@@ -994,7 +990,9 @@ impl<'a> BinaryYsonMap<'a> {
             match byte {
                 b'\"' => return Ok(value),
                 b'\\' => {
-                    let escaped = self.peek().ok_or_else(|| anyhow::anyhow!("truncated YSON escape"))?;
+                    let escaped = self
+                        .peek()
+                        .ok_or_else(|| anyhow::anyhow!("truncated YSON escape"))?;
                     self.position += 1;
                     value.push(match escaped {
                         b'n' => b'\n',
@@ -1014,7 +1012,9 @@ impl<'a> BinaryYsonMap<'a> {
     fn var_uint(&mut self) -> anyhow::Result<u64> {
         let mut value = 0_u64;
         for shift in (0..=63).step_by(7) {
-            let byte = self.peek().ok_or_else(|| anyhow::anyhow!("truncated YSON varint"))?;
+            let byte = self
+                .peek()
+                .ok_or_else(|| anyhow::anyhow!("truncated YSON varint"))?;
             self.position += 1;
             value |= u64::from(byte & 0x7f) << shift;
             if byte & 0x80 == 0 {
@@ -1027,7 +1027,10 @@ impl<'a> BinaryYsonMap<'a> {
     fn expect(&mut self, expected: u8) -> anyhow::Result<()> {
         self.skip_space();
         let actual = self.peek();
-        anyhow::ensure!(actual == Some(expected), "expected YSON byte {expected:#x}, found {actual:?}");
+        anyhow::ensure!(
+            actual == Some(expected),
+            "expected YSON byte {expected:#x}, found {actual:?}"
+        );
         self.position += 1;
         Ok(())
     }

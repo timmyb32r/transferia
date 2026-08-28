@@ -311,7 +311,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     );
 
     let yaml = format!(
-        "bucket: transferia-e2e\nobject_layout_version: 5\nprefix: e2e\nregion: us-east-1\nhost: '{host}'\nport: {port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
+        "bucket: transferia-e2e\nobject_layout_version: 5\npath_prefix: e2e\nregion: us-east-1\nendpoint: 'http://{host}:{port}'\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
     );
     let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
     config.check_connection().await?;

@@ -21,7 +21,7 @@ fn parquet_round_trip_preserves_arrow_rows() -> anyhow::Result<()> {
         ],
     )?;
     let encoded = encode_parquet(
-        batch.clone(),
+        &batch,
         Compression::SNAPPY,
         &ParquetRowGroupConfig {
             max_rows: 2,
@@ -41,11 +41,7 @@ fn parquet_round_trip_preserves_arrow_rows() -> anyhow::Result<()> {
 
 #[test]
 fn object_rotation_splits_batches_without_copying_or_losing_rows() -> anyhow::Result<()> {
-    let schema = Arc::new(Schema::new(vec![Field::new(
-        "id",
-        DataType::Int64,
-        false,
-    )]));
+    let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![Arc::new(Int64Array::from(vec![1, 2, 3, 4, 5]))],
@@ -53,7 +49,10 @@ fn object_rotation_splits_batches_without_copying_or_losing_rows() -> anyhow::Re
 
     let chunks = split_for_object_limits(batch.clone(), 2, usize::MAX);
 
-    assert_eq!(chunks.iter().map(RecordBatch::num_rows).collect::<Vec<_>>(), [2, 2, 1]);
+    assert_eq!(
+        chunks.iter().map(RecordBatch::num_rows).collect::<Vec<_>>(),
+        [2, 2, 1]
+    );
     assert_eq!(arrow::compute::concat_batches(&schema, &chunks)?, batch);
     Ok(())
 }

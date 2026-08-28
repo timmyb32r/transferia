@@ -75,10 +75,7 @@ impl S3Source {
                 match next {
                     Ok(Some(Ok(batch))) => break batch,
                     Ok(Some(Err(error))) => {
-                        let key = self
-                            .parquet_key
-                            .as_ref()
-                            .map_or("<unknown>", Path::as_ref);
+                        let key = self.parquet_key.as_ref().map_or("<unknown>", Path::as_ref);
                         return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                             "S3 Parquet decoding failed for '{key}': {error}"
                         )));
@@ -130,10 +127,7 @@ impl S3Source {
             }
         };
         if batch.schema() != expected_schema {
-            let key = self
-                .parquet_key
-                .as_ref()
-                .map_or("<unknown>", Path::as_ref);
+            let key = self.parquet_key.as_ref().map_or("<unknown>", Path::as_ref);
             return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                 "S3 Parquet object '{key}' has schema {:?}, expected {:?}",
                 batch.schema(),
@@ -145,6 +139,8 @@ impl S3Source {
         let memory = self.memory.reserve_progress_source(bytes).await;
         self.counters.add_records(rows);
         self.counters.add_network_decoded_bytes(bytes as u64);
+        let commit_marker = i64::try_from(self.next)
+            .map_err(|error| DataPlaneFailure::fatal(anyhow::Error::from(error)))?;
         Ok(Some(SourceBatch::Typed {
             tables: vec![TableData::new(
                 table,
@@ -153,7 +149,7 @@ impl S3Source {
                 SystemColumns::default(),
             )],
             source_rows: rows,
-            commit_marker: Some(CommitMarker::new(self.next as i64)),
+            commit_marker: Some(CommitMarker::new(commit_marker)),
             memory: vec![memory],
         }))
     }
@@ -166,9 +162,7 @@ impl Source for S3Source {
         Box::pin(async move {
             if self.parquet.is_some() {
                 return self.parquet_batch().await?.ok_or_else(|| {
-                    DataPlaneFailure::fatal(anyhow::anyhow!(
-                        "S3 Parquet reader mode disappeared"
-                    ))
+                    DataPlaneFailure::fatal(anyhow::anyhow!("S3 Parquet reader mode disappeared"))
                 });
             }
             let Some(key) = self.keys.get(self.next) else {

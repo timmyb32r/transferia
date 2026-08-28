@@ -96,7 +96,8 @@ impl SinkLimits for IcebergSinkConfig {
             "Iceberg sink requires at least one dataset"
         );
         for dataset in &discovery.datasets {
-            self.table_for_dataset(&dataset.name)?.validate("dataset table")?;
+            self.table_for_dataset(&dataset.name)?
+                .validate("dataset table")?;
             validate_stored_projection(discovery, dataset)?;
             iceberg_schema(&dataset.stored_schema)?;
         }
@@ -252,10 +253,7 @@ impl IcebergSink {
         delivery_id: u64,
     ) -> anyhow::Result<()> {
         let table_ref = self.config.table_for_dataset(dataset)?;
-        let table = self
-            .catalog
-            .load_table(&table_ident(&table_ref)?)
-            .await?;
+        let table = self.catalog.load_table(&table_ident(&table_ref)?).await?;
         let commit = self.idempotent_snapshot_replay.then(|| {
             IcebergCommitIdentity::new(
                 self.durable.delivery_id.as_ref(),
@@ -319,10 +317,12 @@ impl IcebergSink {
         let transaction = Transaction::new(&table);
         let mut append = transaction.fast_append().add_data_files(files);
         if let Some(commit) = &commit {
-            append = append.set_commit_uuid(commit.uuid).set_snapshot_properties(HashMap::from([(
-                ICEBERG_COMMIT_TOKEN_PROPERTY.to_owned(),
-                commit.token.clone(),
-            )]));
+            append = append
+                .set_commit_uuid(commit.uuid)
+                .set_snapshot_properties(HashMap::from([(
+                    ICEBERG_COMMIT_TOKEN_PROPERTY.to_owned(),
+                    commit.token.clone(),
+                )]));
         }
         let transaction = append.apply(transaction)?;
         if let Err(commit_error) = transaction.commit(self.catalog.as_ref()).await {
@@ -454,7 +454,11 @@ impl Sink for IcebergSink {
                 let input_closed = next.is_none();
                 if let Some(delivery) = next {
                     pending_bytes = pending_bytes.saturating_add(
-                        delivery.outputs.iter().map(|batch| batch.bytes()).sum::<usize>(),
+                        delivery
+                            .outputs
+                            .iter()
+                            .map(transferia_core::SinkBatch::bytes)
+                            .sum::<usize>(),
                     );
                     pending.push(delivery);
                 }
@@ -473,7 +477,9 @@ impl Sink for IcebergSink {
                 }
                 let id = pending
                     .last()
-                    .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("missing pending Iceberg delivery")))?
+                    .ok_or_else(|| {
+                        DataPlaneFailure::fatal(anyhow::anyhow!("missing pending Iceberg delivery"))
+                    })?
                     .id;
                 let source_messages = pending
                     .iter()
@@ -621,8 +627,9 @@ fn iceberg_arrow_data_type(data_type: &DataType) -> DataType {
     match data_type {
         DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => DataType::Utf8,
         DataType::Binary | DataType::LargeBinary | DataType::BinaryView => DataType::LargeBinary,
-        DataType::Int8 | DataType::Int16 | DataType::Int32 => DataType::Int32,
-        DataType::UInt8 | DataType::UInt16 => DataType::Int32,
+        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::UInt8 | DataType::UInt16 => {
+            DataType::Int32
+        }
         DataType::UInt32 => DataType::Int64,
         DataType::UInt64 => DataType::Decimal128(20, 0),
         DataType::Float16 | DataType::Float32 => DataType::Float32,

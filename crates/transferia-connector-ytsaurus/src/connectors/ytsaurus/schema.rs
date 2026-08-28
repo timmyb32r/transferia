@@ -62,14 +62,12 @@ pub fn parse_schema(value: Value) -> anyhow::Result<DatasetSchema> {
                 "YTsaurus schema repeats column '{}'",
                 column.name
             );
-            Ok(
-                SchemaColumn::new(
-                    column.name,
-                    yt_to_arrow(&column.legacy_type)?,
-                    !column.required,
-                )
-                .with_constraints(unique_keys && column.sort_order.is_some(), false, None),
+            Ok(SchemaColumn::new(
+                column.name,
+                yt_to_arrow(&column.legacy_type)?,
+                !column.required,
             )
+            .with_constraints(unique_keys && column.sort_order.is_some(), false, None))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(DatasetSchema::new(columns))

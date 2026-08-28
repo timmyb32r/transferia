@@ -496,8 +496,10 @@ fn data_types_compatible(expected: &DataType, target: &TargetColumn) -> bool {
         return false;
     };
     match (expected, target_data_type) {
-        (DataType::Utf8 | DataType::LargeUtf8, DataType::Utf8)
-        | (DataType::Binary | DataType::LargeBinary, DataType::Utf8)
+        (
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary,
+            DataType::Utf8,
+        )
         | (DataType::Boolean, DataType::UInt8) => true,
         (
             DataType::Decimal128(expected_precision, expected_scale),

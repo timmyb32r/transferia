@@ -413,11 +413,11 @@ impl IcebergSourceConfig {
         self.catalog.validate()?;
         self.storage.validate()?;
         validate_required("namespace", &self.namespace)?;
-        anyhow::ensure!(!self.table_names.is_empty(), "table_names must not be empty");
         anyhow::ensure!(
-            self.read_batch_rows > 0,
-            "read_batch_rows must be positive"
+            !self.table_names.is_empty(),
+            "table_names must not be empty"
         );
+        anyhow::ensure!(self.read_batch_rows > 0, "read_batch_rows must be positive");
         let mut unique = HashSet::with_capacity(self.table_names.len());
         for (index, table_name) in self.table_names.iter().enumerate() {
             validate_required(&format!("table_names[{index}]"), table_name)?;

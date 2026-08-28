@@ -81,7 +81,7 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub compression: ClickHouseCompression,
 
-    /// Let ClickHouse coalesce concurrent native INSERTs server-side. Waiting
+    /// Let `ClickHouse` coalesce concurrent native INSERTs server-side. Waiting
     /// remains mandatory, so a successful response still means the buffered
     /// data has reached the table rather than merely entering an async queue.
     #[serde(default)]

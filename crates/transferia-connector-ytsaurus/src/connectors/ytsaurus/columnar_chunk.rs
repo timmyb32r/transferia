@@ -1,3 +1,8 @@
+#![allow(
+    clippy::struct_field_names,
+    reason = "protobuf fields intentionally preserve upstream YTsaurus wire-schema names"
+)]
+
 use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Field, Schema};
@@ -6,9 +11,7 @@ use bytes::Bytes;
 use prost::Message as _;
 use transferia_core::data::schema::DatasetSchema;
 
-use super::yt_wire::{
-    ColumnBuilder, VALUE_BOOLEAN, VALUE_DOUBLE, VALUE_INT64, VALUE_UINT64,
-};
+use super::yt_wire::{ColumnBuilder, VALUE_BOOLEAN, VALUE_DOUBLE, VALUE_INT64, VALUE_UINT64};
 
 pub(super) const EXTENSION_MISC: i32 = 0;
 pub(super) const EXTENSION_DATA_BLOCK_META: i32 = 51;
@@ -36,10 +39,7 @@ impl ColumnarChunkDecoder {
             misc.compression_dictionary_id.is_none(),
             "direct YTsaurus reads do not support dictionary-compressed chunks"
         );
-        let column_meta = ColumnMetaExt::decode(required_extension(
-            meta,
-            EXTENSION_COLUMN_META,
-        )?)?;
+        let column_meta = ColumnMetaExt::decode(required_extension(meta, EXTENSION_COLUMN_META)?)?;
         anyhow::ensure!(
             column_meta.columns.len() == schema.columns.len(),
             "YTsaurus chunk metadata has {} columns, but discovery reported {}",
@@ -115,7 +115,8 @@ impl ColumnarChunkDecoder {
                     usize::try_from(start - segment_start)?,
                     usize::try_from(end - segment_start)?,
                 )?;
-                appended = appended.checked_add(usize::try_from(end - start)?)
+                appended = appended
+                    .checked_add(usize::try_from(end - start)?)
                     .ok_or_else(|| anyhow::anyhow!("YTsaurus decoded row count overflow"))?;
             }
             anyhow::ensure!(
@@ -190,7 +191,10 @@ fn segment_data<'a>(block: &'a [u8], segment: &SegmentMeta) -> anyhow::Result<&'
     let end = start
         .checked_add(usize::try_from(segment.size)?)
         .ok_or_else(|| anyhow::anyhow!("YTsaurus segment byte range overflow"))?;
-    anyhow::ensure!(end <= block.len(), "YTsaurus segment exceeds its data block");
+    anyhow::ensure!(
+        end <= block.len(),
+        "YTsaurus segment exceeds its data block"
+    );
     Ok(&block[start..end])
 }
 
@@ -202,7 +206,11 @@ fn append_segment(
     start: usize,
     end: usize,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(meta.version == 0, "unsupported YTsaurus segment version {}", meta.version);
+    anyhow::ensure!(
+        meta.version == 0,
+        "unsupported YTsaurus segment version {}",
+        meta.version
+    );
     anyhow::ensure!(
         end <= usize::try_from(meta.row_count)?,
         "YTsaurus segment slice exceeds its row count"
@@ -224,7 +232,9 @@ fn append_segment(
         DataType::Float64 => append_floating::<8>(builder, data, start, end),
         DataType::Boolean => append_boolean(builder, data, start, end),
         DataType::Utf8 | DataType::Binary => append_string(builder, meta, data, start, end),
-        other => anyhow::bail!("direct YTsaurus chunk reader does not support Arrow type {other:?}"),
+        other => {
+            anyhow::bail!("direct YTsaurus chunk reader does not support Arrow type {other:?}")
+        }
     }
 }
 
@@ -311,7 +321,7 @@ fn append_integer_value(
         .checked_add(delta)
         .ok_or_else(|| anyhow::anyhow!("YTsaurus integer value overflow"))?;
     if signed {
-        let value = ((encoded >> 1) as i64) ^ -((encoded & 1) as i64);
+        let value = (encoded >> 1).cast_signed() ^ -(encoded & 1).cast_signed();
         builder.append_fixed(VALUE_INT64, value as u64)
     } else {
         builder.append_fixed(VALUE_UINT64, encoded)
@@ -418,7 +428,7 @@ fn string_boundaries(
     let mut previous = 0_i64;
     for index in 0..offsets.len() {
         let encoded = u32::try_from(offsets.get(index)?)?;
-        let difference = ((encoded >> 1) as i32) ^ -((encoded & 1) as i32);
+        let difference = (encoded >> 1).cast_signed() ^ -(encoded & 1).cast_signed();
         let expected = i64::from(expected_length)
             .checked_mul(i64::try_from(index + 1)?)
             .ok_or_else(|| anyhow::anyhow!("YTsaurus string offset overflow"))?;
@@ -454,7 +464,10 @@ fn append_floating<const WIDTH: usize>(
     let values_end = cursor
         .checked_add(values_len)
         .ok_or_else(|| anyhow::anyhow!("YTsaurus floating-point vector overflow"))?;
-    anyhow::ensure!(values_end <= data.len(), "truncated YTsaurus floating-point vector");
+    anyhow::ensure!(
+        values_end <= data.len(),
+        "truncated YTsaurus floating-point vector"
+    );
     let values = &data[cursor..values_end];
     cursor = values_end;
     let nulls = Bitmap::read(data, &mut cursor, count)?;
@@ -513,21 +526,38 @@ fn append_rle(
     Ok(())
 }
 
-fn validate_runs(rows: &PackedVector<'_>, value_count: usize, row_count: usize) -> anyhow::Result<()> {
-    anyhow::ensure!(rows.len() == value_count, "YTsaurus RLE value/index count mismatch");
-    anyhow::ensure!(rows.len() > 0 && rows.get(0)? == 0, "YTsaurus RLE rows must start at zero");
+fn validate_runs(
+    rows: &PackedVector<'_>,
+    value_count: usize,
+    row_count: usize,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        rows.len() == value_count,
+        "YTsaurus RLE value/index count mismatch"
+    );
+    anyhow::ensure!(
+        rows.len() > 0 && rows.get(0)? == 0,
+        "YTsaurus RLE rows must start at zero"
+    );
     let mut previous = 0_usize;
     for index in 0..rows.len() {
         let row = usize::try_from(rows.get(index)?)?;
         anyhow::ensure!(row < row_count, "YTsaurus RLE row index is out of range");
-        anyhow::ensure!(index == 0 || row > previous, "YTsaurus RLE row indexes are not increasing");
+        anyhow::ensure!(
+            index == 0 || row > previous,
+            "YTsaurus RLE row indexes are not increasing"
+        );
         previous = row;
     }
     Ok(())
 }
 
 fn ensure_consumed(data: &[u8], cursor: usize) -> anyhow::Result<()> {
-    anyhow::ensure!(cursor == data.len(), "YTsaurus segment contains {} trailing bytes", data.len() - cursor);
+    anyhow::ensure!(
+        cursor == data.len(),
+        "YTsaurus segment contains {} trailing bytes",
+        data.len() - cursor
+    );
     Ok(())
 }
 
@@ -579,7 +609,10 @@ impl<'a> PackedVector<'a> {
     }
 
     fn get(&self, index: usize) -> anyhow::Result<u64> {
-        anyhow::ensure!(index < self.size, "YTsaurus packed-vector index {index} is out of range");
+        anyhow::ensure!(
+            index < self.size,
+            "YTsaurus packed-vector index {index} is out of range"
+        );
         if self.width == 0 {
             return Ok(0);
         }
@@ -681,7 +714,10 @@ fn decompress_block(codec: i32, input: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn decompress_lz4(input: &[u8]) -> anyhow::Result<Vec<u8>> {
-    anyhow::ensure!(input.len() >= 8, "YTsaurus LZ4 block is shorter than its header");
+    anyhow::ensure!(
+        input.len() >= 8,
+        "YTsaurus LZ4 block is shorter than its header"
+    );
     let first = u32::from_le_bytes(input[0..4].try_into()?);
     let second = u32::from_le_bytes(input[4..8].try_into()?);
     let (mut cursor, expected_size) = match first {
@@ -692,20 +728,18 @@ fn decompress_lz4(input: &[u8]) -> anyhow::Result<Vec<u8>> {
         }
         _ => (0_usize, None),
     };
-    let mut output = Vec::with_capacity(
-        expected_size
-            .map(usize::try_from)
-            .transpose()?
-            .unwrap_or(0),
-    );
+    let mut output =
+        Vec::with_capacity(expected_size.map(usize::try_from).transpose()?.unwrap_or(0));
     while cursor < input.len() {
         let header_end = cursor
             .checked_add(8)
             .ok_or_else(|| anyhow::anyhow!("YTsaurus LZ4 block offset overflow"))?;
-        anyhow::ensure!(header_end <= input.len(), "truncated YTsaurus LZ4 block header");
-        let compressed_size = usize::try_from(u32::from_le_bytes(
-            input[cursor..cursor + 4].try_into()?,
-        ))?;
+        anyhow::ensure!(
+            header_end <= input.len(),
+            "truncated YTsaurus LZ4 block header"
+        );
+        let compressed_size =
+            usize::try_from(u32::from_le_bytes(input[cursor..cursor + 4].try_into()?))?;
         let uncompressed_size = usize::try_from(u32::from_le_bytes(
             input[cursor + 4..header_end].try_into()?,
         ))?;
@@ -713,7 +747,10 @@ fn decompress_lz4(input: &[u8]) -> anyhow::Result<Vec<u8>> {
         let compressed_end = cursor
             .checked_add(compressed_size)
             .ok_or_else(|| anyhow::anyhow!("YTsaurus LZ4 block size overflow"))?;
-        anyhow::ensure!(compressed_end <= input.len(), "truncated YTsaurus LZ4 payload");
+        anyhow::ensure!(
+            compressed_end <= input.len(),
+            "truncated YTsaurus LZ4 payload"
+        );
         let output_start = output.len();
         output.resize(
             output_start
@@ -725,11 +762,17 @@ fn decompress_lz4(input: &[u8]) -> anyhow::Result<Vec<u8>> {
             &input[cursor..compressed_end],
             &mut output[output_start..],
         )?;
-        anyhow::ensure!(written == uncompressed_size, "YTsaurus LZ4 block size mismatch");
+        anyhow::ensure!(
+            written == uncompressed_size,
+            "YTsaurus LZ4 block size mismatch"
+        );
         cursor = compressed_end;
     }
     if let Some(expected_size) = expected_size {
-        anyhow::ensure!(u64::try_from(output.len())? == expected_size, "YTsaurus LZ4 total size mismatch");
+        anyhow::ensure!(
+            u64::try_from(output.len())? == expected_size,
+            "YTsaurus LZ4 total size mismatch"
+        );
     }
     Ok(output)
 }

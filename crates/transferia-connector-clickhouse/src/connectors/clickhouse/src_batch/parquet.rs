@@ -48,9 +48,8 @@ impl ParquetTransport {
     ) -> anyhow::Result<Self> {
         let roots = match &config.tls_ca_file {
             Some(path) => {
-                let pem = std::fs::read(path).with_context(|| {
-                    format!("cannot read ClickHouse TLS CA bundle {path:?}")
-                })?;
+                let pem = std::fs::read(path)
+                    .with_context(|| format!("cannot read ClickHouse TLS CA bundle {path:?}"))?;
                 reqwest::Certificate::from_pem_bundle(&pem)
                     .context("cannot parse ClickHouse TLS CA bundle")?
             }
@@ -137,9 +136,7 @@ impl ParquetTransport {
             next_row_group += 1;
         }
         while let Some(decoded) = decoders.next().await {
-            for batch in decoded
-                .context("ClickHouse Parquet decoder task failed")??
-            {
+            for batch in decoded.context("ClickHouse Parquet decoder task failed")?? {
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => anyhow::bail!("ClickHouse Parquet read cancelled"),
@@ -192,11 +189,13 @@ impl ParquetTransport {
         counters: Arc<SourceCounters>,
         cancellation: &CancellationToken,
     ) -> anyhow::Result<Bytes> {
-        let scheme = if self.trusted_plaintext { "http" } else { "https" };
-        let mut url = reqwest::Url::parse(&format!(
-            "{scheme}://{}/",
-            host_port(host, self.http_port)
-        ))?;
+        let scheme = if self.trusted_plaintext {
+            "http"
+        } else {
+            "https"
+        };
+        let mut url =
+            reqwest::Url::parse(&format!("{scheme}://{}/", host_port(host, self.http_port)))?;
         let max_threads = self.settings.max_threads.to_string();
         let row_group_rows = self.settings.row_group_rows.to_string();
         url.query_pairs_mut()
@@ -231,7 +230,10 @@ impl ParquetTransport {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            let message = body.lines().next().unwrap_or("the server rejected the request");
+            let message = body
+                .lines()
+                .next()
+                .unwrap_or("the server rejected the request");
             anyhow::bail!("ClickHouse HTTP {status}: {message}");
         }
         if let Some(length) = response.content_length() {
@@ -263,15 +265,17 @@ impl ParquetTransport {
                 .checked_add(chunk.len())
                 .ok_or_else(|| anyhow::anyhow!("ClickHouse Parquet response size overflow"))?;
             anyhow::ensure!(
-                u64::try_from(next_len).unwrap_or(u64::MAX)
-                    <= self.settings.max_response_bytes,
+                u64::try_from(next_len).unwrap_or(u64::MAX) <= self.settings.max_response_bytes,
                 "ClickHouse Parquet response exceeded configured max_response_bytes {}",
                 self.settings.max_response_bytes
             );
             counters.add_network_raw_bytes(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
             body.extend_from_slice(&chunk);
         }
-        anyhow::ensure!(!body.is_empty(), "ClickHouse returned an empty Parquet response");
+        anyhow::ensure!(
+            !body.is_empty(),
+            "ClickHouse returned an empty Parquet response"
+        );
         Ok(body.freeze())
     }
 }

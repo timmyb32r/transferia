@@ -1,3 +1,9 @@
+#![allow(
+    clippy::expect_used,
+    clippy::needless_pass_by_value,
+    reason = "source state is validated before hot-path access and Bytes ownership matches the decoder interface"
+)]
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -17,16 +23,16 @@ use super::config::{
     SourceTableConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusBenchmarkTransport,
     YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSourceConfig,
 };
-use super::discard::{DiscardDecoder, output_format};
 use super::direct_data_node::{
     DirectReadBlock, DirectReadPayload, NativeDirectPartitionedReadStream,
 };
+use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
-    NativePartitionedReadStream, NativePipelinedReadStream, NativeReadFormat, NativeReadPayload,
-    NativeReadStream, decode_arrow_bytes,
+    decode_arrow_bytes, NativePartitionedReadStream, NativePipelinedReadStream, NativeReadFormat,
+    NativeReadPayload, NativeReadStream,
 };
 use super::schema::parse_schema;
-use super::yt_wire::{YtWireDecoder, count_wire_rows};
+use super::yt_wire::{count_wire_rows, YtWireDecoder};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
@@ -121,9 +127,7 @@ fn native_block_to_chunk(block: super::native_rpc::NativeReadBlock) -> ReadChunk
                 name_table_entries: block.name_table_entries,
             },
         },
-        NativeReadPayload::Decoded(batches) => {
-            ReadChunkPayload::RecordBatches(batches)
-        }
+        NativeReadPayload::Decoded(batches) => ReadChunkPayload::RecordBatches(batches),
     };
     ReadChunk {
         network_raw_bytes: block.network_raw_bytes,
@@ -178,9 +182,9 @@ impl PhysicalChunkLayout {
         total: u64,
         statistics: &serde_json::Value,
     ) -> anyhow::Result<Self> {
-        let formats = statistics.as_object().ok_or_else(|| {
-            anyhow::anyhow!("YTsaurus chunk_format_statistics must be an object")
-        })?;
+        let formats = statistics
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus chunk_format_statistics must be an object"))?;
         let mut observed = 0_u64;
         let mut columnar = 0_u64;
         for (format, value) in formats {
@@ -188,13 +192,11 @@ impl PhysicalChunkLayout {
                 .get("chunk_count")
                 .and_then(serde_json::Value::as_u64)
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "YTsaurus chunk format '{format}' has no unsigned chunk_count"
-                    )
+                    anyhow::anyhow!("YTsaurus chunk format '{format}' has no unsigned chunk_count")
                 })?;
-            observed = observed.checked_add(count).ok_or_else(|| {
-                anyhow::anyhow!("YTsaurus physical chunk count overflow")
-            })?;
+            observed = observed
+                .checked_add(count)
+                .ok_or_else(|| anyhow::anyhow!("YTsaurus physical chunk count overflow"))?;
             if format == "table_unversioned_columnar" {
                 columnar = count;
             }
@@ -485,8 +487,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                         .iter()
                         .map(|kind| kind.default_name())
                         .collect::<HashSet<_>>();
-                    let (has_physical_system_columns, _) =
-                        system_column_layout(&table.schema)?;
+                    let (has_physical_system_columns, _) = system_column_layout(&table.schema)?;
                     let mut incoming = table.schema.clone();
                     if !has_physical_system_columns {
                         incoming.columns.extend(system_columns.iter().map(|kind| {
@@ -557,7 +558,7 @@ impl SourceConnector for YTsaurusSourceConnector {
                 .as_ref()
                 .map(|config| BenchmarkDiscardState::new(config, &table.schema))
                 .transpose()?;
-            let uses_native_rpc = benchmark_discard.as_ref().map_or(true, |state| {
+            let uses_native_rpc = benchmark_discard.as_ref().is_none_or(|state| {
                 state.config.transport == YTsaurusBenchmarkTransport::NativeRpc
             });
             let rpc_endpoints = if uses_native_rpc {
@@ -566,12 +567,10 @@ impl SourceConnector for YTsaurusSourceConnector {
                 None
             };
             let native_token = uses_native_rpc.then(|| self.client.token().to_owned());
-            let native_service_ticket_file =
-                self.config.native_rpc_service_ticket_file.clone();
+            let native_service_ticket_file = self.config.native_rpc_service_ticket_file.clone();
             let dataset_name = Arc::clone(&table.dataset_name);
             let expected_arrow_schema = dataset_arrow_schema(&table.schema);
-            let (source_has_system_columns, system_columns) =
-                system_column_layout(&table.schema)?;
+            let (source_has_system_columns, system_columns) = system_column_layout(&table.schema)?;
             let stream = tokio::select! {
                 biased;
                 () = cancellation.cancelled() => anyhow::bail!("YTsaurus read cancelled"),
@@ -696,7 +695,9 @@ impl BenchmarkDiscardState {
         let http = config.transport == YTsaurusBenchmarkTransport::Http;
         Ok(Self {
             config: config.clone(),
-            output_format: http.then(|| output_format(config.format, schema)).transpose()?,
+            output_format: http
+                .then(|| output_format(config.format, schema))
+                .transpose()?,
             decoder: http
                 .then(|| DiscardDecoder::new(config.format, schema))
                 .transpose()?,
@@ -737,11 +738,7 @@ impl BenchmarkDiscardState {
         })
     }
 
-    fn add_decoded_partition_rows(
-        &mut self,
-        stream_id: usize,
-        rows: u64,
-    ) -> anyhow::Result<()> {
+    fn add_decoded_partition_rows(&mut self, stream_id: usize, rows: u64) -> anyhow::Result<()> {
         let observed = self.partition_cumulative_rows.entry(stream_id).or_default();
         *observed = observed
             .checked_add(rows)
@@ -791,9 +788,8 @@ async fn open_read_stream(
     native_service_ticket_file: Option<&str>,
     start_row_index: i64,
 ) -> Result<YTsaurusReadStream, DataPlaneFailure> {
-    let native_benchmark = benchmark_discard.is_some_and(|state| {
-        state.config.transport == YTsaurusBenchmarkTransport::NativeRpc
-    });
+    let native_benchmark = benchmark_discard
+        .is_some_and(|state| state.config.transport == YTsaurusBenchmarkTransport::NativeRpc);
     if benchmark_discard.is_none() || native_benchmark {
         let endpoints = rpc_endpoints.ok_or_else(|| {
             DataPlaneFailure::fatal(anyhow::anyhow!(
@@ -868,8 +864,10 @@ async fn open_read_stream(
             token,
             &table.config.path,
             start_row_index,
-            benchmark_discard
-                .map_or(read_ordering.is_unordered(), |state| state.config.unordered),
+            benchmark_discard.map_or_else(
+                || read_ordering.is_unordered(),
+                |state| state.config.unordered,
+            ),
             table_reader,
             requested_format,
         )
@@ -887,11 +885,9 @@ async fn open_read_stream(
         read_ordering,
         start_row_index,
     )
-        .await
-        .map(|response| YTsaurusReadStream::Http(Box::pin(response.bytes_stream())))
-        .map_err(|error| {
-            DataPlaneFailure::retryable_or_passthrough(classify_http_failure(error))
-        })
+    .await
+    .map(|response| YTsaurusReadStream::Http(Box::pin(response.bytes_stream())))
+    .map_err(|error| DataPlaneFailure::retryable_or_passthrough(classify_http_failure(error)))
 }
 
 impl YTsaurusSource {
@@ -1006,12 +1002,13 @@ impl YTsaurusSource {
     }
 
     fn queue_validated(&mut self, batch: RecordBatch) -> anyhow::Result<()> {
-        let batch = normalize_read_batch(
-            batch,
-            &self.table.schema,
-            &self.expected_arrow_schema,
-        )?;
-        self.queued.push_back(batch);
+        let batch = normalize_read_batch(batch, &self.table.schema, &self.expected_arrow_schema)?;
+        let mut offset = 0;
+        while offset < batch.num_rows() {
+            let rows = self.batch_rows.min(batch.num_rows() - offset);
+            self.queued.push_back(batch.slice(offset, rows));
+            offset += rows;
+        }
         Ok(())
     }
 
@@ -1023,9 +1020,7 @@ impl YTsaurusSource {
         let started = Instant::now();
         let batches = if let Some(stream_id) = stream_id {
             decode_arrow_bytes(
-                self.partition_arrow_decoders
-                    .entry(stream_id)
-                    .or_insert_with(StreamDecoder::new),
+                self.partition_arrow_decoders.entry(stream_id).or_default(),
                 bytes,
             )?
         } else {
@@ -1074,9 +1069,8 @@ impl YTsaurusSource {
                 }
             }
             if let Some(cumulative_rows) = cumulative_rows {
-                rows = rows.saturating_add(
-                    state.add_cumulative_rows(Some(stream_id), cumulative_rows)?,
-                );
+                rows = rows
+                    .saturating_add(state.add_cumulative_rows(Some(stream_id), cumulative_rows)?);
             }
             self.queued_discard_rows = self.queued_discard_rows.saturating_add(rows);
             return Ok(());
@@ -1121,36 +1115,32 @@ impl YTsaurusSource {
     async fn output_batch(&mut self, batch: RecordBatch) -> anyhow::Result<SourceBatch> {
         let rows = batch.num_rows();
         let len_i64 = i64::try_from(rows)?;
-        let batch = if self.source_has_system_columns {
-            batch
-        } else {
-            let schema = batch.schema();
-            let mut fields = schema.fields().iter().cloned().collect::<Vec<_>>();
-            let mut arrays = batch.columns().to_vec();
-            fields.extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
-                Arc::new(Field::new(
-                    kind.default_name(),
-                    kind.data_type(),
-                    false,
-                ))
-            }));
-            arrays.extend([
-                Arc::new(StringArray::from(vec![
-                    self.table.config.path.as_str();
-                    rows
-                ])) as ArrayRef,
-                Arc::new(Int64Array::from(vec![self.partition_id; rows])) as ArrayRef,
-                Arc::new(Int64Array::from_iter_values(
-                    self.offset
-                        ..self
-                            .offset
-                            .checked_add(len_i64)
-                            .ok_or_else(|| anyhow::anyhow!("YTsaurus source offset overflow"))?,
-                )) as ArrayRef,
-                Arc::new(UInt64Array::from(vec![0_u64; rows])) as ArrayRef,
-            ]);
-            RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?
-        };
+        let batch =
+            if self.source_has_system_columns {
+                batch
+            } else {
+                let schema = batch.schema();
+                let mut fields = schema.fields().iter().cloned().collect::<Vec<_>>();
+                let mut arrays = batch.columns().to_vec();
+                fields.extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
+                    Arc::new(Field::new(kind.default_name(), kind.data_type(), false))
+                }));
+                arrays.extend([
+                    Arc::new(StringArray::from(vec![
+                        self.table.config.path.as_str();
+                        rows
+                    ])) as ArrayRef,
+                    Arc::new(Int64Array::from(vec![self.partition_id; rows])) as ArrayRef,
+                    Arc::new(Int64Array::from_iter_values(
+                        self.offset
+                            ..self.offset.checked_add(len_i64).ok_or_else(|| {
+                                anyhow::anyhow!("YTsaurus source offset overflow")
+                            })?,
+                    )) as ArrayRef,
+                    Arc::new(UInt64Array::from(vec![0_u64; rows])) as ArrayRef,
+                ]);
+                RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?
+            };
         let batch_bytes = batch.get_array_memory_size();
         let memory = self.memory.reserve_progress_source(batch_bytes).await;
         self.offset = self
@@ -1195,10 +1185,12 @@ impl YTsaurusSource {
                 return Err(failure);
             }
             if self.consecutive_stream_failures >= self.stream_retry_max_attempts {
-                return Err(DataPlaneFailure::fatal(failure.into_source().context(format!(
-                    "YTsaurus snapshot stream could not resume at row {} after {} attempts",
-                    self.offset, self.stream_retry_max_attempts
-                ))));
+                return Err(DataPlaneFailure::fatal(failure.into_source().context(
+                    format!(
+                        "YTsaurus snapshot stream could not resume at row {} after {} attempts",
+                        self.offset, self.stream_retry_max_attempts
+                    ),
+                )));
             }
             self.consecutive_stream_failures += 1;
             let exponent = u32::try_from(self.consecutive_stream_failures.saturating_sub(1))
@@ -1269,9 +1261,7 @@ impl Source for YTsaurusSource {
         Box::pin(async move {
             loop {
                 if self.queued_discard_rows > 0 {
-                    return self
-                        .output_discard_batch()
-                        .map_err(DataPlaneFailure::fatal);
+                    return self.output_discard_batch().map_err(DataPlaneFailure::fatal);
                 }
                 if let Some(batch) = self.queued.pop_front() {
                     return self
@@ -1288,8 +1278,7 @@ impl Source for YTsaurusSource {
                 self.counters.add_response_wait(wait_started.elapsed());
                 match response {
                     Ok(Ok(Some(chunk))) => {
-                        self.counters
-                            .add_network_raw_bytes(chunk.network_raw_bytes);
+                        self.counters.add_network_raw_bytes(chunk.network_raw_bytes);
                         self.counters
                             .add_network_decoded_bytes(chunk.network_decoded_bytes);
                         self.counters
@@ -1305,7 +1294,7 @@ impl Source for YTsaurusSource {
                                 chunk.payload,
                                 chunk.cumulative_rows,
                             )
-                                .map_err(DataPlaneFailure::fatal)?;
+                            .map_err(DataPlaneFailure::fatal)?;
                             continue;
                         }
                         if self.benchmark_discard.is_some() {
@@ -1360,7 +1349,7 @@ impl Source for YTsaurusSource {
                                         &name_table_entries,
                                         chunk.stream_id,
                                     )
-                                        .map_err(DataPlaneFailure::fatal)?;
+                                    .map_err(DataPlaneFailure::fatal)?;
                                 }
                             }
                         }
@@ -1435,9 +1424,10 @@ pub(super) fn system_column_layout(
     let indices = SYSTEM_COLUMN_KINDS
         .iter()
         .map(|kind| {
-            schema.columns.iter().position(|column| {
-                column.name == kind.default_name()
-            })
+            schema
+                .columns
+                .iter()
+                .position(|column| column.name == kind.default_name())
         })
         .collect::<Vec<_>>();
     let present_count = indices.iter().flatten().count();

@@ -246,11 +246,8 @@ pub(super) fn normalize_snapshot_schema(
                 },
             )?;
         }
-        fields[system_column.index] = Arc::new(Field::new(
-            system_column.name.as_ref(),
-            expected,
-            false,
-        ));
+        fields[system_column.index] =
+            Arc::new(Field::new(system_column.name.as_ref(), expected, false));
     }
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
 }

@@ -22,7 +22,7 @@ pub(super) struct S3ParquetSink {
 }
 
 impl S3ParquetSink {
-    pub(super) fn new(
+    pub(super) const fn new(
         config: S3SinkConfig,
         uploader: Arc<S3Uploader>,
         counters: Arc<SinkCounters>,
@@ -65,36 +65,33 @@ impl S3ParquetSink {
                 jobs.push((Arc::clone(&output.table), batch));
             }
         }
-        let uploads = jobs
-            .into_iter()
-            .enumerate()
-            .map(|(index, (table, batch))| {
-                let output_rows = batch.num_rows() as u64;
-                let key = object_key(
-                    &self.config.path_prefix,
-                    &table,
-                    self.partition_id,
-                    delivery.id.get(),
-                    index,
-                );
-                let row_group = row_group.clone();
-                let uploader = Arc::clone(&self.uploader);
-                let cancellation = io.cancellation.clone();
-                async move {
-                    let key = key?;
-                    let payload = tokio::task::spawn_blocking(move || {
-                        encode_parquet(batch, compression, &row_group)
-                    })
+        let uploads = jobs.into_iter().enumerate().map(|(index, (table, batch))| {
+            let output_rows = batch.num_rows() as u64;
+            let key = object_key(
+                &self.config.path_prefix,
+                &table,
+                self.partition_id,
+                delivery.id.get(),
+                index,
+            );
+            let row_group = row_group.clone();
+            let uploader = Arc::clone(&self.uploader);
+            let cancellation = io.cancellation.clone();
+            async move {
+                let key = key?;
+                let payload = tokio::task::spawn_blocking(move || {
+                    encode_parquet(&batch, compression, &row_group)
+                })
+                .await
+                .map_err(|error| anyhow::anyhow!("Parquet encoder task failed: {error}"))??;
+                let bytes = payload.len() as u64;
+                uploader
+                    .upload(&key, Bytes::from(payload), &cancellation)
                     .await
-                    .map_err(|error| anyhow::anyhow!("Parquet encoder task failed: {error}"))??;
-                    let bytes = payload.len() as u64;
-                    uploader
-                        .upload(&key, Bytes::from(payload), &cancellation)
-                        .await
-                        .map_err(upload_error)?;
-                    Ok::<_, anyhow::Error>((output_rows, bytes))
-                }
-            });
+                    .map_err(upload_error)?;
+                Ok::<_, anyhow::Error>((output_rows, bytes))
+            }
+        });
         let mut uploads = stream::iter(uploads).buffer_unordered(concurrency);
         let mut rows = 0_u64;
         let mut bytes = 0_u64;
@@ -106,8 +103,7 @@ impl S3ParquetSink {
         self.counters.add_rows(rows);
         self.counters.add_bytes(bytes);
         self.counters.add_flush();
-        self.counters
-            .add_source_messages(source_messages);
+        self.counters.add_source_messages(source_messages);
         io.events
             .send(SinkEvent::CommittedThrough(delivery.id))
             .await
@@ -160,7 +156,7 @@ impl Sink for S3ParquetSink {
 }
 
 fn encode_parquet(
-    batch: arrow::record_batch::RecordBatch,
+    batch: &arrow::record_batch::RecordBatch,
     compression: Compression,
     row_group: &ParquetRowGroupConfig,
 ) -> anyhow::Result<Vec<u8>> {
@@ -182,7 +178,7 @@ fn encode_parquet(
         .build();
     let mut output = Vec::new();
     let mut writer = ArrowWriter::try_new(&mut output, batch.schema(), Some(properties))?;
-    writer.write(&batch)?;
+    writer.write(batch)?;
     writer.close()?;
     Ok(output)
 }
@@ -194,9 +190,8 @@ fn object_key(
     delivery_id: u64,
     output_index: usize,
 ) -> anyhow::Result<String> {
-    let relative = format!(
-        "{table}/partition={partition_id}/delivery={delivery_id}+{output_index}.parquet"
-    );
+    let relative =
+        format!("{table}/partition={partition_id}/delivery={delivery_id}+{output_index}.parquet");
     let key = if prefix.is_empty() {
         relative
     } else {

@@ -8,8 +8,8 @@ use iceberg::io::{
     StorageFactory,
 };
 use iceberg::{Error, ErrorKind, Result};
-use opendal::services::{Webhdfs, S3};
 use opendal::layers::RetryLayer;
+use opendal::services::{Webhdfs, S3};
 use opendal::{Operator, Writer};
 use serde::{Deserialize, Serialize};
 use url::Url;

@@ -10,8 +10,7 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::FutureProducer;
 
 pub use config::{
-    KafkaSaslMechanism, KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig,
-    KafkaTopicConfig,
+    KafkaSaslMechanism, KafkaSecurityConfig, KafkaSinkConfig, KafkaSourceConfig, KafkaTopicConfig,
 };
 use sink::KafkaSink;
 

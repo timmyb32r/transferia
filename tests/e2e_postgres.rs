@@ -295,7 +295,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         "LocalStack bucket creation failed: {create_bucket_stderr}"
     );
     let s3_yaml = format!(
-        "bucket: postgres-source-e2e\nobject_layout_version: 5\nprefix: pg\nregion: us-east-1\nhost: '{s3_host}'\nport: {s3_port}\nallow_http: true\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
+        "bucket: postgres-source-e2e\nobject_layout_version: 5\npath_prefix: pg\nregion: us-east-1\nendpoint: 'http://{s3_host}:{s3_port}'\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
     );
     let s3_sink = S3SinkConnector::from_config(serde_yaml::from_str(&s3_yaml)?)?;
     run_pipeline(&source, &s3_sink, Arc::clone(&discovery)).await?;

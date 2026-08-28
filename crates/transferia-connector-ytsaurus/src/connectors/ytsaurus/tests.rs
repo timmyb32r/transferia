@@ -1,3 +1,8 @@
+#![allow(
+    clippy::manual_let_else,
+    reason = "the explicit match keeps the negative protocol assertion readable"
+)]
+
 use arrow::array::{ArrayRef, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamReader;
@@ -11,32 +16,30 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
+use super::client::{
+    resolved_link_suggestion, rich_read_path, suggestion_directory, table_path_suggestions,
+    ListedNode,
+};
+use super::columnar_chunk::validate_direct_schema;
 use super::config::{
     YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
     YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
-use super::client::{
-    ListedNode, resolved_link_suggestion, rich_read_path, suggestion_directory,
-    table_path_suggestions,
-};
-use super::columnar_chunk::validate_direct_schema;
-use super::discard::{DiscardDecoder, output_format};
 use super::direct_data_node::{
-    DirectReadBlock, DirectReadPayload, ReadLimit, signature_payload, validate_row_only_limit,
+    signature_payload, validate_row_only_limit, DirectReadBlock, DirectReadPayload, ReadLimit,
+};
+use super::discard::{output_format, DiscardDecoder};
+use super::native_rpc::{
+    checksum_matches, crc64, credentials, receive_read_worker_item, rowset_payload,
+    NativeReadFormat, RequestCredentials,
 };
 use super::schema::{parse_schema, schema_to_yt};
 use super::sink::{encode_arrow, encode_yson, validate_row_weight};
 use super::src_batch::{
-    DiscoveredTable, PhysicalChunkLayout, dataset_arrow_schema, direct_block_to_chunk,
-    normalize_read_batch, performance_advice, system_column_layout,
+    dataset_arrow_schema, direct_block_to_chunk, normalize_read_batch, performance_advice,
+    system_column_layout, DiscoveredTable, PhysicalChunkLayout,
 };
-use super::native_rpc::{
-    NativeReadFormat, RequestCredentials, checksum_matches, crc64, credentials,
-    receive_read_worker_item, rowset_payload,
-};
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
 #[test]
 fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {
@@ -53,6 +56,14 @@ fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {
 }
 
 #[test]
+fn loopback_heavy_proxy_detection_preserves_forwarded_endpoints() {
+    assert!(super::client::is_loopback_host("localhost"));
+    assert!(super::client::is_loopback_host("127.0.0.1"));
+    assert!(super::client::is_loopback_host("::1"));
+    assert!(!super::client::is_loopback_host("proxy.example.net"));
+}
+
+#[test]
 fn optimized_bus_crc64_matches_protocol_vectors() {
     assert_eq!(crc64(b""), 0x0000_0000_0000_0000);
     assert_eq!(crc64(b"a"), 0x74b4_2565_ce62_32d5);
@@ -66,7 +77,10 @@ fn optimized_bus_crc64_matches_protocol_vectors() {
         .map(|value| (value.wrapping_mul(131) ^ (value >> 3)) as u8)
         .collect::<Vec<_>>();
     for length in 0..=bytes.len() {
-        assert_eq!(crc64(&bytes[..length]), reference_yt_crc64(&bytes[..length]));
+        assert_eq!(
+            crc64(&bytes[..length]),
+            reference_yt_crc64(&bytes[..length])
+        );
     }
 }
 
@@ -80,7 +94,7 @@ fn bus_null_checksum_skips_verification() {
 
 fn reference_yt_crc64(bytes: &[u8]) -> u64 {
     const POLYNOMIAL: u64 = 0xe543_2797_6592_7881;
-    let mut remainder = u64::MAX;
+    let mut remainder = 0_u64;
     for byte in bytes {
         remainder ^= u64::from(*byte) << 56;
         for _ in 0..8 {
@@ -92,7 +106,7 @@ fn reference_yt_crc64(bytes: &[u8]) -> u64 {
                 };
         }
     }
-    !remainder
+    remainder
 }
 
 #[test]
@@ -115,9 +129,9 @@ async fn partition_worker_failure_cannot_be_mistaken_for_clean_eof() {
         Duration::from_secs(1),
         receive_read_worker_item(&mut receiver, &mut tasks, "test reader"),
     )
-        .await
-        .expect("worker failure must be observed without waiting for channel closure")
-        .expect_err("a panicked worker must fail the source");
+    .await
+    .expect("worker failure must be observed without waiting for channel closure")
+    .expect_err("a panicked worker must fail the source");
 
     assert!(error.to_string().contains("test reader worker failed"));
 }
@@ -199,7 +213,7 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
         .expect("YTsaurus source schema must serialize");
     let ordering = &schema["properties"]["read_ordering"];
     assert_eq!(ordering["x-ui"]["section"], "advanced");
-    assert!(ordering["oneOf"].is_array());
+    assert_eq!(ordering["$ref"], "#/$defs/YTsaurusReadOrdering");
 
     let properties = schema["properties"]
         .as_object()
@@ -207,7 +221,9 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
     let advanced = properties
         .iter()
         .filter_map(|(name, property)| {
-            (property.pointer("/x-ui/section").and_then(serde_json::Value::as_str)
+            (property
+                .pointer("/x-ui/section")
+                .and_then(serde_json::Value::as_str)
                 == Some("advanced"))
             .then_some(name.as_str())
         })
@@ -251,7 +267,7 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
 #[test]
 fn source_table_names_are_derived_from_unique_path_basenames() -> anyhow::Result<()> {
     let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n",
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\ntables:\n  - path: //tmp/input\n",
     )?;
     source.validate()?;
     assert_eq!(source.tables[0].dataset_name()?, "input");
@@ -261,10 +277,10 @@ fn source_table_names_are_derived_from_unique_path_basenames() -> anyhow::Result
     tls_source.connection.validate()?;
     assert_eq!(tls_source.connection.endpoint(), "https://localhost:8000");
     assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - path: //tmp/input\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\ntables:\n  - path: //tmp/input\n"
     )?.validate().is_ok());
     assert!(serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntables:\n  - { path: //tmp/a/events }\n  - { path: //tmp/b/events }\n"
+        "auth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\ntables:\n  - { path: //tmp/a/events }\n  - { path: //tmp/b/events }\n"
     )?
     .validate()
     .is_err());
@@ -422,11 +438,7 @@ fn source_rejects_partial_or_mistyped_system_column_layouts() {
         SchemaColumn::new("_system_topic".into(), DataType::Utf8, false),
         SchemaColumn::new("_system_partition".into(), DataType::Int64, false),
         SchemaColumn::new("_system_offset".into(), DataType::Int64, false),
-        SchemaColumn::new(
-            "_system_message_index".into(),
-            DataType::Int64,
-            false,
-        ),
+        SchemaColumn::new("_system_message_index".into(), DataType::Int64, false),
     ]);
     assert!(system_column_layout(&wrong_type).is_err());
 
@@ -434,11 +446,7 @@ fn source_rejects_partial_or_mistyped_system_column_layouts() {
         SchemaColumn::new("_system_topic".into(), DataType::Utf8, false),
         SchemaColumn::new("_system_partition".into(), DataType::Int64, false),
         SchemaColumn::new("_system_offset".into(), DataType::Int64, false),
-        SchemaColumn::new(
-            "_system_message_index".into(),
-            DataType::UInt64,
-            false,
-        ),
+        SchemaColumn::new("_system_message_index".into(), DataType::UInt64, false),
     ]);
     let (present, columns) = system_column_layout(&complete).unwrap();
     assert!(present);
@@ -460,7 +468,14 @@ fn arrow_writer_strips_extension_annotations_from_the_ytsaurus_wire_schema() -> 
     let mut reader = StreamReader::try_new(Cursor::new(encoded), None)?;
     let decoded = reader.next().expect("one Arrow batch")?;
     assert_eq!(decoded.column(0), batch.column(0));
-    assert_eq!(decoded.schema().field(0).metadata().get("ARROW:extension:name"), None);
+    assert_eq!(
+        decoded
+            .schema()
+            .field(0)
+            .metadata()
+            .get("ARROW:extension:name"),
+        None
+    );
     Ok(())
 }
 
@@ -494,10 +509,12 @@ fn source_rejects_read_type_or_nullability_drift_instead_of_casting() -> anyhow:
 
 #[test]
 fn source_restores_discovered_arrow_metadata_without_copying_arrays() -> anyhow::Result<()> {
-    let expected = DatasetSchema::new(vec![
-        SchemaColumn::new("payload".into(), DataType::Utf8, false)
-            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
-    ]);
+    let expected = DatasetSchema::new(vec![SchemaColumn::new(
+        "payload".into(),
+        DataType::Utf8,
+        false,
+    )
+    .with_arrow_extension(ARROW_JSON_EXTENSION_NAME)]);
     let values: ArrayRef = Arc::new(StringArray::from(vec!["{}"]));
     let input = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new(
@@ -572,7 +589,10 @@ fn benchmark_discard_counters_survive_arbitrary_chunk_boundaries() -> anyhow::Re
 
     let mut yson = DiscardDecoder::new(YTsaurusReadFormat::YsonText, &schema)?;
     assert_eq!(yson.decode(bytes::Bytes::from_static(b"{\"name\"=\"a"))?, 0);
-    assert_eq!(yson.decode(bytes::Bytes::from_static(b"\";};{\"name\"=\"b\";};"))?, 2);
+    assert_eq!(
+        yson.decode(bytes::Bytes::from_static(b"\";};{\"name\"=\"b\";};"))?,
+        2
+    );
     assert_eq!(yson.finish()?, 0);
 
     let mut skiff = DiscardDecoder::new(YTsaurusReadFormat::Skiff, &schema)?;
@@ -671,6 +691,7 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n\
          tables: [{ path: //tmp/input }]\n\
          read_ordering: { type: unordered }\n",
     )?;
@@ -682,6 +703,7 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n\
          tables: [{ path: //tmp/input }]\n",
     )?;
     assert_eq!(default_source.read_ordering, YTsaurusReadOrdering::Ordered);
@@ -691,12 +713,9 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          host: cluster-a.example.net\n\
          port: 443\n\
          trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n\
          tables: [{ path: //tmp/input }]\n\
-         read_ordering:\n\
-           type: partition_tables\n\
-           compressed_data_size_per_partition: 268435456\n\
-           max_partition_count: 64\n\
-           concurrency: 16\n",
+         read_ordering: { type: partition_tables, compressed_data_size_per_partition: 268435456, max_partition_count: 64, concurrency: 16 }\n",
     )?;
     partitioned.validate()?;
     assert_eq!(
@@ -709,7 +728,10 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
     );
     assert!(matches!(
         partitioned.read_ordering,
-        YTsaurusReadOrdering::PartitionTables { concurrency: 16, .. }
+        YTsaurusReadOrdering::PartitionTables {
+            concurrency: 16,
+            ..
+        }
     ));
     Ok(())
 }
@@ -755,9 +777,7 @@ fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()
          trusted_plaintext: false\n\
          trusted_native_rpc_plaintext: true\n\
          tables: [{ path: //tmp/input }]\n\
-         read_ordering:\n\
-           type: partition_tables\n\
-           direct_data_node_access: true\n",
+         read_ordering: { type: partition_tables, direct_data_node_access: true }\n",
     )?;
     assert_eq!(
         source.validate().unwrap_err().to_string(),
@@ -772,9 +792,7 @@ fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()
          trusted_native_rpc_plaintext: true\n\
          tables: [{ path: //tmp/input }]\n\
          native_rpc_service_ticket_file: ~/.tvm/service-ticket\n\
-         read_ordering:\n\
-           type: partition_tables\n\
-           direct_data_node_access: true\n",
+         read_ordering: { type: partition_tables, direct_data_node_access: true }\n",
     )?;
     configured.validate()?;
     Ok(())
@@ -850,17 +868,15 @@ fn physical_layout_advice_is_structured_and_actionable() {
     )]);
     assert_eq!(mixed_scan[0].code, "YT_SCAN_HAS_NON_COLUMNAR_CHUNKS");
 
-    assert!(
-        performance_advice(&[table(
-            true,
-            PhysicalChunkLayout {
-                total: 2,
-                columnar: 2,
-                non_columnar: 0,
-            },
-        )])
-        .is_empty()
-    );
+    assert!(performance_advice(&[table(
+        true,
+        PhysicalChunkLayout {
+            total: 2,
+            columnar: 2,
+            non_columnar: 0,
+        },
+    )])
+    .is_empty());
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -911,8 +927,8 @@ fn native_discard_uses_protocol_row_statistics_without_decoding_arrow() -> anyho
     .encode_to_vec();
     let envelope = pack_refs(&[&rows, &statistics]);
 
-    let decoded = rowset_payload(&envelope, NativeReadFormat::Arrow, true)?
-        .expect("non-empty Arrow rowset");
+    let decoded =
+        rowset_payload(&envelope, NativeReadFormat::Arrow, true)?.expect("non-empty Arrow rowset");
     assert_eq!(decoded.payload, Bytes::from_static(arbitrary_arrow_payload));
     assert_eq!(decoded.cumulative_rows, Some(12_345_678));
     assert_eq!(decoded.format, NativeReadFormat::Arrow);

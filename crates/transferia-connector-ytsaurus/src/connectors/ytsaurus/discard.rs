@@ -1,6 +1,12 @@
+#![allow(
+    clippy::naive_bytecount,
+    clippy::needless_pass_by_value,
+    reason = "benchmark discard deliberately uses a dependency-free scan and a uniform Bytes decoder interface"
+)]
+
 use arrow::datatypes::DataType;
 use bytes::{Buf as _, Bytes, BytesMut};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use transferia_core::data::schema::DatasetSchema;
 
 use super::config::YTsaurusReadFormat;
@@ -117,10 +123,7 @@ pub(super) enum DiscardDecoder {
 }
 
 impl DiscardDecoder {
-    pub(super) fn new(
-        format: YTsaurusReadFormat,
-        schema: &DatasetSchema,
-    ) -> anyhow::Result<Self> {
+    pub(super) fn new(format: YTsaurusReadFormat, schema: &DatasetSchema) -> anyhow::Result<Self> {
         Ok(match format {
             YTsaurusReadFormat::Arrow => Self::Arrow(ArrowRowCounter::default()),
             YTsaurusReadFormat::YtWire => {
@@ -193,8 +196,13 @@ impl Default for ArrowRowCounter {
 enum ArrowState {
     #[default]
     Header,
-    Metadata { size: usize },
-    Body { remaining: usize, rows: u64 },
+    Metadata {
+        size: usize,
+    },
+    Body {
+        remaining: usize,
+        rows: u64,
+    },
     Finished,
 }
 
@@ -250,9 +258,10 @@ impl ArrowRowCounter {
                     })?;
                     let message_rows = match message.header_type() {
                         arrow::ipc::MessageHeader::RecordBatch => {
-                            let record_batch = message.header_as_record_batch().ok_or_else(|| {
-                                anyhow::anyhow!("Arrow IPC record-batch metadata is missing")
-                            })?;
+                            let record_batch =
+                                message.header_as_record_batch().ok_or_else(|| {
+                                    anyhow::anyhow!("Arrow IPC record-batch metadata is missing")
+                                })?;
                             u64::try_from(record_batch.length()).map_err(|_| {
                                 anyhow::anyhow!("Arrow IPC record batch has a negative row count")
                             })?
@@ -295,9 +304,7 @@ impl ArrowRowCounter {
                     break;
                 }
             }
-            if bytes.is_empty()
-                && !matches!(self.state, ArrowState::Body { remaining: 0, .. })
-            {
+            if bytes.is_empty() && !matches!(self.state, ArrowState::Body { remaining: 0, .. }) {
                 break;
             }
         }
@@ -309,7 +316,10 @@ impl ArrowRowCounter {
             matches!(self.state, ArrowState::Finished | ArrowState::Header),
             "Arrow IPC stream ended inside a message"
         );
-        anyhow::ensure!(self.buffer.is_empty(), "Arrow IPC stream has trailing bytes");
+        anyhow::ensure!(
+            self.buffer.is_empty(),
+            "Arrow IPC stream has trailing bytes"
+        );
         Ok(0)
     }
 }
@@ -377,9 +387,8 @@ impl SkiffRowCounter {
                             cursor = row_start;
                             break 'rows;
                         }
-                        let size = u32::from_le_bytes(
-                            self.buffer[cursor..cursor + 4].try_into()?,
-                        ) as usize;
+                        let size = u32::from_le_bytes(self.buffer[cursor..cursor + 4].try_into()?)
+                            as usize;
                         if self.buffer.len().saturating_sub(cursor + 4) < size {
                             cursor = row_start;
                             break 'rows;
@@ -411,11 +420,20 @@ pub(super) struct YsonRowCounter {
 enum YsonState {
     #[default]
     Normal,
-    Quoted { escaped: bool },
-    BinaryStringLength { value: u32, shift: u32 },
-    BinaryPayload { remaining: usize },
+    Quoted {
+        escaped: bool,
+    },
+    BinaryStringLength {
+        value: u32,
+        shift: u32,
+    },
+    BinaryPayload {
+        remaining: usize,
+    },
     BinaryVarint,
-    BinaryDouble { remaining: usize },
+    BinaryDouble {
+        remaining: usize,
+    },
 }
 
 impl YsonRowCounter {
@@ -483,7 +501,10 @@ impl YsonRowCounter {
                         self.depth += 1;
                     }
                     b'}' | b']' | b'>' => {
-                        anyhow::ensure!(self.depth > 0, "YSON stream has an unmatched closing token");
+                        anyhow::ensure!(
+                            self.depth > 0,
+                            "YSON stream has an unmatched closing token"
+                        );
                         self.depth -= 1;
                     }
                     b';' if self.depth == 0 => {

@@ -7,16 +7,14 @@ use crate::schema_registry::{RegistrySchema, SchemaFormat};
 
 #[test]
 fn schema_registry_runtime_config_is_explicit_but_not_published_to_the_ui() {
-    let public_schema = serde_json::to_value(schemars::schema_for!(
-        crate::parsers::config::ParserSchema
-    ))
-    .expect("public parser schema serializes");
+    let public_schema =
+        serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
+            .expect("public parser schema serializes");
     assert!(!public_schema.to_string().contains("schema_registry"));
 
-    let runtime_schema = serde_json::to_value(schemars::schema_for!(
-        super::SchemaRegistryParserConfig
-    ))
-    .expect("runtime parser schema serializes");
+    let runtime_schema =
+        serde_json::to_value(schemars::schema_for!(super::SchemaRegistryParserConfig))
+            .expect("runtime parser schema serializes");
     let connection = runtime_schema
         .pointer("/$defs/SchemaRegistryConnection/properties")
         .and_then(serde_json::Value::as_object)

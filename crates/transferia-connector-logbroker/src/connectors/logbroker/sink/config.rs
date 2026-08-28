@@ -77,9 +77,7 @@ impl LogbrokerTopicConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         let (value, label) = match self {
             Self::Topic { topic_path } => (topic_path, "logbroker.topic_path"),
-            Self::TopicPrefix { topic_prefix } => {
-                (topic_prefix, "logbroker.topic_prefix")
-            }
+            Self::TopicPrefix { topic_prefix } => (topic_prefix, "logbroker.topic_prefix"),
         };
         anyhow::ensure!(!value.is_empty(), "{label} must not be empty");
         anyhow::ensure!(

@@ -49,7 +49,7 @@ pub fn register(
                     "credentials": { "access_key": "", "secret_key": "" },
                     "format": {
                         "type": "parquet", "compression": "zstd",
-                        "row_group": { "max_rows": 1000000, "max_bytes": 134217728 }
+                        "row_group": { "max_rows": 1_000_000, "max_bytes": 134_217_728 }
                     },
                     "partitioning": { "type": "source" },
                     "rotation": { "max_rows": 10000, "max_bytes": "", "on_partition_path_change": "keep_epoch" },

@@ -115,6 +115,7 @@ export function DynamicPathControl({
   const root = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const keyboardSelection = useRef(false);
+  const suppressNextFocusOpen = useRef(false);
   const job = useRef(new LatestJob<string, string, DynamicOptions>()).current;
   const directoryCache = useRef(new Map<string, DynamicOptions>()).current;
   const dependencyKey = JSON.stringify(
@@ -224,6 +225,7 @@ export function DynamicPathControl({
     if (next.endsWith("/")) {
       setOpen(true);
     } else {
+      suppressNextFocusOpen.current = true;
       close();
     }
     queueMicrotask(() => {
@@ -251,7 +253,13 @@ export function DynamicPathControl({
               : undefined
           }
           placeholder="Start typing a path"
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            if (suppressNextFocusOpen.current) {
+              suppressNextFocusOpen.current = false;
+              return;
+            }
+            setOpen(true);
+          }}
           onInput={(event) => {
             keyboardSelection.current = false;
             const entered = event.currentTarget.value;

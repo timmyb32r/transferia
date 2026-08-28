@@ -62,8 +62,7 @@ impl ClickHouseSourceConnector {
         metrics: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
         config.validate()?;
-        let batch_rows = i64::try_from(config.batch_rows)
-            .expect("validated ClickHouse batch_rows fits in i64");
+        let batch_rows = i64::try_from(config.batch_rows)?;
         let (native_max_threads, native_compression, parquet_settings) =
             match &config.snapshot_reader {
                 ClickHouseSnapshotReader::Parquet {
@@ -88,8 +87,7 @@ impl ClickHouseSourceConnector {
                     compression,
                 } => (*max_threads, *compression, None),
             };
-        let native_max_threads = i64::try_from(native_max_threads)
-            .expect("validated ClickHouse native read threads fit in i64");
+        let native_max_threads = i64::try_from(native_max_threads)?;
         let builders = config
             .hosts
             .iter()
@@ -227,13 +225,15 @@ impl SourceConnector for ClickHouseSourceConnector {
                 .map(|table| {
                     let mut incoming = table.schema.clone();
                     if table.physical_system_columns.is_empty() {
-                        incoming.columns.extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
-                            SchemaColumn::new(
-                                kind.default_name().to_owned(),
-                                kind.data_type(),
-                                false,
-                            )
-                        }));
+                        incoming
+                            .columns
+                            .extend(SYSTEM_COLUMN_KINDS.iter().map(|kind| {
+                                SchemaColumn::new(
+                                    kind.default_name().to_owned(),
+                                    kind.data_type(),
+                                    false,
+                                )
+                            }));
                     }
                     let stored_schema = if request.keep_system_columns {
                         incoming.clone()
@@ -453,7 +453,12 @@ pub(super) fn classify_system_columns(schema: &DatasetSchema) -> anyhow::Result<
         let (index, column, _) = columns
             .iter()
             .find(|(_, _, candidate)| *candidate == kind)
-            .ok_or_else(|| anyhow::anyhow!("missing ClickHouse source system column '{}'", kind.default_name()))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing ClickHouse source system column '{}'",
+                    kind.default_name()
+                )
+            })?;
         anyhow::ensure!(
             column.data_type == kind.data_type() && !column.nullable,
             "ClickHouse source system column '{}' must have Arrow type {:?} and be non-nullable",
@@ -469,10 +474,7 @@ pub(super) fn classify_system_columns(schema: &DatasetSchema) -> anyhow::Result<
     Ok(SystemColumns::new(result))
 }
 
-fn without_system_columns(
-    schema: &DatasetSchema,
-    system_columns: &SystemColumns,
-) -> DatasetSchema {
+fn without_system_columns(schema: &DatasetSchema, system_columns: &SystemColumns) -> DatasetSchema {
     let indexes = system_columns
         .iter()
         .map(|column| column.index)

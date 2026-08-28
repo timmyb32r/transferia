@@ -1,9 +1,17 @@
+#![allow(
+    clippy::expect_used,
+    clippy::float_cmp,
+    clippy::needless_pass_by_value,
+    clippy::unnecessary_wraps,
+    reason = "wire widths are checked before conversion, exact float round-trips enforce losslessness, and builders share a fallible API"
+)]
+
 use std::sync::Arc;
 
 use arrow::array::{
     ArrayRef, BinaryBuilder, BooleanBuilder, Date32Builder, Date64Builder, Float32Builder,
-    Float64Builder, Int8Builder, Int16Builder, Int32Builder, Int64Builder, StringBuilder,
-    TimestampMicrosecondBuilder, UInt8Builder, UInt16Builder, UInt32Builder, UInt64Builder,
+    Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder, StringBuilder,
+    TimestampMicrosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -116,7 +124,10 @@ impl YtWireDecoder {
             .into_iter()
             .map(ColumnBuilder::finish)
             .collect::<Vec<_>>();
-        Ok(RecordBatch::try_new(Arc::clone(&self.arrow_schema), arrays)?)
+        Ok(RecordBatch::try_new(
+            Arc::clone(&self.arrow_schema),
+            arrays,
+        )?)
     }
 
     fn extend_name_table(&mut self, entries: &[String]) -> anyhow::Result<()> {
@@ -136,7 +147,10 @@ impl YtWireDecoder {
 }
 
 pub(super) fn count_wire_rows(payload: &Bytes) -> anyhow::Result<u64> {
-    anyhow::ensure!(payload.len() >= 8, "YTsaurus wire rowset is shorter than its row count");
+    anyhow::ensure!(
+        payload.len() >= 8,
+        "YTsaurus wire rowset is shorter than its row count"
+    );
     Ok(u64::from_le_bytes(
         payload[..8].try_into().expect("eight checked bytes"),
     ))
@@ -184,7 +198,10 @@ impl<'a> WireCursor<'a> {
             .checked_add(7)
             .map(|value| value & !7)
             .ok_or_else(|| anyhow::anyhow!("YTsaurus wire {what} alignment overflow"))?;
-        anyhow::ensure!(aligned <= self.bytes.len(), "YTsaurus wire {what} padding is truncated");
+        anyhow::ensure!(
+            aligned <= self.bytes.len(),
+            "YTsaurus wire {what} padding is truncated"
+        );
         self.offset = aligned;
         Ok(value)
     }
@@ -236,9 +253,9 @@ impl ColumnBuilder {
             DataType::Binary => Self::Binary(BinaryBuilder::new()),
             DataType::Date32 => Self::Date32(Date32Builder::with_capacity(capacity)),
             DataType::Date64 => Self::Date64(Date64Builder::with_capacity(capacity)),
-            DataType::Timestamp(TimeUnit::Microsecond, None) => Self::TimestampMicrosecond(
-                TimestampMicrosecondBuilder::with_capacity(capacity),
-            ),
+            DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                Self::TimestampMicrosecond(TimestampMicrosecondBuilder::with_capacity(capacity))
+            }
             other => anyhow::bail!("YTsaurus wire decoder does not support Arrow type {other:?}"),
         })
     }

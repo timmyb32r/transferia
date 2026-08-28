@@ -66,8 +66,8 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         "wide"
     );
     assert_eq!(
-        generator.schema["$defs"]["GenerationAmount"]["oneOf"][0]["properties"]
-            ["row_count"]["x-ui"]["widget"],
+        generator.schema["$defs"]["GenerationAmount"]["oneOf"][0]["properties"]["row_count"]
+            ["x-ui"]["widget"],
         "grouped_integer"
     );
     assert_eq!(
@@ -283,16 +283,11 @@ fn every_network_endpoint_exposes_a_connection_check() -> anyhow::Result<()> {
 
 #[test]
 fn clickhouse_sink_installation_preserves_data_host_count() -> anyhow::Result<()> {
-    let source = crate::connectors::catalog::installation_contract(
-        "clickhouse",
-        EndpointRole::Source,
-    )
-    .ok_or_else(|| anyhow::anyhow!("missing ClickHouse source installation contract"))?;
-    let sink = crate::connectors::catalog::installation_contract(
-        "clickhouse",
-        EndpointRole::Sink,
-    )
-    .ok_or_else(|| anyhow::anyhow!("missing ClickHouse sink installation contract"))?;
+    let source =
+        crate::connectors::catalog::installation_contract("clickhouse", EndpointRole::Source)
+            .ok_or_else(|| anyhow::anyhow!("missing ClickHouse source installation contract"))?;
+    let sink = crate::connectors::catalog::installation_contract("clickhouse", EndpointRole::Sink)
+        .ok_or_else(|| anyhow::anyhow!("missing ClickHouse sink installation contract"))?;
 
     assert!(!source.output_fields.contains(&"data_host_count"));
     assert!(sink.output_fields.contains(&"data_host_count"));

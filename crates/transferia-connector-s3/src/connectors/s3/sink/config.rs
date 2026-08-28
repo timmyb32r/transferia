@@ -351,7 +351,10 @@ impl S3SinkConfig {
                 matches!(parsed.scheme(), "http" | "https"),
                 "s3.endpoint must use http or https"
             );
-            anyhow::ensure!(parsed.host_str().is_some(), "s3.endpoint must include a host");
+            anyhow::ensure!(
+                parsed.host_str().is_some(),
+                "s3.endpoint must include a host"
+            );
         }
         if !self.path_prefix.is_empty() {
             let parsed = object_store::path::Path::parse(&self.path_prefix).map_err(|error| {
@@ -548,7 +551,6 @@ impl S3SinkConfig {
         }
         Ok(std::sync::Arc::new(builder.build()?))
     }
-
 }
 
 impl Default for RotationConfig {

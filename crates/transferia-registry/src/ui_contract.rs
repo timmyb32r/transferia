@@ -155,11 +155,7 @@ fn validate_hidden_required_scalars(
         let Some(property) = properties.get(name).and_then(Value::as_object) else {
             continue;
         };
-        let property = resolve_local_schema(
-            root,
-            property,
-            &format!("{path}/properties/{name}"),
-        )?;
+        let property = resolve_local_schema(root, property, &format!("{path}/properties/{name}"))?;
         let explicitly_hidden = property
             .get("x-ui")
             .and_then(Value::as_object)

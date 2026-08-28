@@ -344,7 +344,7 @@ describe("App request orchestration", () => {
     await waitFor(() => expect(api.validate).toHaveBeenCalledOnce());
   });
 
-  it("does not focus a visible sibling when only a hidden subtree is invalid", async () => {
+  it("rejects a catalog whose initial value has an incomplete hidden subtree", async () => {
     const existing = {
       ...delivery("existing", "Existing"),
       config: {
@@ -413,19 +413,12 @@ describe("App request orchestration", () => {
     vi.mocked(api.delivery).mockResolvedValue(existing);
     const view = render(<App />);
     const app = within(view.container as HTMLElement);
-    await app.findByText("Existing");
-    fireEvent.click(app.getByText("Existing").closest("button")!);
-    await app.findByRole("heading", { name: "Existing" });
-    fireEvent.click(app.getByRole("button", { name: "Edit" }));
-    const registryUrl = app.getByLabelText("Registry URL");
-
-    fireEvent.click(app.getByRole("button", { name: "Validate" }));
-
-    await waitFor(() => expect(api.validate).toHaveBeenCalledOnce());
-    expect(document.activeElement).not.toBe(registryUrl);
     expect(
-      registryUrl.closest(".form-row")?.classList.contains("required-missing"),
-    ).toBe(false);
+      await app.findByText(
+        "source source initial hidden field #/projection/columns is incomplete",
+      ),
+    ).toBeTruthy();
+    expect(api.validate).not.toHaveBeenCalled();
   });
 
   it("does not let a save response overwrite a delivery opened meanwhile", async () => {

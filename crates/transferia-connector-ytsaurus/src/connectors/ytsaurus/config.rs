@@ -1,3 +1,8 @@
+#![allow(
+    clippy::expect_used,
+    reason = "formatting into an owned String is infallible"
+)]
+
 use std::collections::HashSet;
 use std::fmt::{self, Write as _};
 use std::time::Duration;
@@ -470,8 +475,14 @@ impl YTsaurusTableReaderConfig {
         let max_buffer_size = self
             .max_buffer_size
             .unwrap_or(DEFAULT_TABLE_READER_MAX_BUFFER_SIZE);
-        anyhow::ensure!(window_size > 0, "ytsaurus.table_reader.window_size must be positive");
-        anyhow::ensure!(group_size > 0, "ytsaurus.table_reader.group_size must be positive");
+        anyhow::ensure!(
+            window_size > 0,
+            "ytsaurus.table_reader.window_size must be positive"
+        );
+        anyhow::ensure!(
+            group_size > 0,
+            "ytsaurus.table_reader.group_size must be positive"
+        );
         anyhow::ensure!(
             group_size <= window_size,
             "ytsaurus.table_reader.group_size must not exceed window_size"
@@ -541,9 +552,10 @@ impl SourceTableConfig {
 impl YTsaurusSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        let uses_native_rpc = self.benchmark_discard.as_ref().is_none_or(|benchmark| {
-            benchmark.transport == YTsaurusBenchmarkTransport::NativeRpc
-        });
+        let uses_native_rpc = self
+            .benchmark_discard
+            .as_ref()
+            .is_none_or(|benchmark| benchmark.transport == YTsaurusBenchmarkTransport::NativeRpc);
         anyhow::ensure!(
             !uses_native_rpc || self.connection.trusted_native_rpc_plaintext,
             "ytsaurus native_rpc transport is plaintext; set trusted_native_rpc_plaintext=true to acknowledge that credentials and data will not be encrypted"
@@ -632,8 +644,7 @@ impl YTsaurusSourceConfig {
             );
             anyhow::ensure!(
                 names.insert(name),
-                "YTsaurus table paths must have unique final components; '{}' is repeated",
-                name
+                "YTsaurus table paths must have unique final components; '{name}' is repeated"
             );
         }
         Ok(())

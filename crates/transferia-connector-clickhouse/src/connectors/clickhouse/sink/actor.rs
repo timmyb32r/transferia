@@ -311,9 +311,8 @@ impl ClickHouseSink {
     }
 
     async fn run_actor(mut self, mut io: SinkIo) -> anyhow::Result<()> {
-        let mut active = FuturesUnordered::<
-            AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>,
-        >::new();
+        let mut active =
+            FuturesUnordered::<AbortOnDropHandle<Result<ActiveInsert, DataPlaneFailure>>>::new();
         let mut input_closed = false;
         loop {
             self.emit_committed(&io.events).await?;
@@ -349,8 +348,10 @@ impl ClickHouseSink {
             tokio::select! {
                 () = io.cancellation.cancelled() => return Ok(()),
                 result = active.next(), if !active.is_empty() => {
+                    let result = result.ok_or_else(|| anyhow::anyhow!(
+                        "ClickHouse active INSERT set ended unexpectedly"
+                    ))?;
                     match result
-                        .expect("active INSERT set cannot yield None")
                         .map_err(|error| anyhow::anyhow!("ClickHouse insert task failed: {error}"))?
                     {
                         Ok(insert) => self.complete_insert(insert)?,

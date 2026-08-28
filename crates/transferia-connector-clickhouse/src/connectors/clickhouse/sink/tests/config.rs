@@ -95,9 +95,7 @@ fn defaults_to_finite_retries() -> anyhow::Result<()> {
 
 #[test]
 fn parses_explicit_native_insert_transport_tuning() -> anyhow::Result<()> {
-    let config = parse_config(&format!(
-        "{BASE}compression: zstd\nasync_insert: true\n"
-    ))?;
+    let config = parse_config(&format!("{BASE}compression: zstd\nasync_insert: true\n"))?;
     assert_eq!(config.compression, ClickHouseCompression::Zstd);
     assert!(config.async_insert);
     Ok(())

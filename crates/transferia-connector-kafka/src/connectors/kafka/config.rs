@@ -178,9 +178,7 @@ impl KafkaTopicConfig {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         let (path, label) = match self {
             Self::Topic { topic } => (topic, "kafka.topic.topic"),
-            Self::TopicPrefix { topic_prefix } => {
-                (topic_prefix, "kafka.topic.topic_prefix")
-            }
+            Self::TopicPrefix { topic_prefix } => (topic_prefix, "kafka.topic.topic_prefix"),
         };
         anyhow::ensure!(!path.is_empty(), "{label} must not be empty");
         anyhow::ensure!(

@@ -45,14 +45,14 @@ describe("YAML editor", () => {
     const status = view.getByRole("status");
     fireEvent.click(button);
 
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
     expect(button.getAttribute("aria-busy")).toBe("true");
     expect(status.textContent).toBe("Copying…");
     expect(status.parentElement?.contains(button)).toBe(true);
 
     finish?.();
     await waitFor(() => expect(status.textContent).toBe("Copied"));
-    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBeNull();
     expect(writeText).toHaveBeenCalledOnce();
   });
 });

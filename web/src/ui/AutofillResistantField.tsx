@@ -36,6 +36,9 @@ export interface AutofillResistantSelectProps extends Omit<
 
 const SESSION_TOKEN = createSessionToken();
 let fieldSequence = 0;
+// HTML spellcheck is an enumerated string attribute. Preact's type incorrectly
+// models it as boolean, whose false value removes the attribute altogether.
+const SPELLCHECK_DISABLED = "false" as unknown as boolean;
 
 export function useOpaqueFieldName(): string {
   const name = useRef<string>();
@@ -60,7 +63,7 @@ export function AutofillResistantInput({
       autoComplete="none"
       autocapitalize="off"
       autocorrect="off"
-      spellcheck={false}
+      spellcheck={SPELLCHECK_DISABLED}
       data-1p-ignore="true"
       data-lpignore="true"
       data-form-type="other"
@@ -81,7 +84,7 @@ export function AutofillResistantTextarea({
       autoComplete="none"
       autocapitalize="off"
       autocorrect="off"
-      spellcheck={false}
+      spellcheck={SPELLCHECK_DISABLED}
       data-1p-ignore="true"
       data-lpignore="true"
       data-form-type="other"

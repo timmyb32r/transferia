@@ -68,11 +68,10 @@ fn sink_rejects_invalid_destination_namespace() {
         "storage": { "type": "s3", "bucket": "warehouse" },
         "namespace": " analytics",
         "target_file_size_bytes": 1_048_576
-    })).expect("syntactically valid config");
+    }))
+    .expect("syntactically valid config");
     let error = config.validate().expect_err("whitespace must fail");
-    assert!(error
-        .to_string()
-        .contains("leading or trailing whitespace"));
+    assert!(error.to_string().contains("leading or trailing whitespace"));
 }
 
 #[test]
@@ -128,9 +127,8 @@ fn iceberg_sink_losslessly_maps_full_uint64_range_to_decimal() {
         false,
     )]);
     let iceberg = super::sink::iceberg_schema(&schema).expect("Iceberg schema");
-    let target = Arc::new(
-        iceberg::arrow::schema_to_arrow_schema(&iceberg).expect("Iceberg Arrow schema"),
-    );
+    let target =
+        Arc::new(iceberg::arrow::schema_to_arrow_schema(&iceberg).expect("Iceberg Arrow schema"));
     assert_eq!(target.field(0).data_type(), &DataType::Decimal128(20, 0));
 
     let source = Arc::new(Schema::new(vec![Field::new(
@@ -138,11 +136,8 @@ fn iceberg_sink_losslessly_maps_full_uint64_range_to_decimal() {
         DataType::UInt64,
         false,
     )]));
-    let batch = RecordBatch::try_new(
-        source,
-        vec![Arc::new(UInt64Array::from(vec![0, u64::MAX]))],
-    )
-    .expect("source batch");
+    let batch = RecordBatch::try_new(source, vec![Arc::new(UInt64Array::from(vec![0, u64::MAX]))])
+        .expect("source batch");
     let converted = super::sink::with_schema(&batch, target).expect("converted batch");
     let values = converted
         .column(0)
