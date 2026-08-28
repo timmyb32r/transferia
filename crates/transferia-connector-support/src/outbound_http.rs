@@ -58,6 +58,7 @@ impl reqwest::dns::Resolve for PolicyResolver {
 pub struct OutboundHttpClient {
     inner: Client,
     policy: NetworkPolicy,
+    pinned_host: Option<&'static str>,
 }
 
 impl OutboundHttpClient {
@@ -76,6 +77,31 @@ impl OutboundHttpClient {
         Ok(Self {
             inner: builder.build()?,
             policy,
+            pinned_host: None,
+        })
+    }
+
+    /// Build a client whose single allowed hostname connects through a local
+    /// reverse tunnel while retaining the original TLS hostname and SNI.
+    pub fn new_with_loopback_tunnel(
+        timeout: Duration,
+        root_certificates: impl IntoIterator<Item = reqwest::Certificate>,
+        policy: NetworkPolicy,
+        host: &'static str,
+        port: u16,
+    ) -> Result<Self, reqwest::Error> {
+        let mut builder = Client::builder()
+            .timeout(timeout)
+            .redirect(redirect::Policy::none())
+            .dns_resolver(Arc::new(PolicyResolver { policy }))
+            .resolve(host, (Ipv4Addr::LOCALHOST, port).into());
+        for certificate in root_certificates {
+            builder = builder.add_root_certificate(certificate);
+        }
+        Ok(Self {
+            inner: builder.build()?,
+            policy,
+            pinned_host: Some(host),
         })
     }
 
@@ -88,6 +114,11 @@ impl OutboundHttpClient {
     pub fn request(&self, method: Method, url: Url) -> OutboundHttpRequest {
         let policy_error = if !matches!(url.scheme(), "http" | "https") {
             Some("scheme must be http or https")
+        } else if self
+            .pinned_host
+            .is_some_and(|host| url.host_str() != Some(host))
+        {
+            Some("URL host does not match the client's pinned tunnel host")
         } else if !url.username().is_empty() || url.password().is_some() {
             Some("credentials must not be embedded in the URL")
         } else if url
