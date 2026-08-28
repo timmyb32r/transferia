@@ -58,6 +58,10 @@ impl ClickHouseSourceConnector {
         metrics: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
         config.validate()?;
+        let batch_rows = i64::try_from(config.batch_rows)
+            .expect("validated ClickHouse batch_rows fits in i64");
+        let max_threads = i64::try_from(config.max_threads)
+            .expect("validated ClickHouse max_threads fits in i64");
         let builders = config
             .hosts
             .iter()
@@ -67,6 +71,13 @@ impl ClickHouseSourceConnector {
                     .with_database("default")
                     .with_username(config.username.as_str())
                     .with_password(config.password.as_str())
+                    .with_compression(config.compression.into())
+                    .with_setting("max_block_size", batch_rows)
+                    // ClickHouse otherwise targets roughly 1 MiB result blocks. That
+                    // produces many small Arrow batches for wide rows and forces the
+                    // client to spend time on framing instead of useful transfer work.
+                    .with_setting("preferred_block_size_bytes", 0_i64)
+                    .with_setting("max_threads", max_threads)
                     .with_tls(!config.trusted_plaintext);
                 if let Some(path) = &config.tls_ca_file {
                     builder.with_cafile(path)

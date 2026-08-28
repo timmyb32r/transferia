@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
-use arrow::compute::{cast, concat_batches};
+use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -130,8 +130,6 @@ impl ClickHouseSource {
             .checked_add(rows_i64)
             .ok_or_else(|| anyhow::anyhow!("ClickHouse source offset overflow"))?;
         self.counters.add_records(rows as u64);
-        self.counters
-            .add_network_decoded_bytes(batch.get_array_memory_size() as u64);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
                 Arc::from(self.table.config.name.as_str()),
@@ -151,22 +149,22 @@ impl Source for ClickHouseSource {
         &mut self,
     ) -> BoxFuture<'_, transferia_core::failure::DataPlaneResult<SourceBatch>> {
         Box::pin(async move {
-            let mut chunks = Vec::new();
-            let mut rows = 0;
             loop {
                 if let Some((batch, offset)) = self.pending.take() {
-                    let take = (self.batch_rows - rows).min(batch.num_rows() - offset);
-                    chunks.push(batch.slice(offset, take));
-                    rows += take;
+                    let take = self.batch_rows.min(batch.num_rows() - offset);
+                    let output = batch.slice(offset, take);
                     if offset + take < batch.num_rows() {
                         self.pending = Some((batch, offset + take));
                     }
-                    if rows == self.batch_rows {
-                        break;
-                    }
+                    return self.output(&output).map_err(DataPlaneFailure::fatal);
                 }
                 if self.finished {
-                    break;
+                    tracing::info!(
+                        table = %format!("{}.{}", self.table.config.database, self.table.config.name),
+                        emitted_rows = self.offset,
+                        "ClickHouse snapshot source completed"
+                    );
+                    return Ok(SourceBatch::Finished);
                 }
                 let next = tokio::time::timeout(self.request_timeout, self.stream.next())
                     .await
@@ -177,7 +175,16 @@ impl Source for ClickHouseSource {
                         ))
                     })?;
                 match next {
-                    Some(Ok(batch)) if batch.num_rows() > 0 => self.pending = Some((batch, 0)),
+                    Some(Ok(batch)) if batch.num_rows() > 0 => {
+                        // This is the payload after native transport decompression and
+                        // ClickHouse-to-Arrow decoding, before Transferia adds synthetic
+                        // system columns. The client does not expose compressed frame
+                        // sizes, so network-raw deliberately remains zero.
+                        self.counters.add_network_decoded_bytes(
+                            u64::try_from(batch.get_array_memory_size()).unwrap_or(u64::MAX),
+                        );
+                        self.pending = Some((batch, 0));
+                    }
                     Some(Ok(_)) => {}
                     Some(Err(error)) => {
                         return Err(DataPlaneFailure::retryable(anyhow::anyhow!(
@@ -187,24 +194,6 @@ impl Source for ClickHouseSource {
                     None => self.finished = true,
                 }
             }
-
-            if chunks.is_empty() {
-                if self.finished {
-                    tracing::info!(
-                        table = %format!("{}.{}", self.table.config.database, self.table.config.name),
-                        emitted_rows = self.offset,
-                        "ClickHouse snapshot source completed"
-                    );
-                }
-                return Ok(SourceBatch::Finished);
-            }
-            let batch = if chunks.len() == 1 {
-                chunks.pop().expect("one ClickHouse chunk")
-            } else {
-                concat_batches(&chunks[0].schema(), &chunks)
-                    .map_err(|error| DataPlaneFailure::fatal(error.into()))?
-            };
-            self.output(&batch).map_err(DataPlaneFailure::fatal)
         })
     }
 

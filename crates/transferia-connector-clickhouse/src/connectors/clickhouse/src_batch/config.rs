@@ -4,6 +4,7 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::connectors::clickhouse::sink::ClickHouseCompression;
 use crate::connectors::clickhouse::sink::identifier::validate_identifier;
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -30,8 +31,29 @@ pub struct ClickHouseSourceConfig {
     pub tables: Vec<TableConfig>,
 
     #[serde(default = "default_batch_rows")]
-    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    #[schemars(
+        title = "Maximum block rows",
+        description = "Maximum number of rows requested in one ClickHouse result block",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
     pub batch_rows: usize,
+
+    #[serde(default = "default_max_threads")]
+    #[schemars(
+        title = "Read threads",
+        description = "Maximum ClickHouse server threads used by the snapshot query",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub max_threads: usize,
+
+    #[serde(default = "default_compression")]
+    #[schemars(
+        description = "Native protocol compression",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub compression: ClickHouseCompression,
 
     #[serde(default = "default_connect_timeout_ms")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
@@ -64,6 +86,18 @@ impl ClickHouseSourceConfig {
         anyhow::ensure!(
             self.batch_rows > 0,
             "clickhouse.batch_rows must be positive"
+        );
+        anyhow::ensure!(
+            i64::try_from(self.batch_rows).is_ok(),
+            "clickhouse.batch_rows must fit a signed 64-bit ClickHouse setting"
+        );
+        anyhow::ensure!(
+            self.max_threads > 0,
+            "clickhouse.max_threads must be positive"
+        );
+        anyhow::ensure!(
+            i64::try_from(self.max_threads).is_ok(),
+            "clickhouse.max_threads must fit a signed 64-bit ClickHouse setting"
         );
         let mut identities = HashSet::with_capacity(self.tables.len());
         for table in &self.tables {
@@ -116,7 +150,13 @@ impl ClickHouseSourceConfig {
 }
 
 const fn default_batch_rows() -> usize {
-    65_536
+    65_409
+}
+const fn default_max_threads() -> usize {
+    16
+}
+const fn default_compression() -> ClickHouseCompression {
+    ClickHouseCompression::Zstd
 }
 const fn default_connect_timeout_ms() -> u64 {
     30_000

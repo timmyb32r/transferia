@@ -26,7 +26,8 @@ pub fn register(
                     "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
                     "trusted_plaintext": true, "username": "", "password": "",
                     "tables": [{ "database": "", "name": "" }],
-                    "batch_rows": 65536, "connect_timeout_ms": 30000, "request_timeout_ms": 30000
+                    "batch_rows": 65409, "max_threads": 16, "compression": "zstd",
+                    "connect_timeout_ms": 30000, "request_timeout_ms": 30000
                 }),
                 { let metrics = Arc::clone(metrics); move |config| Ok(Box::new(clickhouse::ClickHouseSourceConnector::from_config(config, Arc::clone(&metrics))?)) },
             )?
