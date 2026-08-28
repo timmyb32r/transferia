@@ -49,8 +49,14 @@ const POSTGRES_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescrip
 
 const CLICKHOUSE_SOURCE_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
-        output_fields: &["hosts", "port", "trusted_plaintext", "tls_ca_file"],
-        required_output_fields: &["hosts", "port", "trusted_plaintext"],
+        output_fields: &[
+            "hosts",
+            "port",
+            "http_port",
+            "trusted_plaintext",
+            "tls_ca_file",
+        ],
+        required_output_fields: &["hosts", "port", "http_port", "trusted_plaintext"],
     }),
     networked: true,
 });

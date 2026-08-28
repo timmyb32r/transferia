@@ -2936,20 +2936,8 @@
                 "section": "advanced"
               }
             },
-            "max_threads": {
-              "title": "Read threads",
-              "description": "Maximum ClickHouse server threads used by the snapshot query",
-              "type": "integer",
-              "format": "uint",
-              "minimum": 1,
-              "default": 16,
-              "x-ui": {
-                "section": "advanced"
-              }
-            },
-            "compression": {
-              "description": "Native protocol compression",
-              "$ref": "#/$defs/ClickHouseCompression",
+            "snapshot_reader": {
+              "$ref": "#/$defs/ClickHouseSnapshotReader",
               "x-ui": {
                 "section": "advanced"
               }
@@ -2996,6 +2984,92 @@
                 "name"
               ]
             },
+            "ClickHouseSnapshotReader": {
+              "oneOf": [
+                {
+                  "title": "Parquet (high throughput)",
+                  "type": "object",
+                  "properties": {
+                    "compression": {
+                      "$ref": "#/$defs/ClickHouseParquetCompression",
+                      "default": "zstd"
+                    },
+                    "max_threads": {
+                      "title": "ClickHouse encoding threads",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1,
+                      "default": 32
+                    },
+                    "row_group_rows": {
+                      "title": "Rows per Parquet row group",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1,
+                      "default": 250000
+                    },
+                    "decode_threads": {
+                      "title": "Parquet decode threads",
+                      "description": "Maximum number of Parquet row groups decoded concurrently",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1,
+                      "default": 16
+                    },
+                    "max_response_bytes": {
+                      "title": "Maximum Parquet response bytes",
+                      "description": "Explicit memory safety limit for one compressed ClickHouse snapshot response",
+                      "type": "integer",
+                      "format": "uint64",
+                      "minimum": 1,
+                      "default": 2147483648,
+                      "x-ui": {
+                        "widget": "byte_size"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "parquet"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "title": "Native TCP",
+                  "type": "object",
+                  "properties": {
+                    "max_threads": {
+                      "title": "ClickHouse read threads",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1,
+                      "default": 16
+                    },
+                    "compression": {
+                      "$ref": "#/$defs/ClickHouseCompression"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "native"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                }
+              ]
+            },
+            "ClickHouseParquetCompression": {
+              "type": "string",
+              "enum": [
+                "lz4",
+                "zstd"
+              ]
+            },
             "ClickHouseCompression": {
               "type": "string",
               "enum": [
@@ -3008,8 +3082,16 @@
         },
         "initial": {
           "request_timeout_ms": 30000,
+          "snapshot_reader": {
+            "type": "parquet",
+            "compression": "zstd",
+            "max_threads": 32,
+            "row_group_rows": 250000,
+            "decode_threads": 16,
+            "max_response_bytes": 2147483648
+          },
           "connect_timeout_ms": 30000,
-          "compression": "zstd",
+          "batch_rows": 65409,
           "username": "",
           "password": "",
           "tables": [
@@ -3018,8 +3100,6 @@
               "name": ""
             }
           ],
-          "batch_rows": 65409,
-          "max_threads": 16,
           "installation": {
             "hosts": [
               ""
