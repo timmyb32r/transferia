@@ -2926,12 +2926,32 @@
               }
             },
             "batch_rows": {
+              "title": "Maximum block rows",
+              "description": "Maximum number of rows requested in one ClickHouse result block",
               "type": "integer",
               "format": "uint",
-              "minimum": 0,
-              "default": 65536,
+              "minimum": 1,
+              "default": 65409,
               "x-ui": {
-                "widget": "hidden"
+                "section": "advanced"
+              }
+            },
+            "max_threads": {
+              "title": "Read threads",
+              "description": "Maximum ClickHouse server threads used by the snapshot query",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 1,
+              "default": 16,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "compression": {
+              "description": "Native protocol compression",
+              "$ref": "#/$defs/ClickHouseCompression",
+              "x-ui": {
+                "section": "advanced"
               }
             },
             "connect_timeout_ms": {
@@ -2975,13 +2995,21 @@
                 "database",
                 "name"
               ]
+            },
+            "ClickHouseCompression": {
+              "type": "string",
+              "enum": [
+                "none",
+                "lz4",
+                "zstd"
+              ]
             }
           }
         },
         "initial": {
           "request_timeout_ms": 30000,
           "connect_timeout_ms": 30000,
-          "batch_rows": 65536,
+          "compression": "zstd",
           "username": "",
           "password": "",
           "tables": [
@@ -2990,6 +3018,8 @@
               "name": ""
             }
           ],
+          "batch_rows": 65409,
+          "max_threads": 16,
           "installation": {
             "hosts": [
               ""
@@ -3119,6 +3149,21 @@
                 "widget": "hidden"
               }
             },
+            "compression": {
+              "description": "Native-protocol compression. LZ4 is the default low-CPU mode; ZSTD can\nimprove a network-bound delivery and `none` avoids compression work on\na sufficiently fast trusted network.",
+              "$ref": "#/$defs/ClickHouseCompression",
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "async_insert": {
+              "description": "Let ClickHouse coalesce concurrent native INSERTs server-side. Waiting\nremains mandatory, so a successful response still means the buffered\ndata has reached the table rather than merely entering an async queue.",
+              "type": "boolean",
+              "default": false,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
             "flush_interval_ms": {
               "type": "integer",
               "format": "uint64",
@@ -3182,7 +3227,17 @@
             "database",
             "username",
             "installation"
-          ]
+          ],
+          "$defs": {
+            "ClickHouseCompression": {
+              "type": "string",
+              "enum": [
+                "none",
+                "lz4",
+                "zstd"
+              ]
+            }
+          }
         },
         "initial": {
           "request_timeout_ms": 30000,
@@ -5480,6 +5535,14 @@
                       "type": "boolean",
                       "title": "Trusted plaintext"
                     },
+                    "trusted_native_rpc_plaintext": {
+                      "type": "boolean",
+                      "title": "Trust plaintext native RPC",
+                      "description": "Explicitly allow credentials and table data over the unencrypted YTsaurus native RPC transport",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "type": {
                       "const": "on_premise"
                     }
@@ -5488,6 +5551,7 @@
                     "host",
                     "port",
                     "trusted_plaintext",
+                    "trusted_native_rpc_plaintext",
                     "type"
                   ],
                   "additionalProperties": false
@@ -5522,6 +5586,18 @@
               "default": {
                 "type": "ordered"
               },
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "native_rpc_service_ticket_file": {
+              "title": "Native RPC service ticket file",
+              "description": "Path to a rotating TVM service-ticket file used only for direct data-node RPC. The file is reloaded while the delivery is running. The ticket's source TVM ID must be accepted by the YTsaurus cluster; successful ticket issuance alone does not grant data-node access.",
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
               "x-ui": {
                 "section": "advanced"
               }
@@ -5717,6 +5793,20 @@
                     },
                     "concurrency": {
                       "title": "Concurrent partition readers",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 16
+                    },
+                    "direct_data_node_access": {
+                      "title": "Direct access to data nodes",
+                      "description": "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy.",
+                      "type": "boolean",
+                      "default": false
+                    },
+                    "direct_blocks_per_request": {
+                      "title": "Direct blocks per request",
+                      "description": "Number of chunk blocks fetched in one data-node RPC when direct access is enabled",
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
@@ -5942,6 +6032,7 @@
           },
           "stream_idle_timeout_ms": 30000,
           "stream_open_timeout_ms": 30000,
+          "stream_retry_initial_ms": 100,
           "stream_retry_max_ms": 5000,
           "timeout_ms": 30000,
           "tables": [
@@ -5952,14 +6043,15 @@
           "read_ordering": {
             "type": "ordered"
           },
+          "native_rpc_service_ticket_file": null,
           "table_reader": {},
           "batch_rows": 65536,
           "stream_retry_max_attempts": 12,
-          "stream_retry_initial_ms": 100,
           "installation": {
             "host": "",
             "port": 8000,
             "trusted_plaintext": true,
+            "trusted_native_rpc_plaintext": false,
             "type": "on_premise"
           }
         },
@@ -6001,6 +6093,14 @@
                       "type": "boolean",
                       "title": "Trusted plaintext"
                     },
+                    "trusted_native_rpc_plaintext": {
+                      "type": "boolean",
+                      "title": "Trust plaintext native RPC",
+                      "description": "Explicitly allow credentials and table data over the unencrypted YTsaurus native RPC transport",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "type": {
                       "const": "on_premise"
                     }
@@ -6009,6 +6109,7 @@
                     "host",
                     "port",
                     "trusted_plaintext",
+                    "trusted_native_rpc_plaintext",
                     "type"
                   ],
                   "additionalProperties": false
@@ -6176,6 +6277,7 @@
             "host": "",
             "port": 8000,
             "trusted_plaintext": true,
+            "trusted_native_rpc_plaintext": false,
             "type": "on_premise"
           }
         },
