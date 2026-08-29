@@ -45,6 +45,28 @@ The production default is ZSTD, eight concurrent writers, 250,000 rows per
 Parquet row group, 128-MiB rolling files, and a 512-MiB commit target. The
 measured before/after improvement is **10.0x** (99,888 to 999,312 rows/s).
 
+## 120-second reproducibility gate
+
+The internal versioned bucket reached its service-wide quota before a long
+precision series could finish. To keep the two-minute acceptance gate
+reproducible rather than shortening it, the selected implementation was also
+measured against a local pinned MinIO server and the same pinned Iceberg REST
+catalog used by the project tests. Both profiles used the same release binary,
+transfer-log generator, REST catalog, storage, 30-second warm-up, and exactly
+120 one-second production stats samples.
+
+| Local-storage profile | Window | Sink rows/s | Min–max | CPU | Peak RSS | Retries |
+|---|---:|---:|---:|---:|---:|---:|
+| Previous one-writer shape, ZSTD | 120 s | 941,092 | 0–1,898,524 | 99% | 1.40 GiB | 0 |
+| Selected c8 writer, ZSTD | 120 s | **1,478,953** | 945,680–1,899,808 | 205% | 1.90 GiB | 0 |
+
+The c8 writer is **1.57x** faster than the one-writer shape on identical local
+storage and retains 100.0% of the generator throughput. This local result is a
+stability and concurrency-isolation gate; it does not replace the absolute
+internal-S3 before/after numbers above. The pinned MinIO image digest, binary
+SHA-256, and machine-readable aggregates are stored in
+`results/precision-120s.json`.
+
 ## External precision limitation
 
 The planned second and third ZSTD precision repetitions could not persist new
@@ -54,3 +76,7 @@ Iceberg catalog purge removed table metadata, but the versioned bucket retained
 towards the service quota. Failed quota runs are excluded from every number in
 this report. This limitation affects the final repetition count, not the
 production implementation or the valid measurements above.
+
+`../windowed_sink_throughput.py` and `config.example.yaml` preserve the exact
+fixed-window method for future reruns with a private credential-bearing delivery
+template.

@@ -40,6 +40,15 @@ service remained available.
   five-percent selection margin at concurrency eight; ZSTD won on compression
   and peak memory rather than selecting a noisy marginal LZ4 result.
 
+The final audit added an explicit two-minute reproducibility gate for both sink
+stages. The selected ClickHouse sink retained 99.64% of a generator-limited
+3,953,222 rows/s input over two independent 120-sample runs; their sink-rate
+means had 0.13% CV and no retries. On identical pinned local MinIO storage, the
+selected Iceberg c8 writer sustained 1,478,953 rows/s versus 941,092 for the
+one-writer shape (1.57x), with 120 samples and no retries. The latter isolates
+writer concurrency from the internal versioned-bucket quota; the absolute
+internal-S3 10.00x comparison remains the production-environment result.
+
 Detailed methodology, candidate tables, CPU, rows/core, RSS, min/max results,
 and limitations are recorded in:
 

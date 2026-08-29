@@ -1,0 +1,30 @@
+tools:
+  rust_binary: /path/to/target/release/transferia-internal
+
+run:
+  id: iceberg-write-120s
+  results_dir: /private/results/iceberg-write
+  delivery_template_file: /private/iceberg-delivery-template.yaml
+  sink_key: iceberg
+  rows: 2000000000
+  warmup_seconds: 30
+  duration_seconds: 120
+  repetitions: 2
+  seed: 20260829
+  candidates:
+    - name: old-zstd-c1
+      settings:
+        parquet_compression: zstd
+        parquet_row_group_rows: 250000
+        write_concurrency: 1
+        target_file_size_bytes: 134217728
+        commit_target_size_bytes: 536870912
+    - name: selected-zstd-c8
+      settings:
+        parquet_compression: zstd
+        parquet_row_group_rows: 250000
+        write_concurrency: 8
+        target_file_size_bytes: 134217728
+        commit_target_size_bytes: 536870912
+
+environment: {}
