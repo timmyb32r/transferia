@@ -85,10 +85,14 @@ reading:
 
 | Production reader | Data-plane rows/s | Min–max | CPU | Peak RSS | Rows/s/core |
 |---|---:|---:|---:|---:|---:|
-| Parquet ZSTD, 32 server threads, 250k row groups, 16 decoders | **11,107,089** | 11,095,080–11,119,097 | 255% | 2.72 GiB | 3,668,450 |
-| native TCP ZSTD, 16 threads | 887,448 | 878,075–896,822 | 98% | 1.41 GiB | 895,138 |
+| Parquet ZSTD, 32 server threads, 250k row groups, 16 decoders | **10,954,493** | 10,822,220–11,089,506 | 268% | 2.77 GiB | 3,559,034 |
+| native TCP ZSTD, 16 threads | 894,717 | 886,641–907,610 | 98% | 1.21 GiB | 902,289 |
+| native TCP ZSTD, 32 threads | 887,315 | 855,591–909,414 | 98% | 1.48 GiB | 893,418 |
+| native TCP LZ4, 32 threads | 818,380 | 813,954–823,186 | 85% | 0.38 GiB | 939,036 |
 
-The production Parquet snapshot reader is 12.52x faster by rows/s and 4.10x
-faster by rows/s/core. Reading benefits from ClickHouse's parallel Parquet
-encoder and Transferia's parallel row-group decoder. Writing starts with Arrow
-already materialized, so native TCP avoids the extra Parquet encode/decode pair.
+The production Parquet snapshot reader is 12.24x faster by rows/s and 3.94x
+faster by rows/s/core than the strongest native result. Raising native server
+threads from 16 to 32 did not improve throughput. Reading benefits from
+ClickHouse's parallel Parquet encoder and Transferia's parallel row-group
+decoder. Writing starts with Arrow already materialized, so native TCP avoids
+the extra Parquet encode/decode pair.
