@@ -56,6 +56,27 @@ tournament. The precision winner is therefore **11.92x faster** than the old
 default. The production winner is **11.58x faster** than that old default in the
 three-run precision comparison.
 
+## 120-second reproducibility gate
+
+The selected native-ZSTD profile was additionally measured in two independent
+fixed windows using the release binary, the transfer-log generator, a
+30-second warm-up, and exactly 120 one-second production stats samples per
+run. This gate isolates sustained sink stability from the noisier remote
+YTsaurus source used by the tournament above.
+
+| Repetition | Window | Sink rows/s | Source rows/s | Sink/source | CPU | Peak RSS | Retries |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 120 s | 3,933,682 | 3,945,002 | 99.71% | 271% | 6.80 GiB | 0 |
+| 2 | 120 s | 3,944,114 | 3,961,441 | 99.56% | 277% | 6.80 GiB | 0 |
+| Mean | 120 s | **3,938,898** | 3,953,222 | **99.64%** | 274% | 6.80 GiB | 0 |
+
+The two run means differ by only 0.26% (population CV 0.13%). The generator
+was the ceiling in this isolation gate, so its absolute row rate does not
+replace the YTsaurus-driven 5,752,430 rows/s precision result. It proves that
+the selected sink retained essentially all offered input for two minutes
+without retries. Binary provenance and machine-readable aggregates are stored
+in `results/precision-120s.json`.
+
 ## Native concurrency knee
 
 | Native TCP profile | Sink rows/s | Source rows/s | Process CPU | Peak RSS |
@@ -96,3 +117,7 @@ threads from 16 to 32 did not improve throughput. Reading benefits from
 ClickHouse's parallel Parquet encoder and Transferia's parallel row-group
 decoder. Writing starts with Arrow already materialized, so native TCP avoids
 the extra Parquet encode/decode pair.
+
+`../windowed_sink_throughput.py` and `config.example.yaml` preserve this
+fixed-window generator method for future repetitions with a private
+credential-bearing delivery template.

@@ -1,0 +1,32 @@
+tools:
+  rust_binary: /path/to/target/release/transferia-internal
+
+run:
+  id: clickhouse-write-120s
+  results_dir: /private/results/clickhouse-write
+  delivery_template_file: /private/clickhouse-delivery-template.yaml
+  sink_key: clickhouse
+  rows: 2000000000
+  warmup_seconds: 30
+  duration_seconds: 120
+  repetitions: 2
+  seed: 20260829
+  candidates:
+    - name: old-native-lz4-c1
+      settings:
+        insert_format: native
+        compression: lz4
+        insert_target_rows: 100000
+        insert_target_bytes: 67108864
+        insert_concurrency: 1
+    - name: selected-native-zstd-c32
+      settings:
+        insert_format: native
+        compression: zstd
+        insert_target_rows: 2500000
+        insert_target_bytes: 671088640
+        insert_concurrency: 32
+
+# Optional environment secrets are read from files and never written to reports.
+environment: {}
+
