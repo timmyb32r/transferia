@@ -4,8 +4,10 @@ use arrow::array::{Array, BinaryArray, StringArray};
 use futures_util::future::BoxFuture;
 
 use super::client::{probe_network, ReconnectingClient};
+use super::config::ClickHouseInsertFormat;
+use super::http::HttpInsertTransport;
 use super::table::{prepare_tables, validate_table_schema};
-use super::transport::NativeTransport;
+use super::transport::{InsertTransport, NativeTransport};
 use super::{ClickHouseSink, ClickHouseSinkConfig};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -251,15 +253,22 @@ impl SinkConnector for ClickHouseSinkConnector {
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
             let client = self.shared_client().await?;
+            let transport: Arc<dyn InsertTransport> = match self.config.insert_format {
+                ClickHouseInsertFormat::Native => Arc::new(NativeTransport::new(client)),
+                ClickHouseInsertFormat::Parquet | ClickHouseInsertFormat::ArrowStream => {
+                    Arc::new(HttpInsertTransport::new(&self.config)?)
+                }
+            };
             tracing::info!(
                 partition = context.partition_id,
+                insert_format = ?self.config.insert_format,
                 "building ClickHouse sink on shared client"
             );
             Ok(
                 Box::new(ClickHouseSink::with_transport_for_partition_and_visibility(
                     self.config.clone(),
                     context.counters,
-                    Arc::new(NativeTransport::new(client)),
+                    transport,
                     context.partition_id,
                     context.keep_system_columns,
                     context.discovery,

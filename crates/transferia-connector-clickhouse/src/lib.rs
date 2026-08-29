@@ -64,9 +64,13 @@ pub fn register(
                 || {
                     serde_json::json!({
                         "hosts": [""], "port": clickhouse::DEFAULT_NATIVE_PORT,
+                        "http_port": 8123,
                         "trusted_plaintext": true, "database": "", "username": "",
-                        "password": "", "shard_group": "", "insert_target_rows": 100_000,
-                        "insert_target_bytes": 67_108_864, "flush_interval_ms": 100,
+                        "password": "", "shard_group": "", "insert_target_rows": 1_000_000,
+                        "insert_target_bytes": 671_088_640, "insert_concurrency": 32,
+                        "insert_format": "native", "compression": "zstd",
+                        "format_threads": 8, "parquet_row_group_rows": 1_000_000,
+                        "flush_interval_ms": 100,
                         "retry_initial_ms": 50, "retry_max_ms": 30000,
                         "connect_timeout_ms": 30000, "request_timeout_ms": 30000
                     })

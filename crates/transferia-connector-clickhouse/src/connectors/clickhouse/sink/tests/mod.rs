@@ -13,7 +13,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::actor::without_system_columns;
 use super::{
-    ClickHouseCompression, ClickHouseSink, ClickHouseSinkConfig, InsertError, InsertTransport,
+    ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSink, ClickHouseSinkConfig,
+    InsertError, InsertTransport,
 };
 use crate::metrics::SinkCounters;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
@@ -120,6 +121,7 @@ fn config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
         hosts: vec!["unused".into()],
         port: 9000,
+        http_port: 8123,
         trusted_plaintext: true,
         tls_ca_file: None,
         data_host_count: None,
@@ -130,7 +132,10 @@ fn config() -> ClickHouseSinkConfig {
         insert_target_rows: 1,
         insert_target_bytes: usize::MAX,
         insert_concurrency: 1,
+        insert_format: ClickHouseInsertFormat::Native,
         compression: ClickHouseCompression::default(),
+        format_threads: 8,
+        parquet_row_group_rows: 1_000_000,
         async_insert: false,
         flush_interval_ms: 100,
         retry_initial_ms: 10,

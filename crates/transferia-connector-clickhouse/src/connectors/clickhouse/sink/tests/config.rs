@@ -87,8 +87,13 @@ fn validates_hosts_and_native_port() {
 fn defaults_to_finite_retries() -> anyhow::Result<()> {
     let config = parse_config(BASE)?;
     assert_eq!(config.effective_retry_max_attempts(), 20);
-    assert_eq!(config.insert_concurrency, 1);
-    assert_eq!(config.compression, ClickHouseCompression::Lz4);
+    assert_eq!(config.insert_target_rows, 1_000_000);
+    assert_eq!(config.insert_target_bytes, 640 * 1024 * 1024);
+    assert_eq!(config.insert_concurrency, 32);
+    assert_eq!(config.insert_format, ClickHouseInsertFormat::Native);
+    assert_eq!(config.compression, ClickHouseCompression::Zstd);
+    assert_eq!(config.format_threads, 8);
+    assert_eq!(config.parquet_row_group_rows, 1_000_000);
     assert!(!config.async_insert);
     Ok(())
 }
@@ -102,6 +107,23 @@ fn parses_explicit_native_insert_transport_tuning() -> anyhow::Result<()> {
 }
 
 #[test]
+fn parses_http_insert_formats() -> anyhow::Result<()> {
+    for (value, expected) in [
+        ("parquet", ClickHouseInsertFormat::Parquet),
+        ("arrow_stream", ClickHouseInsertFormat::ArrowStream),
+    ] {
+        let config = parse_config(&format!(
+            "{BASE}insert_format: {value}\nhttp_port: 8443\nformat_threads: 16\nparquet_row_group_rows: 250000\n"
+        ))?;
+        assert_eq!(config.insert_format, expected);
+        assert_eq!(config.http_port, 8443);
+        assert_eq!(config.format_threads, 16);
+        assert_eq!(config.parquet_row_group_rows, 250_000);
+    }
+    Ok(())
+}
+
+#[test]
 fn validates_retry_policy() {
     for suffix in [
         "retry_max_attempts: 0\n",
@@ -110,6 +132,10 @@ fn validates_retry_policy() {
         "request_timeout_ms: 0\n",
         "insert_concurrency: 0\n",
         "insert_concurrency: 33\n",
+        "insert_format: parquet\nhttp_port: 0\n",
+        "format_threads: 0\n",
+        "format_threads: 33\n",
+        "parquet_row_group_rows: 0\n",
     ] {
         assert!(parse_config(&format!("{BASE}{suffix}")).is_err());
     }

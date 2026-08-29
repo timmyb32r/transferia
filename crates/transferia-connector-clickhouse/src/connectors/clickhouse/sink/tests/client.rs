@@ -7,7 +7,9 @@ use tokio::sync::Notify;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use crate::connectors::clickhouse::sink::config::ClickHouseCompression;
+use crate::connectors::clickhouse::sink::config::{
+    ClickHouseCompression, ClickHouseInsertFormat,
+};
 
 use super::*;
 
@@ -267,6 +269,7 @@ fn client_config(insert_concurrency: usize) -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
         hosts: vec!["localhost".into()],
         port: 9000,
+        http_port: 8123,
         trusted_plaintext: true,
         tls_ca_file: None,
         data_host_count: None,
@@ -277,7 +280,10 @@ fn client_config(insert_concurrency: usize) -> ClickHouseSinkConfig {
         insert_target_rows: 1,
         insert_target_bytes: 1,
         insert_concurrency,
+        insert_format: ClickHouseInsertFormat::Native,
         compression: ClickHouseCompression::default(),
+        format_threads: 8,
+        parquet_row_group_rows: 1_000_000,
         async_insert: false,
         flush_interval_ms: 1,
         retry_initial_ms: 1,

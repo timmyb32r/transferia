@@ -8,10 +8,21 @@ use serde::Deserialize;
 pub enum ClickHouseCompression {
     None,
 
-    #[default]
     Lz4,
 
+    #[default]
     Zstd,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClickHouseInsertFormat {
+    #[default]
+    Native,
+
+    Parquet,
+
+    ArrowStream,
 }
 
 impl From<ClickHouseCompression> for clickhouse_arrow::CompressionMethod {
@@ -32,6 +43,10 @@ pub struct ClickHouseSinkConfig {
 
     #[schemars(description = "native port")]
     pub port: u16,
+
+    #[serde(default = "default_http_port")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub http_port: u16,
 
     /// Explicit acknowledgement that the native hop is plaintext and must be
     /// protected by a trusted local network boundary or verified TLS tunnel.
@@ -74,12 +89,29 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_concurrency: usize,
 
-    /// Native-protocol compression. LZ4 is the default low-CPU mode; ZSTD can
-    /// improve a network-bound delivery and `none` avoids compression work on
-    /// a sufficiently fast trusted network.
+    /// Wire format used for INSERT payloads. Parquet and ArrowStream use the
+    /// ClickHouse HTTP endpoint and are stable, self-describing interchange
+    /// formats; Native uses the ClickHouse native TCP protocol.
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub insert_format: ClickHouseInsertFormat,
+
+    /// Native-protocol compression. ZSTD is the measured throughput default;
+    /// LZ4 trades throughput for less compression work, while `none` is useful
+    /// only for an explicitly measured transport that is not network-bound.
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub compression: ClickHouseCompression,
+
+    /// Number of ClickHouse threads available to decode one HTTP format body.
+    #[serde(default = "default_format_threads")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub format_threads: usize,
+
+    /// Maximum rows in a Parquet row group produced for one HTTP INSERT.
+    #[serde(default = "default_parquet_row_group_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_row_group_rows: usize,
 
     /// Let `ClickHouse` coalesce concurrent native INSERTs server-side. Waiting
     /// remains mandatory, so a successful response still means the buffered
@@ -136,6 +168,17 @@ impl ClickHouseSinkConfig {
             (1..=32).contains(&self.insert_concurrency),
             "clickhouse.insert_concurrency must be between 1 and 32"
         );
+        anyhow::ensure!(
+            (1..=32).contains(&self.format_threads),
+            "clickhouse.format_threads must be between 1 and 32"
+        );
+        anyhow::ensure!(
+            self.parquet_row_group_rows > 0,
+            "clickhouse.parquet_row_group_rows must be positive"
+        );
+        if self.insert_format != ClickHouseInsertFormat::Native {
+            crate::connectors::address::validate_port("clickhouse.http_port", self.http_port)?;
+        }
         anyhow::ensure!(
             self.flush_interval_ms > 0,
             "clickhouse.flush_interval_ms must be positive"
@@ -208,6 +251,7 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .debug_struct("ClickHouseSinkConfig")
             .field("hosts", &self.hosts)
             .field("port", &self.port)
+            .field("http_port", &self.http_port)
             .field("trusted_plaintext", &self.trusted_plaintext)
             .field("tls_ca_file", &self.tls_ca_file)
             .field("data_host_count", &self.data_host_count)
@@ -218,7 +262,10 @@ impl fmt::Debug for ClickHouseSinkConfig {
             .field("insert_target_rows", &self.insert_target_rows)
             .field("insert_target_bytes", &self.insert_target_bytes)
             .field("insert_concurrency", &self.insert_concurrency)
+            .field("insert_format", &self.insert_format)
             .field("compression", &self.compression)
+            .field("format_threads", &self.format_threads)
+            .field("parquet_row_group_rows", &self.parquet_row_group_rows)
             .field("async_insert", &self.async_insert)
             .field("flush_interval_ms", &self.flush_interval_ms)
             .field("retry_initial_ms", &self.retry_initial_ms)
@@ -233,7 +280,7 @@ impl fmt::Debug for ClickHouseSinkConfig {
 const DEFAULT_RETRY_MAX_ATTEMPTS: u32 = 20;
 
 const fn default_insert_rows() -> usize {
-    100_000
+    1_000_000
 }
 
 pub fn validate_native_port(port: u16) -> anyhow::Result<()> {
@@ -247,11 +294,23 @@ pub fn validate_native_port(port: u16) -> anyhow::Result<()> {
 }
 
 const fn default_insert_bytes() -> usize {
-    64 * 1024 * 1024
+    640 * 1024 * 1024
 }
 
 const fn default_insert_concurrency() -> usize {
-    1
+    32
+}
+
+const fn default_http_port() -> u16 {
+    8123
+}
+
+const fn default_format_threads() -> usize {
+    8
+}
+
+const fn default_parquet_row_group_rows() -> usize {
+    1_000_000
 }
 
 const fn default_flush_interval() -> u64 {

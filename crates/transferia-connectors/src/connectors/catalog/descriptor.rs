@@ -66,11 +66,12 @@ const CLICKHOUSE_SINK_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRole
         output_fields: &[
             "hosts",
             "port",
+            "http_port",
             "trusted_plaintext",
             "tls_ca_file",
             "data_host_count",
         ],
-        required_output_fields: &["hosts", "port", "trusted_plaintext"],
+        required_output_fields: &["hosts", "port", "http_port", "trusted_plaintext"],
     }),
     networked: true,
 });
