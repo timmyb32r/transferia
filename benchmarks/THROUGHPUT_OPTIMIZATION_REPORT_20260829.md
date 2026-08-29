@@ -24,6 +24,10 @@ service remained available.
 - YTsaurus distributed write with four fragments is the concurrency knee.
   Eight and sixteen fragments were slower and used more memory; 512-MiB groups
   materially beat 256 MiB without exceeding the configured pipeline budget.
+  For schemas with a primary key, this ingestion stage is followed by a
+  no-ack-before-completion server sort and atomic replacement into a
+  `unique_keys=true` table. The detailed report separates that fixed/final sort
+  latency from sustained writer throughput.
 - ClickHouse insertion is fastest through its negotiated native TCP block
   protocol. Stable Parquet and ArrowStream bodies add an unnecessary
   Arrow-to-format encode plus server-side decode on writes.

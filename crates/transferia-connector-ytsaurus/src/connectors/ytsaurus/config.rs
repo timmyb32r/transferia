@@ -33,6 +33,7 @@ const DEFAULT_TABLE_WRITER_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -704,6 +705,17 @@ pub enum YTsaurusWriteFormat {
     Yson,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusPrimaryKeySemantics {
+    #[default]
+    #[schemars(title = "One row per primary key (sorted)")]
+    UniqueSorted,
+
+    #[schemars(title = "Preserve every row (unsorted)")]
+    PreserveRows,
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusSinkConfig {
@@ -717,6 +729,14 @@ pub struct YTsaurusSinkConfig {
         })
     )]
     pub tables: YTsaurusTableMode,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Primary key semantics",
+        description = "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub primary_key_semantics: YTsaurusPrimaryKeySemantics,
 
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
@@ -740,6 +760,10 @@ pub struct YTsaurusSinkConfig {
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub table_writer: YTsaurusTableWriterConfig,
+
+    #[serde(default = "default_primary_key_sort_timeout_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub primary_key_sort_timeout_ms: u64,
 }
 
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
@@ -863,6 +887,10 @@ impl YTsaurusSinkConfig {
             self.write_row_buffer_bytes > 0,
             "ytsaurus.write_row_buffer_bytes must be positive"
         );
+        anyhow::ensure!(
+            self.primary_key_sort_timeout_ms > 0,
+            "ytsaurus.primary_key_sort_timeout_ms must be positive"
+        );
         self.table_writer.validate()?;
         Ok(())
     }
@@ -889,6 +917,11 @@ impl YTsaurusSinkConfig {
             YTsaurusTableMode::StaticTables { format, .. }
             | YTsaurusTableMode::DynamicTables { format, .. } => *format,
         }
+    }
+
+    #[must_use]
+    pub const fn static_tables(&self) -> bool {
+        matches!(self.tables, YTsaurusTableMode::StaticTables { .. })
     }
 
     pub fn path_for_dataset(&self, dataset: &str) -> anyhow::Result<String> {
@@ -962,4 +995,8 @@ const fn default_table_writer_group_bytes() -> u64 {
 
 const fn default_table_writer_chunk_bytes() -> u64 {
     DEFAULT_TABLE_WRITER_CHUNK_BYTES
+}
+
+const fn default_primary_key_sort_timeout_ms() -> u64 {
+    DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS
 }

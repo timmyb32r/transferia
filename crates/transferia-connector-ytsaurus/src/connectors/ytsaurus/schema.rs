@@ -109,20 +109,64 @@ pub fn yt_to_arrow(name: &str) -> anyhow::Result<DataType> {
 }
 
 pub fn schema_to_yt(schema: &DatasetSchema) -> anyhow::Result<Value> {
-    Ok(Value::Array(
-        schema
-            .columns
+    Ok(Value::Array(schema_columns_to_yt(schema, false)?))
+}
+
+pub fn sorted_unique_schema_to_yt(schema: &DatasetSchema) -> anyhow::Result<Value> {
+    let primary_keys = schema
+        .columns
+        .iter()
+        .filter(|column| column.primary_key)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        !primary_keys.is_empty(),
+        "cannot create a unique sorted YTsaurus schema without primary-key columns"
+    );
+    for column in primary_keys {
+        anyhow::ensure!(
+            !column.nullable,
+            "YTsaurus primary-key column '{}' must not be nullable",
+            column.name
+        );
+    }
+    Ok(serde_json::json!({
+        "$attributes": { "strict": true, "unique_keys": true },
+        "$value": schema_columns_to_yt(schema, true)?,
+    }))
+}
+
+fn schema_columns_to_yt(schema: &DatasetSchema, sorted: bool) -> anyhow::Result<Vec<Value>> {
+    let columns = schema.columns.iter().collect::<Vec<_>>();
+    let columns = if sorted {
+        columns
             .iter()
-            .map(|column| {
-                validate_column_name(&column.name)?;
-                Ok(serde_json::json!({
-                    "name": column.name,
-                    "type": arrow_to_yt(&column.data_type)?,
-                    "required": !column.nullable,
-                }))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?,
-    ))
+            .copied()
+            .filter(|column| column.primary_key)
+            .chain(
+                columns
+                    .iter()
+                    .copied()
+                    .filter(|column| !column.primary_key),
+            )
+            .collect::<Vec<_>>()
+    } else {
+        columns
+    };
+    columns
+        .into_iter()
+        .map(|column| {
+            validate_column_name(&column.name)?;
+            let mut encoded = serde_json::json!({
+                "name": column.name,
+                "type": arrow_to_yt(&column.data_type)?,
+                "required": !column.nullable,
+            });
+            if sorted && column.primary_key {
+                encoded["sort_order"] = Value::String("ascending".to_owned());
+            }
+            Ok(encoded)
+        })
+        .collect()
 }
 
 pub fn arrow_to_yt(data_type: &DataType) -> anyhow::Result<&'static str> {

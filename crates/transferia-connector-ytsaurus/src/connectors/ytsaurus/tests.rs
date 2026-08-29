@@ -18,12 +18,12 @@ use tokio::task::JoinSet;
 
 use super::client::{
     json_header_value, resolved_link_suggestion, rich_read_path, suggestion_directory,
-    table_path_suggestions, ListedNode,
+    table_path_suggestions, yson_header_value, ListedNode,
 };
 use super::columnar_chunk::validate_direct_schema;
 use super::config::{
-    YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
-    YTsaurusTableReaderConfig, YTsaurusWriteFormat,
+    YTsaurusPrimaryKeySemantics, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
+    YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 use super::direct_data_node::{
     signature_payload, validate_row_only_limit, DirectReadBlock, DirectReadPayload, ReadLimit,
@@ -33,15 +33,20 @@ use super::native_rpc::{
     checksum_matches, crc64, credentials, receive_read_worker_item, rowset_payload,
     NativeReadFormat, RequestCredentials,
 };
-use super::schema::{parse_schema, schema_to_yt};
+use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
     encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches, validate_row_weight,
+    yt_guid,
 };
 use super::src_batch::{
     dataset_arrow_schema, direct_block_to_chunk, normalize_read_batch, performance_advice,
     system_column_layout, DiscoveredTable, PhysicalChunkLayout,
 };
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
+use transferia_core::delivery::{
+    DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SinkLimits as _,
+    SourceTopology,
+};
 
 #[test]
 fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {
@@ -77,6 +82,34 @@ fn distributed_write_parameters_are_safe_ascii_http_headers() {
     assert!(header.contains("\\ud83e\\udd80"));
     assert!(header.contains("\\u007f"));
     reqwest::header::HeaderValue::from_str(&header).expect("valid HTTP header value");
+}
+
+#[test]
+fn yson_header_preserves_schema_attributes() {
+    let header = yson_header_value(&serde_json::json!({
+        "schema": {
+            "$attributes": {"strict": true, "unique_keys": true},
+            "$value": [{"name": "id", "type": "int64", "sort_order": "ascending"}],
+        },
+    }))
+    .expect("serialize attributed YSON");
+
+    assert_eq!(
+        header,
+        r#"{"schema"=<"strict"=%true;"unique_keys"=%true;>[{"name"="id";"sort_order"="ascending";"type"="int64";};];}"#
+    );
+    reqwest::header::HeaderValue::from_str(&header).expect("valid HTTP header value");
+}
+
+#[test]
+fn mutation_ids_use_ytsaurus_guid_text_order() {
+    assert_eq!(
+        yt_guid([
+            0x01, 0x02, 0x03, 0x04, 0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0x31,
+            0x32, 0x33, 0x34,
+        ]),
+        "34333231-24232221-14131211-4030201"
+    );
 }
 
 #[test]
@@ -359,6 +392,10 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
     assert_eq!(config.format(), YTsaurusWriteFormat::Arrow);
+    assert_eq!(
+        config.primary_key_semantics,
+        YTsaurusPrimaryKeySemantics::UniqueSorted
+    );
     assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");
     assert_eq!(config.write_target_bytes, 512 * 1024 * 1024);
     assert_eq!(config.write_concurrency, 4);
@@ -369,9 +406,70 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     assert_eq!(config.table_writer.writer_window_size, 64 * 1024 * 1024);
     assert_eq!(config.table_writer.writer_group_size, 16 * 1024 * 1024);
     assert_eq!(config.table_writer.desired_chunk_size, 2 * 1024 * 1024 * 1024);
+    assert_eq!(config.primary_key_sort_timeout_ms, 24 * 60 * 60 * 1_000);
     config.validate()?;
     config.write_concurrency = 0;
     assert!(config.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn unique_sorted_schema_preserves_primary_key_order_and_rejects_nullable_keys() -> anyhow::Result<()>
+{
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("payload".into(), DataType::Binary, true),
+        SchemaColumn::new("topic".into(), DataType::Utf8, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("offset".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+    ]);
+    assert_eq!(
+        sorted_unique_schema_to_yt(&schema)?,
+        serde_json::json!({
+            "$attributes": { "strict": true, "unique_keys": true },
+            "$value": [
+                { "name": "topic", "type": "utf8", "required": true, "sort_order": "ascending" },
+                { "name": "offset", "type": "int64", "required": true, "sort_order": "ascending" },
+                { "name": "payload", "type": "string", "required": false },
+            ],
+        })
+    );
+
+    let nullable = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, true)
+            .with_constraints(true, false, None),
+    ]);
+    assert!(sorted_unique_schema_to_yt(&nullable).is_err());
+    Ok(())
+}
+
+#[test]
+fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
+    )?;
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+    ]);
+    let mut discovery = DeliveryDiscovery {
+        source_name: Arc::from("test"),
+        source_topology: SourceTopology::StaticPartitions(vec![0, 1]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: schema.clone(),
+            stored_schema: schema,
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    };
+
+    assert!(config.validate_discovery(&discovery).is_err());
+    discovery.source_topology = SourceTopology::StaticPartitions(vec![0]);
+    config.validate_discovery(&discovery)?;
     Ok(())
 }
 

@@ -12,17 +12,22 @@ use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::stream::{self, StreamExt as _};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
-use super::config::{YTsaurusSinkConfig, YTsaurusWriteFormat};
+use super::config::{
+    YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat,
+};
 use super::schema::{
-    arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, validate_column_name, MAX_COLUMNS,
+    arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
+    validate_column_name, MAX_COLUMNS,
 };
 use crate::metrics::SinkCounters;
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
-    DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, TextLimit,
+    DeliveryDiscovery, NameSyntax, SinkLimits, SinkLimitsDescription, SourceTopology, TextLimit,
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
@@ -77,6 +82,7 @@ impl SinkLimits for YTsaurusSinkConfig {
             "YTsaurus sink requires at least one dataset"
         );
         let mut names = HashSet::new();
+        let mut unique_sorted = false;
         for dataset in &discovery.datasets {
             anyhow::ensure!(
                 names.insert(dataset.name.as_ref()),
@@ -99,6 +105,33 @@ impl SinkLimits for YTsaurusSinkConfig {
                 validate_column_name(&column.name)?;
                 arrow_to_yt(&column.data_type)?;
             }
+            if self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+                && dataset
+                    .stored_schema
+                    .columns
+                    .iter()
+                    .any(|column| column.primary_key)
+            {
+                unique_sorted = true;
+                anyhow::ensure!(
+                    self.static_tables(),
+                    "unique sorted primary-key semantics require static YTsaurus tables"
+                );
+                anyhow::ensure!(
+                    self.replace_tables(),
+                    "unique sorted primary-key semantics require replace_tables=true so the completed snapshot can atomically replace the destination"
+                );
+                sorted_unique_schema_to_yt(&dataset.stored_schema)?;
+            }
+        }
+        if unique_sorted {
+            anyhow::ensure!(
+                matches!(
+                    &discovery.source_topology,
+                    SourceTopology::StaticPartitions(partitions) if partitions.len() == 1
+                ),
+                "unique sorted YTsaurus primary-key semantics require exactly one finite source partition so one atomic replacement contains the complete snapshot"
+            );
         }
         Ok(())
     }
@@ -140,6 +173,13 @@ impl SinkConnector for YTsaurusSinkConnector {
         Box::pin(async move {
             self.client.create_directory(self.config.path()).await?;
             for dataset in request.datasets {
+                let unique_sorted = self.config.primary_key_semantics
+                    == YTsaurusPrimaryKeySemantics::UniqueSorted
+                    && dataset.schema.columns.iter().any(|column| column.primary_key);
+                if unique_sorted {
+                    sorted_unique_schema_to_yt(&dataset.schema)?;
+                    continue;
+                }
                 let path = self.config.path_for_dataset(&dataset.table)?;
                 if self.config.replace_tables() {
                     self.client.remove_table(&path).await?;
@@ -176,6 +216,18 @@ impl SinkConnector for YTsaurusSinkConnector {
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
+            let unique_sorted = context.discovery.datasets.iter().any(|dataset| {
+                self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+                    && dataset
+                        .stored_schema
+                        .columns
+                        .iter()
+                        .any(|column| column.primary_key)
+            });
+            anyhow::ensure!(
+                !unique_sorted || context.finite_source,
+                "unique sorted YTsaurus primary-key semantics require a finite snapshot source"
+            );
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
             Ok(Box::new(YTsaurusSink {
                 client: self.client.clone(),
@@ -183,6 +235,9 @@ impl SinkConnector for YTsaurusSinkConnector {
                 counters: context.counters,
                 discovery: context.discovery,
                 limits,
+                delivery_id: context.durable.delivery_id,
+                partition_id: context.partition_id,
+                attempt_id: Uuid::new_v4(),
             }) as Box<dyn Sink>)
         })
     }
@@ -194,15 +249,135 @@ struct YTsaurusSink {
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
+    delivery_id: Arc<str>,
+    partition_id: i64,
+    attempt_id: Uuid,
 }
 
 impl YTsaurusSink {
+    fn primary_keys(&self, table: &str) -> anyhow::Result<Vec<String>> {
+        let dataset = self
+            .discovery
+            .datasets
+            .iter()
+            .find(|dataset| dataset.name.as_ref() == table)
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus discovery has no dataset '{table}'"))?;
+        Ok(dataset
+            .stored_schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.clone())
+            .collect())
+    }
+
+    fn unique_sorted(&self, table: &str) -> anyhow::Result<bool> {
+        Ok(self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+            && !self.primary_keys(table)?.is_empty())
+    }
+
+    fn has_unique_sorted_tables(&self) -> bool {
+        self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+            && self.discovery.datasets.iter().any(|dataset| {
+                dataset
+                    .stored_schema
+                    .columns
+                    .iter()
+                    .any(|column| column.primary_key)
+            })
+    }
+
+    fn internal_table_path(&self, table: &str, purpose: &str) -> anyhow::Result<String> {
+        self.config.path_for_dataset(table)?;
+        let mut digest = Sha256::new();
+        digest.update(self.delivery_id.as_bytes());
+        digest.update(self.partition_id.to_le_bytes());
+        digest.update(self.attempt_id.as_bytes());
+        digest.update(table.as_bytes());
+        let digest = format!("{:x}", digest.finalize());
+        Ok(format!(
+            "{}/.transferia-{purpose}-{}-{table}",
+            self.config.path().trim_end_matches('/'),
+            &digest[..16]
+        ))
+    }
+
+    fn staging_path(&self, table: &str) -> anyhow::Result<String> {
+        self.internal_table_path(table, "stage")
+    }
+
+    fn sorted_path(&self, table: &str) -> anyhow::Result<String> {
+        self.internal_table_path(table, "sorted")
+    }
+
+    fn sort_mutation_id(&self, table: &str) -> String {
+        let mut digest = Sha256::new();
+        digest.update(b"transferia-ytsaurus-unique-sort");
+        digest.update(self.delivery_id.as_bytes());
+        digest.update(self.partition_id.to_le_bytes());
+        digest.update(self.attempt_id.as_bytes());
+        digest.update(table.as_bytes());
+        let bytes = digest.finalize();
+        let mut id = [0_u8; 16];
+        id.copy_from_slice(&bytes[..16]);
+        yt_guid(id)
+    }
+
+    async fn prepare_unique_staging(&self) -> anyhow::Result<()> {
+        for dataset in &self.discovery.datasets {
+            if !self.unique_sorted(&dataset.name)? {
+                continue;
+            }
+            let staging = self.staging_path(&dataset.name)?;
+            let sorted = self.sorted_path(&dataset.name)?;
+            self.client.remove_table(&staging).await?;
+            self.client.remove_table(&sorted).await?;
+            self.client
+                .create_table(&staging, schema_to_yt(&dataset.stored_schema)?)
+                .await?;
+            self.client
+                .create_table(
+                    &sorted,
+                    sorted_unique_schema_to_yt(&dataset.stored_schema)?,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn finalize_unique_tables(&self) -> anyhow::Result<()> {
+        for dataset in &self.discovery.datasets {
+            if !self.unique_sorted(&dataset.name)? {
+                continue;
+            }
+            let staging = self.staging_path(&dataset.name)?;
+            let sorted = self.sorted_path(&dataset.name)?;
+            let destination = self.config.path_for_dataset(&dataset.name)?;
+            self.client
+                .sort_table_unique(
+                    &staging,
+                    &sorted,
+                    &self.primary_keys(&dataset.name)?,
+                    &self.sort_mutation_id(&dataset.name),
+                    Duration::from_millis(self.config.primary_key_sort_timeout_ms),
+                )
+                .await?;
+            self.client.move_table(&sorted, &destination).await?;
+            self.client.remove_table(&staging).await?;
+        }
+        Ok(())
+    }
+
     async fn write_table_batches(
         &self,
         table: &str,
         batches: Vec<RecordBatch>,
     ) -> anyhow::Result<()> {
-        let destination_path = self.config.path_for_dataset(table)?;
+        let destination_path = if self.unique_sorted(table)? {
+            self.staging_path(table)?
+        } else {
+            self.config.path_for_dataset(table)?
+        };
         let concurrency = self.config.write_concurrency.min(batches.len());
         if concurrency <= 1 {
             let (format, payload) = encode_batches(self.config.format(), &batches)?;
@@ -306,6 +481,7 @@ impl YTsaurusSink {
         &self,
         pending: &mut Vec<Delivery>,
         events: &mpsc::Sender<SinkEvent>,
+        deferred_commit: &mut Option<transferia_core::sink::DeliveryId>,
     ) -> anyhow::Result<()> {
         let Some(last) = pending.last() else {
             return Ok(());
@@ -317,14 +493,26 @@ impl YTsaurusSink {
             .sum();
         self.write_deliveries(pending).await?;
         self.counters.add_source_messages(source_messages);
-        events
-            .send(SinkEvent::CommittedThrough(id))
-            .await
-            .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+        if self.has_unique_sorted_tables() {
+            *deferred_commit = Some(id);
+        } else {
+            events
+                .send(SinkEvent::CommittedThrough(id))
+                .await
+                .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+        }
         pending.clear();
         self.counters.set_buffered_bytes(0);
         Ok(())
     }
+}
+
+pub(super) fn yt_guid(bytes: [u8; 16]) -> String {
+    let first = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let second = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+    let third = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+    let fourth = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+    format!("{fourth:x}-{third:x}-{second:x}-{first:x}")
 }
 
 fn encode_batches(
@@ -343,9 +531,14 @@ impl Sink for YTsaurusSink {
         mut io: SinkIo,
     ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
+            let unique_sorted = self.has_unique_sorted_tables();
             let result: anyhow::Result<()> = async {
                 let mut pending = Vec::<Delivery>::new();
                 let mut buffered_bytes = 0_usize;
+                let mut deferred_commit = None;
+                if self.has_unique_sorted_tables() {
+                    self.prepare_unique_staging().await?;
+                }
                 loop {
                     let delivery = if pending.is_empty() {
                         tokio::select! {
@@ -363,7 +556,12 @@ impl Sink for YTsaurusSink {
                             ) => match delivery {
                                 Ok(delivery) => delivery,
                                 Err(_) => {
-                                    self.flush_pending(&mut pending, &io.events).await?;
+                                    self.flush_pending(
+                                        &mut pending,
+                                        &io.events,
+                                        &mut deferred_commit,
+                                    )
+                                    .await?;
                                     buffered_bytes = 0;
                                     continue;
                                 }
@@ -375,7 +573,23 @@ impl Sink for YTsaurusSink {
                             self.counters.set_buffered_bytes(0);
                             return Ok(());
                         }
-                        self.flush_pending(&mut pending, &io.events).await?;
+                        self.flush_pending(&mut pending, &io.events, &mut deferred_commit)
+                            .await?;
+                        if self.has_unique_sorted_tables() {
+                            self.finalize_unique_tables().await.map_err(|error| {
+                                anyhow::Error::from(DataPlaneFailure::fatal(error))
+                            })?;
+                            if let Some(id) = deferred_commit {
+                                io.events
+                                    .send(SinkEvent::CommittedThrough(id))
+                                    .await
+                                    .map_err(|_| {
+                                        anyhow::anyhow!(
+                                            "YTsaurus sink event receiver closed after primary-key finalization"
+                                        )
+                                    })?;
+                            }
+                        }
                         break;
                     };
                     buffered_bytes = buffered_bytes.saturating_add(
@@ -386,13 +600,18 @@ impl Sink for YTsaurusSink {
                     if buffered_bytes < self.config.write_target_bytes {
                         continue;
                     }
-                    self.flush_pending(&mut pending, &io.events).await?;
+                    self.flush_pending(&mut pending, &io.events, &mut deferred_commit)
+                        .await?;
                     buffered_bytes = 0;
                 }
                 Ok(())
             }
             .await;
-            result.map_err(DataPlaneFailure::retryable_or_passthrough)
+            if unique_sorted {
+                result.map_err(DataPlaneFailure::fatal_or_passthrough)
+            } else {
+                result.map_err(DataPlaneFailure::retryable_or_passthrough)
+            }
         })
     }
 }

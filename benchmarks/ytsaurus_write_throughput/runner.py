@@ -141,11 +141,12 @@ def cleanup(raw: dict[str, Any], path: str, environment: dict[str, str]) -> None
 
 
 def verify_rows(
-    raw: dict[str, Any], table_root: str, environment: dict[str, str]
+    raw: dict[str, Any], candidate: Candidate, table_root: str, environment: dict[str, str]
 ) -> int:
     table_name = str(raw["run"].get("table_name", "my_table"))
+    table_path = f"{table_root}/{table_name}"
     completed = subprocess.run(
-        yt_command(raw, "get", f"{table_root}/{table_name}/@row_count"),
+        yt_command(raw, "get", f"{table_path}/@row_count"),
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -158,6 +159,21 @@ def verify_rows(
     expected = int(raw["run"].get("rows", 50_000_000))
     if rows != expected:
         raise RuntimeError(f"YTsaurus row count is {rows}, expected {expected}")
+    if candidate.settings.get("primary_key_semantics", "unique_sorted") == "unique_sorted":
+        for attribute in ("schema/@unique_keys", "sorted"):
+            completed = subprocess.run(
+                yt_command(raw, "get", f"{table_path}/@{attribute}"),
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=120,
+            )
+            if completed.returncode or completed.stdout.strip() != "%true":
+                raise RuntimeError(
+                    f"YTsaurus final table attribute @{attribute} is not true: "
+                    f"{completed.stdout[-1000:]}"
+                )
     return rows
 
 
@@ -215,7 +231,7 @@ def run_scan(
         if exit_code:
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-40:])
             raise RuntimeError(f"{candidate.name} failed with exit code {exit_code}:\n{tail}")
-        verify_rows(raw, table_root, environment)
+        verify_rows(raw, candidate, table_root, environment)
         return ScanResult(
             elapsed_seconds=elapsed,
             cpu_seconds=float(metrics.get("cpu_seconds", 0)),

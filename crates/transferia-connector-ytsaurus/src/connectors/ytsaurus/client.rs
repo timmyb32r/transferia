@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use futures_util::stream::{self, StreamExt as _};
 use serde::Deserialize;
@@ -139,6 +140,14 @@ impl YTsaurusClient {
         command: &str,
     ) -> anyhow::Result<OutboundHttpRequest> {
         self.request_at(&self.endpoint, method, command)
+    }
+
+    fn request_v4(
+        &self,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
+        self.request_at_version(&self.endpoint, "v4", method, command)
     }
 
     async fn discover_heavy_endpoints(&self) -> anyhow::Result<Vec<reqwest::Url>> {
@@ -520,14 +529,115 @@ impl YTsaurusClient {
             "path": path,
             "attributes": { "schema": schema, "optimize_for": "scan" }
         });
-        let parameters = serde_json::to_string(&parameters)?;
+        let parameters = yson_header_value(&parameters)?;
         let response = self
             .request(reqwest::Method::POST, "create")?
-            .configure(|request| request.header("X-YT-Parameters", parameters))
+            .configure(|request| {
+                request
+                    .header("X-YT-Header-Format", "<format=text>yson")
+                    .header("X-YT-Parameters", parameters)
+            })
             .send()
             .await?;
         Self::checked(response).await?;
         Ok(())
+    }
+
+    pub async fn move_table(&self, source_path: &str, destination_path: &str) -> anyhow::Result<()> {
+        let parameters = serde_json::json!({
+            "source_path": source_path,
+            "destination_path": destination_path,
+            "recursive": true,
+            "force": true,
+        });
+        let response = self
+            .request(reqwest::Method::POST, "move")?
+            .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        Ok(())
+    }
+
+    pub async fn sort_table_unique(
+        &self,
+        source_path: &str,
+        destination_path: &str,
+        primary_keys: &[String],
+        mutation_id: &str,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !primary_keys.is_empty(),
+            "YTsaurus unique sort requires at least one primary-key column"
+        );
+        let sort_by = primary_keys
+            .iter()
+            .map(|name| serde_json::json!({ "name": name, "sort_order": "ascending" }))
+            .collect::<Vec<_>>();
+        let parameters = serde_json::json!({
+            "operation_type": "sort",
+            "mutation_id": mutation_id,
+            "spec": {
+                "input_table_paths": [source_path],
+                "output_table_path": destination_path,
+                "sort_by": sort_by,
+                "schema_inference_mode": "from_output",
+                "max_failed_job_count": 1,
+            },
+        });
+        let response = self
+            .request_v4(reqwest::Method::POST, "start_operation")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters.to_string())
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
+            .send()
+            .await?;
+        let operation = Self::checked(response)
+            .await?
+            .json::<Value>()
+            .await?
+            .get("operation_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus start_operation response has no operation_id"))?
+            .to_owned();
+        let deadline = Instant::now() + timeout;
+        loop {
+            let parameters = serde_json::json!({
+                "operation_id": operation,
+                "attributes": ["state", "result"],
+            });
+            let response = self
+                .request_v4(reqwest::Method::GET, "get_operation")?
+                .configure(|request| {
+                    request
+                        .header("X-YT-Parameters", parameters.to_string())
+                        .header(reqwest::header::ACCEPT, "application/json")
+                })
+                .send()
+                .await?;
+            let status = Self::checked(response).await?.json::<Value>().await?;
+            match status.get("state").and_then(Value::as_str) {
+                Some("completed") => return Ok(()),
+                Some("failed" | "aborted") => {
+                    let error = status
+                        .pointer("/result/error/message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("the operation did not complete successfully");
+                    anyhow::bail!("YTsaurus unique sort operation failed: {error}");
+                }
+                Some(_) => {}
+                None => anyhow::bail!("YTsaurus get_operation response has no state"),
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "YTsaurus unique sort operation timed out after {} ms",
+                timeout.as_millis()
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     pub async fn create_directory(&self, path: &str) -> anyhow::Result<()> {
@@ -569,6 +679,62 @@ pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {
         write!(header, "\\u{high:04x}\\u{low:04x}")?;
     }
     Ok(header)
+}
+
+pub(super) fn yson_header_value(value: &Value) -> anyhow::Result<String> {
+    fn write_value(output: &mut String, value: &Value) -> anyhow::Result<()> {
+        match value {
+            Value::Null => output.push('#'),
+            Value::Bool(value) => output.push_str(if *value { "%true" } else { "%false" }),
+            Value::Number(value) => output.push_str(&value.to_string()),
+            Value::String(value) => output.push_str(&serde_json::to_string(value)?),
+            Value::Array(values) => {
+                output.push('[');
+                for value in values {
+                    write_value(output, value)?;
+                    output.push(';');
+                }
+                output.push(']');
+            }
+            Value::Object(object)
+                if object.contains_key("$value") && object.contains_key("$attributes") =>
+            {
+                let attributes = object
+                    .get("$attributes")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| anyhow::anyhow!("YSON $attributes must be an object"))?;
+                output.push('<');
+                for (key, value) in attributes {
+                    output.push_str(&serde_json::to_string(key)?);
+                    output.push('=');
+                    write_value(output, value)?;
+                    output.push(';');
+                }
+                output.push('>');
+                write_value(
+                    output,
+                    object
+                        .get("$value")
+                        .ok_or_else(|| anyhow::anyhow!("YSON envelope has no $value"))?,
+                )?;
+            }
+            Value::Object(object) => {
+                output.push('{');
+                for (key, value) in object {
+                    output.push_str(&serde_json::to_string(key)?);
+                    output.push('=');
+                    write_value(output, value)?;
+                    output.push(';');
+                }
+                output.push('}');
+            }
+        }
+        Ok(())
+    }
+
+    let mut output = String::new();
+    write_value(&mut output, value)?;
+    Ok(output)
 }
 
 pub(super) fn is_loopback_host(host: &str) -> bool {

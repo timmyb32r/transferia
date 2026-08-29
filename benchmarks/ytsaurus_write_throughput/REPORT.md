@@ -32,6 +32,31 @@ processed 12–14 million rows each across six or seven complete scans. Their
 rows/s values were 97,904, 108,714, 105,057, 89,066, and 94,978; the spread is
 why YTsaurus uses five repetitions rather than the shorter stable-storage gate.
 
+## Primary-key snapshot finalization
+
+After the throughput tournament, the default semantics for a schema carrying a
+primary key were strengthened: Transferia writes the complete finite snapshot
+to an attempt-owned unsorted staging table, starts a server-side sort by every
+primary-key column into a `unique_keys=true` table, and atomically moves that
+table over the destination. No source progress is committed before the sort and
+move finish. Duplicate keys therefore fail the YTsaurus sort instead of being
+silently reduced or dropped. `preserve_rows` remains an explicit non-default
+unsorted mode.
+
+This mode intentionally accepts only one finite source partition. Letting each
+partition independently replace the destination would lose all other
+partitions; the discovery contract now rejects that topology before destination
+preparation.
+
+A release smoke on Hume generated 10,000 transfer-log rows and verified the
+exact final row count, `@sorted=true`, and `@schema/@unique_keys=true` before
+removing its owned table. It completed in about 30 seconds (334 rows/s), almost
+all of which was fixed scheduler/startup latency for the separate sort
+operation. This tiny-table number is not comparable to the sustained writer
+throughput above. Large-snapshot end-to-end throughput includes the additional
+server-side sort; the 97,904 rows/s result measures the optimized ingestion
+stage itself.
+
 ## Distributed-write screening
 
 Each screening row is one independent 120-second measurement. The final winner
