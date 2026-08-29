@@ -6,7 +6,9 @@ use arrow::record_batch::RecordBatch;
 use schemars::schema_for;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
-use super::config::{IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig};
+use super::config::{
+    IcebergParquetCompression, IcebergSinkConfig, IcebergSourceConfig, OpenDalStorageConfig,
+};
 use super::sink::IcebergCommitIdentity;
 use super::source::{classify_scan_failure, restore_transferia_types};
 
@@ -46,6 +48,38 @@ fn iceberg_sink_groups_deliveries_until_target_or_end_of_input() {
     assert!(!super::sink::delivery_group_ready(64, 128, false));
     assert!(super::sink::delivery_group_ready(128, 128, false));
     assert!(super::sink::delivery_group_ready(64, 128, true));
+}
+
+#[test]
+fn iceberg_sink_defaults_to_bounded_parallel_zstd_writes() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics"
+    }))
+    .expect("valid sink config");
+    assert_eq!(
+        config.parquet_compression,
+        IcebergParquetCompression::Zstd
+    );
+    assert_eq!(config.parquet_row_group_rows, 250_000);
+    assert_eq!(config.write_concurrency, 8);
+    assert_eq!(config.commit_target_size_bytes, 512 * 1024 * 1024);
+    assert_eq!(config.commit_target_size_bytes(), 512 * 1024 * 1024);
+    config.validate().expect("default sink config validates");
+}
+
+#[test]
+fn iceberg_sink_rejects_zero_write_concurrency() {
+    let config: IcebergSinkConfig = serde_json::from_value(serde_json::json!({
+        "catalog": { "uri": "https://catalog.example", "auth": { "type": "none" } },
+        "storage": { "type": "s3", "bucket": "warehouse" },
+        "namespace": "analytics",
+        "write_concurrency": 0
+    }))
+    .expect("syntactically valid config");
+    let error = config.validate().expect_err("zero concurrency must fail");
+    assert!(error.to_string().contains("write_concurrency"));
 }
 
 #[test]

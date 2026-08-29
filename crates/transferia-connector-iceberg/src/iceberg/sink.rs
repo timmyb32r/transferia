@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
+use anyhow::Context as _;
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
@@ -16,6 +17,7 @@ use iceberg::writer::file_writer::rolling_writer::RollingFileWriterBuilder;
 use iceberg::writer::file_writer::ParquetWriterBuilder;
 use iceberg::writer::{IcebergWriter, IcebergWriterBuilder};
 use iceberg::{Catalog, TableCreation};
+use parquet::basic::{Compression as ParquetCompression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use sha2::{Digest as _, Sha256};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
@@ -30,7 +32,7 @@ use transferia_registry::durable::{CompareExchangeResult, DurableContext};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 use super::catalog::{build_catalog, table_ident};
-use super::config::{IcebergSinkConfig, IcebergTableRef};
+use super::config::{IcebergParquetCompression, IcebergSinkConfig, IcebergTableRef};
 
 pub struct IcebergSinkConnector {
     config: Arc<IcebergSinkConfig>,
@@ -296,24 +298,44 @@ impl IcebergSink {
             None,
             iceberg::spec::DataFileFormat::Parquet,
         );
+        let properties = WriterProperties::builder()
+            .set_compression(parquet_compression(self.config.parquet_compression))
+            .set_max_row_group_size(self.config.parquet_row_group_rows)
+            .build();
         let parquet = ParquetWriterBuilder::new(
-            WriterProperties::default(),
+            properties,
             table.metadata().current_schema().clone(),
         );
-        let rolling = RollingFileWriterBuilder::new(
-            parquet,
-            self.config.target_file_size_bytes,
-            table.file_io().clone(),
-            location,
-            names,
-        );
-        let mut writer = DataFileWriterBuilder::new(rolling).build(None).await?;
-        for batch in batches {
-            writer
-                .write(with_schema(&batch, Arc::clone(&arrow_schema))?)
-                .await?;
+        let shards = distribute_batches(batches, self.config.write_concurrency);
+        let mut tasks = tokio::task::JoinSet::new();
+        for shard in shards {
+            let parquet = parquet.clone();
+            let file_io = table.file_io().clone();
+            let location = location.clone();
+            let names = names.clone();
+            let arrow_schema = Arc::clone(&arrow_schema);
+            let target_file_size_bytes = self.config.target_file_size_bytes;
+            tasks.spawn(async move {
+                let rolling = RollingFileWriterBuilder::new(
+                    parquet,
+                    target_file_size_bytes,
+                    file_io,
+                    location,
+                    names,
+                );
+                let mut writer = DataFileWriterBuilder::new(rolling).build(None).await?;
+                for batch in shard {
+                    writer
+                        .write(with_schema(&batch, Arc::clone(&arrow_schema))?)
+                        .await?;
+                }
+                Ok::<_, anyhow::Error>(writer.close().await?)
+            });
         }
-        let files = writer.close().await?;
+        let mut files = Vec::new();
+        while let Some(result) = tasks.join_next().await {
+            files.extend(result.context("Iceberg file writer task failed")??);
+        }
         let transaction = Transaction::new(&table);
         let mut append = transaction.fast_append().add_data_files(files);
         if let Some(commit) = &commit {
@@ -470,7 +492,7 @@ impl Sink for IcebergSink {
                 }
                 if !delivery_group_ready(
                     pending_bytes,
-                    self.config.target_file_size_bytes,
+                    self.config.commit_target_size_bytes(),
                     input_closed,
                 ) {
                     continue;
@@ -523,6 +545,33 @@ pub(super) const fn delivery_group_ready(
     input_closed: bool,
 ) -> bool {
     input_closed || pending_bytes >= target_bytes
+}
+
+fn parquet_compression(compression: IcebergParquetCompression) -> ParquetCompression {
+    match compression {
+        IcebergParquetCompression::None => ParquetCompression::UNCOMPRESSED,
+        IcebergParquetCompression::Lz4 => ParquetCompression::LZ4_RAW,
+        IcebergParquetCompression::Zstd => ParquetCompression::ZSTD(ZstdLevel::default()),
+    }
+}
+
+fn distribute_batches(
+    batches: Vec<RecordBatch>,
+    concurrency: usize,
+) -> Vec<Vec<RecordBatch>> {
+    let shard_count = concurrency.min(batches.len()).max(1);
+    let mut shards = (0..shard_count).map(|_| Vec::new()).collect::<Vec<_>>();
+    let mut shard_bytes = vec![0_usize; shard_count];
+    for batch in batches {
+        let (index, bytes) = shard_bytes
+            .iter_mut()
+            .enumerate()
+            .min_by_key(|(_, bytes)| **bytes)
+            .expect("at least one Iceberg writer shard");
+        *bytes = bytes.saturating_add(batch.get_array_memory_size());
+        shards[index].push(batch);
+    }
+    shards
 }
 
 pub(super) fn iceberg_schema(schema: &DatasetSchema) -> anyhow::Result<iceberg::spec::Schema> {

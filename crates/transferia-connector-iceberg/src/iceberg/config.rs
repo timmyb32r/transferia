@@ -258,6 +258,33 @@ pub struct IcebergSinkConfig {
     #[serde(default = "default_target_file_size")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub target_file_size_bytes: usize,
+
+    #[serde(default = "default_commit_target_size")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub commit_target_size_bytes: usize,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_compression: IcebergParquetCompression,
+
+    #[serde(default = "default_parquet_row_group_rows")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub parquet_row_group_rows: usize,
+
+    #[serde(default = "default_write_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub write_concurrency: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IcebergParquetCompression {
+    None,
+
+    Lz4,
+
+    #[default]
+    Zstd,
 }
 
 fn default_namespace() -> String {
@@ -266,6 +293,18 @@ fn default_namespace() -> String {
 
 const fn default_target_file_size() -> usize {
     128 * 1024 * 1024
+}
+
+const fn default_commit_target_size() -> usize {
+    512 * 1024 * 1024
+}
+
+const fn default_parquet_row_group_rows() -> usize {
+    250_000
+}
+
+const fn default_write_concurrency() -> usize {
+    8
 }
 
 const fn default_read_batch_rows() -> usize {
@@ -498,8 +537,24 @@ impl IcebergSinkConfig {
             self.target_file_size_bytes > 0,
             "target_file_size_bytes must be positive"
         );
+        anyhow::ensure!(
+            self.commit_target_size_bytes > 0,
+            "commit_target_size_bytes must be positive"
+        );
+        anyhow::ensure!(
+            self.parquet_row_group_rows > 0,
+            "parquet_row_group_rows must be positive"
+        );
+        anyhow::ensure!(
+            self.write_concurrency > 0,
+            "write_concurrency must be positive"
+        );
         validate_required("namespace", &self.namespace)?;
         Ok(())
+    }
+
+    pub(crate) const fn commit_target_size_bytes(&self) -> usize {
+        self.commit_target_size_bytes
     }
 }
 

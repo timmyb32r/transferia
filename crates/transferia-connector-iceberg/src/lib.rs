@@ -40,7 +40,10 @@ pub fn register(
                     "catalog": { "uri": "", "request_timeout_ms": 30000, "warehouse": null, "auth": { "type": "none" } },
                     "storage": { "type": "s3", "bucket": "", "request_timeout_ms": 30000, "region": null, "endpoint": null, "credentials": null, "session_token": null, "path_style_access": false, "allow_anonymous": false },
                     "namespace": "default", "create_if_missing": false,
-                    "target_file_size_bytes": 134_217_728
+                    "target_file_size_bytes": 134_217_728,
+                    "commit_target_size_bytes": 536_870_912,
+                    "parquet_compression": "zstd", "parquet_row_group_rows": 250_000,
+                    "write_concurrency": 8
                 }),
                 |config| Ok(Box::new(IcebergSinkConnector::from_config(config)?)),
             )?
