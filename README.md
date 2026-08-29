@@ -5,15 +5,24 @@ creates one logical pipeline and sink actor per stream partition or batch split,
 share expensive connection pools and upload clients:
 
 ```text
-YDB Topics (YDB or PQv1 driver) / PostgreSQL / YTsaurus -> parser or native Arrow -> middlewares
-                                                                               -> ClickHouse | PostgreSQL | S3 | YTsaurus
+stream: Logbroker (YDB or PQv1) | Kafka
+batch:  PostgreSQL | ClickHouse | S3 | Iceberg | YTsaurus | data generator
+                                    |
+                                    v
+                         parser or native Arrow
+                                    |
+                                    v
+                               middlewares
+                                    |
+                                    v
+Logbroker | Kafka | PostgreSQL | ClickHouse | S3 | Iceberg | YTsaurus | discard
 ```
 
-Source and sink connectors are selected from a small runtime registry; parser
-kinds are validated explicitly. The executable registers `logbroker` (with YDB
-and PQv1 source and sink drivers), finite-snapshot `postgres`, `clickhouse`,
-`s3`, and `ytsaurus` sources; `clickhouse`, `postgres`, `s3`, and `ytsaurus`
-sinks; and the non-durable `discard` sink used by explicit benchmark configurations.
+Source and sink connectors are selected from the runtime registry; parser kinds
+are validated explicitly. Logbroker and Kafka provide streaming sources and
+sinks. PostgreSQL, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
+sources and sinks. The batch-only data generator and non-durable `discard` sink
+are explicit benchmark components.
 
 Source implementations are grouped by delivery mode inside each connector:
 `src_batch` contains finite snapshot readers and `src_stream` contains live
@@ -232,11 +241,13 @@ and `GiB`; durations accept `ms`, `s`, `m`, `h`, and `d`.
 
 ### YTsaurus static tables
 
-YTsaurus source mappings always require both the physical `path` and explicit
-logical dataset `name`; sink
-mappings always require both `dataset` and `path`. The runtime never derives,
-renames, escapes, truncates, or hashes identifiers. Discovery rejects dynamic
-tables, unsupported or drifting schemas, duplicate mappings, column names over
+Each YTsaurus source table requires only its absolute `path`. Its final path
+component is the logical dataset name; paths in one source must therefore have
+unique final components. A sink selects a base directory and creates or checks
+one child table per discovered dataset, using the dataset name unchanged as the
+child path segment. The runtime never escapes, truncates, hashes, or otherwise
+rewrites these names. Discovery rejects dynamic source tables, unsupported or
+drifting schemas, duplicate paths or derived dataset names, column names over
 256 characters, reserved `@` column names, and unsupported Arrow types before
 workers start. Representative configs are
 `config_ytsaurus_source_to_clickhouse.yaml` and `config_ytsaurus_sink.yaml`.
@@ -261,13 +272,22 @@ explicitly non-resumable. Every mode still emits one logical Transferia source
 partition and uses bounded backpressure before the ordinary pipeline memory
 budget.
 
-The YTsaurus sink appends to static tables. `format: arrow` is the default and
-uses Arrow IPC streaming directly; `format: yson` is an explicit alternative
-for benchmarking. `replace_tables: true` is an explicit destructive setup
-choice that removes and recreates mapped tables. With `replace_tables: false`,
-the tables must already exist with exactly the discovered schema. Every runtime
-batch is revalidated, including the 128MiB static-row limit, before any write.
-Completion is at-least-once: an ambiguous append can be replayed and duplicated.
+The YTsaurus sink writes static tables. `format: arrow` is the default and uses
+Arrow IPC streaming directly; `format: yson` is an explicit alternative for
+benchmarking. For a finite single-partition snapshot whose schema has a primary
+key, the default `unique_sorted` semantics require `replace_tables: true`: the
+sink writes an attempt-owned staging table, sorts it server-side by the complete
+primary key into a `unique_keys=true` table, and atomically replaces the
+destination only after the sort succeeds. Duplicate keys fail the sort instead
+of being silently collapsed. `preserve_rows` is the explicit unsorted
+alternative.
+
+For schemas without a primary key, `replace_tables: true` removes and recreates
+the destination tables before writing. With `replace_tables: false`, every table
+must already exist with exactly the discovered schema. Every runtime batch is
+revalidated, including the 128MiB static-row limit, before any write. Unsorted
+append completion is at-least-once: an ambiguous append can be replayed and
+duplicated.
 
 ## Semantics
 
