@@ -115,10 +115,9 @@ vocabulary.
 
 The native YTsaurus source reports the row-stream block envelope observed by
 its in-process pure-Rust RPC client as `network-raw` and the enclosed Arrow IPC
-payload as `network-decoded`. Direct data-node reads report compressed block
-bytes as raw and the decompressed columnar block bytes as decoded. Accounting
-reads existing buffers without copying their contents and never substitutes
-Arrow array memory size for unavailable transport bytes.
+payload as `network-decoded`. Accounting reads existing buffers without copying
+their contents and never substitutes Arrow array memory size for unavailable
+transport bytes.
 
 All native YTsaurus streams prefetch raw blocks through bounded channels so
 counting or consuming one block does not delay the next network read. Arrow IPC

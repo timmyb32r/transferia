@@ -12,9 +12,7 @@ use transferia_connector_support::outbound_http::{
 };
 
 use super::client::quote_identifier;
-use super::config::{
-    ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSinkConfig,
-};
+use super::config::{ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSinkConfig};
 use super::transport::{InsertError, InsertTransport};
 use crate::connectors::address::host_port;
 
@@ -46,8 +44,9 @@ impl HttpInsertTransport {
                 let pem = std::fs::read(path).map_err(|error| {
                     anyhow::anyhow!("cannot read ClickHouse TLS CA bundle {path:?}: {error}")
                 })?;
-                reqwest::Certificate::from_pem_bundle(&pem)
-                    .map_err(|error| anyhow::anyhow!("cannot parse ClickHouse TLS CA bundle: {error}"))?
+                reqwest::Certificate::from_pem_bundle(&pem).map_err(|error| {
+                    anyhow::anyhow!("cannot parse ClickHouse TLS CA bundle: {error}")
+                })?
             }
             None => Vec::new(),
         };
@@ -95,7 +94,7 @@ impl HttpInsertContext {
         let compression = self.compression;
         let row_group_rows = self.parquet_row_group_rows;
         let body = tokio::task::spawn_blocking(move || {
-            encode(format, compression, row_group_rows, batches)
+            encode(format, compression, row_group_rows, &batches)
         })
         .await
         .map_err(|error| {
@@ -111,11 +110,9 @@ impl HttpInsertContext {
         } else {
             "https"
         };
-        let mut url = reqwest::Url::parse(&format!(
-            "{scheme}://{}/",
-            host_port(host, self.http_port)
-        ))
-        .map_err(|error| InsertError::Permanent(error.into()))?;
+        let mut url =
+            reqwest::Url::parse(&format!("{scheme}://{}/", host_port(host, self.http_port)))
+                .map_err(|error| InsertError::Permanent(error.into()))?;
         let columns = schema
             .fields()
             .iter()
@@ -205,16 +202,16 @@ fn encode(
     format: ClickHouseInsertFormat,
     compression: ClickHouseCompression,
     parquet_row_group_rows: usize,
-    batches: Vec<RecordBatch>,
+    batches: &[RecordBatch],
 ) -> anyhow::Result<Vec<u8>> {
     match format {
         ClickHouseInsertFormat::Native => {
             anyhow::bail!("native INSERTs must use the native protocol transport")
         }
         ClickHouseInsertFormat::Parquet => {
-            encode_parquet(compression, parquet_row_group_rows, &batches)
+            encode_parquet(compression, parquet_row_group_rows, batches)
         }
-        ClickHouseInsertFormat::ArrowStream => encode_arrow_stream(compression, &batches),
+        ClickHouseInsertFormat::ArrowStream => encode_arrow_stream(compression, batches),
     }
 }
 
@@ -262,8 +259,7 @@ fn encode_arrow_stream(
         .first()
         .ok_or_else(|| anyhow::anyhow!("empty ArrowStream INSERT batch list"))?
         .schema();
-    let mut writer =
-        StreamWriter::try_new_with_options(&mut output, schema.as_ref(), options)?;
+    let mut writer = StreamWriter::try_new_with_options(&mut output, schema.as_ref(), options)?;
     for batch in batches {
         writer.write(batch)?;
     }

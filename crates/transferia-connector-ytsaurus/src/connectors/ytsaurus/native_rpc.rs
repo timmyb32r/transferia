@@ -403,27 +403,11 @@ struct StreamingParameters {
 pub(super) struct Credentials {
     #[prost(string, optional, tag = "2")]
     pub(super) token: Option<String>,
-
-    #[prost(string, optional, tag = "7")]
-    pub(super) service_ticket: Option<String>,
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum RequestCredentials<'a> {
-    Token(&'a str),
-    ServiceTicket(&'a str),
-}
-
-pub(super) fn credentials(value: RequestCredentials<'_>) -> Credentials {
-    match value {
-        RequestCredentials::Token(token) => Credentials {
-            token: Some(token.to_owned()),
-            service_ticket: None,
-        },
-        RequestCredentials::ServiceTicket(service_ticket) => Credentials {
-            token: None,
-            service_ticket: Some(service_ticket.to_owned()),
-        },
+pub(super) fn credentials(token: &str) -> Credentials {
+    Credentials {
+        token: Some(token.to_owned()),
     }
 }
 
@@ -1286,56 +1270,6 @@ where
     Response::decode(body).map_err(Into::into)
 }
 
-pub(super) struct DataNodeRpcClient {
-    endpoint: String,
-    service_ticket: tokio::sync::watch::Receiver<Arc<str>>,
-    stream: TcpStream,
-}
-
-impl DataNodeRpcClient {
-    pub(super) async fn connect(
-        endpoint: &str,
-        service_ticket: tokio::sync::watch::Receiver<Arc<str>>,
-    ) -> anyhow::Result<Self> {
-        let mut stream = TcpStream::connect(endpoint).await?;
-        stream.set_nodelay(true)?;
-        perform_handshake(&mut stream).await?;
-        Ok(Self {
-            endpoint: endpoint.to_owned(),
-            service_ticket,
-            stream,
-        })
-    }
-
-    pub(super) async fn invoke<Response>(
-        &mut self,
-        method: &'static str,
-        request_body: Bytes,
-    ) -> anyhow::Result<(Response, Vec<Option<Bytes>>)>
-    where
-        Response: prost::Message + Default,
-    {
-        let service_ticket = Arc::clone(&self.service_ticket.borrow());
-        let (body, attachments) = invoke_unary_raw_on_stream(
-            &mut self.stream,
-            RequestCredentials::ServiceTicket(&service_ticket),
-            "DataNodeService",
-            6,
-            method,
-            request_body,
-        )
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "YTsaurus data node {} rejected {}: {error:#}",
-                self.endpoint,
-                method
-            )
-        })?;
-        Ok((Response::decode(body)?, attachments))
-    }
-}
-
 async fn invoke_unary_raw(
     endpoint: &str,
     token: &str,
@@ -1349,7 +1283,7 @@ async fn invoke_unary_raw(
     perform_handshake(&mut stream).await?;
     invoke_unary_raw_on_stream(
         &mut stream,
-        RequestCredentials::Token(token),
+        token,
         service,
         protocol_version,
         method,
@@ -1360,21 +1294,14 @@ async fn invoke_unary_raw(
 
 async fn invoke_unary_raw_on_stream(
     stream: &mut TcpStream,
-    credentials: RequestCredentials<'_>,
+    token: &str,
     service: &'static str,
     protocol_version: i32,
     method: &'static str,
     request_body: Bytes,
 ) -> anyhow::Result<(Bytes, Vec<Option<Bytes>>)> {
     let request_id = Guid::random();
-    let header = request_header(
-        request_id,
-        credentials,
-        service,
-        protocol_version,
-        method,
-        false,
-    );
+    let header = request_header(request_id, token, service, protocol_version, method, false);
     let parts = [Some(proto_part(RPC_REQUEST, &header)?), Some(request_body)];
     write_packet(stream, BUS_MESSAGE, 0, request_id, &parts).await?;
 
@@ -1425,7 +1352,7 @@ async fn invoke_unary_raw_on_stream(
 
 fn request_header(
     request_id: Guid,
-    request_credentials: RequestCredentials<'_>,
+    token: &str,
     service: &'static str,
     protocol_version: i32,
     method: &'static str,
@@ -1445,7 +1372,7 @@ fn request_header(
             read_timeout: Some(RPC_HEAVY_READ_STALL_TIMEOUT_MICROS),
             write_timeout: Some(RPC_HEAVY_READ_STALL_TIMEOUT_MICROS),
         }),
-        credentials: Some(credentials(request_credentials)),
+        credentials: Some(credentials(token)),
     }
 }
 
@@ -1729,14 +1656,7 @@ impl NativeReadStream {
         tracing::debug!(endpoint, method, "YTsaurus native RPC handshake completed");
 
         let request_id = Guid::random();
-        let header = request_header(
-            request_id,
-            RequestCredentials::Token(token),
-            "ApiService",
-            1,
-            method,
-            true,
-        );
+        let header = request_header(request_id, token, "ApiService", 1, method, true);
         let parts = [Some(proto_part(RPC_REQUEST, &header)?), Some(request_body)];
         write_packet(&mut stream, BUS_MESSAGE, 0, request_id, &parts).await?;
         close_request_attachments_stream(&mut stream, request_id, method).await?;

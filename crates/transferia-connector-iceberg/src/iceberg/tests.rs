@@ -58,10 +58,7 @@ fn iceberg_sink_defaults_to_bounded_parallel_zstd_writes() {
         "namespace": "analytics"
     }))
     .expect("valid sink config");
-    assert_eq!(
-        config.parquet_compression,
-        IcebergParquetCompression::Zstd
-    );
+    assert_eq!(config.parquet_compression, IcebergParquetCompression::Zstd);
     assert_eq!(config.parquet_row_group_rows, 250_000);
     assert_eq!(config.write_concurrency, 8);
     assert_eq!(config.commit_target_size_bytes, 512 * 1024 * 1024);

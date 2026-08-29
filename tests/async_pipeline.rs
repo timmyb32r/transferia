@@ -237,6 +237,7 @@ fn sink_config() -> ClickHouseSinkConfig {
     ClickHouseSinkConfig {
         hosts: vec!["fake".into()],
         port: 9000,
+        http_port: 8123,
         trusted_plaintext: true,
         tls_ca_file: None,
         data_host_count: None,
@@ -247,7 +248,10 @@ fn sink_config() -> ClickHouseSinkConfig {
         insert_target_rows: 1,
         insert_target_bytes: usize::MAX,
         insert_concurrency: 1,
+        insert_format: Default::default(),
         compression: Default::default(),
+        format_threads: 8,
+        parquet_row_group_rows: 1_000_000,
         async_insert: false,
         flush_interval_ms: 1,
         retry_initial_ms: 1,

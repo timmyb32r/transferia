@@ -17,9 +17,7 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
-use super::config::{
-    YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat,
-};
+use super::config::{YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat};
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
     validate_column_name, MAX_COLUMNS,
@@ -175,7 +173,11 @@ impl SinkConnector for YTsaurusSinkConnector {
             for dataset in request.datasets {
                 let unique_sorted = self.config.primary_key_semantics
                     == YTsaurusPrimaryKeySemantics::UniqueSorted
-                    && dataset.schema.columns.iter().any(|column| column.primary_key);
+                    && dataset
+                        .schema
+                        .columns
+                        .iter()
+                        .any(|column| column.primary_key);
                 if unique_sorted {
                     sorted_unique_schema_to_yt(&dataset.schema)?;
                     continue;
@@ -272,8 +274,10 @@ impl YTsaurusSink {
     }
 
     fn unique_sorted(&self, table: &str) -> anyhow::Result<bool> {
-        Ok(self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
-            && !self.primary_keys(table)?.is_empty())
+        Ok(
+            self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+                && !self.primary_keys(table)?.is_empty(),
+        )
     }
 
     fn has_unique_sorted_tables(&self) -> bool {
@@ -336,10 +340,7 @@ impl YTsaurusSink {
                 .create_table(&staging, schema_to_yt(&dataset.stored_schema)?)
                 .await?;
             self.client
-                .create_table(
-                    &sorted,
-                    sorted_unique_schema_to_yt(&dataset.stored_schema)?,
-                )
+                .create_table(&sorted, sorted_unique_schema_to_yt(&dataset.stored_schema)?)
                 .await?;
         }
         Ok(())
@@ -449,16 +450,14 @@ impl YTsaurusSink {
                 } else {
                     project_user_columns(&batch.batch, &batch.system_columns)?
                 };
-                let table = if let Some(table) = tables
-                    .iter_mut()
-                    .find(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
-                {
-                    table
-                } else {
-                    tables.push((Arc::clone(&batch.table), Vec::new(), 0, 0));
-                    let index = tables.len() - 1;
-                    &mut tables[index]
-                };
+                let index = tables
+                    .iter()
+                    .position(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
+                    .unwrap_or_else(|| {
+                        tables.push((Arc::clone(&batch.table), Vec::new(), 0, 0));
+                        tables.len() - 1
+                    });
+                let table = &mut tables[index];
                 table.1.push(stored);
                 table.2 = table.2.saturating_add(batch.rows() as u64);
                 table.3 = table.3.saturating_add(batch.bytes() as u64);
@@ -593,7 +592,11 @@ impl Sink for YTsaurusSink {
                         break;
                     };
                     buffered_bytes = buffered_bytes.saturating_add(
-                        delivery.outputs.iter().map(|batch| batch.bytes()).sum::<usize>(),
+                        delivery
+                            .outputs
+                            .iter()
+                            .map(transferia_core::SinkBatch::bytes)
+                            .sum::<usize>(),
                     );
                     pending.push(delivery);
                     self.counters.set_buffered_bytes(buffered_bytes as u64);
@@ -658,9 +661,8 @@ pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Ve
         fields,
         batch.schema().metadata().clone(),
     ));
-    let mut output = Vec::with_capacity(
-        batches.iter().map(RecordBatch::get_array_memory_size).sum(),
-    );
+    let mut output =
+        Vec::with_capacity(batches.iter().map(RecordBatch::get_array_memory_size).sum());
     {
         let mut writer = StreamWriter::try_new(&mut output, &wire_schema)?;
         for batch in batches {
@@ -679,9 +681,8 @@ pub(super) fn encode_yson(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
 }
 
 pub(super) fn encode_yson_batches(batches: &[RecordBatch]) -> anyhow::Result<Vec<u8>> {
-    let mut output = Vec::with_capacity(
-        batches.iter().map(RecordBatch::get_array_memory_size).sum(),
-    );
+    let mut output =
+        Vec::with_capacity(batches.iter().map(RecordBatch::get_array_memory_size).sum());
     for batch in batches {
         append_yson(&mut output, batch)?;
     }

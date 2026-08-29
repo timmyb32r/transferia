@@ -3205,7 +3205,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 100000,
+              "default": 1000000,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -3214,7 +3214,7 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 67108864,
+              "default": 671088640,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -3224,14 +3224,41 @@
               "type": "integer",
               "format": "uint",
               "minimum": 0,
-              "default": 1,
+              "default": 32,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "insert_format": {
+              "description": "Wire format used for INSERT payloads. Parquet and `ArrowStream` use the\n`ClickHouse` HTTP endpoint and are stable, self-describing interchange\nformats; Native uses the `ClickHouse` native TCP protocol.",
+              "$ref": "#/$defs/ClickHouseInsertFormat",
               "x-ui": {
                 "widget": "hidden"
               }
             },
             "compression": {
-              "description": "Native-protocol compression. LZ4 is the default low-CPU mode; ZSTD can\nimprove a network-bound delivery and `none` avoids compression work on\na sufficiently fast trusted network.",
+              "description": "Native-protocol compression. ZSTD is the measured throughput default;\nLZ4 trades throughput for less compression work, while `none` is useful\nonly for an explicitly measured transport that is not network-bound.",
               "$ref": "#/$defs/ClickHouseCompression",
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "format_threads": {
+              "description": "Number of `ClickHouse` threads available to decode one HTTP format body.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 8,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_row_group_rows": {
+              "description": "Maximum rows in a Parquet row group produced for one HTTP INSERT.",
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 1000000,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -3309,6 +3336,14 @@
             "installation"
           ],
           "$defs": {
+            "ClickHouseInsertFormat": {
+              "type": "string",
+              "enum": [
+                "native",
+                "parquet",
+                "arrow_stream"
+              ]
+            },
             "ClickHouseCompression": {
               "type": "string",
               "enum": [
@@ -3321,16 +3356,21 @@
         },
         "initial": {
           "request_timeout_ms": 30000,
-          "connect_timeout_ms": 30000,
           "retry_max_ms": 30000,
+          "connect_timeout_ms": 30000,
+          "retry_initial_ms": 50,
           "database": "",
           "username": "",
           "password": "",
           "shard_group": "",
-          "insert_target_rows": 100000,
-          "insert_target_bytes": 67108864,
+          "insert_target_rows": 1000000,
+          "insert_target_bytes": 671088640,
+          "insert_concurrency": 32,
+          "insert_format": "native",
+          "compression": "zstd",
+          "format_threads": 8,
+          "parquet_row_group_rows": 1000000,
           "flush_interval_ms": 100,
-          "retry_initial_ms": 50,
           "installation": {
             "hosts": [
               ""
@@ -4677,6 +4717,51 @@
               "x-ui": {
                 "widget": "hidden"
               }
+            },
+            "read_data_file_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 32,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "read_manifest_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 32,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_metadata_size_hint_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 524288,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_range_coalesce_bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 1048576,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_range_fetch_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 10,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -5237,6 +5322,40 @@
               "x-ui": {
                 "widget": "hidden"
               }
+            },
+            "commit_target_size_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 536870912,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_compression": {
+              "$ref": "#/$defs/IcebergParquetCompression",
+              "default": "zstd",
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "parquet_row_group_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 250000,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "write_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 8,
+              "x-ui": {
+                "widget": "hidden"
+              }
             }
           },
           "additionalProperties": false,
@@ -5545,6 +5664,14 @@
                 "access_key",
                 "secret_key"
               ]
+            },
+            "IcebergParquetCompression": {
+              "type": "string",
+              "enum": [
+                "none",
+                "lz4",
+                "zstd"
+              ]
             }
           }
         },
@@ -5557,9 +5684,13 @@
               "type": "none"
             }
           },
-          "target_file_size_bytes": 134217728,
+          "write_concurrency": 8,
           "namespace": "default",
           "create_if_missing": false,
+          "target_file_size_bytes": 134217728,
+          "commit_target_size_bytes": 536870912,
+          "parquet_compression": "zstd",
+          "parquet_row_group_rows": 250000,
           "installation": {
             "type": "on_premise",
             "storage": {
@@ -5668,18 +5799,6 @@
               },
               "x-ui": {
                 "section": "advanced"
-              }
-            },
-            "native_rpc_service_ticket_file": {
-              "title": "Native RPC service ticket file",
-              "description": "Path to a rotating TVM service-ticket file used only for direct data-node RPC. The file is reloaded while the delivery is running. The ticket's source TVM ID must be accepted by the YTsaurus cluster; successful ticket issuance alone does not grant data-node access.",
-              "type": [
-                "string",
-                "null"
-              ],
-              "default": null,
-              "x-ui": {
-                "widget": "hidden"
               }
             },
             "table_reader": {
@@ -5879,26 +5998,6 @@
                     },
                     "concurrency": {
                       "title": "Concurrent partition readers",
-                      "type": "integer",
-                      "format": "uint",
-                      "minimum": 0,
-                      "default": 16,
-                      "x-ui": {
-                        "widget": "hidden"
-                      }
-                    },
-                    "direct_data_node_access": {
-                      "title": "Direct access to data nodes",
-                      "description": "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy.",
-                      "type": "boolean",
-                      "default": false,
-                      "x-ui": {
-                        "widget": "hidden"
-                      }
-                    },
-                    "direct_blocks_per_request": {
-                      "title": "Direct blocks per request",
-                      "description": "Number of chunk blocks fetched in one data-node RPC when direct access is enabled",
                       "type": "integer",
                       "format": "uint",
                       "minimum": 0,
@@ -6138,7 +6237,6 @@
           "read_ordering": {
             "type": "ordered"
           },
-          "native_rpc_service_ticket_file": null,
           "table_reader": {},
           "batch_rows": 65536,
           "stream_retry_max_attempts": 12,
@@ -6221,6 +6319,14 @@
                 "reveal_rest_on_selection": true
               }
             },
+            "primary_key_semantics": {
+              "title": "Primary key semantics",
+              "description": "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
+              "$ref": "#/$defs/YTsaurusPrimaryKeySemantics",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
             "auth": {
               "$ref": "#/$defs/YTsaurusAuthConfig",
               "x-ui": {
@@ -6232,6 +6338,64 @@
               "format": "uint64",
               "minimum": 0,
               "default": 30000,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "write_target_bytes": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 536870912,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "write_concurrency": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 4,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "write_flush_interval_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 1000,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "write_row_buffer_bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 1048576,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "table_writer": {
+              "$ref": "#/$defs/YTsaurusTableWriterConfig",
+              "default": {
+                "block_size": 16777216,
+                "max_buffer_size": 16777216,
+                "writer_window_size": 67108864,
+                "writer_group_size": 16777216,
+                "desired_chunk_size": 2147483648
+              },
+              "x-ui": {
+                "widget": "hidden"
+              }
+            },
+            "primary_key_sort_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 86400000,
               "x-ui": {
                 "widget": "hidden"
               }
@@ -6317,6 +6481,20 @@
                 "yson"
               ]
             },
+            "YTsaurusPrimaryKeySemantics": {
+              "oneOf": [
+                {
+                  "title": "One row per primary key (sorted)",
+                  "type": "string",
+                  "const": "unique_sorted"
+                },
+                {
+                  "title": "Preserve every row (unsorted)",
+                  "type": "string",
+                  "const": "preserve_rows"
+                }
+              ]
+            },
             "YTsaurusAuthConfig": {
               "oneOf": [
                 {
@@ -6359,6 +6537,42 @@
                   ]
                 }
               ]
+            },
+            "YTsaurusTableWriterConfig": {
+              "type": "object",
+              "properties": {
+                "block_size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 16777216
+                },
+                "max_buffer_size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 16777216
+                },
+                "writer_window_size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 67108864
+                },
+                "writer_group_size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 16777216
+                },
+                "desired_chunk_size": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 2147483648
+                }
+              },
+              "additionalProperties": false
             }
           }
         },

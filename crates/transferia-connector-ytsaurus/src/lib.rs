@@ -34,7 +34,6 @@ pub fn register(
                         "timeout_ms": 30000,
                         "tables": [{ "path": "" }],
                         "read_ordering": { "type": "ordered" },
-                        "native_rpc_service_ticket_file": null,
                         "table_reader": {},
                         "batch_rows": 65536,
                         "stream_retry_max_attempts": 12,

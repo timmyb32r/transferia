@@ -302,10 +302,8 @@ impl IcebergSink {
             .set_compression(parquet_compression(self.config.parquet_compression))
             .set_max_row_group_size(self.config.parquet_row_group_rows)
             .build();
-        let parquet = ParquetWriterBuilder::new(
-            properties,
-            table.metadata().current_schema().clone(),
-        );
+        let parquet =
+            ParquetWriterBuilder::new(properties, table.metadata().current_schema().clone());
         let shards = distribute_batches(batches, self.config.write_concurrency);
         let mut tasks = tokio::task::JoinSet::new();
         for shard in shards {
@@ -555,19 +553,18 @@ fn parquet_compression(compression: IcebergParquetCompression) -> ParquetCompres
     }
 }
 
-fn distribute_batches(
-    batches: Vec<RecordBatch>,
-    concurrency: usize,
-) -> Vec<Vec<RecordBatch>> {
+fn distribute_batches(batches: Vec<RecordBatch>, concurrency: usize) -> Vec<Vec<RecordBatch>> {
     let shard_count = concurrency.min(batches.len()).max(1);
     let mut shards = (0..shard_count).map(|_| Vec::new()).collect::<Vec<_>>();
     let mut shard_bytes = vec![0_usize; shard_count];
     for batch in batches {
-        let (index, bytes) = shard_bytes
+        let Some((index, bytes)) = shard_bytes
             .iter_mut()
             .enumerate()
             .min_by_key(|(_, bytes)| **bytes)
-            .expect("at least one Iceberg writer shard");
+        else {
+            return shards;
+        };
         *bytes = bytes.saturating_add(batch.get_array_memory_size());
         shards[index].push(batch);
     }

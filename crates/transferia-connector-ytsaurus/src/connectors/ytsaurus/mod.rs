@@ -1,7 +1,5 @@
 mod client;
-mod columnar_chunk;
 mod config;
-mod direct_data_node;
 mod discard;
 mod native_rpc;
 mod schema;

@@ -23,7 +23,6 @@ const DEFAULT_STREAM_IDLE_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_PARTITION_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_PARTITION_COUNT: usize = 64;
 const DEFAULT_PARTITION_CONCURRENCY: usize = 16;
-const DEFAULT_DIRECT_BLOCKS_PER_REQUEST: usize = 16;
 const DEFAULT_WRITE_TARGET_BYTES: usize = 512 * 1024 * 1024;
 const DEFAULT_WRITE_CONCURRENCY: usize = 4;
 const DEFAULT_WRITE_FLUSH_INTERVAL_MS: u64 = 1_000;
@@ -169,14 +168,6 @@ pub struct YTsaurusSourceConfig {
 
     #[serde(default)]
     #[schemars(
-        title = "Native RPC service ticket file",
-        description = "Path to a rotating TVM service-ticket file used only for direct data-node RPC. The file is reloaded while the delivery is running. The ticket's source TVM ID must be accepted by the YTsaurus cluster; successful ticket issuance alone does not grant data-node access.",
-        extend("x-ui" = { "widget": "hidden" })
-    )]
-    pub native_rpc_service_ticket_file: Option<String>,
-
-    #[serde(default)]
-    #[schemars(
         title = "Native reader settings",
         extend("x-ui" = { "widget": "hidden" })
     )]
@@ -246,22 +237,6 @@ pub enum YTsaurusReadOrdering {
             extend("x-ui" = { "widget": "hidden" })
         )]
         concurrency: usize,
-
-        #[serde(default)]
-        #[schemars(
-            title = "Direct access to data nodes",
-            description = "Fetch partition chunk blocks directly from YTsaurus data nodes. This bypasses shared data proxies, is non-resumable, and fails closed instead of falling back through a proxy.",
-            extend("x-ui" = { "widget": "hidden" })
-        )]
-        direct_data_node_access: bool,
-
-        #[serde(default = "default_direct_blocks_per_request")]
-        #[schemars(
-            title = "Direct blocks per request",
-            description = "Number of chunk blocks fetched in one data-node RPC when direct access is enabled",
-            extend("x-ui" = { "widget": "hidden" })
-        )]
-        direct_blocks_per_request: usize,
     },
 }
 
@@ -278,14 +253,10 @@ impl YTsaurusReadOrdering {
                 compressed_data_size_per_partition,
                 max_partition_count,
                 concurrency,
-                direct_data_node_access,
-                direct_blocks_per_request,
             } => Some(YTsaurusPartitionTablesConfig {
                 compressed_data_size_per_partition: *compressed_data_size_per_partition,
                 max_partition_count: *max_partition_count,
                 concurrency: *concurrency,
-                direct_data_node_access: *direct_data_node_access,
-                direct_blocks_per_request: *direct_blocks_per_request,
             }),
             Self::Ordered | Self::Unordered => None,
         }
@@ -299,10 +270,6 @@ pub(super) struct YTsaurusPartitionTablesConfig {
     pub max_partition_count: usize,
 
     pub concurrency: usize,
-
-    pub direct_data_node_access: bool,
-
-    pub direct_blocks_per_request: usize,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -625,21 +592,6 @@ impl YTsaurusSourceConfig {
                 partition_tables.concurrency <= partition_tables.max_partition_count,
                 "ytsaurus.read_ordering.concurrency must not exceed max_partition_count"
             );
-            anyhow::ensure!(
-                partition_tables.direct_blocks_per_request > 0,
-                "ytsaurus.read_ordering.direct_blocks_per_request must be positive"
-            );
-            if partition_tables.direct_data_node_access {
-                let service_ticket_file = self
-                    .native_rpc_service_ticket_file
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|path| !path.is_empty());
-                anyhow::ensure!(
-                    service_ticket_file.is_some(),
-                    "ytsaurus.native_rpc_service_ticket_file is required for direct data-node access"
-                );
-            }
         }
         self.table_reader.validate()?;
         let mut paths = HashSet::new();
@@ -691,10 +643,6 @@ const fn default_partition_count() -> usize {
 
 const fn default_partition_concurrency() -> usize {
     DEFAULT_PARTITION_CONCURRENCY
-}
-
-const fn default_direct_blocks_per_request() -> usize {
-    DEFAULT_DIRECT_BLOCKS_PER_REQUEST
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -768,6 +716,10 @@ pub struct YTsaurusSinkConfig {
 
 #[derive(Clone, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_field_names,
+    reason = "these public field names mirror the corresponding YTsaurus writer settings"
+)]
 pub struct YTsaurusTableWriterConfig {
     #[serde(default = "default_table_writer_block_bytes")]
     pub block_size: u64,

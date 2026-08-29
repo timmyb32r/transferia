@@ -121,9 +121,7 @@ impl YTsaurusClient {
         let mut segments = url
             .path_segments_mut()
             .map_err(|()| anyhow::anyhow!("YTsaurus endpoint cannot be a base URL"))?;
-        segments
-            .pop_if_empty()
-            .extend(["api", version, command]);
+        segments.pop_if_empty().extend(["api", version, command]);
         drop(segments);
         let request = self.client.request(method, url);
         Ok(request.configure(|request| {
@@ -543,7 +541,11 @@ impl YTsaurusClient {
         Ok(())
     }
 
-    pub async fn move_table(&self, source_path: &str, destination_path: &str) -> anyhow::Result<()> {
+    pub async fn move_table(
+        &self,
+        source_path: &str,
+        destination_path: &str,
+    ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "source_path": source_path,
             "destination_path": destination_path,
@@ -601,7 +603,9 @@ impl YTsaurusClient {
             .await?
             .get("operation_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("YTsaurus start_operation response has no operation_id"))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("YTsaurus start_operation response has no operation_id")
+            })?
             .to_owned();
         let deadline = Instant::now() + timeout;
         loop {
@@ -659,6 +663,8 @@ impl YTsaurusClient {
 }
 
 pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+
     let json = serde_json::to_string(value)?;
     let mut header = String::with_capacity(json.len());
     for character in json.chars() {
@@ -668,14 +674,12 @@ pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {
         }
         let codepoint = character as u32;
         if codepoint <= 0xffff {
-            use std::fmt::Write as _;
             write!(header, "\\u{codepoint:04x}")?;
             continue;
         }
         let adjusted = codepoint - 0x1_0000;
         let high = 0xd800 + (adjusted >> 10);
         let low = 0xdc00 + (adjusted & 0x3ff);
-        use std::fmt::Write as _;
         write!(header, "\\u{high:04x}\\u{low:04x}")?;
     }
     Ok(header)
@@ -703,6 +707,8 @@ pub(super) fn yson_header_value(value: &Value) -> anyhow::Result<String> {
                     .get("$attributes")
                     .and_then(Value::as_object)
                     .ok_or_else(|| anyhow::anyhow!("YSON $attributes must be an object"))?;
+                let mut attributes = attributes.iter().collect::<Vec<_>>();
+                attributes.sort_unstable_by_key(|(key, _)| key.as_str());
                 output.push('<');
                 for (key, value) in attributes {
                     output.push_str(&serde_json::to_string(key)?);
@@ -719,8 +725,10 @@ pub(super) fn yson_header_value(value: &Value) -> anyhow::Result<String> {
                 )?;
             }
             Value::Object(object) => {
+                let mut entries = object.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by_key(|(key, _)| key.as_str());
                 output.push('{');
-                for (key, value) in object {
+                for (key, value) in entries {
                     output.push_str(&serde_json::to_string(key)?);
                     output.push('=');
                     write_value(output, value)?;

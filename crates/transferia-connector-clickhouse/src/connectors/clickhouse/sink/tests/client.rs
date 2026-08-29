@@ -7,9 +7,7 @@ use tokio::sync::Notify;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use crate::connectors::clickhouse::sink::config::{
-    ClickHouseCompression, ClickHouseInsertFormat,
-};
+use crate::connectors::clickhouse::sink::config::{ClickHouseCompression, ClickHouseInsertFormat};
 
 use super::*;
 

@@ -18,13 +18,9 @@ use futures_util::future::BoxFuture;
 use futures_util::{Stream, StreamExt as _};
 
 use super::client::{classify_http_failure, YTsaurusClient};
-use super::columnar_chunk::validate_direct_schema;
 use super::config::{
     SourceTableConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusBenchmarkTransport,
     YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSourceConfig,
-};
-use super::direct_data_node::{
-    DirectReadBlock, DirectReadPayload, NativeDirectPartitionedReadStream,
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
@@ -56,7 +52,6 @@ enum YTsaurusReadStream {
     Http(ResponseStream),
     Native(NativePipelinedReadStream),
     Partitioned(NativePartitionedReadStream),
-    DirectPartitioned(NativeDirectPartitionedReadStream),
 }
 
 impl YTsaurusReadStream {
@@ -90,31 +85,7 @@ impl YTsaurusReadStream {
                 .await
                 .map(|block| block.map(native_block_to_chunk))
                 .map_err(DataPlaneFailure::retryable),
-            Self::DirectPartitioned(stream) => stream
-                .next_block()
-                .await
-                .map(|block| block.map(direct_block_to_chunk))
-                .map_err(DataPlaneFailure::fatal),
         }
-    }
-}
-
-pub(super) fn direct_block_to_chunk(block: DirectReadBlock) -> ReadChunk {
-    ReadChunk {
-        network_raw_bytes: block.network_raw_bytes,
-        network_decoded_bytes: block.network_decoded_bytes,
-        network_decode_duration: block.network_decode_duration,
-        payload: match block.payload {
-            DirectReadPayload::Count => ReadChunkPayload::YtWire {
-                bytes: Bytes::new(),
-                name_table_entries: Vec::new(),
-            },
-            DirectReadPayload::End => ReadChunkPayload::DirectEnd,
-            DirectReadPayload::RecordBatch(batch) => ReadChunkPayload::RecordBatch(batch),
-        },
-        stream_id: Some(block.stream_id),
-        end_of_stream: block.end_of_stream,
-        cumulative_rows: block.cumulative_rows,
     }
 }
 
@@ -152,8 +123,6 @@ pub(super) struct ReadChunk {
 
 enum ReadChunkPayload {
     Bytes(Bytes),
-    DirectEnd,
-    RecordBatch(RecordBatch),
     RecordBatches(Vec<RecordBatch>),
     YtWire {
         bytes: Bytes,
@@ -286,11 +255,6 @@ impl YTsaurusSourceConnector {
     async fn discover_tables(&self) -> anyhow::Result<Arc<Vec<DiscoveredTable>>> {
         self.discovered
             .get_or_try_init(|| async {
-                let direct_data_node_access = self
-                    .config
-                    .read_ordering
-                    .partition_tables()
-                    .is_some_and(|partition| partition.direct_data_node_access);
                 let mut tables = Vec::with_capacity(self.config.tables.len());
                 for table in &self.config.tables {
                     let dataset_name = Arc::from(table.dataset_name()?);
@@ -387,16 +351,6 @@ impl YTsaurusSourceConnector {
                             .get_json(&super::attribute_path(&table.path, "schema"))
                             .await?,
                     )?;
-                    if direct_data_node_access {
-                        anyhow::ensure!(
-                            physical_layout.all_columnar(),
-                            "direct YTsaurus data-node delivery requires every physical chunk in '{}' to be table_unversioned_columnar",
-                            table.path,
-                        );
-                        if self.config.benchmark_discard.is_none() {
-                            validate_direct_schema(&schema)?;
-                        }
-                    }
                     tables.push(DiscoveredTable {
                         config: table.clone(),
                         dataset_name,
@@ -567,7 +521,6 @@ impl SourceConnector for YTsaurusSourceConnector {
                 None
             };
             let native_token = uses_native_rpc.then(|| self.client.token().to_owned());
-            let native_service_ticket_file = self.config.native_rpc_service_ticket_file.clone();
             let dataset_name = Arc::clone(&table.dataset_name);
             let expected_arrow_schema = dataset_arrow_schema(&table.schema);
             let (source_has_system_columns, system_columns) = system_column_layout(&table.schema)?;
@@ -584,7 +537,6 @@ impl SourceConnector for YTsaurusSourceConnector {
                         &self.config.table_reader,
                         rpc_endpoints.as_deref(),
                         native_token.as_deref(),
-                        native_service_ticket_file.as_deref(),
                         0,
                     ),
                 ) => stream
@@ -613,7 +565,6 @@ impl SourceConnector for YTsaurusSourceConnector {
                 table_reader: self.config.table_reader.clone(),
                 rpc_endpoints,
                 native_token,
-                native_service_ticket_file,
                 memory,
                 queued: VecDeque::new(),
                 queued_discard_rows: 0,
@@ -659,7 +610,6 @@ struct YTsaurusSource {
     table_reader: super::config::YTsaurusTableReaderConfig,
     rpc_endpoints: Option<Vec<String>>,
     native_token: Option<String>,
-    native_service_ticket_file: Option<String>,
     memory: PipelineMemory,
     queued: VecDeque<RecordBatch>,
     queued_discard_rows: u64,
@@ -785,7 +735,6 @@ async fn open_read_stream(
     table_reader: &super::config::YTsaurusTableReaderConfig,
     rpc_endpoints: Option<&[String]>,
     native_token: Option<&str>,
-    native_service_ticket_file: Option<&str>,
     start_row_index: i64,
 ) -> Result<YTsaurusReadStream, DataPlaneFailure> {
     let native_benchmark = benchmark_discard
@@ -821,28 +770,6 @@ async fn open_read_stream(
                 return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                     "YTsaurus PartitionTables streams cannot resume from row {start_row_index}"
                 )));
-            }
-            if partition_config.direct_data_node_access {
-                if benchmark_discard.is_none() && !table.physical_layout.all_columnar() {
-                    return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
-                        "direct YTsaurus data-node delivery requires every physical chunk to be table_unversioned_columnar"
-                    )));
-                }
-                return NativeDirectPartitionedReadStream::open(
-                    endpoints,
-                    token,
-                    &table.config.path,
-                    partition_config,
-                    native_service_ticket_file.ok_or_else(|| {
-                        DataPlaneFailure::fatal(anyhow::anyhow!(
-                            "native YTsaurus direct data-node reader requires a service-ticket file"
-                        ))
-                    })?,
-                    benchmark_discard.is_none().then(|| table.schema.clone()),
-                )
-                .await
-                .map(YTsaurusReadStream::DirectPartitioned)
-                .map_err(DataPlaneFailure::fatal);
             }
             return NativePartitionedReadStream::open(
                 endpoints,
@@ -1076,10 +1003,6 @@ impl YTsaurusSource {
             return Ok(());
         }
         match payload {
-            ReadChunkPayload::DirectEnd => {}
-            ReadChunkPayload::RecordBatch(_) => {
-                anyhow::bail!("YTsaurus partition ended with an unexpected data batch")
-            }
             ReadChunkPayload::RecordBatches(batches) => {
                 anyhow::ensure!(
                     batches.is_empty(),
@@ -1219,7 +1142,6 @@ impl YTsaurusSource {
                     &self.table_reader,
                     self.rpc_endpoints.as_deref(),
                     self.native_token.as_deref(),
-                    self.native_service_ticket_file.as_deref(),
                     if self.benchmark_discard.is_some() {
                         self.table_offset
                     } else {
@@ -1299,11 +1221,9 @@ impl Source for YTsaurusSource {
                         }
                         if self.benchmark_discard.is_some() {
                             match chunk.payload {
-                                ReadChunkPayload::DirectEnd => {}
-                                ReadChunkPayload::RecordBatch(_)
-                                | ReadChunkPayload::RecordBatches(_) => {
+                                ReadChunkPayload::RecordBatches(_) => {
                                     return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
-                                        "direct YTsaurus data-node reader returned Arrow data in benchmark discard mode"
+                                        "YTsaurus reader returned decoded Arrow data in benchmark discard mode"
                                     )));
                                 }
                                 ReadChunkPayload::Bytes(bytes) => self
@@ -1323,13 +1243,6 @@ impl Source for YTsaurusSource {
                             }
                         } else {
                             match chunk.payload {
-                                ReadChunkPayload::DirectEnd => {}
-                                ReadChunkPayload::RecordBatch(batch) => {
-                                    let started = Instant::now();
-                                    self.queue_validated(batch)
-                                        .map_err(DataPlaneFailure::fatal)?;
-                                    self.counters.add_network_decode_busy(started.elapsed());
-                                }
                                 ReadChunkPayload::RecordBatches(batches) => {
                                     for batch in batches {
                                         self.queue_validated(batch)

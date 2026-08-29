@@ -20,18 +20,14 @@ use super::client::{
     json_header_value, resolved_link_suggestion, rich_read_path, suggestion_directory,
     table_path_suggestions, yson_header_value, ListedNode,
 };
-use super::columnar_chunk::validate_direct_schema;
 use super::config::{
     YTsaurusPrimaryKeySemantics, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
     YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
-use super::direct_data_node::{
-    signature_payload, validate_row_only_limit, DirectReadBlock, DirectReadPayload, ReadLimit,
-};
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
     checksum_matches, crc64, credentials, receive_read_worker_item, rowset_payload,
-    NativeReadFormat, RequestCredentials,
+    NativeReadFormat,
 };
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
@@ -39,8 +35,8 @@ use super::sink::{
     yt_guid,
 };
 use super::src_batch::{
-    dataset_arrow_schema, direct_block_to_chunk, normalize_read_batch, performance_advice,
-    system_column_layout, DiscoveredTable, PhysicalChunkLayout,
+    dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
+    DiscoveredTable, PhysicalChunkLayout,
 };
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::delivery::{
@@ -105,8 +101,8 @@ fn yson_header_preserves_schema_attributes() {
 fn mutation_ids_use_ytsaurus_guid_text_order() {
     assert_eq!(
         yt_guid([
-            0x01, 0x02, 0x03, 0x04, 0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0x31,
-            0x32, 0x33, 0x34,
+            0x01, 0x02, 0x03, 0x04, 0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0x31, 0x32,
+            0x33, 0x34,
         ]),
         "34333231-24232221-14131211-4030201"
     );
@@ -158,16 +154,6 @@ fn reference_yt_crc64(bytes: &[u8]) -> u64 {
     remainder
 }
 
-#[test]
-fn partition_cookie_extracts_a_binary_yson_payload() -> anyhow::Result<()> {
-    // Binary YSON strings contain exactly one zig-zag encoded length after the
-    // string marker. The signed PartitionTables cookie stores its protobuf in
-    // a `payload` string inside such a map.
-    let cookie = b"{\x01\x0epayload=\x01\x06abc;}";
-    assert_eq!(signature_payload(cookie)?, Bytes::from_static(b"abc"));
-    Ok(())
-}
-
 #[tokio::test]
 async fn partition_worker_failure_cannot_be_mistaken_for_clean_eof() {
     let (_sender, mut receiver) = mpsc::channel::<anyhow::Result<()>>(1);
@@ -183,65 +169,6 @@ async fn partition_worker_failure_cannot_be_mistaken_for_clean_eof() {
     .expect_err("a panicked worker must fail the source");
 
     assert!(error.to_string().contains("test reader worker failed"));
-}
-
-#[test]
-fn direct_reader_rejects_non_row_partition_boundaries() {
-    let row_limit = ReadLimit {
-        row_index: Some(42),
-        ..ReadLimit::default()
-    };
-    validate_row_only_limit(Some(&row_limit), "lower")
-        .expect("a row-index limit must be supported");
-
-    let key_limit = ReadLimit {
-        key_bound_prefix: Some(vec![1, 2, 3]),
-        key_bound_is_inclusive: Some(true),
-        ..ReadLimit::default()
-    };
-    let error = validate_row_only_limit(Some(&key_limit), "upper")
-        .expect_err("a key boundary must not be silently ignored");
-    assert!(error.to_string().contains("key_bound_prefix"));
-    assert!(error.to_string().contains("sorted-table boundary"));
-}
-
-#[test]
-fn direct_reader_preserves_worker_decode_time_for_source_metrics() {
-    let decode_duration = Duration::from_millis(17);
-    let chunk = direct_block_to_chunk(DirectReadBlock {
-        network_raw_bytes: 42,
-        network_decoded_bytes: 84,
-        network_decode_duration: decode_duration,
-        payload: DirectReadPayload::Count,
-        stream_id: 3,
-        end_of_stream: false,
-        cumulative_rows: Some(19),
-    });
-
-    assert_eq!(chunk.network_raw_bytes, 42);
-    assert_eq!(chunk.network_decoded_bytes, 84);
-    assert_eq!(chunk.network_decode_duration, decode_duration);
-    assert_eq!(chunk.cumulative_rows, Some(19));
-}
-
-#[test]
-fn direct_reader_rejects_unsupported_types_before_opening_data_nodes() {
-    let supported = DatasetSchema::new(vec![SchemaColumn::new(
-        "payload".into(),
-        DataType::Utf8,
-        false,
-    )]);
-    validate_direct_schema(&supported).expect("Utf8 must be supported");
-
-    let unsupported = DatasetSchema::new(vec![SchemaColumn::new(
-        "amount".into(),
-        DataType::Decimal128(20, 2),
-        false,
-    )]);
-    let error = validate_direct_schema(&unsupported)
-        .expect_err("unsupported direct-read types must fail during discovery");
-    assert!(error.to_string().contains("amount"));
-    assert!(error.to_string().contains("Decimal128"));
 }
 
 #[test]
@@ -278,11 +205,7 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
         })
         .collect::<Vec<_>>();
     assert_eq!(advanced, ["read_ordering"]);
-    for name in [
-        "trusted_native_rpc_plaintext",
-        "native_rpc_service_ticket_file",
-        "table_reader",
-    ] {
+    for name in ["trusted_native_rpc_plaintext", "table_reader"] {
         assert_eq!(
             properties[name]
                 .pointer("/x-ui/widget")
@@ -291,6 +214,7 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
             "{name} must remain configurable through YAML but hidden from the source form",
         );
     }
+    assert!(!properties.contains_key("native_rpc_service_ticket_file"));
 
     let partition = schema
         .pointer("/$defs/YTsaurusReadOrdering/oneOf/2/properties")
@@ -300,8 +224,6 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
         "compressed_data_size_per_partition",
         "max_partition_count",
         "concurrency",
-        "direct_data_node_access",
-        "direct_blocks_per_request",
     ] {
         assert_eq!(
             partition[name]
@@ -311,6 +233,8 @@ fn source_read_ordering_is_an_advanced_ordered_by_default_choice() {
             "{name} must not expand beneath the read-mode selector",
         );
     }
+    assert!(!partition.contains_key("direct_data_node_access"));
+    assert!(!partition.contains_key("direct_blocks_per_request"));
 }
 
 #[test]
@@ -405,7 +329,10 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     assert_eq!(config.table_writer.max_buffer_size, 16 * 1024 * 1024);
     assert_eq!(config.table_writer.writer_window_size, 64 * 1024 * 1024);
     assert_eq!(config.table_writer.writer_group_size, 16 * 1024 * 1024);
-    assert_eq!(config.table_writer.desired_chunk_size, 2 * 1024 * 1024 * 1024);
+    assert_eq!(
+        config.table_writer.desired_chunk_size,
+        2 * 1024 * 1024 * 1024
+    );
     assert_eq!(config.primary_key_sort_timeout_ms, 24 * 60 * 60 * 1_000);
     config.validate()?;
     config.write_concurrency = 0;
@@ -435,10 +362,9 @@ fn unique_sorted_schema_preserves_primary_key_order_and_rejects_nullable_keys() 
         })
     );
 
-    let nullable = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, true)
-            .with_constraints(true, false, None),
-    ]);
+    let nullable =
+        DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, true)
+            .with_constraints(true, false, None)]);
     assert!(sorted_unique_schema_to_yt(&nullable).is_err());
     Ok(())
 }
@@ -448,10 +374,9 @@ fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
         "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
-    let schema = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false)
-            .with_constraints(true, false, None),
-    ]);
+    let schema =
+        DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None)]);
     let mut discovery = DeliveryDiscovery {
         source_name: Arc::from("test"),
         source_topology: SourceTopology::StaticPartitions(vec![0, 1]),
@@ -506,8 +431,8 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
         b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
     );
     let payload = encode_arrow_batches(&[batch.clone(), batch.clone()])?;
-    let decoded = StreamReader::try_new(Cursor::new(payload), None)?
-        .collect::<Result<Vec<_>, _>>()?;
+    let decoded =
+        StreamReader::try_new(Cursor::new(payload), None)?.collect::<Result<Vec<_>, _>>()?;
     assert_eq!(decoded.len(), 2);
     assert_eq!(decoded.iter().map(RecordBatch::num_rows).sum::<usize>(), 4);
     assert_eq!(
@@ -854,14 +779,6 @@ fn native_read_ordering_defaults_to_resumable_and_accepts_unordered() -> anyhow:
          read_ordering: { type: partition_tables, compressed_data_size_per_partition: 268435456, max_partition_count: 64, concurrency: 16 }\n",
     )?;
     partitioned.validate()?;
-    assert_eq!(
-        partitioned
-            .read_ordering
-            .partition_tables()
-            .expect("PartitionTables settings")
-            .direct_blocks_per_request,
-        16,
-    );
     assert!(matches!(
         partitioned.read_ordering,
         YTsaurusReadOrdering::PartitionTables {
@@ -905,44 +822,9 @@ fn native_rpc_requires_explicit_plaintext_trust() -> anyhow::Result<()> {
 }
 
 #[test]
-fn direct_data_node_access_requires_a_service_ticket_file() -> anyhow::Result<()> {
-    let source = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\n\
-         host: cluster-a.example.net\n\
-         port: 443\n\
-         trusted_plaintext: false\n\
-         trusted_native_rpc_plaintext: true\n\
-         tables: [{ path: //tmp/input }]\n\
-         read_ordering: { type: partition_tables, direct_data_node_access: true }\n",
-    )?;
-    assert_eq!(
-        source.validate().unwrap_err().to_string(),
-        "ytsaurus.native_rpc_service_ticket_file is required for direct data-node access"
-    );
-
-    let configured = serde_yaml::from_str::<YTsaurusSourceConfig>(
-        "auth: { type: token, token: test }\n\
-         host: cluster-a.example.net\n\
-         port: 443\n\
-         trusted_plaintext: false\n\
-         trusted_native_rpc_plaintext: true\n\
-         tables: [{ path: //tmp/input }]\n\
-         native_rpc_service_ticket_file: ~/.tvm/service-ticket\n\
-         read_ordering: { type: partition_tables, direct_data_node_access: true }\n",
-    )?;
-    configured.validate()?;
-    Ok(())
-}
-
-#[test]
-fn native_rpc_sends_only_the_credential_expected_by_each_server() {
-    let proxy = credentials(RequestCredentials::Token("oauth"));
+fn native_rpc_sends_the_oauth_token() {
+    let proxy = credentials("oauth");
     assert_eq!(proxy.token.as_deref(), Some("oauth"));
-    assert_eq!(proxy.service_ticket, None);
-
-    let data_node = credentials(RequestCredentials::ServiceTicket("ticket"));
-    assert_eq!(data_node.token, None);
-    assert_eq!(data_node.service_ticket.as_deref(), Some("ticket"));
 }
 
 #[test]

@@ -142,12 +142,7 @@ fn schema_columns_to_yt(schema: &DatasetSchema, sorted: bool) -> anyhow::Result<
             .iter()
             .copied()
             .filter(|column| column.primary_key)
-            .chain(
-                columns
-                    .iter()
-                    .copied()
-                    .filter(|column| !column.primary_key),
-            )
+            .chain(columns.iter().copied().filter(|column| !column.primary_key))
             .collect::<Vec<_>>()
     } else {
         columns

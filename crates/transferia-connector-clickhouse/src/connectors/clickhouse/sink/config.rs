@@ -89,9 +89,9 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_concurrency: usize,
 
-    /// Wire format used for INSERT payloads. Parquet and ArrowStream use the
-    /// ClickHouse HTTP endpoint and are stable, self-describing interchange
-    /// formats; Native uses the ClickHouse native TCP protocol.
+    /// Wire format used for INSERT payloads. Parquet and `ArrowStream` use the
+    /// `ClickHouse` HTTP endpoint and are stable, self-describing interchange
+    /// formats; Native uses the `ClickHouse` native TCP protocol.
     #[serde(default)]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_format: ClickHouseInsertFormat,
@@ -103,7 +103,7 @@ pub struct ClickHouseSinkConfig {
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub compression: ClickHouseCompression,
 
-    /// Number of ClickHouse threads available to decode one HTTP format body.
+    /// Number of `ClickHouse` threads available to decode one HTTP format body.
     #[serde(default = "default_format_threads")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub format_threads: usize,
