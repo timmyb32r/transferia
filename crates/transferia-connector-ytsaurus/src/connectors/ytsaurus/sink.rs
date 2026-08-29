@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arrow::array::{
     Array, BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
@@ -11,6 +11,8 @@ use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
+use futures_util::stream::{self, StreamExt as _};
+use tokio::sync::mpsc;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{YTsaurusSinkConfig, YTsaurusWriteFormat};
@@ -195,40 +197,143 @@ struct YTsaurusSink {
 }
 
 impl YTsaurusSink {
-    async fn write_delivery(&self, delivery: &Delivery) -> anyhow::Result<()> {
-        for batch in &delivery.outputs {
-            self.limits
-                .validate_batch(&self.discovery, batch)
-                .map_err(DataPlaneFailure::fatal)?;
-        }
-        for batch in &delivery.outputs {
-            if batch.rows() == 0 {
-                continue;
-            }
-            let stored = if self.discovery.keep_system_columns {
-                batch.batch.clone()
-            } else {
-                project_user_columns(&batch.batch, &batch.system_columns)?
-            };
-            let (format, payload) = match self.config.format() {
-                YTsaurusWriteFormat::Arrow => ("arrow", encode_arrow(&stored)?),
-                YTsaurusWriteFormat::Yson => ("yson", encode_yson(&stored)?),
-            };
-            let started = Instant::now();
-            self.client
+    async fn write_table_batches(
+        &self,
+        table: &str,
+        batches: Vec<RecordBatch>,
+    ) -> anyhow::Result<()> {
+        let destination_path = self.config.path_for_dataset(table)?;
+        let concurrency = self.config.write_concurrency.min(batches.len());
+        if concurrency <= 1 {
+            let (format, payload) = encode_batches(self.config.format(), &batches)?;
+            return self
+                .client
                 .write_table(
-                    &self.config.path_for_dataset(&batch.table)?,
+                    &destination_path,
                     format,
                     payload,
+                    self.config.write_row_buffer_bytes,
+                    &self.config.table_writer,
                 )
+                .await;
+        }
+
+        let shard_size = batches.len().div_ceil(concurrency);
+        let shards = batches
+            .chunks(shard_size)
+            .map(<[RecordBatch]>::to_vec)
+            .collect::<Vec<_>>();
+        let session = self
+            .client
+            .start_distributed_write(
+                &destination_path,
+                shards.len(),
+                self.config.connection.timeout_ms,
+            )
+            .await?;
+        let (session, cookies) = session.into_parts();
+        let results = stream::iter(shards.into_iter().zip(cookies))
+            .map(|(shard, cookie)| {
+                let client = self.client.clone();
+                let table_writer = self.config.table_writer.clone();
+                let format = self.config.format();
+                let row_buffer_bytes = self.config.write_row_buffer_bytes;
+                async move {
+                    let (format, payload) = encode_batches(format, &shard)?;
+                    client
+                        .write_table_fragment(
+                            cookie,
+                            format,
+                            payload,
+                            row_buffer_bytes,
+                            &table_writer,
+                        )
+                        .await
+                }
+            })
+            .buffered(concurrency)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        self.client.finish_distributed_write(session, results).await
+    }
+
+    async fn write_deliveries(&self, deliveries: &[Delivery]) -> anyhow::Result<()> {
+        let mut tables = Vec::<(Arc<str>, Vec<RecordBatch>, u64, u64)>::new();
+        for delivery in deliveries {
+            for batch in &delivery.outputs {
+                self.limits
+                    .validate_batch(&self.discovery, batch)
+                    .map_err(DataPlaneFailure::fatal)?;
+                if batch.rows() == 0 {
+                    continue;
+                }
+                let stored = if self.discovery.keep_system_columns {
+                    batch.batch.clone()
+                } else {
+                    project_user_columns(&batch.batch, &batch.system_columns)?
+                };
+                let table = if let Some(table) = tables
+                    .iter_mut()
+                    .find(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
+                {
+                    table
+                } else {
+                    tables.push((Arc::clone(&batch.table), Vec::new(), 0, 0));
+                    let index = tables.len() - 1;
+                    &mut tables[index]
+                };
+                table.1.push(stored);
+                table.2 = table.2.saturating_add(batch.rows() as u64);
+                table.3 = table.3.saturating_add(batch.bytes() as u64);
+            }
+        }
+        for (table, batches, rows, bytes) in tables {
+            let started = Instant::now();
+            self.write_table_batches(&table, batches)
                 .await
                 .map_err(classify_http_failure)?;
             self.counters.add_busy(started.elapsed());
-            self.counters.add_rows(batch.rows() as u64);
-            self.counters.add_bytes(batch.bytes() as u64);
+            self.counters.add_rows(rows);
+            self.counters.add_bytes(bytes);
             self.counters.add_flush();
         }
         Ok(())
+    }
+
+    async fn flush_pending(
+        &self,
+        pending: &mut Vec<Delivery>,
+        events: &mpsc::Sender<SinkEvent>,
+    ) -> anyhow::Result<()> {
+        let Some(last) = pending.last() else {
+            return Ok(());
+        };
+        let id = last.id;
+        let source_messages = pending
+            .iter()
+            .map(|delivery| delivery.meta.source_messages)
+            .sum();
+        self.write_deliveries(pending).await?;
+        self.counters.add_source_messages(source_messages);
+        events
+            .send(SinkEvent::CommittedThrough(id))
+            .await
+            .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+        pending.clear();
+        self.counters.set_buffered_bytes(0);
+        Ok(())
+    }
+}
+
+fn encode_batches(
+    format: YTsaurusWriteFormat,
+    batches: &[RecordBatch],
+) -> anyhow::Result<(&'static str, Vec<u8>)> {
+    match format {
+        YTsaurusWriteFormat::Arrow => Ok(("arrow", encode_arrow_batches(batches)?)),
+        YTsaurusWriteFormat::Yson => Ok(("yson", encode_yson_batches(batches)?)),
     }
 }
 
@@ -239,19 +344,50 @@ impl Sink for YTsaurusSink {
     ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
             let result: anyhow::Result<()> = async {
-                while let Some(delivery) = tokio::select! {
-                    biased;
-                    () = io.cancellation.cancelled() => None,
-                    delivery = io.deliveries.recv() => delivery,
-                } {
-                    let id = delivery.id;
-                    let source_messages = delivery.meta.source_messages;
-                    self.write_delivery(&delivery).await?;
-                    self.counters.add_source_messages(source_messages);
-                    io.events
-                        .send(SinkEvent::CommittedThrough(id))
-                        .await
-                        .map_err(|_| anyhow::anyhow!("YTsaurus sink event receiver closed"))?;
+                let mut pending = Vec::<Delivery>::new();
+                let mut buffered_bytes = 0_usize;
+                loop {
+                    let delivery = if pending.is_empty() {
+                        tokio::select! {
+                            biased;
+                            () = io.cancellation.cancelled() => None,
+                            delivery = io.deliveries.recv() => delivery,
+                        }
+                    } else {
+                        tokio::select! {
+                            biased;
+                            () = io.cancellation.cancelled() => None,
+                            delivery = tokio::time::timeout(
+                                Duration::from_millis(self.config.write_flush_interval_ms),
+                                io.deliveries.recv(),
+                            ) => match delivery {
+                                Ok(delivery) => delivery,
+                                Err(_) => {
+                                    self.flush_pending(&mut pending, &io.events).await?;
+                                    buffered_bytes = 0;
+                                    continue;
+                                }
+                            },
+                        }
+                    };
+                    let Some(delivery) = delivery else {
+                        if io.cancellation.is_cancelled() {
+                            self.counters.set_buffered_bytes(0);
+                            return Ok(());
+                        }
+                        self.flush_pending(&mut pending, &io.events).await?;
+                        break;
+                    };
+                    buffered_bytes = buffered_bytes.saturating_add(
+                        delivery.outputs.iter().map(|batch| batch.bytes()).sum::<usize>(),
+                    );
+                    pending.push(delivery);
+                    self.counters.set_buffered_bytes(buffered_bytes as u64);
+                    if buffered_bytes < self.config.write_target_bytes {
+                        continue;
+                    }
+                    self.flush_pending(&mut pending, &io.events).await?;
+                    buffered_bytes = 0;
                 }
                 Ok(())
             }
@@ -275,7 +411,15 @@ fn project_user_columns(
     Ok(batch.project(&indexes)?)
 }
 
+#[cfg(test)]
 pub(super) fn encode_arrow(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
+    encode_arrow_batches(std::slice::from_ref(batch))
+}
+
+pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Vec<u8>> {
+    let batch = batches
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("cannot encode an empty Arrow batch list"))?;
     // YTsaurus maps the physical Arrow type to its table schema and rejects
     // Arrow extension annotations (for example `arrow.json`) even when their
     // storage type is a supported lossless Utf8 value.  Keep application
@@ -291,35 +435,52 @@ pub(super) fn encode_arrow(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
             field.as_ref().clone().with_metadata(metadata)
         })
         .collect::<Vec<_>>();
-    let wire_batch = RecordBatch::try_new(
-        Arc::new(Schema::new_with_metadata(
-            fields,
-            batch.schema().metadata().clone(),
-        )),
-        batch.columns().to_vec(),
-    )?;
-    let mut output = Vec::with_capacity(batch.get_array_memory_size());
+    let wire_schema = Arc::new(Schema::new_with_metadata(
+        fields,
+        batch.schema().metadata().clone(),
+    ));
+    let mut output = Vec::with_capacity(
+        batches.iter().map(RecordBatch::get_array_memory_size).sum(),
+    );
     {
-        let mut writer = StreamWriter::try_new(&mut output, &wire_batch.schema())?;
-        writer.write(&wire_batch)?;
+        let mut writer = StreamWriter::try_new(&mut output, &wire_schema)?;
+        for batch in batches {
+            let wire_batch =
+                RecordBatch::try_new(Arc::clone(&wire_schema), batch.columns().to_vec())?;
+            writer.write(&wire_batch)?;
+        }
         writer.finish()?;
     }
     Ok(output)
 }
 
+#[cfg(test)]
 pub(super) fn encode_yson(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
-    let mut output = Vec::with_capacity(batch.get_array_memory_size());
+    encode_yson_batches(std::slice::from_ref(batch))
+}
+
+pub(super) fn encode_yson_batches(batches: &[RecordBatch]) -> anyhow::Result<Vec<u8>> {
+    let mut output = Vec::with_capacity(
+        batches.iter().map(RecordBatch::get_array_memory_size).sum(),
+    );
+    for batch in batches {
+        append_yson(&mut output, batch)?;
+    }
+    Ok(output)
+}
+
+fn append_yson(output: &mut Vec<u8>, batch: &RecordBatch) -> anyhow::Result<()> {
     for row in 0..batch.num_rows() {
         output.push(b'{');
         for (field, array) in batch.schema().fields().iter().zip(batch.columns()) {
-            write_yson_string(&mut output, field.name().as_bytes());
+            write_yson_string(output, field.name().as_bytes());
             output.push(b'=');
-            write_yson_value(&mut output, array.as_ref(), row)?;
+            write_yson_value(output, array.as_ref(), row)?;
             output.push(b';');
         }
         output.extend_from_slice(b"};");
     }
-    Ok(output)
+    Ok(())
 }
 
 fn write_yson_string(output: &mut Vec<u8>, value: &[u8]) {

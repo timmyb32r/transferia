@@ -9,7 +9,9 @@ use transferia_connector_support::outbound_http::{
     NetworkPolicy, OutboundHttpClient, OutboundHttpRequest,
 };
 
-use super::config::{YTsaurusConnectionConfig, YTsaurusTableReaderConfig};
+use super::config::{
+    YTsaurusConnectionConfig, YTsaurusTableReaderConfig, YTsaurusTableWriterConfig,
+};
 
 #[derive(Debug)]
 pub struct YTsaurusHttpError {
@@ -36,6 +38,17 @@ pub struct YTsaurusClient {
     client: OutboundHttpClient,
     heavy_endpoints: Arc<OnceCell<Vec<reqwest::Url>>>,
     next_heavy_endpoint: Arc<AtomicUsize>,
+}
+
+pub struct DistributedWriteSession {
+    session: Value,
+    cookies: Vec<Value>,
+}
+
+impl DistributedWriteSession {
+    pub fn into_parts(self) -> (Value, Vec<Value>) {
+        (self.session, self.cookies)
+    }
 }
 
 #[derive(Deserialize)]
@@ -93,11 +106,23 @@ impl YTsaurusClient {
         method: reqwest::Method,
         command: &str,
     ) -> anyhow::Result<OutboundHttpRequest> {
+        self.request_at_version(endpoint, "v3", method, command)
+    }
+
+    fn request_at_version(
+        &self,
+        endpoint: &reqwest::Url,
+        version: &str,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
         let mut url = endpoint.clone();
         let mut segments = url
             .path_segments_mut()
             .map_err(|()| anyhow::anyhow!("YTsaurus endpoint cannot be a base URL"))?;
-        segments.pop_if_empty().extend(["api", "v3", command]);
+        segments
+            .pop_if_empty()
+            .extend(["api", version, command]);
         drop(segments);
         let request = self.client.request(method, url);
         Ok(request.configure(|request| {
@@ -186,6 +211,19 @@ impl YTsaurusClient {
             .await?;
         let index = self.next_heavy_endpoint.fetch_add(1, Ordering::Relaxed) % endpoints.len();
         self.request_at(&endpoints[index], method, command)
+    }
+
+    async fn heavy_request_v4(
+        &self,
+        method: reqwest::Method,
+        command: &str,
+    ) -> anyhow::Result<OutboundHttpRequest> {
+        let endpoints = self
+            .heavy_endpoints
+            .get_or_try_init(|| self.discover_heavy_endpoints())
+            .await?;
+        let index = self.next_heavy_endpoint.fetch_add(1, Ordering::Relaxed) % endpoints.len();
+        self.request_at_version(&endpoints[index], "v4", method, command)
     }
 
     async fn checked(response: reqwest::Response) -> anyhow::Result<reqwest::Response> {
@@ -350,8 +388,14 @@ impl YTsaurusClient {
         path: &str,
         format: &str,
         payload: Vec<u8>,
+        row_buffer_bytes: u64,
+        table_writer: &YTsaurusTableWriterConfig,
     ) -> anyhow::Result<()> {
-        let parameters = serde_json::json!({ "path": format!("<append=%true>{path}") });
+        let parameters = serde_json::json!({
+            "path": format!("<append=%true>{path}"),
+            "max_row_buffer_size": row_buffer_bytes,
+            "table_writer": table_writer,
+        });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
             .heavy_request(reqwest::Method::PUT, "write_table")
@@ -362,6 +406,96 @@ impl YTsaurusClient {
                     .header("X-YT-Input-Format", format!("\"{format}\""))
                     .body(payload)
             })
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        Ok(())
+    }
+
+    pub async fn start_distributed_write(
+        &self,
+        destination_path: &str,
+        cookie_count: usize,
+        session_timeout_ms: u64,
+    ) -> anyhow::Result<DistributedWriteSession> {
+        anyhow::ensure!(
+            cookie_count > 0,
+            "distributed write requires at least one cookie"
+        );
+        let parameters = serde_json::json!({
+            "path": format!("<append=%true>{destination_path}"),
+            "cookie_count": cookie_count,
+            "session_timeout": session_timeout_ms,
+        });
+        let parameters = json_header_value(&parameters)?;
+        let response = self
+            .heavy_request_v4(reqwest::Method::POST, "start_distributed_write_session")
+            .await?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters)
+                    .header(reqwest::header::ACCEPT, "application/json")
+            })
+            .send()
+            .await?;
+        let value = Self::checked(response).await?.json::<Value>().await?;
+        let session = value
+            .get("session")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("distributed write response has no session"))?;
+        let cookies = value
+            .get("cookies")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("distributed write response has no cookies"))?;
+        anyhow::ensure!(
+            cookies.len() == cookie_count,
+            "distributed write returned {} cookies instead of {cookie_count}",
+            cookies.len()
+        );
+        Ok(DistributedWriteSession { session, cookies })
+    }
+
+    pub async fn write_table_fragment(
+        &self,
+        cookie: Value,
+        format: &str,
+        payload: Vec<u8>,
+        row_buffer_bytes: u64,
+        table_writer: &YTsaurusTableWriterConfig,
+    ) -> anyhow::Result<Value> {
+        let parameters = serde_json::json!({
+            "cookie": cookie,
+            "max_row_buffer_size": row_buffer_bytes,
+            "table_writer": table_writer,
+        });
+        let parameters = json_header_value(&parameters)?;
+        let response = self
+            .heavy_request_v4(reqwest::Method::PUT, "write_table_fragment")
+            .await?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters)
+                    .header("X-YT-Input-Format", format!("\"{format}\""))
+                    .header(reqwest::header::ACCEPT, "application/json")
+                    .body(payload)
+            })
+            .send()
+            .await?;
+        Ok(Self::checked(response).await?.json::<Value>().await?)
+    }
+
+    pub async fn finish_distributed_write(
+        &self,
+        session: Value,
+        results: Vec<Value>,
+    ) -> anyhow::Result<()> {
+        let parameters = serde_json::json!({ "session": session, "results": results });
+        let parameters = json_header_value(&parameters)?;
+        let response = self
+            .heavy_request_v4(reqwest::Method::POST, "finish_distributed_write_session")
+            .await?
+            .configure(|request| request.header("X-YT-Parameters", parameters))
             .send()
             .await?;
         Self::checked(response).await?;
@@ -412,6 +546,29 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+}
+
+pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {
+    let json = serde_json::to_string(value)?;
+    let mut header = String::with_capacity(json.len());
+    for character in json.chars() {
+        if matches!(character, ' '..='~') {
+            header.push(character);
+            continue;
+        }
+        let codepoint = character as u32;
+        if codepoint <= 0xffff {
+            use std::fmt::Write as _;
+            write!(header, "\\u{codepoint:04x}")?;
+            continue;
+        }
+        let adjusted = codepoint - 0x1_0000;
+        let high = 0xd800 + (adjusted >> 10);
+        let low = 0xdc00 + (adjusted & 0x3ff);
+        use std::fmt::Write as _;
+        write!(header, "\\u{high:04x}\\u{low:04x}")?;
+    }
+    Ok(header)
 }
 
 pub(super) fn is_loopback_host(host: &str) -> bool {

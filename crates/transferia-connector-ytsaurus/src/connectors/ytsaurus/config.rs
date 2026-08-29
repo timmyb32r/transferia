@@ -24,6 +24,15 @@ const DEFAULT_PARTITION_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_PARTITION_COUNT: usize = 64;
 const DEFAULT_PARTITION_CONCURRENCY: usize = 16;
 const DEFAULT_DIRECT_BLOCKS_PER_REQUEST: usize = 16;
+const DEFAULT_WRITE_TARGET_BYTES: usize = 512 * 1024 * 1024;
+const DEFAULT_WRITE_CONCURRENCY: usize = 4;
+const DEFAULT_WRITE_FLUSH_INTERVAL_MS: u64 = 1_000;
+const DEFAULT_WRITE_ROW_BUFFER_BYTES: u64 = 1024 * 1024;
+const DEFAULT_TABLE_WRITER_BLOCK_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_TABLE_WRITER_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_TABLE_WRITER_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -711,6 +720,87 @@ pub struct YTsaurusSinkConfig {
 
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
+
+    #[serde(default = "default_write_target_bytes")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub write_target_bytes: usize,
+
+    #[serde(default = "default_write_concurrency")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub write_concurrency: usize,
+
+    #[serde(default = "default_write_flush_interval_ms")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub write_flush_interval_ms: u64,
+
+    #[serde(default = "default_write_row_buffer_bytes")]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub write_row_buffer_bytes: u64,
+
+    #[serde(default)]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+    pub table_writer: YTsaurusTableWriterConfig,
+}
+
+#[derive(Clone, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct YTsaurusTableWriterConfig {
+    #[serde(default = "default_table_writer_block_bytes")]
+    pub block_size: u64,
+
+    #[serde(default = "default_table_writer_buffer_bytes")]
+    pub max_buffer_size: u64,
+
+    #[serde(default = "default_table_writer_window_bytes")]
+    pub writer_window_size: u64,
+
+    #[serde(default = "default_table_writer_group_bytes")]
+    pub writer_group_size: u64,
+
+    #[serde(default = "default_table_writer_chunk_bytes")]
+    pub desired_chunk_size: u64,
+}
+
+impl Default for YTsaurusTableWriterConfig {
+    fn default() -> Self {
+        Self {
+            block_size: default_table_writer_block_bytes(),
+            max_buffer_size: default_table_writer_buffer_bytes(),
+            writer_window_size: default_table_writer_window_bytes(),
+            writer_group_size: default_table_writer_group_bytes(),
+            desired_chunk_size: default_table_writer_chunk_bytes(),
+        }
+    }
+}
+
+impl YTsaurusTableWriterConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.block_size > 0,
+            "ytsaurus.table_writer.block_size must be positive"
+        );
+        anyhow::ensure!(
+            self.max_buffer_size > 0,
+            "ytsaurus.table_writer.max_buffer_size must be positive"
+        );
+        anyhow::ensure!(
+            self.writer_window_size > 0,
+            "ytsaurus.table_writer.writer_window_size must be positive"
+        );
+        anyhow::ensure!(
+            self.writer_group_size > 0,
+            "ytsaurus.table_writer.writer_group_size must be positive"
+        );
+        anyhow::ensure!(
+            self.writer_group_size <= self.writer_window_size,
+            "ytsaurus.table_writer.writer_group_size must not exceed writer_window_size"
+        );
+        anyhow::ensure!(
+            self.desired_chunk_size > 0,
+            "ytsaurus.table_writer.desired_chunk_size must be positive"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -757,6 +847,23 @@ impl YTsaurusSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
         validate_path(self.path())?;
+        anyhow::ensure!(
+            self.write_target_bytes > 0,
+            "ytsaurus.write_target_bytes must be positive"
+        );
+        anyhow::ensure!(
+            (1..=32).contains(&self.write_concurrency),
+            "ytsaurus.write_concurrency must be between 1 and 32"
+        );
+        anyhow::ensure!(
+            self.write_flush_interval_ms > 0,
+            "ytsaurus.write_flush_interval_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.write_row_buffer_bytes > 0,
+            "ytsaurus.write_row_buffer_bytes must be positive"
+        );
+        self.table_writer.validate()?;
         Ok(())
     }
 
@@ -819,4 +926,40 @@ const fn default_timeout_ms() -> u64 {
 
 const fn default_batch_rows() -> usize {
     DEFAULT_BATCH_ROWS
+}
+
+const fn default_write_target_bytes() -> usize {
+    DEFAULT_WRITE_TARGET_BYTES
+}
+
+const fn default_write_concurrency() -> usize {
+    DEFAULT_WRITE_CONCURRENCY
+}
+
+const fn default_write_flush_interval_ms() -> u64 {
+    DEFAULT_WRITE_FLUSH_INTERVAL_MS
+}
+
+const fn default_write_row_buffer_bytes() -> u64 {
+    DEFAULT_WRITE_ROW_BUFFER_BYTES
+}
+
+const fn default_table_writer_block_bytes() -> u64 {
+    DEFAULT_TABLE_WRITER_BLOCK_BYTES
+}
+
+const fn default_table_writer_buffer_bytes() -> u64 {
+    DEFAULT_TABLE_WRITER_BUFFER_BYTES
+}
+
+const fn default_table_writer_window_bytes() -> u64 {
+    DEFAULT_TABLE_WRITER_WINDOW_BYTES
+}
+
+const fn default_table_writer_group_bytes() -> u64 {
+    DEFAULT_TABLE_WRITER_GROUP_BYTES
+}
+
+const fn default_table_writer_chunk_bytes() -> u64 {
+    DEFAULT_TABLE_WRITER_CHUNK_BYTES
 }

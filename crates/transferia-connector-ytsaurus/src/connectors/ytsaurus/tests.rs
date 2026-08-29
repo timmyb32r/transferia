@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use super::client::{
-    resolved_link_suggestion, rich_read_path, suggestion_directory, table_path_suggestions,
-    ListedNode,
+    json_header_value, resolved_link_suggestion, rich_read_path, suggestion_directory,
+    table_path_suggestions, ListedNode,
 };
 use super::columnar_chunk::validate_direct_schema;
 use super::config::{
@@ -34,7 +34,9 @@ use super::native_rpc::{
     NativeReadFormat, RequestCredentials,
 };
 use super::schema::{parse_schema, schema_to_yt};
-use super::sink::{encode_arrow, encode_yson, validate_row_weight};
+use super::sink::{
+    encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches, validate_row_weight,
+};
 use super::src_batch::{
     dataset_arrow_schema, direct_block_to_chunk, normalize_read_batch, performance_advice,
     system_column_layout, DiscoveredTable, PhysicalChunkLayout,
@@ -61,6 +63,20 @@ fn loopback_heavy_proxy_detection_preserves_forwarded_endpoints() {
     assert!(super::client::is_loopback_host("127.0.0.1"));
     assert!(super::client::is_loopback_host("::1"));
     assert!(!super::client::is_loopback_host("proxy.example.net"));
+}
+
+#[test]
+fn distributed_write_parameters_are_safe_ascii_http_headers() {
+    let header = json_header_value(&serde_json::json!({
+        "cookie": {"opaque": "signed-куки-🦀\u{007f}"},
+    }))
+    .expect("serialize header parameters");
+
+    assert!(header.is_ascii());
+    assert!(header.contains("\\u043a\\u0443\\u043a\\u0438"));
+    assert!(header.contains("\\ud83e\\udd80"));
+    assert!(header.contains("\\u007f"));
+    reqwest::header::HeaderValue::from_str(&header).expect("valid HTTP header value");
 }
 
 #[test]
@@ -339,11 +355,23 @@ fn snapshot_recovery_materializes_an_exact_row_range() {
 
 #[test]
 fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
-    let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
+    let mut config = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
     assert_eq!(config.format(), YTsaurusWriteFormat::Arrow);
     assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");
+    assert_eq!(config.write_target_bytes, 512 * 1024 * 1024);
+    assert_eq!(config.write_concurrency, 4);
+    assert_eq!(config.write_flush_interval_ms, 1_000);
+    assert_eq!(config.write_row_buffer_bytes, 1024 * 1024);
+    assert_eq!(config.table_writer.block_size, 16 * 1024 * 1024);
+    assert_eq!(config.table_writer.max_buffer_size, 16 * 1024 * 1024);
+    assert_eq!(config.table_writer.writer_window_size, 64 * 1024 * 1024);
+    assert_eq!(config.table_writer.writer_group_size, 16 * 1024 * 1024);
+    assert_eq!(config.table_writer.desired_chunk_size, 2 * 1024 * 1024 * 1024);
+    config.validate()?;
+    config.write_concurrency = 0;
+    assert!(config.validate().is_err());
     Ok(())
 }
 
@@ -378,6 +406,16 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
     assert_eq!(
         encode_yson(&batch)?,
         b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
+    );
+    let payload = encode_arrow_batches(&[batch.clone(), batch.clone()])?;
+    let decoded = StreamReader::try_new(Cursor::new(payload), None)?
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(decoded.iter().map(RecordBatch::num_rows).sum::<usize>(), 4);
+    assert_eq!(
+        encode_yson_batches(&[batch.clone(), batch])?,
+        b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};\
+          {\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
     );
     Ok(())
 }

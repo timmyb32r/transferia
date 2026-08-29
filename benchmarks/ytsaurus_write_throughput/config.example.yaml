@@ -1,0 +1,33 @@
+ytsaurus:
+  cluster: example-cluster
+  root: //tmp/transferia-ytsaurus-write-benchmark
+  token:
+    file: ~/.yt/token
+
+internal_resolver:
+  oauth_token:
+    file: ~/.mdb/token
+
+tools:
+  rust_binary: ../../target/release/transferia-internal
+  yt_binary: /usr/bin/yt
+  yt_arguments: []
+
+run:
+  rows: 50000000
+  table_name: my_table
+  repetitions: 5
+  measurement_seconds: 120
+  timeout_seconds: 900
+  pipeline_memory_limit_bytes: 2147483648
+  result_root: results
+
+candidates:
+  - name: legacy-one-request-per-batch
+    settings:
+      format: arrow
+      write_target_bytes: 1
+      write_concurrency: 1
+  - name: distributed-write-default
+    settings:
+      format: arrow
