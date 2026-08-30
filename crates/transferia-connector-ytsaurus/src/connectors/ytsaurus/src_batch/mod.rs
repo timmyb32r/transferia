@@ -32,6 +32,7 @@ use super::yt_wire::{count_wire_rows, YtWireDecoder};
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
+use transferia_core::data::record_batch::compact_record_batch_chunks;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
@@ -930,11 +931,8 @@ impl YTsaurusSource {
 
     fn queue_validated(&mut self, batch: RecordBatch) -> anyhow::Result<()> {
         let batch = normalize_read_batch(batch, &self.table.schema, &self.expected_arrow_schema)?;
-        let mut offset = 0;
-        while offset < batch.num_rows() {
-            let rows = self.batch_rows.min(batch.num_rows() - offset);
-            self.queued.push_back(batch.slice(offset, rows));
-            offset += rows;
+        for batch in compact_record_batch_chunks(batch, self.batch_rows)? {
+            self.queued.push_back(batch);
         }
         Ok(())
     }
@@ -1244,10 +1242,12 @@ impl Source for YTsaurusSource {
                         } else {
                             match chunk.payload {
                                 ReadChunkPayload::RecordBatches(batches) => {
+                                    let started = Instant::now();
                                     for batch in batches {
                                         self.queue_validated(batch)
                                             .map_err(DataPlaneFailure::fatal)?;
                                     }
+                                    self.counters.add_network_decode_busy(started.elapsed());
                                 }
                                 ReadChunkPayload::Bytes(bytes) => {
                                     self.decode_bytes(bytes, chunk.stream_id)
