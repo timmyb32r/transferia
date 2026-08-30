@@ -47,8 +47,10 @@ fn materially_overallocated(batch: &RecordBatch) -> anyhow::Result<bool> {
             total.saturating_add(column.to_data().get_slice_memory_size()?),
         )
     })?;
-    Ok(retained_bytes.saturating_sub(visible_bytes) > MIN_COMPACTION_SAVINGS_BYTES
-        && retained_bytes > visible_bytes.saturating_add(visible_bytes / 4))
+    Ok(
+        retained_bytes.saturating_sub(visible_bytes) > MIN_COMPACTION_SAVINGS_BYTES
+            && retained_bytes > visible_bytes.saturating_add(visible_bytes / 4),
+    )
 }
 
 fn materialize_range(

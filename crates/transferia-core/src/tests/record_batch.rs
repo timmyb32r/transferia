@@ -8,6 +8,7 @@ use super::{compact_record_batch, compact_record_batch_chunks};
 
 #[test]
 fn compacts_short_slices_that_retain_large_transport_buffers() -> anyhow::Result<()> {
+    const PARENT_ROWS: i64 = 4_096;
     let parent = RecordBatch::try_new(
         Arc::new(Schema::new(vec![
             Field::new("payload", DataType::Utf8, false),
@@ -15,9 +16,9 @@ fn compacts_short_slices_that_retain_large_transport_buffers() -> anyhow::Result
         ])),
         vec![
             Arc::new(StringArray::from_iter_values(
-                (0..4_096).map(|row| format!("payload-{row:010}-{}", "x".repeat(512))),
+                (0..PARENT_ROWS).map(|row| format!("payload-{row:010}-{}", "x".repeat(512))),
             )) as ArrayRef,
-            Arc::new(Int64Array::from_iter_values(0..4_096_i64)) as ArrayRef,
+            Arc::new(Int64Array::from_iter_values(0..PARENT_ROWS)) as ArrayRef,
         ],
     )?;
     let retained = parent.slice(320, 64);
@@ -63,15 +64,17 @@ fn keeps_right_sized_batches_zero_copy() -> anyhow::Result<()> {
 
 #[test]
 fn chunks_oversized_batches_without_retaining_parent_buffers() -> anyhow::Result<()> {
-    const ROWS: usize = 262_144;
-    const CHUNK_ROWS: usize = 65_536;
+    const ROWS: usize = if cfg!(miri) { 32_768 } else { 262_144 };
+    const CHUNK_ROWS: usize = ROWS / 4;
     let input = RecordBatch::try_new(
         Arc::new(Schema::new(vec![Field::new(
             "sequence",
             DataType::Int64,
             false,
         )])),
-        vec![Arc::new(Int64Array::from_iter_values(0..ROWS as i64))],
+        vec![Arc::new(Int64Array::from_iter_values(
+            0..i64::try_from(ROWS)?,
+        ))],
     )?;
     let parent_bytes = input.get_array_memory_size();
 

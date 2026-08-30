@@ -1,13 +1,14 @@
+
+[package]
+name = "transferia"
+version.workspace = true
+edition.workspace = true
+description = "Native Rust data transfer pipeline demo"
+publish.workspace = true
 [workspace]
 members = [
     ".",
     "crates/transferia-composition",
-    "crates/transferia-control-plane",
-    "crates/transferia-core",
-    "crates/transferia-delivery",
-    "crates/transferia-delivery-contracts",
-    "crates/transferia-middleware-datafusion",
-    "crates/transferia-middleware-filter",
     "crates/transferia-connector-clickhouse",
     "crates/transferia-connector-iceberg",
     "crates/transferia-connector-kafka",
@@ -17,8 +18,14 @@ members = [
     "crates/transferia-connector-support",
     "crates/transferia-connector-ytsaurus",
     "crates/transferia-connectors",
-    "crates/transferia-registry",
+    "crates/transferia-control-plane",
+    "crates/transferia-core",
+    "crates/transferia-delivery",
+    "crates/transferia-delivery-contracts",
+    "crates/transferia-middleware-datafusion",
+    "crates/transferia-middleware-filter",
     "crates/transferia-pipeline",
+    "crates/transferia-registry",
     "crates/transferia-runtime",
     "crates/transferia-runtime-local",
     "crates/transferia-server-contracts",
@@ -27,22 +34,6 @@ members = [
 ]
 exclude = ["vendor/clickhouse-arrow"]
 resolver = "2"
-
-[profile.dev]
-debug = "line-tables-only"
-incremental = false
-split-debuginfo = "off"
-
-[profile.dev.package."*"]
-debug = false
-
-[profile.test]
-debug = "line-tables-only"
-incremental = false
-split-debuginfo = "off"
-
-[profile.test.package."*"]
-debug = false
 
 [workspace.package]
 version = "0.1.0"
@@ -76,6 +67,7 @@ iceberg-catalog-rest = "0.9.0"
 itoa = "1"
 jsonpath_lib = "0.3"
 jsonschema = { version = "0.33.0", default-features = false }
+lz4_flex = "0.12"
 mimalloc = { version = "0.1", features = ["v2"] }
 object_store = { version = "0.12", default-features = false, features = ["aws"] }
 opendal = { version = "0.55.0", default-features = false, features = ["executors-tokio", "services-s3", "services-webhdfs"] }
@@ -118,55 +110,6 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 ydb-grpc = "0.2.2"
 zstd = "0.13"
-lz4_flex = "0.12"
-
-[patch.crates-io]
-clickhouse-arrow = { path = "vendor/clickhouse-arrow" }
-
-[package]
-name = "transferia"
-version.workspace = true
-edition.workspace = true
-description = "Native Rust data transfer pipeline demo"
-publish.workspace = true
-
-[dependencies]
-transferia-composition = { path = "crates/transferia-composition" }
-transferia-control-plane = { path = "crates/transferia-control-plane" }
-transferia-core = { path = "crates/transferia-core" }
-transferia-delivery = { path = "crates/transferia-delivery" }
-transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
-transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
-transferia-connectors = { path = "crates/transferia-connectors" }
-transferia-registry = { path = "crates/transferia-registry" }
-transferia-runtime = { path = "crates/transferia-runtime" }
-transferia-runtime-local = { path = "crates/transferia-runtime-local" }
-
-[dev-dependencies]
-anyhow.workspace = true
-apache-avro.workspace = true
-arrow.workspace = true
-bytes.workspace = true
-clap.workspace = true
-futures-util.workspace = true
-http.workspace = true
-http-body-util.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
-object_store.workspace = true
-prost.workspace = true
-prost-types.workspace = true
-reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-serde_yaml.workspace = true
-testcontainers.workspace = true
-tokio.workspace = true
-tokio-postgres.workspace = true
-tokio-util.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-ydb-grpc.workspace = true
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -246,9 +189,66 @@ arithmetic_side_effects = "allow"         # data-pipeline: batch sizes/indices a
 pattern_type_mismatch = "allow"           # overly strict with third-party types (arrow DataType, etc.)
 indexing_slicing = "allow"                # indices verified by surrounding logic; .get() for every access is noise
 
+[dependencies]
+transferia-composition = { path = "crates/transferia-composition" }
+transferia-connectors = { path = "crates/transferia-connectors" }
+transferia-control-plane = { path = "crates/transferia-control-plane" }
+transferia-core = { path = "crates/transferia-core" }
+transferia-delivery = { path = "crates/transferia-delivery" }
+transferia-middleware-datafusion = { path = "crates/transferia-middleware-datafusion" }
+transferia-middleware-filter = { path = "crates/transferia-middleware-filter" }
+transferia-registry = { path = "crates/transferia-registry" }
+transferia-runtime = { path = "crates/transferia-runtime" }
+transferia-runtime-local = { path = "crates/transferia-runtime-local" }
+
+[dev-dependencies]
+anyhow.workspace = true
+apache-avro.workspace = true
+arrow.workspace = true
+bytes.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+object_store.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+testcontainers.workspace = true
+tokio.workspace = true
+tokio-postgres.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+ydb-grpc.workspace = true
+
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+split-debuginfo = "off"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"
+incremental = false
+split-debuginfo = "off"
+
+[profile.test.package."*"]
+debug = false
+
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+[patch.crates-io]
+clickhouse-arrow = { path = "vendor/clickhouse-arrow" }

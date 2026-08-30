@@ -54,13 +54,14 @@ check-contracts: api-contract-check catalog-contract-check test-affected-self
 # Safe default: ordinary development never starts the release gate implicitly.
 check: check-affected
 
-# Full verification: release gate + MIRI UB detection
+# Full verification: release gate + Miri UB detection in the stable data-plane.
+# Tokio networking tests require macOS kqueue, which Miri cannot emulate.
 verify: check-release
-    cargo miri test -- --test-threads=1
+    cargo miri test -p transferia-core --lib -- --test-threads=1
 
 # Run MIRI UB detection only (run this before PR if you touched unsafe code)
 miri: fmt
-    cargo miri test -- --test-threads=1
+    cargo miri test -p transferia-core --lib -- --test-threads=1
 
 # Safe compatibility alias. Full tests are intentionally release-only.
 test: check-affected
