@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_BATCH_ROWS: usize = 65_536;
-const DEFAULT_TABLE_READER_WINDOW_SIZE: u64 = 20 * 1024 * 1024;
-const DEFAULT_TABLE_READER_GROUP_SIZE: u64 = 15 * 1024 * 1024;
-const DEFAULT_TABLE_READER_MAX_BUFFER_SIZE: u64 = 100 * 1024 * 1024;
+const DEFAULT_TABLE_READER_WINDOW_SIZE: u64 = 128 * 1024 * 1024;
+const DEFAULT_TABLE_READER_GROUP_SIZE: u64 = 128 * 1024 * 1024;
+const DEFAULT_TABLE_READER_MAX_BUFFER_SIZE: u64 = 512 * 1024 * 1024;
 const DEFAULT_STREAM_RETRY_MAX_ATTEMPTS: usize = 12;
 const DEFAULT_STREAM_RETRY_INITIAL_MS: u64 = 100;
 const DEFAULT_STREAM_RETRY_MAX_MS: u64 = 5_000;
@@ -395,6 +395,16 @@ pub struct YTsaurusTableReaderConfig {
 impl YTsaurusTableReaderConfig {
     pub(super) fn to_yson(&self) -> String {
         let mut yson = String::from("{");
+        let window_size = self.window_size.unwrap_or(DEFAULT_TABLE_READER_WINDOW_SIZE);
+        let group_size = self.group_size.unwrap_or(DEFAULT_TABLE_READER_GROUP_SIZE);
+        let max_buffer_size = self
+            .max_buffer_size
+            .unwrap_or(DEFAULT_TABLE_READER_MAX_BUFFER_SIZE);
+        write!(
+            &mut yson,
+            "window_size={window_size};group_size={group_size};max_buffer_size={max_buffer_size};"
+        )
+        .expect("writing to a String cannot fail");
         macro_rules! number {
             ($field:ident) => {
                 if let Some(value) = self.$field {
@@ -417,9 +427,6 @@ impl YTsaurusTableReaderConfig {
             };
         }
 
-        number!(window_size);
-        number!(group_size);
-        number!(max_buffer_size);
         number!(max_parallel_readers);
         boolean!(use_uncompressed_block_cache);
         boolean!(group_out_of_order_blocks);

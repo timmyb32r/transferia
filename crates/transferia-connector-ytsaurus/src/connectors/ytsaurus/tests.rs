@@ -682,7 +682,7 @@ fn benchmark_table_reader_validates_effective_server_limits() {
     .validate()
     .is_err());
     assert!(YTsaurusTableReaderConfig {
-        group_size: Some(32 * 1024 * 1024),
+        group_size: Some(256 * 1024 * 1024),
         ..YTsaurusTableReaderConfig::default()
     }
     .validate()
@@ -699,6 +699,17 @@ fn benchmark_table_reader_validates_effective_server_limits() {
     }
     .validate()
     .is_err());
+}
+
+#[test]
+fn native_table_reader_materializes_measured_throughput_defaults() {
+    assert_eq!(
+        YTsaurusTableReaderConfig::default().to_yson(),
+        concat!(
+            "{window_size=134217728;group_size=134217728;",
+            "max_buffer_size=536870912;}"
+        )
+    );
 }
 
 #[test]
