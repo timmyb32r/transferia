@@ -3,14 +3,16 @@ use base64::Engine as _;
 use prost::Message as _;
 
 use super::decoder::SchemaDecoder;
-use crate::schema_registry::{RegistrySchema, SchemaFormat};
+use crate::schema_registry::{RegistrySchema, RegistrySchemaReference, SchemaFormat};
 
 #[test]
-fn schema_registry_runtime_config_is_explicit_but_not_published_to_the_ui() {
+fn schema_registry_public_config_is_complete_and_editable() {
     let public_schema =
         serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
             .expect("public parser schema serializes");
-    assert!(!public_schema.to_string().contains("schema_registry"));
+    let public = public_schema.to_string();
+    assert!(public.contains("schema_registry"));
+    assert!(public.contains("Confluent Schema Registry parser"));
 
     let runtime_schema =
         serde_json::to_value(schemars::schema_for!(super::SchemaRegistryParserConfig))
@@ -29,7 +31,8 @@ fn schema_registry_runtime_config_is_explicit_but_not_published_to_the_ui() {
     assert!(!connection.contains_key("format"));
     assert_eq!(
         runtime_schema.pointer("/properties/json_parser/x-ui/widget"),
-        None
+        None,
+        "the explicit JSON projection must remain editable, not hidden"
     );
 }
 
@@ -68,6 +71,7 @@ fn avro_decoder_preserves_supported_scalar_and_nullable_values() -> anyhow::Resu
         id: 1,
         definition: definition.to_owned(),
         format: SchemaFormat::Avro,
+        references: Arc::from([]),
     };
     let decoded = SchemaDecoder::default().decode(&schema, &datum)?;
     assert_eq!(decoded["text"], "hello");
@@ -84,6 +88,7 @@ fn json_schema_decoder_enforces_constraints() -> anyhow::Result<()> {
         id: 2,
         definition: r#"{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}},"additionalProperties":false}"#.to_owned(),
         format: SchemaFormat::JsonSchema,
+        references: Arc::from([]),
     };
     let mut decoder = SchemaDecoder::default();
     assert_eq!(decoder.decode(&schema, br#"{"id":42}"#)?["id"], 42);
@@ -104,12 +109,53 @@ fn protobuf_decoder_supports_scalar_repeated_and_bytes_fields() -> anyhow::Resul
         id: 3,
         definition,
         format: SchemaFormat::Protobuf,
+        references: Arc::from([]),
     };
     let decoded = SchemaDecoder::default().decode(&schema, &payload)?;
     assert_eq!(decoded["text"], "hello");
     assert_eq!(decoded["count"], "9");
     assert_eq!(decoded["flag"], true);
     assert_eq!(decoded["tags"], serde_json::json!(["a", "b"]));
+    Ok(())
+}
+
+#[test]
+fn protobuf_decoder_resolves_recursive_schema_registry_references() -> anyhow::Result<()> {
+    let common = r#"syntax = "proto3"; package demo; message Meta { string source = 1; }"#;
+    let middle = r#"syntax = "proto3"; package demo; import "common.proto"; message Envelope { Meta meta = 1; }"#;
+    let root = r#"syntax = "proto3"; package demo; import "middle.proto"; message Event { Envelope envelope = 1; string value = 2; }"#;
+    let schema = RegistrySchema {
+        id: 4,
+        definition: root.to_owned(),
+        format: SchemaFormat::Protobuf,
+        references: Arc::from([
+            RegistrySchemaReference {
+                name: "common.proto".to_owned(),
+                definition: common.to_owned(),
+                format: SchemaFormat::Protobuf,
+            },
+            RegistrySchemaReference {
+                name: "middle.proto".to_owned(),
+                definition: middle.to_owned(),
+                format: SchemaFormat::Protobuf,
+            },
+        ]),
+    };
+    let (pool, file_name) =
+        crate::schema_registry::protobuf_descriptor_pool(&schema.definition, &schema.references)?;
+    let descriptor = pool
+        .get_file_by_name(&file_name)
+        .and_then(|file| file.messages().next())
+        .ok_or_else(|| anyhow::anyhow!("test event descriptor is missing"))?;
+    let mut deserializer = serde_json::Deserializer::from_str(
+        r#"{"envelope":{"meta":{"source":"logbroker"}},"value":"payload"}"#,
+    );
+    let message = prost_reflect::DynamicMessage::deserialize(descriptor, &mut deserializer)?;
+    let mut payload = vec![0];
+    message.encode(&mut payload)?;
+    let decoded = SchemaDecoder::default().decode(&schema, &payload)?;
+    assert_eq!(decoded["envelope"]["meta"]["source"], "logbroker");
+    assert_eq!(decoded["value"], "payload");
     Ok(())
 }
 
@@ -158,3 +204,4 @@ fn protobuf_schema() -> anyhow::Result<(String, prost_reflect::MessageDescriptor
         .ok_or_else(|| anyhow::anyhow!("test descriptor is missing"))?;
     Ok((definition, descriptor))
 }
+use std::sync::Arc;

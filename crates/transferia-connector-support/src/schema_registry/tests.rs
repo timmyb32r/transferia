@@ -48,3 +48,72 @@ fn registry_configuration_rejects_empty_or_padded_url() {
         assert!(config.validate().is_err());
     }
 }
+
+#[tokio::test]
+async fn registry_client_resolves_recursive_references_once() -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        let mut paths = Vec::new();
+        for _ in 0..4 {
+            let (mut stream, _) = listener.accept().await?;
+            let mut request = vec![0_u8; 8 * 1024];
+            let read = stream.read(&mut request).await?;
+            let request = String::from_utf8(request[..read].to_vec())?;
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .ok_or_else(|| anyhow::anyhow!("mock received an invalid HTTP request"))?
+                .to_owned();
+            let body = match path.as_str() {
+                "/schemas/ids/7" | "/schemas/ids/7?format=serialized" => serde_json::json!({
+                    "schemaType": "PROTOBUF",
+                    "schema": "syntax = \"proto3\"; import \"middle.proto\"; message Root { Middle middle = 1; }",
+                    "references": [{"name":"middle.proto","subject":"middle","version":1}]
+                }),
+                "/subjects/middle/versions/1" => serde_json::json!({
+                    "schemaType": "PROTOBUF",
+                    "schema": "syntax = \"proto3\"; import \"common.proto\"; message Middle { Common common = 1; }",
+                    "references": [{"name":"common.proto","subject":"common","version":1}]
+                }),
+                "/subjects/common/versions/1" => serde_json::json!({
+                    "schemaType": "PROTOBUF",
+                    "schema": "syntax = \"proto3\"; message Common { string value = 1; }"
+                }),
+                other => anyhow::bail!("unexpected mock request path {other}"),
+            };
+            paths.push(path);
+            let body = serde_json::to_vec(&body)?;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await?;
+            stream.write_all(&body).await?;
+        }
+        anyhow::Ok(paths)
+    });
+
+    let client = RegistryClient::new(&SchemaRegistryConnection {
+        url: format!("http://{address}"),
+        request_timeout_ms: 5_000,
+        auth: SchemaRegistryAuth::None,
+        ca_certificate: None,
+    })?;
+    let schema = client.schema_by_id(7).await?;
+    assert_eq!(schema.references.len(), 2);
+    assert_eq!(schema.references[0].name, "common.proto");
+    assert_eq!(schema.references[1].name, "middle.proto");
+
+    let paths = server.await??;
+    assert_eq!(paths.iter().filter(|path| path.contains("middle")).count(), 1);
+    assert_eq!(paths.iter().filter(|path| path.contains("common")).count(), 1);
+    Ok(())
+}

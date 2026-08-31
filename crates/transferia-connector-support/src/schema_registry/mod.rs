@@ -4,7 +4,7 @@ mod config;
 mod protobuf;
 mod wire;
 
-pub use client::{RegistryClient, RegistrySchema};
+pub use client::{RegistryClient, RegistrySchema, RegistrySchemaReference};
 pub use config::{SchemaFormat, SchemaRegistryAuth, SchemaRegistryConnection};
 pub use wire::{decode_message_indexes, encode_message_indexes, ConfluentEnvelope};
 

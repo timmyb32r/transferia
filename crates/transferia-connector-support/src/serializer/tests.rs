@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::*;
 use base64::Engine as _;
 
@@ -37,6 +39,7 @@ fn json_schema_serializer_rejects_values_outside_contract() -> anyhow::Result<()
             id: 11,
             definition: r#"{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}},"additionalProperties":false}"#.to_owned(),
             format: crate::schema_registry::SchemaFormat::JsonSchema,
+            references: Arc::from([]),
         },
         &[0],
     )?;
@@ -53,6 +56,7 @@ fn avro_and_protobuf_serializers_emit_confluent_envelopes() -> anyhow::Result<()
             id: 12,
             definition: avro_definition.to_owned(),
             format: crate::schema_registry::SchemaFormat::Avro,
+            references: Arc::from([]),
         },
         &[0],
     )?;
@@ -72,6 +76,7 @@ fn avro_and_protobuf_serializers_emit_confluent_envelopes() -> anyhow::Result<()
             id: 13,
             definition: protobuf_definition,
             format: crate::schema_registry::SchemaFormat::Protobuf,
+            references: Arc::from([]),
         },
         &[0],
     )?;

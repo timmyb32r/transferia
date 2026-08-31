@@ -76,6 +76,16 @@ async fn schema_registry_round_trips_all_confluent_formats() -> anyhow::Result<(
         .timeout(Duration::from_secs(30))
         .build()?;
 
+    register(
+        &client,
+        &base_url,
+        "common-value",
+        "PROTOBUF",
+        "syntax = \"proto3\"; package common; message Meta { string source = 1; }",
+        &[],
+    )
+    .await?;
+
     let schemas = [
         (
             SchemaFormat::Avro,
@@ -90,13 +100,30 @@ async fn schema_registry_round_trips_all_confluent_formats() -> anyhow::Result<(
         (
             SchemaFormat::Protobuf,
             "PROTOBUF",
-            "syntax = \"proto3\"; package demo; message Event { int32 id = 1; string name = 2; bool enabled = 3; }",
+            "syntax = \"proto3\"; package demo; import \"common.proto\"; message Event { int32 id = 1; string name = 2; bool enabled = 3; common.Meta meta = 4; }",
         ),
     ];
 
     for (index, (format, registry_format, definition)) in schemas.into_iter().enumerate() {
         let subject = format!("events-{index}-value");
-        let id = register(&client, &base_url, &subject, registry_format, definition).await?;
+        let references = if format == SchemaFormat::Protobuf {
+            vec![serde_json::json!({
+                "name": "common.proto",
+                "subject": "common-value",
+                "version": 1
+            })]
+        } else {
+            Vec::new()
+        };
+        let id = register(
+            &client,
+            &base_url,
+            &subject,
+            registry_format,
+            definition,
+            &references,
+        )
+        .await?;
         let raw = encode_source(format, id, definition)?;
         let parser = parser_config(&base_url)?;
         let plan = ParserPlan::from_config(&parser, "events")?;
@@ -161,10 +188,15 @@ async fn register(
     subject: &str,
     schema_type: &str,
     schema: &str,
+    references: &[serde_json::Value],
 ) -> anyhow::Result<i32> {
     let response = client
         .post(format!("{base_url}/subjects/{subject}/versions"))
-        .json(&serde_json::json!({ "schemaType": schema_type, "schema": schema }))
+        .json(&serde_json::json!({
+            "schemaType": schema_type,
+            "schema": schema,
+            "references": references
+        }))
         .send()
         .await?
         .error_for_status()?

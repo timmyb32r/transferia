@@ -52,16 +52,41 @@ impl SchemaDecoder {
 
 fn compile(schema: &RegistrySchema) -> anyhow::Result<CompiledSchema> {
     match schema.format {
-        SchemaFormat::Avro => Ok(CompiledSchema::Avro(Schema::parse_str(&schema.definition)?)),
+        SchemaFormat::Avro => {
+            let definitions = schema
+                .references
+                .iter()
+                .map(|reference| reference.definition.as_str())
+                .chain(std::iter::once(schema.definition.as_str()))
+                .collect::<Vec<_>>();
+            let mut schemas = Schema::parse_list(definitions)?;
+            let schema = schemas
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("Schema Registry returned no Avro schema"))?;
+            Ok(CompiledSchema::Avro(schema))
+        }
         SchemaFormat::JsonSchema => {
             let definition = serde_json::from_str::<Value>(&schema.definition)?;
-            Ok(CompiledSchema::Json(jsonschema::validator_for(
-                &definition,
-            )?))
+            let resources = schema
+                .references
+                .iter()
+                .map(|reference| {
+                    let definition = serde_json::from_str(&reference.definition)?;
+                    let resource = jsonschema::Resource::from_contents(definition)?;
+                    Ok((reference.name.clone(), resource))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            Ok(CompiledSchema::Json(
+                jsonschema::options()
+                    .with_resources(resources.into_iter())
+                    .build(&definition)?,
+            ))
         }
         SchemaFormat::Protobuf => {
-            let (pool, file_name) =
-                crate::schema_registry::protobuf_descriptor_pool(&schema.definition)?;
+            let (pool, file_name) = crate::schema_registry::protobuf_descriptor_pool(
+                &schema.definition,
+                &schema.references,
+            )?;
             Ok(CompiledSchema::Protobuf(ProtobufSchema { pool, file_name }))
         }
     }

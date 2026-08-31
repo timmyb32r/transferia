@@ -1,6 +1,9 @@
 mod decoder;
 
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use bytes::Bytes;
 use schemars::JsonSchema;
@@ -89,14 +92,32 @@ impl ParserSession for SchemaRegistryParserSession {
         &mut self,
         messages: Vec<Message>,
     ) -> anyhow::Result<(TableData, Option<TableData>)> {
+        let schema_ids = messages
+            .iter()
+            .map(|message| {
+                crate::schema_registry::ConfluentEnvelope::decode(&message.value)
+                    .map(|envelope| envelope.schema_id)
+            })
+            .collect::<anyhow::Result<HashSet<_>>>()?;
+        let registry = self.registry.clone();
+        let schemas = self.runtime()?.block_on(async move {
+            let mut schemas = HashMap::with_capacity(schema_ids.len());
+            for schema_id in schema_ids {
+                schemas.insert(schema_id, registry.schema_by_id(schema_id).await?);
+            }
+            anyhow::Ok(schemas)
+        })?;
+
         let mut decoded = Vec::with_capacity(messages.len());
         let mut decoded_bytes = 0_usize;
         for message in messages {
             let envelope = crate::schema_registry::ConfluentEnvelope::decode(&message.value)?;
-            let registry = self.registry.clone();
-            let schema = self
-                .runtime()?
-                .block_on(registry.schema_by_id(envelope.schema_id))?;
+            let schema = schemas.get(&envelope.schema_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "prefetched Schema Registry schema id {} is absent",
+                    envelope.schema_id
+                )
+            })?;
             let value = self.decoder.decode(&schema, envelope.payload)?;
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes

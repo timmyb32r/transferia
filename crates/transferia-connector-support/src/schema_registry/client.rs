@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use reqwest::Url;
@@ -14,6 +18,7 @@ pub struct RegistryClient {
     urls: Arc<[Url]>,
     auth: SchemaRegistryAuth,
     schemas: Arc<RwLock<HashMap<i32, RegistrySchema>>>,
+    versions: Arc<RwLock<HashMap<(String, i32), RegistryResponse>>>,
 }
 
 #[derive(Clone)]
@@ -21,14 +26,31 @@ pub struct RegistrySchema {
     pub id: i32,
     pub definition: String,
     pub format: SchemaFormat,
+    pub references: Arc<[RegistrySchemaReference]>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone)]
+pub struct RegistrySchemaReference {
+    pub name: String,
+    pub definition: String,
+    pub format: SchemaFormat,
+}
+
+#[derive(Clone, Deserialize)]
 struct RegistryResponse {
     id: Option<i32>,
     schema: String,
     #[serde(rename = "schemaType")]
     schema_type: Option<String>,
+    #[serde(default)]
+    references: Vec<RegistryReference>,
+}
+
+#[derive(Clone, Deserialize)]
+struct RegistryReference {
+    name: String,
+    subject: String,
+    version: i32,
 }
 
 impl RegistryClient {
@@ -52,6 +74,7 @@ impl RegistryClient {
             urls: urls.into(),
             auth: config.auth.clone(),
             schemas: Arc::new(RwLock::new(HashMap::new())),
+            versions: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -66,8 +89,9 @@ impl RegistryClient {
             .await
             .with_context(|| format!("failed to fetch Schema Registry schema id {id}"))?;
         let format = response_format(response.schema_type.as_deref())?;
+        let references = self.resolve_references(&response.references, format).await?;
         if format == SchemaFormat::Protobuf {
-            response = self
+            let serialized = self
                 .get(
                     &["schemas", "ids", &id.to_string()],
                     &[("format", "serialized")],
@@ -76,12 +100,14 @@ impl RegistryClient {
                 .with_context(|| {
                     format!("failed to fetch serialized Schema Registry protobuf schema id {id}")
                 })?;
-            validate_format(format, response.schema_type.as_deref())?;
+            validate_format(format, serialized.schema_type.as_deref())?;
+            response.schema = serialized.schema;
         }
         let schema = RegistrySchema {
             id,
             definition: response.schema,
             format,
+            references,
         };
         self.schemas.write().await.insert(id, schema.clone());
         Ok(schema)
@@ -99,13 +125,93 @@ impl RegistryClient {
                 format!("failed to fetch latest Schema Registry schema for subject '{subject}'")
             })?;
         validate_format(format, response.schema_type.as_deref())?;
+        let references = self.resolve_references(&response.references, format).await?;
         Ok(RegistrySchema {
             id: response
                 .id
                 .ok_or_else(|| anyhow::anyhow!("Schema Registry response has no schema id"))?,
             definition: response.schema,
             format,
+            references,
         })
+    }
+
+    async fn resolve_references(
+        &self,
+        references: &[RegistryReference],
+        expected_format: SchemaFormat,
+    ) -> anyhow::Result<Arc<[RegistrySchemaReference]>> {
+        let mut pending = references.iter().cloned().collect::<VecDeque<_>>();
+        let mut expanded = HashSet::new();
+        let mut resolved = HashMap::<String, RegistrySchemaReference>::new();
+
+        while let Some(reference) = pending.pop_front() {
+            anyhow::ensure!(
+                !reference.name.is_empty(),
+                "Schema Registry reference name must not be empty"
+            );
+            anyhow::ensure!(
+                !reference.subject.is_empty(),
+                "Schema Registry reference subject must not be empty"
+            );
+            anyhow::ensure!(
+                reference.version > 0,
+                "Schema Registry reference '{}' has nonpositive version {}",
+                reference.name,
+                reference.version
+            );
+
+            let key = (reference.subject.clone(), reference.version);
+            let cached = self.versions.read().await.get(&key).cloned();
+            let response = if let Some(cached) = cached {
+                cached
+            } else {
+                let fetched = self
+                    .get(
+                        &[
+                            "subjects",
+                            &reference.subject,
+                            "versions",
+                            &reference.version.to_string(),
+                        ],
+                        &[],
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to fetch Schema Registry reference '{}' from subject '{}' version {}",
+                            reference.name, reference.subject, reference.version
+                        )
+                    })?;
+                self.versions.write().await.insert(key.clone(), fetched.clone());
+                fetched
+            };
+            validate_format(expected_format, response.schema_type.as_deref())?;
+
+            let dependency = RegistrySchemaReference {
+                name: reference.name.clone(),
+                definition: response.schema.clone(),
+                format: expected_format,
+            };
+            if let Some(existing) = resolved.get(&reference.name) {
+                anyhow::ensure!(
+                    existing.definition == dependency.definition
+                        && existing.format == dependency.format,
+                    "Schema Registry references resolve name '{}' to conflicting schemas",
+                    reference.name
+                );
+            } else {
+                resolved.insert(reference.name, dependency);
+            }
+
+            if expanded.insert(key) {
+                pending.extend(response.references);
+            }
+        }
+
+        let mut resolved = resolved.into_values().collect::<Vec<_>>();
+        resolved.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+        Ok(resolved.into())
     }
 
     async fn get(&self, path: &[&str], query: &[(&str, &str)]) -> anyhow::Result<RegistryResponse> {

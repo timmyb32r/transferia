@@ -353,11 +353,15 @@
               ]
             },
             "ParserSchema": {
-              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
+              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.",
               "anyOf": [
                 {
                   "title": "JSON parser",
                   "$ref": "#/$defs/JsonParserSchema"
+                },
+                {
+                  "title": "Confluent Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
@@ -820,6 +824,147 @@
                   "additionalProperties": false,
                   "required": [
                     "action"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "schema_registry": {
+                  "title": "Confluent Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "schema_registry"
+              ]
+            },
+            "SchemaRegistryParserConfig": {
+              "type": "object",
+              "properties": {
+                "connection": {
+                  "$ref": "#/$defs/SchemaRegistryConnection"
+                },
+                "json_parser": {
+                  "$ref": "#/$defs/JsonParserConfig"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "connection",
+                "json_parser"
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
                   ]
                 }
               ]
@@ -1567,11 +1712,15 @@
               ]
             },
             "ParserSchema": {
-              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.\n\nSchema Registry parsing is intentionally not published here yet. Its runtime\nconfiguration still requires an explicit JSON projection, while the product\ncontract requires the UI to derive that projection from the registry schema.\nAdvertising the incomplete form would create a selectable parser that the UI\ncannot configure without a hidden required value.",
+              "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.",
               "anyOf": [
                 {
                   "title": "JSON parser",
                   "$ref": "#/$defs/JsonParserSchema"
+                },
+                {
+                  "title": "Confluent Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
@@ -2034,6 +2183,147 @@
                   "additionalProperties": false,
                   "required": [
                     "action"
+                  ]
+                }
+              ]
+            },
+            "SchemaRegistryParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "schema_registry": {
+                  "title": "Confluent Schema Registry parser",
+                  "$ref": "#/$defs/SchemaRegistryParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "schema_registry"
+              ]
+            },
+            "SchemaRegistryParserConfig": {
+              "type": "object",
+              "properties": {
+                "connection": {
+                  "$ref": "#/$defs/SchemaRegistryConnection"
+                },
+                "json_parser": {
+                  "$ref": "#/$defs/JsonParserConfig"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "connection",
+                "json_parser"
+              ]
+            },
+            "SchemaRegistryConnection": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "title": "Registry URL",
+                  "type": "string"
+                },
+                "request_timeout_ms": {
+                  "title": "Request timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "auth": {
+                  "title": "Authentication",
+                  "$ref": "#/$defs/SchemaRegistryAuth",
+                  "default": {
+                    "type": "none"
+                  }
+                },
+                "ca_certificate": {
+                  "title": "CA certificate (PEM)",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "default": null,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "url",
+                "request_timeout_ms"
+              ]
+            },
+            "SchemaRegistryAuth": {
+              "oneOf": [
+                {
+                  "title": "No authentication",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "none"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Username and password",
+                  "type": "object",
+                  "properties": {
+                    "username": {
+                      "type": "string"
+                    },
+                    "password": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "basic"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "username",
+                    "password"
+                  ]
+                },
+                {
+                  "title": "Bearer token",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "bearer"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
                   ]
                 }
               ]

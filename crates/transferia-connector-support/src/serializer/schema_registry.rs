@@ -247,18 +247,41 @@ fn compile_writer_schema(
     match schema.format {
         SchemaFormat::Avro => Ok(CompiledWriterSchema::Avro {
             id: schema.id,
-            schema: Schema::parse_str(&schema.definition)?,
+            schema: {
+                let definitions = schema
+                    .references
+                    .iter()
+                    .map(|reference| reference.definition.as_str())
+                    .chain(std::iter::once(schema.definition.as_str()))
+                    .collect::<Vec<_>>();
+                Schema::parse_list(definitions)?
+                    .pop()
+                    .ok_or_else(|| anyhow::anyhow!("Schema Registry returned no Avro schema"))?
+            },
         }),
         SchemaFormat::JsonSchema => {
             let definition = serde_json::from_str::<serde_json::Value>(&schema.definition)?;
+            let resources = schema
+                .references
+                .iter()
+                .map(|reference| {
+                    let definition = serde_json::from_str(&reference.definition)?;
+                    let resource = jsonschema::Resource::from_contents(definition)?;
+                    Ok((reference.name.clone(), resource))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             Ok(CompiledWriterSchema::Json {
                 id: schema.id,
-                validator: jsonschema::validator_for(&definition)?,
+                validator: jsonschema::options()
+                    .with_resources(resources.into_iter())
+                    .build(&definition)?,
             })
         }
         SchemaFormat::Protobuf => {
-            let (pool, file_name) =
-                crate::schema_registry::protobuf_descriptor_pool(&schema.definition)?;
+            let (pool, file_name) = crate::schema_registry::protobuf_descriptor_pool(
+                &schema.definition,
+                &schema.references,
+            )?;
             let file = pool.get_file_by_name(&file_name).ok_or_else(|| {
                 anyhow::anyhow!("Protobuf schema file is absent from descriptor pool")
             })?;

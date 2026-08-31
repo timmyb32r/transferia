@@ -2,23 +2,20 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::schema_registry::SchemaRegistryParserConfig;
 use crate::parsers::ParserEntry;
 use transferia_core::data::system_columns::SystemColumnKind;
 
 /// Public parser schema used by the control plane. Runtime dispatch remains
 /// registry-based, while this tagged union lists the forms that the UI can
 /// configure completely.
-///
-/// Schema Registry parsing is intentionally not published here yet. Its runtime
-/// configuration still requires an explicit JSON projection, while the product
-/// contract requires the UI to derive that projection from the registry schema.
-/// Advertising the incomplete form would create a selectable parser that the UI
-/// cannot configure without a hidden required value.
 #[derive(JsonSchema)]
 #[serde(untagged)]
 pub enum ParserSchema {
     #[schemars(title = "JSON parser")]
     Json(JsonParserSchema),
+    #[schemars(title = "Confluent Schema Registry parser")]
+    SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Discard messages (for benchmarks)")]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }
@@ -34,6 +31,18 @@ pub struct JsonParserSchema {
 
     #[schemars(title = "JSON parser")]
     pub json_parser: JsonParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct SchemaRegistryParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
+    pub common: CommonParserConfig,
+
+    #[schemars(title = "Confluent Schema Registry parser")]
+    pub schema_registry: SchemaRegistryParserConfig,
 }
 
 #[derive(JsonSchema)]
