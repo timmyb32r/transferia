@@ -19,7 +19,7 @@ use tokio::task::JoinSet;
 use super::client::{
     dynamic_table_attributes, json_header_value, resolved_link_suggestion, rich_read_path,
     static_table_attributes, suggestion_directory, table_path_suggestions, table_writer_spec,
-    yson_header_value, ListedNode,
+    uniform_reshard_parameters, yson_header_value, ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
@@ -35,7 +35,7 @@ use super::native_rpc::{
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
     encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches, validate_row_weight,
-    yt_guid,
+    validate_initial_tablet_count, yt_guid,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
@@ -595,6 +595,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     )?;
     let write = config.dynamic_write().expect("dynamic writer config");
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
+    assert_eq!(config.initial_tablet_count(), Some(1));
     assert_eq!(config.primary_medium, "default");
     assert_eq!(write.transaction_rows, 50_000);
     assert_eq!(write.transaction_concurrency, 8);
@@ -606,6 +607,70 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(write.retry_max_ms, 5_000);
     config.validate()?;
     Ok(())
+}
+
+#[test]
+fn dynamic_initial_tablet_count_is_uniform_and_requires_an_integral_first_key(
+) -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, initial_tablet_count: 8 }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert_eq!(config.initial_tablet_count(), Some(8));
+    config.validate()?;
+    assert_eq!(
+        uniform_reshard_parameters("//tmp/output/events", 8)?,
+        serde_json::json!({
+            "path": "//tmp/output/events",
+            "tablet_count": 8,
+            "uniform": true,
+        })
+    );
+
+    let integral = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".into(), DataType::Utf8, true),
+    ]);
+    validate_initial_tablet_count(8, &integral, "events")?;
+
+    let string = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Utf8, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("payload".into(), DataType::Utf8, true),
+    ]);
+    let error = validate_initial_tablet_count(8, &string, "events")
+        .expect_err("uniform pivots for a string key must fail before table creation");
+    assert!(error.to_string().contains("integral first primary-key"));
+    validate_initial_tablet_count(1, &string, "events")?;
+
+    assert!(uniform_reshard_parameters("", 8).is_err());
+    assert!(uniform_reshard_parameters("//tmp/output/events", 0).is_err());
+    assert!(uniform_reshard_parameters("//tmp/output/events", 10_001).is_err());
+    Ok(())
+}
+
+#[test]
+fn dynamic_initial_tablet_count_rejects_out_of_range_configuration() {
+    for tablet_count in [0, 10_001] {
+        let config: YTsaurusSinkConfig = serde_yaml::from_str(&format!(
+            "tables: {{ type: dynamic_tables, replace_tables: false, path: //tmp/output, initial_tablet_count: {tablet_count} }}\n\
+             auth: {{ type: token, token: test }}\n\
+             host: localhost\n\
+             port: 8000\n\
+             trusted_plaintext: true\n\
+             trusted_native_rpc_plaintext: true\n"
+        ))
+        .expect("configuration should deserialize before semantic validation");
+        let error = config
+            .validate()
+            .expect_err("out-of-range tablet count must fail");
+        assert!(error.to_string().contains("between 1 and 10000"));
+    }
 }
 
 #[test]

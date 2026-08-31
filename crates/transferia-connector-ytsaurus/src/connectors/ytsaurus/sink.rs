@@ -138,6 +138,13 @@ impl SinkLimits for YTsaurusSinkConfig {
                     dataset.name
                 );
                 sorted_unique_schema_to_yt(&dataset.stored_schema)?;
+                validate_initial_tablet_count(
+                    self.initial_tablet_count().ok_or_else(|| {
+                        anyhow::anyhow!("dynamic table has no initial tablet count")
+                    })?,
+                    &dataset.stored_schema,
+                    &dataset.name,
+                )?;
             }
         }
         if static_unique_sorted {
@@ -233,6 +240,17 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 write.dynamic_store_overflow_threshold,
                             )
                             .await?;
+                        let initial_tablet_count = self
+                            .config
+                            .initial_tablet_count()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("dynamic table has no initial tablet count")
+                            })?;
+                        if initial_tablet_count > 1 {
+                            self.client
+                                .reshard_table_uniform(&path, initial_tablet_count)
+                                .await?;
+                        }
                         self.client
                             .mount_table(
                                 &path,
@@ -351,6 +369,42 @@ impl SinkConnector for YTsaurusSinkConnector {
             }) as Box<dyn Sink>)
         })
     }
+}
+
+pub(super) fn validate_initial_tablet_count(
+    tablet_count: usize,
+    schema: &transferia_core::data::schema::DatasetSchema,
+    dataset: &str,
+) -> anyhow::Result<()> {
+    if tablet_count == 1 {
+        return Ok(());
+    }
+    let first_key = schema
+        .columns
+        .iter()
+        .find(|column| column.primary_key)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "dynamic YTsaurus table for dataset '{dataset}' has no primary-key column"
+            )
+        })?;
+    anyhow::ensure!(
+        matches!(
+            first_key.data_type,
+            DataType::Int8
+                | DataType::Int16
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::UInt16
+                | DataType::UInt32
+                | DataType::UInt64
+        ),
+        "dynamic YTsaurus initial_tablet_count={tablet_count} for dataset '{dataset}' requires an integral first primary-key column; '{}' has Arrow type {:?}",
+        first_key.name,
+        first_key.data_type
+    );
+    Ok(())
 }
 
 struct YTsaurusSink {

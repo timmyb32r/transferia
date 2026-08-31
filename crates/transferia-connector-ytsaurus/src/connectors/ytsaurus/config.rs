@@ -34,6 +34,8 @@ const DEFAULT_DYNAMIC_BUFFER_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_DYNAMIC_STORE_OVERFLOW_THRESHOLD: f64 = 0.5;
 const DEFAULT_DYNAMIC_RETRY_INITIAL_MS: u64 = 100;
 const DEFAULT_DYNAMIC_RETRY_MAX_MS: u64 = 5_000;
+const DEFAULT_INITIAL_TABLET_COUNT: usize = 1;
+const MAX_TABLET_COUNT: usize = 10_000;
 const DEFAULT_TABLE_WRITER_BLOCK_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
@@ -1077,6 +1079,15 @@ pub enum YTsaurusTableMode {
         )]
         tablet_cell_bundle: Option<String>,
 
+        #[serde(default = "default_initial_tablet_count")]
+        #[schemars(
+            title = "Initial tablet count",
+            description = "Number of tablets created before the table is mounted. Values above one require an integral first primary-key column so YTsaurus can derive lossless uniform pivot keys.",
+            range(min = 1, max = 10_000),
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        initial_tablet_count: usize,
+
         #[serde(default)]
         write: YTsaurusDynamicWriteConfig,
     },
@@ -1125,6 +1136,13 @@ impl YTsaurusSinkConfig {
                     "ytsaurus dynamic tablet_cell_bundle must not be empty"
                 );
             }
+            let initial_tablet_count = self
+                .initial_tablet_count()
+                .ok_or_else(|| anyhow::anyhow!("dynamic table has no initial tablet count"))?;
+            anyhow::ensure!(
+                (1..=MAX_TABLET_COUNT).contains(&initial_tablet_count),
+                "ytsaurus dynamic initial_tablet_count must be between 1 and {MAX_TABLET_COUNT}"
+            );
         }
         Ok(())
     }
@@ -1185,6 +1203,17 @@ impl YTsaurusSinkConfig {
                 tablet_cell_bundle,
                 ..
             } => tablet_cell_bundle.as_deref(),
+        }
+    }
+
+    #[must_use]
+    pub const fn initial_tablet_count(&self) -> Option<usize> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { .. } => None,
+            YTsaurusTableMode::DynamicTables {
+                initial_tablet_count,
+                ..
+            } => Some(*initial_tablet_count),
         }
     }
 
@@ -1321,6 +1350,10 @@ const fn default_dynamic_retry_initial_ms() -> u64 {
 
 const fn default_dynamic_retry_max_ms() -> u64 {
     DEFAULT_DYNAMIC_RETRY_MAX_MS
+}
+
+const fn default_initial_tablet_count() -> usize {
+    DEFAULT_INITIAL_TABLET_COUNT
 }
 
 const fn default_true() -> bool {

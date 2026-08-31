@@ -670,6 +670,28 @@ impl YTsaurusClient {
         }
     }
 
+    pub async fn reshard_table_uniform(
+        &self,
+        path: &str,
+        tablet_count: usize,
+    ) -> anyhow::Result<()> {
+        let parameters = uniform_reshard_parameters(path, tablet_count)?;
+        let response = self
+            .request_v4(reqwest::Method::POST, "reshard_table")?
+            .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        let actual = self
+            .get_json(&super::attribute_path(path, "tablet_count"))
+            .await?;
+        anyhow::ensure!(
+            actual == Value::from(tablet_count),
+            "YTsaurus dynamic table '{path}' has {actual} tablets after reshard, expected {tablet_count}"
+        );
+        Ok(())
+    }
+
     pub async fn move_table(
         &self,
         source_path: &str,
@@ -814,6 +836,22 @@ pub(super) fn dynamic_table_attributes(
     }
     extend_attributes(&mut attributes, custom_attributes)?;
     Ok(attributes)
+}
+
+pub(super) fn uniform_reshard_parameters(
+    path: &str,
+    tablet_count: usize,
+) -> anyhow::Result<Value> {
+    anyhow::ensure!(!path.is_empty(), "YTsaurus reshard path must not be empty");
+    anyhow::ensure!(
+        (1..=10_000).contains(&tablet_count),
+        "YTsaurus tablet count must be between 1 and 10000"
+    );
+    Ok(serde_json::json!({
+        "path": path,
+        "tablet_count": tablet_count,
+        "uniform": true,
+    }))
 }
 
 pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {

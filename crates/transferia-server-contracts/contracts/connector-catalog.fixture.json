@@ -6991,6 +6991,18 @@
                         "section": "advanced"
                       }
                     },
+                    "initial_tablet_count": {
+                      "title": "Initial tablet count",
+                      "description": "Number of tablets created before the table is mounted. Values above one require an integral first primary-key column so YTsaurus can derive lossless uniform pivot keys.",
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 1,
+                      "maximum": 10000,
+                      "default": 1,
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "write": {
                       "$ref": "#/$defs/YTsaurusDynamicWriteConfig"
                     },
