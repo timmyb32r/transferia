@@ -15,7 +15,7 @@ use crate::schema_registry::{RegistryClient, SchemaRegistryConnection};
 use transferia_core::data::message::Message;
 use transferia_core::data::table_data::TableData;
 
-use decoder::SchemaDecoder;
+pub use decoder::SchemaDecoder;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

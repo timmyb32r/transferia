@@ -114,7 +114,7 @@ pub fn build_connector_catalog_with(
     transferia: &Transferia,
     metrics_registry: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<ConnectorCatalog> {
-    let mut catalog = build_base_connector_catalog(metrics_registry)?;
+    let mut catalog = build_base_connector_catalog(metrics_registry, transferia.registry().parser_plugins())?;
     catalog.replace_definitions(transferia.composition().connector_definitions().to_vec())?;
     Ok(catalog)
 }
@@ -123,7 +123,7 @@ pub(crate) fn compile_connector_definitions(
     registry: &ExtensionRegistry,
 ) -> anyhow::Result<Vec<ConnectorDefinition>> {
     let metrics = Arc::new(MetricsRegistry::new());
-    let mut catalog = build_base_connector_catalog(&metrics)?;
+    let mut catalog = build_base_connector_catalog(&metrics, registry.parser_plugins())?;
     catalog.edit_definitions(|definitions| {
         for definition in definitions.iter_mut() {
             if let Some(endpoint) = &mut definition.source {
@@ -145,6 +145,7 @@ pub(crate) fn compile_connector_definitions(
         }
         apply_dynamic_options_bindings(definitions, registry)?;
         apply_external_link_bindings(definitions, registry)?;
+        apply_parser_plugins(definitions, registry)?;
         Ok(())
     })?;
     Ok(catalog.definitions().to_vec())
@@ -153,7 +154,10 @@ pub(crate) fn compile_connector_definitions(
 pub(crate) fn compile_middleware_definitions(
 ) -> anyhow::Result<Vec<transferia_registry::MiddlewareDefinition>> {
     Ok(
-        build_base_connector_catalog(&Arc::new(MetricsRegistry::new()))?
+        build_base_connector_catalog(
+            &Arc::new(MetricsRegistry::new()),
+            &transferia_connector_support::parsers::ParserPluginRegistry::default(),
+        )?
             .middleware_definitions()
             .to_vec(),
     )
@@ -268,16 +272,59 @@ fn apply_dynamic_options_bindings(
     Ok(())
 }
 
+fn apply_parser_plugins(
+    definitions: &mut [ConnectorDefinition],
+    registry: &ExtensionRegistry,
+) -> anyhow::Result<()> {
+    for (kind, _title, connectors, schema) in registry.parser_plugins().registrations() {
+        for connector in connectors {
+            let definition = definitions
+                .iter_mut()
+                .find(|definition| definition.key == *connector)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "parser plugin '{kind}' targets unknown connector '{connector}'"
+                    )
+                })?;
+            let source = definition.source.as_mut().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "parser plugin '{kind}' targets connector '{connector}' without a source"
+                )
+            })?;
+            let variants = source
+                .schema
+                .pointer_mut("/$defs/ParserSchema/anyOf")
+                .and_then(JsonValue::as_array_mut)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "parser plugin '{kind}' targets connector '{connector}' without ParserSchema"
+                    )
+                })?;
+            variants.push(schema.clone());
+        }
+    }
+    Ok(())
+}
+
 fn build_base_connector_catalog(
     _metrics_registry: &Arc<MetricsRegistry>,
+    parser_plugins: &transferia_connector_support::parsers::ParserPluginRegistry,
 ) -> anyhow::Result<ConnectorCatalog> {
     let mut catalog = RegistryBuilder::new();
     transferia_middleware_filter::register(&mut catalog)?;
     transferia_middleware_datafusion::register(&mut catalog)?;
 
-    transferia_connector_logbroker::register(&mut catalog, _metrics_registry)?;
+    transferia_connector_logbroker::register_with_parsers(
+        &mut catalog,
+        _metrics_registry,
+        parser_plugins.clone(),
+    )?;
 
-    transferia_connector_kafka::register(&mut catalog, _metrics_registry)?;
+    transferia_connector_kafka::register_with_parsers(
+        &mut catalog,
+        _metrics_registry,
+        parser_plugins.clone(),
+    )?;
 
     transferia_connector_postgres::register(&mut catalog, _metrics_registry)?;
 

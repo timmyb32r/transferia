@@ -2,6 +2,81 @@ use super::*;
 
 mod detection;
 
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TestPluginConfig {
+    column: String,
+}
+
+#[test]
+fn parser_plugins_are_typed_scoped_and_executable() -> anyhow::Result<()> {
+    let mut plugins = ParserPluginRegistry::default();
+    plugins.register::<TestPluginConfig, _>(
+        ParserPluginSpec {
+            kind: "test_plugin",
+            title: "Test plugin",
+            connectors: &["kafka"],
+        },
+        |common, config, source_name| {
+            ParserPlan::from_plugin(
+                common,
+                source_name,
+                Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::from(
+                    source_name,
+                ))),
+                DatasetSchema::new(vec![SchemaColumn::new(
+                    config.column,
+                    arrow::datatypes::DataType::Utf8,
+                    false,
+                )]),
+                None,
+            )
+        },
+    )?;
+    let config: ParserConfig = serde_yaml::from_str(
+        "common:\n  table_naming: { type: from_config, name: events }\ntest_plugin: { column: payload }\n",
+    )?;
+    let plan = ParserPlan::from_config_with_plugins(&config, "topic", &plugins)?;
+    assert_eq!(plan.table().as_ref(), "events");
+    assert_eq!(plan.dataset_schema().columns[0].name, "payload");
+    assert_eq!(plugins.variants_for("kafka").count(), 1);
+    assert_eq!(plugins.variants_for("logbroker").count(), 0);
+    Ok(())
+}
+
+#[test]
+fn parser_plugins_reject_ambiguous_registration_and_invalid_output_schema() -> anyhow::Result<()> {
+    let mut plugins = ParserPluginRegistry::default();
+    let register = |plugins: &mut ParserPluginRegistry, kind| {
+        plugins.register::<TestPluginConfig, _>(
+            ParserPluginSpec {
+                kind,
+                title: "Test plugin",
+                connectors: &["kafka"],
+            },
+            |common, _config, source_name| {
+                ParserPlan::from_plugin(
+                    common,
+                    source_name,
+                    Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::from(
+                        source_name,
+                    ))),
+                    DatasetSchema::default(),
+                    None,
+                )
+            },
+        )
+    };
+    assert!(register(&mut plugins, "json_parser").is_err());
+    register(&mut plugins, "test_plugin")?;
+    assert!(register(&mut plugins, "test_plugin").is_err());
+    let config: ParserConfig = serde_yaml::from_str(
+        "common:\n  table_naming: { type: from_config, name: events }\ntest_plugin: { column: payload }\n",
+    )?;
+    assert!(ParserPlan::from_config_with_plugins(&config, "topic", &plugins).is_err());
+    Ok(())
+}
+
 #[test]
 fn raw_to_table_public_schema_is_selectable_and_has_lossless_defaults() {
     let schema = serde_json::to_value(schemars::schema_for!(

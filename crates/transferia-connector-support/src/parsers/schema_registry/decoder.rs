@@ -48,6 +48,43 @@ impl SchemaDecoder {
             CompiledSchema::Protobuf(schema) => decode_protobuf(schema, payload),
         }
     }
+
+    pub fn decode_named_protobuf(
+        &mut self,
+        schema: &RegistrySchema,
+        message_name: &str,
+        payload: &[u8],
+    ) -> anyhow::Result<Value> {
+        anyhow::ensure!(
+            schema.format == SchemaFormat::Protobuf,
+            "named Protobuf decoding requires a PROTOBUF schema"
+        );
+        anyhow::ensure!(
+            !message_name.is_empty(),
+            "Protobuf message name must not be empty"
+        );
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.schemas.entry(schema.id) {
+            entry.insert(compile(schema)?);
+        }
+        let CompiledSchema::Protobuf(compiled) = self
+            .schemas
+            .get(&schema.id)
+            .ok_or_else(|| anyhow::anyhow!("compiled schema disappeared from cache"))?
+        else {
+            anyhow::bail!("named Protobuf decoding requires a PROTOBUF schema");
+        };
+        let descriptor = compiled
+            .pool
+            .get_message_by_name(message_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Protobuf schema id {} does not declare message '{message_name}'",
+                    schema.id
+                )
+            })?;
+        let message = DynamicMessage::decode(descriptor, payload)?;
+        Ok(serde_json::to_value(message)?)
+    }
 }
 
 fn compile(schema: &RegistrySchema) -> anyhow::Result<CompiledSchema> {

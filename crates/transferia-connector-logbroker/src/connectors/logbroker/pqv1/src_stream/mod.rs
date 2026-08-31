@@ -12,7 +12,7 @@ use crate::connectors::logbroker::proto::pers_queue::v1::{
     AutoPartitioningStrategy, TopicSettings,
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
+use crate::parsers::{ParserPlan, ParserPluginRegistry};
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::Source;
@@ -152,6 +152,18 @@ impl PqV1SourceConnector {
         cfg: PqV1SourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
+        Self::from_config_with_parsers(
+            cfg,
+            metrics_registry,
+            &ParserPluginRegistry::default(),
+        )
+    }
+
+    pub fn from_config_with_parsers(
+        cfg: PqV1SourceConfig,
+        metrics_registry: Arc<MetricsRegistry>,
+        parser_plugins: &ParserPluginRegistry,
+    ) -> anyhow::Result<Self> {
         crate::connectors::address::validate_host("pqv1.host", &cfg.host)?;
         crate::connectors::address::validate_port("pqv1.port", cfg.port)?;
         if cfg.topic_path.is_empty() {
@@ -182,7 +194,11 @@ impl PqV1SourceConnector {
         } else {
             SourceBehavior::ProducesRows
         };
-        let parser_plan = ParserPlan::from_config(&cfg.parser, &cfg.topic_path)?;
+        let parser_plan = ParserPlan::from_config_with_plugins(
+            &cfg.parser,
+            &cfg.topic_path,
+            parser_plugins,
+        )?;
         let decompression_slots = Arc::new(Semaphore::new(cfg.decompression_concurrency));
         let resolved_partitions = Arc::new(OnceLock::new());
         if !cfg.partition_group_ids.is_empty() {

@@ -12,7 +12,7 @@ use ydb_grpc::ydb_proto::topic::v1::topic_service_client::TopicServiceClient;
 
 use crate::connectors::logbroker::transport::{connect_http2_prior_knowledge, H2Service};
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
+use crate::parsers::{ParserPlan, ParserPluginRegistry};
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest, SourceTopology};
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
@@ -138,6 +138,18 @@ impl YdbDriverSourceConnector {
         cfg: LogbrokerSourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
+        Self::from_config_with_parsers(
+            cfg,
+            metrics_registry,
+            &ParserPluginRegistry::default(),
+        )
+    }
+
+    pub fn from_config_with_parsers(
+        cfg: LogbrokerSourceConfig,
+        metrics_registry: Arc<MetricsRegistry>,
+        parser_plugins: &ParserPluginRegistry,
+    ) -> anyhow::Result<Self> {
         validate_config(&cfg)?;
         anyhow::ensure!(
             cfg.driver == LogbrokerDriver::Ydb,
@@ -149,7 +161,11 @@ impl YdbDriverSourceConnector {
             crate::parsers::TableNaming::FromTopicName
         );
         let primary_topic = source::canonical_topic_path(&cfg.topics[0].path);
-        let mut parser_plan = ParserPlan::from_config(&cfg.parser, primary_topic)?;
+        let mut parser_plan = ParserPlan::from_config_with_plugins(
+            &cfg.parser,
+            primary_topic,
+            parser_plugins,
+        )?;
         if from_topic_name {
             parser_plan = parser_plan.route_by_message_topic();
         }
@@ -231,6 +247,18 @@ pub fn build_source_connector(
     cfg: LogbrokerSourceConfig,
     metrics_registry: Arc<MetricsRegistry>,
 ) -> anyhow::Result<Box<dyn SourceConnector>> {
+    build_source_connector_with_parsers(
+        cfg,
+        metrics_registry,
+        &ParserPluginRegistry::default(),
+    )
+}
+
+pub fn build_source_connector_with_parsers(
+    cfg: LogbrokerSourceConfig,
+    metrics_registry: Arc<MetricsRegistry>,
+    parser_plugins: &ParserPluginRegistry,
+) -> anyhow::Result<Box<dyn SourceConnector>> {
     validate_config(&cfg)?;
     match cfg.driver {
         LogbrokerDriver::Ydb => {
@@ -240,9 +268,10 @@ pub fn build_source_connector(
                     && !cfg.pqv1_discard_before_decompression,
                 "PQv1-only settings require logbroker.driver=pqv1"
             );
-            Ok(Box::new(YdbDriverSourceConnector::from_config(
+            Ok(Box::new(YdbDriverSourceConnector::from_config_with_parsers(
                 cfg,
                 metrics_registry,
+                parser_plugins,
             )?))
         }
         LogbrokerDriver::Pqv1 => {
@@ -288,11 +317,11 @@ pub fn build_source_connector(
                 benchmark_discard_before_decompression: cfg.pqv1_discard_before_decompression,
                 allow_ttl_rewind: cfg.allow_ttl_rewind,
             };
-            let inner =
-                crate::connectors::logbroker::pqv1::src_stream::PqV1SourceConnector::from_config(
-                    pqv1,
-                    metrics_registry,
-                )?;
+            let inner = crate::connectors::logbroker::pqv1::src_stream::PqV1SourceConnector::from_config_with_parsers(
+                pqv1,
+                metrics_registry,
+                parser_plugins,
+            )?;
             let behavior = inner
                 .compatibility()
                 .source_behavior()

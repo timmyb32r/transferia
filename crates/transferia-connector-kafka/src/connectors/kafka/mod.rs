@@ -15,7 +15,7 @@ pub use config::{
 use sink::KafkaSink;
 
 use crate::metrics::{MetricsRegistry, SourceCounters};
-use crate::parsers::ParserPlan;
+use crate::parsers::{ParserPlan, ParserPluginRegistry};
 use crate::serializer::JsonBatchEncoder;
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
@@ -43,8 +43,24 @@ impl KafkaSourceConnector {
         config: KafkaSourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
+        Self::from_config_with_parsers(
+            config,
+            metrics_registry,
+            &ParserPluginRegistry::default(),
+        )
+    }
+
+    pub fn from_config_with_parsers(
+        config: KafkaSourceConfig,
+        metrics_registry: Arc<MetricsRegistry>,
+        parser_plugins: &ParserPluginRegistry,
+    ) -> anyhow::Result<Self> {
         validate_source_config(&config)?;
-        let parser_plan = ParserPlan::from_config(&config.parser, &config.topics[0])?;
+        let parser_plan = ParserPlan::from_config_with_plugins(
+            &config.parser,
+            &config.topics[0],
+            parser_plugins,
+        )?;
         Ok(Self {
             config: Arc::new(config),
             parser_plan,

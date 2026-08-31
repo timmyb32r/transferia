@@ -10,6 +10,9 @@ use serde_yaml::{Mapping, Value};
 use sha2::{Digest, Sha256};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+use transferia_connector_support::parsers::{
+    CommonParserConfig, ParserPlan, ParserPluginRegistry, ParserPluginSpec,
+};
 
 const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// Bump whenever core changes executable extension behavior without a public
@@ -17,6 +20,7 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const CORE_EXTENSION_ABI_VERSION: u32 = 3;
 
 pub use transferia_registry::{DynamicOption, DynamicOptions, EndpointRole, OptionsRequest};
+pub use transferia_connector_support::parsers::ParserPluginSpec as ExternalParserSpec;
 
 #[derive(Clone, Debug)]
 pub struct OptionsContext {
@@ -212,9 +216,26 @@ pub struct ExtensionRegistry {
         BTreeMap<(&'static str, EndpointRole, &'static str), ExternalLinkBinding>,
 
     pre_installation_fields: BTreeMap<(&'static str, EndpointRole), Vec<&'static str>>,
+
+    parser_plugins: ParserPluginRegistry,
 }
 
 impl ExtensionRegistry {
+    pub fn register_parser<C, F>(
+        &mut self,
+        spec: ParserPluginSpec,
+        build: F,
+    ) -> anyhow::Result<()>
+    where
+        C: DeserializeOwned + JsonSchema + Send + Sync + 'static,
+        F: Fn(&CommonParserConfig, C, &str) -> anyhow::Result<ParserPlan>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.parser_plugins.register(spec, build)
+    }
+
     pub fn register_field_before_installation(
         &mut self,
         connector: &'static str,
@@ -582,6 +603,10 @@ impl ExtensionRegistry {
             })
             .map(|(_, fields)| fields.clone())
             .unwrap_or_default()
+    }
+
+    pub(crate) const fn parser_plugins(&self) -> &ParserPluginRegistry {
+        &self.parser_plugins
     }
 
     fn field_placements(

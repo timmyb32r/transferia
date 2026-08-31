@@ -10,4 +10,6 @@ pub use sink::build_sink_connector;
 pub use src_stream::check_connection;
 pub use src_stream::check_network_connection;
 pub use src_stream::preview_message;
-pub use src_stream::{build_source_connector, YdbDriverSourceConnector};
+pub use src_stream::{
+    build_source_connector, build_source_connector_with_parsers, YdbDriverSourceConnector,
+};

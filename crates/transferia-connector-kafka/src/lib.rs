@@ -18,6 +18,18 @@ pub fn register(
     registry: &mut RegistryBuilder,
     metrics: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<()> {
+    register_with_parsers(
+        registry,
+        metrics,
+        parsers::ParserPluginRegistry::default(),
+    )
+}
+
+pub fn register_with_parsers(
+    registry: &mut RegistryBuilder,
+    metrics: &Arc<MetricsRegistry>,
+    parser_plugins: parsers::ParserPluginRegistry,
+) -> anyhow::Result<()> {
     registry.register(
         ComponentRegistration::new("kafka", "Kafka")
             .source_draft::<kafka::KafkaSourceConfig, _, _>(
@@ -33,10 +45,12 @@ pub fn register(
                 },
                 {
                     let metrics = Arc::clone(metrics);
+                    let parser_plugins = parser_plugins.clone();
                     move |config| {
-                        Ok(Box::new(kafka::KafkaSourceConnector::from_config(
+                        Ok(Box::new(kafka::KafkaSourceConnector::from_config_with_parsers(
                             config,
                             Arc::clone(&metrics),
+                            &parser_plugins,
                         )?))
                     }
                 },

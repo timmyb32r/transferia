@@ -3,6 +3,7 @@ pub mod config;
 pub mod detection;
 pub mod json_parser;
 mod native_source;
+mod plugin;
 pub mod raw_to_table;
 pub mod schema_registry;
 
@@ -21,6 +22,8 @@ use transferia_core::delivery::{
 };
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
+pub use plugin::{ParserPluginRegistry, ParserPluginSpec};
+pub use schema_registry::SchemaDecoder;
 
 /// Common parser interface. Every parser converts raw [`Message`]s into
 /// Arrow [`TableData`] (valid + optional DLQ).
@@ -100,6 +103,14 @@ impl ParserPlan {
     }
 
     pub fn from_config(config: &ParserConfig, topic_path: &str) -> anyhow::Result<Self> {
+        Self::from_config_with_plugins(config, topic_path, &ParserPluginRegistry::default())
+    }
+
+    pub fn from_config_with_plugins(
+        config: &ParserConfig,
+        topic_path: &str,
+        plugins: &ParserPluginRegistry,
+    ) -> anyhow::Result<Self> {
         config.common.system_columns.validate()?;
         let kind = config.parser.kind()?;
         let (parser, dataset_schema, parses_rows, discovered_system_columns, primary_key) =
@@ -169,9 +180,27 @@ impl ParserPlan {
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
                     return Ok(Self::from_benchmark_discard(topic_path));
                 }
-                other => anyhow::bail!(
-                    "unknown parser '{other}'; supported parsers: json_parser, schema_registry, raw_to_table, benchmark_discard"
-                ),
+                other => {
+                    if let Some(plan) = plugins.build(
+                        other,
+                        &config.common,
+                        config.parser.raw()?,
+                        topic_path,
+                    )? {
+                        return Ok(plan);
+                    }
+                    let mut supported = vec![
+                        "json_parser",
+                        "schema_registry",
+                        "raw_to_table",
+                        "benchmark_discard",
+                    ];
+                    supported.extend(plugins.kinds());
+                    anyhow::bail!(
+                        "unknown parser '{other}'; supported parsers: {}",
+                        supported.join(", ")
+                    );
+                }
             };
         Ok(Self {
             parser,
@@ -181,6 +210,41 @@ impl ParserPlan {
             discovered_system_columns,
             primary_key,
             dlq_dataset_schema: default_dlq_schema(),
+        })
+    }
+
+    pub fn from_plugin(
+        common: &CommonParserConfig,
+        source_name: &str,
+        parser: Arc<dyn ParserFactory>,
+        dataset_schema: DatasetSchema,
+        dlq_dataset_schema: Option<DatasetSchema>,
+    ) -> anyhow::Result<Self> {
+        common.system_columns.validate()?;
+        let table: Arc<str> = common.resolve_table_name(source_name)?.into();
+        let discovered_system_columns = common
+            .system_columns
+            .enabled()
+            .map(|kind| DiscoveredSystemColumn {
+                kind,
+                name: Arc::from(common.system_columns.name(kind)),
+            })
+            .collect::<Vec<_>>();
+        validate_plugin_schema(&dataset_schema, &discovered_system_columns)?;
+        let primary_key = dataset_schema
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>();
+        Ok(Self {
+            parser,
+            table,
+            dataset_schema,
+            parses_rows: true,
+            discovered_system_columns,
+            primary_key: primary_key.into(),
+            dlq_dataset_schema: dlq_dataset_schema.unwrap_or_else(default_dlq_schema),
         })
     }
 
@@ -329,6 +393,41 @@ impl ParserPlan {
         }
         DatasetSchema::new(columns)
     }
+}
+
+fn validate_plugin_schema(
+    schema: &DatasetSchema,
+    system_columns: &[DiscoveredSystemColumn],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !schema.columns.is_empty(),
+        "parser plugin output schema must contain at least one column"
+    );
+    let mut names = std::collections::HashSet::new();
+    for column in &schema.columns {
+        anyhow::ensure!(
+            !column.name.is_empty(),
+            "parser plugin output column names must not be empty"
+        );
+        anyhow::ensure!(
+            names.insert(column.name.as_str()),
+            "parser plugin output repeats column '{}'",
+            column.name
+        );
+        anyhow::ensure!(
+            !column.primary_key || !column.nullable,
+            "parser plugin primary-key column '{}' must not be nullable",
+            column.name
+        );
+    }
+    for column in system_columns {
+        anyhow::ensure!(
+            names.insert(column.name.as_ref()),
+            "system column '{}' conflicts with a parser plugin output column",
+            column.name
+        );
+    }
+    Ok(())
 }
 
 fn default_dlq_schema() -> DatasetSchema {

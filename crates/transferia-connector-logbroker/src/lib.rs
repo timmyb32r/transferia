@@ -18,6 +18,18 @@ pub fn register(
     registry: &mut RegistryBuilder,
     metrics: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<()> {
+    register_with_parsers(
+        registry,
+        metrics,
+        parsers::ParserPluginRegistry::default(),
+    )
+}
+
+pub fn register_with_parsers(
+    registry: &mut RegistryBuilder,
+    metrics: &Arc<MetricsRegistry>,
+    parser_plugins: parsers::ParserPluginRegistry,
+) -> anyhow::Result<()> {
     registry.register(
         ComponentRegistration::new("logbroker", "Logbroker")
             .source_draft::<logbroker::src_stream::LogbrokerSourceConfig, _, _>(
@@ -29,7 +41,15 @@ pub fn register(
                     "trusted_plaintext": true, "allow_ttl_rewind": false,
                     "parser": {}, "read_buffer_bytes": 1_048_576
                 }),
-                { let metrics = Arc::clone(metrics); move |config| logbroker::build_source_connector(config, Arc::clone(&metrics)) },
+                {
+                    let metrics = Arc::clone(metrics);
+                    let parser_plugins = parser_plugins.clone();
+                    move |config| logbroker::build_source_connector_with_parsers(
+                        config,
+                        Arc::clone(&metrics),
+                        &parser_plugins,
+                    )
+                },
             )?
             .source_checker::<logbroker::src_stream::LogbrokerSourceCheckConfig, _, _>(|config| async move {
                 let cancellation = tokio_util::sync::CancellationToken::new();
