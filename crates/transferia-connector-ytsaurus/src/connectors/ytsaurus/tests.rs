@@ -26,7 +26,8 @@ use super::config::{
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
-    checksum_matches, crc64, credentials, receive_read_worker_item, rowset_payload,
+    checksum_matches, crc64, credentials, is_transient_dynamic_write_error,
+    is_transient_dynamic_write_error_code, receive_read_worker_item, rowset_payload,
     NativeReadFormat,
 };
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
@@ -38,6 +39,7 @@ use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
     DiscoveredTable, PhysicalChunkLayout,
 };
+use super::yt_wire::{encode_wire_batch, YtWireDecoder};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SinkLimits as _,
@@ -315,7 +317,7 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let mut config = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
-    assert_eq!(config.format(), YTsaurusWriteFormat::Arrow);
+    assert_eq!(config.static_format(), Some(YTsaurusWriteFormat::Arrow));
     assert_eq!(
         config.primary_key_semantics,
         YTsaurusPrimaryKeySemantics::UniqueSorted
@@ -441,6 +443,96 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
           {\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
     );
     Ok(())
+}
+
+#[test]
+fn dynamic_wire_encoder_round_trips_values_and_explicit_nulls() -> anyhow::Result<()> {
+    let dataset_schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("name".into(), DataType::Utf8, true),
+    ]);
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, true),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![-1, 2])) as ArrayRef,
+            Arc::new(StringArray::from(vec![Some("alice"), None])) as ArrayRef,
+        ],
+    )?;
+
+    let encoded = encode_wire_batch(&batch)?;
+    let decoded = YtWireDecoder::new(&dataset_schema).decode(
+        &encoded.column_names,
+        encoded.payload,
+    )?;
+
+    assert_eq!(decoded.column(0), batch.column(0));
+    assert_eq!(decoded.column(1), batch.column(1));
+    Ok(())
+}
+
+#[test]
+fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    let write = config.dynamic_write().expect("dynamic writer config");
+    assert_eq!(write.transaction_rows, 50_000);
+    assert_eq!(write.transaction_concurrency, 8);
+    assert_eq!(write.transaction_timeout_ms, 60_000);
+    assert_eq!(write.buffer_bytes, 256 * 1024 * 1024);
+    assert_eq!(write.dynamic_store_overflow_threshold, 0.5);
+    assert!(write.require_sync_replica);
+    assert_eq!(write.retry_initial_ms, 100);
+    assert_eq!(write.retry_max_ms, 5_000);
+    config.validate()?;
+    Ok(())
+}
+
+#[test]
+fn dynamic_sink_retries_yt_backpressure_and_rebalancing_indefinitely() {
+    for code in [
+        1700, 1701, 1702, 1703, 1704, 1706, 1707, 1712, 1713, 1720, 1721, 1725, 1732, 1735,
+        1736, 1740, 1742, 1745, 1746, 1747, 1748,
+    ] {
+        assert!(
+            is_transient_dynamic_write_error_code(code),
+            "expected retryable YTsaurus RPC error code: {code}"
+        );
+    }
+    for code in [0, 1, 1705, 1714, 1715, 1716, 1717, 1726, 1731, 1738, 1739, 1741] {
+        assert!(
+            !is_transient_dynamic_write_error_code(code),
+            "expected terminal YTsaurus RPC error code: {code}"
+        );
+    }
+    for message in [
+        "cannot mount table since node is locked by mount-unmount operation",
+        "node is out of tablet memory",
+        "too many overlapping stores in tablet, all writes disabled",
+        "active store is overflown, all writes disabled: dynamic store pool size limit reached",
+        "tablet a481 is not in \"mounted\" state",
+        "No such tablet 8a62",
+    ] {
+        assert!(
+            is_transient_dynamic_write_error(&anyhow::anyhow!(message)),
+            "expected retryable YTsaurus response: {message}"
+        );
+    }
+    assert!(!is_transient_dynamic_write_error(&anyhow::anyhow!(
+        "authentication failed"
+    )));
+    assert!(!is_transient_dynamic_write_error(&anyhow::anyhow!(
+        "schema does not match"
+    )));
 }
 
 #[test]

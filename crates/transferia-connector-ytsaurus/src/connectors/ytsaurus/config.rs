@@ -27,6 +27,13 @@ const DEFAULT_WRITE_TARGET_BYTES: usize = 512 * 1024 * 1024;
 const DEFAULT_WRITE_CONCURRENCY: usize = 4;
 const DEFAULT_WRITE_FLUSH_INTERVAL_MS: u64 = 1_000;
 const DEFAULT_WRITE_ROW_BUFFER_BYTES: u64 = 1024 * 1024;
+const DEFAULT_DYNAMIC_TRANSACTION_ROWS: usize = 50_000;
+const DEFAULT_DYNAMIC_TRANSACTION_CONCURRENCY: usize = 8;
+const DEFAULT_DYNAMIC_TRANSACTION_TIMEOUT_MS: u64 = 60_000;
+const DEFAULT_DYNAMIC_BUFFER_BYTES: usize = 256 * 1024 * 1024;
+const DEFAULT_DYNAMIC_STORE_OVERFLOW_THRESHOLD: f64 = 0.5;
+const DEFAULT_DYNAMIC_RETRY_INITIAL_MS: u64 = 100;
+const DEFAULT_DYNAMIC_RETRY_MAX_MS: u64 = 5_000;
 const DEFAULT_TABLE_WRITER_BLOCK_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_BUFFER_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
@@ -673,6 +680,128 @@ pub enum YTsaurusPrimaryKeySemantics {
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct YTsaurusDynamicWriteConfig {
+    #[serde(default = "default_dynamic_transaction_rows")]
+    #[schemars(
+        title = "Rows per tablet transaction",
+        description = "Maximum rows committed by one lossless tablet transaction",
+        range(min = 1, max = 100_000),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub transaction_rows: usize,
+
+    #[serde(default = "default_dynamic_transaction_concurrency")]
+    #[schemars(
+        title = "Concurrent tablet transactions",
+        description = "Maximum number of independent synchronous tablet transactions in flight",
+        range(min = 1, max = 32),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub transaction_concurrency: usize,
+
+    #[serde(default = "default_dynamic_transaction_timeout_ms")]
+    #[schemars(
+        title = "Tablet transaction timeout (ms)",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub transaction_timeout_ms: u64,
+
+    #[serde(default = "default_dynamic_buffer_bytes")]
+    #[schemars(
+        title = "Dynamic write buffer bytes",
+        description = "Maximum Arrow bytes accumulated before a dynamic-table flush",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub buffer_bytes: usize,
+
+    #[serde(default = "default_dynamic_store_overflow_threshold")]
+    #[schemars(
+        title = "Dynamic store overflow threshold",
+        description = "Flush threshold installed on dynamic tables created by Transferia; lower values leave the tablet node more headroom for sustained writes",
+        range(min = 0.01, max = 0.99),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub dynamic_store_overflow_threshold: f64,
+
+    #[serde(default = "default_true")]
+    #[schemars(
+        title = "Require a synchronous replica",
+        description = "Fail writes to replicated tables unless at least one synchronous replica participates",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub require_sync_replica: bool,
+
+    #[serde(default = "default_dynamic_retry_initial_ms")]
+    #[schemars(
+        title = "Initial YTsaurus backpressure retry delay (ms)",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub retry_initial_ms: u64,
+
+    #[serde(default = "default_dynamic_retry_max_ms")]
+    #[schemars(
+        title = "Maximum YTsaurus backpressure retry delay (ms)",
+        range(min = 1),
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub retry_max_ms: u64,
+}
+
+impl Default for YTsaurusDynamicWriteConfig {
+    fn default() -> Self {
+        Self {
+            transaction_rows: default_dynamic_transaction_rows(),
+            transaction_concurrency: default_dynamic_transaction_concurrency(),
+            transaction_timeout_ms: default_dynamic_transaction_timeout_ms(),
+            buffer_bytes: default_dynamic_buffer_bytes(),
+            dynamic_store_overflow_threshold: default_dynamic_store_overflow_threshold(),
+            require_sync_replica: true,
+            retry_initial_ms: default_dynamic_retry_initial_ms(),
+            retry_max_ms: default_dynamic_retry_max_ms(),
+        }
+    }
+}
+
+impl YTsaurusDynamicWriteConfig {
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (1..=100_000).contains(&self.transaction_rows),
+            "ytsaurus dynamic transaction_rows must be between 1 and 100000"
+        );
+        anyhow::ensure!(
+            (1..=32).contains(&self.transaction_concurrency),
+            "ytsaurus dynamic transaction_concurrency must be between 1 and 32"
+        );
+        anyhow::ensure!(
+            self.transaction_timeout_ms > 0,
+            "ytsaurus dynamic transaction_timeout_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.buffer_bytes > 0,
+            "ytsaurus dynamic buffer_bytes must be positive"
+        );
+        anyhow::ensure!(
+            self.dynamic_store_overflow_threshold.is_finite()
+                && (0.0..1.0).contains(&self.dynamic_store_overflow_threshold),
+            "ytsaurus dynamic_store_overflow_threshold must be finite and between 0 and 1"
+        );
+        anyhow::ensure!(
+            self.retry_initial_ms > 0,
+            "ytsaurus dynamic retry_initial_ms must be positive"
+        );
+        anyhow::ensure!(
+            self.retry_max_ms >= self.retry_initial_ms,
+            "ytsaurus dynamic retry_max_ms must be at least retry_initial_ms"
+        );
+        Ok(())
+    }
+}
+
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct YTsaurusSinkConfig {
     #[schemars(
         title = "Table type",
@@ -819,10 +948,14 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
-            title = "Driver exchange format",
+            title = "Tablet cell bundle",
+            description = "Optional bundle used when Transferia creates the dynamic table",
             extend("x-ui" = { "section": "advanced" })
         )]
-        format: YTsaurusWriteFormat,
+        tablet_cell_bundle: Option<String>,
+
+        #[serde(default)]
+        write: YTsaurusDynamicWriteConfig,
     },
 }
 
@@ -851,6 +984,19 @@ impl YTsaurusSinkConfig {
             "ytsaurus.primary_key_sort_timeout_ms must be positive"
         );
         self.table_writer.validate()?;
+        if let Some(write) = self.dynamic_write() {
+            anyhow::ensure!(
+                self.connection.trusted_native_rpc_plaintext,
+                "ytsaurus dynamic-table writes use plaintext native_rpc; set trusted_native_rpc_plaintext=true to acknowledge that credentials and data will not be encrypted"
+            );
+            write.validate()?;
+            if let Some(bundle) = self.tablet_cell_bundle() {
+                anyhow::ensure!(
+                    !bundle.trim().is_empty(),
+                    "ytsaurus dynamic tablet_cell_bundle must not be empty"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -871,10 +1017,29 @@ impl YTsaurusSinkConfig {
     }
 
     #[must_use]
-    pub const fn format(&self) -> YTsaurusWriteFormat {
+    pub const fn static_format(&self) -> Option<YTsaurusWriteFormat> {
         match &self.tables {
-            YTsaurusTableMode::StaticTables { format, .. }
-            | YTsaurusTableMode::DynamicTables { format, .. } => *format,
+            YTsaurusTableMode::StaticTables { format, .. } => Some(*format),
+            YTsaurusTableMode::DynamicTables { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn dynamic_write(&self) -> Option<&YTsaurusDynamicWriteConfig> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { .. } => None,
+            YTsaurusTableMode::DynamicTables { write, .. } => Some(write),
+        }
+    }
+
+    #[must_use]
+    pub fn tablet_cell_bundle(&self) -> Option<&str> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { .. } => None,
+            YTsaurusTableMode::DynamicTables {
+                tablet_cell_bundle,
+                ..
+            } => tablet_cell_bundle.as_deref(),
         }
     }
 
@@ -934,6 +1099,38 @@ const fn default_write_flush_interval_ms() -> u64 {
 
 const fn default_write_row_buffer_bytes() -> u64 {
     DEFAULT_WRITE_ROW_BUFFER_BYTES
+}
+
+const fn default_dynamic_transaction_rows() -> usize {
+    DEFAULT_DYNAMIC_TRANSACTION_ROWS
+}
+
+const fn default_dynamic_transaction_concurrency() -> usize {
+    DEFAULT_DYNAMIC_TRANSACTION_CONCURRENCY
+}
+
+const fn default_dynamic_transaction_timeout_ms() -> u64 {
+    DEFAULT_DYNAMIC_TRANSACTION_TIMEOUT_MS
+}
+
+const fn default_dynamic_buffer_bytes() -> usize {
+    DEFAULT_DYNAMIC_BUFFER_BYTES
+}
+
+const fn default_dynamic_store_overflow_threshold() -> f64 {
+    DEFAULT_DYNAMIC_STORE_OVERFLOW_THRESHOLD
+}
+
+const fn default_dynamic_retry_initial_ms() -> u64 {
+    DEFAULT_DYNAMIC_RETRY_INITIAL_MS
+}
+
+const fn default_dynamic_retry_max_ms() -> u64 {
+    DEFAULT_DYNAMIC_RETRY_MAX_MS
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 const fn default_table_writer_block_bytes() -> u64 {

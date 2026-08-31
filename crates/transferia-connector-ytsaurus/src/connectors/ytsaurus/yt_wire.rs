@@ -9,9 +9,12 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, BooleanBuilder, Date32Builder, Date64Builder, Float32Builder,
-    Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder, StringBuilder,
-    TimestampMicrosecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
+    Array, ArrayRef, BinaryArray, BinaryBuilder, BooleanArray, BooleanBuilder, Date32Array,
+    Date32Builder, Date64Array, Date64Builder, Float32Array, Float32Builder, Float64Array,
+    Float64Builder, Int16Array, Int16Builder, Int32Array, Int32Builder, Int64Array, Int64Builder,
+    Int8Array, Int8Builder, LargeBinaryArray, LargeStringArray, StringArray, StringBuilder,
+    TimestampMicrosecondArray, TimestampMicrosecondBuilder, UInt16Array, UInt16Builder,
+    UInt32Array, UInt32Builder, UInt64Array, UInt64Builder, UInt8Array, UInt8Builder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -24,6 +27,214 @@ pub(super) const VALUE_DOUBLE: u8 = 0x05;
 pub(super) const VALUE_BOOLEAN: u8 = 0x06;
 pub(super) const VALUE_STRING: u8 = 0x10;
 const VALUE_NULL: u8 = 0x02;
+const MAX_WIRE_VALUE_BYTES: usize = 16 * 1024 * 1024;
+
+pub(super) struct EncodedWireBatch {
+    pub column_names: Vec<String>,
+    pub payload: Bytes,
+}
+
+pub(super) fn encode_wire_batch(batch: &RecordBatch) -> anyhow::Result<EncodedWireBatch> {
+    anyhow::ensure!(
+        batch.num_columns() <= usize::from(u16::MAX),
+        "YTsaurus wire rowset has too many columns"
+    );
+    let columns = batch
+        .columns()
+        .iter()
+        .map(|array| WireColumn::new(array.as_ref()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let header_bytes = batch
+        .num_rows()
+        .checked_mul(8 + batch.num_columns() * 8)
+        .ok_or_else(|| anyhow::anyhow!("YTsaurus wire rowset size overflow"))?;
+    let capacity = batch
+        .get_array_memory_size()
+        .checked_add(header_bytes)
+        .and_then(|size| size.checked_add(8))
+        .ok_or_else(|| anyhow::anyhow!("YTsaurus wire rowset size overflow"))?;
+    let mut output = Vec::with_capacity(capacity);
+    output.extend_from_slice(&u64::try_from(batch.num_rows())?.to_le_bytes());
+    for row in 0..batch.num_rows() {
+        output.extend_from_slice(&u64::try_from(columns.len())?.to_le_bytes());
+        for (id, column) in columns.iter().enumerate() {
+            column.append(u16::try_from(id)?, row, &mut output)?;
+        }
+    }
+    Ok(EncodedWireBatch {
+        column_names: batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect(),
+        payload: Bytes::from(output),
+    })
+}
+
+enum WireColumn<'a> {
+    Int8(&'a Int8Array),
+    Int16(&'a Int16Array),
+    Int32(&'a Int32Array),
+    Int64(&'a Int64Array),
+    UInt8(&'a UInt8Array),
+    UInt16(&'a UInt16Array),
+    UInt32(&'a UInt32Array),
+    UInt64(&'a UInt64Array),
+    Float32(&'a Float32Array),
+    Float64(&'a Float64Array),
+    Boolean(&'a BooleanArray),
+    Utf8(&'a StringArray),
+    LargeUtf8(&'a LargeStringArray),
+    Binary(&'a BinaryArray),
+    LargeBinary(&'a LargeBinaryArray),
+    Date32(&'a Date32Array),
+    Date64(&'a Date64Array),
+    TimestampMicrosecond(&'a TimestampMicrosecondArray),
+}
+
+macro_rules! downcast_wire {
+    ($array:expr_2021, $ty:ty, $variant:ident) => {
+        Self::$variant(
+            $array
+                .as_any()
+                .downcast_ref::<$ty>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?,
+        )
+    };
+}
+
+impl<'a> WireColumn<'a> {
+    fn new(array: &'a dyn Array) -> anyhow::Result<Self> {
+        Ok(match array.data_type() {
+            DataType::Int8 => downcast_wire!(array, Int8Array, Int8),
+            DataType::Int16 => downcast_wire!(array, Int16Array, Int16),
+            DataType::Int32 => downcast_wire!(array, Int32Array, Int32),
+            DataType::Int64 => downcast_wire!(array, Int64Array, Int64),
+            DataType::UInt8 => downcast_wire!(array, UInt8Array, UInt8),
+            DataType::UInt16 => downcast_wire!(array, UInt16Array, UInt16),
+            DataType::UInt32 => downcast_wire!(array, UInt32Array, UInt32),
+            DataType::UInt64 => downcast_wire!(array, UInt64Array, UInt64),
+            DataType::Float32 => downcast_wire!(array, Float32Array, Float32),
+            DataType::Float64 => downcast_wire!(array, Float64Array, Float64),
+            DataType::Boolean => downcast_wire!(array, BooleanArray, Boolean),
+            DataType::Utf8 => downcast_wire!(array, StringArray, Utf8),
+            DataType::LargeUtf8 => downcast_wire!(array, LargeStringArray, LargeUtf8),
+            DataType::Binary => downcast_wire!(array, BinaryArray, Binary),
+            DataType::LargeBinary => downcast_wire!(array, LargeBinaryArray, LargeBinary),
+            DataType::Date32 => downcast_wire!(array, Date32Array, Date32),
+            DataType::Date64 => downcast_wire!(array, Date64Array, Date64),
+            DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                downcast_wire!(array, TimestampMicrosecondArray, TimestampMicrosecond)
+            }
+            other => anyhow::bail!("YTsaurus wire encoder does not support Arrow type {other:?}"),
+        })
+    }
+
+    fn append(&self, id: u16, row: usize, output: &mut Vec<u8>) -> anyhow::Result<()> {
+        if self.is_null(row) {
+            write_wire_header(output, id, VALUE_NULL, 0);
+            return Ok(());
+        }
+        match self {
+            Self::Int8(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
+            Self::Int16(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
+            Self::Int32(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
+            Self::Int64(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as u64),
+            Self::UInt8(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
+            Self::UInt16(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
+            Self::UInt32(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
+            Self::UInt64(array) => write_wire_scalar(output, id, VALUE_UINT64, array.value(row)),
+            Self::Float32(array) => write_wire_scalar(
+                output,
+                id,
+                VALUE_DOUBLE,
+                f64::from(array.value(row)).to_bits(),
+            ),
+            Self::Float64(array) => {
+                write_wire_scalar(output, id, VALUE_DOUBLE, array.value(row).to_bits())
+            }
+            Self::Boolean(array) => {
+                write_wire_scalar(output, id, VALUE_BOOLEAN, u64::from(array.value(row)))
+            }
+            Self::Utf8(array) => write_wire_bytes(output, id, array.value(row).as_bytes())?,
+            Self::LargeUtf8(array) => write_wire_bytes(output, id, array.value(row).as_bytes())?,
+            Self::Binary(array) => write_wire_bytes(output, id, array.value(row))?,
+            Self::LargeBinary(array) => write_wire_bytes(output, id, array.value(row))?,
+            Self::Date32(array) => {
+                let value = u64::try_from(array.value(row)).map_err(|_| {
+                    anyhow::anyhow!("YTsaurus date cannot represent a value before 1970-01-01")
+                })?;
+                write_wire_scalar(output, id, VALUE_UINT64, value);
+            }
+            Self::Date64(array) => {
+                let milliseconds = array.value(row);
+                anyhow::ensure!(
+                    milliseconds >= 0 && milliseconds % 1_000 == 0,
+                    "YTsaurus datetime requires a non-negative whole-second value"
+                );
+                write_wire_scalar(
+                    output,
+                    id,
+                    VALUE_UINT64,
+                    u64::try_from(milliseconds / 1_000)?,
+                );
+            }
+            Self::TimestampMicrosecond(array) => {
+                write_wire_scalar(output, id, VALUE_UINT64, u64::try_from(array.value(row))?);
+            }
+        }
+        Ok(())
+    }
+
+    fn is_null(&self, row: usize) -> bool {
+        match self {
+            Self::Int8(array) => array.is_null(row),
+            Self::Int16(array) => array.is_null(row),
+            Self::Int32(array) => array.is_null(row),
+            Self::Int64(array) => array.is_null(row),
+            Self::UInt8(array) => array.is_null(row),
+            Self::UInt16(array) => array.is_null(row),
+            Self::UInt32(array) => array.is_null(row),
+            Self::UInt64(array) => array.is_null(row),
+            Self::Float32(array) => array.is_null(row),
+            Self::Float64(array) => array.is_null(row),
+            Self::Boolean(array) => array.is_null(row),
+            Self::Utf8(array) => array.is_null(row),
+            Self::LargeUtf8(array) => array.is_null(row),
+            Self::Binary(array) => array.is_null(row),
+            Self::LargeBinary(array) => array.is_null(row),
+            Self::Date32(array) => array.is_null(row),
+            Self::Date64(array) => array.is_null(row),
+            Self::TimestampMicrosecond(array) => array.is_null(row),
+        }
+    }
+}
+
+fn write_wire_header(output: &mut Vec<u8>, id: u16, value_type: u8, length: u32) {
+    output.extend_from_slice(&id.to_le_bytes());
+    output.push(value_type);
+    output.push(0);
+    output.extend_from_slice(&length.to_le_bytes());
+}
+
+fn write_wire_scalar(output: &mut Vec<u8>, id: u16, value_type: u8, value: u64) {
+    write_wire_header(output, id, value_type, 0);
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_wire_bytes(output: &mut Vec<u8>, id: u16, value: &[u8]) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        value.len() <= MAX_WIRE_VALUE_BYTES,
+        "YTsaurus wire value is {} bytes, exceeding the protocol limit of {MAX_WIRE_VALUE_BYTES}",
+        value.len()
+    );
+    write_wire_header(output, id, VALUE_STRING, u32::try_from(value.len())?);
+    output.extend_from_slice(value);
+    let padding = (8 - value.len() % 8) % 8;
+    output.resize(output.len() + padding, 0);
+    Ok(())
+}
 
 pub(super) struct YtWireDecoder {
     dataset_schema: DatasetSchema,

@@ -9,9 +9,9 @@ mod yt_wire;
 
 pub use config::{
     YTsaurusAuthConfig, YTsaurusBenchmarkDiscardConfig, YTsaurusBenchmarkTransport,
-    YTsaurusConnectionConfig, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
-    YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
-    YTsaurusWriteFormat,
+    YTsaurusConnectionConfig, YTsaurusDynamicWriteConfig, YTsaurusPrimaryKeySemantics,
+    YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
+    YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 pub use sink::YTsaurusSinkConnector;
 pub use src_batch::YTsaurusSourceConnector;

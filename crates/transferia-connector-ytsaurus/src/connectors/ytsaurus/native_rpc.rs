@@ -10,10 +10,11 @@
 )]
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
+use anyhow::Context as _;
 use arrow::buffer::Buffer;
 use arrow::ipc::reader::StreamDecoder;
 use arrow::record_batch::RecordBatch;
@@ -22,13 +23,15 @@ use prost::Message as _;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use super::config::{YTsaurusPartitionTablesConfig, YTsaurusTableReaderConfig};
 use super::yt_wire::YtWireDecoder;
 use transferia_core::data::schema::DatasetSchema;
+use transferia_delivery_contracts::metrics::SinkCounters;
+use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
 
 const BUS_SIGNATURE: u32 = 0x7861_6d4f;
 const HANDSHAKE_SIGNATURE: u32 = 0x6873_7562;
@@ -51,6 +54,29 @@ const RPC_PROXY_SELECTION_GRACE: Duration = Duration::from_secs(2);
 const RPC_PROXY_PROBE_BYTES: u64 = 64 * 1024 * 1024;
 const ROWSET_FORMAT_YT_WIRE: i32 = 0;
 const ROWSET_FORMAT_ARROW: i32 = 1;
+const TRANSIENT_TABLET_ERROR_CODES: [i32; 21] = [
+    1700, // TransactionLockConflict
+    1701, // NoSuchTablet
+    1702, // TabletNotMounted
+    1703, // AllWritesDisabled
+    1704, // InvalidMountRevision
+    1706, // InvalidTabletState
+    1707, // TableMountInfoNotReady
+    1712, // RowIsBlocked
+    1713, // BlockedRowWaitTimeout
+    1720, // BundleResourceLimitExceeded
+    1721, // NoSuchCell
+    1725, // RequestThrottled
+    1732, // SyncReplicaNotInSync
+    1735, // ChunkIsNotPreloaded
+    1736, // NoInSyncReplicas
+    1740, // TabletServantIsNotActive
+    1742, // TabletReplicationEraMismatch
+    1745, // HunkTabletStoreToggleConflict
+    1746, // HunkStoreAllocationFailed
+    1747, // TabletResharded
+    1748, // ReadOnlySmoothMovementStage
+];
 pub(super) const PARTITION_MODE_UNORDERED: i32 = 2;
 const YSON_STRING: u8 = 0x01;
 const YSON_INT64: u8 = 0x02;
@@ -559,6 +585,78 @@ struct ReadTablePartitionRequest {
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
+struct StartTransactionRequest {
+    #[prost(int32, required, tag = "1")]
+    transaction_type: i32,
+
+    #[prost(int64, optional, tag = "2")]
+    timeout: Option<i64>,
+
+    #[prost(bool, optional, tag = "6")]
+    sticky: Option<bool>,
+
+    #[prost(bool, optional, tag = "7")]
+    ping: Option<bool>,
+
+    #[prost(int32, optional, tag = "9")]
+    atomicity: Option<i32>,
+
+    #[prost(int32, optional, tag = "10")]
+    durability: Option<i32>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct StartTransactionResponse {
+    #[prost(message, required, tag = "1")]
+    id: ProtoGuid,
+
+    #[prost(uint64, required, tag = "2")]
+    start_timestamp: u64,
+
+    #[prost(int64, optional, tag = "3")]
+    sequence_number_source_id: Option<i64>,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct ModifyRowsRequest {
+    #[prost(int64, optional, tag = "6")]
+    sequence_number: Option<i64>,
+
+    #[prost(int64, optional, tag = "9")]
+    sequence_number_source_id: Option<i64>,
+
+    #[prost(message, required, tag = "1")]
+    transaction_id: ProtoGuid,
+
+    #[prost(bytes = "vec", required, tag = "2")]
+    path: Vec<u8>,
+
+    #[prost(int32, repeated, tag = "3")]
+    row_modification_types: Vec<i32>,
+
+    #[prost(bool, optional, tag = "4")]
+    require_sync_replica: Option<bool>,
+
+    #[prost(message, required, tag = "200")]
+    rowset_descriptor: RowsetDescriptor,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct CommitTransactionRequest {
+    #[prost(message, required, tag = "1")]
+    transaction_id: ProtoGuid,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AbortTransactionRequest {
+    #[prost(message, required, tag = "1")]
+    transaction_id: ProtoGuid,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct EmptyResponse {}
+
+#[derive(Clone, PartialEq, prost::Message)]
 struct ProtoError {
     #[prost(int32, required, tag = "1")]
     code: i32,
@@ -593,7 +691,26 @@ impl ProtoError {
             inner.collect_messages(output);
         }
     }
+
+    fn contains_transient_dynamic_write_code(&self) -> bool {
+        is_transient_dynamic_write_error_code(self.code)
+            || self
+                .inner_errors
+                .iter()
+                .any(Self::contains_transient_dynamic_write_code)
+    }
 }
+
+#[derive(Debug)]
+struct NativeRpcError(ProtoError);
+
+impl std::fmt::Display for NativeRpcError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0.format_chain())
+    }
+}
+
+impl std::error::Error for NativeRpcError {}
 
 #[derive(Clone, PartialEq, prost::Message)]
 struct ResponseHeader {
@@ -639,6 +756,12 @@ struct StreamingFeedbackHeader {
 
 #[derive(Clone, PartialEq, prost::Message)]
 struct RowsetDescriptor {
+    #[prost(int32, optional, tag = "1")]
+    wire_format_version: Option<i32>,
+
+    #[prost(int32, optional, tag = "2")]
+    rowset_kind: Option<i32>,
+
     #[prost(int32, optional, tag = "4")]
     rowset_format: Option<i32>,
 
@@ -690,6 +813,280 @@ impl NativeReadFormat {
 pub(super) enum NativeReadPayload {
     Encoded(Bytes),
     Decoded(Vec<RecordBatch>),
+}
+
+pub(super) struct NativeDynamicWriter {
+    workers: Vec<Mutex<NativeDynamicWorker>>,
+    next_worker: AtomicUsize,
+}
+
+impl NativeDynamicWriter {
+    pub(super) fn new(
+        endpoints: Vec<String>,
+        token: String,
+        concurrency: usize,
+        transaction_timeout: Duration,
+        retry_initial: Duration,
+        retry_max: Duration,
+        counters: Arc<SinkCounters>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !endpoints.is_empty(),
+            "YTsaurus dynamic writer requires at least one RPC proxy endpoint"
+        );
+        anyhow::ensure!(
+            concurrency > 0,
+            "YTsaurus dynamic writer concurrency must be positive"
+        );
+        let workers = (0..concurrency)
+            .map(|index| {
+                Mutex::new(NativeDynamicWorker {
+                    endpoints: endpoints.clone(),
+                    token: token.clone(),
+                    next_endpoint: index % endpoints.len(),
+                    transaction_timeout,
+                    retry_initial,
+                    retry_max,
+                    retry_seed: stable_retry_seed(&index.to_le_bytes()),
+                    counters: Arc::clone(&counters),
+                    stream: None,
+                })
+            })
+            .collect();
+        Ok(Self {
+            workers,
+            next_worker: AtomicUsize::new(0),
+        })
+    }
+
+    pub(super) async fn write_rows(
+        &self,
+        path: &str,
+        row_count: usize,
+        column_names: &[String],
+        payload: Bytes,
+        require_sync_replica: bool,
+    ) -> anyhow::Result<()> {
+        if row_count == 0 {
+            return Ok(());
+        }
+        let worker_index = self.next_worker.fetch_add(1, Ordering::Relaxed) % self.workers.len();
+        self.workers[worker_index]
+            .lock()
+            .await
+            .write_rows(
+                path,
+                row_count,
+                column_names,
+                payload,
+                require_sync_replica,
+            )
+            .await
+    }
+}
+
+struct NativeDynamicWorker {
+    endpoints: Vec<String>,
+    token: String,
+    next_endpoint: usize,
+    transaction_timeout: Duration,
+    retry_initial: Duration,
+    retry_max: Duration,
+    retry_seed: u64,
+    counters: Arc<SinkCounters>,
+    stream: Option<TcpStream>,
+}
+
+impl NativeDynamicWorker {
+    async fn connect(&mut self) -> anyhow::Result<()> {
+        if self.stream.is_some() {
+            return Ok(());
+        }
+        let mut failures = Vec::new();
+        for offset in 0..self.endpoints.len() {
+            let index = (self.next_endpoint + offset) % self.endpoints.len();
+            let endpoint = &self.endpoints[index];
+            match TcpStream::connect(endpoint).await {
+                Ok(mut stream) => {
+                    stream.set_nodelay(true)?;
+                    if let Err(error) = perform_handshake(&mut stream).await {
+                        failures.push(format!("{endpoint}: {error:#}"));
+                        continue;
+                    }
+                    self.next_endpoint = (index + 1) % self.endpoints.len();
+                    self.stream = Some(stream);
+                    return Ok(());
+                }
+                Err(error) => failures.push(format!("{endpoint}: {error}")),
+            }
+        }
+        anyhow::bail!(
+            "all YTsaurus RPC endpoints rejected the dynamic writer connection: {}",
+            failures.join("; ")
+        )
+    }
+
+    async fn write_rows(
+        &mut self,
+        path: &str,
+        row_count: usize,
+        column_names: &[String],
+        payload: Bytes,
+        require_sync_replica: bool,
+    ) -> anyhow::Result<()> {
+        let mut attempt = 0_u32;
+        let mut delay = self.retry_initial;
+        loop {
+            self.connect().await?;
+            let result = self
+                .write_rows_on_stream(
+                    path,
+                    row_count,
+                    column_names,
+                    payload.clone(),
+                    require_sync_replica,
+                )
+                .await;
+            match result {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    self.stream = None;
+                    if !is_transient_dynamic_write_error(&error) {
+                        return Err(error);
+                    }
+                    self.counters.add_retries(1);
+                    let sleep = jittered_retry_delay(delay, attempt, self.retry_seed);
+                    tracing::warn!(
+                        retry_delay_ms = sleep.as_millis(),
+                        error = ?error,
+                        "YTsaurus dynamic write was throttled or rebalanced; retrying"
+                    );
+                    tokio::time::sleep(sleep).await;
+                    attempt = attempt.saturating_add(1);
+                    delay = delay.saturating_mul(2).min(self.retry_max);
+                }
+            }
+        }
+    }
+
+    async fn write_rows_on_stream(
+        &mut self,
+        path: &str,
+        row_count: usize,
+        column_names: &[String],
+        payload: Bytes,
+        require_sync_replica: bool,
+    ) -> anyhow::Result<()> {
+        let stream = self
+            .stream
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("YTsaurus dynamic writer has no RPC connection"))?;
+        let timeout_micros = i64::try_from(self.transaction_timeout.as_micros())?;
+        let start = StartTransactionRequest {
+            transaction_type: 1,
+            timeout: Some(timeout_micros),
+            sticky: Some(true),
+            // Tablet transactions require proxy-side pings. Omitting the field
+            // preserves the protocol default (`true`) and keeps the short
+            // write transaction alive until commit.
+            ping: None,
+            atomicity: Some(0),
+            durability: Some(0),
+        };
+        let response = invoke_unary_on_stream::<StartTransactionResponse>(
+            stream,
+            &self.token,
+            "StartTransaction",
+            Bytes::from(start.encode_to_vec()),
+            &[],
+        )
+        .await?;
+        let transaction_id = response.id;
+        let descriptor = RowsetDescriptor {
+            wire_format_version: Some(1),
+            rowset_kind: Some(1),
+            rowset_format: Some(ROWSET_FORMAT_YT_WIRE),
+            name_table_entries: column_names
+                .iter()
+                .map(|name| NameTableEntry {
+                    name: Some(name.clone()),
+                })
+                .collect(),
+        };
+        let modify = ModifyRowsRequest {
+            sequence_number: Some(0),
+            sequence_number_source_id: response.sequence_number_source_id,
+            transaction_id: transaction_id.clone(),
+            path: path.as_bytes().to_vec(),
+            row_modification_types: vec![0; row_count],
+            require_sync_replica: Some(require_sync_replica),
+            rowset_descriptor: descriptor,
+        };
+        if let Err(error) = invoke_unary_on_stream::<EmptyResponse>(
+            stream,
+            &self.token,
+            "ModifyRows",
+            Bytes::from(modify.encode_to_vec()),
+            &[payload],
+        )
+        .await
+        {
+            let abort = AbortTransactionRequest {
+                transaction_id: transaction_id.clone(),
+            };
+            let _abort_result = invoke_unary_on_stream::<EmptyResponse>(
+                stream,
+                &self.token,
+                "AbortTransaction",
+                Bytes::from(abort.encode_to_vec()),
+                &[],
+            )
+            .await;
+            return Err(error).context("YTsaurus ModifyRows failed");
+        }
+        let commit = CommitTransactionRequest { transaction_id };
+        invoke_unary_on_stream::<EmptyResponse>(
+            stream,
+            &self.token,
+            "CommitTransaction",
+            Bytes::from(commit.encode_to_vec()),
+            &[],
+        )
+        .await
+        .context("YTsaurus tablet transaction commit failed")?;
+        Ok(())
+    }
+}
+
+pub(super) fn is_transient_dynamic_write_error(error: &anyhow::Error) -> bool {
+    // These protocol error codes describe temporary tablet state, bundle
+    // pressure, or a concurrent mount/reshard transition. YTsaurus uses them
+    // as backpressure: the exact same idempotent upsert transaction must be
+    // retried after a bounded delay rather than failing the delivery.
+    if error
+        .downcast_ref::<NativeRpcError>()
+        .is_some_and(|rpc| rpc.0.contains_transient_dynamic_write_code())
+    {
+        return true;
+    }
+    let message = format!("{error:#}").to_ascii_lowercase();
+    [
+        "cannot mount table since node is locked by mount-unmount operation",
+        "node is out of tablet memory",
+        "too many overlapping stores in tablet",
+        "active store is overflown",
+        "dynamic store pool size limit reached",
+        "too many stores in tablet",
+        "too many dynamic stores in tablet",
+        "is not in \"mounted\" state",
+        "no such tablet",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+}
+
+pub(super) fn is_transient_dynamic_write_error_code(code: i32) -> bool {
+    TRANSIENT_TABLET_ERROR_CODES.contains(&code)
 }
 
 pub(super) struct NativeReadBlock {
@@ -1300,9 +1697,61 @@ async fn invoke_unary_raw_on_stream(
     method: &'static str,
     request_body: Bytes,
 ) -> anyhow::Result<(Bytes, Vec<Option<Bytes>>)> {
+    invoke_unary_raw_with_attachments_on_stream(
+        stream,
+        token,
+        service,
+        protocol_version,
+        method,
+        request_body,
+        &[],
+    )
+    .await
+}
+
+async fn invoke_unary_on_stream<Response>(
+    stream: &mut TcpStream,
+    token: &str,
+    method: &'static str,
+    request_body: Bytes,
+    request_attachments: &[Bytes],
+) -> anyhow::Result<Response>
+where
+    Response: prost::Message + Default,
+{
+    let (body, attachments) = invoke_unary_raw_with_attachments_on_stream(
+        stream,
+        token,
+        "ApiService",
+        1,
+        method,
+        request_body,
+        request_attachments,
+    )
+    .await?;
+    anyhow::ensure!(
+        attachments.is_empty(),
+        "YTsaurus unary {method} unexpectedly returned {} attachments",
+        attachments.len()
+    );
+    Response::decode(body).map_err(Into::into)
+}
+
+async fn invoke_unary_raw_with_attachments_on_stream(
+    stream: &mut TcpStream,
+    token: &str,
+    service: &'static str,
+    protocol_version: i32,
+    method: &'static str,
+    request_body: Bytes,
+    request_attachments: &[Bytes],
+) -> anyhow::Result<(Bytes, Vec<Option<Bytes>>)> {
     let request_id = Guid::random();
     let header = request_header(request_id, token, service, protocol_version, method, false);
-    let parts = [Some(proto_part(RPC_REQUEST, &header)?), Some(request_body)];
+    let mut parts = Vec::with_capacity(2 + request_attachments.len());
+    parts.push(Some(proto_part(RPC_REQUEST, &header)?));
+    parts.push(Some(request_body));
+    parts.extend(request_attachments.iter().cloned().map(Some));
     write_packet(stream, BUS_MESSAGE, 0, request_id, &parts).await?;
 
     loop {
@@ -1339,7 +1788,7 @@ async fn invoke_unary_raw_on_stream(
             );
         }
         if let Some(error) = header.error.filter(|error| error.code != 0) {
-            anyhow::bail!(error.format_chain());
+            return Err(NativeRpcError(error).into());
         }
         let mut parts = packet.parts.into_iter();
         parts.next();
@@ -1863,7 +2312,7 @@ impl NativeReadStream {
             );
         }
         if let Some(error) = header.error.filter(|error| error.code != 0) {
-            anyhow::bail!(error.format_chain());
+            return Err(NativeRpcError(error).into());
         }
         Ok(())
     }

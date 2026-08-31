@@ -541,6 +541,77 @@ impl YTsaurusClient {
         Ok(())
     }
 
+    pub async fn create_dynamic_table(
+        &self,
+        path: &str,
+        schema: Value,
+        tablet_cell_bundle: Option<&str>,
+        dynamic_store_overflow_threshold: f64,
+    ) -> anyhow::Result<()> {
+        let mut attributes = serde_json::json!({
+            "schema": schema,
+            "dynamic": true,
+            "optimize_for": "lookup",
+            "atomicity": "full",
+            "mount_config": {
+                "dynamic_store_overflow_threshold": dynamic_store_overflow_threshold,
+            },
+        });
+        if let Some(bundle) = tablet_cell_bundle {
+            attributes["tablet_cell_bundle"] = Value::String(bundle.to_owned());
+        }
+        let parameters = serde_json::json!({
+            "type": "table",
+            "path": path,
+            "attributes": attributes,
+        });
+        let parameters = yson_header_value(&parameters)?;
+        let response = self
+            .request(reqwest::Method::POST, "create")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Header-Format", "<format=text>yson")
+                    .header("X-YT-Parameters", parameters)
+            })
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        Ok(())
+    }
+
+    pub async fn mount_table(&self, path: &str, timeout: Duration) -> anyhow::Result<()> {
+        let parameters = serde_json::json!({ "path": path });
+        let response = self
+            .request_v4(reqwest::Method::POST, "mount_table")?
+            .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
+            .send()
+            .await?;
+        Self::checked(response).await?;
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            let state = self
+                .get_json(&super::attribute_path(path, "tablet_state"))
+                .await?;
+            match state.as_str() {
+                Some("mounted") => return Ok(()),
+                Some("mounting" | "unmounted" | "transient") => {}
+                Some(other) => anyhow::bail!(
+                    "YTsaurus dynamic table '{path}' entered unexpected tablet state '{other}'"
+                ),
+                None => anyhow::bail!(
+                    "YTsaurus dynamic table '{path}' returned a non-string tablet state"
+                ),
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "YTsaurus dynamic table '{path}' did not mount within {} ms",
+                timeout.as_millis()
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     pub async fn move_table(
         &self,
         source_path: &str,

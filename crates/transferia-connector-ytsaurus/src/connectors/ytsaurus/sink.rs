@@ -18,10 +18,12 @@ use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat};
+use super::native_rpc::NativeDynamicWriter;
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
     validate_column_name, MAX_COLUMNS,
 };
+use super::yt_wire::encode_wire_batch;
 use crate::metrics::SinkCounters;
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
@@ -80,7 +82,7 @@ impl SinkLimits for YTsaurusSinkConfig {
             "YTsaurus sink requires at least one dataset"
         );
         let mut names = HashSet::new();
-        let mut unique_sorted = false;
+        let mut static_unique_sorted = false;
         for dataset in &discovery.datasets {
             anyhow::ensure!(
                 names.insert(dataset.name.as_ref()),
@@ -103,26 +105,36 @@ impl SinkLimits for YTsaurusSinkConfig {
                 validate_column_name(&column.name)?;
                 arrow_to_yt(&column.data_type)?;
             }
-            if self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
-                && dataset
-                    .stored_schema
-                    .columns
-                    .iter()
-                    .any(|column| column.primary_key)
+            let has_primary_key = dataset
+                .stored_schema
+                .columns
+                .iter()
+                .any(|column| column.primary_key);
+            if self.static_tables()
+                && self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+                && has_primary_key
             {
-                unique_sorted = true;
-                anyhow::ensure!(
-                    self.static_tables(),
-                    "unique sorted primary-key semantics require static YTsaurus tables"
-                );
+                static_unique_sorted = true;
                 anyhow::ensure!(
                     self.replace_tables(),
                     "unique sorted primary-key semantics require replace_tables=true so the completed snapshot can atomically replace the destination"
                 );
                 sorted_unique_schema_to_yt(&dataset.stored_schema)?;
             }
+            if !self.static_tables() {
+                anyhow::ensure!(
+                    self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted,
+                    "dynamic YTsaurus tables require unique_sorted primary-key semantics because duplicate keys are overwritten"
+                );
+                anyhow::ensure!(
+                    has_primary_key,
+                    "dynamic YTsaurus table for dataset '{}' requires at least one primary-key column",
+                    dataset.name
+                );
+                sorted_unique_schema_to_yt(&dataset.stored_schema)?;
+            }
         }
-        if unique_sorted {
+        if static_unique_sorted {
             anyhow::ensure!(
                 matches!(
                     &discovery.source_topology,
@@ -178,24 +190,45 @@ impl SinkConnector for YTsaurusSinkConnector {
                         .columns
                         .iter()
                         .any(|column| column.primary_key);
-                if unique_sorted {
+                if unique_sorted && self.config.static_tables() {
                     sorted_unique_schema_to_yt(&dataset.schema)?;
                     continue;
                 }
                 let path = self.config.path_for_dataset(&dataset.table)?;
                 if self.config.replace_tables() {
                     self.client.remove_table(&path).await?;
-                    self.client
-                        .create_table(&path, schema_to_yt(&dataset.schema)?)
-                        .await?;
+                    if self.config.static_tables() {
+                        self.client
+                            .create_table(&path, schema_to_yt(&dataset.schema)?)
+                            .await?;
+                    } else {
+                        let write = self
+                            .config
+                            .dynamic_write()
+                            .ok_or_else(|| anyhow::anyhow!("dynamic table has no write config"))?;
+                        self.client
+                            .create_dynamic_table(
+                                &path,
+                                sorted_unique_schema_to_yt(&dataset.schema)?,
+                                self.config.tablet_cell_bundle(),
+                                write.dynamic_store_overflow_threshold,
+                            )
+                            .await?;
+                        self.client
+                            .mount_table(
+                                &path,
+                                Duration::from_millis(self.config.connection.timeout_ms),
+                            )
+                            .await?;
+                    }
                 } else {
                     let dynamic = self
                         .client
                         .get_json(&super::attribute_path(&path, "dynamic"))
                         .await?;
                     anyhow::ensure!(
-                        dynamic == serde_json::Value::Bool(false),
-                        "YTsaurus sink table '{path}' must be static"
+                        dynamic == serde_json::Value::Bool(!self.config.static_tables()),
+                        "YTsaurus sink table '{path}' has a different static/dynamic mode than the configured destination"
                     );
                     let existing = parse_schema(
                         self.client
@@ -203,10 +236,24 @@ impl SinkConnector for YTsaurusSinkConnector {
                             .await?,
                     )?;
                     anyhow::ensure!(
-                        schemas_equal(&existing, &dataset.schema),
+                        if self.config.static_tables() {
+                            schemas_equal(&existing, &dataset.schema)
+                        } else {
+                            dynamic_schemas_equal(&existing, &dataset.schema)
+                        },
                         "YTsaurus sink table '{path}' schema differs from discovered dataset '{}'",
                         dataset.table
                     );
+                    if !self.config.static_tables() {
+                        let state = self
+                            .client
+                            .get_json(&super::attribute_path(&path, "tablet_state"))
+                            .await?;
+                        anyhow::ensure!(
+                            state == serde_json::Value::String("mounted".to_owned()),
+                            "YTsaurus dynamic sink table '{path}' must be mounted"
+                        );
+                    }
                 }
             }
             Ok(())
@@ -218,8 +265,10 @@ impl SinkConnector for YTsaurusSinkConnector {
         context: SinkBuildContext,
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
-            let unique_sorted = context.discovery.datasets.iter().any(|dataset| {
-                self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+            let static_unique_sorted = context.discovery.datasets.iter().any(|dataset| {
+                self.config.static_tables()
+                    && self.config.primary_key_semantics
+                        == YTsaurusPrimaryKeySemantics::UniqueSorted
                     && dataset
                         .stored_schema
                         .columns
@@ -227,12 +276,26 @@ impl SinkConnector for YTsaurusSinkConnector {
                         .any(|column| column.primary_key)
             });
             anyhow::ensure!(
-                !unique_sorted || context.finite_source,
+                !static_unique_sorted || context.finite_source,
                 "unique sorted YTsaurus primary-key semantics require a finite snapshot source"
             );
+            let dynamic_writer = if let Some(write) = self.config.dynamic_write() {
+                Some(Arc::new(NativeDynamicWriter::new(
+                    self.client.discover_rpc_endpoints().await?,
+                    self.client.token().to_owned(),
+                    write.transaction_concurrency,
+                    Duration::from_millis(write.transaction_timeout_ms),
+                    Duration::from_millis(write.retry_initial_ms),
+                    Duration::from_millis(write.retry_max_ms),
+                    Arc::clone(&context.counters),
+                )?))
+            } else {
+                None
+            };
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
             Ok(Box::new(YTsaurusSink {
                 client: self.client.clone(),
+                dynamic_writer,
                 config: Arc::clone(&self.config),
                 counters: context.counters,
                 discovery: context.discovery,
@@ -247,6 +310,7 @@ impl SinkConnector for YTsaurusSinkConnector {
 
 struct YTsaurusSink {
     client: YTsaurusClient,
+    dynamic_writer: Option<Arc<NativeDynamicWriter>>,
     config: Arc<YTsaurusSinkConfig>,
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
@@ -281,7 +345,8 @@ impl YTsaurusSink {
     }
 
     fn has_unique_sorted_tables(&self) -> bool {
-        self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+        self.config.static_tables()
+            && self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
             && self.discovery.datasets.iter().any(|dataset| {
                 dataset
                     .stored_schema
@@ -374,14 +439,21 @@ impl YTsaurusSink {
         table: &str,
         batches: Vec<RecordBatch>,
     ) -> anyhow::Result<()> {
+        if let Some(writer) = self.dynamic_writer.as_ref() {
+            return self.write_dynamic_batches(writer, table, batches).await;
+        }
         let destination_path = if self.unique_sorted(table)? {
             self.staging_path(table)?
         } else {
             self.config.path_for_dataset(table)?
         };
+        let configured_format = self
+            .config
+            .static_format()
+            .ok_or_else(|| anyhow::anyhow!("static YTsaurus writer has no exchange format"))?;
         let concurrency = self.config.write_concurrency.min(batches.len());
         if concurrency <= 1 {
-            let (format, payload) = encode_batches(self.config.format(), &batches)?;
+            let (format, payload) = encode_batches(configured_format, &batches)?;
             return self
                 .client
                 .write_table(
@@ -412,7 +484,7 @@ impl YTsaurusSink {
             .map(|(shard, cookie)| {
                 let client = self.client.clone();
                 let table_writer = self.config.table_writer.clone();
-                let format = self.config.format();
+                let format = configured_format;
                 let row_buffer_bytes = self.config.write_row_buffer_bytes;
                 async move {
                     let (format, payload) = encode_batches(format, &shard)?;
@@ -433,6 +505,58 @@ impl YTsaurusSink {
             .into_iter()
             .collect::<anyhow::Result<Vec<_>>>()?;
         self.client.finish_distributed_write(session, results).await
+    }
+
+    async fn write_dynamic_batches(
+        &self,
+        writer: &Arc<NativeDynamicWriter>,
+        table: &str,
+        batches: Vec<RecordBatch>,
+    ) -> anyhow::Result<()> {
+        let config = self
+            .config
+            .dynamic_write()
+            .ok_or_else(|| anyhow::anyhow!("dynamic YTsaurus writer has no transaction config"))?;
+        let destination_path = self.config.path_for_dataset(table)?;
+        let mut chunks = Vec::new();
+        for batch in batches {
+            let mut offset = 0;
+            while offset < batch.num_rows() {
+                let length = config.transaction_rows.min(batch.num_rows() - offset);
+                chunks.push(batch.slice(offset, length));
+                offset += length;
+            }
+        }
+        let concurrency = config.transaction_concurrency.min(chunks.len());
+        stream::iter(chunks)
+            .map(|batch| {
+                let writer = Arc::clone(writer);
+                let path = destination_path.clone();
+                let require_sync_replica = config.require_sync_replica;
+                async move {
+                    let row_count = batch.num_rows();
+                    let encoded = tokio::task::spawn_blocking(move || encode_wire_batch(&batch))
+                        .await
+                        .map_err(|error| {
+                            anyhow::anyhow!("YTsaurus wire encoder task failed: {error}")
+                        })??;
+                    writer
+                        .write_rows(
+                            &path,
+                            row_count,
+                            &encoded.column_names,
+                            encoded.payload,
+                            require_sync_replica,
+                        )
+                        .await
+                }
+            })
+            .buffer_unordered(concurrency.max(1))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(())
     }
 
     async fn write_deliveries(&self, deliveries: &[Delivery]) -> anyhow::Result<()> {
@@ -600,7 +724,11 @@ impl Sink for YTsaurusSink {
                     );
                     pending.push(delivery);
                     self.counters.set_buffered_bytes(buffered_bytes as u64);
-                    if buffered_bytes < self.config.write_target_bytes {
+                    let write_target_bytes = self
+                        .config
+                        .dynamic_write()
+                        .map_or(self.config.write_target_bytes, |write| write.buffer_bytes);
+                    if buffered_bytes < write_target_bytes {
                         continue;
                     }
                     self.flush_pending(&mut pending, &io.events, &mut deferred_commit)
@@ -631,6 +759,21 @@ fn project_user_columns(
         .filter(|index| !system_indexes.contains(index))
         .collect::<Vec<_>>();
     Ok(batch.project(&indexes)?)
+}
+
+fn dynamic_schemas_equal(
+    existing: &transferia_core::data::schema::DatasetSchema,
+    expected: &transferia_core::data::schema::DatasetSchema,
+) -> bool {
+    existing.columns.len() == expected.columns.len()
+        && expected.columns.iter().all(|expected_column| {
+            existing.columns.iter().any(|existing_column| {
+                existing_column.name == expected_column.name
+                    && existing_column.data_type == expected_column.data_type
+                    && existing_column.nullable == expected_column.nullable
+                    && existing_column.primary_key == expected_column.primary_key
+            })
+        })
 }
 
 #[cfg(test)]
