@@ -17,11 +17,12 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use super::client::{
-    json_header_value, resolved_link_suggestion, rich_read_path, suggestion_directory,
-    static_table_attributes, table_path_suggestions, yson_header_value, ListedNode,
+    dynamic_table_attributes, json_header_value, resolved_link_suggestion, rich_read_path,
+    static_table_attributes, suggestion_directory, table_path_suggestions, yson_header_value,
+    ListedNode,
 };
 use super::config::{
-    YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
+    YTsaurusAtomicity, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
     YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
     YTsaurusWriteFormat,
 };
@@ -523,6 +524,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
          trusted_native_rpc_plaintext: true\n",
     )?;
     let write = config.dynamic_write().expect("dynamic writer config");
+    assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
     assert_eq!(write.transaction_rows, 50_000);
     assert_eq!(write.transaction_concurrency, 8);
     assert_eq!(write.transaction_timeout_ms, 60_000);
@@ -532,6 +534,37 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(write.retry_initial_ms, 100);
     assert_eq!(write.retry_max_ms, 5_000);
     config.validate()?;
+    Ok(())
+}
+
+#[test]
+fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> anyhow::Result<()>
+{
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, atomicity: none }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::None));
+    assert_eq!(YTsaurusAtomicity::None.rpc_value(), 1);
+    assert_eq!(YTsaurusAtomicity::Full.rpc_value(), 0);
+
+    let attributes = dynamic_table_attributes(
+        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        config.dynamic_atomicity().expect("dynamic atomicity"),
+        Some("cdc"),
+        0.5,
+    );
+    assert_eq!(attributes["atomicity"], "none");
+    assert_eq!(attributes["tablet_cell_bundle"], "cdc");
+
+    let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
+    let serialized = serde_json::to_string(&schema)?;
+    assert!(serialized.contains("Atomicity"));
+    assert!(serialized.contains("advanced"));
     Ok(())
 }
 

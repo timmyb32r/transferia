@@ -689,6 +689,33 @@ pub enum YTsaurusOptimizeFor {
     Lookup,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusAtomicity {
+    #[default]
+    Full,
+
+    None,
+}
+
+impl YTsaurusAtomicity {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::None => "none",
+        }
+    }
+
+    #[must_use]
+    pub(super) const fn rpc_value(self) -> i32 {
+        match self {
+            Self::Full => 0,
+            Self::None => 1,
+        }
+    }
+}
+
 impl YTsaurusOptimizeFor {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -985,6 +1012,14 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
+            title = "Atomicity",
+            description = "Full provides all-or-nothing tablet transactions. None weakens atomicity explicitly and may expose a partial write if a multi-row transaction fails.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        atomicity: YTsaurusAtomicity,
+
+        #[serde(default)]
+        #[schemars(
             title = "Tablet cell bundle",
             description = "Optional bundle used when Transferia creates the dynamic table",
             extend("x-ui" = { "section": "advanced" })
@@ -1074,6 +1109,14 @@ impl YTsaurusSinkConfig {
         match &self.tables {
             YTsaurusTableMode::StaticTables { .. } => None,
             YTsaurusTableMode::DynamicTables { write, .. } => Some(write),
+        }
+    }
+
+    #[must_use]
+    pub const fn dynamic_atomicity(&self) -> Option<YTsaurusAtomicity> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { .. } => None,
+            YTsaurusTableMode::DynamicTables { atomicity, .. } => Some(*atomicity),
         }
     }
 

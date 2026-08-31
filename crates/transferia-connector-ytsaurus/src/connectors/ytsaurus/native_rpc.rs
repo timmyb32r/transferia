@@ -27,7 +27,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
-use super::config::{YTsaurusPartitionTablesConfig, YTsaurusTableReaderConfig};
+use super::config::{
+    YTsaurusAtomicity, YTsaurusPartitionTablesConfig, YTsaurusTableReaderConfig,
+};
 use super::yt_wire::YtWireDecoder;
 use transferia_core::data::schema::DatasetSchema;
 use transferia_delivery_contracts::metrics::SinkCounters;
@@ -824,6 +826,7 @@ impl NativeDynamicWriter {
     pub(super) fn new(
         endpoints: Vec<String>,
         token: String,
+        atomicity: YTsaurusAtomicity,
         concurrency: usize,
         transaction_timeout: Duration,
         retry_initial: Duration,
@@ -843,6 +846,7 @@ impl NativeDynamicWriter {
                 Mutex::new(NativeDynamicWorker {
                     endpoints: endpoints.clone(),
                     token: token.clone(),
+                    atomicity,
                     next_endpoint: index % endpoints.len(),
                     transaction_timeout,
                     retry_initial,
@@ -888,6 +892,7 @@ impl NativeDynamicWriter {
 struct NativeDynamicWorker {
     endpoints: Vec<String>,
     token: String,
+    atomicity: YTsaurusAtomicity,
     next_endpoint: usize,
     transaction_timeout: Duration,
     retry_initial: Duration,
@@ -990,7 +995,7 @@ impl NativeDynamicWorker {
             // preserves the protocol default (`true`) and keeps the short
             // write transaction alive until commit.
             ping: None,
-            atomicity: Some(0),
+            atomicity: Some(self.atomicity.rpc_value()),
             durability: Some(0),
         };
         let response = invoke_unary_on_stream::<StartTransactionResponse>(

@@ -11,8 +11,8 @@ use transferia_connector_support::outbound_http::{
 };
 
 use super::config::{
-    YTsaurusConnectionConfig, YTsaurusOptimizeFor, YTsaurusTableReaderConfig,
-    YTsaurusTableWriterConfig,
+    YTsaurusAtomicity, YTsaurusConnectionConfig, YTsaurusOptimizeFor,
+    YTsaurusTableReaderConfig, YTsaurusTableWriterConfig,
 };
 
 #[derive(Debug)]
@@ -562,21 +562,16 @@ impl YTsaurusClient {
         &self,
         path: &str,
         schema: Value,
+        atomicity: YTsaurusAtomicity,
         tablet_cell_bundle: Option<&str>,
         dynamic_store_overflow_threshold: f64,
     ) -> anyhow::Result<()> {
-        let mut attributes = serde_json::json!({
-            "schema": schema,
-            "dynamic": true,
-            "optimize_for": "lookup",
-            "atomicity": "full",
-            "mount_config": {
-                "dynamic_store_overflow_threshold": dynamic_store_overflow_threshold,
-            },
-        });
-        if let Some(bundle) = tablet_cell_bundle {
-            attributes["tablet_cell_bundle"] = Value::String(bundle.to_owned());
-        }
+        let attributes = dynamic_table_attributes(
+            schema,
+            atomicity,
+            tablet_cell_bundle,
+            dynamic_store_overflow_threshold,
+        );
         let parameters = serde_json::json!({
             "type": "table",
             "path": path,
@@ -748,6 +743,27 @@ impl YTsaurusClient {
         Self::checked(response).await?;
         Ok(())
     }
+}
+
+pub(super) fn dynamic_table_attributes(
+    schema: Value,
+    atomicity: YTsaurusAtomicity,
+    tablet_cell_bundle: Option<&str>,
+    dynamic_store_overflow_threshold: f64,
+) -> Value {
+    let mut attributes = serde_json::json!({
+        "schema": schema,
+        "dynamic": true,
+        "optimize_for": "lookup",
+        "atomicity": atomicity.as_str(),
+        "mount_config": {
+            "dynamic_store_overflow_threshold": dynamic_store_overflow_threshold,
+        },
+    });
+    if let Some(bundle) = tablet_cell_bundle {
+        attributes["tablet_cell_bundle"] = Value::String(bundle.to_owned());
+    }
+    attributes
 }
 
 pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {

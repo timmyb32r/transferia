@@ -216,6 +216,9 @@ impl SinkConnector for YTsaurusSinkConnector {
                             .create_dynamic_table(
                                 &path,
                                 sorted_unique_schema_to_yt(&dataset.schema)?,
+                                self.config.dynamic_atomicity().ok_or_else(|| {
+                                    anyhow::anyhow!("dynamic table has no atomicity config")
+                                })?,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
                             )
@@ -236,6 +239,17 @@ impl SinkConnector for YTsaurusSinkConnector {
                         dynamic == serde_json::Value::Bool(!self.config.static_tables()),
                         "YTsaurus sink table '{path}' has a different static/dynamic mode than the configured destination"
                     );
+                    if let Some(atomicity) = self.config.dynamic_atomicity() {
+                        let existing_atomicity = self
+                            .client
+                            .get_json(&super::attribute_path(&path, "atomicity"))
+                            .await?;
+                        anyhow::ensure!(
+                            existing_atomicity == serde_json::Value::String(atomicity.as_str().to_owned()),
+                            "YTsaurus dynamic sink table '{path}' has atomicity {existing_atomicity}, but the destination requires '{}'",
+                            atomicity.as_str()
+                        );
+                    }
                     let existing = parse_schema(
                         self.client
                             .get_json(&super::attribute_path(&path, "schema"))
@@ -289,6 +303,9 @@ impl SinkConnector for YTsaurusSinkConnector {
                 Some(Arc::new(NativeDynamicWriter::new(
                     self.client.discover_rpc_endpoints().await?,
                     self.client.token().to_owned(),
+                    self.config.dynamic_atomicity().ok_or_else(|| {
+                        anyhow::anyhow!("dynamic table has no atomicity config")
+                    })?,
                     write.transaction_concurrency,
                     Duration::from_millis(write.transaction_timeout_ms),
                     Duration::from_millis(write.retry_initial_ms),
