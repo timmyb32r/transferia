@@ -11,7 +11,8 @@ use transferia_connector_support::outbound_http::{
 };
 
 use super::config::{
-    YTsaurusConnectionConfig, YTsaurusTableReaderConfig, YTsaurusTableWriterConfig,
+    YTsaurusConnectionConfig, YTsaurusOptimizeFor, YTsaurusTableReaderConfig,
+    YTsaurusTableWriterConfig,
 };
 
 #[derive(Debug)]
@@ -44,6 +45,17 @@ pub struct YTsaurusClient {
 pub struct DistributedWriteSession {
     session: Value,
     cookies: Vec<Value>,
+}
+
+pub(super) fn static_table_attributes(
+    schema: Value,
+    optimize_for: YTsaurusOptimizeFor,
+) -> Value {
+    serde_json::json!({
+        "schema": schema,
+        "optimize_for": optimize_for.as_str(),
+        "chunk_format": optimize_for.chunk_format(),
+    })
 }
 
 impl DistributedWriteSession {
@@ -521,11 +533,16 @@ impl YTsaurusClient {
         Ok(())
     }
 
-    pub async fn create_table(&self, path: &str, schema: Value) -> anyhow::Result<()> {
+    pub async fn create_table(
+        &self,
+        path: &str,
+        schema: Value,
+        optimize_for: YTsaurusOptimizeFor,
+    ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "type": "table",
             "path": path,
-            "attributes": { "schema": schema, "optimize_for": "scan" }
+            "attributes": static_table_attributes(schema, optimize_for),
         });
         let parameters = yson_header_value(&parameters)?;
         let response = self

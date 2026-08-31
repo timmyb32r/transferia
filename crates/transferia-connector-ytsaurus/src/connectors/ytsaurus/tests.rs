@@ -18,11 +18,12 @@ use tokio::task::JoinSet;
 
 use super::client::{
     json_header_value, resolved_link_suggestion, rich_read_path, suggestion_directory,
-    table_path_suggestions, yson_header_value, ListedNode,
+    static_table_attributes, table_path_suggestions, yson_header_value, ListedNode,
 };
 use super::config::{
-    YTsaurusPrimaryKeySemantics, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
-    YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
+    YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
+    YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
+    YTsaurusWriteFormat,
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
@@ -319,6 +320,10 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     )?;
     assert_eq!(config.static_format(), Some(YTsaurusWriteFormat::Arrow));
     assert_eq!(
+        config.static_optimize_for(),
+        Some(YTsaurusOptimizeFor::Scan)
+    );
+    assert_eq!(
         config.primary_key_semantics,
         YTsaurusPrimaryKeySemantics::UniqueSorted
     );
@@ -339,6 +344,39 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     config.validate()?;
     config.write_concurrency = 0;
     assert!(config.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Result<()> {
+    let scan = static_table_attributes(
+        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        YTsaurusOptimizeFor::Scan,
+    );
+    assert_eq!(scan["optimize_for"], "scan");
+    assert_eq!(scan["chunk_format"], "table_unversioned_columnar");
+
+    let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, optimize_for: lookup }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
+    )?;
+    assert_eq!(
+        config.static_optimize_for(),
+        Some(YTsaurusOptimizeFor::Lookup)
+    );
+    let lookup = static_table_attributes(
+        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        YTsaurusOptimizeFor::Lookup,
+    );
+    assert_eq!(lookup["optimize_for"], "lookup");
+    assert_eq!(
+        lookup["chunk_format"],
+        "table_unversioned_schemaless_horizontal"
+    );
+
+    let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
+    let serialized = serde_json::to_string(&schema)?;
+    assert!(serialized.contains("Optimize for"));
+    assert!(serialized.contains("advanced"));
     Ok(())
 }
 

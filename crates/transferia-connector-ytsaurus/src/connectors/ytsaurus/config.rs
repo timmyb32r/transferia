@@ -678,6 +678,35 @@ pub enum YTsaurusPrimaryKeySemantics {
     PreserveRows,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusOptimizeFor {
+    #[default]
+    #[schemars(title = "Scan (columnar chunks)")]
+    Scan,
+
+    #[schemars(title = "Lookup (row-oriented chunks)")]
+    Lookup,
+}
+
+impl YTsaurusOptimizeFor {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Scan => "scan",
+            Self::Lookup => "lookup",
+        }
+    }
+
+    #[must_use]
+    pub const fn chunk_format(self) -> &'static str {
+        match self {
+            Self::Scan => "table_unversioned_columnar",
+            Self::Lookup => "table_unversioned_schemaless_horizontal",
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusDynamicWriteConfig {
@@ -930,6 +959,14 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
+            title = "Optimize for",
+            description = "Physical layout for newly written static-table chunks",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        optimize_for: YTsaurusOptimizeFor,
+
+        #[serde(default)]
+        #[schemars(
             title = "Driver exchange format",
             extend("x-ui" = { "section": "advanced" })
         )]
@@ -1020,6 +1057,14 @@ impl YTsaurusSinkConfig {
     pub const fn static_format(&self) -> Option<YTsaurusWriteFormat> {
         match &self.tables {
             YTsaurusTableMode::StaticTables { format, .. } => Some(*format),
+            YTsaurusTableMode::DynamicTables { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn static_optimize_for(&self) -> Option<YTsaurusOptimizeFor> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { optimize_for, .. } => Some(*optimize_for),
             YTsaurusTableMode::DynamicTables { .. } => None,
         }
     }

@@ -199,7 +199,13 @@ impl SinkConnector for YTsaurusSinkConnector {
                     self.client.remove_table(&path).await?;
                     if self.config.static_tables() {
                         self.client
-                            .create_table(&path, schema_to_yt(&dataset.schema)?)
+                            .create_table(
+                                &path,
+                                schema_to_yt(&dataset.schema)?,
+                                self.config.static_optimize_for().ok_or_else(|| {
+                                    anyhow::anyhow!("static table has no optimize_for config")
+                                })?,
+                            )
                             .await?;
                     } else {
                         let write = self
@@ -402,10 +408,22 @@ impl YTsaurusSink {
             self.client.remove_table(&staging).await?;
             self.client.remove_table(&sorted).await?;
             self.client
-                .create_table(&staging, schema_to_yt(&dataset.stored_schema)?)
+                .create_table(
+                    &staging,
+                    schema_to_yt(&dataset.stored_schema)?,
+                    self.config.static_optimize_for().ok_or_else(|| {
+                        anyhow::anyhow!("static table has no optimize_for config")
+                    })?,
+                )
                 .await?;
             self.client
-                .create_table(&sorted, sorted_unique_schema_to_yt(&dataset.stored_schema)?)
+                .create_table(
+                    &sorted,
+                    sorted_unique_schema_to_yt(&dataset.stored_schema)?,
+                    self.config.static_optimize_for().ok_or_else(|| {
+                        anyhow::anyhow!("static table has no optimize_for config")
+                    })?,
+                )
                 .await?;
         }
         Ok(())
