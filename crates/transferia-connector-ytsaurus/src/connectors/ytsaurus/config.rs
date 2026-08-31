@@ -3,7 +3,7 @@
     reason = "formatting into an owned String is infallible"
 )]
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{self, Write as _};
 use std::time::Duration;
 
@@ -41,8 +41,31 @@ const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
+const RESERVED_TABLE_ATTRIBUTES: [&str; 8] = [
+    "atomicity",
+    "chunk_format",
+    "dynamic",
+    "mount_config",
+    "optimize_for",
+    "primary_medium",
+    "schema",
+    "tablet_cell_bundle",
+];
+
 fn default_primary_medium() -> String {
     "default".to_owned()
+}
+
+#[derive(Clone, Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct YTsaurusTableAttribute {
+    pub name: String,
+
+    #[schemars(
+        title = "JSON value",
+        description = "Exact JSON representation of the YT attribute value"
+    )]
+    pub value: String,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -890,6 +913,14 @@ pub struct YTsaurusSinkConfig {
     )]
     pub primary_medium: String,
 
+    #[serde(default)]
+    #[schemars(
+        title = "Table attributes",
+        description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+        extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
+    )]
+    pub table_attributes: Vec<YTsaurusTableAttribute>,
+
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
@@ -1051,6 +1082,7 @@ impl YTsaurusSinkConfig {
             !self.primary_medium.trim().is_empty(),
             "ytsaurus.primary_medium must not be empty"
         );
+        self.parsed_table_attributes()?;
         anyhow::ensure!(
             self.write_target_bytes > 0,
             "ytsaurus.write_target_bytes must be positive"
@@ -1165,6 +1197,35 @@ impl YTsaurusSinkConfig {
             "YTsaurus dataset name '{dataset}' cannot be used as one table path segment"
         );
         Ok(format!("{}/{dataset}", self.path().trim_end_matches('/')))
+    }
+
+    pub(super) fn parsed_table_attributes(
+        &self,
+    ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
+        let mut attributes = BTreeMap::new();
+        for attribute in &self.table_attributes {
+            anyhow::ensure!(
+                !attribute.name.is_empty() && !attribute.name.contains('\0'),
+                "YTsaurus custom table attribute names must be non-empty and contain no NUL"
+            );
+            anyhow::ensure!(
+                !RESERVED_TABLE_ATTRIBUTES.contains(&attribute.name.as_str()),
+                "YTsaurus table attribute '{}' has a dedicated configuration field and cannot be overridden",
+                attribute.name
+            );
+            let value = serde_json::from_str(&attribute.value).map_err(|error| {
+                anyhow::anyhow!(
+                    "YTsaurus table attribute '{}' has invalid JSON: {error}",
+                    attribute.name
+                )
+            })?;
+            anyhow::ensure!(
+                attributes.insert(attribute.name.clone(), value).is_none(),
+                "YTsaurus table attribute '{}' is configured more than once",
+                attribute.name
+            );
+        }
+        Ok(attributes)
     }
 }
 

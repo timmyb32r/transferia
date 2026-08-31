@@ -6327,6 +6327,28 @@
                 "section": "advanced"
               }
             },
+            "primary_medium": {
+              "title": "Primary medium",
+              "description": "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+              "type": "string",
+              "default": "default",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "table_attributes": {
+              "title": "Table attributes",
+              "description": "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/YTsaurusTableAttribute"
+              },
+              "x-ui": {
+                "section": "advanced",
+                "widget": "compact_array",
+                "item_label": "attribute"
+              }
+            },
             "auth": {
               "$ref": "#/$defs/YTsaurusAuthConfig",
               "x-ui": {
@@ -6422,6 +6444,14 @@
                     "replace_tables": {
                       "type": "boolean"
                     },
+                    "optimize_for": {
+                      "title": "Optimize for",
+                      "description": "Physical layout for newly written static-table chunks",
+                      "$ref": "#/$defs/YTsaurusOptimizeFor",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "format": {
                       "title": "Driver exchange format",
                       "$ref": "#/$defs/YTsaurusWriteFormat",
@@ -6453,12 +6483,29 @@
                     "replace_tables": {
                       "type": "boolean"
                     },
-                    "format": {
-                      "title": "Driver exchange format",
-                      "$ref": "#/$defs/YTsaurusWriteFormat",
+                    "atomicity": {
+                      "title": "Atomicity",
+                      "description": "Full provides all-or-nothing tablet transactions. None weakens atomicity explicitly and may expose a partial write if a multi-row transaction fails.",
+                      "$ref": "#/$defs/YTsaurusAtomicity",
+                      "default": "full",
                       "x-ui": {
                         "section": "advanced"
                       }
+                    },
+                    "tablet_cell_bundle": {
+                      "title": "Tablet cell bundle",
+                      "description": "Optional bundle used when Transferia creates the dynamic table",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null,
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "write": {
+                      "$ref": "#/$defs/YTsaurusDynamicWriteConfig"
                     },
                     "type": {
                       "type": "string",
@@ -6474,12 +6521,125 @@
                 }
               ]
             },
+            "YTsaurusOptimizeFor": {
+              "oneOf": [
+                {
+                  "title": "Scan (columnar chunks)",
+                  "type": "string",
+                  "const": "scan"
+                },
+                {
+                  "title": "Lookup (row-oriented chunks)",
+                  "type": "string",
+                  "const": "lookup"
+                }
+              ]
+            },
             "YTsaurusWriteFormat": {
               "type": "string",
               "enum": [
                 "arrow",
                 "yson"
               ]
+            },
+            "YTsaurusAtomicity": {
+              "type": "string",
+              "enum": [
+                "full",
+                "none"
+              ]
+            },
+            "YTsaurusDynamicWriteConfig": {
+              "type": "object",
+              "properties": {
+                "transaction_rows": {
+                  "title": "Rows per tablet transaction",
+                  "description": "Maximum rows committed by one lossless tablet transaction",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "maximum": 100000,
+                  "default": 50000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "transaction_concurrency": {
+                  "title": "Concurrent tablet transactions",
+                  "description": "Maximum number of independent synchronous tablet transactions in flight",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "maximum": 32,
+                  "default": 8,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "transaction_timeout_ms": {
+                  "title": "Tablet transaction timeout (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "default": 60000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "buffer_bytes": {
+                  "title": "Dynamic write buffer bytes",
+                  "description": "Maximum Arrow bytes accumulated before a dynamic-table flush",
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 1,
+                  "default": 268435456,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "dynamic_store_overflow_threshold": {
+                  "title": "Dynamic store overflow threshold",
+                  "description": "Flush threshold installed on dynamic tables created by Transferia; lower values leave the tablet node more headroom for sustained writes",
+                  "type": "number",
+                  "format": "double",
+                  "minimum": 0.01,
+                  "maximum": 0.99,
+                  "default": 0.5,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "require_sync_replica": {
+                  "title": "Require a synchronous replica",
+                  "description": "Fail writes to replicated tables unless at least one synchronous replica participates",
+                  "type": "boolean",
+                  "default": true,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "retry_initial_ms": {
+                  "title": "Initial YTsaurus backpressure retry delay (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "default": 100,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "retry_max_ms": {
+                  "title": "Maximum YTsaurus backpressure retry delay (ms)",
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 1,
+                  "default": 5000,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false
             },
             "YTsaurusPrimaryKeySemantics": {
               "oneOf": [
@@ -6493,6 +6653,24 @@
                   "type": "string",
                   "const": "preserve_rows"
                 }
+              ]
+            },
+            "YTsaurusTableAttribute": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "title": "JSON value",
+                  "description": "Exact JSON representation of the YT attribute value",
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "value"
               ]
             },
             "YTsaurusAuthConfig": {

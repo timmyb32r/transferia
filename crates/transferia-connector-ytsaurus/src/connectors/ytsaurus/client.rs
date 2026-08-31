@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,13 +52,29 @@ pub(super) fn static_table_attributes(
     schema: Value,
     optimize_for: YTsaurusOptimizeFor,
     primary_medium: &str,
-) -> Value {
-    serde_json::json!({
+    custom_attributes: &BTreeMap<String, Value>,
+) -> anyhow::Result<Value> {
+    let mut attributes = serde_json::json!({
         "schema": schema,
         "optimize_for": optimize_for.as_str(),
         "chunk_format": optimize_for.chunk_format(),
         "primary_medium": primary_medium,
-    })
+    });
+    extend_attributes(&mut attributes, custom_attributes)?;
+    Ok(attributes)
+}
+
+fn extend_attributes(
+    attributes: &mut Value,
+    custom_attributes: &BTreeMap<String, Value>,
+) -> anyhow::Result<()> {
+    let object = attributes
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("table attributes must be an object"))?;
+    for (name, value) in custom_attributes {
+        object.entry(name.clone()).or_insert_with(|| value.clone());
+    }
+    Ok(())
 }
 
 impl DistributedWriteSession {
@@ -541,11 +558,17 @@ impl YTsaurusClient {
         schema: Value,
         optimize_for: YTsaurusOptimizeFor,
         primary_medium: &str,
+        custom_attributes: &BTreeMap<String, Value>,
     ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "type": "table",
             "path": path,
-            "attributes": static_table_attributes(schema, optimize_for, primary_medium),
+            "attributes": static_table_attributes(
+                schema,
+                optimize_for,
+                primary_medium,
+                custom_attributes,
+            )?,
         });
         let parameters = yson_header_value(&parameters)?;
         let response = self
@@ -567,6 +590,7 @@ impl YTsaurusClient {
         schema: Value,
         atomicity: YTsaurusAtomicity,
         primary_medium: &str,
+        custom_attributes: &BTreeMap<String, Value>,
         tablet_cell_bundle: Option<&str>,
         dynamic_store_overflow_threshold: f64,
     ) -> anyhow::Result<()> {
@@ -574,9 +598,10 @@ impl YTsaurusClient {
             schema,
             atomicity,
             primary_medium,
+            custom_attributes,
             tablet_cell_bundle,
             dynamic_store_overflow_threshold,
-        );
+        )?;
         let parameters = serde_json::json!({
             "type": "table",
             "path": path,
@@ -754,9 +779,10 @@ pub(super) fn dynamic_table_attributes(
     schema: Value,
     atomicity: YTsaurusAtomicity,
     primary_medium: &str,
+    custom_attributes: &BTreeMap<String, Value>,
     tablet_cell_bundle: Option<&str>,
     dynamic_store_overflow_threshold: f64,
-) -> Value {
+) -> anyhow::Result<Value> {
     let mut attributes = serde_json::json!({
         "schema": schema,
         "dynamic": true,
@@ -770,7 +796,8 @@ pub(super) fn dynamic_table_attributes(
     if let Some(bundle) = tablet_cell_bundle {
         attributes["tablet_cell_bundle"] = Value::String(bundle.to_owned());
     }
-    attributes
+    extend_attributes(&mut attributes, custom_attributes)?;
+    Ok(attributes)
 }
 
 pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {

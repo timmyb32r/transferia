@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,15 +39,18 @@ const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
 pub struct YTsaurusSinkConnector {
     config: Arc<YTsaurusSinkConfig>,
     client: YTsaurusClient,
+    table_attributes: Arc<BTreeMap<String, serde_json::Value>>,
 }
 
 impl YTsaurusSinkConnector {
     pub fn from_config(config: YTsaurusSinkConfig) -> anyhow::Result<Self> {
         config.validate()?;
         let client = YTsaurusClient::new(&config.connection)?;
+        let table_attributes = Arc::new(config.parsed_table_attributes()?);
         Ok(Self {
             config: Arc::new(config),
             client,
+            table_attributes,
         })
     }
 }
@@ -206,6 +209,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                     anyhow::anyhow!("static table has no optimize_for config")
                                 })?,
                                 &self.config.primary_medium,
+                                &self.table_attributes,
                             )
                             .await?;
                     } else {
@@ -221,6 +225,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                     anyhow::anyhow!("dynamic table has no atomicity config")
                                 })?,
                                 &self.config.primary_medium,
+                                &self.table_attributes,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
                             )
@@ -332,6 +337,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                 client: self.client.clone(),
                 dynamic_writer,
                 config: Arc::clone(&self.config),
+                table_attributes: Arc::clone(&self.table_attributes),
                 counters: context.counters,
                 discovery: context.discovery,
                 limits,
@@ -347,6 +353,7 @@ struct YTsaurusSink {
     client: YTsaurusClient,
     dynamic_writer: Option<Arc<NativeDynamicWriter>>,
     config: Arc<YTsaurusSinkConfig>,
+    table_attributes: Arc<BTreeMap<String, serde_json::Value>>,
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
@@ -444,6 +451,7 @@ impl YTsaurusSink {
                         anyhow::anyhow!("static table has no optimize_for config")
                     })?,
                     &self.config.primary_medium,
+                    &self.table_attributes,
                 )
                 .await?;
             self.client
@@ -454,6 +462,7 @@ impl YTsaurusSink {
                         anyhow::anyhow!("static table has no optimize_for config")
                     })?,
                     &self.config.primary_medium,
+                    &self.table_attributes,
                 )
                 .await?;
         }

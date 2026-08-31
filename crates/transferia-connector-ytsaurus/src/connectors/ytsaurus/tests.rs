@@ -9,7 +9,7 @@ use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use prost::Message as _;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
@@ -354,7 +354,8 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Scan,
         "default",
-    );
+        &BTreeMap::new(),
+    )?;
     assert_eq!(scan["optimize_for"], "scan");
     assert_eq!(scan["chunk_format"], "table_unversioned_columnar");
     assert_eq!(scan["primary_medium"], "default");
@@ -372,7 +373,8 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Lookup,
         "ssd_blobs",
-    );
+        &BTreeMap::new(),
+    )?;
     assert_eq!(lookup["optimize_for"], "lookup");
     assert_eq!(
         lookup["chunk_format"],
@@ -387,6 +389,42 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     assert!(serialized.contains("advanced"));
     config.primary_medium.clear();
     assert!(config.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -> anyhow::Result<()>
+{
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\n\
+         table_attributes:\n\
+           - { name: compression_codec, value: '\"zstd_3\"' }\n\
+           - { name: custom_nested, value: '{\"enabled\":true,\"levels\":[1,2]}' }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    let custom = config.parsed_table_attributes()?;
+    let attributes = static_table_attributes(
+        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        YTsaurusOptimizeFor::Scan,
+        &config.primary_medium,
+        &custom,
+    )?;
+    assert_eq!(attributes["compression_codec"], "zstd_3");
+    assert_eq!(attributes["custom_nested"]["enabled"], true);
+    assert_eq!(attributes["custom_nested"]["levels"], serde_json::json!([1, 2]));
+
+    let reserved: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\n\
+         table_attributes: [{ name: schema, value: '{}' }]\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    assert!(reserved.validate().is_err());
     Ok(())
 }
 
@@ -566,9 +604,10 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         config.dynamic_atomicity().expect("dynamic atomicity"),
         &config.primary_medium,
+        &BTreeMap::new(),
         Some("cdc"),
         0.5,
-    );
+    )?;
     assert_eq!(attributes["atomicity"], "none");
     assert_eq!(attributes["primary_medium"], "default");
     assert_eq!(attributes["tablet_cell_bundle"], "cdc");
