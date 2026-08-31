@@ -3,6 +3,7 @@ pub mod config;
 pub mod detection;
 pub mod json_parser;
 mod native_source;
+pub mod raw_to_table;
 pub mod schema_registry;
 
 use std::collections::HashMap;
@@ -34,6 +35,7 @@ pub struct ParserPlan {
     parses_rows: bool,
     discovered_system_columns: Vec<DiscoveredSystemColumn>,
     primary_key: Arc<[String]>,
+    dlq_dataset_schema: DatasetSchema,
 }
 
 impl ParserPlan {
@@ -46,6 +48,7 @@ impl ParserPlan {
             parses_rows: true,
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
+            dlq_dataset_schema: default_dlq_schema(),
         }
     }
 
@@ -148,13 +151,26 @@ impl ParserPlan {
                         primary_key,
                     )
                 }
+                "raw_to_table" => {
+                    anyhow::ensure!(
+                        config.common.system_columns.enabled().next().is_none(),
+                        "raw_to_table owns topic, partition, offset, write timestamp, key, and headers columns; common.system_columns must be empty"
+                    );
+                    let parser_config: raw_to_table::RawToTableParserConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    return Self::from_raw_to_table_config(
+                        &config.common,
+                        &parser_config,
+                        topic_path,
+                    );
+                }
                 "benchmark_discard" => {
                     let _: benchmark_discard::BenchmarkDiscardConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
                     return Ok(Self::from_benchmark_discard(topic_path));
                 }
                 other => anyhow::bail!(
-                    "unknown parser '{other}'; supported parsers: json_parser, schema_registry, benchmark_discard"
+                    "unknown parser '{other}'; supported parsers: json_parser, schema_registry, raw_to_table, benchmark_discard"
                 ),
             };
         Ok(Self {
@@ -164,6 +180,7 @@ impl ParserPlan {
             parses_rows,
             discovered_system_columns,
             primary_key,
+            dlq_dataset_schema: default_dlq_schema(),
         })
     }
 
@@ -201,6 +218,33 @@ impl ParserPlan {
             parses_rows: true,
             discovered_system_columns,
             primary_key: Arc::from(parser_config.keys.clone()),
+            dlq_dataset_schema: default_dlq_schema(),
+        })
+    }
+
+    pub fn from_raw_to_table_config(
+        common: &CommonParserConfig,
+        parser_config: &raw_to_table::RawToTableParserConfig,
+        source_name: &str,
+    ) -> anyhow::Result<Self> {
+        common.system_columns.validate()?;
+        anyhow::ensure!(
+            common.system_columns.enabled().next().is_none(),
+            "raw_to_table owns its source metadata columns; common.system_columns must be empty"
+        );
+        let table: Arc<str> = common.resolve_table_name(source_name)?.into();
+        let parser = Arc::new(raw_to_table::RawToTableParser::new(
+            parser_config,
+            Arc::clone(&table),
+        )?) as Arc<dyn ParserFactory>;
+        Ok(Self {
+            parser,
+            table,
+            dataset_schema: parser_config.dataset_schema(),
+            parses_rows: true,
+            discovered_system_columns: Vec::new(),
+            primary_key: Arc::from(raw_to_table::PRIMARY_KEY.map(str::to_owned)),
+            dlq_dataset_schema: raw_to_table::dlq_dataset_schema(),
         })
     }
 
@@ -216,6 +260,7 @@ impl ParserPlan {
             parses_rows: false,
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
+            dlq_dataset_schema: default_dlq_schema(),
         }
     }
 
@@ -276,23 +321,7 @@ impl ParserPlan {
 
     #[must_use]
     pub fn dlq_schema(&self, keep_system_columns: bool) -> DatasetSchema {
-        let mut columns = vec![
-            SchemaColumn::new(
-                "raw_base64".to_string(),
-                arrow::datatypes::DataType::Utf8,
-                false,
-            ),
-            SchemaColumn::new(
-                "error_message".to_string(),
-                arrow::datatypes::DataType::Utf8,
-                false,
-            ),
-            SchemaColumn::new(
-                "source_write_timestamp_ms".to_string(),
-                arrow::datatypes::DataType::Int64,
-                true,
-            ),
-        ];
+        let mut columns = self.dlq_dataset_schema.columns.clone();
         if keep_system_columns {
             columns.extend(self.discovered_system_columns.iter().map(|column| {
                 SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
@@ -300,6 +329,26 @@ impl ParserPlan {
         }
         DatasetSchema::new(columns)
     }
+}
+
+fn default_dlq_schema() -> DatasetSchema {
+    DatasetSchema::new(vec![
+        SchemaColumn::new(
+            "raw_base64".to_string(),
+            arrow::datatypes::DataType::Utf8,
+            false,
+        ),
+        SchemaColumn::new(
+            "error_message".to_string(),
+            arrow::datatypes::DataType::Utf8,
+            false,
+        ),
+        SchemaColumn::new(
+            "source_write_timestamp_ms".to_string(),
+            arrow::datatypes::DataType::Int64,
+            true,
+        ),
+    ])
 }
 
 struct TopicTableParserFactory {
@@ -404,7 +453,7 @@ impl ParserEntry {
         match *keys.as_slice() {
             [single] => Ok(single),
             [] => anyhow::bail!(
-                "parser: no parser key found (expected 'json_parser', 'schema_registry', or 'benchmark_discard')"
+                "parser: no parser key found (expected 'json_parser', 'schema_registry', 'raw_to_table', or 'benchmark_discard')"
             ),
             _ => anyhow::bail!("parser: expected exactly one parser key, got {keys:?}"),
         }

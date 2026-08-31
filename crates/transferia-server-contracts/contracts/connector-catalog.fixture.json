@@ -364,6 +364,10 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
+                  "title": "Raw to table parser",
+                  "$ref": "#/$defs/RawToTableParserSchema"
+                },
+                {
                   "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema"
                 }
@@ -966,6 +970,94 @@
                     "type",
                     "token"
                   ]
+                }
+              ]
+            },
+            "RawToTableParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/RawToTableCommonConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "raw_to_table": {
+                  "title": "Raw to table parser",
+                  "$ref": "#/$defs/RawToTableParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "raw_to_table"
+              ]
+            },
+            "RawToTableCommonConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                }
+              },
+              "required": [
+                "table_naming"
+              ]
+            },
+            "RawToTableParserConfig": {
+              "type": "object",
+              "properties": {
+                "key_type": {
+                  "title": "Key type",
+                  "$ref": "#/$defs/RawValueType",
+                  "default": "bytes"
+                },
+                "value_type": {
+                  "title": "Value type",
+                  "$ref": "#/$defs/RawValueType",
+                  "default": "bytes"
+                },
+                "preserve_key": {
+                  "title": "Preserve message key",
+                  "description": "Disabling this explicitly discards source message keys",
+                  "type": "boolean",
+                  "default": true
+                },
+                "preserve_headers": {
+                  "title": "Preserve message headers",
+                  "description": "Disabling this explicitly discards source message headers",
+                  "type": "boolean",
+                  "default": true
+                },
+                "preserve_write_timestamp": {
+                  "title": "Preserve write timestamp",
+                  "description": "Disabling this explicitly discards source message write timestamps",
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "RawValueType": {
+              "oneOf": [
+                {
+                  "title": "Bytes",
+                  "type": "string",
+                  "const": "bytes"
+                },
+                {
+                  "title": "String",
+                  "type": "string",
+                  "const": "string"
+                },
+                {
+                  "title": "JSON",
+                  "type": "string",
+                  "const": "json"
                 }
               ]
             },
@@ -1723,6 +1815,10 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
+                  "title": "Raw to table parser",
+                  "$ref": "#/$defs/RawToTableParserSchema"
+                },
+                {
                   "title": "Discard messages (for benchmarks)",
                   "$ref": "#/$defs/BenchmarkDiscardParserSchema"
                 }
@@ -2325,6 +2421,94 @@
                     "type",
                     "token"
                   ]
+                }
+              ]
+            },
+            "RawToTableParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/RawToTableCommonConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "raw_to_table": {
+                  "title": "Raw to table parser",
+                  "$ref": "#/$defs/RawToTableParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "raw_to_table"
+              ]
+            },
+            "RawToTableCommonConfig": {
+              "type": "object",
+              "properties": {
+                "table_naming": {
+                  "title": "Table name",
+                  "$ref": "#/$defs/TableNaming",
+                  "x-ui": {
+                    "control_width": "table_name"
+                  }
+                }
+              },
+              "required": [
+                "table_naming"
+              ]
+            },
+            "RawToTableParserConfig": {
+              "type": "object",
+              "properties": {
+                "key_type": {
+                  "title": "Key type",
+                  "$ref": "#/$defs/RawValueType",
+                  "default": "bytes"
+                },
+                "value_type": {
+                  "title": "Value type",
+                  "$ref": "#/$defs/RawValueType",
+                  "default": "bytes"
+                },
+                "preserve_key": {
+                  "title": "Preserve message key",
+                  "description": "Disabling this explicitly discards source message keys",
+                  "type": "boolean",
+                  "default": true
+                },
+                "preserve_headers": {
+                  "title": "Preserve message headers",
+                  "description": "Disabling this explicitly discards source message headers",
+                  "type": "boolean",
+                  "default": true
+                },
+                "preserve_write_timestamp": {
+                  "title": "Preserve write timestamp",
+                  "description": "Disabling this explicitly discards source message write timestamps",
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "additionalProperties": false
+            },
+            "RawValueType": {
+              "oneOf": [
+                {
+                  "title": "Bytes",
+                  "type": "string",
+                  "const": "bytes"
+                },
+                {
+                  "title": "String",
+                  "type": "string",
+                  "const": "string"
+                },
+                {
+                  "title": "JSON",
+                  "type": "string",
+                  "const": "json"
                 }
               ]
             },

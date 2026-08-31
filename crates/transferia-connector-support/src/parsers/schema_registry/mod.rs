@@ -130,6 +130,8 @@ impl ParserSession for SchemaRegistryParserSession {
             );
             decoded.push(Message {
                 value: Bytes::from(value),
+                key: message.key,
+                headers: message.headers,
                 meta: message.meta,
             });
         }

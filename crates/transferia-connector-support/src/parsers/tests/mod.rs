@@ -3,6 +3,74 @@ use super::*;
 mod detection;
 
 #[test]
+fn raw_to_table_public_schema_is_selectable_and_has_lossless_defaults() {
+    let schema = serde_json::to_value(schemars::schema_for!(
+        crate::parsers::config::ParserSchema
+    ))
+    .expect("parser schema must serialize");
+    schema["anyOf"]
+        .as_array()
+        .expect("parser variants")
+        .iter()
+        .find(|variant| variant["title"] == "Raw to table parser")
+        .expect("raw_to_table variant");
+    let variant_text = schema["$defs"]["RawToTableParserSchema"].to_string();
+    assert!(variant_text.contains("raw_to_table"));
+    assert!(!variant_text.contains("system_columns"));
+    let config_text = schema["$defs"]["RawToTableParserConfig"].to_string();
+    assert!(config_text.contains("preserve_key"));
+    assert!(config_text.contains("preserve_headers"));
+    assert!(config_text.contains("preserve_write_timestamp"));
+}
+
+#[test]
+fn raw_to_table_plan_uses_source_coordinates_as_primary_key() -> anyhow::Result<()> {
+    let config: ParserConfig = serde_yaml::from_str(
+        "common:\n  table_naming: { type: from_config, name: events }\nraw_to_table: {}\n",
+    )?;
+    let plan = ParserPlan::from_config(&config, "account/topic")?;
+    assert_eq!(
+        plan.dataset_schema()
+            .columns
+            .iter()
+            .filter(|column| column.primary_key)
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        ["topic", "partition", "offset"]
+    );
+    assert_eq!(
+        plan.dlq_schema(false)
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "topic",
+            "partition",
+            "offset",
+            "timestamp",
+            "headers",
+            "key",
+            "value",
+            "failure_reason"
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn raw_to_table_rejects_duplicate_generic_system_columns() -> anyhow::Result<()> {
+    let config: ParserConfig = serde_yaml::from_str(
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { offset: duplicate_offset }\nraw_to_table: {}\n",
+    )?;
+    let error = ParserPlan::from_config(&config, "account/topic")
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("generic system columns must be rejected"))?;
+    assert!(error.to_string().contains("system_columns"), "{error:#}");
+    Ok(())
+}
+
+#[test]
 fn benchmark_discard_rejects_unknown_configuration() {
     let config: ParserConfig = serde_yaml::from_str(
         "common: { table_naming: { type: from_config, name: events } }\nbenchmark_discard: { typo: true }",

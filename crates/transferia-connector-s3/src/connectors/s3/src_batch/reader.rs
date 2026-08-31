@@ -201,6 +201,8 @@ impl Source for S3Source {
             Ok(SourceBatch::Raw {
                 messages: vec![Message {
                     value: payload,
+                    key: None,
+                    headers: Arc::from([]),
                     meta: MessageMeta {
                         topic: Some(Arc::from(key.as_ref())),
                         partition: Some(0),

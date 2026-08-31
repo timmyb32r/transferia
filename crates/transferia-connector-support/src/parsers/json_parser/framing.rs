@@ -35,6 +35,8 @@ pub(super) fn frame_json_arrays(
         }
         framed_messages.push(Message {
             value: Bytes::from(framed),
+            key: message.key,
+            headers: message.headers,
             meta: message.meta,
         });
     }

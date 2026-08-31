@@ -7,7 +7,7 @@ pub mod memory;
 pub mod sink;
 pub mod source;
 
-pub use data::message::{Message, MessageMeta, SourceBatch};
+pub use data::message::{Message, MessageHeader, MessageMeta, SourceBatch};
 pub use data::record_batch::{compact_record_batch, compact_record_batch_chunks};
 pub use data::schema::{DatasetSchema, SchemaColumn};
 pub use data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};

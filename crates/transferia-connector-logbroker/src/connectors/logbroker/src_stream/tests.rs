@@ -1,11 +1,13 @@
 use std::io::Write as _;
 
 use ydb_grpc::ydb_proto::topic::stream_read_message::from_client::ClientMessage;
+use ydb_grpc::ydb_proto::topic::stream_read_message::read_response::{Batch, MessageData};
+use ydb_grpc::ydb_proto::topic::MetadataItem;
 use ydb_grpc::ydb_proto::topic::{Codec, OffsetsRange};
 
 use super::source::{
     build_commit_request, coalesce_ranges, connection_check_init_message, continuous_commit_range,
-    decode_message, init_message, releasable_session_ids, take_releasable_credit,
+    decode_batches, decode_message, init_message, releasable_session_ids, take_releasable_credit,
     topic_paths_equal, wire_consumer_name, PartitionCommitMarker, PartitionSessionState,
     YdbTopicCommitMarker,
 };
@@ -15,6 +17,38 @@ use transferia_core::source::CommitMarker;
 
 fn connector(extra: &str) -> anyhow::Result<YdbDriverSourceConnector> {
     connector_with_topics("  - path: topic\n    partitions: []\n", extra)
+}
+
+#[test]
+fn ydb_topic_decode_preserves_ordered_duplicate_binary_metadata() -> anyhow::Result<()> {
+    let batch = Batch {
+        codec: Codec::Raw.into(),
+        message_data: vec![MessageData {
+            offset: i64::MAX - 1,
+            data: vec![1, 2, 3],
+            metadata_items: vec![
+                MetadataItem {
+                    key: "duplicate".into(),
+                    value: vec![0, 255],
+                },
+                MetadataItem {
+                    key: "duplicate".into(),
+                    value: Vec::new(),
+                },
+            ],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let decoded = decode_batches(vec![batch], &Arc::from("account/topic"), i64::MAX)?;
+    let message = &decoded.messages[0];
+    assert_eq!(message.headers.len(), 2);
+    assert_eq!(message.headers[0].key.as_ref(), "duplicate");
+    assert_eq!(message.headers[0].value.as_deref(), Some(&[0, 255][..]));
+    assert_eq!(message.headers[1].key.as_ref(), "duplicate");
+    assert_eq!(message.headers[1].value.as_deref(), Some(&[][..]));
+    assert_eq!(message.meta.offset, Some(i64::MAX - 1));
+    Ok(())
 }
 
 #[test]
@@ -298,6 +332,8 @@ fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Resu
     let mut session = connector.parser_plan.parser().create_session(1024 * 1024);
     let message = Message {
         value: bytes::Bytes::from_static(b"{\"id\":1}"),
+        key: None,
+        headers: Arc::from([]),
         meta: MessageMeta {
             topic: Some(Arc::from("account/second")),
             ..MessageMeta::default()

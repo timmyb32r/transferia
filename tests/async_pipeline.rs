@@ -104,6 +104,8 @@ impl FakeSource {
     fn message(offset: i64) -> Message {
         Message {
             value: Bytes::from(format!(r#"{{"id":"{offset}","kind":"keep"}}"#)),
+            key: None,
+            headers: Arc::from([]),
             meta: MessageMeta {
                 partition: Some(0),
                 offset: Some(offset),

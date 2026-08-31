@@ -8,7 +8,21 @@ use crate::source::CommitMarker;
 #[derive(Debug, Clone)]
 pub struct Message {
     pub value: Bytes,
+
+    pub key: Option<Bytes>,
+
+    pub headers: Arc<[MessageHeader]>,
+
     pub meta: MessageMeta,
+}
+
+/// One ordered source-message header. Duplicate names and binary/null values are
+/// preserved because queue protocols do not universally model headers as a map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageHeader {
+    pub key: Arc<str>,
+
+    pub value: Option<Bytes>,
 }
 
 /// Connector-neutral source metadata that can be materialized as system columns.
@@ -25,6 +39,8 @@ impl Message {
     pub fn new(value: Bytes) -> Self {
         Self {
             value,
+            key: None,
+            headers: Arc::from([]),
             meta: MessageMeta::default(),
         }
     }

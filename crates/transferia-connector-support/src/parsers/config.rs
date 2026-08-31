@@ -2,6 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::parsers::json_parser::JsonParserConfig;
+use crate::parsers::raw_to_table::RawToTableParserConfig;
 use crate::parsers::schema_registry::SchemaRegistryParserConfig;
 use crate::parsers::ParserEntry;
 use transferia_core::data::system_columns::SystemColumnKind;
@@ -16,6 +17,8 @@ pub enum ParserSchema {
     Json(JsonParserSchema),
     #[schemars(title = "Confluent Schema Registry parser")]
     SchemaRegistry(SchemaRegistryParserSchema),
+    #[schemars(title = "Raw to table parser")]
+    RawToTable(RawToTableParserSchema),
     #[schemars(title = "Discard messages (for benchmarks)")]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }
@@ -43,6 +46,24 @@ pub struct SchemaRegistryParserSchema {
 
     #[schemars(title = "Confluent Schema Registry parser")]
     pub schema_registry: SchemaRegistryParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct RawToTableParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
+    pub common: RawToTableCommonConfig,
+
+    #[schemars(title = "Raw to table parser")]
+    pub raw_to_table: RawToTableParserConfig,
+}
+
+#[derive(JsonSchema)]
+pub struct RawToTableCommonConfig {
+    #[schemars(title = "Table name", extend("x-ui" = { "control_width": "table_name" }))]
+    pub table_naming: TableNaming,
 }
 
 #[derive(JsonSchema)]

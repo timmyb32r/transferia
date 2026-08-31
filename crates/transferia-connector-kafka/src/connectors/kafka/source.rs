@@ -5,13 +5,13 @@ use std::time::Instant;
 use bytes::Bytes;
 use futures_util::future::BoxFuture;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
-use rdkafka::message::{Message as _, OwnedMessage, Timestamp};
+use rdkafka::message::{Headers as _, Message as _, OwnedMessage, Timestamp};
 use rdkafka::{Offset, TopicPartitionList};
 use tokio_util::sync::CancellationToken;
 
 use super::config::KafkaSourceConfig;
 use crate::metrics::SourceCounters;
-use transferia_core::data::message::{Message, MessageMeta, SourceBatch};
+use transferia_core::data::message::{Message, MessageHeader, MessageMeta, SourceBatch};
 use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::{CommitMarker, Source};
@@ -64,44 +64,36 @@ impl KafkaSource {
     async fn read(&self) -> DataPlaneResult<SourceBatch> {
         let first = self.receive().await?;
         let mut records = vec![first];
-        let mut payload_bytes = records[0].payload().map_or(0, <[u8]>::len);
-        if payload_bytes > self.config.batch_max_bytes {
+        let mut retained_bytes = record_retained_bytes(&records[0])?;
+        if retained_bytes > self.config.batch_max_bytes {
             return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
-                "Kafka record size {payload_bytes} exceeds explicit kafka.batch_max_bytes {}",
+                "Kafka record retained size {retained_bytes} exceeds explicit kafka.batch_max_bytes {}",
                 self.config.batch_max_bytes
             )));
         }
         while records.len() < self.config.batch_max_messages
-            && payload_bytes < self.config.batch_max_bytes
+            && retained_bytes < self.config.batch_max_bytes
         {
             let result =
                 tokio::time::timeout(core::time::Duration::from_millis(1), self.receive()).await;
             let Ok(message) = result else { break };
             let message = message?;
-            let bytes = message.payload().map_or(0, <[u8]>::len);
-            if payload_bytes.saturating_add(bytes) > self.config.batch_max_bytes {
+            let bytes = record_retained_bytes(&message)?;
+            if retained_bytes.saturating_add(bytes) > self.config.batch_max_bytes {
                 return Err(DataPlaneFailure::fatal(anyhow::anyhow!(
                     "Kafka buffered record would exceed explicit kafka.batch_max_bytes {}; lower broker fetch size or raise the configured batch limit",
                     self.config.batch_max_bytes
                 )));
             }
-            payload_bytes = payload_bytes.checked_add(bytes).ok_or_else(|| {
+            retained_bytes = retained_bytes.checked_add(bytes).ok_or_else(|| {
                 DataPlaneFailure::fatal(anyhow::anyhow!("Kafka batch byte count overflow"))
             })?;
             records.push(message);
         }
-        let reservation = self.memory.reserve_progress_source(payload_bytes).await;
+        let reservation = self.memory.reserve_progress_source(retained_bytes).await;
         let mut offsets = BTreeMap::<(String, i32), i64>::new();
         let mut messages = Vec::with_capacity(records.len());
         for record in records {
-            let payload = record.payload().ok_or_else(|| {
-                DataPlaneFailure::fatal(anyhow::anyhow!(
-                    "Kafka record at {}:{}:{} has no value",
-                    record.topic(),
-                    record.partition(),
-                    record.offset()
-                ))
-            })?;
             let next_offset = record
                 .offset()
                 .checked_add(1)
@@ -110,26 +102,14 @@ impl KafkaSource {
                 .entry((record.topic().to_owned(), record.partition()))
                 .and_modify(|current| *current = (*current).max(next_offset))
                 .or_insert(next_offset);
-            let timestamp = match record.timestamp() {
-                Timestamp::NotAvailable => None,
-                Timestamp::CreateTime(value) | Timestamp::LogAppendTime(value) => Some(value),
-            };
-            messages.push(Message {
-                value: Bytes::copy_from_slice(payload),
-                meta: MessageMeta {
-                    topic: Some(Arc::from(record.topic())),
-                    partition: Some(i64::from(record.partition())),
-                    offset: Some(record.offset()),
-                    write_timestamp_ms: timestamp,
-                },
-            });
+            messages.push(source_message(&record)?);
         }
         self.counters
             .add_records(u64::try_from(messages.len()).unwrap_or(u64::MAX));
         // librdkafka exposes payloads after Kafka batch decompression. Do not
         // misreport those decoded payload bytes as raw network throughput.
         self.counters
-            .add_network_decoded_bytes(u64::try_from(payload_bytes).unwrap_or(u64::MAX));
+            .add_network_decoded_bytes(u64::try_from(retained_bytes).unwrap_or(u64::MAX));
         Ok(SourceBatch::Raw {
             messages,
             commit_marker: Some(CommitMarker::new(KafkaCommitMarker { offsets })),
@@ -164,6 +144,62 @@ impl KafkaSource {
     }
 }
 
+fn source_message(record: &OwnedMessage) -> DataPlaneResult<Message> {
+    let payload = record.payload().ok_or_else(|| {
+        DataPlaneFailure::fatal(anyhow::anyhow!(
+            "Kafka record at {}:{}:{} has no value",
+            record.topic(),
+            record.partition(),
+            record.offset()
+        ))
+    })?;
+    let timestamp = match record.timestamp() {
+        Timestamp::NotAvailable => None,
+        Timestamp::CreateTime(value) | Timestamp::LogAppendTime(value) => Some(value),
+    };
+    Ok(Message {
+        value: Bytes::copy_from_slice(payload),
+        key: record.key().map(Bytes::copy_from_slice),
+        headers: record
+            .headers()
+            .map(|headers| {
+                headers
+                    .iter()
+                    .map(|header| MessageHeader {
+                        key: Arc::from(header.key),
+                        value: header.value.map(Bytes::copy_from_slice),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+            .into(),
+        meta: MessageMeta {
+            topic: Some(Arc::from(record.topic())),
+            partition: Some(i64::from(record.partition())),
+            offset: Some(record.offset()),
+            write_timestamp_ms: timestamp,
+        },
+    })
+}
+
+fn record_retained_bytes(record: &OwnedMessage) -> DataPlaneResult<usize> {
+    let mut bytes = record.payload().map_or(0, <[u8]>::len);
+    bytes = bytes
+        .checked_add(record.key().map_or(0, <[u8]>::len))
+        .ok_or_else(|| DataPlaneFailure::fatal(anyhow::anyhow!("Kafka record size overflow")))?;
+    if let Some(headers) = record.headers() {
+        for header in headers.iter() {
+            bytes = bytes
+                .checked_add(header.key.len())
+                .and_then(|size| size.checked_add(header.value.map_or(0, <[u8]>::len)))
+                .ok_or_else(|| {
+                    DataPlaneFailure::fatal(anyhow::anyhow!("Kafka record size overflow"))
+                })?;
+        }
+    }
+    Ok(bytes)
+}
+
 impl Source for KafkaSource {
     fn read_batch(
         &mut self,
@@ -178,3 +214,7 @@ impl Source for KafkaSource {
         Box::pin(async move { self.commit(markers) })
     }
 }
+
+#[cfg(test)]
+#[path = "tests/source.rs"]
+mod tests;
