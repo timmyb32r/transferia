@@ -6341,7 +6341,7 @@
               "description": "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
               "type": "array",
               "items": {
-                "$ref": "#/$defs/YTsaurusTableAttribute"
+                "$ref": "#/$defs/YTsaurusJsonEntry"
               },
               "x-ui": {
                 "section": "advanced",
@@ -6452,6 +6452,19 @@
                         "section": "advanced"
                       }
                     },
+                    "spec": {
+                      "title": "YT Spec",
+                      "description": "Additional YT table_writer parameters. Explicit entries override Transferia's writer defaults.",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/YTsaurusJsonEntry"
+                      },
+                      "x-ui": {
+                        "section": "advanced",
+                        "widget": "compact_array",
+                        "item_label": "parameter"
+                      }
+                    },
                     "format": {
                       "title": "Driver exchange format",
                       "$ref": "#/$defs/YTsaurusWriteFormat",
@@ -6533,6 +6546,24 @@
                   "type": "string",
                   "const": "lookup"
                 }
+              ]
+            },
+            "YTsaurusJsonEntry": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "title": "JSON value",
+                  "description": "Exact JSON representation of the YT attribute value",
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "value"
               ]
             },
             "YTsaurusWriteFormat": {
@@ -6653,24 +6684,6 @@
                   "type": "string",
                   "const": "preserve_rows"
                 }
-              ]
-            },
-            "YTsaurusTableAttribute": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "value": {
-                  "title": "JSON value",
-                  "description": "Exact JSON representation of the YT attribute value",
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "value"
               ]
             },
             "YTsaurusAuthConfig": {

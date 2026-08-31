@@ -18,8 +18,8 @@ use tokio::task::JoinSet;
 
 use super::client::{
     dynamic_table_attributes, json_header_value, resolved_link_suggestion, rich_read_path,
-    static_table_attributes, suggestion_directory, table_path_suggestions, yson_header_value,
-    ListedNode,
+    static_table_attributes, suggestion_directory, table_path_suggestions, table_writer_spec,
+    yson_header_value, ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
@@ -425,6 +425,29 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
          trusted_plaintext: true\n",
     )?;
     assert!(reserved.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn static_writer_spec_overrides_defaults_with_typed_values() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, spec: [{ name: block_size, value: '8388608' }, { name: validate_sorted, value: 'true' }] }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    let custom = config.parsed_writer_spec()?;
+    let spec = table_writer_spec(&config.table_writer, &custom)?;
+    assert_eq!(spec["block_size"], 8 * 1024 * 1024);
+    assert_eq!(spec["validate_sorted"], true);
+    assert_eq!(
+        spec["desired_chunk_size"],
+        config.table_writer.desired_chunk_size
+    );
+
+    let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
+    assert!(serde_json::to_string(&schema)?.contains("YT Spec"));
     Ok(())
 }
 

@@ -77,6 +77,20 @@ fn extend_attributes(
     Ok(())
 }
 
+pub(super) fn table_writer_spec(
+    table_writer: &YTsaurusTableWriterConfig,
+    custom_spec: &BTreeMap<String, Value>,
+) -> anyhow::Result<Value> {
+    let mut value = serde_json::to_value(table_writer)?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("YT table_writer config must be an object"))?;
+    for (name, custom_value) in custom_spec {
+        object.insert(name.clone(), custom_value.clone());
+    }
+    Ok(value)
+}
+
 impl DistributedWriteSession {
     pub fn into_parts(self) -> (Value, Vec<Value>) {
         (self.session, self.cookies)
@@ -428,11 +442,12 @@ impl YTsaurusClient {
         payload: Vec<u8>,
         row_buffer_bytes: u64,
         table_writer: &YTsaurusTableWriterConfig,
+        custom_spec: &BTreeMap<String, Value>,
     ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "path": format!("<append=%true>{path}"),
             "max_row_buffer_size": row_buffer_bytes,
-            "table_writer": table_writer,
+            "table_writer": table_writer_spec(table_writer, custom_spec)?,
         });
         let parameters = serde_json::to_string(&parameters)?;
         let response = self
@@ -501,11 +516,12 @@ impl YTsaurusClient {
         payload: Vec<u8>,
         row_buffer_bytes: u64,
         table_writer: &YTsaurusTableWriterConfig,
+        custom_spec: &BTreeMap<String, Value>,
     ) -> anyhow::Result<Value> {
         let parameters = serde_json::json!({
             "cookie": cookie,
             "max_row_buffer_size": row_buffer_bytes,
-            "table_writer": table_writer,
+            "table_writer": table_writer_spec(table_writer, custom_spec)?,
         });
         let parameters = json_header_value(&parameters)?;
         let response = self

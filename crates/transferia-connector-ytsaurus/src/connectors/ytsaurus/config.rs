@@ -58,7 +58,7 @@ fn default_primary_medium() -> String {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct YTsaurusTableAttribute {
+pub struct YTsaurusJsonEntry {
     pub name: String,
 
     #[schemars(
@@ -919,7 +919,7 @@ pub struct YTsaurusSinkConfig {
         description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
         extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
     )]
-    pub table_attributes: Vec<YTsaurusTableAttribute>,
+    pub table_attributes: Vec<YTsaurusJsonEntry>,
 
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
@@ -1037,6 +1037,14 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
+            title = "YT Spec",
+            description = "Additional YT table_writer parameters. Explicit entries override Transferia's writer defaults.",
+            extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "parameter" })
+        )]
+        spec: Vec<YTsaurusJsonEntry>,
+
+        #[serde(default)]
+        #[schemars(
             title = "Driver exchange format",
             extend("x-ui" = { "section": "advanced" })
         )]
@@ -1083,6 +1091,7 @@ impl YTsaurusSinkConfig {
             "ytsaurus.primary_medium must not be empty"
         );
         self.parsed_table_attributes()?;
+        self.parsed_writer_spec()?;
         anyhow::ensure!(
             self.write_target_bytes > 0,
             "ytsaurus.write_target_bytes must be positive"
@@ -1202,31 +1211,51 @@ impl YTsaurusSinkConfig {
     pub(super) fn parsed_table_attributes(
         &self,
     ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
-        let mut attributes = BTreeMap::new();
-        for attribute in &self.table_attributes {
+        let attributes = parse_json_entries(&self.table_attributes, "YTsaurus table attribute")?;
+        for name in attributes.keys() {
             anyhow::ensure!(
-                !attribute.name.is_empty() && !attribute.name.contains('\0'),
-                "YTsaurus custom table attribute names must be non-empty and contain no NUL"
-            );
-            anyhow::ensure!(
-                !RESERVED_TABLE_ATTRIBUTES.contains(&attribute.name.as_str()),
+                !RESERVED_TABLE_ATTRIBUTES.contains(&name.as_str()),
                 "YTsaurus table attribute '{}' has a dedicated configuration field and cannot be overridden",
-                attribute.name
-            );
-            let value = serde_json::from_str(&attribute.value).map_err(|error| {
-                anyhow::anyhow!(
-                    "YTsaurus table attribute '{}' has invalid JSON: {error}",
-                    attribute.name
-                )
-            })?;
-            anyhow::ensure!(
-                attributes.insert(attribute.name.clone(), value).is_none(),
-                "YTsaurus table attribute '{}' is configured more than once",
-                attribute.name
+                name
             );
         }
         Ok(attributes)
     }
+
+    pub(super) fn parsed_writer_spec(
+        &self,
+    ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
+        let entries = match &self.tables {
+            YTsaurusTableMode::StaticTables { spec, .. } => spec,
+            YTsaurusTableMode::DynamicTables { .. } => return Ok(BTreeMap::new()),
+        };
+        parse_json_entries(entries, "YT Spec")
+    }
+}
+
+fn parse_json_entries(
+    entries: &[YTsaurusJsonEntry],
+    subject: &str,
+) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
+    let mut values = BTreeMap::new();
+    for entry in entries {
+        anyhow::ensure!(
+            !entry.name.is_empty() && !entry.name.contains('\0'),
+            "{subject} parameter names must be non-empty and contain no NUL"
+        );
+        let value = serde_json::from_str(&entry.value).map_err(|error| {
+            anyhow::anyhow!(
+                "{subject} parameter '{}' has invalid JSON: {error}",
+                entry.name
+            )
+        })?;
+        anyhow::ensure!(
+            values.insert(entry.name.clone(), value).is_none(),
+            "{subject} parameter '{}' is configured more than once",
+            entry.name
+        );
+    }
+    Ok(values)
 }
 
 pub fn validate_path(path: &str) -> anyhow::Result<()> {

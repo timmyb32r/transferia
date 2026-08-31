@@ -40,6 +40,7 @@ pub struct YTsaurusSinkConnector {
     config: Arc<YTsaurusSinkConfig>,
     client: YTsaurusClient,
     table_attributes: Arc<BTreeMap<String, serde_json::Value>>,
+    writer_spec: Arc<BTreeMap<String, serde_json::Value>>,
 }
 
 impl YTsaurusSinkConnector {
@@ -47,10 +48,12 @@ impl YTsaurusSinkConnector {
         config.validate()?;
         let client = YTsaurusClient::new(&config.connection)?;
         let table_attributes = Arc::new(config.parsed_table_attributes()?);
+        let writer_spec = Arc::new(config.parsed_writer_spec()?);
         Ok(Self {
             config: Arc::new(config),
             client,
             table_attributes,
+            writer_spec,
         })
     }
 }
@@ -338,6 +341,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                 dynamic_writer,
                 config: Arc::clone(&self.config),
                 table_attributes: Arc::clone(&self.table_attributes),
+                writer_spec: Arc::clone(&self.writer_spec),
                 counters: context.counters,
                 discovery: context.discovery,
                 limits,
@@ -354,6 +358,7 @@ struct YTsaurusSink {
     dynamic_writer: Option<Arc<NativeDynamicWriter>>,
     config: Arc<YTsaurusSinkConfig>,
     table_attributes: Arc<BTreeMap<String, serde_json::Value>>,
+    writer_spec: Arc<BTreeMap<String, serde_json::Value>>,
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
@@ -520,6 +525,7 @@ impl YTsaurusSink {
                     payload,
                     self.config.write_row_buffer_bytes,
                     &self.config.table_writer,
+                    &self.writer_spec,
                 )
                 .await;
         }
@@ -542,6 +548,7 @@ impl YTsaurusSink {
             .map(|(shard, cookie)| {
                 let client = self.client.clone();
                 let table_writer = self.config.table_writer.clone();
+                let writer_spec = Arc::clone(&self.writer_spec);
                 let format = configured_format;
                 let row_buffer_bytes = self.config.write_row_buffer_bytes;
                 async move {
@@ -553,6 +560,7 @@ impl YTsaurusSink {
                             payload,
                             row_buffer_bytes,
                             &table_writer,
+                            &writer_spec,
                         )
                         .await
                 }
