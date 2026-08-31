@@ -718,6 +718,31 @@ pub enum YTsaurusOptimizeFor {
     Lookup,
 }
 
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum YTsaurusDynamicSnapshotMode {
+    #[schemars(title = "Through static staging (recommended)")]
+    StaticStaging {
+        #[serde(default)]
+        #[schemars(
+            title = "Sort/merge operation pool",
+            description = "Optional YTsaurus scheduler pool used only for the snapshot sort operation"
+        )]
+        operation_pool: Option<String>,
+    },
+
+    #[schemars(title = "Direct tablet writes")]
+    Direct,
+}
+
+impl Default for YTsaurusDynamicSnapshotMode {
+    fn default() -> Self {
+        Self::StaticStaging {
+            operation_pool: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum YTsaurusAtomicity {
@@ -1065,6 +1090,13 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
+            title = "Batch snapshot delivery",
+            description = "Static staging writes the complete finite snapshot efficiently, verifies primary-key uniqueness, sorts it and converts it into a dynamic table before committing source progress"
+        )]
+        snapshot_mode: YTsaurusDynamicSnapshotMode,
+
+        #[serde(default)]
+        #[schemars(
             title = "Atomicity",
             description = "Full provides all-or-nothing tablet transactions. None weakens atomicity explicitly and may expose a partial write if a multi-row transaction fails.",
             extend("x-ui" = { "section": "advanced" })
@@ -1134,6 +1166,12 @@ impl YTsaurusSinkConfig {
                 anyhow::ensure!(
                     !bundle.trim().is_empty(),
                     "ytsaurus dynamic tablet_cell_bundle must not be empty"
+                );
+            }
+            if let Some(pool) = self.dynamic_snapshot_operation_pool() {
+                anyhow::ensure!(
+                    !pool.trim().is_empty(),
+                    "ytsaurus dynamic snapshot operation_pool must not be empty"
                 );
             }
             let initial_tablet_count = self
@@ -1214,6 +1252,32 @@ impl YTsaurusSinkConfig {
                 initial_tablet_count,
                 ..
             } => Some(*initial_tablet_count),
+        }
+    }
+
+    #[must_use]
+    pub const fn stages_dynamic_snapshots(&self) -> bool {
+        matches!(
+            self.tables,
+            YTsaurusTableMode::DynamicTables {
+                snapshot_mode: YTsaurusDynamicSnapshotMode::StaticStaging { .. },
+                ..
+            }
+        )
+    }
+
+    #[must_use]
+    pub fn dynamic_snapshot_operation_pool(&self) -> Option<&str> {
+        match &self.tables {
+            YTsaurusTableMode::DynamicTables {
+                snapshot_mode: YTsaurusDynamicSnapshotMode::StaticStaging { operation_pool },
+                ..
+            } => operation_pool.as_deref(),
+            YTsaurusTableMode::StaticTables { .. }
+            | YTsaurusTableMode::DynamicTables {
+                snapshot_mode: YTsaurusDynamicSnapshotMode::Direct,
+                ..
+            } => None,
         }
     }
 

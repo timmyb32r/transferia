@@ -17,7 +17,9 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
-use super::config::{YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat};
+use super::config::{
+    YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat,
+};
 use super::native_rpc::NativeDynamicWriter;
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
@@ -156,6 +158,22 @@ impl SinkLimits for YTsaurusSinkConfig {
                 "unique sorted YTsaurus primary-key semantics require exactly one finite source partition so one atomic replacement contains the complete snapshot"
             );
         }
+        if !self.static_tables()
+            && self.stages_dynamic_snapshots()
+            && matches!(discovery.source_topology, SourceTopology::StaticPartitions(_))
+        {
+            anyhow::ensure!(
+                self.replace_tables(),
+                "dynamic snapshot delivery through static staging replaces the destination and requires replace_tables=true"
+            );
+            anyhow::ensure!(
+                matches!(
+                    &discovery.source_topology,
+                    SourceTopology::StaticPartitions(partitions) if partitions.len() == 1
+                ),
+                "dynamic snapshot delivery through static staging requires exactly one finite source partition"
+            );
+        }
         Ok(())
     }
 
@@ -195,6 +213,13 @@ impl SinkConnector for YTsaurusSinkConnector {
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
             self.client.create_directory(self.config.path()).await?;
+            let stage_dynamic_snapshot = !self.config.static_tables()
+                && self.config.stages_dynamic_snapshots()
+                && request.finite_source;
+            anyhow::ensure!(
+                !stage_dynamic_snapshot || self.config.replace_tables(),
+                "dynamic snapshot delivery through static staging requires replace_tables=true"
+            );
             for dataset in request.datasets {
                 let unique_sorted = self.config.primary_key_semantics
                     == YTsaurusPrimaryKeySemantics::UniqueSorted
@@ -204,6 +229,10 @@ impl SinkConnector for YTsaurusSinkConnector {
                         .iter()
                         .any(|column| column.primary_key);
                 if unique_sorted && self.config.static_tables() {
+                    sorted_unique_schema_to_yt(&dataset.schema)?;
+                    continue;
+                }
+                if stage_dynamic_snapshot {
                     sorted_unique_schema_to_yt(&dataset.schema)?;
                     continue;
                 }
@@ -337,7 +366,16 @@ impl SinkConnector for YTsaurusSinkConnector {
                 !static_unique_sorted || context.finite_source,
                 "unique sorted YTsaurus primary-key semantics require a finite snapshot source"
             );
-            let dynamic_writer = if let Some(write) = self.config.dynamic_write() {
+            let stage_dynamic_snapshot = !self.config.static_tables()
+                && self.config.stages_dynamic_snapshots()
+                && context.finite_source;
+            anyhow::ensure!(
+                !stage_dynamic_snapshot || self.config.replace_tables(),
+                "dynamic snapshot delivery through static staging requires replace_tables=true"
+            );
+            let dynamic_writer = if stage_dynamic_snapshot {
+                None
+            } else if let Some(write) = self.config.dynamic_write() {
                 Some(Arc::new(NativeDynamicWriter::new(
                     self.client.discover_rpc_endpoints().await?,
                     self.client.token().to_owned(),
@@ -363,6 +401,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                 counters: context.counters,
                 discovery: context.discovery,
                 limits,
+                stage_dynamic_snapshot,
                 delivery_id: context.durable.delivery_id,
                 partition_id: context.partition_id,
                 attempt_id: Uuid::new_v4(),
@@ -416,6 +455,7 @@ struct YTsaurusSink {
     counters: Arc<SinkCounters>,
     discovery: Arc<DeliveryDiscovery>,
     limits: Arc<dyn SinkLimits>,
+    stage_dynamic_snapshot: bool,
     delivery_id: Arc<str>,
     partition_id: i64,
     attempt_id: Uuid,
@@ -445,8 +485,8 @@ impl YTsaurusSink {
         )
     }
 
-    fn has_unique_sorted_tables(&self) -> bool {
-        self.config.static_tables()
+    fn has_staged_tables(&self) -> bool {
+        (self.config.static_tables() || self.stage_dynamic_snapshot)
             && self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
             && self.discovery.datasets.iter().any(|dataset| {
                 dataset
@@ -494,6 +534,10 @@ impl YTsaurusSink {
     }
 
     async fn prepare_unique_staging(&self) -> anyhow::Result<()> {
+        let optimize_for = self
+            .config
+            .static_optimize_for()
+            .unwrap_or(YTsaurusOptimizeFor::Lookup);
         for dataset in &self.discovery.datasets {
             if !self.unique_sorted(&dataset.name)? {
                 continue;
@@ -506,9 +550,7 @@ impl YTsaurusSink {
                 .create_table(
                     &staging,
                     schema_to_yt(&dataset.stored_schema)?,
-                    self.config.static_optimize_for().ok_or_else(|| {
-                        anyhow::anyhow!("static table has no optimize_for config")
-                    })?,
+                    optimize_for,
                     &self.config.primary_medium,
                     &self.table_attributes,
                 )
@@ -517,9 +559,7 @@ impl YTsaurusSink {
                 .create_table(
                     &sorted,
                     sorted_unique_schema_to_yt(&dataset.stored_schema)?,
-                    self.config.static_optimize_for().ok_or_else(|| {
-                        anyhow::anyhow!("static table has no optimize_for config")
-                    })?,
+                    optimize_for,
                     &self.config.primary_medium,
                     &self.table_attributes,
                 )
@@ -543,9 +583,43 @@ impl YTsaurusSink {
                     &self.primary_keys(&dataset.name)?,
                     &self.sort_mutation_id(&dataset.name),
                     Duration::from_millis(self.config.primary_key_sort_timeout_ms),
+                    self.config.dynamic_snapshot_operation_pool(),
                 )
                 .await?;
-            self.client.move_table(&sorted, &destination).await?;
+            if self.stage_dynamic_snapshot {
+                let write = self.config.dynamic_write().ok_or_else(|| {
+                    anyhow::anyhow!("dynamic table has no transaction configuration")
+                })?;
+                self.client
+                    .convert_static_table_to_dynamic(
+                        &sorted,
+                        self.config.dynamic_atomicity().ok_or_else(|| {
+                            anyhow::anyhow!("dynamic table has no atomicity config")
+                        })?,
+                        &self.config.primary_medium,
+                        &self.table_attributes,
+                        self.config.tablet_cell_bundle(),
+                        write.dynamic_store_overflow_threshold,
+                    )
+                    .await?;
+                let initial_tablet_count = self.config.initial_tablet_count().ok_or_else(|| {
+                    anyhow::anyhow!("dynamic table has no initial tablet count")
+                })?;
+                if initial_tablet_count > 1 {
+                    self.client
+                        .reshard_table_uniform(&sorted, initial_tablet_count)
+                        .await?;
+                }
+                self.client.move_table(&sorted, &destination).await?;
+                self.client
+                    .mount_table(
+                        &destination,
+                        Duration::from_millis(self.config.connection.timeout_ms),
+                    )
+                    .await?;
+            } else {
+                self.client.move_table(&sorted, &destination).await?;
+            }
             self.client.remove_table(&staging).await?;
         }
         Ok(())
@@ -567,7 +641,7 @@ impl YTsaurusSink {
         let configured_format = self
             .config
             .static_format()
-            .ok_or_else(|| anyhow::anyhow!("static YTsaurus writer has no exchange format"))?;
+            .unwrap_or(YTsaurusWriteFormat::Arrow);
         let concurrency = self.config.write_concurrency.min(batches.len());
         if concurrency <= 1 {
             let (format, payload) = encode_batches(configured_format, &batches)?;
@@ -736,7 +810,7 @@ impl YTsaurusSink {
             .sum();
         self.write_deliveries(pending).await?;
         self.counters.add_source_messages(source_messages);
-        if self.has_unique_sorted_tables() {
+        if self.has_staged_tables() {
             *deferred_commit = Some(id);
         } else {
             events
@@ -774,12 +848,12 @@ impl Sink for YTsaurusSink {
         mut io: SinkIo,
     ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {
-            let unique_sorted = self.has_unique_sorted_tables();
+            let staged = self.has_staged_tables();
             let result: anyhow::Result<()> = async {
                 let mut pending = Vec::<Delivery>::new();
                 let mut buffered_bytes = 0_usize;
                 let mut deferred_commit = None;
-                if self.has_unique_sorted_tables() {
+                if self.has_staged_tables() {
                     self.prepare_unique_staging().await?;
                 }
                 loop {
@@ -818,7 +892,7 @@ impl Sink for YTsaurusSink {
                         }
                         self.flush_pending(&mut pending, &io.events, &mut deferred_commit)
                             .await?;
-                        if self.has_unique_sorted_tables() {
+                        if self.has_staged_tables() {
                             self.finalize_unique_tables().await.map_err(|error| {
                                 anyhow::Error::from(DataPlaneFailure::fatal(error))
                             })?;
@@ -858,7 +932,7 @@ impl Sink for YTsaurusSink {
                 Ok(())
             }
             .await;
-            if unique_sorted {
+            if staged {
                 result.map_err(DataPlaneFailure::fatal_or_passthrough)
             } else {
                 result.map_err(DataPlaneFailure::retryable_or_passthrough)

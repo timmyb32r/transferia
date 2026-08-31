@@ -170,6 +170,8 @@ pub struct SinkBuildContext {
 
 pub struct SinkPrepare {
     pub datasets: Vec<DatasetPrepare>,
+
+    pub finite_source: bool,
 }
 
 pub struct DatasetPrepare {
@@ -195,6 +197,10 @@ impl SinkPrepare {
                     schema: dataset.stored_schema.clone(),
                 })
                 .collect(),
+            finite_source: matches!(
+                discovery.source_topology,
+                transferia_core::delivery::SourceTopology::StaticPartitions(_)
+            ),
         }))
     }
 }

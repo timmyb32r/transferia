@@ -692,6 +692,50 @@ impl YTsaurusClient {
         Ok(())
     }
 
+    pub async fn convert_static_table_to_dynamic(
+        &self,
+        path: &str,
+        atomicity: YTsaurusAtomicity,
+        primary_medium: &str,
+        custom_attributes: &BTreeMap<String, Value>,
+        tablet_cell_bundle: Option<&str>,
+        dynamic_store_overflow_threshold: f64,
+    ) -> anyhow::Result<()> {
+        let parameters = serde_json::json!({
+            "path": path,
+            "dynamic": true,
+        });
+        let response = self
+            .request_v4(reqwest::Method::POST, "alter_table")?
+            .configure(|request| request.header("X-YT-Parameters", parameters.to_string()))
+            .send()
+            .await?;
+        Self::checked(response).await?;
+
+        let attributes = dynamic_conversion_attributes(
+            atomicity,
+            primary_medium,
+            custom_attributes,
+            tablet_cell_bundle,
+            dynamic_store_overflow_threshold,
+        )?;
+        let parameters = serde_json::json!({
+            "path": format!("{}/@", path.trim_end_matches('/')),
+        });
+        let response = self
+            .request_v4(reqwest::Method::POST, "multiset_attributes")?
+            .configure(|request| {
+                request
+                    .header("X-YT-Parameters", parameters.to_string())
+                    .header("X-YT-Input-Format", "\"json\"")
+                    .body(attributes.to_string())
+            })
+            .send()
+            .await?;
+        Self::checked(response).await?;
+        Ok(())
+    }
+
     pub async fn move_table(
         &self,
         source_path: &str,
@@ -719,6 +763,7 @@ impl YTsaurusClient {
         primary_keys: &[String],
         mutation_id: &str,
         timeout: Duration,
+        operation_pool: Option<&str>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !primary_keys.is_empty(),
@@ -728,17 +773,13 @@ impl YTsaurusClient {
             .iter()
             .map(|name| serde_json::json!({ "name": name, "sort_order": "ascending" }))
             .collect::<Vec<_>>();
-        let parameters = serde_json::json!({
-            "operation_type": "sort",
-            "mutation_id": mutation_id,
-            "spec": {
-                "input_table_paths": [source_path],
-                "output_table_path": destination_path,
-                "sort_by": sort_by,
-                "schema_inference_mode": "from_output",
-                "max_failed_job_count": 1,
-            },
-        });
+        let parameters = sort_operation_parameters(
+            source_path,
+            destination_path,
+            sort_by,
+            mutation_id,
+            operation_pool,
+        );
         let response = self
             .request_v4(reqwest::Method::POST, "start_operation")?
             .configure(|request| {
@@ -852,6 +893,53 @@ pub(super) fn uniform_reshard_parameters(
         "tablet_count": tablet_count,
         "uniform": true,
     }))
+}
+
+pub(super) fn dynamic_conversion_attributes(
+    atomicity: YTsaurusAtomicity,
+    primary_medium: &str,
+    custom_attributes: &BTreeMap<String, Value>,
+    tablet_cell_bundle: Option<&str>,
+    dynamic_store_overflow_threshold: f64,
+) -> anyhow::Result<Value> {
+    let mut attributes = dynamic_table_attributes(
+        Value::Null,
+        atomicity,
+        primary_medium,
+        custom_attributes,
+        tablet_cell_bundle,
+        dynamic_store_overflow_threshold,
+    )?;
+    let object = attributes
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("dynamic table attributes must be an object"))?;
+    object.remove("schema");
+    object.remove("dynamic");
+    Ok(attributes)
+}
+
+pub(super) fn sort_operation_parameters(
+    source_path: &str,
+    destination_path: &str,
+    sort_by: Vec<Value>,
+    mutation_id: &str,
+    operation_pool: Option<&str>,
+) -> Value {
+    let mut spec = serde_json::json!({
+        "input_table_paths": [source_path],
+        "output_table_path": destination_path,
+        "sort_by": sort_by,
+        "schema_inference_mode": "from_output",
+        "max_failed_job_count": 1,
+    });
+    if let Some(pool) = operation_pool {
+        spec["pool"] = Value::String(pool.to_owned());
+    }
+    serde_json::json!({
+        "operation_type": "sort",
+        "mutation_id": mutation_id,
+        "spec": spec,
+    })
 }
 
 pub(super) fn json_header_value(value: &Value) -> anyhow::Result<String> {

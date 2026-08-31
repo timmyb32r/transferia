@@ -17,9 +17,10 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 
 use super::client::{
-    dynamic_table_attributes, json_header_value, resolved_link_suggestion, rich_read_path,
-    static_table_attributes, suggestion_directory, table_path_suggestions, table_writer_spec,
-    uniform_reshard_parameters, yson_header_value, ListedNode,
+    dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
+    resolved_link_suggestion, rich_read_path, sort_operation_parameters, static_table_attributes,
+    suggestion_directory, table_path_suggestions, table_writer_spec, uniform_reshard_parameters,
+    yson_header_value, ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
@@ -596,6 +597,8 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     let write = config.dynamic_write().expect("dynamic writer config");
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
     assert_eq!(config.initial_tablet_count(), Some(1));
+    assert!(config.stages_dynamic_snapshots());
+    assert_eq!(config.dynamic_snapshot_operation_pool(), None);
     assert_eq!(config.primary_medium, "default");
     assert_eq!(write.transaction_rows, 50_000);
     assert_eq!(write.transaction_concurrency, 8);
@@ -606,6 +609,101 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(write.retry_initial_ms, 100);
     assert_eq!(write.retry_max_ms, 5_000);
     config.validate()?;
+    Ok(())
+}
+
+#[test]
+fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
+) -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: true, path: //tmp/output, snapshot_mode: { type: static_staging, operation_pool: transferia-bulk } }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert!(config.stages_dynamic_snapshots());
+    assert_eq!(
+        config.dynamic_snapshot_operation_pool(),
+        Some("transferia-bulk")
+    );
+    config.validate()?;
+
+    let attributes = dynamic_conversion_attributes(
+        YTsaurusAtomicity::Full,
+        "default",
+        &BTreeMap::new(),
+        Some("cdc"),
+        0.5,
+    )?;
+    assert_eq!(attributes["atomicity"], "full");
+    assert_eq!(attributes["optimize_for"], "lookup");
+    assert_eq!(attributes["primary_medium"], "default");
+    assert_eq!(attributes["tablet_cell_bundle"], "cdc");
+    assert!(attributes.get("schema").is_none());
+    assert!(attributes.get("dynamic").is_none());
+
+    let parameters = sort_operation_parameters(
+        "//tmp/staging",
+        "//tmp/sorted",
+        vec![serde_json::json!({ "name": "id", "sort_order": "ascending" })],
+        "mutation-id",
+        config.dynamic_snapshot_operation_pool(),
+    );
+    assert_eq!(parameters["spec"]["pool"], "transferia-bulk");
+    assert_eq!(parameters["spec"]["schema_inference_mode"], "from_output");
+    assert_eq!(parameters["spec"]["max_failed_job_count"], 1);
+    Ok(())
+}
+
+#[test]
+fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition(
+) -> anyhow::Result<()> {
+    let schema =
+        DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None)]);
+    let discovery = |partitions| DeliveryDiscovery {
+        source_name: Arc::from("test"),
+        source_topology: SourceTopology::StaticPartitions(partitions),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: schema.clone(),
+            stored_schema: schema.clone(),
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    };
+    let config = |replace_tables| {
+        serde_yaml::from_str::<YTsaurusSinkConfig>(&format!(
+            "tables: {{ type: dynamic_tables, replace_tables: {replace_tables}, path: //tmp/output }}\n\
+             auth: {{ type: token, token: test }}\n\
+             host: localhost\n\
+             port: 8000\n\
+             trusted_plaintext: true\n\
+             trusted_native_rpc_plaintext: true\n"
+        ))
+    };
+
+    assert!(config(false)?.validate_discovery(&discovery(vec![0])).is_err());
+    assert!(config(true)?
+        .validate_discovery(&discovery(vec![0, 1]))
+        .is_err());
+    config(true)?.validate_discovery(&discovery(vec![0]))?;
+
+    let direct: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, snapshot_mode: { type: direct } }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert!(!direct.stages_dynamic_snapshots());
+    direct.validate_discovery(&discovery(vec![0, 1]))?;
     Ok(())
 }
 

@@ -6970,6 +6970,11 @@
                     "replace_tables": {
                       "type": "boolean"
                     },
+                    "snapshot_mode": {
+                      "title": "Batch snapshot delivery",
+                      "description": "Static staging writes the complete finite snapshot efficiently, verifies primary-key uniqueness, sorts it and converts it into a dynamic table before committing source progress",
+                      "$ref": "#/$defs/YTsaurusDynamicSnapshotMode"
+                    },
                     "atomicity": {
                       "title": "Atomicity",
                       "description": "Full provides all-or-nothing tablet transactions. None weakens atomicity explicitly and may expose a partial write if a multi-row transaction fails.",
@@ -7057,6 +7062,47 @@
               "enum": [
                 "arrow",
                 "yson"
+              ]
+            },
+            "YTsaurusDynamicSnapshotMode": {
+              "oneOf": [
+                {
+                  "title": "Through static staging (recommended)",
+                  "type": "object",
+                  "properties": {
+                    "operation_pool": {
+                      "title": "Sort/merge operation pool",
+                      "description": "Optional YTsaurus scheduler pool used only for the snapshot sort operation",
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "default": null
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "static_staging"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
+                  "title": "Direct tablet writes",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "direct"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
               ]
             },
             "YTsaurusAtomicity": {
