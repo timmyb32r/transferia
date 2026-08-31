@@ -41,6 +41,10 @@ const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
+fn default_primary_medium() -> String {
+    "default".to_owned()
+}
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YTsaurusConnectionConfig {
@@ -878,6 +882,14 @@ pub struct YTsaurusSinkConfig {
     )]
     pub primary_key_semantics: YTsaurusPrimaryKeySemantics,
 
+    #[serde(default = "default_primary_medium")]
+    #[schemars(
+        title = "Primary medium",
+        description = "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub primary_medium: String,
+
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
@@ -1035,6 +1047,10 @@ impl YTsaurusSinkConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
         validate_path(self.path())?;
+        anyhow::ensure!(
+            !self.primary_medium.trim().is_empty(),
+            "ytsaurus.primary_medium must not be empty"
+        );
         anyhow::ensure!(
             self.write_target_bytes > 0,
             "ytsaurus.write_target_bytes must be positive"

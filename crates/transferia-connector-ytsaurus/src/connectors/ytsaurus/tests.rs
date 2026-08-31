@@ -353,31 +353,40 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     let scan = static_table_attributes(
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Scan,
+        "default",
     );
     assert_eq!(scan["optimize_for"], "scan");
     assert_eq!(scan["chunk_format"], "table_unversioned_columnar");
+    assert_eq!(scan["primary_medium"], "default");
 
-    let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
+    let mut config = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output, optimize_for: lookup }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
     assert_eq!(
         config.static_optimize_for(),
         Some(YTsaurusOptimizeFor::Lookup)
     );
+    assert_eq!(config.primary_medium, "default");
+    config.validate()?;
     let lookup = static_table_attributes(
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Lookup,
+        "ssd_blobs",
     );
     assert_eq!(lookup["optimize_for"], "lookup");
     assert_eq!(
         lookup["chunk_format"],
         "table_unversioned_schemaless_horizontal"
     );
+    assert_eq!(lookup["primary_medium"], "ssd_blobs");
 
     let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
     let serialized = serde_json::to_string(&schema)?;
     assert!(serialized.contains("Optimize for"));
+    assert!(serialized.contains("Primary medium"));
     assert!(serialized.contains("advanced"));
+    config.primary_medium.clear();
+    assert!(config.validate().is_err());
     Ok(())
 }
 
@@ -525,6 +534,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     )?;
     let write = config.dynamic_write().expect("dynamic writer config");
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
+    assert_eq!(config.primary_medium, "default");
     assert_eq!(write.transaction_rows, 50_000);
     assert_eq!(write.transaction_concurrency, 8);
     assert_eq!(write.transaction_timeout_ms, 60_000);
@@ -555,10 +565,12 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
     let attributes = dynamic_table_attributes(
         serde_json::json!([{ "name": "id", "type": "int64" }]),
         config.dynamic_atomicity().expect("dynamic atomicity"),
+        &config.primary_medium,
         Some("cdc"),
         0.5,
     );
     assert_eq!(attributes["atomicity"], "none");
+    assert_eq!(attributes["primary_medium"], "default");
     assert_eq!(attributes["tablet_cell_bundle"], "cdc");
 
     let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;

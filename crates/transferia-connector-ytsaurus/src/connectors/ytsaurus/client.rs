@@ -50,11 +50,13 @@ pub struct DistributedWriteSession {
 pub(super) fn static_table_attributes(
     schema: Value,
     optimize_for: YTsaurusOptimizeFor,
+    primary_medium: &str,
 ) -> Value {
     serde_json::json!({
         "schema": schema,
         "optimize_for": optimize_for.as_str(),
         "chunk_format": optimize_for.chunk_format(),
+        "primary_medium": primary_medium,
     })
 }
 
@@ -538,11 +540,12 @@ impl YTsaurusClient {
         path: &str,
         schema: Value,
         optimize_for: YTsaurusOptimizeFor,
+        primary_medium: &str,
     ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "type": "table",
             "path": path,
-            "attributes": static_table_attributes(schema, optimize_for),
+            "attributes": static_table_attributes(schema, optimize_for, primary_medium),
         });
         let parameters = yson_header_value(&parameters)?;
         let response = self
@@ -563,12 +566,14 @@ impl YTsaurusClient {
         path: &str,
         schema: Value,
         atomicity: YTsaurusAtomicity,
+        primary_medium: &str,
         tablet_cell_bundle: Option<&str>,
         dynamic_store_overflow_threshold: f64,
     ) -> anyhow::Result<()> {
         let attributes = dynamic_table_attributes(
             schema,
             atomicity,
+            primary_medium,
             tablet_cell_bundle,
             dynamic_store_overflow_threshold,
         );
@@ -748,6 +753,7 @@ impl YTsaurusClient {
 pub(super) fn dynamic_table_attributes(
     schema: Value,
     atomicity: YTsaurusAtomicity,
+    primary_medium: &str,
     tablet_cell_bundle: Option<&str>,
     dynamic_store_overflow_threshold: f64,
 ) -> Value {
@@ -756,6 +762,7 @@ pub(super) fn dynamic_table_attributes(
         "dynamic": true,
         "optimize_for": "lookup",
         "atomicity": atomicity.as_str(),
+        "primary_medium": primary_medium,
         "mount_config": {
             "dynamic_store_overflow_threshold": dynamic_store_overflow_threshold,
         },

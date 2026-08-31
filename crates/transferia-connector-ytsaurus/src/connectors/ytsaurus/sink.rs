@@ -205,6 +205,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 self.config.static_optimize_for().ok_or_else(|| {
                                     anyhow::anyhow!("static table has no optimize_for config")
                                 })?,
+                                &self.config.primary_medium,
                             )
                             .await?;
                     } else {
@@ -219,6 +220,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 self.config.dynamic_atomicity().ok_or_else(|| {
                                     anyhow::anyhow!("dynamic table has no atomicity config")
                                 })?,
+                                &self.config.primary_medium,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
                             )
@@ -250,6 +252,16 @@ impl SinkConnector for YTsaurusSinkConnector {
                             atomicity.as_str()
                         );
                     }
+                    let existing_primary_medium = self
+                        .client
+                        .get_json(&super::attribute_path(&path, "primary_medium"))
+                        .await?;
+                    anyhow::ensure!(
+                        existing_primary_medium
+                            == serde_json::Value::String(self.config.primary_medium.clone()),
+                        "YTsaurus sink table '{path}' uses primary medium {existing_primary_medium}, but the destination requires '{}'",
+                        self.config.primary_medium
+                    );
                     let existing = parse_schema(
                         self.client
                             .get_json(&super::attribute_path(&path, "schema"))
@@ -431,6 +443,7 @@ impl YTsaurusSink {
                     self.config.static_optimize_for().ok_or_else(|| {
                         anyhow::anyhow!("static table has no optimize_for config")
                     })?,
+                    &self.config.primary_medium,
                 )
                 .await?;
             self.client
@@ -440,6 +453,7 @@ impl YTsaurusSink {
                     self.config.static_optimize_for().ok_or_else(|| {
                         anyhow::anyhow!("static table has no optimize_for config")
                     })?,
+                    &self.config.primary_medium,
                 )
                 .await?;
         }
