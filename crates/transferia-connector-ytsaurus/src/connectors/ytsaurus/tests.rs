@@ -637,6 +637,24 @@ fn dynamic_writer_tuning_is_not_exposed_as_an_unlabelled_ui_group() {
 }
 
 #[test]
+fn sink_has_no_root_level_advanced_settings() {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
+    let properties = schema
+        .pointer("/properties")
+        .and_then(serde_json::Value::as_object)
+        .expect("sink properties");
+    for name in [
+        "primary_key_semantics",
+        "primary_medium",
+        "table_attributes",
+        "big_value_policy",
+    ] {
+        assert_eq!(properties[name]["x-ui"]["widget"], "hidden", "{name}");
+        assert!(properties[name]["x-ui"].get("section").is_none(), "{name}");
+    }
+}
+
+#[test]
 fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
 ) -> anyhow::Result<()> {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(

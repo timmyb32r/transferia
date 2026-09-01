@@ -949,7 +949,7 @@ pub struct YTsaurusSinkConfig {
     #[schemars(
         title = "Primary key semantics",
         description = "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub primary_key_semantics: YTsaurusPrimaryKeySemantics,
 
@@ -957,7 +957,7 @@ pub struct YTsaurusSinkConfig {
     #[schemars(
         title = "Primary medium",
         description = "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub primary_medium: String,
 
@@ -965,7 +965,7 @@ pub struct YTsaurusSinkConfig {
     #[schemars(
         title = "Table attributes",
         description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
-        extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub table_attributes: Vec<YTsaurusJsonEntry>,
 
@@ -973,7 +973,7 @@ pub struct YTsaurusSinkConfig {
     #[schemars(
         title = "Oversized values",
         description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
-        extend("x-ui" = { "section": "advanced" })
+        extend("x-ui" = { "widget": "hidden" })
     )]
     pub big_value_policy: YTsaurusBigValuePolicy,
 
