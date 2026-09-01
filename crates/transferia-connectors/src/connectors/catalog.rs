@@ -326,6 +326,8 @@ fn build_base_connector_catalog(
         parser_plugins.clone(),
     )?;
 
+    transferia_connector_mysql::register(&mut catalog, _metrics_registry)?;
+
     transferia_connector_postgres::register(&mut catalog, _metrics_registry)?;
 
     transferia_connector_clickhouse::register(&mut catalog, _metrics_registry)?;
@@ -383,6 +385,19 @@ fn component_registration(key: &'static str) -> anyhow::Result<ComponentRegistra
 }
 
 pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyhow::Result<()> {
+    register_on_premise(
+        _registry,
+        "mysql",
+        EndpointRole::Source,
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 3306, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
     register_on_premise(
         _registry,
         "postgres",

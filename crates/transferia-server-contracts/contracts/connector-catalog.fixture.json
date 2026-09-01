@@ -3078,6 +3078,142 @@
       }
     },
     {
+      "key": "mysql",
+      "title": "MySQL",
+      "source": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "MySqlSourceConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "host": {
+                      "type": "string",
+                      "title": "Host"
+                    },
+                    "port": {
+                      "type": "integer",
+                      "title": "Port",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "tls_ca_file": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "TLS CA file"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "host",
+                    "port",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "database": {
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string",
+              "x-ui": {
+                "widget": "password"
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TableConfig"
+              }
+            },
+            "batch_rows": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0,
+              "default": 65536,
+              "x-ui": {
+                "widget": "hidden"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "database",
+            "username",
+            "password",
+            "tables",
+            "installation"
+          ],
+          "$defs": {
+            "TableConfig": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "batch_rows": 65536,
+          "tables": [
+            {
+              "name": ""
+            }
+          ],
+          "database": "",
+          "username": "",
+          "password": "",
+          "installation": {
+            "host": "",
+            "port": 3306,
+            "trusted_plaintext": true,
+            "tls_ca_file": null,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [
+          "batch"
+        ],
+        "partitioned": false,
+        "connection_check": true,
+        "message_preview": false
+      }
+    },
+    {
       "key": "postgres",
       "title": "PostgreSQL",
       "source": {
@@ -6823,6 +6959,14 @@
                 "item_label": "attribute"
               }
             },
+            "big_value_policy": {
+              "title": "Oversized values",
+              "description": "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+              "$ref": "#/$defs/YTsaurusBigValuePolicy",
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
             "auth": {
               "$ref": "#/$defs/YTsaurusAuthConfig",
               "x-ui": {
@@ -7004,6 +7148,20 @@
                       "minimum": 1,
                       "maximum": 10000,
                       "default": 1,
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "table_ttl_ms": {
+                      "title": "Table TTL, ms",
+                      "description": "Delete dynamic-table rows after this many milliseconds. Disabled by default so data is never expired implicitly.",
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "format": "uint64",
+                      "minimum": 1,
+                      "default": null,
                       "x-ui": {
                         "section": "advanced"
                       }
@@ -7215,6 +7373,20 @@
                   "title": "Preserve every row (unsorted)",
                   "type": "string",
                   "const": "preserve_rows"
+                }
+              ]
+            },
+            "YTsaurusBigValuePolicy": {
+              "oneOf": [
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "Drop oversized rows",
+                  "type": "string",
+                  "const": "drop"
                 }
               ]
             },

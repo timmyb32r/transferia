@@ -1,0 +1,25 @@
+[package]
+name = "transferia-connector-mysql"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arrow.workspace = true
+futures-util.workspace = true
+mysql_async.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+transferia-connector-support = { path = "../transferia-connector-support" }
+transferia-core = { path = "../transferia-core" }
+transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
+transferia-registry = { path = "../transferia-registry" }
+
+[dev-dependencies]
+serde_yaml.workspace = true
+
+[lints]
+workspace = true

@@ -15,6 +15,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         [
             "logbroker",
             "kafka",
+            "mysql",
             "postgres",
             "clickhouse",
             "s3",

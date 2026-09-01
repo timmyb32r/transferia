@@ -13,6 +13,7 @@ use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDatase
 pub enum EndpointDescriptor {
     Logbroker(SourceDescriptor),
     Kafka(SourceDescriptor),
+    MySql(SourceDescriptor),
     Postgres(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
@@ -36,6 +37,7 @@ impl EndpointDescriptor {
         match self {
             Self::Logbroker(source)
             | Self::Kafka(source)
+            | Self::MySql(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
@@ -58,6 +60,7 @@ impl EndpointDescriptor {
         match self {
             Self::Logbroker(source)
             | Self::Kafka(source)
+            | Self::MySql(source)
             | Self::Postgres(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)

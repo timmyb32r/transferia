@@ -47,6 +47,14 @@ const POSTGRES_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescrip
     networked: true,
 });
 
+const MYSQL_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["host", "port", "trusted_plaintext", "tls_ca_file"],
+        required_output_fields: &["host", "port", "trusted_plaintext"],
+    }),
+    networked: true,
+});
+
 const CLICKHOUSE_SOURCE_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &[
@@ -127,6 +135,12 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
         title: "Kafka",
         source: KAFKA_ROLE,
         sink: KAFKA_ROLE,
+    },
+    ConnectorDescriptor {
+        key: "mysql",
+        title: "MySQL",
+        source: MYSQL_ROLE,
+        sink: None,
     },
     ConnectorDescriptor {
         key: "postgres",
