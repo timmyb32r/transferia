@@ -140,7 +140,7 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
         key: "mysql",
         title: "MySQL",
         source: MYSQL_ROLE,
-        sink: None,
+        sink: MYSQL_ROLE,
     },
     ConnectorDescriptor {
         key: "postgres",

@@ -20,6 +20,7 @@ pub enum EndpointDescriptor {
     S3Source(SourceDescriptor),
     IcebergSource(SourceDescriptor),
     DataGenerator(SourceDescriptor),
+    MySqlSink,
     PostgresSink,
     YTsaurusSink,
     LogbrokerSink,
@@ -44,7 +45,8 @@ impl EndpointDescriptor {
             | Self::S3Source(source)
             | Self::IcebergSource(source)
             | Self::DataGenerator(source) => Some(source.behavior),
-            Self::PostgresSink
+            Self::MySqlSink
+            | Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
@@ -67,7 +69,8 @@ impl EndpointDescriptor {
             | Self::S3Source(source)
             | Self::IcebergSource(source)
             | Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
-            Self::PostgresSink
+            Self::MySqlSink
+            | Self::PostgresSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
@@ -167,6 +170,7 @@ pub enum DiagnosticCode {
     WallClockRotationDisablesExactlyOnce,
     DeterministicS3Commit,
     ClickHouseAtLeastOnce,
+    MySqlAtLeastOnce,
     PostgresAtLeastOnce,
     YTsaurusAtLeastOnce,
     IcebergAtLeastOnce,
@@ -268,6 +272,18 @@ pub fn validate_pipeline(
                 severity: DiagnosticSeverity::Info,
                 config_paths: vec!["sink.postgres".into()],
                 explanation: "PostgreSQL COPY completion precedes source progress commit, so a retry after an ambiguous COPY result may duplicate rows".into(),
+                remediation: Some("include a user-defined idempotency key and enforce it at the destination when duplicate-free final state is required".into()),
+            }],
+        };
+    }
+    if matches!(sink, EndpointDescriptor::MySqlSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::MySqlAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.mysql".into()],
+                explanation: "MySQL COMMIT completion precedes source progress commit, so a retry after an ambiguous COMMIT may duplicate rows".into(),
                 remediation: Some("include a user-defined idempotency key and enforce it at the destination when duplicate-free final state is required".into()),
             }],
         };

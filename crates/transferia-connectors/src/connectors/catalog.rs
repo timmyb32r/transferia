@@ -400,6 +400,19 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
     )?;
     register_on_premise(
         _registry,
+        "mysql",
+        EndpointRole::Sink,
+        serde_json::json!({
+            "host": { "type": "string", "title": "Host" },
+            "port": { "type": "integer", "title": "Port", "minimum": 1, "maximum": 65535 },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" },
+            "tls_ca_file": { "anyOf": [{ "type": "string" }, { "type": "null" }], "title": "TLS CA file" }
+        }),
+        &["host", "port", "trusted_plaintext"],
+        serde_json::json!({ "host": "", "port": 3306, "trusted_plaintext": true, "tls_ca_file": null }),
+    )?;
+    register_on_premise(
+        _registry,
         "postgres",
         EndpointRole::Source,
         serde_json::json!({

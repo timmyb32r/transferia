@@ -42,6 +42,19 @@ pub fn register(
             )?
             .source_checker::<mysql::MySqlConnectionCheckConfig, _, _>(|config| async move {
                 check_mysql_connection(config).await
+            })
+            .sink::<mysql::sink::MySqlSinkConfig, _, _>(
+                || {
+                    serde_json::json!({
+                        "host": "", "port": 3306, "database": "", "username": "",
+                        "password": "", "trusted_plaintext": true,
+                        "create_tables": true, "insert_rows": 1000
+                    })
+                },
+                |config| Ok(Box::new(mysql::MySqlSinkConnector::from_config(config)?)),
+            )?
+            .sink_checker::<mysql::MySqlConnectionCheckConfig, _, _>(|config| async move {
+                check_mysql_connection(config).await
             }),
     )?;
     Ok(())

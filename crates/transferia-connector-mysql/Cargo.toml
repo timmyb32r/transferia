@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 arrow.workspace = true
+chrono.workspace = true
 futures-util.workspace = true
 mysql_async.workspace = true
 schemars.workspace = true

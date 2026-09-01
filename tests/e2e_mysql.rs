@@ -10,20 +10,36 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::array::{Array, BinaryArray, StringArray, UInt64Array};
-use arrow::datatypes::DataType;
+use anyhow::Context as _;
+use arrow::array::{Array, ArrayRef, BinaryArray, StringArray, UInt64Array};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use mysql_async::prelude::Queryable as _;
 use testcontainers::core::{IntoContainerPort as _, WaitFor};
 use testcontainers::runners::AsyncRunner as _;
 use testcontainers::{GenericImage, ImageExt as _};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use transferia::connectors::mysql::{MySqlConnectionConfig, MySqlSourceConnector};
+use transferia::connectors::mysql::{
+    MySqlConnectionConfig, MySqlSinkConnector, MySqlSourceConnector,
+};
+use transferia::core::data::schema::{
+    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
+};
 use transferia::core::data::message::SourceBatch;
-use transferia::core::delivery::{DeliveryDiscoveryRequest, SourceTopology};
+use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::delivery::{
+    DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
+    SourceTopology,
+};
 use transferia::core::memory::PipelineMemory;
-use transferia::metrics::MetricsRegistry;
-use transferia::registry::{SourceBuildContext, SourceConnector as _, SourceDiscoveryContext};
+use transferia::core::sink::{Delivery, DeliveryId, DeliveryMeta, SinkBatch, SinkEvent, SinkIo};
+use transferia::metrics::{MetricsRegistry, SinkCounters};
+use transferia::registry::{
+    SinkBuildContext, SinkConnector as _, SinkPrepare, SourceBuildContext, SourceConnector as _,
+    SourceDiscoveryContext,
+};
 
 fn reachable_host(host: &impl ToString) -> String {
     let host = host.to_string();
@@ -231,4 +247,188 @@ async fn mariadb_source_reads_all_type_families_losslessly() -> anyhow::Result<(
         "MARIADB_ROOT_PASSWORD",
     )
     .await
+}
+
+fn sink_dataset(name: &str, json_payload: bool) -> DiscoveredDataset {
+    let payload = if json_payload {
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, false)
+            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME)
+    } else {
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, false)
+    };
+    let schema = DatasetSchema::new(vec![
+        SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+        payload,
+    ]);
+    DiscoveredDataset {
+        role: DatasetRole::Main,
+        name: Arc::from(name),
+        incoming_schema: schema.clone(),
+        stored_schema: schema,
+        system_columns: Vec::new(),
+    }
+}
+
+fn sink_batch(
+    memory: &PipelineMemory,
+    table: &'static str,
+    ids: Vec<u64>,
+    payloads: Vec<&str>,
+    json_payload: bool,
+) -> anyhow::Result<SinkBatch> {
+    let payload_column = if json_payload {
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, false)
+            .with_arrow_extension(ARROW_JSON_EXTENSION_NAME)
+    } else {
+        SchemaColumn::new("payload".to_owned(), DataType::Utf8, false)
+    };
+    let id_column = SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+        .with_constraints(true, false, None);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::UInt64, false).with_metadata(id_column.arrow_metadata()),
+        Field::new("payload", DataType::Utf8, false)
+            .with_metadata(payload_column.arrow_metadata()),
+    ]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(UInt64Array::from(ids)) as ArrayRef,
+            Arc::new(StringArray::from(payloads)) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    Ok(SinkBatch {
+        table: Arc::from(table),
+        is_dlq: false,
+        batch,
+        byte_size: bytes,
+        memory: memory.reserve_transform(bytes),
+        system_columns: SystemColumns::default(),
+    })
+}
+
+#[tokio::test]
+async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyhow::Result<()> {
+    let container = GenericImage::new("mysql", "8.4.6")
+        .with_exposed_port(3306.tcp())
+        .with_wait_for(WaitFor::message_on_stderr("ready for connections"))
+        .with_env_var("MYSQL_ROOT_PASSWORD", "test")
+        .with_env_var("MYSQL_DATABASE", "transferia")
+        .start()
+        .await?;
+    let host = reachable_host(&container.get_host().await?);
+    let port = container.get_host_port_ipv4(3306.tcp()).await?;
+    let connection_config = MySqlConnectionConfig {
+        host: host.clone(),
+        port,
+        database: "transferia".to_owned(),
+        username: "root".to_owned(),
+        password: "test".to_owned(),
+        trusted_plaintext: true,
+        tls_ca_file: None,
+    };
+    wait_for_mysql(&connection_config).await?.disconnect().await?;
+    let discovery = Arc::new(DeliveryDiscovery {
+        source_name: Arc::from("mysql-sink-e2e"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![
+            sink_dataset("committed_rows", false),
+            sink_dataset("json_rows", true),
+        ],
+        performance_advice: Vec::new(),
+    });
+    let sink = MySqlSinkConnector::from_config(serde_yaml::from_str(&format!(
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\ninsert_rows: 2\n"
+    ))?)?;
+    sink.limits().validate_discovery(&discovery)?;
+    sink.prepare(SinkPrepare::from_discovery(&discovery)?.expect("datasets"))
+        .await
+        .context("prepare MySQL sink tables")?;
+
+    let memory = PipelineMemory::new(16 * 1024 * 1024);
+    let built = sink
+        .build_sink(SinkBuildContext {
+            partition_id: 0,
+            finite_source: true,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery: Arc::clone(&discovery),
+            durable: support::durable_context(),
+        })
+        .await
+        .context("build MySQL sink")?;
+    let (delivery_tx, delivery_rx) = mpsc::channel(2);
+    let (event_tx, mut event_rx) = mpsc::channel(2);
+    let task = tokio::spawn(built.run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation: CancellationToken::new(),
+    }));
+    delivery_tx
+        .send(Delivery {
+            id: DeliveryId::new(1),
+            outputs: vec![sink_batch(
+                &memory,
+                "committed_rows",
+                vec![1, 2, 3],
+                vec!["one", "two", "three"],
+                false,
+            )?],
+            meta: DeliveryMeta { source_messages: 3 },
+        })
+        .await?;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(30), event_rx.recv()).await?,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    delivery_tx
+        .send(Delivery {
+            id: DeliveryId::new(2),
+            outputs: vec![
+                sink_batch(
+                    &memory,
+                    "committed_rows",
+                    vec![4],
+                    vec!["must roll back"],
+                    false,
+                )?,
+                sink_batch(
+                    &memory,
+                    "json_rows",
+                    vec![1],
+                    vec!["not json"],
+                    true,
+                )?,
+            ],
+            meta: DeliveryMeta { source_messages: 2 },
+        })
+        .await?;
+    drop(delivery_tx);
+    assert!(task.await?.is_err());
+    assert_eq!(event_rx.try_recv(), Err(mpsc::error::TryRecvError::Disconnected));
+
+    let mut connection = wait_for_mysql(&connection_config).await?;
+    let rows: Vec<(u64, String)> = connection
+        .query("SELECT id, payload FROM committed_rows ORDER BY id")
+        .await
+        .context("query committed MySQL rows")?;
+    assert_eq!(
+        rows,
+        vec![
+            (1, "one".to_owned()),
+            (2, "two".to_owned()),
+            (3, "three".to_owned()),
+        ]
+    );
+    let json_rows: Option<u64> = connection
+        .query_first("SELECT COUNT(*) FROM json_rows")
+        .await
+        .context("query rolled-back MySQL rows")?;
+    assert_eq!(json_rows, Some(0));
+    connection.disconnect().await?;
+    Ok(())
 }
