@@ -1,6 +1,7 @@
 import { CompactArrayEditor } from "../schema/CompactArrayEditor";
 import {
   ByteSizeInput,
+  DurationScaleInput,
   PasswordInput,
   SystemColumnsEditor,
 } from "../schema/controls";
@@ -56,6 +57,21 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
         />
       );
     },
+  },
+  {
+    name: "duration_scale",
+    kinds: ["nullable"],
+    renderer: "node",
+    node: (context) =>
+      context.node.kind === "nullable" &&
+      context.node.inner.kind === "number" ? (
+        <DurationScaleInput
+          id={context.controlId}
+          value={typeof context.value === "number" ? context.value : null}
+          disabled={context.disabled}
+          onChange={context.onChange}
+        />
+      ) : null,
   },
   {
     name: "compact_array",

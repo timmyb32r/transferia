@@ -1153,10 +1153,10 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
-            title = "Table TTL, ms",
-            description = "Delete dynamic-table rows after this many milliseconds. Disabled by default so data is never expired implicitly.",
+            title = "Table TTL",
+            description = "Delete dynamic-table rows after the configured duration. Months are exactly 30 days and years are exactly 365 days. Disabled by default so data is never expired implicitly.",
             range(min = 1),
-            extend("x-ui" = { "section": "advanced" })
+            extend("x-ui" = { "section": "advanced", "widget": "duration_scale" })
         )]
         table_ttl_ms: Option<u64>,
 

@@ -165,6 +165,63 @@ const BYTE_UNITS = [
   { label: "GiB", factor: 1024 * 1024 * 1024 },
 ] as const;
 
+const DURATION_SCALE_UNITS = [
+  { label: "Minutes", factor: 60 * 1000 },
+  { label: "Days", factor: 24 * 60 * 60 * 1000 },
+  { label: "Months", factor: 30 * 24 * 60 * 60 * 1000 },
+  { label: "Years", factor: 365 * 24 * 60 * 60 * 1000 },
+] as const;
+
+export function DurationScaleInput({
+  id,
+  value,
+  disabled,
+  onChange,
+}: {
+  id?: string | undefined;
+  value: number | null;
+  disabled: boolean;
+  onChange: (value: JsonValue) => void;
+}) {
+  const [unitIndex, setUnitIndex] = useState(() =>
+    bestExactUnit(value ?? 0, DURATION_SCALE_UNITS),
+  );
+  const unit = DURATION_SCALE_UNITS[unitIndex]!;
+  return (
+    <div class="byte-size-input duration-scale-input">
+      <AutofillResistantInput
+        id={id}
+        type="number"
+        min={1}
+        step="any"
+        value={value === null ? "" : value / unit.factor}
+        disabled={disabled}
+        onInput={(event) => {
+          const raw = event.currentTarget.value;
+          if (raw === "") {
+            onChange(null);
+            return;
+          }
+          const milliseconds = Number(raw) * unit.factor;
+          if (Number.isSafeInteger(milliseconds) && milliseconds > 0)
+            onChange(milliseconds);
+        }}
+      />
+      <SelectControl
+        value={String(unitIndex)}
+        placeholder="Unit"
+        clearable={false}
+        disabled={disabled}
+        options={DURATION_SCALE_UNITS.map((candidate, index) => ({
+          value: String(index),
+          label: candidate.label,
+        }))}
+        onChange={(next) => setUnitIndex(Number(next))}
+      />
+    </div>
+  );
+}
+
 export function ByteSizeInput({
   id,
   value,
@@ -218,6 +275,17 @@ function bestByteUnit(value: number): number {
       value >= BYTE_UNITS[index]!.factor &&
       value % BYTE_UNITS[index]!.factor === 0
     )
+      return index;
+  }
+  return 0;
+}
+
+function bestExactUnit(
+  value: number,
+  units: readonly { factor: number }[],
+): number {
+  for (let index = units.length - 1; index > 0; index -= 1) {
+    if (value >= units[index]!.factor && value % units[index]!.factor === 0)
       return index;
   }
   return 0;

@@ -550,6 +550,33 @@ describe("schema form", () => {
     view.unmount();
   });
 
+  it("edits optional long durations with explicit calendar-scale units", () => {
+    const onChange = vi.fn();
+    const view = render(
+      <SchemaForm
+        node={{
+          kind: "nullable",
+          inner: { kind: "number", integer: true, xUi: {} },
+          xUi: { widget: "duration_scale" },
+        }}
+        value={null}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.input(view.getByRole("spinbutton"), {
+      target: { value: "2" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith(120_000);
+    fireEvent.click(view.getByRole("button", { name: "Minutes" }));
+    fireEvent.click(view.getByText("Years"));
+    fireEvent.input(view.getByRole("spinbutton"), {
+      target: { value: "1" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith(31_536_000_000);
+    view.unmount();
+  });
+
   it("ignores dynamic options returned for an older source", async () => {
     const oldRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
     const newRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
