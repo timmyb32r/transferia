@@ -156,6 +156,7 @@ pub struct YdbTableConfig {
 }
 
 impl YdbTableConfig {
+    #[must_use]
     pub fn name(&self) -> &str {
         self.path.rsplit('/').next().unwrap_or_default()
     }
@@ -231,8 +232,7 @@ fn validate_tables(tables: &[YdbTableConfig]) -> anyhow::Result<()> {
         );
         anyhow::ensure!(
             names.insert(name),
-            "ydb.tables repeats logical name '{}'",
-            name
+            "ydb.tables repeats logical name '{name}'"
         );
         anyhow::ensure!(
             table.path.starts_with('/') && !table.path.ends_with('/'),

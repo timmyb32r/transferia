@@ -1297,7 +1297,7 @@ impl YTsaurusSinkConfig {
     }
 
     #[must_use]
-    pub fn big_value_policy(&self) -> YTsaurusBigValuePolicy {
+    pub const fn big_value_policy(&self) -> YTsaurusBigValuePolicy {
         match &self.tables {
             YTsaurusTableMode::StaticTables {
                 big_value_policy, ..
@@ -1520,7 +1520,7 @@ impl TextYsonParser<'_> {
             let key = if self.peek() == Some(b'"') {
                 self.quoted()?
             } else {
-                self.token(&[b'='])?
+                self.token(b"=")?
             };
             anyhow::ensure!(!key.is_empty(), "map key is empty");
             self.expect(b'=')?;
@@ -1547,7 +1547,7 @@ impl TextYsonParser<'_> {
     }
 
     fn scalar(&mut self) -> anyhow::Result<serde_json::Value> {
-        let token = self.token(&[b';', b',', b']', b'}', b'>'])?;
+        let token = self.token(b";,]}>")?;
         match token.as_str() {
             "%true" => Ok(serde_json::Value::Bool(true)),
             "%false" => Ok(serde_json::Value::Bool(false)),

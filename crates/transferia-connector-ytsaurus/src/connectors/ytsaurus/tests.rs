@@ -563,7 +563,7 @@ fn schema_round_trip_and_arrow_writer_are_native() -> anyhow::Result<()> {
     )?;
     validate_row_weight(&batch, true)?;
     assert!(!encode_arrow(&batch)?.is_empty());
-    let payload = encode_arrow_batches(&[batch.clone(), batch.clone()])?;
+    let payload = encode_arrow_batches(&[batch.clone(), batch])?;
     let decoded =
         StreamReader::try_new(Cursor::new(payload), None)?.collect::<Result<Vec<_>, _>>()?;
     assert_eq!(decoded.len(), 2);
