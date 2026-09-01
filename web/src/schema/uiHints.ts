@@ -14,6 +14,8 @@ export interface UiHints {
   dynamic_options?: string;
   dynamic_options_dependencies?: Readonly<Record<string, string>>;
   dynamic_options_control?: "path";
+  dynamic_options_path_syntax?: "plain" | "double_slash_absolute";
+  dynamic_options_entity?: "table" | "topic" | "consumer";
   external_link_template?: string;
   external_link_dependencies?: Readonly<Record<string, string>>;
   labels?: Readonly<Record<string, string>>;
@@ -32,6 +34,8 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "dynamic_options",
   "dynamic_options_dependencies",
   "dynamic_options_control",
+  "dynamic_options_path_syntax",
+  "dynamic_options_entity",
   "external_link_template",
   "external_link_dependencies",
   "labels",
@@ -94,6 +98,26 @@ export function decodeUiHints(
   const dynamicOptionsControl = value.dynamic_options_control;
   if (dynamicOptionsControl !== undefined && dynamicOptionsControl !== "path")
     fail(`${path}: x-ui dynamic_options_control must be path`);
+  const dynamicOptionsPathSyntax = value.dynamic_options_path_syntax;
+  if (
+    dynamicOptionsPathSyntax !== undefined &&
+    dynamicOptionsPathSyntax !== "plain" &&
+    dynamicOptionsPathSyntax !== "double_slash_absolute"
+  )
+    fail(`${path}: x-ui dynamic_options_path_syntax is unsupported`);
+  const dynamicOptionsEntity = value.dynamic_options_entity;
+  if (
+    dynamicOptionsEntity !== undefined &&
+    dynamicOptionsEntity !== "table" &&
+    dynamicOptionsEntity !== "topic" &&
+    dynamicOptionsEntity !== "consumer"
+  )
+    fail(`${path}: x-ui dynamic_options_entity is unsupported`);
+  if (
+    dynamicOptionsControl === "path" &&
+    (dynamicOptionsPathSyntax === undefined || dynamicOptionsEntity === undefined)
+  )
+    fail(`${path}: path controls must declare path syntax and entity`);
   if (
     dependencies !== undefined &&
     !Object.values(dependencies).every((pointer) => pointer.startsWith("/"))
@@ -178,6 +202,12 @@ export function decodeUiHints(
     ...(dynamicOptionsControl === undefined
       ? {}
       : { dynamic_options_control: dynamicOptionsControl }),
+    ...(dynamicOptionsPathSyntax === undefined
+      ? {}
+      : { dynamic_options_path_syntax: dynamicOptionsPathSyntax }),
+    ...(dynamicOptionsEntity === undefined
+      ? {}
+      : { dynamic_options_entity: dynamicOptionsEntity }),
     ...(linkTemplate === undefined
       ? {}
       : { external_link_template: linkTemplate }),

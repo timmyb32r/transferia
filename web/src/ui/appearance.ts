@@ -1,6 +1,6 @@
 export const APPEARANCE_STORAGE_KEY = "transferia.appearance.v1";
 
-export type InterfaceDesign = "yandex-cloud" | "airy-v0";
+export type InterfaceDesign = "classic" | "airy-v0";
 export type ColorTheme = "light" | "dark";
 
 export interface Appearance {
@@ -10,13 +10,13 @@ export interface Appearance {
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
-  design: "yandex-cloud",
+  design: "classic",
   theme: "dark",
   autoShowSchemaWidget: true,
 };
 
 const isDesign = (value: unknown): value is InterfaceDesign =>
-  value === "yandex-cloud" || value === "airy-v0";
+  value === "classic" || value === "airy-v0";
 
 const isTheme = (value: unknown): value is ColorTheme =>
   value === "light" || value === "dark";

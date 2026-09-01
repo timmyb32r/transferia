@@ -12,16 +12,31 @@ import {
 
 describe("Rust catalog contract", () => {
   it("compiles every schema emitted by the Rust catalog", () => {
-    const injectedCatalog = (
+    const runtime = (
       globalThis as typeof globalThis & {
-        process?: { env?: Record<string, string | undefined> };
+        process?: {
+          env?: Record<string, string | undefined>;
+          getBuiltinModule?: (name: "fs") => {
+            readFileSync: (path: string, encoding: "utf8") => string;
+          };
+        };
       }
-    ).process?.env?.TRANSFERIA_CATALOG_CONTRACT;
+    ).process;
+    const environment = runtime?.env;
+    const injectedCatalog = environment?.TRANSFERIA_CATALOG_CONTRACT;
+    const injectedCatalogFile = environment?.TRANSFERIA_CATALOG_CONTRACT_FILE;
     const catalog = decodeApi(
       "catalog_response",
-      injectedCatalog === undefined
-        ? catalogFixture
-        : JSON.parse(injectedCatalog),
+      injectedCatalogFile !== undefined
+        ? JSON.parse(
+            runtime?.getBuiltinModule?.("fs").readFileSync(
+              injectedCatalogFile,
+              "utf8",
+            ) ?? "null",
+          )
+        : injectedCatalog === undefined
+          ? catalogFixture
+          : JSON.parse(injectedCatalog),
       "catalog",
     );
 

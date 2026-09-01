@@ -27,9 +27,9 @@ describe("appearance preferences", () => {
     document.documentElement.style.colorScheme = "";
   });
 
-  it("uses the existing dark yandex-cloud design by default", () => {
+  it("uses the existing dark classic design by default", () => {
     expect(loadAppearance(storage)).toEqual({
-      design: "yandex-cloud",
+      design: "classic",
       theme: "dark",
       autoShowSchemaWidget: true,
     });
@@ -38,7 +38,7 @@ describe("appearance preferences", () => {
   it("rejects corrupt or unsupported persisted values", () => {
     storage.setItem(APPEARANCE_STORAGE_KEY, "not-json");
     expect(loadAppearance(storage)).toEqual({
-      design: "yandex-cloud",
+      design: "classic",
       theme: "dark",
       autoShowSchemaWidget: true,
     });
@@ -48,7 +48,7 @@ describe("appearance preferences", () => {
       JSON.stringify({ design: "unknown", theme: "light" }),
     );
     expect(loadAppearance(storage)).toEqual({
-      design: "yandex-cloud",
+      design: "classic",
       theme: "dark",
       autoShowSchemaWidget: true,
     });
@@ -74,7 +74,7 @@ describe("appearance preferences", () => {
     const view = render(
       <AppearanceSettings
         value={{
-          design: "yandex-cloud",
+          design: "classic",
           theme: "dark",
           autoShowSchemaWidget: true,
         }}
@@ -84,7 +84,7 @@ describe("appearance preferences", () => {
 
     fireEvent.click(view.getByRole("button", { name: /Settings/ }));
 
-    expect(view.getByRole("radio", { name: /yandex-cloud/ })).toBeTruthy();
+    expect(view.getByRole("radio", { name: /classic/i })).toBeTruthy();
     expect(view.getByRole("radio", { name: /airy \(adopted\)/ })).toBeTruthy();
     expect(view.getByRole("radio", { name: "Light" })).toBeTruthy();
     expect(view.getByRole("radio", { name: "Dark" })).toBeTruthy();
@@ -98,7 +98,7 @@ describe("appearance preferences", () => {
 
     fireEvent.click(view.getByRole("radio", { name: "Light" }));
     expect(onChange).toHaveBeenCalledWith({
-      design: "yandex-cloud",
+      design: "classic",
       theme: "light",
       autoShowSchemaWidget: true,
     });
@@ -109,7 +109,7 @@ describe("appearance preferences", () => {
       }),
     );
     expect(onChange).toHaveBeenCalledWith({
-      design: "yandex-cloud",
+      design: "classic",
       theme: "dark",
       autoShowSchemaWidget: false,
     });

@@ -430,11 +430,11 @@ describe("schema compiler", () => {
     ).toThrow(/declared placeholder/);
   });
 
-  it("accepts dependency-aware dynamic options emitted for managed MDB fields", () => {
+  it("accepts dependency-aware dynamic options emitted by extensions", () => {
     const node = compileSchema({
       type: "string",
       "x-ui": {
-        dynamic_options: "yandex.mdb.clickhouse.databases",
+        dynamic_options: "vendor.database.names",
         dynamic_options_dependencies: {
           cluster_id: "/installation/cluster_id",
         },
@@ -442,7 +442,7 @@ describe("schema compiler", () => {
     });
 
     expect(node.xUi).toEqual({
-      dynamic_options: "yandex.mdb.clickhouse.databases",
+      dynamic_options: "vendor.database.names",
       dynamic_options_dependencies: {
         cluster_id: "/installation/cluster_id",
       },
@@ -455,9 +455,13 @@ describe("schema compiler", () => {
       "x-ui": {
         dynamic_options: "endpoint.paths",
         dynamic_options_control: "path",
+        dynamic_options_path_syntax: "double_slash_absolute",
+        dynamic_options_entity: "table",
       },
     });
     expect(node.xUi.dynamic_options_control).toBe("path");
+    expect(node.xUi.dynamic_options_path_syntax).toBe("double_slash_absolute");
+    expect(node.xUi.dynamic_options_entity).toBe("table");
     expect(() =>
       compileSchema({
         type: "string",

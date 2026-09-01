@@ -14,6 +14,8 @@ struct UiHints {
     dynamic_options: Option<String>,
     dynamic_options_dependencies: Option<BTreeMap<String, String>>,
     dynamic_options_control: Option<DynamicOptionsControl>,
+    dynamic_options_path_syntax: Option<DynamicOptionsPathSyntax>,
+    dynamic_options_entity: Option<DynamicOptionsEntity>,
     external_link_template: Option<String>,
     external_link_dependencies: Option<BTreeMap<String, String>>,
     labels: Option<BTreeMap<String, String>>,
@@ -38,6 +40,21 @@ enum UiSection {
 #[serde(rename_all = "snake_case")]
 enum DynamicOptionsControl {
     Path,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DynamicOptionsPathSyntax {
+    Plain,
+    DoubleSlashAbsolute,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DynamicOptionsEntity {
+    Table,
+    Topic,
+    Consumer,
 }
 
 pub fn validate_ui_dialect(value: &Value) -> anyhow::Result<()> {
@@ -97,6 +114,8 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     hints.section,
                     hints.initial_items,
                     hints.dynamic_options_control,
+                    hints.dynamic_options_path_syntax,
+                    hints.dynamic_options_entity,
                     hints.external_link_dependencies,
                     hints.labels,
                     hints.options,

@@ -51,15 +51,15 @@ use transferia_core::delivery::{
 
 #[test]
 fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {
-    let path = "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/";
+    let path = "//home/example/benchmarks/run-65c147cb/";
 
     assert_eq!(
         super::attribute_path(path, "type"),
-        "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/@type"
+        "//home/example/benchmarks/run-65c147cb/@type"
     );
     assert_eq!(
         super::attribute_path(path.trim_end_matches('/'), "type"),
-        "//home/logfeller/tmp/TM-10373/20260823T203723Z-65c147cb/@type"
+        "//home/example/benchmarks/run-65c147cb/@type"
     );
 }
 

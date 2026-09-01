@@ -138,14 +138,14 @@ fn transfer_log_arrays(start: u64, rows: usize) -> Vec<ArrayRef> {
             _ => Some("stats/sink_wrapper.go:98"),
         }),
         integers(indices.clone(), |row| (row % 3 == 2).then_some(200)),
-        strings(indices.clone(), |_| Some("lbkx.logbroker.yandex.net")),
+        strings(indices.clone(), |_| Some("logs.example.net")),
         strings(indices.clone(), |_| Some("ydb")),
         integers(indices.clone(), |row| (row % 3 == 2).then_some(200)),
         integers(indices.clone(), |row| {
             (row % 3 == 1).then_some(185_528 + row.cast_signed())
         }),
         strings(indices.clone(), |_| {
-            Some("slot-135.klg1-9644-exe-node-vanga.klg.yp-c.yandex.net")
+            Some("worker-135.compute.example.net")
         }),
         strings(indices.clone(), |_| Some("dtth5g2ssbu0jrr88fe9")),
         strings(indices.clone(), |_| {

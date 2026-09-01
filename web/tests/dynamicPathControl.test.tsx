@@ -119,7 +119,8 @@ describe("dynamic path control", () => {
     vi.useFakeTimers();
     const view = render(
       <Harness
-        source="yandex.logbroker.topics"
+        source="broker.topics"
+        entity="topic"
         options={async () => ({
           options: [
             {
@@ -159,7 +160,8 @@ describe("dynamic path control", () => {
     vi.useFakeTimers();
     const view = render(
       <Harness
-        source="yandex.logbroker.consumers"
+        source="broker.consumers"
+        entity="consumer"
         options={async () => ({
           options: [
             {
@@ -186,14 +188,13 @@ describe("dynamic path control", () => {
 
   it("keeps long path suggestions on one stable row and exposes the full label", async () => {
     vi.useFakeTimers();
-    const longPath =
-      "//home/logfeller/tmp/TM-10373/yt-read-throughput-direct-count-20260826/";
+    const longPath = "//home/example/benchmarks/read-throughput-long-run/";
     const view = render(
       <Harness
         options={async () => ({
           options: [{ value: longPath, label: longPath }],
         })}
-        initialValue="//home/logfeller/tmp/TM-10373/"
+        initialValue="//home/example/benchmarks/"
       />,
     );
 
@@ -206,12 +207,12 @@ describe("dynamic path control", () => {
     const label = option.querySelector(".dynamic-path-label");
     expect(label?.getAttribute("title")).toBe(longPath);
     expect(label?.textContent).toBe(
-      "yt-read-throughput-direct-count-20260826/",
+      "read-throughput-long-run/",
     );
     expect(label?.classList.contains("dynamic-path-label")).toBe(true);
     expect(
       view.container.querySelector(".dynamic-path-directory-path")?.textContent,
-    ).toBe("//home/logfeller/tmp/TM-10373/");
+    ).toBe("//home/example/benchmarks/");
   });
 
   it("navigates suggestions with arrows and accepts the active option with Tab", async () => {
@@ -356,7 +357,8 @@ describe("dynamic path control", () => {
     const view = render(
       <Harness
         options={options}
-        source="yandex.ytsaurus.tables"
+        source="storage.tables"
+        pathSyntax="double_slash_absolute"
         initialValue=""
       />,
     );
@@ -393,7 +395,8 @@ describe("dynamic path control", () => {
     const view = render(
       <Harness
         options={options}
-        source="yandex.ytsaurus.tables"
+        source="storage.tables"
+        pathSyntax="double_slash_absolute"
         initialValue=""
       />,
     );
@@ -473,12 +476,12 @@ describe("dynamic path control", () => {
   it("searches and highlights only inside the current directory", async () => {
     vi.useFakeTimers();
     const options = vi.fn(async () => ({
-      options: ["//home/logfeller/logforwarder/", "//home/logfeller/logs/"].map(
+      options: ["//home/example/logforwarder/", "//home/example/logs/"].map(
         (value) => ({ value, label: value }),
       ),
     }));
     const view = render(
-      <Harness options={options} initialValue="//home/logfeller/log" />,
+      <Harness options={options} initialValue="//home/example/log" />,
     );
 
     fireEvent.focus(view.getByRole("combobox"));
@@ -487,7 +490,7 @@ describe("dynamic path control", () => {
     });
 
     expect(options).toHaveBeenCalledWith(
-      expect.objectContaining({ query: "//home/logfeller/" }),
+      expect.objectContaining({ query: "//home/example/" }),
     );
     for (const option of await view.findAllByRole("option")) {
       expect(option.querySelector(".dynamic-path-label")?.textContent).toMatch(
@@ -501,7 +504,7 @@ describe("dynamic path control", () => {
     }
     expect(
       view.container.querySelector(".dynamic-path-directory-path")?.textContent,
-    ).toBe("//home/logfeller/");
+    ).toBe("//home/example/");
   });
 
   it("loads each directory once and filters subsequent input from its LRU cache", async () => {
@@ -509,7 +512,7 @@ describe("dynamic path control", () => {
     const options = vi.fn(async (request: DynamicOptionsQuery) => ({
       options:
         request.query === "//home/"
-          ? [{ value: "//home/logfeller/", label: "//home/logfeller/" }]
+          ? [{ value: "//home/example/", label: "//home/example/" }]
           : [
               { value: "//logs/", label: "//logs/" },
               { value: "//logfeller/", label: "//logfeller/" },
@@ -518,7 +521,8 @@ describe("dynamic path control", () => {
     const view = render(
       <Harness
         options={options}
-        source="yandex.ytsaurus.tables"
+        source="storage.tables"
+        pathSyntax="double_slash_absolute"
         initialValue="//l"
       />,
     );
@@ -563,6 +567,8 @@ function Harness({
   options,
   initialValue,
   source = "endpoint.paths",
+  pathSyntax = "plain",
+  entity = "table",
   disabled = false,
 }: {
   options: (request: DynamicOptionsQuery) => Promise<{
@@ -570,6 +576,8 @@ function Harness({
   }>;
   initialValue: string;
   source?: string;
+  pathSyntax?: "plain" | "double_slash_absolute";
+  entity?: "table" | "topic" | "consumer";
   disabled?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
@@ -577,6 +585,8 @@ function Harness({
     <FormEnvironmentProvider environment={{ options }}>
       <DynamicPathControl
         source={source}
+        pathSyntax={pathSyntax}
+        entity={entity}
         dependencies={{ installation: "cluster-a" }}
         value={value}
         disabled={disabled}

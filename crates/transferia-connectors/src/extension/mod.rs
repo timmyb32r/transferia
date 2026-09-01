@@ -90,6 +90,8 @@ pub(crate) struct DynamicOptionsBinding {
     pub dependencies: BTreeMap<&'static str, &'static str>,
 
     pub control: DynamicOptionsControl,
+
+    pub path_presentation: Option<DynamicPathPresentation>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -99,6 +101,31 @@ pub(crate) enum DynamicOptionsControl {
     Select,
 
     Path,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct DynamicPathPresentation {
+    pub syntax: DynamicPathSyntax,
+
+    pub entity: DynamicPathEntity,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DynamicPathSyntax {
+    Plain,
+
+    DoubleSlashAbsolute,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DynamicPathEntity {
+    Table,
+
+    Topic,
+
+    Consumer,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -401,6 +428,7 @@ impl ExtensionRegistry {
             source,
             dependencies,
             DynamicOptionsControl::Select,
+            None,
         )
     }
 
@@ -411,6 +439,7 @@ impl ExtensionRegistry {
         schema_pointer: &'static str,
         source: &'static str,
         dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
+        presentation: DynamicPathPresentation,
     ) -> anyhow::Result<()> {
         self.register_options_binding_with_control(
             connector,
@@ -419,6 +448,7 @@ impl ExtensionRegistry {
             source,
             dependencies,
             DynamicOptionsControl::Path,
+            Some(presentation),
         )
     }
 
@@ -430,6 +460,7 @@ impl ExtensionRegistry {
         source: &'static str,
         dependencies: impl IntoIterator<Item = (&'static str, &'static str)>,
         control: DynamicOptionsControl,
+        path_presentation: Option<DynamicPathPresentation>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
             !connector.is_empty(),
@@ -457,6 +488,7 @@ impl ExtensionRegistry {
             source,
             dependencies,
             control,
+            path_presentation,
         };
         let key = (connector, role, schema_pointer);
         anyhow::ensure!(

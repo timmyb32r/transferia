@@ -509,7 +509,7 @@
   --motion-control: 120ms;
   --focus-ring: rgba(42, 159, 255, 0.82);
 }
-:root[data-design="yandex-cloud"][data-theme="light"] {
+:root[data-design="classic"][data-theme="light"] {
   color-scheme: light;
   --canvas: #ffffff;
   --sidebar: #f5f5f7;

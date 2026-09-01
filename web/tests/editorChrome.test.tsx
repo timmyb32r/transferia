@@ -355,7 +355,7 @@ describe("editor chrome", () => {
         ]}
         selectedId={undefined}
         appearance={{
-          design: "yandex-cloud",
+          design: "classic",
           theme: "dark",
           autoShowSchemaWidget: true,
         }}

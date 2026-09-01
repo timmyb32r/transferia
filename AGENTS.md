@@ -145,10 +145,10 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   `web/src/ui/AutofillResistantField.tsx`. Raw editable HTML controls and
   `contenteditable` are prohibited elsewhere in `web/src`; the frontend
   architecture check enforces this rule.
-- The primitive deliberately uses the Yandex Browser-specific
+- The primitive deliberately uses the browser-specific
   `autocomplete="none"` mitigation, an opaque per-mount `name`, and the common
   password-manager ignore attributes. Do not replace `none` with standard
-  `off`, `new-password`, or a semantic autocomplete token: Yandex Browser may
+  `off`, `new-password`, or a semantic autocomplete token: some browsers may
   ignore those values or route the field into password/autofill heuristics.
 - Never expose configuration paths, labels, secret names, connector names, or
   other semantic identifiers through a native field's `name`. Radio controls
@@ -159,7 +159,7 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   to this contract must update its component tests and the architecture guard
   in the same change.
 - This is the strongest application-side mitigation, not an absolute browser
-  security boundary. Yandex documents that a site cannot guarantee suppression
+  security boundary. Browser vendors document that a site cannot guarantee suppression
   in every environment; users who require an absolute local prohibition must
   disable form-autofill suggestions in browser settings.
 

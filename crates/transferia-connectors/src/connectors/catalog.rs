@@ -266,6 +266,17 @@ fn apply_dynamic_options_bindings(
                 "dynamic_options_control".to_owned(),
                 JsonValue::String("path".to_owned()),
             );
+            let presentation = binding.path_presentation.ok_or_else(|| {
+                anyhow::anyhow!("path options binding must declare path presentation")
+            })?;
+            ui.insert(
+                "dynamic_options_path_syntax".to_owned(),
+                serde_json::to_value(presentation.syntax)?,
+            );
+            ui.insert(
+                "dynamic_options_entity".to_owned(),
+                serde_json::to_value(presentation.entity)?,
+            );
         }
     }
     Ok(())

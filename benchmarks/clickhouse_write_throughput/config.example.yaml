@@ -1,5 +1,5 @@
 tools:
-  rust_binary: /path/to/target/release/transferia-internal
+  rust_binary: /path/to/target/release/transferia
 
 run:
   id: clickhouse-write-120s
@@ -29,4 +29,3 @@ run:
 
 # Optional environment secrets are read from files and never written to reports.
 environment: {}
-

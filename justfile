@@ -49,7 +49,7 @@ check-affected *args:
 
 # Explicit middle gate: generated contracts and the selector's own mapping
 # tests, without workspace lint, E2E, or unrelated test targets.
-check-contracts: api-contract-check catalog-contract-check test-affected-self
+check-contracts: api-contract-check catalog-contract-check oss-boundary test-affected-self
 
 # Safe default: ordinary development never starts the release gate implicitly.
 check: check-affected
@@ -76,7 +76,11 @@ test-affected-dry *args:
 
 # Verify the conservative affected-test selector itself.
 test-affected-self:
-    python3 -m unittest scripts/test_test_affected.py scripts/test_check_crate_boundaries.py
+    python3 -m unittest scripts/test_test_affected.py scripts/test_check_crate_boundaries.py scripts/test_check_oss_boundary.py
+
+# Reject internal identities, infrastructure paths, and vendor branding in OSS.
+oss-boundary:
+    python3 scripts/check_oss_boundary.py
 
 # Explicit release-only Clippy gate.
 clippy-release: fmt-check

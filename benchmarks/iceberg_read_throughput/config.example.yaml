@@ -11,7 +11,7 @@ iceberg:
       file: ~/.s3/token
 
 tools:
-  rust_binary: ~/arcadia/junk/timmyb32r/rust/target/release/transferia-internal
+  rust_binary: /path/to/target/release/transferia
 
 run:
   measurement_seconds: 120

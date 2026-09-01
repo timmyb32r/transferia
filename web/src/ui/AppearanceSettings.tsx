@@ -13,8 +13,8 @@ const DESIGNS: ReadonlyArray<{
   description: string;
 }> = [
   {
-    value: "yandex-cloud",
-    label: "yandex-cloud",
+    value: "classic",
+    label: "Classic",
     description: "Compact and operational",
   },
   {
@@ -155,7 +155,7 @@ export function AppearanceSettings({
         <SettingsIcon />
         <span>Settings</span>
         <span class="settings-summary">
-          {value.design === "airy-v0" ? "airy (adopted)" : "yandex-cloud"} ·{" "}
+          {value.design === "airy-v0" ? "airy (adopted)" : "Classic"} ·{" "}
           {value.theme}
         </span>
       </Button>

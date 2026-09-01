@@ -59,9 +59,9 @@ function splitPathLabel(label: string) {
   };
 }
 
-function canonicalInput(source: string, value: string) {
+function canonicalInput(pathSyntax: "plain" | "double_slash_absolute", value: string) {
   if (
-    source !== "yandex.ytsaurus.tables" ||
+    pathSyntax !== "double_slash_absolute" ||
     value === "" ||
     value === "/" ||
     value.startsWith("//")
@@ -72,16 +72,16 @@ function canonicalInput(source: string, value: string) {
 }
 
 function PathKindIcon({
-  source,
+  entity,
   directory,
 }: {
-  source: string;
+  entity: "table" | "topic" | "consumer";
   directory: boolean;
 }) {
-  if (source === "yandex.logbroker.topics") {
+  if (entity === "topic") {
     return directory ? <LogbrokerDirectoryIcon /> : <LogbrokerTopicIcon />;
   }
-  if (source === "yandex.logbroker.consumers") {
+  if (entity === "consumer") {
     return directory ? <LogbrokerDirectoryIcon /> : <LogbrokerConsumerIcon />;
   }
   return directory ? <YTsaurusFolderIcon /> : <YTsaurusTableIcon />;
@@ -90,6 +90,8 @@ function PathKindIcon({
 export function DynamicPathControl({
   id,
   source,
+  pathSyntax,
+  entity,
   dependencies,
   value,
   disabled,
@@ -97,6 +99,8 @@ export function DynamicPathControl({
 }: {
   id?: string | undefined;
   source: string;
+  pathSyntax: "plain" | "double_slash_absolute";
+  entity: "table" | "topic" | "consumer";
   dependencies: Record<string, string>;
   value: string;
   disabled: boolean;
@@ -126,8 +130,8 @@ export function DynamicPathControl({
   const browseQuery = pathBrowseQuery(value);
   const searchFragment = pathSearchFragment(value);
   const directoryCacheKey = `${source}\u0000${dependencyKey}\u0000${browseQuery}`;
-  const incompleteYtsaurusRoot =
-    source === "yandex.ytsaurus.tables" &&
+  const incompleteAbsoluteRoot =
+    pathSyntax === "double_slash_absolute" &&
     (value.trim() === "" || value.trim() === "/");
   const options = useMemo(
     () =>
@@ -151,7 +155,7 @@ export function DynamicPathControl({
   useAnchoredOverlay({ open, root, trigger: input, onClose: close });
 
   useEffect(() => {
-    if (!open || disabled || incompleteYtsaurusRoot) {
+    if (!open || disabled || incompleteAbsoluteRoot) {
       setLoading(false);
       setDirectoryOptions([]);
       setActiveIndex(-1);
@@ -205,7 +209,7 @@ export function DynamicPathControl({
     source,
     directoryCacheKey,
     browseQuery,
-    incompleteYtsaurusRoot,
+    incompleteAbsoluteRoot,
   ]);
 
   useEffect(() => {
@@ -263,7 +267,7 @@ export function DynamicPathControl({
           onInput={(event) => {
             keyboardSelection.current = false;
             const entered = event.currentTarget.value;
-            const next = canonicalInput(source, entered);
+            const next = canonicalInput(pathSyntax, entered);
             onChange(next);
             if (next !== entered) {
               queueMicrotask(() => {
@@ -350,7 +354,7 @@ export function DynamicPathControl({
               title={browseQuery}
             >
               <span class="dynamic-path-kind">
-                <PathKindIcon source={source} directory />
+                <PathKindIcon entity={entity} directory />
               </span>
               <strong class="dynamic-path-directory-path">
                 {browseQuery}
@@ -386,7 +390,7 @@ export function DynamicPathControl({
                 onClick={() => choose(option.value)}
               >
                 <span class="dynamic-path-kind" aria-hidden="true">
-                  <PathKindIcon source={source} directory={directory} />
+                  <PathKindIcon entity={entity} directory={directory} />
                 </span>
                 <span class="dynamic-path-label" title={option.label}>
                   <SearchHighlight

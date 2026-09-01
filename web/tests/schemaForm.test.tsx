@@ -364,7 +364,7 @@ describe("schema form", () => {
           kind: "string",
           xUi: {
             external_link_template:
-              "https://yt.example/{cluster}/navigation?path=//{value}",
+              "https://storage.example/{cluster}/navigation?path=//{value}",
             external_link_dependencies: {
               cluster: "/installation/cluster",
             },
@@ -376,8 +376,8 @@ describe("schema form", () => {
       <SchemaForm
         node={node}
         value={{
-          installation: { cluster: "hume" },
-          path: "//home/logfeller/tmp/TM-10373/",
+          installation: { cluster: "test-cluster" },
+          path: "//home/example/benchmarks/",
         }}
         onChange={() => undefined}
       />,
@@ -387,7 +387,7 @@ describe("schema form", () => {
         .getByRole("link", { name: "Open in external console" })
         .getAttribute("href"),
     ).toBe(
-      "https://yt.example/hume/navigation?path=//home/logfeller/tmp/TM-10373/",
+      "https://storage.example/test-cluster/navigation?path=//home/example/benchmarks/",
     );
 
     view.rerender(

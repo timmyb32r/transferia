@@ -58,7 +58,7 @@ performance.
 ## Risks
 
 - Failure typing changes every connector boundary at once.
-- Typed installation registration changes the separately located Yandex plugin
+- Typed installation registration changes the separately located environment-specific plugin
   in lockstep.
 - Parser lifetime changes are performance-sensitive and require benchmark and
   Miri evidence.

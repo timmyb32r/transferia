@@ -292,6 +292,8 @@ function NodeEditor({
           <DynamicControl
             id={controlId}
             source={node.xUi.dynamic_options}
+            pathSyntax={node.xUi.dynamic_options_path_syntax ?? "plain"}
+            entity={node.xUi.dynamic_options_entity ?? "table"}
             dependencies={dependencies}
             value={typeof value === "string" ? value : ""}
             disabled={isDisabled}
