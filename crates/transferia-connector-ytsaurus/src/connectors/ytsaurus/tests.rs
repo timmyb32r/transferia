@@ -597,6 +597,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     let write = config.dynamic_write().expect("dynamic writer config");
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
     assert_eq!(config.initial_tablet_count(), Some(1));
+    assert_eq!(config.dynamic_table_ttl_ms(), None);
     assert!(config.stages_dynamic_snapshots());
     assert_eq!(config.dynamic_snapshot_operation_pool(), None);
     assert_eq!(config.primary_medium, "default");
@@ -636,6 +637,7 @@ fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
         &BTreeMap::new(),
         Some("cdc"),
         0.5,
+        None,
     )?;
     assert_eq!(attributes["atomicity"], "full");
     assert_eq!(attributes["optimize_for"], "lookup");
@@ -793,6 +795,7 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
         &BTreeMap::new(),
         Some("cdc"),
         0.5,
+        None,
     )?;
     assert_eq!(attributes["atomicity"], "none");
     assert_eq!(attributes["primary_medium"], "default");
@@ -802,6 +805,77 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
     let serialized = serde_json::to_string(&schema)?;
     assert!(serialized.contains("Atomicity"));
     assert!(serialized.contains("advanced"));
+    Ok(())
+}
+
+#[test]
+fn dynamic_table_ttl_is_opt_in_and_applies_to_direct_and_staged_tables() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: true, path: //tmp/output, table_ttl_ms: 86400000 }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    config.validate()?;
+    assert_eq!(config.dynamic_table_ttl_ms(), Some(86_400_000));
+
+    let direct = dynamic_table_attributes(
+        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        YTsaurusAtomicity::Full,
+        "default",
+        &BTreeMap::new(),
+        Some("cdc"),
+        0.5,
+        config.dynamic_table_ttl_ms(),
+    )?;
+    let staged = dynamic_conversion_attributes(
+        YTsaurusAtomicity::Full,
+        "default",
+        &BTreeMap::new(),
+        Some("cdc"),
+        0.5,
+        config.dynamic_table_ttl_ms(),
+    )?;
+    for attributes in [&direct, &staged] {
+        assert_eq!(attributes["min_data_versions"], 0);
+        assert_eq!(attributes["max_data_versions"], 1);
+        assert_eq!(attributes["min_data_ttl"], 0);
+        assert_eq!(attributes["max_data_ttl"], 86_400_000);
+        assert_eq!(attributes["auto_compaction_period"], 86_400_000);
+        assert_eq!(attributes["merge_rows_on_flush"], true);
+    }
+
+    let disabled: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    let attributes = dynamic_table_attributes(
+        serde_json::json!([]),
+        YTsaurusAtomicity::Full,
+        "default",
+        &BTreeMap::new(),
+        None,
+        0.5,
+        disabled.dynamic_table_ttl_ms(),
+    )?;
+    assert!(attributes.get("max_data_ttl").is_none());
+    assert!(attributes.get("min_data_versions").is_none());
+
+    let invalid: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, table_ttl_ms: 0 }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert!(invalid.validate().is_err());
     Ok(())
 }
 

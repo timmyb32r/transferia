@@ -609,6 +609,7 @@ impl YTsaurusClient {
         custom_attributes: &BTreeMap<String, Value>,
         tablet_cell_bundle: Option<&str>,
         dynamic_store_overflow_threshold: f64,
+        table_ttl_ms: Option<u64>,
     ) -> anyhow::Result<()> {
         let attributes = dynamic_table_attributes(
             schema,
@@ -617,6 +618,7 @@ impl YTsaurusClient {
             custom_attributes,
             tablet_cell_bundle,
             dynamic_store_overflow_threshold,
+            table_ttl_ms,
         )?;
         let parameters = serde_json::json!({
             "type": "table",
@@ -700,6 +702,7 @@ impl YTsaurusClient {
         custom_attributes: &BTreeMap<String, Value>,
         tablet_cell_bundle: Option<&str>,
         dynamic_store_overflow_threshold: f64,
+        table_ttl_ms: Option<u64>,
     ) -> anyhow::Result<()> {
         let parameters = serde_json::json!({
             "path": path,
@@ -718,6 +721,7 @@ impl YTsaurusClient {
             custom_attributes,
             tablet_cell_bundle,
             dynamic_store_overflow_threshold,
+            table_ttl_ms,
         )?;
         let parameters = serde_json::json!({
             "path": format!("{}/@", path.trim_end_matches('/')),
@@ -861,6 +865,7 @@ pub(super) fn dynamic_table_attributes(
     custom_attributes: &BTreeMap<String, Value>,
     tablet_cell_bundle: Option<&str>,
     dynamic_store_overflow_threshold: f64,
+    table_ttl_ms: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut attributes = serde_json::json!({
         "schema": schema,
@@ -874,6 +879,14 @@ pub(super) fn dynamic_table_attributes(
     });
     if let Some(bundle) = tablet_cell_bundle {
         attributes["tablet_cell_bundle"] = Value::String(bundle.to_owned());
+    }
+    if let Some(ttl_ms) = table_ttl_ms {
+        attributes["min_data_versions"] = Value::from(0);
+        attributes["max_data_versions"] = Value::from(1);
+        attributes["min_data_ttl"] = Value::from(0);
+        attributes["max_data_ttl"] = Value::from(ttl_ms);
+        attributes["auto_compaction_period"] = Value::from(ttl_ms);
+        attributes["merge_rows_on_flush"] = Value::Bool(true);
     }
     extend_attributes(&mut attributes, custom_attributes)?;
     Ok(attributes)
@@ -901,6 +914,7 @@ pub(super) fn dynamic_conversion_attributes(
     custom_attributes: &BTreeMap<String, Value>,
     tablet_cell_bundle: Option<&str>,
     dynamic_store_overflow_threshold: f64,
+    table_ttl_ms: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut attributes = dynamic_table_attributes(
         Value::Null,
@@ -909,6 +923,7 @@ pub(super) fn dynamic_conversion_attributes(
         custom_attributes,
         tablet_cell_bundle,
         dynamic_store_overflow_threshold,
+        table_ttl_ms,
     )?;
     let object = attributes
         .as_object_mut()

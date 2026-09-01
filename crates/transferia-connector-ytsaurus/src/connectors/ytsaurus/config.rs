@@ -43,10 +43,16 @@ const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
-const RESERVED_TABLE_ATTRIBUTES: [&str; 8] = [
+const RESERVED_TABLE_ATTRIBUTES: [&str; 14] = [
     "atomicity",
+    "auto_compaction_period",
     "chunk_format",
     "dynamic",
+    "max_data_ttl",
+    "max_data_versions",
+    "merge_rows_on_flush",
+    "min_data_ttl",
+    "min_data_versions",
     "mount_config",
     "optimize_for",
     "primary_medium",
@@ -1121,6 +1127,15 @@ pub enum YTsaurusTableMode {
         initial_tablet_count: usize,
 
         #[serde(default)]
+        #[schemars(
+            title = "Table TTL, ms",
+            description = "Delete dynamic-table rows after this many milliseconds. Disabled by default so data is never expired implicitly.",
+            range(min = 1),
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        table_ttl_ms: Option<u64>,
+
+        #[serde(default)]
         write: YTsaurusDynamicWriteConfig,
     },
 }
@@ -1181,6 +1196,12 @@ impl YTsaurusSinkConfig {
                 (1..=MAX_TABLET_COUNT).contains(&initial_tablet_count),
                 "ytsaurus dynamic initial_tablet_count must be between 1 and {MAX_TABLET_COUNT}"
             );
+            if let Some(ttl_ms) = self.dynamic_table_ttl_ms() {
+                anyhow::ensure!(
+                    ttl_ms > 0,
+                    "ytsaurus dynamic table_ttl_ms must be positive"
+                );
+            }
         }
         Ok(())
     }
@@ -1252,6 +1273,14 @@ impl YTsaurusSinkConfig {
                 initial_tablet_count,
                 ..
             } => Some(*initial_tablet_count),
+        }
+    }
+
+    #[must_use]
+    pub const fn dynamic_table_ttl_ms(&self) -> Option<u64> {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { .. } => None,
+            YTsaurusTableMode::DynamicTables { table_ttl_ms, .. } => *table_ttl_ms,
         }
     }
 

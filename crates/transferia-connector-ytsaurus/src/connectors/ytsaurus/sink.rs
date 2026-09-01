@@ -267,6 +267,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 &self.table_attributes,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
+                                self.config.dynamic_table_ttl_ms(),
                             )
                             .await?;
                         let initial_tablet_count = self
@@ -600,6 +601,7 @@ impl YTsaurusSink {
                         &self.table_attributes,
                         self.config.tablet_cell_bundle(),
                         write.dynamic_store_overflow_threshold,
+                        self.config.dynamic_table_ttl_ms(),
                     )
                     .await?;
                 let initial_tablet_count = self.config.initial_tablet_count().ok_or_else(|| {
