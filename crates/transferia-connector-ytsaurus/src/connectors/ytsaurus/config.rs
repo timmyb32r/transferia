@@ -713,7 +713,7 @@ pub enum YTsaurusPrimaryKeySemantics {
     PreserveRows,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum YTsaurusOptimizeFor {
     #[default]
@@ -722,6 +722,10 @@ pub enum YTsaurusOptimizeFor {
 
     #[schemars(title = "Lookup (row-oriented chunks)")]
     Lookup,
+}
+
+fn default_optimize_for() -> YTsaurusOptimizeFor {
+    YTsaurusOptimizeFor::default()
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
@@ -1089,8 +1093,9 @@ pub enum YTsaurusTableMode {
         )]
         big_value_policy: YTsaurusBigValuePolicy,
 
-        #[serde(default)]
+        #[serde(default = "default_optimize_for")]
         #[schemars(
+            default = "default_optimize_for",
             title = "Optimize for",
             description = "Physical layout for newly written static-table chunks",
             extend("x-ui" = { "section": "advanced" })

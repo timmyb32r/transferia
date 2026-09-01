@@ -385,6 +385,11 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     assert_eq!(lookup["primary_medium"], "ssd_blobs");
 
     let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
+    assert_eq!(
+        schema["$defs"]["YTsaurusTableMode"]["oneOf"][0]["properties"]["optimize_for"]
+            ["default"],
+        "scan"
+    );
     let serialized = serde_json::to_string(&schema)?;
     assert!(serialized.contains("Optimize for"));
     assert!(serialized.contains("Primary medium"));
