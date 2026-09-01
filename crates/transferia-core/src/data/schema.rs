@@ -4,6 +4,10 @@ pub const META_PRIMARY_KEY: &str = "transferia.primary_key";
 pub const META_LOW_CARDINALITY: &str = "transferia.low_cardinality";
 pub const META_MAX_LENGTH: &str = "transferia.max_length";
 pub const META_ARROW_EXTENSION_NAME: &str = "ARROW:extension:name";
+/// Marks the one Arrow column carrying the row-level changelog operation.
+pub const META_CHANGE_OPERATION: &str = "transferia.change_operation";
+/// Names the current-value column paired with an old-value column.
+pub const META_OLD_VALUE_OF: &str = "transferia.old_value_of";
 pub const ARROW_JSON_EXTENSION_NAME: &str = "arrow.json";
 
 /// Sink-neutral runtime schema exchanged between source and sink connectors.

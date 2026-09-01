@@ -8,10 +8,12 @@ pub(super) fn make_system_builder(kind: SystemColumnKind, capacity: usize) -> An
     const MAX_INITIAL_TOPIC_BYTES: usize = 1024 * 1024;
     let capacity = capacity.min(MAX_INITIAL_ROWS);
     match kind {
-        SystemColumnKind::Topic => AnyBuilder::Utf8(StringBuilder::with_capacity(
-            capacity,
-            capacity.saturating_mul(64).min(MAX_INITIAL_TOPIC_BYTES),
-        )),
+        SystemColumnKind::Topic | SystemColumnKind::ChangeOperation => {
+            AnyBuilder::Utf8(StringBuilder::with_capacity(
+                capacity,
+                capacity.saturating_mul(64).min(MAX_INITIAL_TOPIC_BYTES),
+            ))
+        }
         SystemColumnKind::Partition
         | SystemColumnKind::Offset
         | SystemColumnKind::WriteTimestampMs => {
@@ -29,7 +31,7 @@ pub(super) fn make_exact_system_builder(
     topic_bytes: usize,
 ) -> AnyBuilder {
     match kind {
-        SystemColumnKind::Topic => {
+        SystemColumnKind::Topic | SystemColumnKind::ChangeOperation => {
             AnyBuilder::Utf8(StringBuilder::with_capacity(capacity, topic_bytes))
         }
         SystemColumnKind::Partition
@@ -78,6 +80,9 @@ pub(super) fn append_system_columns(
             }
             (SystemColumnKind::WriteTimestampMs, AnyBuilder::Int64(builder)) => {
                 builder.append_value(values.write_timestamp_ms);
+            }
+            (SystemColumnKind::ChangeOperation, AnyBuilder::Utf8(builder)) => {
+                builder.append_value("c");
             }
             _ => unreachable!("system column builder must match its semantic kind"),
         }

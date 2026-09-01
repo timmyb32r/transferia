@@ -22,9 +22,10 @@ use transferia_delivery_contracts::semantics::{
 use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
 #[derive(Clone)]
-struct DiscoveredTable {
-    config: TableConfig,
-    schema: DatasetSchema,
+pub(crate) struct DiscoveredTable {
+    pub(crate) config: TableConfig,
+    pub(crate) schema: DatasetSchema,
+    pub(crate) type_oids: Vec<u32>,
 }
 
 pub struct PostgresSourceConnector {
@@ -78,8 +79,16 @@ impl PostgresSourceConnector {
 impl SourceConnector for PostgresSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Postgres(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
-            delivery_modes: SourceDeliveryModes::BATCH,
+            behavior: if self.config.replication.is_some() {
+                SourceBehavior::ProducesRows
+            } else {
+                SourceBehavior::FiniteSnapshotRows
+            },
+            delivery_modes: if self.config.replication.is_some() {
+                SourceDeliveryModes::STREAM
+            } else {
+                SourceDeliveryModes::BATCH
+            },
         })
     }
 
@@ -93,12 +102,15 @@ impl SourceConnector for PostgresSourceConnector {
                 cancellation,
             } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables() => tables? };
-            let system_columns = [
+            let mut system_columns = vec![
                 SystemColumnKind::Topic,
                 SystemColumnKind::Partition,
                 SystemColumnKind::Offset,
                 SystemColumnKind::MessageIndex,
             ];
+            if self.config.replication.is_some() {
+                system_columns.push(SystemColumnKind::ChangeOperation);
+            }
             let discovered_system_columns = system_columns
                 .iter()
                 .copied()
@@ -108,6 +120,11 @@ impl SourceConnector for PostgresSourceConnector {
                 .iter()
                 .map(|table| {
                     let mut incoming = table.schema.clone();
+                    if self.config.replication.is_some() {
+                        for column in &mut incoming.columns {
+                            column.nullable = true;
+                        }
+                    }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
@@ -125,13 +142,18 @@ impl SourceConnector for PostgresSourceConnector {
                     }
                 })
                 .collect();
-            Ok(DeliveryDiscovery {
-                source_name: Arc::from("postgres"),
-                source_topology: SourceTopology::StaticPartitions(
+            let source_topology = if self.config.replication.is_some() {
+                SourceTopology::StaticPartitions(vec![0])
+            } else {
+                SourceTopology::StaticPartitions(
                     (0..tables.len())
                         .map(i64::try_from)
                         .collect::<Result<Vec<_>, _>>()?,
-                ),
+                )
+            };
+            Ok(DeliveryDiscovery {
+                source_name: Arc::from("postgres"),
+                source_topology,
                 schema_origin: SchemaOrigin::SourceNative,
                 keep_system_columns: request.keep_system_columns,
                 datasets,
@@ -147,6 +169,26 @@ impl SourceConnector for PostgresSourceConnector {
         Box::pin(async move {
             let partition_id = context.partition_id;
             let tables = self.discovered_tables().await?;
+            let counters = self.counters(partition_id);
+            self.metrics
+                .register_source(partition_id, Arc::clone(&counters));
+            let client = connect(&self.config.connection).await?;
+            if let Some(replication) = &self.config.replication {
+                anyhow::ensure!(
+                    partition_id == 0,
+                    "PostgreSQL replication has exactly one source partition"
+                );
+                return Ok(Box::new(
+                    crate::connectors::postgres::src_dblog::PostgresReplicationSource::new(
+                        client,
+                        replication.clone(),
+                        tables.as_ref().clone(),
+                        counters,
+                        context.cancellation,
+                    )
+                    .await?,
+                ) as Box<dyn Source>);
+            }
             let index = usize::try_from(partition_id)?;
             let table = tables
                 .get(index)
@@ -154,10 +196,6 @@ impl SourceConnector for PostgresSourceConnector {
                     anyhow::anyhow!("PostgreSQL source partition {partition_id} does not exist")
                 })?
                 .clone();
-            let counters = self.counters(partition_id);
-            self.metrics
-                .register_source(partition_id, Arc::clone(&counters));
-            let client = connect(&self.config.connection).await?;
             Ok(Box::new(
                 PostgresSource::new(
                     client,
@@ -224,8 +262,14 @@ async fn discover_table(
             ))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let type_oids = statement
+        .columns()
+        .iter()
+        .map(|column| column.type_().oid())
+        .collect();
     Ok(DiscoveredTable {
         config: table,
         schema: DatasetSchema::new(columns),
+        type_oids,
     })
 }

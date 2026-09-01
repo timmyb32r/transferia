@@ -37,7 +37,9 @@ pub(super) fn output_memory_bound(
     }
     for kind in system_kinds {
         main_bytes = main_bytes.saturating_add(match kind {
-            SystemColumnKind::Topic => rows.saturating_add(1).saturating_mul(4),
+            SystemColumnKind::Topic | SystemColumnKind::ChangeOperation => {
+                rows.saturating_add(1).saturating_mul(4)
+            }
             SystemColumnKind::Partition
             | SystemColumnKind::Offset
             | SystemColumnKind::MessageIndex

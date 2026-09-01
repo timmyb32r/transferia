@@ -2,6 +2,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::connectors::postgres::common::{validate_identifier, PostgresConnectionConfig};
+use crate::connectors::postgres::src_dblog::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -14,6 +15,10 @@ pub struct PostgresSourceConfig {
     #[serde(default = "default_batch_rows")]
     #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub batch_rows: usize,
+
+    /// Enables an infinite logical-replication stream instead of a finite snapshot.
+    #[serde(default)]
+    pub replication: Option<PostgresReplicationConfig>,
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -30,6 +35,9 @@ impl PostgresSourceConfig {
         self.connection.validate()?;
         anyhow::ensure!(!self.tables.is_empty(), "postgres.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "postgres.batch_rows must be positive");
+        if let Some(replication) = &self.replication {
+            replication.validate()?;
+        }
         let mut names = std::collections::HashSet::new();
         for table in &self.tables {
             validate_identifier("schema", &table.schema)?;

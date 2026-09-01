@@ -6107,6 +6107,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "testcontainers",
  "tokio",
  "tokio-postgres",
  "tokio-postgres-rustls",
@@ -6116,6 +6117,7 @@ dependencies = [
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-registry",
+ "transferia-test-support",
 ]
 
 [[package]]

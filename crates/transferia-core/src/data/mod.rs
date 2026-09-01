@@ -1,3 +1,4 @@
+pub mod change;
 pub mod message;
 pub mod record_batch;
 pub mod schema;

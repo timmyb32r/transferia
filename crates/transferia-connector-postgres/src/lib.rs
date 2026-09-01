@@ -21,13 +21,14 @@ pub fn register(
     registry.register(
         ComponentRegistration::new("postgres", "PostgreSQL")
             .source::<postgres::src_batch::PostgresSourceConfig, _, _>(
-                vec![DeliveryMode::Batch],
+                vec![DeliveryMode::Batch, DeliveryMode::Stream],
                 false,
                 || {
                     serde_json::json!({
                         "host": "", "port": 5432, "database": "", "username": "",
                         "password": "", "trusted_plaintext": true,
-                        "tables": [{ "schema": "", "name": "" }], "batch_rows": 65536
+                        "tables": [{ "schema": "", "name": "" }], "batch_rows": 65536,
+                        "replication": null
                     })
                 },
                 {

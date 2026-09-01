@@ -30,6 +30,8 @@ transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]
 serde_yaml.workspace = true
+testcontainers.workspace = true
+transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]
 workspace = true

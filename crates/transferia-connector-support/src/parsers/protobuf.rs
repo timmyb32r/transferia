@@ -818,7 +818,7 @@ impl SystemBuilders {
             kinds
                 .iter()
                 .map(|kind| match kind {
-                    SystemColumnKind::Topic => {
+                    SystemColumnKind::Topic | SystemColumnKind::ChangeOperation => {
                         SystemBuilder::String(StringBuilder::with_capacity(rows, rows * 32))
                     }
                     SystemColumnKind::Partition
@@ -863,6 +863,9 @@ impl SystemBuilders {
                 }
                 (SystemColumnKind::WriteTimestampMs, SystemBuilder::Int64(builder)) => {
                     builder.append_value(meta.write_timestamp_ms.ok_or_else(missing)?);
+                }
+                (SystemColumnKind::ChangeOperation, SystemBuilder::String(builder)) => {
+                    builder.append_value("c");
                 }
                 _ => anyhow::bail!("protobuf system-column builder type mismatch"),
             }

@@ -10,6 +10,8 @@ pub enum SystemColumnKind {
     Offset,
     MessageIndex,
     WriteTimestampMs,
+    /// Debezium-compatible row operation (`c`, `r`, `u`, or `d`).
+    ChangeOperation,
 }
 
 impl SystemColumnKind {
@@ -21,6 +23,7 @@ impl SystemColumnKind {
             Self::Offset => "_system_offset",
             Self::MessageIndex => "_system_message_index",
             Self::WriteTimestampMs => "_system_write_timestamp_ms",
+            Self::ChangeOperation => "_system_change_operation",
         }
     }
 
@@ -30,6 +33,7 @@ impl SystemColumnKind {
             Self::Topic => DataType::Utf8,
             Self::Partition | Self::Offset | Self::WriteTimestampMs => DataType::Int64,
             Self::MessageIndex => DataType::UInt64,
+            Self::ChangeOperation => DataType::Utf8,
         }
     }
 }
