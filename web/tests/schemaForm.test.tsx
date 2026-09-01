@@ -26,6 +26,30 @@ const stringNode = (title?: string): CompiledNode => ({
 });
 
 describe("schema form", () => {
+  it("keeps parse and unknown-field policies on one responsive row", () => {
+    const node: CompiledNode = {
+      kind: "object",
+      xUi: {},
+      required: new Set(),
+      properties: {
+        conversion_error: stringNode("On Parse Error"),
+        unknown_fields: stringNode("On Unknown Field"),
+      },
+    };
+    const view = render(
+      <SchemaForm
+        node={node}
+        value={{ conversion_error: "fail", unknown_fields: "fail" }}
+        onChange={() => undefined}
+      />,
+    );
+    const row = view.container.querySelector(".parse-policy-row");
+    expect(row).not.toBeNull();
+    expect(row?.querySelectorAll(":scope > .form-row")).toHaveLength(2);
+    expect(row?.textContent).toContain("On Parse Error");
+    expect(row?.textContent).toContain("On Unknown Field");
+  });
+
   it("keeps editable unions wide and protects their numeric fields from autofill", () => {
     const node: CompiledNode = {
       kind: "object",

@@ -1108,6 +1108,14 @@ h3 {
   display: grid;
   gap: 10px;
 }
+.parse-policy-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.parse-policy-row > .form-row {
+  grid-template-columns: minmax(120px, 40%) minmax(0, 1fr);
+}
 .form-row {
   display: grid;
   grid-template-columns: minmax(135px, 34%) minmax(0, 1fr);
@@ -3734,6 +3742,9 @@ button::after {
       "arrow"
       "sink"
       "serializer";
+  }
+  .parse-policy-row {
+    grid-template-columns: minmax(0, 1fr);
   }
   .route-composition:has(> .parser-details-card) > .endpoint-card-source {
     border-bottom-color: transparent;

@@ -134,24 +134,42 @@ export function ObjectNodeEditor({
     <div class="schema-object">
       {regular.map(([name, child]) => (
         <Fragment key={name}>
-          {connectionAnchorPosition === "before" &&
-            connectionAnchor?.[0] === name &&
-            connectionAction}
-          <PropertyEditor
-            name={name}
-            node={child}
-            required={node.required.has(name)}
-            value={value[name]}
-            disabled={disabled}
-            showPartitionRanges={partitionRangesVisible}
-            parentValue={value}
-            onParentChange={onChange}
-            path={`${path}/${name}`}
-            onChange={(next) => onChange({ ...value, [name]: next })}
-          />
-          {connectionAnchorPosition === "after" &&
-            connectionAnchor?.[0] === name &&
-            connectionAction}
+          {name === "unknown_fields" &&
+          node.properties.conversion_error !== undefined
+            ? null
+            : name === "conversion_error" &&
+                regular.some(([candidate]) => candidate === "unknown_fields")
+              ? (
+                  <div class="parse-policy-row">
+                    {property([name, child])}
+                    {property([
+                      "unknown_fields",
+                      node.properties.unknown_fields!,
+                    ])}
+                  </div>
+                )
+              : (
+                  <>
+                    {connectionAnchorPosition === "before" &&
+                      connectionAnchor?.[0] === name &&
+                      connectionAction}
+                    <PropertyEditor
+                      name={name}
+                      node={child}
+                      required={node.required.has(name)}
+                      value={value[name]}
+                      disabled={disabled}
+                      showPartitionRanges={partitionRangesVisible}
+                      parentValue={value}
+                      onParentChange={onChange}
+                      path={`${path}/${name}`}
+                      onChange={(next) => onChange({ ...value, [name]: next })}
+                    />
+                    {connectionAnchorPosition === "after" &&
+                      connectionAnchor?.[0] === name &&
+                      connectionAction}
+                  </>
+                )}
         </Fragment>
       ))}
       {deferredVariants.map(({ name, branchIndex, branch }) => (
