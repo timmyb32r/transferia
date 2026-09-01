@@ -507,7 +507,8 @@ fn parse_messages(
         .iter()
         .map(|column| ColumnBuilder::new(&column.data_type, parsed.len()))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut systems = SystemBuilders::new(&parser.system_kinds, parsed.len());
+    let data_columns = parser.columns.len();
+    let mut systems = SystemBuilders::new(&parser.system_kinds, parsed.len(), data_columns);
     for row in &parsed {
         for (builder, value) in builders.iter_mut().zip(&row.values) {
             builder.append(value)?;
@@ -517,6 +518,7 @@ fn parse_messages(
             &parser.system_kinds,
             &messages[row.source_index].meta,
             row.message_index,
+            data_columns,
         )?;
     }
     let mut arrays = builders
@@ -805,6 +807,7 @@ impl ColumnBuilder {
 }
 
 enum SystemBuilder {
+    Binary(BinaryBuilder),
     String(StringBuilder),
     Int64(Int64Builder),
     UInt64(UInt64Builder),
@@ -813,7 +816,7 @@ enum SystemBuilder {
 struct SystemBuilders(Vec<SystemBuilder>);
 
 impl SystemBuilders {
-    fn new(kinds: &[SystemColumnKind], rows: usize) -> Self {
+    fn new(kinds: &[SystemColumnKind], rows: usize, data_columns: usize) -> Self {
         Self(
             kinds
                 .iter()
@@ -829,6 +832,9 @@ impl SystemBuilders {
                     SystemColumnKind::MessageIndex => {
                         SystemBuilder::UInt64(UInt64Builder::with_capacity(rows))
                     }
+                    SystemColumnKind::ChangedColumns => SystemBuilder::Binary(
+                        BinaryBuilder::with_capacity(rows, rows.saturating_mul(data_columns.div_ceil(8))),
+                    ),
                 })
                 .collect(),
         )
@@ -840,6 +846,7 @@ impl SystemBuilders {
         kinds: &[SystemColumnKind],
         meta: &MessageMeta,
         message_index: u64,
+        data_columns: usize,
     ) -> anyhow::Result<()> {
         for (kind, builder) in kinds.iter().zip(&mut self.0) {
             let missing = || {
@@ -867,6 +874,16 @@ impl SystemBuilders {
                 (SystemColumnKind::ChangeOperation, SystemBuilder::String(builder)) => {
                     builder.append_value("c");
                 }
+                (SystemColumnKind::ChangedColumns, SystemBuilder::Binary(builder)) => {
+                    let mut mask = vec![u8::MAX; data_columns.div_ceil(8)];
+                    if let Some(last) = mask.last_mut() {
+                        let used_bits = data_columns % 8;
+                        if used_bits != 0 {
+                            *last = (1_u8 << used_bits) - 1;
+                        }
+                    }
+                    builder.append_value(&mask);
+                }
                 _ => anyhow::bail!("protobuf system-column builder type mismatch"),
             }
         }
@@ -877,6 +894,7 @@ impl SystemBuilders {
         self.0
             .into_iter()
             .map(|mut builder| match &mut builder {
+                SystemBuilder::Binary(builder) => Arc::new(builder.finish()) as ArrayRef,
                 SystemBuilder::String(builder) => Arc::new(builder.finish()) as ArrayRef,
                 SystemBuilder::Int64(builder) => Arc::new(builder.finish()) as ArrayRef,
                 SystemBuilder::UInt64(builder) => Arc::new(builder.finish()) as ArrayRef,
@@ -893,7 +911,8 @@ fn build_dlq(
     let mut raw = StringBuilder::with_capacity(rows.len(), rows.len() * 128);
     let mut error = StringBuilder::with_capacity(rows.len(), rows.len() * 128);
     let mut source_time = Int64Builder::with_capacity(rows.len());
-    let mut systems = SystemBuilders::new(&parser.system_kinds, rows.len());
+    let data_columns = parser.columns.len();
+    let mut systems = SystemBuilders::new(&parser.system_kinds, rows.len(), data_columns);
     for row in rows {
         raw.append_value(base64::engine::general_purpose::STANDARD.encode(&row.raw));
         error.append_value(&row.error);
@@ -903,6 +922,7 @@ fn build_dlq(
             &parser.system_kinds,
             &messages[row.source_index].meta,
             row.message_index,
+            data_columns,
         )?;
     }
     let mut arrays: Vec<ArrayRef> = vec![

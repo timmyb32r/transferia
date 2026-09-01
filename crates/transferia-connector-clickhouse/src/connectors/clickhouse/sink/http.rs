@@ -12,12 +12,14 @@ use transferia_connector_support::outbound_http::{
 };
 
 use super::client::quote_identifier;
+use super::client::ReconnectingClient;
 use super::config::{ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSinkConfig};
 use super::transport::{InsertError, InsertTransport};
 use crate::connectors::address::host_port;
 
 pub(super) struct HttpInsertTransport {
     context: HttpInsertContext,
+    state_client: Arc<ReconnectingClient>,
     next_host: AtomicUsize,
 }
 
@@ -38,7 +40,10 @@ struct HttpInsertContext {
 }
 
 impl HttpInsertTransport {
-    pub(super) fn new(config: &ClickHouseSinkConfig) -> anyhow::Result<Self> {
+    pub(super) fn new(
+        config: &ClickHouseSinkConfig,
+        state_client: Arc<ReconnectingClient>,
+    ) -> anyhow::Result<Self> {
         let roots = match &config.tls_ca_file {
             Some(path) => {
                 let pem = std::fs::read(path).map_err(|error| {
@@ -69,6 +74,7 @@ impl HttpInsertTransport {
                 parquet_row_group_rows: config.parquet_row_group_rows,
                 async_insert: config.async_insert,
             },
+            state_client,
             next_host: AtomicUsize::new(0),
         })
     }
@@ -185,6 +191,19 @@ impl InsertTransport for HttpInsertTransport {
         let context = self.context.clone();
         let host_index = self.next_host.fetch_add(1, Ordering::Relaxed) % context.hosts.len();
         Box::pin(async move { context.insert_encoded(host_index, table, batches).await })
+    }
+
+    fn query_all(
+        &self,
+        query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>> {
+        let client = Arc::clone(&self.state_client);
+        Box::pin(async move {
+            client
+                .query_all(&query)
+                .await
+                .map_err(super::transport::classify_insert_error)
+        })
     }
 }
 

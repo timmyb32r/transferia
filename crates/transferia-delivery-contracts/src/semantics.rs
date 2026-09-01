@@ -613,6 +613,7 @@ const fn config_name(kind: SystemColumnKind) -> &'static str {
         SystemColumnKind::MessageIndex => "message_index",
         SystemColumnKind::WriteTimestampMs => "write_timestamp_ms",
         SystemColumnKind::ChangeOperation => "change_operation",
+        SystemColumnKind::ChangedColumns => "changed_columns",
     }
 }
 

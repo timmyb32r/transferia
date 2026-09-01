@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use arrow::array::{Int64Array, StringArray, UInt64Array};
+use arrow::array::{BinaryArray, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -115,6 +115,62 @@ impl InsertTransport for FakeTransport {
                 Plan::Permanent => Err(InsertError::Permanent(anyhow::anyhow!("permanent"))),
             }
         })
+    }
+
+    fn query_all(
+        &self,
+        _query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+struct QueryTransport {
+    result: Vec<RecordBatch>,
+    queries: Arc<Mutex<Vec<String>>>,
+}
+
+struct OrderingTransport {
+    result: Vec<RecordBatch>,
+    events: Arc<Mutex<Vec<&'static str>>>,
+}
+
+impl InsertTransport for QueryTransport {
+    fn insert(
+        &self,
+        _table: Arc<str>,
+        _batches: Vec<RecordBatch>,
+    ) -> BoxFuture<'static, Result<(), InsertError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn query_all(
+        &self,
+        query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>> {
+        self.queries.lock().unwrap().push(query);
+        let result = self.result.clone();
+        Box::pin(async move { Ok(result) })
+    }
+}
+
+impl InsertTransport for OrderingTransport {
+    fn insert(
+        &self,
+        _table: Arc<str>,
+        _batches: Vec<RecordBatch>,
+    ) -> BoxFuture<'static, Result<(), InsertError>> {
+        self.events.lock().unwrap().push("insert");
+        Box::pin(async { Ok(()) })
+    }
+
+    fn query_all(
+        &self,
+        _query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>> {
+        self.events.lock().unwrap().push("query");
+        let result = self.result.clone();
+        Box::pin(async move { Ok(result) })
     }
 }
 
@@ -232,7 +288,22 @@ fn spawn_sink_with_config(
     CancellationToken,
     JoinHandle<transferia_core::failure::DataPlaneResult<()>>,
 ) {
-    let sink = ClickHouseSink::with_transport(config, counters, transport, discovery());
+    spawn_sink_with_discovery(config, transport, memory, counters, discovery())
+}
+
+fn spawn_sink_with_discovery(
+    config: ClickHouseSinkConfig,
+    transport: Arc<dyn InsertTransport>,
+    memory: PipelineMemory,
+    counters: Arc<SinkCounters>,
+    discovery: Arc<DeliveryDiscovery>,
+) -> (
+    mpsc::Sender<Delivery>,
+    mpsc::Receiver<SinkEvent>,
+    CancellationToken,
+    JoinHandle<transferia_core::failure::DataPlaneResult<()>>,
+) {
+    let sink = ClickHouseSink::with_transport(config, counters, transport, discovery);
     let (delivery_tx, delivery_rx) = mpsc::channel(8);
     let (event_tx, event_rx) = mpsc::channel(8);
     let cancellation = CancellationToken::new();
@@ -266,6 +337,11 @@ fn changelog_discovery() -> DeliveryDiscovery {
         SystemColumnKind::Offset.data_type(),
         false,
     );
+    let changed = SchemaColumn::new(
+        SystemColumnKind::ChangedColumns.default_name().into(),
+        SystemColumnKind::ChangedColumns.data_type(),
+        false,
+    );
     DeliveryDiscovery {
         source_name: Arc::from("postgres"),
         source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
@@ -279,11 +355,13 @@ fn changelog_discovery() -> DeliveryDiscovery {
                 value.clone(),
                 operation,
                 offset,
+                changed,
             ]),
             stored_schema: DatasetSchema::new(vec![id, value]),
             system_columns: vec![
                 SystemColumnKind::ChangeOperation.into(),
                 SystemColumnKind::Offset.into(),
+                SystemColumnKind::ChangedColumns.into(),
             ],
         }],
         performance_advice: Vec::new(),
@@ -313,6 +391,9 @@ async fn changelog_sink_batch(
             Arc::new(Int64Array::from(values.to_vec())),
             Arc::new(StringArray::from(operations.to_vec())),
             Arc::new(Int64Array::from(versions.to_vec())),
+            Arc::new(BinaryArray::from_iter_values(
+                operations.iter().map(|_| &[0b11_u8][..]),
+            )),
         ],
     )?;
     Ok(SinkBatch {
@@ -332,8 +413,69 @@ async fn changelog_sink_batch(
                 name: Arc::from(SystemColumnKind::Offset.default_name()),
                 index: 3,
             },
+            SystemColumn {
+                kind: SystemColumnKind::ChangedColumns,
+                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                index: 4,
+            },
         ]),
     })
+}
+
+async fn partial_update_sink_batch(id: i64, version: i64) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
+    let discovery = changelog_discovery();
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(vec![id])),
+            Arc::new(Int64Array::from(vec![999])),
+            Arc::new(StringArray::from(vec!["u"])),
+            Arc::new(Int64Array::from(vec![version])),
+            Arc::new(BinaryArray::from_iter_values([&[0b01_u8][..]])),
+        ],
+    )?;
+    let sink_batch = SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1_000_000).reserve(1).await,
+        system_columns: SystemColumns::new(vec![
+            SystemColumn {
+                kind: SystemColumnKind::ChangeOperation,
+                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                index: 2,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+                index: 3,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::ChangedColumns,
+                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                index: 4,
+            },
+        ]),
+    };
+    Ok((discovery, sink_batch))
+}
+
+fn changelog_delivery(id: u64, batch: SinkBatch) -> Delivery {
+    Delivery {
+        id: DeliveryId::new(id),
+        outputs: vec![batch],
+        meta: DeliveryMeta { source_messages: 1 },
+    }
 }
 
 #[tokio::test]
@@ -350,7 +492,14 @@ async fn changelog_collapses_same_lsn_changes_and_writes_pk_tombstones() -> anyh
     else {
         panic!("CDC operation metadata must produce a changelog batch")
     };
-    let batches = clickhouse_changelog_batches(&changelog)?;
+    let (transport, _) = FakeTransport::new(false, []);
+    let batches = clickhouse_changelog_batches(
+        &changelog,
+        transport.as_ref(),
+        &config(),
+        "events",
+    )
+    .await?;
 
     assert_eq!(batches.len(), 2);
     let upsert = &batches[0];
@@ -393,6 +542,134 @@ async fn changelog_collapses_same_lsn_changes_and_writes_pk_tombstones() -> anyh
         .schema()
         .field_with_name(SystemColumnKind::ChangeOperation.default_name())
         .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_updates_restore_unchanged_values_before_replacing_merge_tree_insert(
+) -> anyhow::Result<()> {
+    let (discovery, input) = partial_update_sink_batch(5, 100).await?;
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &input)? else {
+        panic!("CDC operation metadata must produce a changelog batch")
+    };
+    let current = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("value", DataType::Int64, true),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![5])),
+            Arc::new(Int64Array::from(vec![77])),
+        ],
+    )?;
+    let queries = Arc::new(Mutex::new(Vec::new()));
+    let transport = QueryTransport {
+        result: vec![current],
+        queries: Arc::clone(&queries),
+    };
+
+    let batches = clickhouse_changelog_batches(
+        &changelog,
+        &transport,
+        &config(),
+        "events",
+    )
+    .await?;
+
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].num_columns(), 4);
+    assert_eq!(
+        batches[0]
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        77
+    );
+    assert_eq!(
+        batches[0]
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
+        101
+    );
+    let queries = queries.lock().unwrap();
+    assert_eq!(queries.len(), 1);
+    assert!(queries[0].contains("FROM `default`.`events` FINAL"));
+    assert!(queries[0].contains("`id` = 5"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_updates_fail_closed_when_destination_state_is_missing() -> anyhow::Result<()> {
+    let (discovery, input) = partial_update_sink_batch(5, 100).await?;
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &input)? else {
+        panic!("CDC operation metadata must produce a changelog batch")
+    };
+    let transport = QueryTransport {
+        result: Vec::new(),
+        queries: Arc::new(Mutex::new(Vec::new())),
+    };
+
+    let error = clickhouse_changelog_batches(
+        &changelog,
+        &transport,
+        &config(),
+        "events",
+    )
+    .await
+    .expect_err("missing current state must not silently write NULL/default values");
+    assert!(error.to_string().contains("no current rows"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_update_queries_only_after_the_previous_changelog_insert_commits(
+) -> anyhow::Result<()> {
+    let memory = PipelineMemory::new(1_000_000);
+    let create = changelog_sink_batch(&["c"], &[5], &[77], &[100]).await?;
+    let (discovery, update) = partial_update_sink_batch(5, 101).await?;
+    let current = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("value", DataType::Int64, true),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![5])),
+            Arc::new(Int64Array::from(vec![77])),
+        ],
+    )?;
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let transport = Arc::new(OrderingTransport {
+        result: vec![current],
+        events: Arc::clone(&events),
+    });
+    let counters = Arc::new(SinkCounters::new());
+    let (tx, mut committed, cancellation, task) = spawn_sink_with_discovery(
+        config(),
+        transport,
+        memory,
+        counters,
+        Arc::new(discovery),
+    );
+
+    tx.send(changelog_delivery(1, create)).await?;
+    tx.send(changelog_delivery(2, update)).await?;
+    assert_eq!(
+        committed.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(1)))
+    );
+    assert_eq!(
+        committed.recv().await,
+        Some(SinkEvent::CommittedThrough(DeliveryId::new(2)))
+    );
+    assert_eq!(&*events.lock().unwrap(), &["insert", "query", "insert"]);
+
+    cancellation.cancel();
+    task.await??;
     Ok(())
 }
 

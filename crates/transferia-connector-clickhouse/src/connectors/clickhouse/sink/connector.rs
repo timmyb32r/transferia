@@ -256,7 +256,7 @@ impl SinkConnector for ClickHouseSinkConnector {
             let transport: Arc<dyn InsertTransport> = match self.config.insert_format {
                 ClickHouseInsertFormat::Native => Arc::new(NativeTransport::new(client)),
                 ClickHouseInsertFormat::Parquet | ClickHouseInsertFormat::ArrowStream => {
-                    Arc::new(HttpInsertTransport::new(&self.config)?)
+                    Arc::new(HttpInsertTransport::new(&self.config, client)?)
                 }
             };
             tracing::info!(

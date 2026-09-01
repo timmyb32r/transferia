@@ -27,6 +27,11 @@ pub trait InsertTransport: Send + Sync {
         table: Arc<str>,
         batches: Vec<RecordBatch>,
     ) -> BoxFuture<'static, Result<(), InsertError>>;
+
+    fn query_all(
+        &self,
+        query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>>;
 }
 
 pub(super) struct NativeTransport {
@@ -53,9 +58,22 @@ impl InsertTransport for NativeTransport {
                 .map_err(classify_insert_error)
         })
     }
+
+    fn query_all(
+        &self,
+        query: String,
+    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>> {
+        let client = Arc::clone(&self.client);
+        Box::pin(async move {
+            client
+                .query_all(&query)
+                .await
+                .map_err(classify_insert_error)
+        })
+    }
 }
 
-fn classify_insert_error(error: ClickHouseError) -> InsertError {
+pub(super) fn classify_insert_error(error: ClickHouseError) -> InsertError {
     let transient = match &error {
         ClickHouseError::Io(_)
         | ClickHouseError::InternalChannelError

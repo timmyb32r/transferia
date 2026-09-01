@@ -174,6 +174,11 @@ fn changelog_discovery(table: &str) -> DeliveryDiscovery {
         SystemColumnKind::Offset.data_type(),
         false,
     );
+    let changed = SchemaColumn::new(
+        SystemColumnKind::ChangedColumns.default_name().into(),
+        SystemColumnKind::ChangedColumns.data_type(),
+        false,
+    );
     DeliveryDiscovery {
         source_name: Arc::from("postgres-cdc-e2e"),
         source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
@@ -187,11 +192,13 @@ fn changelog_discovery(table: &str) -> DeliveryDiscovery {
                 incoming_payload,
                 operation,
                 offset,
+                changed,
             ]),
             stored_schema: DatasetSchema::new(vec![id, payload]),
             system_columns: vec![
                 SystemColumnKind::ChangeOperation.into(),
                 SystemColumnKind::Offset.into(),
+                SystemColumnKind::ChangedColumns.into(),
             ],
         }],
         performance_advice: Vec::new(),
@@ -217,6 +224,17 @@ async fn changelog_delivery(
         })
         .collect::<Vec<_>>();
     let rows = ids.len();
+    let changed = operations
+        .iter()
+        .zip(&payloads)
+        .map(|(operation, payload)| {
+            if *operation == "d" || (*operation == "u" && payload.is_none()) {
+                &[0b01_u8][..]
+            } else {
+                &[0b11_u8][..]
+            }
+        })
+        .collect::<Vec<_>>();
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(fields)),
         vec![
@@ -224,6 +242,7 @@ async fn changelog_delivery(
             Arc::new(StringArray::from(payloads)) as ArrayRef,
             Arc::new(StringArray::from(operations)) as ArrayRef,
             Arc::new(Int64Array::from(vec![lsn; rows])) as ArrayRef,
+            Arc::new(arrow::array::BinaryArray::from_iter_values(changed)) as ArrayRef,
         ],
     )?;
     let bytes = batch.get_array_memory_size();
@@ -245,6 +264,11 @@ async fn changelog_delivery(
                     kind: SystemColumnKind::Offset,
                     name: Arc::from(SystemColumnKind::Offset.default_name()),
                     index: 3,
+                },
+                SystemColumn {
+                    kind: SystemColumnKind::ChangedColumns,
+                    name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                    index: 4,
                 },
             ]),
         }],
@@ -333,6 +357,7 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
             43,
         )
         .await?,
+        changelog_delivery(&memory, 4, vec!["u"], vec![3], vec![None], 44).await?,
     ] {
         let id = delivery.id;
         delivery_tx.send(delivery).await?;

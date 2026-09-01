@@ -30,7 +30,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch, SystemColumnKind};
+use transferia_core::{project_sink_batch, ProjectedSinkBatch, SystemColumnKind};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, YTsaurusSinkMode};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
@@ -776,17 +776,14 @@ impl YTsaurusSink {
         writer: &Arc<NativeDynamicWriter>,
         table: &str,
         batch: RecordBatch,
-        action: ChangelogAction,
+        operation: transferia_core::ChangeOperation,
     ) -> anyhow::Result<()> {
         let config = self
             .config
             .dynamic_write()
             .ok_or_else(|| anyhow::anyhow!("dynamic YTsaurus writer has no transaction config"))?;
         let path = self.config.path_for_dataset(table)?;
-        let modification = match action {
-            ChangelogAction::Upsert => NativeRowModification::Write,
-            ChangelogAction::Delete => NativeRowModification::Delete,
-        };
+        let modification = dynamic_row_modification(operation);
         // Runs are deliberately sequential. A primary key may occur more than
         // once in one source transaction, so concurrent chunks could reorder
         // its final state.
@@ -860,7 +857,7 @@ impl YTsaurusSink {
                                 writer,
                                 &batch.table,
                                 stored,
-                                run.action,
+                                run.operation,
                             )
                             .await?;
                             self.counters.add_busy(started.elapsed());
@@ -935,6 +932,17 @@ impl YTsaurusSink {
         pending.clear();
         self.counters.set_buffered_bytes(0);
         Ok(())
+    }
+}
+
+pub(super) const fn dynamic_row_modification(
+    operation: transferia_core::ChangeOperation,
+) -> NativeRowModification {
+    match operation {
+        transferia_core::ChangeOperation::Create
+        | transferia_core::ChangeOperation::SnapshotRead => NativeRowModification::Write,
+        transferia_core::ChangeOperation::Update => NativeRowModification::Modify,
+        transferia_core::ChangeOperation::Delete => NativeRowModification::Delete,
     }
 }
 

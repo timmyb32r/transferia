@@ -169,7 +169,7 @@ impl SystemColumnsConfig {
             SystemColumnKind::Offset => self.offset.as_deref(),
             SystemColumnKind::MessageIndex => self.message_index.as_deref(),
             SystemColumnKind::WriteTimestampMs => self.write_timestamp_ms.as_deref(),
-            SystemColumnKind::ChangeOperation => None,
+            SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns => None,
         }
         .unwrap_or_else(|| kind.default_name())
     }

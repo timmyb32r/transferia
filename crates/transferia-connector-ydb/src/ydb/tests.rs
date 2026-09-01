@@ -1,5 +1,5 @@
 use super::config::{YdbAuth, YdbConnectionConfig, YdbSinkConfig, YdbTableConfig};
-use super::sink::{create_table_query, encode_arrow_batch, encode_delete};
+use super::sink::{create_table_query, encode_arrow_batch, encode_delete, encode_update};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnKind};
 use arrow::array::{Array as _, Decimal128Array, FixedSizeBinaryArray, StringArray, UInt64Array};
 use arrow::buffer::Buffer;
@@ -50,6 +50,42 @@ fn delete_encoding_uses_only_typed_primary_key_rows() -> anyhow::Result<()> {
     assert!(query.contains("DELETE FROM `/local/events` ON SELECT `tenant`, `id`"));
     let parameter = parameters.get("$batch").expect("delete batch parameter");
     assert_eq!(parameter.value.as_ref().expect("list value").items.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn update_encoding_checks_every_primary_key_before_commit() -> anyhow::Result<()> {
+    let primary_key = SchemaColumn::new("id".into(), DataType::UInt64, false)
+        .with_constraints(true, false, None);
+    let value = SchemaColumn::new("value".into(), DataType::Utf8, true);
+    let columns = vec![primary_key.clone(), value];
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::UInt64, false),
+            Field::new("value", DataType::Utf8, true),
+        ])),
+        vec![
+            Arc::new(UInt64Array::from(vec![7, 8])),
+            Arc::new(StringArray::from(vec![Some("new"), None])),
+        ],
+    )?;
+
+    let (query, parameters) =
+        encode_update("/local/events", &batch, &columns, &[primary_key])?;
+    assert!(query.contains("SELECT COUNT(*) AS matched"));
+    assert!(query.contains("target.`id` = staged.`id`"));
+    assert!(query.contains("UPDATE `/local/events` ON SELECT `id`, `value`"));
+    assert_eq!(
+        parameters
+            .get("$batch")
+            .expect("update batch parameter")
+            .value
+            .as_ref()
+            .expect("list value")
+            .items
+            .len(),
+        2
+    );
     Ok(())
 }
 use ydb_grpc::ydb_proto::{

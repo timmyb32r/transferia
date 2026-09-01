@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::array::{Array, Int64Array, StringArray};
+use arrow::array::{Array, BinaryArray, Int64Array, StringArray};
 use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 
@@ -121,20 +121,131 @@ async fn splits_create_read_update_and_delete_without_storing_operation() {
     assert_eq!(changelog.primary_keys, ["id"]);
     assert_eq!(changelog.source_versions(), [100, 101, 102, 103]);
     let runs = changelog.collapsed_runs().unwrap();
-    assert_eq!(runs.len(), 2);
+    assert_eq!(runs.len(), 3);
     assert_eq!(runs[0].action, ChangelogAction::Upsert);
-    assert_eq!(runs[0].batch.num_rows(), 3);
+    assert_eq!(runs[0].batch.num_rows(), 2);
     assert_eq!(runs[0].batch.num_columns(), 2);
-    assert_eq!(runs[1].action, ChangelogAction::Delete);
+    assert_eq!(runs[1].operation, ChangeOperation::Update);
     assert_eq!(runs[1].batch.num_rows(), 1);
-    assert_eq!(runs[1].batch.num_columns(), 1);
-    let ids = runs[1]
+    assert_eq!(runs[1].batch.num_columns(), 2);
+    assert_eq!(runs[2].action, ChangelogAction::Delete);
+    assert_eq!(runs[2].batch.num_rows(), 1);
+    assert_eq!(runs[2].batch.num_columns(), 1);
+    let ids = runs[2]
         .batch
         .column(0)
         .as_any()
         .downcast_ref::<Int64Array>()
         .unwrap();
     assert_eq!(ids.value(0), 4);
+}
+
+async fn batch_with_changed_masks(
+    operations: Vec<Option<&str>>,
+    ids: Vec<Option<i64>>,
+    values: Vec<i64>,
+    masks: Vec<Option<&[u8]>>,
+) -> (DeliveryDiscovery, SinkBatch) {
+    let mut discovery = discovery();
+    let changed = DiscoveredSystemColumn::from(SystemColumnKind::ChangedColumns);
+    discovery.datasets[0].incoming_schema.columns.push(SchemaColumn::new(
+        changed.name.to_string(),
+        SystemColumnKind::ChangedColumns.data_type(),
+        false,
+    ));
+    discovery.datasets[0].system_columns.push(changed.clone());
+    let mut batch = batch(operations, ids).await;
+    let mut arrays = batch.batch.columns().to_vec();
+    arrays[1] = Arc::new(Int64Array::from(values));
+    arrays.push(Arc::new(BinaryArray::from(masks)));
+    let mut fields = batch
+        .batch
+        .schema()
+        .fields()
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    fields.push(Arc::new(Field::new(
+        changed.name.as_ref(),
+        SystemColumnKind::ChangedColumns.data_type(),
+        false,
+    )));
+    batch.batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays).unwrap();
+    let mut systems = batch.system_columns.iter().cloned().collect::<Vec<_>>();
+    systems.push(SystemColumn {
+        kind: SystemColumnKind::ChangedColumns,
+        index: 4,
+        name: Arc::clone(&changed.name),
+    });
+    batch.system_columns = SystemColumns::new(systems);
+    (discovery, batch)
+}
+
+#[tokio::test]
+async fn preserves_unchanged_columns_while_collapsing_same_key_events() {
+    let (discovery, batch) = batch_with_changed_masks(
+        vec![Some("c"), Some("u"), Some("u")],
+        vec![Some(1), Some(1), Some(1)],
+        vec![10, 999, 30],
+        vec![Some(&[0b11]), Some(&[0b01]), Some(&[0b11])],
+    )
+    .await;
+    let ProjectedSinkBatch::Changelog(changelog) =
+        project_sink_batch(&discovery, &batch).unwrap()
+    else {
+        panic!("operation column must produce a changelog batch")
+    };
+
+    let runs = changelog.collapsed_runs().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].operation, ChangeOperation::Create);
+    assert_eq!(runs[0].source_versions, [102]);
+    assert_eq!(
+        runs[0]
+            .batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
+        30
+    );
+}
+
+#[tokio::test]
+async fn emits_only_primary_key_and_changed_values_for_partial_update() {
+    let (discovery, batch) = batch_with_changed_masks(
+        vec![Some("u")],
+        vec![Some(7)],
+        vec![999],
+        vec![Some(&[0b01])],
+    )
+    .await;
+    let ProjectedSinkBatch::Changelog(changelog) =
+        project_sink_batch(&discovery, &batch).unwrap()
+    else {
+        panic!("operation column must produce a changelog batch")
+    };
+
+    let runs = changelog.collapsed_runs().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].operation, ChangeOperation::Update);
+    assert_eq!(runs[0].batch.num_columns(), 1);
+    assert_eq!(runs[0].batch.schema().field(0).name(), "id");
+}
+
+#[tokio::test]
+async fn rejects_invalid_changed_column_masks_before_sink_side_effects() {
+    for mask in [vec![], vec![0b100], vec![0b10]] {
+        let (discovery, batch) = batch_with_changed_masks(
+            vec![Some("u")],
+            vec![Some(1)],
+            vec![10],
+            vec![Some(mask.as_slice())],
+        )
+        .await;
+        assert!(project_sink_batch(&discovery, &batch).is_err());
+    }
 }
 
 #[tokio::test]

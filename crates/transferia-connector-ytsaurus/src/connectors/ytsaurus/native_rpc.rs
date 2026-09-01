@@ -824,6 +824,7 @@ pub(super) struct NativeDynamicWriter {
 pub(super) enum NativeRowModification {
     Write,
     Delete,
+    Modify,
 }
 
 impl NativeRowModification {
@@ -831,6 +832,7 @@ impl NativeRowModification {
         match self {
             Self::Write => 0,
             Self::Delete => 1,
+            Self::Modify => 3,
         }
     }
 }

@@ -12,6 +12,11 @@ pub enum SystemColumnKind {
     WriteTimestampMs,
     /// Debezium-compatible row operation (`c`, `r`, `u`, or `d`).
     ChangeOperation,
+    /// Bit mask identifying user columns physically present in a changelog row.
+    ///
+    /// PostgreSQL logical replication uses this to distinguish an unchanged
+    /// TOAST value from SQL `NULL`. Bit `n` corresponds to user column `n`.
+    ChangedColumns,
 }
 
 impl SystemColumnKind {
@@ -24,6 +29,7 @@ impl SystemColumnKind {
             Self::MessageIndex => "_system_message_index",
             Self::WriteTimestampMs => "_system_write_timestamp_ms",
             Self::ChangeOperation => "_system_change_operation",
+            Self::ChangedColumns => "_system_changed_columns",
         }
     }
 
@@ -34,6 +40,7 @@ impl SystemColumnKind {
             Self::Partition | Self::Offset | Self::WriteTimestampMs => DataType::Int64,
             Self::MessageIndex => DataType::UInt64,
             Self::ChangeOperation => DataType::Utf8,
+            Self::ChangedColumns => DataType::Binary,
         }
     }
 }

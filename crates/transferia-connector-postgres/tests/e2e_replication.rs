@@ -64,8 +64,10 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
             "CREATE TABLE accounts (\
                  id integer PRIMARY KEY,\
                  name text NOT NULL,\
-                 balance bigint NOT NULL\
+                 balance bigint NOT NULL,\
+                 payload text NOT NULL\
              );\
+             ALTER TABLE accounts ALTER COLUMN payload SET STORAGE EXTERNAL;\
              CREATE TABLE ignored (id integer PRIMARY KEY);\
              CREATE PUBLICATION transferia_publication FOR TABLE accounts, ignored;",
         )
@@ -91,7 +93,9 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     client
         .batch_execute(
             "BEGIN;\
-             INSERT INTO accounts VALUES (1, 'alice', 10);\
+             INSERT INTO accounts\
+             SELECT 1, 'alice', 10, string_agg(md5(value::text), '')\
+             FROM generate_series(1, 10000) AS value;\
              UPDATE accounts SET name = 'alice-2', balance = 11 WHERE id = 1;\
              DELETE FROM accounts WHERE id = 1;\
              COMMIT;",
@@ -102,6 +106,8 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     let wal2json_batch = read_changes(&mut wal2json).await?;
     assert_same_change_rows(&pgoutput_batch, &wal2json_batch);
     assert_eq!(operations(&pgoutput_batch), ["c", "u", "d"]);
+    assert_toasted_update_omits_only_the_unchanged_payload(&pgoutput_batch);
+    assert_toasted_update_omits_only_the_unchanged_payload(&wal2json_batch);
 
     pgoutput
         .commit_offsets(std::slice::from_ref(&pgoutput_batch.marker))
@@ -237,9 +243,26 @@ async fn read_filtered_transaction(source: &mut Box<dyn Source>) -> anyhow::Resu
 fn assert_same_change_rows(left: &ChangeBatch, right: &ChangeBatch) {
     assert_eq!(left.batch.num_rows(), right.batch.num_rows());
     assert_eq!(left.batch.num_columns(), right.batch.num_columns());
-    for index in 0..=3 {
+    for index in 0..left.batch.num_columns() {
         assert_eq!(left.batch.column(index).to_data(), right.batch.column(index).to_data());
     }
+}
+
+fn assert_toasted_update_omits_only_the_unchanged_payload(batch: &ChangeBatch) {
+    let changed = batch
+        .system_columns
+        .get(SystemColumnKind::ChangedColumns)
+        .expect("changed-columns system column");
+    let masks = batch
+        .batch
+        .column(changed.index)
+        .as_any()
+        .downcast_ref::<arrow::array::BinaryArray>()
+        .expect("changed-columns binary array");
+    assert_eq!(masks.value(0), &[0b1111]);
+    assert_eq!(masks.value(1), &[0b0111]);
+    assert_eq!(masks.value(2), &[0b0001]);
+    assert!(batch.batch.column(3).is_null(1));
 }
 
 fn operations(batch: &ChangeBatch) -> Vec<&str> {

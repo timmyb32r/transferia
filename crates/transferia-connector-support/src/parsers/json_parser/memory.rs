@@ -40,6 +40,9 @@ pub(super) fn output_memory_bound(
             SystemColumnKind::Topic | SystemColumnKind::ChangeOperation => {
                 rows.saturating_add(1).saturating_mul(4)
             }
+            SystemColumnKind::ChangedColumns => rows
+                .saturating_mul(kinds.len().div_ceil(8))
+                .saturating_add(rows.saturating_add(1).saturating_mul(4)),
             SystemColumnKind::Partition
             | SystemColumnKind::Offset
             | SystemColumnKind::MessageIndex

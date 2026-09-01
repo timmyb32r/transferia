@@ -1,8 +1,8 @@
 use alloc::sync::Arc;
 use arrow::array::{
-    ArrayRef, BooleanBuilder, Date32Builder, Date64Builder, Decimal128Builder, Float32Builder,
-    Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder, LargeStringBuilder,
-    StringBuilder, TimestampMicrosecondBuilder, TimestampMillisecondBuilder,
+    ArrayRef, BinaryBuilder, BooleanBuilder, Date32Builder, Date64Builder, Decimal128Builder,
+    Float32Builder, Float64Builder, Int16Builder, Int32Builder, Int64Builder, Int8Builder,
+    LargeStringBuilder, StringBuilder, TimestampMicrosecondBuilder, TimestampMillisecondBuilder,
     TimestampNanosecondBuilder, TimestampSecondBuilder, UInt16Builder, UInt32Builder,
     UInt64Builder, UInt8Builder,
 };
@@ -80,6 +80,7 @@ enum ParseMode {
 // ---------------------------------------------------------------------------
 
 pub(super) enum AnyBuilder {
+    Binary(BinaryBuilder),
     Utf8(StringBuilder),
     LargeUtf8(LargeStringBuilder),
     Int8(Int8Builder),
@@ -268,6 +269,7 @@ impl AnyBuilder {
     #[inline]
     fn finish(&mut self) -> ArrayRef {
         match self {
+            Self::Binary(b) => Arc::new(b.finish()),
             Self::Utf8(b) | Self::Json(b) => Arc::new(b.finish()),
             Self::LargeUtf8(b) => Arc::new(b.finish()),
             Self::Int8(b) => Arc::new(b.finish()),
@@ -425,6 +427,7 @@ fn append_value(builder: &mut AnyBuilder, val: &Value) -> bool {
         return true;
     }
     match builder {
+        AnyBuilder::Binary(_) => false,
         AnyBuilder::Utf8(b) => append_if_some(val.as_str(), |value| b.append_value(value)),
         AnyBuilder::LargeUtf8(b) => append_if_some(val.as_str(), |value| b.append_value(value)),
         AnyBuilder::Int64(b) => append_if_some(val.as_i64(), |value| b.append_value(value)),
@@ -510,6 +513,7 @@ fn append_if_some<T>(value: Option<T>, append: impl FnOnce(T)) -> bool {
 #[inline]
 fn append_null(b: &mut AnyBuilder) {
     match b {
+        AnyBuilder::Binary(x) => x.append_null(),
         AnyBuilder::Utf8(x) | AnyBuilder::Json(x) => x.append_null(),
         AnyBuilder::LargeUtf8(x) => x.append_null(),
         AnyBuilder::Int64(x) => x.append_null(),
@@ -543,6 +547,7 @@ fn append_typed(
         TypedScratch::Str(range) => {
             let s = str_val(json_buf, *range)?;
             match builder {
+                AnyBuilder::Binary(_) => append_null(builder),
                 AnyBuilder::Utf8(b) => b.append_value(s),
                 AnyBuilder::LargeUtf8(b) => b.append_value(s),
                 AnyBuilder::Int8(_)
@@ -578,6 +583,7 @@ fn append_typed(
             AnyBuilder::TimestampMicrosecond(b) => b.append_value(*n),
             AnyBuilder::TimestampNanosecond(b) => b.append_value(*n),
             AnyBuilder::Utf8(_)
+            | AnyBuilder::Binary(_)
             | AnyBuilder::LargeUtf8(_)
             | AnyBuilder::UInt8(_)
             | AnyBuilder::UInt16(_)
@@ -595,6 +601,7 @@ fn append_typed(
             AnyBuilder::UInt16(b) => b.append_value(*n as u16),
             AnyBuilder::UInt8(b) => b.append_value(*n as u8),
             AnyBuilder::Utf8(_)
+            | AnyBuilder::Binary(_)
             | AnyBuilder::LargeUtf8(_)
             | AnyBuilder::Int8(_)
             | AnyBuilder::Int16(_)
@@ -616,6 +623,7 @@ fn append_typed(
             AnyBuilder::Float64(b) => b.append_value(*n),
             AnyBuilder::Float32(b) => b.append_value(*n as f32),
             AnyBuilder::Utf8(_)
+            | AnyBuilder::Binary(_)
             | AnyBuilder::LargeUtf8(_)
             | AnyBuilder::Int8(_)
             | AnyBuilder::Int16(_)
@@ -638,6 +646,7 @@ fn append_typed(
         TypedScratch::Bool(v) => match builder {
             AnyBuilder::Boolean(b) => b.append_value(*v),
             AnyBuilder::Utf8(_)
+            | AnyBuilder::Binary(_)
             | AnyBuilder::LargeUtf8(_)
             | AnyBuilder::Int8(_)
             | AnyBuilder::Int16(_)

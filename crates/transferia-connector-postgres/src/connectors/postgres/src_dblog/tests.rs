@@ -1,4 +1,4 @@
-use arrow::array::{Int32Array, Int64Array, StringArray};
+use arrow::array::{Array, BinaryArray, Int32Array, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::DataType;
 use bytes::{BufMut, Bytes, BytesMut};
 
@@ -149,9 +149,69 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
     let ids = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
     let names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
     let balances = data.batch.column(2).as_any().downcast_ref::<Int64Array>().unwrap();
-    assert_eq!(ids.iter().collect::<Vec<_>>(), [Some(1), Some(1), None]);
+    assert_eq!(ids.iter().collect::<Vec<_>>(), [Some(1), Some(1), Some(1)]);
     assert_eq!(names.iter().collect::<Vec<_>>(), [Some("alice"), Some("alice-2"), None]);
     assert_eq!(balances.iter().collect::<Vec<_>>(), [Some(10), Some(11), None]);
+    let changed = data
+        .system_columns
+        .get(SystemColumnKind::ChangedColumns)
+        .unwrap();
+    let changed = data
+        .batch
+        .column(changed.index)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(changed.iter().collect::<Vec<_>>(), [Some(&[0b111][..]), Some(&[0b111][..]), Some(&[0b001][..])]);
+    let message_index = data
+        .system_columns
+        .get(SystemColumnKind::MessageIndex)
+        .unwrap();
+    let message_index = data
+        .batch
+        .column(message_index.index)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    assert_eq!(message_index.values(), &[0, 1, 2]);
+}
+
+#[test]
+fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
+    let table = discovered_table();
+    let mut decoder = PgOutputDecoder::default();
+    for message in [relation_message(), begin_message(), toasted_update_message()] {
+        assert!(decoder.decode(&message).unwrap().is_empty());
+    }
+    let pgoutput = decoder
+        .decode(&commit_message())
+        .unwrap()
+        .into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
+    let wal2json = wal2json::decode(wal2json_toasted_transaction().as_bytes())
+        .unwrap()
+        .events
+        .into_iter()
+        .map(|event| normalize_wal2json_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(pgoutput, wal2json);
+    assert_eq!(pgoutput[0].values[1], LogicalValue::UnchangedToast);
+    let data = events_to_table_data(&table, &pgoutput).unwrap();
+    let changed = data
+        .system_columns
+        .get(SystemColumnKind::ChangedColumns)
+        .unwrap();
+    let changed = data
+        .batch
+        .column(changed.index)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(changed.value(0), &[0b101]);
+    let names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    assert!(names.is_null(0));
 }
 
 #[test]
@@ -246,7 +306,8 @@ fn discovered_table() -> DiscoveredTable {
             name: "accounts".into(),
         },
         schema: DatasetSchema::new(vec![
-            SchemaColumn::new("id".into(), DataType::Int32, false),
+            SchemaColumn::new("id".into(), DataType::Int32, false)
+                .with_constraints(true, false, None),
             SchemaColumn::new("name".into(), DataType::Utf8, false),
             SchemaColumn::new("balance".into(), DataType::Int64, false),
         ]),
@@ -302,6 +363,14 @@ fn update_message() -> Vec<u8> {
     )
 }
 
+fn toasted_update_message() -> Vec<u8> {
+    row_message(
+        b'U',
+        Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
+        [WireValue::Text("1"), WireValue::Unchanged, WireValue::Text("11")],
+    )
+}
+
 fn delete_message() -> Vec<u8> {
     row_message(
         b'D',
@@ -335,6 +404,7 @@ fn type_message() -> Vec<u8> {
 enum WireValue<'a> {
     Null,
     Text(&'a str),
+    Unchanged,
 }
 
 fn row_message<const N: usize>(
@@ -361,6 +431,7 @@ fn put_tuple(message: &mut BytesMut, values: &[WireValue<'_>]) {
     for value in values {
         match value {
             WireValue::Null => message.put_u8(b'n'),
+            WireValue::Unchanged => message.put_u8(b'u'),
             WireValue::Text(value) => {
                 message.put_u8(b't');
                 message.put_u32(u32::try_from(value.len()).unwrap());
@@ -396,6 +467,24 @@ fn wal2json_transaction() -> String {
         },
         {
           "kind": "delete", "schema": "public", "table": "accounts",
+          "oldkeys": {"keynames": ["id"], "keytypeoids": [23], "keyvalues": [1]}
+        }
+      ]
+    }"#
+    .to_owned()
+}
+
+fn wal2json_toasted_transaction() -> String {
+    r#"{
+      "xid": 7,
+      "nextlsn": "0/65",
+      "timestamp": "2000-01-01 00:00:00.001234+00",
+      "change": [
+        {
+          "kind": "update", "schema": "public", "table": "accounts",
+          "columnnames": ["id", "balance"],
+          "columntypeoids": [23,20],
+          "columnvalues": [1, 11],
           "oldkeys": {"keynames": ["id"], "keytypeoids": [23], "keyvalues": [1]}
         }
       ]

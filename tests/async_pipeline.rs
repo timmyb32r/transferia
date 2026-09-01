@@ -233,6 +233,13 @@ impl InsertTransport for FakeClickHouse {
             Ok(())
         })
     }
+
+    fn query_all(
+        &self,
+        _query: String,
+    ) -> BoxFuture<'static, Result<Vec<arrow::record_batch::RecordBatch>, InsertError>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 fn sink_config() -> ClickHouseSinkConfig {

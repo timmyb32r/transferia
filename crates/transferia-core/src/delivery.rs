@@ -444,7 +444,14 @@ pub fn validate_stored_projection(
                 .system_columns
                 .iter()
                 .find(|system| system.name.as_ref() == column.name);
-            !matches!(system, Some(system) if system.kind == SystemColumnKind::ChangeOperation)
+            !matches!(
+                system,
+                Some(system)
+                    if matches!(
+                        system.kind,
+                        SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns
+                    )
+            )
                 && (discovery.keep_system_columns
                     || !system_names.contains(column.name.as_str()))
         })

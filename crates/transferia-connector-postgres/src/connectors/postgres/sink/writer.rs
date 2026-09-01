@@ -9,7 +9,7 @@ use crate::metrics::SinkCounters;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch};
+use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 
 pub struct PostgresSink {
     client: tokio_postgres::Client,
@@ -74,13 +74,14 @@ impl PostgresSink {
                             &transaction,
                             &batch.table,
                             &staging,
-                            run.action,
-                            &changelog.primary_keys,
+                            run.operation,
+                            &run.batch,
                         )
                         .await?;
                         copy_batch(&transaction, &staging, &run.batch).await?;
-                        match run.action {
-                            ChangelogAction::Upsert => {
+                        match run.operation {
+                            transferia_core::ChangeOperation::Create
+                            | transferia_core::ChangeOperation::SnapshotRead => {
                                 upsert_from_staging(
                                     &transaction,
                                     &batch.table,
@@ -90,7 +91,17 @@ impl PostgresSink {
                                 )
                                 .await?;
                             }
-                            ChangelogAction::Delete => {
+                            transferia_core::ChangeOperation::Update => {
+                                update_from_staging(
+                                    &transaction,
+                                    &batch.table,
+                                    &staging,
+                                    &run.batch,
+                                    &changelog.primary_keys,
+                                )
+                                .await?;
+                            }
+                            transferia_core::ChangeOperation::Delete => {
                                 delete_from_staging(
                                     &transaction,
                                     &batch.table,
@@ -122,27 +133,88 @@ async fn create_staging_table(
     transaction: &tokio_postgres::Transaction<'_>,
     table: &str,
     staging: &str,
-    action: ChangelogAction,
-    primary_keys: &[String],
+    operation: transferia_core::ChangeOperation,
+    batch: &arrow::record_batch::RecordBatch,
 ) -> anyhow::Result<()> {
-    let query = match action {
-        ChangelogAction::Upsert => format!(
+    let query = match operation {
+        transferia_core::ChangeOperation::Create
+        | transferia_core::ChangeOperation::SnapshotRead => format!(
             "CREATE TEMP TABLE {} (LIKE {} INCLUDING DEFAULTS) ON COMMIT DROP",
             quote_identifier(staging),
             quote_identifier(table)
         ),
-        ChangelogAction::Delete => format!(
+        transferia_core::ChangeOperation::Update | transferia_core::ChangeOperation::Delete => format!(
             "CREATE TEMP TABLE {} ON COMMIT DROP AS SELECT {} FROM {} WITH NO DATA",
             quote_identifier(staging),
-            primary_keys
+            batch
+                .schema()
+                .fields()
                 .iter()
-                .map(|key| quote_identifier(key))
+                .map(|field| quote_identifier(field.name()))
                 .collect::<Vec<_>>()
                 .join(", "),
             quote_identifier(table)
         ),
     };
     transaction.batch_execute(&query).await?;
+    Ok(())
+}
+
+async fn update_from_staging(
+    transaction: &tokio_postgres::Transaction<'_>,
+    table: &str,
+    staging: &str,
+    batch: &arrow::record_batch::RecordBatch,
+    primary_keys: &[String],
+) -> anyhow::Result<()> {
+    let updates = batch
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !primary_keys.iter().any(|key| key == field.name()))
+        .map(|field| {
+            let column = quote_identifier(field.name());
+            format!("{column} = staged.{column}")
+        })
+        .collect::<Vec<_>>();
+    let predicate = primary_keys
+        .iter()
+        .map(|key| {
+            let key = quote_identifier(key);
+            format!("target.{key} = staged.{key}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let affected = if updates.is_empty() {
+        let row = transaction
+            .query_one(
+                &format!(
+                    "SELECT count(*)::bigint FROM {} AS target JOIN {} AS staged ON {predicate}",
+                    quote_identifier(table),
+                    quote_identifier(staging)
+                ),
+                &[],
+            )
+            .await?;
+        u64::try_from(row.get::<_, i64>(0))?
+    } else {
+        transaction
+            .execute(
+                &format!(
+                    "UPDATE {} AS target SET {} FROM {} AS staged WHERE {predicate}",
+                    quote_identifier(table),
+                    updates.join(", "),
+                    quote_identifier(staging)
+                ),
+                &[],
+            )
+            .await?
+    };
+    anyhow::ensure!(
+        affected == batch.num_rows() as u64,
+        "PostgreSQL UPDATE matched {affected} rows, expected {}; destination state is incomplete",
+        batch.num_rows()
+    );
     Ok(())
 }
 

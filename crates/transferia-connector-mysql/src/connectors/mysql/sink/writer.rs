@@ -18,7 +18,7 @@ use crate::metrics::SinkCounters;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch};
+use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 
 const MAX_PREPARED_PARAMETERS: usize = 65_535;
 
@@ -62,7 +62,9 @@ impl MySqlSink {
             let mut flushes = 0_u64;
             let mut rows = 0_u64;
             let mut bytes = 0_u64;
-            for (batch, projected) in delivery.outputs.iter().zip(projected) {
+            for (batch_index, (batch, projected)) in
+                delivery.outputs.iter().zip(projected).enumerate()
+            {
                 if batch.rows() == 0 {
                     continue;
                 }
@@ -78,9 +80,12 @@ impl MySqlSink {
                         .await?;
                     }
                     ProjectedSinkBatch::Changelog(changelog) => {
-                        for run in changelog.collapsed_runs()? {
-                            flushes += match run.action {
-                                ChangelogAction::Upsert => {
+                        for (run_index, run) in
+                            changelog.collapsed_runs()?.into_iter().enumerate()
+                        {
+                            flushes += match run.operation {
+                                transferia_core::ChangeOperation::Create
+                                | transferia_core::ChangeOperation::SnapshotRead => {
                                     write_insert_batches(
                                         &mut self.connection,
                                         &batch.table,
@@ -90,7 +95,23 @@ impl MySqlSink {
                                     )
                                     .await?
                                 }
-                                ChangelogAction::Delete => {
+                                transferia_core::ChangeOperation::Update => {
+                                    write_update_batch(
+                                        &mut self.connection,
+                                        &batch.table,
+                                        &run.batch,
+                                        &changelog.primary_keys,
+                                        self.insert_rows,
+                                        &format!(
+                                            "__transferia_{}_{}_{}",
+                                            delivery.id.get(),
+                                            batch_index,
+                                            run_index
+                                        ),
+                                    )
+                                    .await?
+                                }
+                                transferia_core::ChangeOperation::Delete => {
                                     write_delete_batches(
                                         &mut self.connection,
                                         &batch.table,
@@ -131,6 +152,96 @@ impl MySqlSink {
             self.counters.add_flush();
         }
         Ok(())
+    }
+}
+
+async fn write_update_batch(
+    connection: &mut Conn,
+    table: &str,
+    batch: &RecordBatch,
+    primary_keys: &[String],
+    insert_rows: usize,
+    staging: &str,
+) -> anyhow::Result<u64> {
+    let columns = batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| quote_identifier(field.name()))
+        .collect::<Vec<_>>();
+    let non_keys = batch
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !primary_keys.iter().any(|key| key == field.name()))
+        .map(|field| field.name().clone())
+        .collect::<Vec<_>>();
+    connection
+        .query_drop(format!(
+            "CREATE TEMPORARY TABLE {} AS SELECT {} FROM {} WHERE FALSE",
+            quote_identifier(staging),
+            columns.join(", "),
+            quote_identifier(table)
+        ))
+        .await?;
+    let result = async {
+        let mut flushes = write_insert_batches(
+            connection,
+            staging,
+            batch,
+            insert_rows,
+            None,
+        )
+        .await?;
+        let predicate = primary_keys
+            .iter()
+            .map(|key| {
+                let key = quote_identifier(key);
+                format!("target.{key} = staged.{key}")
+            })
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let matched = connection
+            .query_first::<u64, _>(format!(
+                "SELECT COUNT(*) FROM {} AS target JOIN {} AS staged ON {predicate}",
+                quote_identifier(table),
+                quote_identifier(staging)
+            ))
+            .await?
+            .unwrap_or_default();
+        anyhow::ensure!(
+            matched == batch.num_rows() as u64,
+            "MySQL UPDATE matched {matched} rows, expected {}; destination state is incomplete",
+            batch.num_rows()
+        );
+        if !non_keys.is_empty() {
+            let updates = non_keys
+                .iter()
+                .map(|column| {
+                    let column = quote_identifier(column);
+                    format!("target.{column} = staged.{column}")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            connection
+                .query_drop(format!(
+                    "UPDATE {} AS target JOIN {} AS staged ON {predicate} SET {updates}",
+                    quote_identifier(table),
+                    quote_identifier(staging)
+                ))
+                .await?;
+            flushes += 1;
+        }
+        Ok::<_, anyhow::Error>(flushes)
+    }
+    .await;
+    let drop_result = connection
+        .query_drop(format!("DROP TEMPORARY TABLE {}", quote_identifier(staging)))
+        .await;
+    match (result, drop_result) {
+        (Ok(flushes), Ok(())) => Ok(flushes),
+        (Err(error), _) => Err(error),
+        (Ok(_), Err(error)) => Err(error.into()),
     }
 }
 

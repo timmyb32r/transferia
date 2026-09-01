@@ -7,11 +7,12 @@ use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
 use ydb_grpc::ydb_proto::table::{
     bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CreateSessionRequest,
-    CreateSessionResult, DeleteSessionRequest, DescribeTableRequest, DescribeTableResult,
-    ExecuteDataQueryRequest, ExecuteQueryResult, ExecuteSchemeQueryRequest, Query,
-    QueryCachePolicy, SerializableModeSettings, TransactionControl, TransactionSettings,
+    CommitTransactionRequest, CommitTransactionResult, CreateSessionResult, DeleteSessionRequest,
+    DescribeTableRequest, DescribeTableResult, ExecuteDataQueryRequest, ExecuteQueryResult,
+    ExecuteSchemeQueryRequest, Query, QueryCachePolicy, RollbackTransactionRequest,
+    SerializableModeSettings, TransactionControl, TransactionSettings,
 };
-use ydb_grpc::ydb_proto::{table, TypedValue};
+use ydb_grpc::ydb_proto::{table, value, TypedValue};
 
 use super::config::YdbConnectionConfig;
 
@@ -216,6 +217,99 @@ impl YdbClient {
             .map_err(|_| anyhow::anyhow!("YDB ExecuteDataQuery timed out"))??
             .into_inner();
         decode_operation::<ExecuteQueryResult>(response.operation, "ExecuteDataQuery")?;
+        let delete = self.request(DeleteSessionRequest {
+            session_id,
+            operation_params: None,
+        });
+        let _ignored = self.service.delete_session(delete).await;
+        Ok(())
+    }
+
+    pub async fn execute_checked_update(
+        &mut self,
+        yql_text: String,
+        parameters: std::collections::HashMap<String, TypedValue>,
+        expected_rows: u64,
+    ) -> anyhow::Result<()> {
+        let session_id = self.create_session().await?;
+        let request = self.request(ExecuteDataQueryRequest {
+            session_id: session_id.clone(),
+            tx_control: Some(TransactionControl {
+                commit_tx: false,
+                tx_selector: Some(table::transaction_control::TxSelector::BeginTx(
+                    TransactionSettings {
+                        tx_mode: Some(table::transaction_settings::TxMode::SerializableReadWrite(
+                            SerializableModeSettings {},
+                        )),
+                    },
+                )),
+            }),
+            query: Some(Query {
+                query: Some(table::query::Query::YqlText(yql_text)),
+            }),
+            parameters,
+            query_cache_policy: Some(QueryCachePolicy {
+                keep_in_cache: true,
+            }),
+            operation_params: None,
+            collect_stats: table::query_stats_collection::Mode::StatsCollectionNone.into(),
+        });
+        let response = tokio::time::timeout(self.timeout, self.service.execute_data_query(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB ExecuteDataQuery timed out"))??
+            .into_inner();
+        let result = decode_operation::<ExecuteQueryResult>(response.operation, "ExecuteDataQuery")?;
+        let transaction_id = result
+            .tx_meta
+            .as_ref()
+            .map(|metadata| metadata.id.clone())
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("YDB checked UPDATE returned no transaction id"))?;
+        let matched_rows = result
+            .result_sets
+            .first()
+            .and_then(|result| result.rows.first())
+            .and_then(|row| row.items.first())
+            .and_then(|value| value.value.as_ref())
+            .and_then(|value| match value {
+                value::Value::Uint64Value(value) => Some(*value),
+                _ => None,
+            })
+            .ok_or_else(|| anyhow::anyhow!("YDB checked UPDATE returned no Uint64 match count"))?;
+        if matched_rows != expected_rows {
+            let rollback = self.request(RollbackTransactionRequest {
+                session_id: session_id.clone(),
+                tx_id: transaction_id,
+                operation_params: None,
+            });
+            let response = tokio::time::timeout(
+                self.timeout,
+                self.service.rollback_transaction(rollback),
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB RollbackTransaction timed out"))??
+            .into_inner();
+            ensure_operation(response.operation, "RollbackTransaction")?;
+            let delete = self.request(DeleteSessionRequest {
+                session_id,
+                operation_params: None,
+            });
+            let _ignored = self.service.delete_session(delete).await;
+            anyhow::bail!(
+                "YDB UPDATE matched {matched_rows} rows, expected {expected_rows}; destination state is incomplete"
+            );
+        }
+        let commit = self.request(CommitTransactionRequest {
+            session_id: session_id.clone(),
+            tx_id: transaction_id,
+            operation_params: None,
+            collect_stats: table::query_stats_collection::Mode::StatsCollectionNone.into(),
+        });
+        let response = tokio::time::timeout(self.timeout, self.service.commit_transaction(commit))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB CommitTransaction timed out"))??
+            .into_inner();
+        decode_operation::<CommitTransactionResult>(response.operation, "CommitTransaction")?;
         let delete = self.request(DeleteSessionRequest {
             session_id,
             operation_params: None,

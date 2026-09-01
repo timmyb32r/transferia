@@ -3,7 +3,7 @@
     reason = "the explicit match keeps the negative protocol assertion readable"
 )]
 
-use arrow::array::{ArrayRef, Int64Array, StringArray};
+use arrow::array::{ArrayRef, BinaryArray, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
@@ -39,22 +39,131 @@ use super::native_rpc::{
 fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
     assert_eq!(NativeRowModification::Write.rpc_value(), 0);
     assert_eq!(NativeRowModification::Delete.rpc_value(), 1);
+    assert_eq!(NativeRowModification::Modify.rpc_value(), 3);
 }
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
-    drop_oversized_rows, encode_arrow, encode_arrow_batches, validate_initial_tablet_count,
-    validate_row_weight, yt_guid,
+    drop_oversized_rows, dynamic_row_modification, encode_arrow, encode_arrow_batches,
+    validate_initial_tablet_count, validate_row_weight, yt_guid,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
     DiscoveredTable, PhysicalChunkLayout,
 };
 use super::yt_wire::{encode_wire_batch, YtWireDecoder};
+use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SinkLimits as _,
     SourceTopology,
 };
+use transferia_core::memory::PipelineMemory;
+use transferia_core::sink::SinkBatch;
+
+#[tokio::test]
+async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_changed_columns(
+) -> anyhow::Result<()> {
+    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
+        .with_constraints(true, false, None);
+    let payload = SchemaColumn::new("payload".into(), DataType::Utf8, true);
+    let discovery = DeliveryDiscovery {
+        source_name: Arc::from("postgres-cdc"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                payload.clone(),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangeOperation.default_name().into(),
+                    DataType::Utf8,
+                    false,
+                ),
+                SchemaColumn::new(
+                    SystemColumnKind::Offset.default_name().into(),
+                    DataType::Int64,
+                    false,
+                ),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangedColumns.default_name().into(),
+                    DataType::Binary,
+                    false,
+                ),
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+                SystemColumnKind::ChangedColumns.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    };
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(vec![7])) as ArrayRef,
+            Arc::new(StringArray::from(vec![None::<&str>])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["u"])) as ArrayRef,
+            Arc::new(Int64Array::from(vec![42])) as ArrayRef,
+            Arc::new(BinaryArray::from_iter_values([&[0b01_u8][..]])) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    let input = SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        batch,
+        byte_size: bytes,
+        memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
+        system_columns: SystemColumns::new(vec![
+            SystemColumn {
+                kind: SystemColumnKind::ChangeOperation,
+                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                index: 2,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+                index: 3,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::ChangedColumns,
+                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                index: 4,
+            },
+        ]),
+    };
+
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &input)? else {
+        panic!("changed-column metadata must produce a changelog batch")
+    };
+    let runs = changelog.collapsed_runs()?;
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].operation, transferia_core::ChangeOperation::Update);
+    assert_eq!(runs[0].batch.num_columns(), 1);
+    assert_eq!(runs[0].batch.schema().field(0).name(), "id");
+    assert_eq!(
+        dynamic_row_modification(runs[0].operation).rpc_value(),
+        NativeRowModification::Modify.rpc_value()
+    );
+    let encoded = encode_wire_batch(&runs[0].batch)?;
+    assert_eq!(encoded.column_names, ["id"]);
+    Ok(())
+}
 
 #[test]
 fn attribute_path_keeps_exactly_one_separator_after_a_trailing_slash() {

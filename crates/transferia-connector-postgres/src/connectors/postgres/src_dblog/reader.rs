@@ -455,8 +455,8 @@ pub(super) fn events_to_table_data(
     table: &DiscoveredTable,
     events: &[ChangeEvent],
 ) -> anyhow::Result<TableData> {
-    let mut fields = Vec::with_capacity(table.schema.columns.len() + 5);
-    let mut arrays = Vec::with_capacity(table.schema.columns.len() + 5);
+    let mut fields = Vec::with_capacity(table.schema.columns.len() + 6);
+    let mut arrays = Vec::with_capacity(table.schema.columns.len() + 6);
     for (index, column) in table.schema.columns.iter().enumerate() {
         fields.push(
             Field::new(&column.name, column.data_type.clone(), true)
@@ -464,21 +464,7 @@ pub(super) fn events_to_table_data(
         );
         arrays.push(logical_array(events, index, &column.data_type)?);
     }
-    let operation_index = fields.len();
-    fields.push(
-        Field::new(
-            SystemColumnKind::ChangeOperation.default_name(),
-            DataType::Utf8,
-            false,
-        )
-        .with_metadata(HashMap::from([(
-            META_CHANGE_OPERATION.to_owned(),
-            "true".to_owned(),
-        )])),
-    );
-    arrays.push(Arc::new(StringArray::from_iter_values(
-        events.iter().map(|event| event.operation.code()),
-    )) as ArrayRef);
+    let routing_index = fields.len();
     let routing = [
         (SystemColumnKind::Topic, DataType::Utf8),
         (SystemColumnKind::Partition, DataType::Int64),
@@ -497,42 +483,104 @@ pub(super) fn events_to_table_data(
                 .map(|event| i64::try_from(event.lsn))
                 .collect::<Result<Vec<_>, _>>()?,
         )) as ArrayRef,
-        Arc::new(UInt64Array::from(vec![0_u64; events.len()])) as ArrayRef,
+        Arc::new(UInt64Array::from_iter_values(
+            (0..events.len()).map(u64::try_from).collect::<Result<Vec<_>, _>>()?,
+        )) as ArrayRef,
     ]);
+    let operation_index = fields.len();
+    fields.push(
+        Field::new(
+            SystemColumnKind::ChangeOperation.default_name(),
+            DataType::Utf8,
+            false,
+        )
+        .with_metadata(HashMap::from([(
+            META_CHANGE_OPERATION.to_owned(),
+            "true".to_owned(),
+        )])),
+    );
+    arrays.push(Arc::new(StringArray::from_iter_values(
+        events.iter().map(|event| event.operation.code()),
+    )) as ArrayRef);
+    let changed_columns_index = fields.len();
+    fields.push(Field::new(
+        SystemColumnKind::ChangedColumns.default_name(),
+        DataType::Binary,
+        false,
+    ));
+    let changed_columns = events
+        .iter()
+        .map(|event| changed_columns_mask(table, event))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    arrays.push(Arc::new(BinaryArray::from_iter_values(
+        changed_columns.iter().map(Vec::as_slice),
+    )) as ArrayRef);
     let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
-    let base = operation_index + 1;
     Ok(TableData::new(
         Arc::from(table.config.name.as_str()),
         false,
         batch,
         SystemColumns::new(vec![
             SystemColumn {
+                kind: SystemColumnKind::Topic,
+                index: routing_index,
+                name: Arc::from(SystemColumnKind::Topic.default_name()),
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Partition,
+                index: routing_index + 1,
+                name: Arc::from(SystemColumnKind::Partition.default_name()),
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                index: routing_index + 2,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+            },
+            SystemColumn {
+                kind: SystemColumnKind::MessageIndex,
+                index: routing_index + 3,
+                name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
+            },
+            SystemColumn {
                 kind: SystemColumnKind::ChangeOperation,
                 index: operation_index,
                 name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
             },
             SystemColumn {
-                kind: SystemColumnKind::Topic,
-                index: base,
-                name: Arc::from(SystemColumnKind::Topic.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::Partition,
-                index: base + 1,
-                name: Arc::from(SystemColumnKind::Partition.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::Offset,
-                index: base + 2,
-                name: Arc::from(SystemColumnKind::Offset.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::MessageIndex,
-                index: base + 3,
-                name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
+                kind: SystemColumnKind::ChangedColumns,
+                index: changed_columns_index,
+                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
             },
         ]),
     ))
+}
+
+fn changed_columns_mask(
+    table: &DiscoveredTable,
+    event: &ChangeEvent,
+) -> anyhow::Result<Vec<u8>> {
+    let mut mask = vec![0_u8; table.schema.columns.len().div_ceil(8)];
+    for (index, column) in table.schema.columns.iter().enumerate() {
+        let changed = match event.operation {
+            transferia_core::ChangeOperation::Create
+            | transferia_core::ChangeOperation::SnapshotRead => {
+                anyhow::ensure!(
+                    !matches!(event.values[index], LogicalValue::UnchangedToast),
+                    "PostgreSQL insert marks column '{}' as unchanged TOAST",
+                    column.name
+                );
+                true
+            }
+            transferia_core::ChangeOperation::Update => {
+                !matches!(event.values[index], LogicalValue::UnchangedToast)
+            }
+            transferia_core::ChangeOperation::Delete => column.primary_key,
+        };
+        if changed {
+            mask[index / 8] |= 1 << (index % 8);
+        }
+    }
+    Ok(mask)
 }
 
 fn logical_array(
@@ -545,7 +593,7 @@ fn logical_array(
             Arc::new(<$array>::from(
                 events
                     .iter()
-                    .map(|event| parse_value::<$ty>(&event.values[index]))
+                    .map(|event| parse_value::<$ty>(event_value(event, index)))
                     .collect::<anyhow::Result<Vec<_>>>()?,
             )) as ArrayRef
         }};
@@ -554,13 +602,13 @@ fn logical_array(
         DataType::Boolean => Arc::new(BooleanArray::from(
             events
                 .iter()
-                .map(|event| parse_bool(&event.values[index]))
+                .map(|event| parse_bool(event_value(event, index)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Int8 => Arc::new(Int8Array::from(
             events
                 .iter()
-                .map(|event| parse_postgres_char(&event.values[index]))
+                .map(|event| parse_postgres_char(event_value(event, index)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Int16 => parsed!(i16, Int16Array),
@@ -572,17 +620,26 @@ fn logical_array(
         DataType::Binary => Arc::new(BinaryArray::from_iter(
             events
                 .iter()
-                .map(|event| parse_binary(&event.values[index]))
+                .map(|event| parse_binary(event_value(event, index)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Utf8 => Arc::new(StringArray::from_iter(
             events
                 .iter()
-                .map(|event| parse_text(&event.values[index]))
+                .map(|event| parse_text(event_value(event, index)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         other => anyhow::bail!("unsupported PostgreSQL CDC Arrow type {other:?}"),
     })
+}
+
+fn event_value(event: &ChangeEvent, index: usize) -> &LogicalValue {
+    if event.operation == transferia_core::ChangeOperation::Delete {
+        if let Some(old_values) = &event.old_values {
+            return &old_values[index];
+        }
+    }
+    &event.values[index]
 }
 
 fn parse_text(value: &LogicalValue) -> anyhow::Result<Option<&str>> {
@@ -592,9 +649,7 @@ fn parse_text(value: &LogicalValue) -> anyhow::Result<Option<&str>> {
         LogicalValue::Binary(_) => {
             anyhow::bail!("binary pgoutput value cannot populate an Utf8 column")
         }
-        LogicalValue::UnchangedToast => {
-            anyhow::bail!("unchanged TOAST value requires CDC-aware sink handling")
-        }
+        LogicalValue::UnchangedToast => Ok(None),
     }
 }
 
@@ -619,9 +674,7 @@ fn parse_binary(value: &LogicalValue) -> anyhow::Result<Option<Vec<u8>>> {
                 .collect::<anyhow::Result<Vec<_>>>()
                 .map(Some)
         }
-        LogicalValue::UnchangedToast => {
-            anyhow::bail!("unchanged TOAST value requires CDC-aware sink handling")
-        }
+        LogicalValue::UnchangedToast => Ok(None),
     }
 }
 

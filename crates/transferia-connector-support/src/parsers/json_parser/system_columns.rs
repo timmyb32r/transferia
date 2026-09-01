@@ -1,4 +1,4 @@
-use arrow::array::{Int64Builder, StringBuilder, UInt64Builder};
+use arrow::array::{BinaryBuilder, Int64Builder, StringBuilder, UInt64Builder};
 
 use super::parser::AnyBuilder;
 use transferia_core::data::system_columns::SystemColumnKind;
@@ -22,6 +22,9 @@ pub(super) fn make_system_builder(kind: SystemColumnKind, capacity: usize) -> An
         SystemColumnKind::MessageIndex => {
             AnyBuilder::UInt64(UInt64Builder::with_capacity(capacity))
         }
+        SystemColumnKind::ChangedColumns => {
+            AnyBuilder::Binary(BinaryBuilder::with_capacity(capacity, capacity))
+        }
     }
 }
 
@@ -41,6 +44,9 @@ pub(super) fn make_exact_system_builder(
         }
         SystemColumnKind::MessageIndex => {
             AnyBuilder::UInt64(UInt64Builder::with_capacity(capacity))
+        }
+        SystemColumnKind::ChangedColumns => {
+            AnyBuilder::Binary(BinaryBuilder::with_capacity(capacity, capacity))
         }
     }
 }
@@ -83,6 +89,16 @@ pub(super) fn append_system_columns(
             }
             (SystemColumnKind::ChangeOperation, AnyBuilder::Utf8(builder)) => {
                 builder.append_value("c");
+            }
+            (SystemColumnKind::ChangedColumns, AnyBuilder::Binary(builder)) => {
+                let mut mask = vec![u8::MAX; data_columns.div_ceil(8)];
+                if let Some(last) = mask.last_mut() {
+                    let used_bits = data_columns % 8;
+                    if used_bits != 0 {
+                        *last = (1_u8 << used_bits) - 1;
+                    }
+                }
+                builder.append_value(&mask);
             }
             _ => unreachable!("system column builder must match its semantic kind"),
         }

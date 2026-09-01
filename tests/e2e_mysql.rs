@@ -333,11 +333,17 @@ fn mysql_changelog_discovery() -> DeliveryDiscovery {
                     SystemColumnKind::Offset.data_type(),
                     false,
                 ),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangedColumns.default_name().into(),
+                    SystemColumnKind::ChangedColumns.data_type(),
+                    false,
+                ),
             ]),
             stored_schema: DatasetSchema::new(vec![id, payload]),
             system_columns: vec![
                 SystemColumnKind::ChangeOperation.into(),
                 SystemColumnKind::Offset.into(),
+                SystemColumnKind::ChangedColumns.into(),
             ],
         }],
         performance_advice: Vec::new(),
@@ -363,6 +369,17 @@ fn mysql_changelog_delivery(
         })
         .collect::<Vec<_>>();
     let rows = ids.len();
+    let changed = operations
+        .iter()
+        .zip(&payloads)
+        .map(|(operation, payload)| {
+            if *operation == "d" || (*operation == "u" && payload.is_none()) {
+                &[0b01_u8][..]
+            } else {
+                &[0b11_u8][..]
+            }
+        })
+        .collect::<Vec<_>>();
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(fields)),
         vec![
@@ -370,6 +387,7 @@ fn mysql_changelog_delivery(
             Arc::new(StringArray::from(payloads)) as ArrayRef,
             Arc::new(StringArray::from(operations)) as ArrayRef,
             Arc::new(arrow::array::Int64Array::from(vec![lsn; rows])) as ArrayRef,
+            Arc::new(arrow::array::BinaryArray::from_iter_values(changed)) as ArrayRef,
         ],
     )?;
     let bytes = batch.get_array_memory_size();
@@ -391,6 +409,11 @@ fn mysql_changelog_delivery(
                     kind: SystemColumnKind::Offset,
                     name: Arc::from(SystemColumnKind::Offset.default_name()),
                     index: 3,
+                },
+                SystemColumn {
+                    kind: SystemColumnKind::ChangedColumns,
+                    name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
+                    index: 4,
                 },
             ]),
         }],
@@ -583,6 +606,7 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
             vec![None, Some("three")],
             43,
         )?,
+        mysql_changelog_delivery(&memory, 4, vec!["u"], vec![3], vec![None], 44)?,
     ] {
         let id = delivery.id;
         delivery_tx.send(delivery).await?;

@@ -110,6 +110,7 @@ impl SourceConnector for PostgresSourceConnector {
             ];
             if self.config.replication.is_some() {
                 system_columns.push(SystemColumnKind::ChangeOperation);
+                system_columns.push(SystemColumnKind::ChangedColumns);
             }
             let discovered_system_columns = system_columns
                 .iter()
@@ -131,7 +132,13 @@ impl SourceConnector for PostgresSourceConnector {
                         stored.columns.extend(
                             system_columns
                                 .iter()
-                                .filter(|kind| **kind != SystemColumnKind::ChangeOperation)
+                                .filter(|kind| {
+                                    !matches!(
+                                        **kind,
+                                        SystemColumnKind::ChangeOperation
+                                            | SystemColumnKind::ChangedColumns
+                                    )
+                                })
                                 .map(|kind| {
                                     SchemaColumn::new(
                                         kind.default_name().to_owned(),
