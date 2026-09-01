@@ -1,7 +1,7 @@
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use tokio_postgres::types::Type;
+use tokio_postgres::types::{Kind, Type};
 
 #[derive(Clone, Deserialize)]
 pub struct PostgresConnectionCheckConfig {
@@ -178,16 +178,53 @@ pub fn quote_identifier(value: &str) -> String {
 pub fn postgres_to_arrow(data_type: &Type) -> anyhow::Result<DataType> {
     Ok(match *data_type {
         Type::BOOL => DataType::Boolean,
+        Type::CHAR => DataType::Int8,
         Type::INT2 => DataType::Int16,
         Type::INT4 => DataType::Int32,
         Type::INT8 => DataType::Int64,
+        Type::OID => DataType::UInt32,
         Type::FLOAT4 => DataType::Float32,
         Type::FLOAT8 => DataType::Float64,
-        Type::TEXT | Type::VARCHAR | Type::BPCHAR => DataType::Utf8,
-        Type::DATE => DataType::Date32,
-        Type::TIMESTAMP => DataType::Timestamp(TimeUnit::Microsecond, None),
-        _ => anyhow::bail!("unsupported PostgreSQL type '{}'", data_type.name()),
+        Type::BYTEA => DataType::Binary,
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => DataType::Utf8,
+        _ => match data_type.kind() {
+            Kind::Pseudo => anyhow::bail!(
+                "PostgreSQL pseudo-type '{}' cannot be stored in a source table",
+                data_type
+            ),
+            Kind::Simple
+            | Kind::Enum(_)
+            | Kind::Array(_)
+            | Kind::Range(_)
+            | Kind::Multirange(_)
+            | Kind::Domain(_)
+            | Kind::Composite(_) => DataType::Utf8,
+            other => anyhow::bail!(
+                "unsupported PostgreSQL type kind {other:?} for '{}'",
+                data_type
+            ),
+        },
     })
+}
+
+#[must_use]
+pub fn postgres_requires_text_projection(data_type: &Type) -> bool {
+    !matches!(
+        *data_type,
+        Type::BOOL
+            | Type::CHAR
+            | Type::INT2
+            | Type::INT4
+            | Type::INT8
+            | Type::OID
+            | Type::FLOAT4
+            | Type::FLOAT8
+            | Type::BYTEA
+            | Type::TEXT
+            | Type::VARCHAR
+            | Type::BPCHAR
+            | Type::NAME
+    )
 }
 
 pub fn arrow_to_postgres(data_type: &DataType) -> anyhow::Result<Type> {

@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, StringArray, UInt64Array,
+    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
+    Int64Array, Int8Array, StringArray, UInt32Array, UInt64Array,
 };
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
-use chrono::Datelike as _;
 use futures_util::future::BoxFuture;
-use tokio_postgres::{Client, Row, Statement};
+use tokio_postgres::{Client, Column, Row, Statement};
 
 use super::config::TableConfig;
-use crate::connectors::postgres::common::quote_identifier;
+use crate::connectors::postgres::common::{
+    postgres_requires_text_projection, postgres_to_arrow, quote_identifier,
+};
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;
@@ -38,8 +39,16 @@ impl PostgresSource {
         batch_rows: usize,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
+        let metadata = client
+            .prepare(&format!(
+                "SELECT * FROM {}.{} LIMIT 0",
+                quote_identifier(&table.schema),
+                quote_identifier(&table.name)
+            ))
+            .await?;
+        let projection = source_select_projection(metadata.columns())?;
         let query = format!(
-            "DECLARE transferia_source_cursor NO SCROLL CURSOR FOR SELECT * FROM {}.{}",
+            "DECLARE transferia_source_cursor NO SCROLL CURSOR FOR SELECT {projection} FROM {}.{}",
             quote_identifier(&table.schema),
             quote_identifier(&table.name)
         );
@@ -61,6 +70,24 @@ impl PostgresSource {
             finished: false,
             counters,
         })
+    }
+}
+
+pub(super) fn source_select_projection(columns: &[Column]) -> anyhow::Result<String> {
+    columns
+        .iter()
+        .map(|column| source_column_expression(column.name(), column.type_()))
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|columns| columns.join(", "))
+}
+
+pub(super) fn source_column_expression(name: &str, data_type: &tokio_postgres::types::Type) -> anyhow::Result<String> {
+    postgres_to_arrow(data_type)?;
+    let name = quote_identifier(name);
+    if postgres_requires_text_projection(data_type) {
+        Ok(format!("{name}::text AS {name}"))
+    } else {
+        Ok(name)
     }
 }
 
@@ -167,7 +194,7 @@ fn rows_to_batch(
         .zip(&discovered_schema.columns)
         .enumerate()
     {
-        let data_type = crate::connectors::postgres::common::postgres_to_arrow(column.type_())?;
+        let data_type = postgres_to_arrow(column.type_())?;
         anyhow::ensure!(
             column.name() == discovered.name && data_type == discovered.data_type,
             "PostgreSQL query schema drifted at column '{}': discovered {:?}, query returned {:?}",
@@ -232,36 +259,26 @@ fn column_array(
     }
     Ok(match *data_type {
         tokio_postgres::types::Type::BOOL => primitive!(bool, BooleanArray),
+        tokio_postgres::types::Type::CHAR => primitive!(i8, Int8Array),
         tokio_postgres::types::Type::INT2 => primitive!(i16, Int16Array),
         tokio_postgres::types::Type::INT4 => primitive!(i32, Int32Array),
         tokio_postgres::types::Type::INT8 => primitive!(i64, Int64Array),
+        tokio_postgres::types::Type::OID => primitive!(u32, UInt32Array),
         tokio_postgres::types::Type::FLOAT4 => primitive!(f32, Float32Array),
         tokio_postgres::types::Type::FLOAT8 => primitive!(f64, Float64Array),
+        tokio_postgres::types::Type::BYTEA => Arc::new(BinaryArray::from(
+            rows.iter()
+                .map(|row| row.get::<_, Option<&[u8]>>(index))
+                .collect::<Vec<_>>(),
+        )) as ArrayRef,
         tokio_postgres::types::Type::TEXT
         | tokio_postgres::types::Type::VARCHAR
-        | tokio_postgres::types::Type::BPCHAR => Arc::new(StringArray::from(
+        | tokio_postgres::types::Type::BPCHAR
+        | tokio_postgres::types::Type::NAME => Arc::new(StringArray::from(
             rows.iter()
                 .map(|row| row.get::<_, Option<&str>>(index))
                 .collect::<Vec<_>>(),
         )) as ArrayRef,
-        tokio_postgres::types::Type::DATE => Arc::new(Date32Array::from(
-            rows.iter()
-                .map(|row| {
-                    row.get::<_, Option<chrono::NaiveDate>>(index)
-                        .map(|date| date.num_days_from_ce() - 719_163)
-                })
-                .collect::<Vec<_>>(),
-        )) as ArrayRef,
-        tokio_postgres::types::Type::TIMESTAMP => {
-            Arc::new(arrow::array::TimestampMicrosecondArray::from(
-                rows.iter()
-                    .map(|row| {
-                        row.get::<_, Option<chrono::NaiveDateTime>>(index)
-                            .map(|value| value.and_utc().timestamp_micros())
-                    })
-                    .collect::<Vec<_>>(),
-            )) as ArrayRef
-        }
         _ => anyhow::bail!("unsupported PostgreSQL type '{}'", data_type.name()),
     })
 }

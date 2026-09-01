@@ -10,7 +10,9 @@ mod support;
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::array::{ArrayRef, Date32Array, Int64Array, StringArray, TimestampMicrosecondArray};
+use arrow::array::{
+    ArrayRef, BinaryArray, Date32Array, Int64Array, StringArray, TimestampMicrosecondArray,
+};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::StreamExt as _;
@@ -28,6 +30,7 @@ use transferia::connectors::postgres::{PostgresSinkConnector, PostgresSourceConn
 use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
 use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::data::message::SourceBatch;
 use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -410,5 +413,179 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     assert_eq!(copied.get::<_, Option<String>>(1), None);
     assert_eq!(copied.get::<_, String>(2), "2024-01-01");
     assert_eq!(copied.get::<_, String>(3), "2024-01-01 00:00:00.123456");
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> anyhow::Result<()> {
+    let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
+        .with_exposed_port(5432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .start()
+        .await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(5432.tcp()).await?;
+    let connection = format!(
+        "host={host} port={port} user=postgres password=test dbname=transferia"
+    );
+    let pg = wait_for_postgres(&connection).await?;
+    pg.batch_execute(
+        r#"
+        CREATE TYPE transferia_mood AS ENUM ('calm', 'busy');
+        CREATE DOMAIN transferia_positive AS integer CHECK (VALUE > 0);
+        CREATE TYPE transferia_pair AS (left_value numeric, right_value text);
+        CREATE TABLE all_types (
+            bool_value boolean NOT NULL,
+            int2_value smallint NOT NULL,
+            int4_value integer NOT NULL,
+            int8_value bigint NOT NULL,
+            oid_value oid NOT NULL,
+            float4_value real NOT NULL,
+            float8_value double precision NOT NULL,
+            bytea_value bytea NOT NULL,
+            text_value text NOT NULL,
+            varchar_value varchar(20) NOT NULL,
+            bpchar_value character(4) NOT NULL,
+            name_value name NOT NULL,
+            numeric_value numeric NOT NULL,
+            money_value money NOT NULL,
+            date_value date NOT NULL,
+            time_value time NOT NULL,
+            timetz_value timetz NOT NULL,
+            timestamp_value timestamp NOT NULL,
+            timestamptz_value timestamptz NOT NULL,
+            interval_value interval NOT NULL,
+            json_value json NOT NULL,
+            jsonb_value jsonb NOT NULL,
+            xml_value xml NOT NULL,
+            uuid_value uuid NOT NULL,
+            inet_value inet NOT NULL,
+            cidr_value cidr NOT NULL,
+            macaddr_value macaddr NOT NULL,
+            macaddr8_value macaddr8 NOT NULL,
+            bit_value bit(8) NOT NULL,
+            varbit_value varbit NOT NULL,
+            point_value point NOT NULL,
+            line_value line NOT NULL,
+            lseg_value lseg NOT NULL,
+            box_value box NOT NULL,
+            path_value path NOT NULL,
+            polygon_value polygon NOT NULL,
+            circle_value circle NOT NULL,
+            range_value int4range NOT NULL,
+            multirange_value int4multirange NOT NULL,
+            int_array integer[] NOT NULL,
+            text_array text[] NOT NULL,
+            enum_value transferia_mood NOT NULL,
+            domain_value transferia_positive NOT NULL,
+            composite_value transferia_pair NOT NULL
+        );
+        INSERT INTO all_types VALUES (
+            true, -2, 3, 4, 5, 1.25, -2.5,
+            decode('00ff10', 'hex'), 'text', 'varchar', 'xy', 'identifier',
+            '123456789012345678901234567890.12345678901234567890', '$12.34',
+            'infinity', '24:00:00', '04:05:06.123456-08', '-infinity',
+            '2004-10-19 10:23:54+02', '1 year 2 mons 3 days 04:05:06.789',
+            '{ "preserve" : "spacing" }', '{"canonical": true}',
+            '<root attr="value">text</root>', '550e8400-e29b-41d4-a716-446655440000',
+            '192.168.1.5/24', '10.0.0.0/8', '08:00:2b:01:02:03',
+            '08:00:2b:01:02:03:04:05', B'10101111', B'10101',
+            '(1,2)', '{1,2,3}', '[(1,2),(3,4)]', '((1,1),(3,3))',
+            '[(1,1),(2,2)]', '((0,0),(1,0),(1,1))', '<(1,2),3>',
+            '[1,5)', '{[1,5),[8,10)}', '[0:1]={10,20}', ARRAY['NULL', NULL],
+            'busy', 7, ROW(0.99, 'value')
+        );
+        "#,
+    )
+    .await?;
+
+    let source = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    let discovery = source
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: CancellationToken::new(),
+        })
+        .await?;
+    let dataset = &discovery.datasets[0];
+    let data_type = |name: &str| {
+        dataset
+            .stored_schema
+            .columns
+            .iter()
+            .find(|column| column.name == name)
+            .map(|column| &column.data_type)
+            .expect("column must be discovered")
+    };
+    assert_eq!(data_type("bool_value"), &DataType::Boolean);
+    assert_eq!(data_type("int2_value"), &DataType::Int16);
+    assert_eq!(data_type("int4_value"), &DataType::Int32);
+    assert_eq!(data_type("int8_value"), &DataType::Int64);
+    assert_eq!(data_type("oid_value"), &DataType::UInt32);
+    assert_eq!(data_type("float4_value"), &DataType::Float32);
+    assert_eq!(data_type("float8_value"), &DataType::Float64);
+    assert_eq!(data_type("bytea_value"), &DataType::Binary);
+    assert_eq!(data_type("domain_value"), &DataType::Int32);
+    for column in dataset.stored_schema.columns.iter().skip(8) {
+        if column.name == "domain_value" {
+            continue;
+        }
+        assert_eq!(
+            column.data_type,
+            DataType::Utf8,
+            "{} should use PostgreSQL's lossless canonical text representation",
+            column.name
+        );
+    }
+
+    let mut actor = source
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(256 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
+        .await?;
+    let SourceBatch::Typed { tables, .. } = actor.read_batch().await? else {
+        anyhow::bail!("PostgreSQL all-types source returned no data batch");
+    };
+    let batch = &tables[0].batch;
+    assert_eq!(batch.num_rows(), 1);
+    assert_eq!(
+        batch
+            .column_by_name("bytea_value")
+            .expect("bytea")
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .expect("binary")
+            .value(0),
+        &[0, 255, 16]
+    );
+    let text = |name: &str| {
+        batch
+            .column_by_name(name)
+            .expect("textual column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("utf8")
+            .value(0)
+    };
+    assert_eq!(text("numeric_value"), "123456789012345678901234567890.12345678901234567890");
+    assert_eq!(text("date_value"), "infinity");
+    assert_eq!(text("timestamp_value"), "-infinity");
+    assert_eq!(text("int_array"), "[0:1]={10,20}");
+    assert_eq!(text("text_array"), "{\"NULL\",NULL}");
+    assert_eq!(text("enum_value"), "busy");
+    assert_eq!(text("composite_value"), "(0.99,value)");
     Ok(())
 }
