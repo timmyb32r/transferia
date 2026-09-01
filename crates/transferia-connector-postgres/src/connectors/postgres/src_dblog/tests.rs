@@ -1,12 +1,14 @@
 use arrow::array::{Int32Array, Int64Array, StringArray};
 use arrow::datatypes::DataType;
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 
 use super::config::{LogicalDecoder, PostgresReplicationConfig};
 use super::pgoutput::PgOutputDecoder;
 use super::reader::{
     events_to_table_data, normalize_pgoutput_event, normalize_wal2json_event, parse_lsn,
+    parse_postgres_char,
 };
+use super::event::LogicalValue;
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, META_CHANGE_OPERATION};
@@ -55,6 +57,24 @@ fn replication_config_requires_valid_slot_and_decoder_settings() {
     ] {
         assert!(invalid.validate().is_err());
     }
+}
+
+#[test]
+fn postgres_internal_char_accepts_snapshot_and_logical_text_forms() {
+    assert_eq!(
+        parse_postgres_char(&LogicalValue::Text(Bytes::from_static(b"A"))).unwrap(),
+        Some(65)
+    );
+    assert_eq!(
+        parse_postgres_char(&LogicalValue::Text(Bytes::from_static(b"-2"))).unwrap(),
+        Some(-2)
+    );
+    assert_eq!(parse_postgres_char(&LogicalValue::Null).unwrap(), None);
+
+    let error = parse_postgres_char(&LogicalValue::Text(Bytes::from_static(b"AB")))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("PostgreSQL internal char"), "{error}");
 }
 
 #[test]
@@ -186,6 +206,17 @@ fn pgoutput_rejects_relation_and_tuple_shape_drift() {
 }
 
 #[test]
+fn pgoutput_consumes_origin_and_user_defined_type_metadata() {
+    let mut decoder = PgOutputDecoder::default();
+    assert!(decoder.decode(&origin_message()).unwrap().is_empty());
+    assert!(decoder.decode(&type_message()).unwrap().is_empty());
+
+    let mut trailing = type_message();
+    trailing.push(0xff);
+    assert!(decoder.decode(&trailing).is_err());
+}
+
+#[test]
 fn wal2json_rejects_unknown_operations_and_shape_or_type_drift() {
     let unknown = wal2json_transaction().replace("\"insert\"", "\"truncate\"");
     assert!(wal2json::decode(unknown.as_bytes()).is_err());
@@ -281,6 +312,23 @@ fn delete_message() -> Vec<u8> {
 
 fn truncate_message() -> Vec<u8> {
     vec![b'T']
+}
+
+fn origin_message() -> Vec<u8> {
+    let mut message = BytesMut::new();
+    message.put_u8(b'O');
+    message.put_u64(100);
+    put_cstring(&mut message, "origin");
+    message.to_vec()
+}
+
+fn type_message() -> Vec<u8> {
+    let mut message = BytesMut::new();
+    message.put_u8(b'Y');
+    message.put_u32(80_000);
+    put_cstring(&mut message, "public");
+    put_cstring(&mut message, "transferia_mood");
+    message.to_vec()
 }
 
 #[derive(Clone, Copy)]

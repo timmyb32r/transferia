@@ -46,7 +46,8 @@ impl PgOutputDecoder {
             b'I' => self.insert(&mut input)?,
             b'U' => self.update(&mut input)?,
             b'D' => self.delete(&mut input)?,
-            b'O' | b'Y' => {}
+            b'O' => Self::origin(&mut input)?,
+            b'Y' => Self::type_message(&mut input)?,
             b'T' => anyhow::bail!("pgoutput TRUNCATE is not representable as row changes"),
             other => anyhow::bail!("unsupported pgoutput message tag 0x{other:02x}"),
         }
@@ -129,6 +130,19 @@ impl PgOutputDecoder {
                 columns: columns.into(),
             }),
         );
+        Ok(())
+    }
+
+    fn origin(input: &mut Bytes) -> anyhow::Result<()> {
+        let _origin_commit_lsn = take_u64(input)?;
+        let _origin_name = take_cstring(input)?;
+        Ok(())
+    }
+
+    fn type_message(input: &mut Bytes) -> anyhow::Result<()> {
+        let _type_oid = take_u32(input)?;
+        let _namespace = take_cstring(input)?;
+        let _name = take_cstring(input)?;
         Ok(())
     }
 

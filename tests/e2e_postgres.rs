@@ -425,6 +425,15 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
         ))
         .with_env_var("POSTGRES_PASSWORD", "test")
         .with_env_var("POSTGRES_DB", "transferia")
+        .with_cmd([
+            "postgres",
+            "-c",
+            "wal_level=logical",
+            "-c",
+            "max_replication_slots=4",
+            "-c",
+            "max_wal_senders=4",
+        ])
         .start()
         .await?;
     let host = reachable_host(&postgres.get_host().await?);
@@ -439,6 +448,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
         CREATE TYPE transferia_pair AS (left_value numeric, right_value text);
         CREATE TABLE all_types (
             bool_value boolean NOT NULL,
+            char_value "char" NOT NULL,
             int2_value smallint NOT NULL,
             int4_value integer NOT NULL,
             int8_value bigint NOT NULL,
@@ -483,8 +493,19 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             domain_value transferia_positive NOT NULL,
             composite_value transferia_pair NOT NULL
         );
+        CREATE PUBLICATION transferia_all_types FOR TABLE all_types;
+        "#,
+    )
+    .await?;
+    pg.query_one(
+        "SELECT * FROM pg_create_logical_replication_slot('transferia_all_types', 'pgoutput')",
+        &[],
+    )
+    .await?;
+    pg.batch_execute(
+        r#"
         INSERT INTO all_types VALUES (
-            true, -2, 3, 4, 5, 1.25, -2.5,
+            true, 'A', -2, 3, 4, 5, 1.25, -2.5,
             decode('00ff10', 'hex'), 'text', 'varchar', 'xy', 'identifier',
             '123456789012345678901234567890.12345678901234567890', '$12.34',
             'infinity', '24:00:00', '04:05:06.123456-08', '-infinity',
@@ -527,6 +548,7 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             .expect("column must be discovered")
     };
     assert_eq!(data_type("bool_value"), &DataType::Boolean);
+    assert_eq!(data_type("char_value"), &DataType::Int8);
     assert_eq!(data_type("int2_value"), &DataType::Int16);
     assert_eq!(data_type("int4_value"), &DataType::Int32);
     assert_eq!(data_type("int8_value"), &DataType::Int64);
@@ -535,8 +557,21 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     assert_eq!(data_type("float8_value"), &DataType::Float64);
     assert_eq!(data_type("bytea_value"), &DataType::Binary);
     assert_eq!(data_type("domain_value"), &DataType::Int32);
-    for column in dataset.stored_schema.columns.iter().skip(8) {
-        if column.name == "domain_value" {
+    for column in &dataset.stored_schema.columns {
+        if [
+            "bool_value",
+            "char_value",
+            "int2_value",
+            "int4_value",
+            "int8_value",
+            "oid_value",
+            "float4_value",
+            "float8_value",
+            "bytea_value",
+            "domain_value",
+        ]
+        .contains(&column.name.as_str())
+        {
             continue;
         }
         assert_eq!(
@@ -589,5 +624,56 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     assert_eq!(text("text_array"), "{\"NULL\",NULL}");
     assert_eq!(text("enum_value"), "busy");
     assert_eq!(text("composite_value"), "(0.99,value)");
+
+    let replication = PostgresSourceConnector::from_config(
+        serde_yaml::from_str(&format!(
+            "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\nbatch_rows: 128\ntables:\n  - name: all_types\nreplication:\n  slot: transferia_all_types\n  decoder: {{ type: pgoutput, publication: transferia_all_types }}\n  poll_interval_ms: 10\n"
+        ))?,
+        Arc::new(MetricsRegistry::new()),
+    )?;
+    replication
+        .delivery_discovery(SourceDiscoveryContext {
+            request: DeliveryDiscoveryRequest {
+                keep_system_columns: false,
+            },
+            cancellation: CancellationToken::new(),
+        })
+        .await?;
+    let mut replication = replication
+        .build_source(SourceBuildContext {
+            partition_id: 0,
+            cancellation: CancellationToken::new(),
+            memory: PipelineMemory::new(256 * 1024 * 1024),
+            durable: support::durable_context(),
+        })
+        .await?;
+    let SourceBatch::Typed {
+        tables: replication_tables,
+        ..
+    } = tokio::time::timeout(Duration::from_secs(10), replication.read_batch()).await??
+    else {
+        anyhow::bail!("PostgreSQL all-types replication returned no typed batch");
+    };
+    let replication_batch = &replication_tables[0].batch;
+    let replication_schema = replication_batch.schema();
+    for snapshot_field in batch.schema().fields().iter().take(batch.num_columns() - 4) {
+        let name = snapshot_field.name();
+        let replication_field = replication_schema
+            .field_with_name(name)
+            .expect("replication field");
+        assert_eq!(
+            snapshot_field.as_ref(),
+            replication_field,
+            "Arrow field mismatch for {name}"
+        );
+        assert_eq!(
+            batch.column_by_name(name).expect("snapshot column").to_data(),
+            replication_batch
+                .column_by_name(name)
+                .expect("replication column")
+                .to_data(),
+            "Arrow value mismatch for {name}"
+        );
+    }
     Ok(())
 }

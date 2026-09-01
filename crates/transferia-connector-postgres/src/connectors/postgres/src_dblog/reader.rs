@@ -557,7 +557,12 @@ fn logical_array(
                 .map(|event| parse_bool(&event.values[index]))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
-        DataType::Int8 => parsed!(i8, Int8Array),
+        DataType::Int8 => Arc::new(Int8Array::from(
+            events
+                .iter()
+                .map(|event| parse_postgres_char(&event.values[index]))
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        )) as ArrayRef,
         DataType::Int16 => parsed!(i16, Int16Array),
         DataType::Int32 => parsed!(i32, Int32Array),
         DataType::Int64 => parsed!(i64, Int64Array),
@@ -627,6 +632,19 @@ fn parse_bool(value: &LogicalValue) -> anyhow::Result<Option<bool>> {
         Some("f" | "false") => Ok(Some(false)),
         Some(value) => anyhow::bail!("invalid PostgreSQL boolean '{value}'"),
     }
+}
+
+pub(super) fn parse_postgres_char(value: &LogicalValue) -> anyhow::Result<Option<i8>> {
+    let Some(value) = parse_text(value)? else {
+        return Ok(None);
+    };
+    if let Ok(value) = value.parse() {
+        return Ok(Some(value));
+    }
+    let [value] = value.as_bytes() else {
+        anyhow::bail!("invalid PostgreSQL internal char {value:?}")
+    };
+    Ok(Some(i8::from_ne_bytes([*value])))
 }
 
 fn parse_value<T>(value: &LogicalValue) -> anyhow::Result<Option<T>>

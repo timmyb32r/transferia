@@ -120,10 +120,8 @@ impl SourceConnector for PostgresSourceConnector {
                 .iter()
                 .map(|table| {
                     let mut incoming = table.schema.clone();
-                    if self.config.replication.is_some() {
-                        for column in &mut incoming.columns {
-                            column.nullable = true;
-                        }
+                    for column in &mut incoming.columns {
+                        column.nullable = true;
                     }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
@@ -244,6 +242,26 @@ async fn discover_table(
         "SELECT column_name, is_nullable = 'YES' FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
         &[&table.schema, &table.name],
     ).await?.into_iter().map(|row| (row.get::<_, String>(0), row.get::<_, bool>(1))).collect::<HashMap<_, _>>();
+    let physical_types = client
+        .query(
+            "SELECT a.attname, a.atttypid \
+             FROM pg_attribute AS a \
+             JOIN pg_class AS c ON c.oid = a.attrelid \
+             JOIN pg_namespace AS n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 AND c.relname = $2 \
+               AND a.attnum > 0 AND NOT a.attisdropped \
+             ORDER BY a.attnum",
+            &[&table.schema, &table.name],
+        )
+        .await?;
+    anyhow::ensure!(
+        physical_types.len() == statement.columns().len(),
+        "PostgreSQL physical schema for '{}.{}' has {} columns, query declared {}",
+        table.schema,
+        table.name,
+        physical_types.len(),
+        statement.columns().len()
+    );
     let columns = statement
         .columns()
         .iter()
@@ -262,11 +280,20 @@ async fn discover_table(
             ))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let type_oids = statement
-        .columns()
+    let type_oids = physical_types
         .iter()
-        .map(|column| column.type_().oid())
-        .collect();
+        .zip(statement.columns())
+        .map(|(row, column)| {
+            let name: String = row.get(0);
+            anyhow::ensure!(
+                name == column.name(),
+                "PostgreSQL physical/query schema order differs at '{}' versus '{}'",
+                name,
+                column.name()
+            );
+            Ok(row.get::<_, u32>(1))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(DiscoveredTable {
         config: table,
         schema: DatasetSchema::new(columns),
