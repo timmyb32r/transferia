@@ -2609,7 +2609,7 @@ button::after {
 
 .middleware-sql-field textarea,
 .sql-playground textarea,
-.sql-input {
+.multiline-input {
   min-height: 116px;
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

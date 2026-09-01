@@ -457,7 +457,7 @@ describe("schema form", () => {
   it("associates schema labels with real controls using stable paths", () => {
     const node: CompiledNode = {
       kind: "object",
-      required: new Set(["name", "mode", "secret", "hosts"]),
+      required: new Set(["name", "mode", "secret", "descriptor", "hosts"]),
       additionalProperties: false,
       xUi: {},
       properties: {
@@ -473,6 +473,11 @@ describe("schema form", () => {
           title: "Secret",
           xUi: { widget: "password" },
         },
+        descriptor: {
+          kind: "string",
+          title: "Descriptor",
+          xUi: { widget: "textarea" },
+        },
         hosts: {
           kind: "array",
           title: "Hosts",
@@ -484,7 +489,13 @@ describe("schema form", () => {
     const view = render(
       <SchemaForm
         node={node}
-        value={{ name: "", mode: "", secret: "", hosts: [""] }}
+        value={{
+          name: "",
+          mode: "",
+          secret: "",
+          descriptor: "",
+          hosts: [""],
+        }}
         onChange={() => undefined}
       />,
     );
@@ -492,6 +503,8 @@ describe("schema form", () => {
     expect(view.getByLabelText("Name").getAttribute("id")).toBe("field---name");
     expect(view.getByLabelText("Mode").tagName).toBe("BUTTON");
     expect(view.getByLabelText("Secret").getAttribute("type")).toBe("password");
+    expect(view.getByLabelText("Descriptor").tagName).toBe("TEXTAREA");
+    expect(view.getByLabelText("Descriptor").getAttribute("autocomplete")).toBe("none");
     expect(view.getByLabelText("Host row 1").getAttribute("id")).toMatch(
       /^compact-row-\d+-value$/,
     );

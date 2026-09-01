@@ -96,21 +96,8 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
         />
       ) : null,
   },
-  {
-    name: "sql",
-    kinds: ["string"],
-    renderer: "node",
-    node: (context) =>
-      context.node.kind === "string" ? (
-        <AutofillResistantTextarea
-          id={context.controlId}
-          class="sql-input"
-          value={typeof context.value === "string" ? context.value : ""}
-          disabled={context.disabled}
-          onInput={(event) => context.onChange(event.currentTarget.value)}
-        />
-      ) : null,
-  },
+  textareaWidget("sql"),
+  textareaWidget("textarea"),
   {
     name: "system_columns",
     kinds: ["object"],
@@ -140,6 +127,24 @@ export const coreFormWidgets: readonly WidgetPlugin[] = [
   },
   ...genericWidgets(),
 ];
+
+function textareaWidget(name: string): WidgetPlugin {
+  return {
+    name,
+    kinds: ["string"],
+    renderer: "node",
+    node: (context) =>
+      context.node.kind === "string" ? (
+        <AutofillResistantTextarea
+          id={context.controlId}
+          class="multiline-input"
+          value={typeof context.value === "string" ? context.value : ""}
+          disabled={context.disabled}
+          onInput={(event) => context.onChange(event.currentTarget.value)}
+        />
+      ) : null,
+  };
+}
 
 function genericWidgets(): WidgetPlugin[] {
   return [
