@@ -25,6 +25,8 @@ struct UiHints {
     order: Option<i64>,
     reveal_rest_on_selection: Option<bool>,
     defer_variant_details: Option<bool>,
+    indent_variant_details: Option<bool>,
+    delivery_types: Option<Vec<UiDeliveryType>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +36,14 @@ enum UiSection {
     AdvancedParquet,
     SystemColumns,
     ShardGroup,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum UiDeliveryType {
+    Batch,
+    Stream,
+    BatchAndStream,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,6 +132,8 @@ fn validate_node(root: &Value, value: &Value, path: &str) -> anyhow::Result<()> 
                     hints.order,
                     hints.reveal_rest_on_selection,
                     hints.defer_variant_details,
+                    hints.indent_variant_details,
+                    hints.delivery_types,
                 ));
             }
             for (key, value) in object {

@@ -128,6 +128,24 @@ fn registry_rejects_unknown_ui_dialect_hints() -> anyhow::Result<()> {
 }
 
 #[test]
+fn registry_accepts_conditional_layout_ui_hints() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?)?;
+    let mut registry = builder.build();
+    let mut definitions = registry.definitions().to_vec();
+    definitions[0].source.as_mut().unwrap().schema = serde_json::json!({
+        "type": "object",
+        "x-ui": {
+            "indent_variant_details": false,
+            "delivery_types": ["batch", "stream", "batch_and_stream"]
+        }
+    });
+
+    registry.replace_definitions(definitions)?;
+    Ok(())
+}
+
+#[test]
 fn registry_rejects_hidden_required_scalars_without_defaults() -> anyhow::Result<()> {
     let mut builder = RegistryBuilder::new();
     builder.register(source_registration("source")?)?;

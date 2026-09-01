@@ -369,7 +369,10 @@
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
-                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
+                  "$ref": "#/$defs/BenchmarkDiscardParserSchema",
+                  "x-ui": {
+                    "order": 1000000
+                  }
                 }
               ]
             },
@@ -857,15 +860,11 @@
               "properties": {
                 "connection": {
                   "$ref": "#/$defs/SchemaRegistryConnection"
-                },
-                "json_parser": {
-                  "$ref": "#/$defs/JsonParserConfig"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "connection",
-                "json_parser"
+                "connection"
               ]
             },
             "SchemaRegistryConnection": {
@@ -1820,7 +1819,10 @@
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
-                  "$ref": "#/$defs/BenchmarkDiscardParserSchema"
+                  "$ref": "#/$defs/BenchmarkDiscardParserSchema",
+                  "x-ui": {
+                    "order": 1000000
+                  }
                 }
               ]
             },
@@ -2308,15 +2310,11 @@
               "properties": {
                 "connection": {
                   "$ref": "#/$defs/SchemaRegistryConnection"
-                },
-                "json_parser": {
-                  "$ref": "#/$defs/JsonParserConfig"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "connection",
-                "json_parser"
+                "connection"
               ]
             },
             "SchemaRegistryConnection": {
@@ -3289,7 +3287,7 @@
               "minimum": 0,
               "default": 1000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -6476,7 +6474,10 @@
               "type": "string"
             },
             "auth": {
-              "$ref": "#/$defs/YdbAuth"
+              "$ref": "#/$defs/YdbAuth",
+              "x-ui": {
+                "control_width": "auth"
+              }
             },
             "request_timeout_ms": {
               "type": "integer",
@@ -6484,7 +6485,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "tables": {
@@ -6518,6 +6519,7 @@
             "YdbAuth": {
               "oneOf": [
                 {
+                  "title": "Anonymous",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -6531,6 +6533,7 @@
                   "additionalProperties": false
                 },
                 {
+                  "title": "Token",
                   "type": "object",
                   "properties": {
                     "token": {
@@ -6551,6 +6554,7 @@
                   ]
                 },
                 {
+                  "title": "Token file",
                   "type": "object",
                   "properties": {
                     "token_file": {
@@ -6572,16 +6576,12 @@
             "YdbTableConfig": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string"
-                },
                 "path": {
                   "type": "string"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "name",
                 "path"
               ]
             }
@@ -6597,7 +6597,6 @@
           },
           "tables": [
             {
-              "name": "",
               "path": ""
             }
           ],
@@ -6656,7 +6655,10 @@
               "type": "string"
             },
             "auth": {
-              "$ref": "#/$defs/YdbAuth"
+              "$ref": "#/$defs/YdbAuth",
+              "x-ui": {
+                "control_width": "auth"
+              }
             },
             "request_timeout_ms": {
               "type": "integer",
@@ -6664,7 +6666,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             },
             "tables": {
@@ -6679,10 +6681,7 @@
             },
             "create_tables": {
               "type": "boolean",
-              "default": true,
-              "x-ui": {
-                "section": "advanced"
-              }
+              "default": true
             },
             "retry_max_ms": {
               "type": "integer",
@@ -6690,7 +6689,7 @@
               "minimum": 0,
               "default": 30000,
               "x-ui": {
-                "section": "advanced"
+                "widget": "hidden"
               }
             }
           },
@@ -6705,6 +6704,7 @@
             "YdbAuth": {
               "oneOf": [
                 {
+                  "title": "Anonymous",
                   "type": "object",
                   "properties": {
                     "type": {
@@ -6718,6 +6718,7 @@
                   "additionalProperties": false
                 },
                 {
+                  "title": "Token",
                   "type": "object",
                   "properties": {
                     "token": {
@@ -6738,6 +6739,7 @@
                   ]
                 },
                 {
+                  "title": "Token file",
                   "type": "object",
                   "properties": {
                     "token_file": {
@@ -6759,16 +6761,12 @@
             "YdbTableConfig": {
               "type": "object",
               "properties": {
-                "name": {
-                  "type": "string"
-                },
                 "path": {
                   "type": "string"
                 }
               },
               "additionalProperties": false,
               "required": [
-                "name",
                 "path"
               ]
             }
@@ -6784,7 +6782,6 @@
           },
           "tables": [
             {
-              "name": "",
               "path": ""
             }
           ],
@@ -7404,46 +7401,9 @@
               "x-ui": {
                 "control_width": "full",
                 "defer_variant_details": true,
+                "indent_variant_details": false,
                 "order": -100,
                 "reveal_rest_on_selection": true
-              }
-            },
-            "primary_key_semantics": {
-              "title": "Primary key semantics",
-              "description": "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
-              "$ref": "#/$defs/YTsaurusPrimaryKeySemantics",
-              "x-ui": {
-                "section": "advanced"
-              }
-            },
-            "primary_medium": {
-              "title": "Primary medium",
-              "description": "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
-              "type": "string",
-              "default": "default",
-              "x-ui": {
-                "section": "advanced"
-              }
-            },
-            "table_attributes": {
-              "title": "Table attributes",
-              "description": "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/YTsaurusJsonEntry"
-              },
-              "x-ui": {
-                "section": "advanced",
-                "widget": "compact_array",
-                "item_label": "attribute"
-              }
-            },
-            "big_value_policy": {
-              "title": "Oversized values",
-              "description": "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
-              "$ref": "#/$defs/YTsaurusBigValuePolicy",
-              "x-ui": {
-                "section": "advanced"
               }
             },
             "auth": {
@@ -7541,10 +7501,50 @@
                     "replace_tables": {
                       "type": "boolean"
                     },
+                    "primary_key_semantics": {
+                      "title": "Primary key semantics",
+                      "description": "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
+                      "$ref": "#/$defs/YTsaurusPrimaryKeySemantics",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "primary_medium": {
+                      "title": "Primary medium",
+                      "description": "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+                      "type": "string",
+                      "default": "default",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "table_attributes": {
+                      "title": "Table attributes",
+                      "description": "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/YTsaurusYsonEntry"
+                      },
+                      "x-ui": {
+                        "section": "advanced",
+                        "widget": "compact_array",
+                        "item_label": "attribute"
+                      }
+                    },
+                    "big_value_policy": {
+                      "title": "Oversized values",
+                      "description": "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+                      "$ref": "#/$defs/YTsaurusBigValuePolicy",
+                      "default": "fail",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "optimize_for": {
                       "title": "Optimize for",
                       "description": "Physical layout for newly written static-table chunks",
                       "$ref": "#/$defs/YTsaurusOptimizeFor",
+                      "default": "scan",
                       "x-ui": {
                         "section": "advanced"
                       }
@@ -7554,19 +7554,12 @@
                       "description": "Additional YT table_writer parameters. Explicit entries override Transferia's writer defaults.",
                       "type": "array",
                       "items": {
-                        "$ref": "#/$defs/YTsaurusJsonEntry"
+                        "$ref": "#/$defs/YTsaurusYsonEntry"
                       },
                       "x-ui": {
                         "section": "advanced",
                         "widget": "compact_array",
                         "item_label": "parameter"
-                      }
-                    },
-                    "format": {
-                      "title": "Driver exchange format",
-                      "$ref": "#/$defs/YTsaurusWriteFormat",
-                      "x-ui": {
-                        "section": "advanced"
                       }
                     },
                     "type": {
@@ -7593,10 +7586,58 @@
                     "replace_tables": {
                       "type": "boolean"
                     },
+                    "primary_key_semantics": {
+                      "title": "Primary key semantics",
+                      "description": "Dynamic tables require one row per primary key.",
+                      "$ref": "#/$defs/YTsaurusPrimaryKeySemantics",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "primary_medium": {
+                      "title": "Primary medium",
+                      "description": "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+                      "type": "string",
+                      "default": "default",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
+                    "table_attributes": {
+                      "title": "Table attributes",
+                      "description": "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/YTsaurusYsonEntry"
+                      },
+                      "x-ui": {
+                        "section": "advanced",
+                        "widget": "compact_array",
+                        "item_label": "attribute"
+                      }
+                    },
+                    "big_value_policy": {
+                      "title": "Oversized values",
+                      "description": "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+                      "$ref": "#/$defs/YTsaurusBigValuePolicy",
+                      "default": "fail",
+                      "x-ui": {
+                        "section": "advanced"
+                      }
+                    },
                     "snapshot_mode": {
                       "title": "Batch snapshot delivery",
                       "description": "Static staging writes the complete finite snapshot efficiently, verifies primary-key uniqueness, sorts it and converts it into a dynamic table before committing source progress",
-                      "$ref": "#/$defs/YTsaurusDynamicSnapshotMode"
+                      "$ref": "#/$defs/YTsaurusDynamicSnapshotMode",
+                      "default": {
+                        "type": "static_staging",
+                        "operation_pool": null
+                      },
+                      "x-ui": {
+                        "delivery_types": [
+                          "batch"
+                        ]
+                      }
                     },
                     "atomicity": {
                       "title": "Atomicity",
@@ -7632,8 +7673,8 @@
                       }
                     },
                     "table_ttl_ms": {
-                      "title": "Table TTL, ms",
-                      "description": "Delete dynamic-table rows after this many milliseconds. Disabled by default so data is never expired implicitly.",
+                      "title": "Table TTL",
+                      "description": "Delete dynamic-table rows after the configured duration. Months are exactly 30 days and years are exactly 365 days. Disabled by default so data is never expired implicitly.",
                       "type": [
                         "integer",
                         "null"
@@ -7642,11 +7683,15 @@
                       "minimum": 1,
                       "default": null,
                       "x-ui": {
-                        "section": "advanced"
+                        "section": "advanced",
+                        "widget": "duration_scale"
                       }
                     },
                     "write": {
-                      "$ref": "#/$defs/YTsaurusDynamicWriteConfig"
+                      "$ref": "#/$defs/YTsaurusDynamicWriteConfig",
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
                     },
                     "type": {
                       "type": "string",
@@ -7662,6 +7707,52 @@
                 }
               ]
             },
+            "YTsaurusPrimaryKeySemantics": {
+              "oneOf": [
+                {
+                  "title": "One row per primary key (sorted)",
+                  "type": "string",
+                  "const": "unique_sorted"
+                },
+                {
+                  "title": "Preserve every row (unsorted)",
+                  "type": "string",
+                  "const": "preserve_rows"
+                }
+              ]
+            },
+            "YTsaurusYsonEntry": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "title": "YSON value",
+                  "description": "Exact text YSON representation of the YT attribute value",
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "value"
+              ]
+            },
+            "YTsaurusBigValuePolicy": {
+              "oneOf": [
+                {
+                  "title": "Fail delivery",
+                  "type": "string",
+                  "const": "fail"
+                },
+                {
+                  "title": "Drop oversized rows",
+                  "type": "string",
+                  "const": "drop"
+                }
+              ]
+            },
             "YTsaurusOptimizeFor": {
               "oneOf": [
                 {
@@ -7674,31 +7765,6 @@
                   "type": "string",
                   "const": "lookup"
                 }
-              ]
-            },
-            "YTsaurusJsonEntry": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "value": {
-                  "title": "JSON value",
-                  "description": "Exact JSON representation of the YT attribute value",
-                  "type": "string"
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "value"
-              ]
-            },
-            "YTsaurusWriteFormat": {
-              "type": "string",
-              "enum": [
-                "arrow",
-                "yson"
               ]
             },
             "YTsaurusDynamicSnapshotMode": {
@@ -7840,34 +7906,6 @@
                 }
               },
               "additionalProperties": false
-            },
-            "YTsaurusPrimaryKeySemantics": {
-              "oneOf": [
-                {
-                  "title": "One row per primary key (sorted)",
-                  "type": "string",
-                  "const": "unique_sorted"
-                },
-                {
-                  "title": "Preserve every row (unsorted)",
-                  "type": "string",
-                  "const": "preserve_rows"
-                }
-              ]
-            },
-            "YTsaurusBigValuePolicy": {
-              "oneOf": [
-                {
-                  "title": "Fail delivery",
-                  "type": "string",
-                  "const": "fail"
-                },
-                {
-                  "title": "Drop oversized rows",
-                  "type": "string",
-                  "const": "drop"
-                }
-              ]
             },
             "YTsaurusAuthConfig": {
               "oneOf": [
