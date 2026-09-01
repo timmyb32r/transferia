@@ -108,6 +108,17 @@ fn clickhouse_pipeline_is_supported_as_at_least_once() {
 }
 
 #[test]
+fn ydb_pipeline_reports_primary_key_replay_semantics() {
+    let report = validate_pipeline(&source(), &EndpointDescriptor::YdbSink, &discovery(), false);
+    assert_eq!(report.guarantee, DeliveryGuarantee::AtLeastOnce);
+    assert!(report.ensure_valid().is_ok());
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == DiagnosticCode::YdbAtLeastOnce));
+}
+
+#[test]
 fn discard_sink_accepts_a_row_producing_parser() {
     let report = validate_pipeline(&source(), &EndpointDescriptor::Discard, &discovery(), false);
     assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);

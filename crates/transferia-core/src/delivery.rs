@@ -219,6 +219,8 @@ pub enum ArrowTypeFamily {
     Date32,
     Date64,
     Timestamp,
+    Duration,
+    FixedSizeBinary,
 }
 
 #[derive(Debug, Clone, JsonSchema, PartialEq, Eq, Serialize)]

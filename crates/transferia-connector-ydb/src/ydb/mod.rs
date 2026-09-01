@@ -1,11 +1,14 @@
 mod config;
+mod sink;
 mod source;
 mod transport;
 mod types;
 
 pub use config::{
-    YdbAuth, YdbConnectionCheckConfig, YdbConnectionConfig, YdbSourceConfig, YdbTableConfig,
+    YdbAuth, YdbConnectionCheckConfig, YdbConnectionConfig, YdbSinkConfig, YdbSourceConfig,
+    YdbTableConfig,
 };
+pub use sink::YdbSinkConnector;
 pub use source::YdbSourceConnector;
 
 pub async fn check_connection(config: &YdbConnectionConfig) -> anyhow::Result<()> {
@@ -14,19 +17,19 @@ pub async fn check_connection(config: &YdbConnectionConfig) -> anyhow::Result<()
     client.delete_session(session_id).await
 }
 
-pub async fn check_network_connection(
-    config: &YdbConnectionCheckConfig,
-) -> anyhow::Result<()> {
+pub async fn check_network_connection(config: &YdbConnectionCheckConfig) -> anyhow::Result<()> {
     let endpoint = config.connection().tonic_endpoint()?;
     let uri = endpoint.parse::<http::Uri>()?;
     let host = uri
         .host()
         .ok_or_else(|| anyhow::anyhow!("ydb.endpoint has no host"))?;
-    let port = uri.port_u16().unwrap_or(if uri.scheme_str() == Some("https") {
-        443
-    } else {
-        80
-    });
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("https") {
+            443
+        } else {
+            80
+        });
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
         tokio::net::TcpStream::connect((host, port)),

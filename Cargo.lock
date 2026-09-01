@@ -6206,6 +6206,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "shellexpand",
+ "testcontainers",
  "tokio",
  "tokio-util",
  "tonic",
@@ -6214,6 +6215,7 @@ dependencies = [
  "transferia-core",
  "transferia-delivery-contracts",
  "transferia-registry",
+ "transferia-test-support",
  "uuid",
  "ydb-grpc",
 ]

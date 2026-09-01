@@ -2,16 +2,16 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, BooleanArray, Date32Array, Decimal128Array,
-    DurationMicrosecondArray, FixedSizeBinaryBuilder, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, Int8Array, StringBuilder, TimestampMicrosecondArray,
-    TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+    ArrayRef, BinaryBuilder, BooleanArray, Date32Array, Decimal128Array, DurationMicrosecondArray,
+    FixedSizeBinaryBuilder, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
+    Int8Array, StringBuilder, TimestampMicrosecondArray, TimestampSecondArray, UInt16Array,
+    UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use ydb_grpc::ydb_proto::r#type::PrimitiveTypeId;
-use ydb_grpc::ydb_proto::{r#type, result_set, value, ResultSet, Type, Value};
 use ydb_grpc::ydb_proto::table::ColumnMeta;
+use ydb_grpc::ydb_proto::{r#type, result_set, value, ResultSet, Type, Value};
 
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
@@ -91,7 +91,10 @@ pub(super) fn column_plans(
     columns: Vec<ColumnMeta>,
     primary_key: &[String],
 ) -> anyhow::Result<Vec<ColumnPlan>> {
-    let primary_key = primary_key.iter().map(String::as_str).collect::<HashSet<_>>();
+    let primary_key = primary_key
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
     columns
         .into_iter()
         .map(|column| {
@@ -153,7 +156,10 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("YDB Optional type has no item"))?;
             let (kind, nested_optional) = column_kind(item)?;
-            anyhow::ensure!(!nested_optional, "nested YDB Optional columns are not supported losslessly");
+            anyhow::ensure!(
+                !nested_optional,
+                "nested YDB Optional columns are not supported losslessly"
+            );
             Ok((kind, true))
         }
         Some(r#type::Type::TypeId(type_id)) => {
@@ -164,7 +170,10 @@ fn column_kind(value: &Type) -> anyhow::Result<(ColumnKind, bool)> {
         Some(r#type::Type::DecimalType(decimal)) => {
             let precision = u8::try_from(decimal.precision)?;
             let scale = i8::try_from(decimal.scale)?;
-            anyhow::ensure!(precision <= 38, "YDB Decimal({precision},{scale}) exceeds Arrow Decimal128 precision 38");
+            anyhow::ensure!(
+                precision <= 38,
+                "YDB Decimal({precision},{scale}) exceeds Arrow Decimal128 precision 38"
+            );
             Ok((ColumnKind::Decimal { precision, scale }, false))
         }
         Some(other) => anyhow::bail!("unsupported YDB column type {other:?}"),
@@ -195,9 +204,7 @@ fn primitive_kind(value: PrimitiveTypeId) -> anyhow::Result<ColumnKind> {
         PrimitiveTypeId::Timestamp | PrimitiveTypeId::Timestamp64 => {
             ColumnKind::TimestampMicrosecond
         }
-        PrimitiveTypeId::Interval | PrimitiveTypeId::Interval64 => {
-            ColumnKind::DurationMicrosecond
-        }
+        PrimitiveTypeId::Interval | PrimitiveTypeId::Interval64 => ColumnKind::DurationMicrosecond,
         PrimitiveTypeId::String => ColumnKind::Binary(None),
         PrimitiveTypeId::Utf8 => ColumnKind::Utf8(None),
         PrimitiveTypeId::Yson => ColumnKind::Binary(Some(YDB_YSON_EXTENSION)),
@@ -217,12 +224,16 @@ pub(super) fn result_set_to_batch(
     result: ResultSet,
     columns: &[ColumnPlan],
 ) -> anyhow::Result<RecordBatch> {
-    anyhow::ensure!(!result.truncated, "YDB returned a truncated table result");
+    // StreamReadTable marks each response result set as truncated because it is
+    // one chunk of the stream, not because rows were discarded. End-of-stream
+    // is the lossless completion boundary for this API.
     let format = result_set::Format::try_from(result.format)
         .map_err(|_| anyhow::anyhow!("YDB returned unknown result format {}", result.format))?;
     anyhow::ensure!(
-        matches!(format, result_set::Format::Unspecified | result_set::Format::Value)
-            && result.data.is_empty()
+        matches!(
+            format,
+            result_set::Format::Unspecified | result_set::Format::Value
+        ) && result.data.is_empty()
             && result.arrow_format_meta.is_none(),
         "YDB returned unsupported result format {format:?}"
     );
@@ -235,12 +246,9 @@ pub(super) fn result_set_to_batch(
                     .zip(columns)
                     .all(|(actual, expected)| {
                         actual.name == expected.name
-                            && actual
-                                .r#type
-                                .as_ref()
-                                .is_some_and(|actual| {
-                                    same_declared_type(actual, &expected.kind).unwrap_or(false)
-                                })
+                            && actual.r#type.as_ref().is_some_and(|actual| {
+                                same_declared_type(actual, &expected.kind).unwrap_or(false)
+                            })
                     }),
             "YDB result schema changed after discovery"
         );
@@ -391,14 +399,14 @@ fn column_array(rows: &[Value], index: usize, column: &ColumnPlan) -> anyhow::Re
                     None => Ok(None),
                     Some(value::Value::Low128(low)) => {
                         let high = row.items[index].high_128;
-                        Ok(Some((((u128::from(high)) << 64) | u128::from(*low)) as i128))
+                        Ok(Some(
+                            (((u128::from(high)) << 64) | u128::from(*low)) as i128,
+                        ))
                     }
                     Some(other) => anyhow::bail!("YDB column '{}' returned {other:?}", column.name),
                 })
                 .collect::<anyhow::Result<Vec<Option<i128>>>>()?;
-            Arc::new(
-                Decimal128Array::from(values).with_precision_and_scale(*precision, *scale)?,
-            )
+            Arc::new(Decimal128Array::from(values).with_precision_and_scale(*precision, *scale)?)
         }
         ColumnKind::Uuid => {
             let mut builder = FixedSizeBinaryBuilder::with_capacity(rows.len(), 16);

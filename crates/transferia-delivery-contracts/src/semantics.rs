@@ -23,6 +23,7 @@ pub enum EndpointDescriptor {
     DataGenerator(SourceDescriptor),
     MySqlSink,
     PostgresSink,
+    YdbSink,
     YTsaurusSink,
     LogbrokerSink,
     KafkaSink,
@@ -49,6 +50,7 @@ impl EndpointDescriptor {
             | Self::DataGenerator(source) => Some(source.behavior),
             Self::MySqlSink
             | Self::PostgresSink
+            | Self::YdbSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
@@ -74,6 +76,7 @@ impl EndpointDescriptor {
             | Self::DataGenerator(source) => source.delivery_modes.supports(delivery_type),
             Self::MySqlSink
             | Self::PostgresSink
+            | Self::YdbSink
             | Self::YTsaurusSink
             | Self::LogbrokerSink
             | Self::KafkaSink
@@ -175,6 +178,7 @@ pub enum DiagnosticCode {
     ClickHouseAtLeastOnce,
     MySqlAtLeastOnce,
     PostgresAtLeastOnce,
+    YdbAtLeastOnce,
     YTsaurusAtLeastOnce,
     IcebergAtLeastOnce,
     PqV1AtLeastOnce,
@@ -288,6 +292,18 @@ pub fn validate_pipeline(
                 config_paths: vec!["sink.mysql".into()],
                 explanation: "MySQL COMMIT completion precedes source progress commit, so a retry after an ambiguous COMMIT may duplicate rows".into(),
                 remediation: Some("include a user-defined idempotency key and enforce it at the destination when duplicate-free final state is required".into()),
+            }],
+        };
+    }
+    if matches!(sink, EndpointDescriptor::YdbSink) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::YdbAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.ydb".into()],
+                explanation: "YDB BulkUpsert completion precedes source progress commit; replay is idempotent only while primary-key values and delivery order remain stable".into(),
+                remediation: Some("preserve stable primary keys; a replay then replaces the same YDB rows without duplicating them".into()),
             }],
         };
     }

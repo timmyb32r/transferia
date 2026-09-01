@@ -20,6 +20,7 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             "clickhouse",
             "s3",
             "iceberg",
+            "ydb",
             "ytsaurus",
             "data_generator",
             "discard"
@@ -35,6 +36,11 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
         .iter()
         .find(|definition| definition.key == "logbroker")
         .is_some_and(|definition| definition.title == "Logbroker"));
+    assert!(catalog
+        .definitions()
+        .iter()
+        .find(|definition| definition.key == "ydb")
+        .is_some_and(|definition| definition.source.is_some() && definition.sink.is_some()));
     assert!(catalog
         .definitions()
         .iter()

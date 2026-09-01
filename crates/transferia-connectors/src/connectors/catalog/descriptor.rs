@@ -178,7 +178,7 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
         key: "ydb",
         title: "YDB",
         source: YDB_ROLE,
-        sink: None,
+        sink: YDB_ROLE,
     },
     ConnectorDescriptor {
         key: "ytsaurus",

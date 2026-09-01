@@ -30,7 +30,9 @@ export type ArrowTypeFamily =
   | "boolean"
   | "date32"
   | "date64"
-  | "timestamp";
+  | "timestamp"
+  | "duration"
+  | "fixed_size_binary";
 
 export type ColumnView = {
   arrow_type: string;

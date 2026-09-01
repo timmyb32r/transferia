@@ -36,7 +36,34 @@ pub fn register(
                     }
                 },
             )?
+            .sink::<ydb::YdbSinkConfig, _, _>(
+                || {
+                    serde_json::json!({
+                        "endpoint": "", "database": "", "trusted_plaintext": false,
+                        "auth": { "type": "token", "token": "" },
+                        "tables": [{ "name": "", "path": "" }], "create_tables": true,
+                        "retry_max_ms": 30000,
+                        "request_timeout_ms": 30000
+                    })
+                },
+                |config| Ok(Box::new(ydb::YdbSinkConnector::from_config(config)?)),
+            )?
             .source_checker::<ydb::YdbConnectionCheckConfig, _, _>(|config| async move {
+                if config.credentials_complete() {
+                    ydb::check_connection(&config.connection()).await?;
+                    Ok(transferia_registry::ConnectionCheckResult::default())
+                } else {
+                    ydb::check_network_connection(&config).await?;
+                    Ok(transferia_registry::ConnectionCheckResult {
+                        message: Some(
+                            "YDB is network-reachable. Authentication and database access were not checked because database or credentials are incomplete."
+                                .to_owned(),
+                        ),
+                        ..transferia_registry::ConnectionCheckResult::network_reachable()
+                    })
+                }
+            })
+            .sink_checker::<ydb::YdbConnectionCheckConfig, _, _>(|config| async move {
                 if config.credentials_complete() {
                     ydb::check_connection(&config.connection()).await?;
                     Ok(transferia_registry::ConnectionCheckResult::default())

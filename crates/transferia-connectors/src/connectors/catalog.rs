@@ -114,7 +114,8 @@ pub fn build_connector_catalog_with(
     transferia: &Transferia,
     metrics_registry: &Arc<MetricsRegistry>,
 ) -> anyhow::Result<ConnectorCatalog> {
-    let mut catalog = build_base_connector_catalog(metrics_registry, transferia.registry().parser_plugins())?;
+    let mut catalog =
+        build_base_connector_catalog(metrics_registry, transferia.registry().parser_plugins())?;
     catalog.replace_definitions(transferia.composition().connector_definitions().to_vec())?;
     Ok(catalog)
 }
@@ -153,14 +154,12 @@ pub(crate) fn compile_connector_definitions(
 
 pub(crate) fn compile_middleware_definitions(
 ) -> anyhow::Result<Vec<transferia_registry::MiddlewareDefinition>> {
-    Ok(
-        build_base_connector_catalog(
-            &Arc::new(MetricsRegistry::new()),
-            &transferia_connector_support::parsers::ParserPluginRegistry::default(),
-        )?
-            .middleware_definitions()
-            .to_vec(),
-    )
+    Ok(build_base_connector_catalog(
+        &Arc::new(MetricsRegistry::new()),
+        &transferia_connector_support::parsers::ParserPluginRegistry::default(),
+    )?
+    .middleware_definitions()
+    .to_vec())
 }
 
 fn apply_external_link_bindings(
@@ -558,6 +557,17 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         _registry,
         "ydb",
         EndpointRole::Source,
+        serde_json::json!({
+            "endpoint": { "type": "string", "title": "Endpoint" },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+        }),
+        &["endpoint", "trusted_plaintext"],
+        serde_json::json!({ "endpoint": "grpc://localhost:2136", "trusted_plaintext": true }),
+    )?;
+    register_on_premise(
+        _registry,
+        "ydb",
+        EndpointRole::Sink,
         serde_json::json!({
             "endpoint": { "type": "string", "title": "Endpoint" },
             "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }

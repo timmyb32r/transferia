@@ -27,6 +27,8 @@ ydb-grpc.workspace = true
 
 [dev-dependencies]
 serde_yaml.workspace = true
+testcontainers.workspace = true
+transferia-test-support = { path = "../transferia-test-support" }
 
 [lints]
 workspace = true

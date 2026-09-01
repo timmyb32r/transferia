@@ -50,7 +50,9 @@
         "boolean",
         "date32",
         "date64",
-        "timestamp"
+        "timestamp",
+        "duration",
+        "fixed_size_binary"
       ],
       "type": "string"
     },

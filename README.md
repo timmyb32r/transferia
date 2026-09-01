@@ -6,7 +6,7 @@ share expensive connection pools and upload clients:
 
 ```text
 stream: Logbroker (YDB or PQv1) | Kafka
-batch:  PostgreSQL | ClickHouse | S3 | Iceberg | YTsaurus | data generator
+batch:  PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
                                     |
                                     v
                          parser or native Arrow
@@ -15,14 +15,16 @@ batch:  PostgreSQL | ClickHouse | S3 | Iceberg | YTsaurus | data generator
                                middlewares
                                     |
                                     v
-Logbroker | Kafka | PostgreSQL | ClickHouse | S3 | Iceberg | YTsaurus | discard
+Logbroker | Kafka | PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsaurus | discard
 ```
 
 Source and sink connectors are selected from the runtime registry; parser kinds
 are validated explicitly. Logbroker and Kafka provide streaming sources and
-sinks. PostgreSQL, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
-sources and sinks. The batch-only data generator and non-durable `discard` sink
-are explicit benchmark components.
+sinks. PostgreSQL, MySQL, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide
+finite-snapshot sources and sinks. YDB writes production Arrow IPC batches with
+`BulkUpsert` and requires an explicit logical-to-physical table mapping plus a
+non-null primary key. The batch-only data generator and non-durable `discard`
+sink are explicit benchmark components.
 
 Source implementations are grouped by delivery mode inside each connector:
 `src_batch` contains finite snapshot readers and `src_stream` contains live

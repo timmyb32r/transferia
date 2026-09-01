@@ -172,36 +172,84 @@ pub struct YdbSourceConfig {
     pub batch_rows: usize,
 }
 
+#[derive(Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct YdbSinkConfig {
+    #[serde(flatten)]
+    pub connection: YdbConnectionConfig,
+
+    #[schemars(extend("x-ui" = { "widget": "compact_array", "item_label": "table" }))]
+    pub tables: Vec<YdbTableConfig>,
+
+    #[serde(default = "default_create_tables")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    pub create_tables: bool,
+
+    #[serde(default = "default_retry_max_ms")]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    pub retry_max_ms: u64,
+}
+
+impl YdbSinkConfig {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        self.connection.validate()?;
+        anyhow::ensure!(self.retry_max_ms > 0, "ydb.retry_max_ms must be positive");
+        validate_tables(&self.tables)
+    }
+
+    pub fn table_path(&self, name: &str) -> anyhow::Result<&str> {
+        self.tables
+            .iter()
+            .find(|table| table.name == name)
+            .map(|table| table.path.as_str())
+            .ok_or_else(|| {
+                anyhow::anyhow!("YDB sink has no physical table mapping for dataset '{name}'")
+            })
+    }
+}
+
 impl YdbSourceConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         self.connection.validate()?;
-        anyhow::ensure!(!self.tables.is_empty(), "ydb.tables must not be empty");
         anyhow::ensure!(self.batch_rows > 0, "ydb.batch_rows must be positive");
-        let mut paths = std::collections::HashSet::new();
-        let mut names = std::collections::HashSet::new();
-        for table in &self.tables {
-            anyhow::ensure!(
-                !table.name.trim().is_empty(),
-                "ydb.tables[].name must not be empty"
-            );
-            anyhow::ensure!(
-                names.insert(table.name.as_str()),
-                "ydb.tables repeats logical name '{}'",
-                table.name
-            );
-            anyhow::ensure!(
-                table.path.starts_with('/') && !table.path.ends_with('/'),
-                "YDB table path '{}' must be absolute and must not end with '/'",
-                table.path
-            );
-            anyhow::ensure!(
-                paths.insert(table.path.as_str()),
-                "ydb.tables repeats path '{}'",
-                table.path
-            );
-        }
-        Ok(())
+        validate_tables(&self.tables)
     }
+}
+
+fn validate_tables(tables: &[YdbTableConfig]) -> anyhow::Result<()> {
+    anyhow::ensure!(!tables.is_empty(), "ydb.tables must not be empty");
+    let mut paths = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for table in tables {
+        anyhow::ensure!(
+            !table.name.trim().is_empty(),
+            "ydb.tables[].name must not be empty"
+        );
+        anyhow::ensure!(
+            names.insert(table.name.as_str()),
+            "ydb.tables repeats logical name '{}'",
+            table.name
+        );
+        anyhow::ensure!(
+            table.path.starts_with('/') && !table.path.ends_with('/'),
+            "YDB table path '{}' must be absolute and must not end with '/'",
+            table.path
+        );
+        anyhow::ensure!(
+            paths.insert(table.path.as_str()),
+            "ydb.tables repeats path '{}'",
+            table.path
+        );
+    }
+    Ok(())
+}
+
+const fn default_create_tables() -> bool {
+    true
+}
+
+const fn default_retry_max_ms() -> u64 {
+    30_000
 }
 
 const fn default_batch_rows() -> usize {

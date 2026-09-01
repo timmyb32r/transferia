@@ -2,14 +2,56 @@ use prost::Message;
 use tonic::metadata::AsciiMetadataValue;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
 use tonic::Request;
+use ydb_grpc::ydb_proto::formats::ArrowBatchSettings;
 use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
 use ydb_grpc::ydb_proto::table::{
-    CreateSessionRequest, CreateSessionResult, DeleteSessionRequest, DescribeTableRequest,
-    DescribeTableResult,
+    bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CreateSessionRequest,
+    CreateSessionResult, DeleteSessionRequest, DescribeTableRequest, DescribeTableResult,
+    ExecuteSchemeQueryRequest,
 };
 
 use super::config::YdbConnectionConfig;
+
+#[derive(Debug)]
+struct YdbStatusError {
+    operation: String,
+    status: StatusCode,
+    issues: String,
+}
+
+impl std::fmt::Display for YdbStatusError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "YDB {} failed with {:?}: {}",
+            self.operation, self.status, self.issues
+        )
+    }
+}
+
+impl std::error::Error for YdbStatusError {}
+
+pub(super) fn is_retryable_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<YdbStatusError>().is_some_and(|error| {
+        matches!(
+            error.status,
+            StatusCode::Unavailable
+                | StatusCode::Overloaded
+                | StatusCode::Aborted
+                | StatusCode::Undetermined
+                | StatusCode::SessionBusy
+        )
+    }) || error.downcast_ref::<tonic::Status>().is_some_and(|status| {
+        matches!(
+            status.code(),
+            tonic::Code::Unavailable
+                | tonic::Code::ResourceExhausted
+                | tonic::Code::Aborted
+                | tonic::Code::DeadlineExceeded
+        )
+    })
+}
 
 #[derive(Clone)]
 pub(super) struct YdbClient {
@@ -114,10 +156,51 @@ impl YdbClient {
             .await
             .map_err(|_| anyhow::anyhow!("YDB DeleteSession timed out"))??
             .into_inner();
-        decode_operation::<ydb_grpc::google_proto_workaround::protobuf::Empty>(
-            response.operation,
-            "DeleteSession",
-        )?;
+        ensure_operation(response.operation, "DeleteSession")?;
+        Ok(())
+    }
+
+    pub async fn execute_scheme_query(&mut self, yql_text: String) -> anyhow::Result<()> {
+        let session_id = self.create_session().await?;
+        let request = self.request(ExecuteSchemeQueryRequest {
+            session_id: session_id.clone(),
+            yql_text,
+            operation_params: None,
+        })?;
+        let response =
+            tokio::time::timeout(self.timeout, self.service.execute_scheme_query(request))
+                .await
+                .map_err(|_| anyhow::anyhow!("YDB ExecuteSchemeQuery timed out"))??
+                .into_inner();
+        ensure_operation(response.operation, "ExecuteSchemeQuery")?;
+        let delete = self.request(DeleteSessionRequest {
+            session_id,
+            operation_params: None,
+        })?;
+        let _ignored = self.service.delete_session(delete).await;
+        Ok(())
+    }
+
+    pub async fn bulk_upsert(
+        &mut self,
+        table: String,
+        schema: Vec<u8>,
+        data: Vec<u8>,
+    ) -> anyhow::Result<()> {
+        let request = self.request(BulkUpsertRequest {
+            table,
+            rows: None,
+            operation_params: None,
+            data,
+            data_format: Some(bulk_upsert_request::DataFormat::ArrowBatchSettings(
+                ArrowBatchSettings { schema },
+            )),
+        })?;
+        let response = tokio::time::timeout(self.timeout, self.service.bulk_upsert(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB BulkUpsert timed out"))??
+            .into_inner();
+        decode_operation::<BulkUpsertResult>(response.operation, "BulkUpsert")?;
         Ok(())
     }
 
@@ -135,16 +218,30 @@ fn decode_operation<T: Message + Default>(
     operation: Option<ydb_grpc::ydb_proto::operations::Operation>,
     name: &str,
 ) -> anyhow::Result<T> {
-    let operation = operation.ok_or_else(|| anyhow::anyhow!("YDB {name} returned no operation"))?;
-    anyhow::ensure!(operation.ready, "YDB {name} returned an asynchronous operation");
-    let status = StatusCode::try_from(operation.status).unwrap_or(StatusCode::Unspecified);
-    anyhow::ensure!(
-        status == StatusCode::Success,
-        "YDB {name} failed with {status:?}: {}",
-        serde_json::to_string(&operation.issues)?
-    );
+    let operation = ensure_operation(operation, name)?;
     let result = operation
         .result
         .ok_or_else(|| anyhow::anyhow!("YDB {name} returned no result"))?;
     Ok(T::decode(result.value.as_slice())?)
+}
+
+fn ensure_operation(
+    operation: Option<ydb_grpc::ydb_proto::operations::Operation>,
+    name: &str,
+) -> anyhow::Result<ydb_grpc::ydb_proto::operations::Operation> {
+    let operation = operation.ok_or_else(|| anyhow::anyhow!("YDB {name} returned no operation"))?;
+    anyhow::ensure!(
+        operation.ready,
+        "YDB {name} returned an asynchronous operation"
+    );
+    let status = StatusCode::try_from(operation.status).unwrap_or(StatusCode::Unspecified);
+    if status != StatusCode::Success {
+        return Err(YdbStatusError {
+            operation: name.to_owned(),
+            status,
+            issues: serde_json::to_string(&operation.issues)?,
+        }
+        .into());
+    }
+    Ok(operation)
 }

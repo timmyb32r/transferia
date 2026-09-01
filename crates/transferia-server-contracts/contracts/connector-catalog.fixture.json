@@ -6613,6 +6613,192 @@
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
+      },
+      "sink": {
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "YdbSinkConfig",
+          "type": "object",
+          "properties": {
+            "installation": {
+              "title": "Installation type",
+              "x-ui": {
+                "control_width": "installation",
+                "order": -80
+              },
+              "oneOf": [
+                {
+                  "type": "object",
+                  "title": "On-premise",
+                  "properties": {
+                    "endpoint": {
+                      "type": "string",
+                      "title": "Endpoint"
+                    },
+                    "trusted_plaintext": {
+                      "type": "boolean",
+                      "title": "Trusted plaintext"
+                    },
+                    "type": {
+                      "const": "on_premise"
+                    }
+                  },
+                  "required": [
+                    "endpoint",
+                    "trusted_plaintext",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "database": {
+              "type": "string"
+            },
+            "auth": {
+              "$ref": "#/$defs/YdbAuth"
+            },
+            "request_timeout_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "tables": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/YdbTableConfig"
+              },
+              "x-ui": {
+                "widget": "compact_array",
+                "item_label": "table"
+              }
+            },
+            "create_tables": {
+              "type": "boolean",
+              "default": true,
+              "x-ui": {
+                "section": "advanced"
+              }
+            },
+            "retry_max_ms": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 30000,
+              "x-ui": {
+                "section": "advanced"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "database",
+            "auth",
+            "tables",
+            "installation"
+          ],
+          "$defs": {
+            "YdbAuth": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "anonymous"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "x-ui": {
+                        "widget": "password"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "token_file": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "token_file"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "token_file"
+                  ]
+                }
+              ]
+            },
+            "YdbTableConfig": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "path"
+              ]
+            }
+          }
+        },
+        "initial": {
+          "request_timeout_ms": 30000,
+          "database": "",
+          "retry_max_ms": 30000,
+          "auth": {
+            "type": "token",
+            "token": ""
+          },
+          "tables": [
+            {
+              "name": "",
+              "path": ""
+            }
+          ],
+          "create_tables": true,
+          "installation": {
+            "endpoint": "grpc://localhost:2136",
+            "trusted_plaintext": true,
+            "type": "on_premise"
+          }
+        },
+        "delivery_modes": [],
+        "partitioned": false,
+        "connection_check": true,
+        "message_preview": false
       }
     },
     {
