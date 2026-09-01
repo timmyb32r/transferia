@@ -15,6 +15,7 @@ pub enum EndpointDescriptor {
     Kafka(SourceDescriptor),
     MySql(SourceDescriptor),
     Postgres(SourceDescriptor),
+    YdbSource(SourceDescriptor),
     YTsaurus(SourceDescriptor),
     ClickHouseSource(SourceDescriptor),
     S3Source(SourceDescriptor),
@@ -40,6 +41,7 @@ impl EndpointDescriptor {
             | Self::Kafka(source)
             | Self::MySql(source)
             | Self::Postgres(source)
+            | Self::YdbSource(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)
@@ -64,6 +66,7 @@ impl EndpointDescriptor {
             | Self::Kafka(source)
             | Self::MySql(source)
             | Self::Postgres(source)
+            | Self::YdbSource(source)
             | Self::YTsaurus(source)
             | Self::ClickHouseSource(source)
             | Self::S3Source(source)

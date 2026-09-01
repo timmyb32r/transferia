@@ -6193,6 +6193,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "transferia-connector-ydb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arrow",
+ "futures-util",
+ "http",
+ "prost",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shellexpand",
+ "tokio",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "transferia-connector-support",
+ "transferia-core",
+ "transferia-delivery-contracts",
+ "transferia-registry",
+ "uuid",
+ "ydb-grpc",
+]
+
+[[package]]
 name = "transferia-connector-ytsaurus"
 version = "0.1.0"
 dependencies = [
@@ -6250,6 +6276,7 @@ dependencies = [
  "transferia-connector-postgres",
  "transferia-connector-s3",
  "transferia-connector-support",
+ "transferia-connector-ydb",
  "transferia-connector-ytsaurus",
  "transferia-core",
  "transferia-delivery-contracts",

@@ -336,6 +336,8 @@ fn build_base_connector_catalog(
 
     transferia_connector_iceberg::register(&mut catalog, _metrics_registry)?;
 
+    transferia_connector_ydb::register(&mut catalog, _metrics_registry)?;
+
     transferia_connector_ytsaurus::register(&mut catalog, _metrics_registry)?;
 
     catalog.register(
@@ -551,6 +553,17 @@ pub fn register_builtin_installations(_registry: &mut ExtensionRegistry) -> anyh
         }),
         &["host", "port", "trusted_plaintext"],
         serde_json::json!({ "host": "", "port": 2135, "trusted_plaintext": true }),
+    )?;
+    register_on_premise(
+        _registry,
+        "ydb",
+        EndpointRole::Source,
+        serde_json::json!({
+            "endpoint": { "type": "string", "title": "Endpoint" },
+            "trusted_plaintext": { "type": "boolean", "title": "Trusted plaintext" }
+        }),
+        &["endpoint", "trusted_plaintext"],
+        serde_json::json!({ "endpoint": "grpc://localhost:2136", "trusted_plaintext": true }),
     )?;
     register_on_premise(
         _registry,

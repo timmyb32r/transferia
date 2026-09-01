@@ -102,6 +102,14 @@ const YTSAURUS_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescrip
     networked: true,
 });
 
+const YDB_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
+    installation: Some(InstallationContract {
+        output_fields: &["endpoint", "trusted_plaintext"],
+        required_output_fields: &["endpoint", "trusted_plaintext"],
+    }),
+    networked: true,
+});
+
 const S3_ROLE: Option<ConnectorRoleDescriptor> = Some(ConnectorRoleDescriptor {
     installation: Some(InstallationContract {
         output_fields: &["bucket", "endpoint", "region", "credentials"],
@@ -165,6 +173,12 @@ pub(super) static CONNECTORS: &[ConnectorDescriptor] = &[
         title: "Apache Iceberg",
         source: ICEBERG_ROLE,
         sink: ICEBERG_ROLE,
+    },
+    ConnectorDescriptor {
+        key: "ydb",
+        title: "YDB",
+        source: YDB_ROLE,
+        sink: None,
     },
     ConnectorDescriptor {
         key: "ytsaurus",

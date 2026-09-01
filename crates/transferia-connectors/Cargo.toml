@@ -29,6 +29,7 @@ transferia-connector-postgres = { path = "../transferia-connector-postgres" }
 transferia-connector-s3 = { path = "../transferia-connector-s3" }
 transferia-connector-support = { path = "../transferia-connector-support" }
 transferia-connector-ytsaurus = { path = "../transferia-connector-ytsaurus" }
+transferia-connector-ydb = { path = "../transferia-connector-ydb" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]

@@ -18,6 +18,7 @@ members = [
     "crates/transferia-connector-s3",
     "crates/transferia-connector-support",
     "crates/transferia-connector-ytsaurus",
+    "crates/transferia-connector-ydb",
     "crates/transferia-connectors",
     "crates/transferia-control-plane",
     "crates/transferia-core",
