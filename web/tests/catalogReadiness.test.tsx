@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import catalogFixture from "../../crates/transferia-server-contracts/contracts/connector-catalog.fixture.json";
 import { decodeApi } from "../src/api/contractDecoder";
 import {
+  completionIssueLabel,
   configurationReadiness,
   orderedEndpointConnectors,
   validateCatalogSchemas,
@@ -79,6 +80,18 @@ describe("connector catalog readiness", () => {
     expect(incomplete.sourceSchemaIssue?.path).toBe(
       "#/source/queue/parser/table_name",
     );
+    const sourceNode = compileSchema(
+      catalog.connectors[0]!.source!.schema,
+      productionWidgetRegistry,
+    );
+    expect(
+      completionIssueLabel(
+        sourceNode,
+        { brokers: [], parser: { table_name: "" } },
+        incomplete.sourceSchemaIssue!,
+        "#/source/queue",
+      ),
+    ).toBe("Table name");
 
     const previewable = configurationReadiness(
       catalog,

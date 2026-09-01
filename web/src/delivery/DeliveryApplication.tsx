@@ -29,7 +29,10 @@ import {
 } from "./EditorViews";
 import { YamlEditorPanel } from "./YamlEditorPanel";
 import {
+  compiledSchema,
+  completionIssueLabel,
   configurationReadiness,
+  endpointValue,
   errorMessage,
   freshConfig,
   validateCatalogSchemas,
@@ -238,8 +241,28 @@ export function DeliveryApplication() {
     if (catalog === undefined) return "Loading the connector catalog…";
     if (selection?.error !== undefined) return selection.error;
     if (selection?.source === undefined) return "Choose a source first";
-    if (!sourceSchemaComplete)
+    if (!sourceSchemaComplete) {
+      const issue = readiness?.sourceSchemaIssue;
+      if (
+        issue !== undefined &&
+        selection?.source !== undefined &&
+        selection.sourceKey !== ""
+      ) {
+        const sourceNode = compiledSchema(selection.source.schema, widgets);
+        const sourceValue = endpointValue(
+          editor.config,
+          "source",
+          selection.sourceKey,
+        );
+        return `Fill required field: ${completionIssueLabel(
+          sourceNode,
+          sourceValue,
+          issue,
+          `#/source/${selection.sourceKey}`,
+        )}`;
+      }
       return "Complete the required source and parser settings";
+    }
     if (discovery !== undefined)
       return "Discovery completed, but the selected parser produced no tables";
     return "Waiting for data schema discovery";

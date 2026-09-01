@@ -455,6 +455,72 @@ function prefixIssue(
   };
 }
 
+export function completionIssueLabel(
+  root: CompiledNode,
+  value: JsonValue | undefined,
+  issue: CompletionIssue,
+  prefix: string,
+): string {
+  const relative = issue.path.startsWith(prefix)
+    ? issue.path.slice(prefix.length)
+    : issue.path.slice(1);
+  const segments = relative
+    .split("/")
+    .filter(Boolean)
+    .map(unescapePointer);
+  let node = root;
+  let current = value;
+  let lastSegment = segments.at(-1) ?? "configuration";
+  let index = 0;
+  while (index < segments.length) {
+    if (node.kind === "nullable") {
+      node = node.inner;
+      continue;
+    }
+    if (node.kind === "union") {
+      const candidateValue = current;
+      const branch =
+        candidateValue === undefined
+          ? undefined
+          : node.branches.find((candidate) =>
+              branchMatches(candidate, candidateValue),
+            );
+      if (branch === undefined) break;
+      node = branch.node;
+      continue;
+    }
+    const segment = segments[index]!;
+    if (node.kind === "object") {
+      const child = node.properties[segment];
+      if (child === undefined) break;
+      node = child;
+      current = isObject(current) ? current[segment] : undefined;
+      lastSegment = segment;
+      index += 1;
+      continue;
+    }
+    if (node.kind === "array") {
+      const itemIndex = Number(segment);
+      if (!Number.isSafeInteger(itemIndex) || itemIndex < 0) break;
+      node = node.item;
+      current = Array.isArray(current) ? current[itemIndex] : undefined;
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return node.title?.trim() || humanizeFieldName(lastSegment);
+}
+
+function unescapePointer(value: string): string {
+  return value.replaceAll("~1", "/").replaceAll("~0", "~");
+}
+
+function humanizeFieldName(value: string): string {
+  const words = value.replaceAll("_", " ").trim();
+  return words === "" ? "Configuration" : words[0]!.toUpperCase() + words.slice(1);
+}
+
 export function endpointValue(
   config: JsonObject,
   role: "source" | "sink",
