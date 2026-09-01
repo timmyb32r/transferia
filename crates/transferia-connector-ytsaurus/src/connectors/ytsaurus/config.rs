@@ -696,14 +696,6 @@ const fn default_partition_concurrency() -> usize {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum YTsaurusWriteFormat {
-    #[default]
-    Arrow,
-    Yson,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum YTsaurusPrimaryKeySemantics {
     #[default]
     #[schemars(title = "One row per primary key (sorted)")]
@@ -1110,12 +1102,6 @@ pub enum YTsaurusTableMode {
         )]
         spec: Vec<YTsaurusYsonEntry>,
 
-        #[serde(default)]
-        #[schemars(
-            title = "Driver exchange format",
-            extend("x-ui" = { "section": "advanced" })
-        )]
-        format: YTsaurusWriteFormat,
     },
 
     #[schemars(title = "Dynamic tables")]
@@ -1331,14 +1317,6 @@ impl YTsaurusSinkConfig {
             | YTsaurusTableMode::DynamicTables {
                 table_attributes, ..
             } => table_attributes,
-        }
-    }
-
-    #[must_use]
-    pub const fn static_format(&self) -> Option<YTsaurusWriteFormat> {
-        match &self.tables {
-            YTsaurusTableMode::StaticTables { format, .. } => Some(*format),
-            YTsaurusTableMode::DynamicTables { .. } => None,
         }
     }
 

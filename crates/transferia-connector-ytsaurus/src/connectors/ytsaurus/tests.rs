@@ -26,7 +26,7 @@ use super::client::{
 use super::config::{
     YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
     YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
-    YTsaurusTableReaderConfig, YTsaurusWriteFormat,
+    YTsaurusTableReaderConfig,
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
@@ -36,7 +36,7 @@ use super::native_rpc::{
 };
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
-    drop_oversized_rows, encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches,
+    drop_oversized_rows, encode_arrow, encode_arrow_batches,
     validate_initial_tablet_count, validate_row_weight, yt_guid,
 };
 use super::src_batch::{
@@ -321,7 +321,6 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
     let mut config = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
-    assert_eq!(config.static_format(), Some(YTsaurusWriteFormat::Arrow));
     assert_eq!(
         config.static_optimize_for(),
         Some(YTsaurusOptimizeFor::Scan)
@@ -344,6 +343,9 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
         2 * 1024 * 1024 * 1024
     );
     assert_eq!(config.primary_key_sort_timeout_ms, 24 * 60 * 60 * 1_000);
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig))?.to_string();
+    assert!(!schema.contains("Driver exchange format"));
+    assert!(!schema.contains("YTsaurusWriteFormat"));
     config.validate()?;
     config.write_concurrency = 0;
     assert!(config.validate().is_err());
@@ -535,7 +537,7 @@ fn unique_sorted_snapshots_reject_multiple_source_partitions() -> anyhow::Result
 }
 
 #[test]
-fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
+fn schema_round_trip_and_arrow_writer_are_native() -> anyhow::Result<()> {
     let schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("name".into(), DataType::Utf8, true),
@@ -562,20 +564,11 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
     )?;
     validate_row_weight(&batch, true)?;
     assert!(!encode_arrow(&batch)?.is_empty());
-    assert_eq!(
-        encode_yson(&batch)?,
-        b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
-    );
     let payload = encode_arrow_batches(&[batch.clone(), batch.clone()])?;
     let decoded =
         StreamReader::try_new(Cursor::new(payload), None)?.collect::<Result<Vec<_>, _>>()?;
     assert_eq!(decoded.len(), 2);
     assert_eq!(decoded.iter().map(RecordBatch::num_rows).sum::<usize>(), 4);
-    assert_eq!(
-        encode_yson_batches(&[batch.clone(), batch])?,
-        b"{\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};\
-          {\"id\"=1;\"name\"=\"alice\";};{\"id\"=2;\"name\"=#;};"
-    );
     Ok(())
 }
 

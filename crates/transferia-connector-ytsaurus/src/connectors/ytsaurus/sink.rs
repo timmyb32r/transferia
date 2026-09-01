@@ -2,11 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use arrow::array::{
-    Array, BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
-    Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
-    TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
-};
+use arrow::array::{Array, BinaryArray, LargeBinaryArray, LargeStringArray, StringArray};
 use arrow::compute;
 use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
@@ -20,7 +16,6 @@ use uuid::Uuid;
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{
     YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig,
-    YTsaurusWriteFormat,
 };
 use super::native_rpc::NativeDynamicWriter;
 use super::schema::{
@@ -652,18 +647,14 @@ impl YTsaurusSink {
         } else {
             self.config.path_for_dataset(table)?
         };
-        let configured_format = self
-            .config
-            .static_format()
-            .unwrap_or(YTsaurusWriteFormat::Arrow);
         let concurrency = self.config.write_concurrency.min(batches.len());
         if concurrency <= 1 {
-            let (format, payload) = encode_batches(configured_format, &batches)?;
+            let payload = encode_arrow_batches(&batches)?;
             return self
                 .client
                 .write_table(
                     &destination_path,
-                    format,
+                    "arrow",
                     payload,
                     self.config.write_row_buffer_bytes,
                     &self.config.table_writer,
@@ -691,14 +682,13 @@ impl YTsaurusSink {
                 let client = self.client.clone();
                 let table_writer = self.config.table_writer.clone();
                 let writer_spec = Arc::clone(&self.writer_spec);
-                let format = configured_format;
                 let row_buffer_bytes = self.config.write_row_buffer_bytes;
                 async move {
-                    let (format, payload) = encode_batches(format, &shard)?;
+                    let payload = encode_arrow_batches(&shard)?;
                     client
                         .write_table_fragment(
                             cookie,
-                            format,
+                            "arrow",
                             payload,
                             row_buffer_bytes,
                             &table_writer,
@@ -865,16 +855,6 @@ pub(super) fn yt_guid(bytes: [u8; 16]) -> String {
     let third = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
     let fourth = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
     format!("{fourth:x}-{third:x}-{second:x}-{first:x}")
-}
-
-fn encode_batches(
-    format: YTsaurusWriteFormat,
-    batches: &[RecordBatch],
-) -> anyhow::Result<(&'static str, Vec<u8>)> {
-    match format {
-        YTsaurusWriteFormat::Arrow => Ok(("arrow", encode_arrow_batches(batches)?)),
-        YTsaurusWriteFormat::Yson => Ok(("yson", encode_yson_batches(batches)?)),
-    }
 }
 
 impl Sink for YTsaurusSink {
@@ -1045,149 +1025,6 @@ pub(super) fn encode_arrow_batches(batches: &[RecordBatch]) -> anyhow::Result<Ve
         writer.finish()?;
     }
     Ok(output)
-}
-
-#[cfg(test)]
-pub(super) fn encode_yson(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
-    encode_yson_batches(std::slice::from_ref(batch))
-}
-
-pub(super) fn encode_yson_batches(batches: &[RecordBatch]) -> anyhow::Result<Vec<u8>> {
-    let mut output =
-        Vec::with_capacity(batches.iter().map(RecordBatch::get_array_memory_size).sum());
-    for batch in batches {
-        append_yson(&mut output, batch)?;
-    }
-    Ok(output)
-}
-
-fn append_yson(output: &mut Vec<u8>, batch: &RecordBatch) -> anyhow::Result<()> {
-    for row in 0..batch.num_rows() {
-        output.push(b'{');
-        for (field, array) in batch.schema().fields().iter().zip(batch.columns()) {
-            write_yson_string(output, field.name().as_bytes());
-            output.push(b'=');
-            write_yson_value(output, array.as_ref(), row)?;
-            output.push(b';');
-        }
-        output.extend_from_slice(b"};");
-    }
-    Ok(())
-}
-
-fn write_yson_string(output: &mut Vec<u8>, value: &[u8]) {
-    output.push(b'"');
-    for byte in value {
-        match *byte {
-            b'"' | b'\\' => {
-                output.push(b'\\');
-                output.push(*byte);
-            }
-            b'\n' => output.extend_from_slice(b"\\n"),
-            b'\r' => output.extend_from_slice(b"\\r"),
-            b'\t' => output.extend_from_slice(b"\\t"),
-            0x20..=0x7e => output.push(*byte),
-            other => {
-                const HEX: &[u8; 16] = b"0123456789abcdef";
-                output.extend_from_slice(b"\\x");
-                output.push(HEX[usize::from(other >> 4)]);
-                output.push(HEX[usize::from(other & 0x0f)]);
-            }
-        }
-    }
-    output.push(b'"');
-}
-
-macro_rules! primitive_yson {
-    ($array:expr_2021, $ty:ty, $row:expr_2021, $output:expr_2021) => {{
-        let value = $array
-            .as_any()
-            .downcast_ref::<$ty>()
-            .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-            .value($row);
-        $output.extend_from_slice(value.to_string().as_bytes());
-    }};
-}
-
-fn write_yson_value(output: &mut Vec<u8>, array: &dyn Array, row: usize) -> anyhow::Result<()> {
-    if array.is_null(row) {
-        output.push(b'#');
-        return Ok(());
-    }
-    match array.data_type() {
-        DataType::Boolean => {
-            let value = array
-                .as_any()
-                .downcast_ref::<BooleanArray>()
-                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                .value(row);
-            output.extend_from_slice(if value { b"%true" } else { b"%false" });
-        }
-        DataType::Int8 => primitive_yson!(array, Int8Array, row, output),
-        DataType::Int16 => primitive_yson!(array, Int16Array, row, output),
-        DataType::Int32 => primitive_yson!(array, Int32Array, row, output),
-        DataType::Int64 => primitive_yson!(array, Int64Array, row, output),
-        DataType::UInt8 => {
-            primitive_yson!(array, UInt8Array, row, output);
-            output.push(b'u');
-        }
-        DataType::UInt16 => {
-            primitive_yson!(array, UInt16Array, row, output);
-            output.push(b'u');
-        }
-        DataType::UInt32 => {
-            primitive_yson!(array, UInt32Array, row, output);
-            output.push(b'u');
-        }
-        DataType::UInt64 => {
-            primitive_yson!(array, UInt64Array, row, output);
-            output.push(b'u');
-        }
-        DataType::Float32 => primitive_yson!(array, Float32Array, row, output),
-        DataType::Float64 => primitive_yson!(array, Float64Array, row, output),
-        DataType::Utf8 => write_yson_string(
-            output,
-            array
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                .value(row)
-                .as_bytes(),
-        ),
-        DataType::Binary => write_yson_string(
-            output,
-            array
-                .as_any()
-                .downcast_ref::<BinaryArray>()
-                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                .value(row),
-        ),
-        DataType::LargeUtf8 => write_yson_string(
-            output,
-            array
-                .as_any()
-                .downcast_ref::<LargeStringArray>()
-                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                .value(row)
-                .as_bytes(),
-        ),
-        DataType::LargeBinary => write_yson_string(
-            output,
-            array
-                .as_any()
-                .downcast_ref::<LargeBinaryArray>()
-                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                .value(row),
-        ),
-        DataType::Date32 => primitive_yson!(array, Date32Array, row, output),
-        DataType::Date64 => primitive_yson!(array, Date64Array, row, output),
-        DataType::Timestamp(TimeUnit::Microsecond, None) => {
-            primitive_yson!(array, TimestampMicrosecondArray, row, output);
-            output.push(b'u');
-        }
-        other => anyhow::bail!("Arrow type {other:?} is not supported by YSON writer"),
-    }
-    Ok(())
 }
 
 pub(super) fn validate_row_weight(batch: &RecordBatch, static_tables: bool) -> anyhow::Result<()> {
