@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
+use schemars::schema_for;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
@@ -612,6 +613,17 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(write.retry_max_ms, 5_000);
     config.validate()?;
     Ok(())
+}
+
+#[test]
+fn dynamic_snapshot_mode_schema_materializes_static_staging_for_batch_deliveries() {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
+    let encoded = schema.to_string();
+    assert!(encoded.contains("\"snapshot_mode\""));
+    assert!(encoded.contains(
+        "\"default\":{\"type\":\"static_staging\",\"operation_pool\":null}"
+    ));
+    assert!(encoded.contains("\"delivery_types\":[\"batch\"]"));
 }
 
 #[test]

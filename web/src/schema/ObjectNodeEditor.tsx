@@ -28,6 +28,7 @@ export function ObjectNodeEditor({
   widgets,
   NodeEditor,
   PropertyEditor,
+  isVisible,
   onChange,
 }: {
   node: ObjectNode;
@@ -38,6 +39,7 @@ export function ObjectNodeEditor({
   widgets: WidgetRegistry;
   NodeEditor: NodeEditorComponent;
   PropertyEditor: PropertyEditorComponent;
+  isVisible: (node: CompiledNode) => boolean;
   onChange: (value: JsonObject) => void;
 }) {
   const partitionRanges = partitionRangesProperty(node);
@@ -62,7 +64,7 @@ export function ObjectNodeEditor({
   ]);
 
   const visible = Object.entries(node.properties)
-    .filter(([, child]) => !widgets.isHidden(child))
+    .filter(([, child]) => !widgets.isHidden(child) && isVisible(child))
     .map((entry, index) => ({ entry, index }))
     .sort(
       (left, right) =>

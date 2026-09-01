@@ -46,6 +46,63 @@ afterEach(() => {
 });
 
 describe("endpoint connection check", () => {
+  it("shows batch-only endpoint fields only for batch deliveries", () => {
+    const deliveryAwareEndpoint: EndpointDefinition = {
+      ...endpoint,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          snapshot_mode: {
+            type: "string",
+            title: "Batch snapshot delivery",
+            enum: ["static_staging", "direct"],
+            default: "static_staging",
+            "x-ui": { delivery_types: ["batch"] },
+          },
+        },
+        required: ["snapshot_mode"],
+      },
+      initial: { snapshot_mode: "static_staging" },
+    };
+    const renderDelivery = (deliveryType: string) =>
+      render(
+        <EndpointCard
+          title="Destination"
+          role="sink"
+          selectedKey="ytsaurus"
+          connectors={[
+            {
+              key: "ytsaurus",
+              title: "YTsaurus",
+              sink: deliveryAwareEndpoint,
+            },
+          ]}
+          endpoint={deliveryAwareEndpoint}
+          config={{
+            delivery_type: deliveryType,
+            sink: {
+              ytsaurus: { snapshot_mode: "static_staging" },
+            },
+          }}
+          readOnly={false}
+          showRequiredErrors={false}
+          onChoose={() => undefined}
+          onConfig={() => undefined}
+        />,
+      );
+
+    const batch = renderDelivery("batch");
+    expect(batch.getByText("Batch snapshot delivery")).toBeTruthy();
+    expect(batch.getByText("Static Staging")).toBeTruthy();
+    batch.unmount();
+
+    const stream = renderDelivery("stream");
+    expect(stream.queryByText("Batch snapshot delivery")).toBeNull();
+    expect(stream.queryByText("Static Staging")).toBeNull();
+    stream.unmount();
+  });
+
   it("shows progress, success, and checked ClickHouse shard groups", async () => {
     let resolve!: (
       value: import("../src/generated/apiContract").ConnectionCheckResult,

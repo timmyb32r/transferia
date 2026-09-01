@@ -735,7 +735,7 @@ pub enum YTsaurusBigValuePolicy {
     Drop,
 }
 
-#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YTsaurusDynamicSnapshotMode {
     #[schemars(title = "Through static staging (recommended)")]
@@ -758,6 +758,10 @@ impl Default for YTsaurusDynamicSnapshotMode {
             operation_pool: None,
         }
     }
+}
+
+fn default_dynamic_snapshot_mode() -> YTsaurusDynamicSnapshotMode {
+    YTsaurusDynamicSnapshotMode::default()
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, JsonSchema, PartialEq, Serialize)]
@@ -1113,10 +1117,12 @@ pub enum YTsaurusTableMode {
 
         replace_tables: bool,
 
-        #[serde(default)]
+        #[serde(default = "default_dynamic_snapshot_mode")]
         #[schemars(
+            default = "default_dynamic_snapshot_mode",
             title = "Batch snapshot delivery",
-            description = "Static staging writes the complete finite snapshot efficiently, verifies primary-key uniqueness, sorts it and converts it into a dynamic table before committing source progress"
+            description = "Static staging writes the complete finite snapshot efficiently, verifies primary-key uniqueness, sorts it and converts it into a dynamic table before committing source progress",
+            extend("x-ui" = { "delivery_types": ["batch"] })
         )]
         snapshot_mode: YTsaurusDynamicSnapshotMode,
 

@@ -25,6 +25,7 @@ export interface UiHints {
   order?: number;
   reveal_rest_on_selection?: boolean;
   defer_variant_details?: boolean;
+  delivery_types?: readonly string[];
 }
 
 const SUPPORTED_HINTS = new Set<keyof UiHints>([
@@ -45,6 +46,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "order",
   "reveal_rest_on_selection",
   "defer_variant_details",
+  "delivery_types",
 ]);
 
 export function decodeUiHints(
@@ -188,6 +190,19 @@ export function decodeUiHints(
     typeof deferVariantDetails !== "boolean"
   )
     fail(`${path}: x-ui defer_variant_details must be a boolean`);
+  const deliveryTypes = value.delivery_types;
+  if (
+    deliveryTypes !== undefined &&
+    (!Array.isArray(deliveryTypes) ||
+      deliveryTypes.length === 0 ||
+      !deliveryTypes.every(
+        (deliveryType) =>
+          deliveryType === "batch" ||
+          deliveryType === "stream" ||
+          deliveryType === "batch_and_stream",
+      ))
+  )
+    fail(`${path}: x-ui delivery_types must contain supported delivery types`);
 
   return {
     ...(typeof widget === "string" ? { widget } : {}),
@@ -225,6 +240,9 @@ export function decodeUiHints(
     ...(deferVariantDetails === undefined
       ? {}
       : { defer_variant_details: deferVariantDetails }),
+    ...(deliveryTypes === undefined
+      ? {}
+      : { delivery_types: deliveryTypes as readonly string[] }),
   };
 }
 

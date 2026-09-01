@@ -102,6 +102,9 @@ export function EndpointCard(props: {
             value={value}
             disabled={props.readOnly}
             showRequiredErrors={props.showRequiredErrors}
+            {...(typeof props.config.delivery_type === "string"
+              ? { deliveryType: props.config.delivery_type }
+              : {})}
             variantUi={{
               selectionOnly: [
                 props.role === "source" ? "parser" : "serializer",

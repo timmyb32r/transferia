@@ -29,6 +29,7 @@ export interface SchemaFormProps extends NodeEditorProps {
   showRequiredErrors?: boolean;
   optionOverrides?: Record<string, string[]>;
   connectionAction?: ComponentChildren;
+  deliveryType?: string;
 }
 
 export interface VariantUi {
@@ -41,6 +42,7 @@ const VariantUiContext = createContext<VariantUi>({});
 const RequiredErrorsContext = createContext(false);
 const RootValueContext = createContext<JsonValue>({});
 const OptionOverridesContext = createContext<Record<string, string[]>>({});
+const DeliveryTypeContext = createContext<string | undefined>(undefined);
 
 export function SchemaForm({
   node,
@@ -50,9 +52,11 @@ export function SchemaForm({
   showRequiredErrors = false,
   optionOverrides = {},
   connectionAction,
+  deliveryType,
   onChange,
 }: SchemaFormProps) {
   return (
+    <DeliveryTypeContext.Provider value={deliveryType}>
     <RootValueContext.Provider value={value}>
       <OptionOverridesContext.Provider value={optionOverrides}>
         <RequiredErrorsContext.Provider value={showRequiredErrors}>
@@ -69,6 +73,7 @@ export function SchemaForm({
         </RequiredErrorsContext.Provider>
       </OptionOverridesContext.Provider>
     </RootValueContext.Provider>
+    </DeliveryTypeContext.Provider>
   );
 }
 
@@ -120,6 +125,7 @@ function NodeEditor({
   const variantUi = useContext(VariantUiContext);
   const rootValue = useContext(RootValueContext);
   const optionOverrides = useContext(OptionOverridesContext);
+  const deliveryType = useContext(DeliveryTypeContext);
   const customWidget = widgets.renderNode(
     { node, value, disabled: isDisabled, onChange, path, controlId },
     { NodeEditor, PropertyEditor },
@@ -138,6 +144,11 @@ function NodeEditor({
           widgets={widgets}
           NodeEditor={NodeEditor}
           PropertyEditor={PropertyEditor}
+          isVisible={(child) =>
+            child.xUi.delivery_types === undefined ||
+            deliveryType === undefined ||
+            child.xUi.delivery_types.includes(deliveryType)
+          }
           onChange={onChange}
         />
       );
