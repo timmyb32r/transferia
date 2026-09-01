@@ -33,6 +33,12 @@ pub struct SchemaColumn {
     pub low_cardinality: bool,
     pub max_length: Option<usize>,
     pub arrow_extension_name: Option<&'static str>,
+    /// Current-value column paired with this CDC old-value control column.
+    ///
+    /// Old-value columns are transport metadata. They are present in the
+    /// incoming Arrow schema but are never part of the destination's stored
+    /// projection.
+    pub old_value_of: Option<String>,
 }
 
 impl SchemaColumn {
@@ -46,12 +52,19 @@ impl SchemaColumn {
             low_cardinality: false,
             max_length: None,
             arrow_extension_name: None,
+            old_value_of: None,
         }
     }
 
     #[must_use]
     pub const fn with_arrow_extension(mut self, name: &'static str) -> Self {
         self.arrow_extension_name = Some(name);
+        self
+    }
+
+    #[must_use]
+    pub fn with_old_value_of(mut self, current_column: String) -> Self {
+        self.old_value_of = Some(current_column);
         self
     }
 
@@ -82,6 +95,9 @@ impl SchemaColumn {
         }
         if let Some(extension_name) = self.arrow_extension_name {
             metadata.insert(META_ARROW_EXTENSION_NAME.into(), extension_name.into());
+        }
+        if let Some(current_column) = &self.old_value_of {
+            metadata.insert(META_OLD_VALUE_OF.into(), current_column.clone());
         }
         metadata
     }

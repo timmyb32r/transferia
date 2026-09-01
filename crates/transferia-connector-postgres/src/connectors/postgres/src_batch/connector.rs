@@ -26,6 +26,7 @@ pub(crate) struct DiscoveredTable {
     pub(crate) config: TableConfig,
     pub(crate) schema: DatasetSchema,
     pub(crate) type_oids: Vec<u32>,
+    pub(crate) replica_identity_full: bool,
 }
 
 pub struct PostgresSourceConnector {
@@ -123,6 +124,18 @@ impl SourceConnector for PostgresSourceConnector {
                     let mut incoming = table.schema.clone();
                     for column in &mut incoming.columns {
                         column.nullable = true;
+                    }
+                    if self.config.replication.is_some() && table.replica_identity_full {
+                        incoming.columns.extend(table.schema.columns.iter().enumerate().map(
+                            |(index, column)| {
+                                SchemaColumn::new(
+                                    old_value_column_name(index),
+                                    column.data_type.clone(),
+                                    true,
+                                )
+                                .with_old_value_of(column.name.clone())
+                            },
+                        ));
                     }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
@@ -261,7 +274,10 @@ async fn discover_table(
     ).await?.into_iter().map(|row| (row.get::<_, String>(0), row.get::<_, bool>(1))).collect::<HashMap<_, _>>();
     let physical_types = client
         .query(
-            "SELECT a.attname, a.atttypid \
+            "SELECT a.attname, a.atttypid, EXISTS (\
+                 SELECT 1 FROM pg_index AS i \
+                 WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)\
+             ) AS primary_key \
              FROM pg_attribute AS a \
              JOIN pg_class AS c ON c.oid = a.attrelid \
              JOIN pg_namespace AS n ON n.oid = c.relnamespace \
@@ -271,6 +287,13 @@ async fn discover_table(
             &[&table.schema, &table.name],
         )
         .await?;
+    let replica_identity = client
+        .query_one(
+            "SELECT c.relreplident::text FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2",
+            &[&table.schema, &table.name],
+        )
+        .await?
+        .get::<_, String>(0);
     anyhow::ensure!(
         physical_types.len() == statement.columns().len(),
         "PostgreSQL physical schema for '{}.{}' has {} columns, query declared {}",
@@ -282,7 +305,8 @@ async fn discover_table(
     let columns = statement
         .columns()
         .iter()
-        .map(|column| {
+        .zip(&physical_types)
+        .map(|(column, physical)| {
             validate_identifier("column", column.name())?;
             let nullable = *nullability.get(column.name()).ok_or_else(|| {
                 anyhow::anyhow!(
@@ -290,11 +314,14 @@ async fn discover_table(
                     column.name()
                 )
             })?;
-            Ok(SchemaColumn::new(
-                column.name().to_owned(),
-                postgres_to_arrow(column.type_())?,
-                nullable,
-            ))
+            Ok(
+                SchemaColumn::new(
+                    column.name().to_owned(),
+                    postgres_to_arrow(column.type_())?,
+                    nullable,
+                )
+                .with_constraints(physical.get::<_, bool>(2), false, None),
+            )
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let type_oids = physical_types
@@ -311,9 +338,24 @@ async fn discover_table(
             Ok(row.get::<_, u32>(1))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    for index in 0..columns.len() {
+        let old_name = old_value_column_name(index);
+        anyhow::ensure!(
+            columns.iter().all(|column| column.name != old_name),
+            "PostgreSQL table '{}.{}' column '{}' conflicts with reserved CDC old-value column name",
+            table.schema,
+            table.name,
+            old_name,
+        );
+    }
     Ok(DiscoveredTable {
         config: table,
         schema: DatasetSchema::new(columns),
         type_oids,
+        replica_identity_full: replica_identity == "f",
     })
+}
+
+pub(crate) fn old_value_column_name(index: usize) -> String {
+    format!("_system_old_value_{index}")
 }

@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use arrow::array::{Array, BinaryArray, Int64Array, StringArray, UInt32Array};
-use arrow::compute::take;
+use arrow::array::{Array, ArrayRef, BinaryArray, Int64Array, StringArray, UInt32Array};
+use arrow::compute::{concat, take};
+use arrow::datatypes::Field;
 use arrow::record_batch::RecordBatch;
-use arrow::row::{Row, RowConverter, SortField};
+use arrow::row::{Row, RowConverter, Rows, SortField};
 
 use crate::data::change::ChangeOperation;
 use crate::data::schema::SchemaColumn;
@@ -27,6 +29,7 @@ pub struct ChangelogBatch {
     pub stored_columns: Vec<SchemaColumn>,
     source_versions: Vec<u64>,
     changed_columns: Vec<Vec<bool>>,
+    old_primary_keys: Option<RecordBatch>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +44,19 @@ pub struct ChangelogRun {
     pub operation: ChangeOperation,
     pub batch: RecordBatch,
     pub source_versions: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ValueSource {
+    Current(usize),
+    OldPrimaryKey(usize),
+}
+
+struct CollapsedRow {
+    final_position: usize,
+    operation: ChangeOperation,
+    value_rows: Vec<Option<ValueSource>>,
+    source_version: u64,
 }
 
 impl ChangelogBatch {
@@ -83,31 +99,113 @@ impl ChangelogBatch {
                 .collect(),
         )?;
         let keys = converter.convert_columns(&key_columns)?;
-        struct CollapsedRow {
-            final_row: usize,
-            operation: ChangeOperation,
-            value_rows: Vec<Option<usize>>,
-            source_version: u64,
+        if self.old_primary_keys.is_none() {
+            return self.collapsed_runs_without_old_values(&keys);
         }
+        let old_keys = self
+            .old_primary_keys
+            .as_ref()
+            .map(|batch| converter.convert_columns(batch.columns()))
+            .transpose()?;
 
+        let mut latest = HashMap::<Vec<u8>, CollapsedRow>::with_capacity(self.rows.num_rows());
+        for row in 0..self.rows.num_rows() {
+            let operation = self.operations[row];
+            let changed = &self.changed_columns[row];
+            if let Some(old_keys) = &old_keys {
+                match operation {
+                    ChangeOperation::Create | ChangeOperation::SnapshotRead => {
+                        apply_collapsed_event(
+                            &mut latest,
+                            keys.row(row).as_ref().to_vec(),
+                            row * 2 + 1,
+                            operation,
+                            ValueSource::Current(row),
+                            changed,
+                            &self.primary_key_indexes,
+                            self.source_versions[row],
+                        )?;
+                    }
+                    ChangeOperation::Update => {
+                        anyhow::ensure!(
+                            changed.iter().all(|changed| *changed),
+                            "full-old-value changelog update must carry a complete current row"
+                        );
+                        apply_collapsed_event(
+                            &mut latest,
+                            old_keys.row(row).as_ref().to_vec(),
+                            row * 2,
+                            ChangeOperation::Delete,
+                            ValueSource::OldPrimaryKey(row),
+                            changed,
+                            &self.primary_key_indexes,
+                            self.source_versions[row],
+                        )?;
+                        apply_collapsed_event(
+                            &mut latest,
+                            keys.row(row).as_ref().to_vec(),
+                            row * 2 + 1,
+                            ChangeOperation::Create,
+                            ValueSource::Current(row),
+                            changed,
+                            &self.primary_key_indexes,
+                            self.source_versions[row],
+                        )?;
+                    }
+                    ChangeOperation::Delete => {
+                        apply_collapsed_event(
+                            &mut latest,
+                            old_keys.row(row).as_ref().to_vec(),
+                            row * 2,
+                            operation,
+                            ValueSource::OldPrimaryKey(row),
+                            changed,
+                            &self.primary_key_indexes,
+                            self.source_versions[row],
+                        )?;
+                    }
+                }
+            } else {
+                apply_collapsed_event(
+                    &mut latest,
+                    keys.row(row).as_ref().to_vec(),
+                    row,
+                    operation,
+                    ValueSource::Current(row),
+                    changed,
+                    &self.primary_key_indexes,
+                    self.source_versions[row],
+                )?;
+            }
+        }
+        let mut selected = latest.into_values().collect::<Vec<_>>();
+        selected.sort_unstable_by_key(|row| row.final_position);
+
+        self.materialize_runs(&selected)
+    }
+
+    fn collapsed_runs_without_old_values(&self, keys: &Rows) -> anyhow::Result<Vec<ChangelogRun>> {
         let mut latest = HashMap::<Row<'_>, CollapsedRow>::with_capacity(self.rows.num_rows());
         for row in 0..self.rows.num_rows() {
             let operation = self.operations[row];
             let changed = &self.changed_columns[row];
             match latest.entry(keys.row(row)) {
                 std::collections::hash_map::Entry::Vacant(entry) => {
+                    let source = ValueSource::Current(row);
                     let value_rows = if operation == ChangeOperation::Delete {
                         (0..self.rows.num_columns())
-                            .map(|index| self.primary_key_indexes.contains(&index).then_some(row))
+                            .map(|index| {
+                                self.primary_key_indexes.contains(&index).then_some(source)
+                            })
                             .collect()
                     } else {
                         changed
                             .iter()
-                            .map(|changed| changed.then_some(row))
+                            .map(|changed| changed.then_some(source))
                             .collect()
                     };
                     entry.insert(CollapsedRow {
-                        final_row: row,
+                        final_position: row,
                         operation,
                         value_rows,
                         source_version: self.source_versions[row],
@@ -115,10 +213,11 @@ impl ChangelogBatch {
                 }
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
                     let collapsed = entry.get_mut();
+                    let source = ValueSource::Current(row);
                     match operation {
                         ChangeOperation::Create | ChangeOperation::SnapshotRead => {
                             collapsed.operation = operation;
-                            collapsed.value_rows.fill(Some(row));
+                            collapsed.value_rows.fill(Some(source));
                         }
                         ChangeOperation::Update => {
                             anyhow::ensure!(
@@ -131,29 +230,37 @@ impl ChangelogBatch {
                             ) {
                                 collapsed.operation = ChangeOperation::Update;
                             }
-                            for (source, changed) in
+                            for (value_source, changed) in
                                 collapsed.value_rows.iter_mut().zip(changed)
                             {
                                 if *changed {
-                                    *source = Some(row);
+                                    *value_source = Some(source);
                                 }
                             }
                         }
                         ChangeOperation::Delete => {
                             collapsed.operation = ChangeOperation::Delete;
-                            for (index, source) in collapsed.value_rows.iter_mut().enumerate() {
-                                *source = self.primary_key_indexes.contains(&index).then_some(row);
+                            for (index, value_source) in
+                                collapsed.value_rows.iter_mut().enumerate()
+                            {
+                                *value_source = self
+                                    .primary_key_indexes
+                                    .contains(&index)
+                                    .then_some(source);
                             }
                         }
                     }
-                    collapsed.final_row = row;
+                    collapsed.final_position = row;
                     collapsed.source_version = self.source_versions[row];
                 }
             }
         }
         let mut selected = latest.into_values().collect::<Vec<_>>();
-        selected.sort_unstable_by_key(|row| row.final_row);
+        selected.sort_unstable_by_key(|row| row.final_position);
+        self.materialize_runs(&selected)
+    }
 
+    fn materialize_runs(&self, selected: &[CollapsedRow]) -> anyhow::Result<Vec<ChangelogRun>> {
         let mut runs = Vec::new();
         let mut start = 0;
         while start < selected.len() {
@@ -188,11 +295,33 @@ impl ChangelogBatch {
                         .map(|row| {
                             row.value_rows[column_index]
                                 .ok_or_else(|| anyhow::anyhow!("collapsed changelog column source is missing"))
-                                .and_then(|row| u32::try_from(row).map_err(Into::into))
+                                .and_then(|source| match source {
+                                    ValueSource::Current(row) => u32::try_from(row).map_err(Into::into),
+                                    ValueSource::OldPrimaryKey(row) => u32::try_from(
+                                        self.rows.num_rows().checked_add(row).ok_or_else(|| anyhow::anyhow!("old-value row index overflow"))?
+                                    ).map_err(Into::into),
+                                })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
+                    let source: ArrayRef = if self.primary_key_indexes.contains(&column_index) {
+                        let old_index = self
+                            .primary_key_indexes
+                            .iter()
+                            .position(|index| *index == column_index)
+                            .ok_or_else(|| anyhow::anyhow!("primary-key projection is inconsistent"))?;
+                        if let Some(old) = &self.old_primary_keys {
+                            concat(&[
+                                self.rows.column(column_index).as_ref(),
+                                old.column(old_index).as_ref(),
+                            ])?
+                        } else {
+                            self.rows.column(column_index).clone()
+                        }
+                    } else {
+                        self.rows.column(column_index).clone()
+                    };
                     take(
-                        self.rows.column(column_index).as_ref(),
+                        source.as_ref(),
                         &UInt32Array::from(indexes),
                         None,
                     )
@@ -221,6 +350,74 @@ impl ChangelogBatch {
         }
         Ok(runs)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_collapsed_event(
+    latest: &mut HashMap<Vec<u8>, CollapsedRow>,
+    key: Vec<u8>,
+    position: usize,
+    operation: ChangeOperation,
+    value_source: ValueSource,
+    changed: &[bool],
+    primary_key_indexes: &[usize],
+    source_version: u64,
+) -> anyhow::Result<()> {
+    match latest.entry(key) {
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            let value_rows = if operation == ChangeOperation::Delete {
+                (0..changed.len())
+                    .map(|index| primary_key_indexes.contains(&index).then_some(value_source))
+                    .collect()
+            } else {
+                changed
+                    .iter()
+                    .map(|changed| changed.then_some(value_source))
+                    .collect()
+            };
+            entry.insert(CollapsedRow {
+                final_position: position,
+                operation,
+                value_rows,
+                source_version,
+            });
+        }
+        std::collections::hash_map::Entry::Occupied(mut entry) => {
+            let collapsed = entry.get_mut();
+            match operation {
+                ChangeOperation::Create | ChangeOperation::SnapshotRead => {
+                    collapsed.operation = operation;
+                    collapsed.value_rows.fill(Some(value_source));
+                }
+                ChangeOperation::Update => {
+                    anyhow::ensure!(
+                        collapsed.operation != ChangeOperation::Delete,
+                        "changelog updates a deleted primary key without recreating it"
+                    );
+                    if !matches!(
+                        collapsed.operation,
+                        ChangeOperation::Create | ChangeOperation::SnapshotRead
+                    ) {
+                        collapsed.operation = ChangeOperation::Update;
+                    }
+                    for (source, changed) in collapsed.value_rows.iter_mut().zip(changed) {
+                        if *changed {
+                            *source = Some(value_source);
+                        }
+                    }
+                }
+                ChangeOperation::Delete => {
+                    collapsed.operation = ChangeOperation::Delete;
+                    for (index, source) in collapsed.value_rows.iter_mut().enumerate() {
+                        *source = primary_key_indexes.contains(&index).then_some(value_source);
+                    }
+                }
+            }
+            collapsed.final_position = position;
+            collapsed.source_version = source_version;
+        }
+    }
+    Ok(())
 }
 
 pub fn project_sink_batch(
@@ -295,7 +492,9 @@ pub fn project_sink_batch(
         .incoming_schema
         .columns
         .iter()
-        .filter(|column| !system_names.contains(column.name.as_str()))
+        .filter(|column| {
+            column.old_value_of.is_none() && !system_names.contains(column.name.as_str())
+        })
         .map(|column| column.name.as_str())
         .collect::<Vec<_>>();
     anyhow::ensure!(
@@ -390,7 +589,8 @@ pub fn project_sink_batch(
     let primary_key_columns = primary_key_indexes
         .iter()
         .map(|&index| dataset.stored_schema.columns[index].clone())
-        .collect();
+        .collect::<Vec<_>>();
+    let old_primary_keys = old_primary_key_batch(dataset, batch, &primary_key_columns)?;
     Ok(ProjectedSinkBatch::Changelog(ChangelogBatch {
         rows: stored,
         operations: parsed_operations,
@@ -400,7 +600,72 @@ pub fn project_sink_batch(
         stored_columns: dataset.stored_schema.columns.clone(),
         source_versions: parsed_source_versions,
         changed_columns: parsed_changed_columns,
+        old_primary_keys,
     }))
+}
+
+fn old_primary_key_batch(
+    dataset: &crate::delivery::DiscoveredDataset,
+    batch: &SinkBatch,
+    primary_keys: &[SchemaColumn],
+) -> anyhow::Result<Option<RecordBatch>> {
+    let old_columns = dataset
+        .incoming_schema
+        .columns
+        .iter()
+        .filter_map(|column| column.old_value_of.as_deref().map(|current| (current, column)))
+        .collect::<HashMap<_, _>>();
+    if old_columns.is_empty() {
+        return Ok(None);
+    }
+    let schema = batch.batch.schema();
+    let indexes = primary_keys
+        .iter()
+        .map(|key| {
+            let old = old_columns.get(key.name.as_str()).ok_or_else(|| {
+                anyhow::anyhow!("primary-key column '{}' has no old-value pair", key.name)
+            })?;
+            schema.index_of(&old.name).map_err(|_| {
+                anyhow::anyhow!("old-value column '{}' is absent from the Arrow batch", old.name)
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let arrays = indexes
+        .iter()
+        .map(|index| batch.batch.column(*index).clone())
+        .collect::<Vec<_>>();
+    let fields = primary_keys
+        .iter()
+        .map(|key| Arc::new(Field::new(&key.name, key.data_type.clone(), true)))
+        .collect::<Vec<_>>();
+    let old = RecordBatch::try_new(Arc::new(arrow::datatypes::Schema::new(fields)), arrays)?;
+    for row in 0..batch.rows() {
+        let requires_old = matches!(
+            batch
+                .batch
+                .column(
+                    batch
+                        .system_columns
+                        .get(SystemColumnKind::ChangeOperation)
+                        .ok_or_else(|| anyhow::anyhow!("old-value batch has no change operation"))?
+                        .index
+                )
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("change operation must be Utf8"))?
+                .value(row),
+            "u" | "d"
+        );
+        for (column, key) in old.columns().iter().zip(primary_keys) {
+            anyhow::ensure!(
+                requires_old == !column.is_null(row),
+                "changelog row {row} old primary-key column '{}' must be {}",
+                key.name,
+                if requires_old { "present" } else { "null" },
+            );
+        }
+    }
+    Ok(Some(old))
 }
 
 fn decode_changed_columns(

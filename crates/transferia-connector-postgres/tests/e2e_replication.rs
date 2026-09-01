@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use transferia_connector_postgres::metrics::MetricsRegistry;
 use transferia_connector_postgres::postgres::PostgresSourceConnector;
 use transferia_core::data::message::SourceBatch;
+use transferia_core::data::schema::META_OLD_VALUE_OF;
 use transferia_core::data::system_columns::{SystemColumnKind, SystemColumns};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::{CommitMarker, Source};
@@ -68,6 +69,7 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
                  payload text NOT NULL\
              );\
              ALTER TABLE accounts ALTER COLUMN payload SET STORAGE EXTERNAL;\
+             ALTER TABLE accounts REPLICA IDENTITY FULL;\
              CREATE TABLE ignored (id integer PRIMARY KEY);\
              CREATE PUBLICATION transferia_publication FOR TABLE accounts, ignored;",
         )
@@ -106,8 +108,8 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     let wal2json_batch = read_changes(&mut wal2json).await?;
     assert_same_change_rows(&pgoutput_batch, &wal2json_batch);
     assert_eq!(operations(&pgoutput_batch), ["c", "u", "d"]);
-    assert_toasted_update_omits_only_the_unchanged_payload(&pgoutput_batch);
-    assert_toasted_update_omits_only_the_unchanged_payload(&wal2json_batch);
+    assert_replica_identity_full_preserves_toasted_and_old_values(&pgoutput_batch);
+    assert_replica_identity_full_preserves_toasted_and_old_values(&wal2json_batch);
 
     pgoutput
         .commit_offsets(std::slice::from_ref(&pgoutput_batch.marker))
@@ -248,7 +250,7 @@ fn assert_same_change_rows(left: &ChangeBatch, right: &ChangeBatch) {
     }
 }
 
-fn assert_toasted_update_omits_only_the_unchanged_payload(batch: &ChangeBatch) {
+fn assert_replica_identity_full_preserves_toasted_and_old_values(batch: &ChangeBatch) {
     let changed = batch
         .system_columns
         .get(SystemColumnKind::ChangedColumns)
@@ -260,9 +262,27 @@ fn assert_toasted_update_omits_only_the_unchanged_payload(batch: &ChangeBatch) {
         .downcast_ref::<arrow::array::BinaryArray>()
         .expect("changed-columns binary array");
     assert_eq!(masks.value(0), &[0b1111]);
-    assert_eq!(masks.value(1), &[0b0111]);
+    assert_eq!(masks.value(1), &[0b1111]);
     assert_eq!(masks.value(2), &[0b0001]);
-    assert!(batch.batch.column(3).is_null(1));
+    assert!(!batch.batch.column(3).is_null(1));
+
+    let schema = batch.batch.schema();
+    let old = schema
+        .fields()
+        .iter()
+        .filter_map(|field| {
+            field
+                .metadata()
+                .get(META_OLD_VALUE_OF)
+                .map(|current| (current.as_str(), schema.index_of(field.name()).unwrap()))
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    assert_eq!(old.len(), 4);
+    for index in old.values() {
+        assert!(batch.batch.column(*index).is_null(0));
+        assert!(!batch.batch.column(*index).is_null(1));
+        assert!(!batch.batch.column(*index).is_null(2));
+    }
 }
 
 fn operations(batch: &ChangeBatch) -> Vec<&str> {

@@ -16,14 +16,15 @@ use super::config::{LogicalDecoder, PostgresReplicationConfig};
 use super::event::{ChangeEvent, LogicalValue, OldValuesKind};
 use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
 use super::wal2json;
-use crate::connectors::postgres::src_batch::DiscoveredTable;
+use crate::connectors::postgres::src_batch::{old_value_column_name, DiscoveredTable};
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
-use transferia_core::data::schema::META_CHANGE_OPERATION;
+use transferia_core::data::schema::{META_CHANGE_OPERATION, META_OLD_VALUE_OF};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::{CommitMarker, Source};
+use transferia_core::ChangeOperation;
 
 pub(crate) struct PostgresReplicationSource {
     client: Client,
@@ -234,6 +235,12 @@ pub(super) fn normalize_pgoutput_event(
     table: &DiscoveredTable,
     mut decoded: PgOutputEvent,
 ) -> anyhow::Result<ChangeEvent> {
+    anyhow::ensure!(
+        (decoded.relation.replica_identity == b'f') == table.replica_identity_full,
+        "pgoutput relation '{}.{}' replica identity changed after discovery",
+        decoded.event.schema,
+        decoded.event.table,
+    );
     anyhow::ensure!(
         decoded.relation.columns.len() == table.schema.columns.len(),
         "pgoutput relation '{}.{}' has {} columns, discovery declared {}",
@@ -455,14 +462,40 @@ pub(super) fn events_to_table_data(
     table: &DiscoveredTable,
     events: &[ChangeEvent],
 ) -> anyhow::Result<TableData> {
-    let mut fields = Vec::with_capacity(table.schema.columns.len() + 6);
-    let mut arrays = Vec::with_capacity(table.schema.columns.len() + 6);
+    validate_old_values(table, events)?;
+    let old_columns = usize::from(table.replica_identity_full) * table.schema.columns.len();
+    let mut fields = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
+    let mut arrays = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
     for (index, column) in table.schema.columns.iter().enumerate() {
         fields.push(
             Field::new(&column.name, column.data_type.clone(), true)
                 .with_metadata(column.arrow_metadata()),
         );
-        arrays.push(logical_array(events, index, &column.data_type)?);
+        arrays.push(logical_array(
+            events,
+            index,
+            &column.data_type,
+            LogicalProjection::Current {
+                old_fallback: table.replica_identity_full,
+            },
+        )?);
+    }
+    if table.replica_identity_full {
+        for (index, column) in table.schema.columns.iter().enumerate() {
+            fields.push(
+                Field::new(old_value_column_name(index), column.data_type.clone(), true)
+                    .with_metadata(HashMap::from([(
+                        META_OLD_VALUE_OF.to_owned(),
+                        column.name.clone(),
+                    )])),
+            );
+            arrays.push(logical_array(
+                events,
+                index,
+                &column.data_type,
+                LogicalProjection::Old,
+            )?);
+        }
     }
     let routing_index = fields.len();
     let routing = [
@@ -572,7 +605,8 @@ fn changed_columns_mask(
                 true
             }
             transferia_core::ChangeOperation::Update => {
-                !matches!(event.values[index], LogicalValue::UnchangedToast)
+                table.replica_identity_full
+                    || !matches!(event.values[index], LogicalValue::UnchangedToast)
             }
             transferia_core::ChangeOperation::Delete => column.primary_key,
         };
@@ -587,13 +621,14 @@ fn logical_array(
     events: &[ChangeEvent],
     index: usize,
     data_type: &DataType,
+    projection: LogicalProjection,
 ) -> anyhow::Result<ArrayRef> {
     macro_rules! parsed {
         ($ty:ty, $array:ty) => {{
             Arc::new(<$array>::from(
                 events
                     .iter()
-                    .map(|event| parse_value::<$ty>(event_value(event, index)))
+                    .map(|event| parse_value::<$ty>(event_value(event, index, projection)))
                     .collect::<anyhow::Result<Vec<_>>>()?,
             )) as ArrayRef
         }};
@@ -602,13 +637,13 @@ fn logical_array(
         DataType::Boolean => Arc::new(BooleanArray::from(
             events
                 .iter()
-                .map(|event| parse_bool(event_value(event, index)))
+                .map(|event| parse_bool(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Int8 => Arc::new(Int8Array::from(
             events
                 .iter()
-                .map(|event| parse_postgres_char(event_value(event, index)))
+                .map(|event| parse_postgres_char(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Int16 => parsed!(i16, Int16Array),
@@ -620,26 +655,77 @@ fn logical_array(
         DataType::Binary => Arc::new(BinaryArray::from_iter(
             events
                 .iter()
-                .map(|event| parse_binary(event_value(event, index)))
+                .map(|event| parse_binary(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         DataType::Utf8 => Arc::new(StringArray::from_iter(
             events
                 .iter()
-                .map(|event| parse_text(event_value(event, index)))
+                .map(|event| parse_text(event_value(event, index, projection)))
                 .collect::<anyhow::Result<Vec<_>>>()?,
         )) as ArrayRef,
         other => anyhow::bail!("unsupported PostgreSQL CDC Arrow type {other:?}"),
     })
 }
 
-fn event_value(event: &ChangeEvent, index: usize) -> &LogicalValue {
-    if event.operation == transferia_core::ChangeOperation::Delete {
-        if let Some(old_values) = &event.old_values {
-            return &old_values[index];
+#[derive(Clone, Copy)]
+enum LogicalProjection {
+    Current { old_fallback: bool },
+    Old,
+}
+
+static NULL_LOGICAL_VALUE: LogicalValue = LogicalValue::Null;
+
+fn event_value(
+    event: &ChangeEvent,
+    index: usize,
+    projection: LogicalProjection,
+) -> &LogicalValue {
+    match projection {
+        LogicalProjection::Old => event
+            .old_values
+            .as_ref()
+            .map_or(&NULL_LOGICAL_VALUE, |values| &values[index]),
+        LogicalProjection::Current { old_fallback } => {
+            if event.operation == ChangeOperation::Delete {
+                if let Some(old_values) = &event.old_values {
+                    return &old_values[index];
+                }
+            }
+            if old_fallback && matches!(event.values[index], LogicalValue::UnchangedToast) {
+                if let Some(old_values) = &event.old_values {
+                    return &old_values[index];
+                }
+            }
+            &event.values[index]
         }
     }
-    &event.values[index]
+}
+
+fn validate_old_values(table: &DiscoveredTable, events: &[ChangeEvent]) -> anyhow::Result<()> {
+    for (row, event) in events.iter().enumerate() {
+        let requires_old = matches!(
+            event.operation,
+            ChangeOperation::Update | ChangeOperation::Delete
+        );
+        if table.replica_identity_full {
+            anyhow::ensure!(
+                !requires_old
+                    || (event.old_values_kind == Some(OldValuesKind::Full)
+                        && event
+                            .old_values
+                            .as_ref()
+                            .is_some_and(|values| {
+                                values.len() == table.schema.columns.len()
+                                    && values
+                                        .iter()
+                                        .all(|value| !matches!(value, LogicalValue::UnchangedToast))
+                            })),
+                "PostgreSQL REPLICA IDENTITY FULL row {row} has no complete old tuple",
+            );
+        }
+    }
+    Ok(())
 }
 
 fn parse_text(value: &LogicalValue) -> anyhow::Result<Option<&str>> {

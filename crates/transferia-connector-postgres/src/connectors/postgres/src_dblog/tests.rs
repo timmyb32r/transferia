@@ -11,7 +11,9 @@ use super::reader::{
 use super::event::LogicalValue;
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn, META_CHANGE_OPERATION};
+use transferia_core::data::schema::{
+    DatasetSchema, SchemaColumn, META_CHANGE_OPERATION, META_OLD_VALUE_OF,
+};
 use transferia_core::data::system_columns::SystemColumnKind;
 
 const RELATION_ID: u32 = 42;
@@ -215,6 +217,56 @@ fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
 }
 
 #[test]
+fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows() {
+    let mut table = discovered_table();
+    table.replica_identity_full = true;
+    let mut decoder = PgOutputDecoder::default();
+    for message in [
+        relation_message_with_identity(b'f'),
+        begin_message(),
+        full_identity_update_message(),
+    ] {
+        assert!(decoder.decode(&message).unwrap().is_empty());
+    }
+    let events = decoder
+        .decode(&commit_message())
+        .unwrap()
+        .into_iter()
+        .map(|event| normalize_pgoutput_event(&table, event).unwrap())
+        .collect::<Vec<_>>();
+    let data = events_to_table_data(&table, &events).unwrap();
+
+    assert_eq!(data.batch.num_columns(), 3 + 3 + 6);
+    let schema = data.batch.schema();
+    for (index, column) in table.schema.columns.iter().enumerate() {
+        let old = schema.field(3 + index);
+        assert_eq!(
+            old.metadata().get(META_OLD_VALUE_OF),
+            Some(&column.name)
+        );
+    }
+    let current_ids = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
+    let current_names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let old_ids = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
+    let old_names = data.batch.column(4).as_any().downcast_ref::<StringArray>().unwrap();
+    assert_eq!(current_ids.value(0), 2);
+    assert_eq!(current_names.value(0), "alice");
+    assert_eq!(old_ids.value(0), 1);
+    assert_eq!(old_names.value(0), "alice");
+    let changed = data
+        .system_columns
+        .get(SystemColumnKind::ChangedColumns)
+        .unwrap();
+    let changed = data
+        .batch
+        .column(changed.index)
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .unwrap();
+    assert_eq!(changed.value(0), &[0b111]);
+}
+
+#[test]
 fn pgoutput_uses_commit_end_lsn_as_the_durable_offset() {
     let mut decoder = PgOutputDecoder::default();
     for message in [relation_message(), begin_message(), insert_message()] {
@@ -312,16 +364,21 @@ fn discovered_table() -> DiscoveredTable {
             SchemaColumn::new("balance".into(), DataType::Int64, false),
         ]),
         type_oids: vec![23, 25, 20],
+        replica_identity_full: false,
     }
 }
 
 fn relation_message() -> Vec<u8> {
+    relation_message_with_identity(b'd')
+}
+
+fn relation_message_with_identity(identity: u8) -> Vec<u8> {
     let mut message = BytesMut::new();
     message.put_u8(b'R');
     message.put_u32(RELATION_ID);
     put_cstring(&mut message, "public");
     put_cstring(&mut message, "accounts");
-    message.put_u8(b'd');
+    message.put_u8(identity);
     message.put_u16(3);
     for (key, name, oid) in [(true, "id", 23), (false, "name", 25), (false, "balance", 20)] {
         message.put_u8(u8::from(key));
@@ -368,6 +425,17 @@ fn toasted_update_message() -> Vec<u8> {
         b'U',
         Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
         [WireValue::Text("1"), WireValue::Unchanged, WireValue::Text("11")],
+    )
+}
+
+fn full_identity_update_message() -> Vec<u8> {
+    row_message(
+        b'U',
+        Some((
+            b'O',
+            [WireValue::Text("1"), WireValue::Text("alice"), WireValue::Text("10")],
+        )),
+        [WireValue::Text("2"), WireValue::Unchanged, WireValue::Text("11")],
     )
 }
 
