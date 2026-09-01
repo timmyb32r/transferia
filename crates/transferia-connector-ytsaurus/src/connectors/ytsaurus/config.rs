@@ -66,12 +66,12 @@ fn default_primary_medium() -> String {
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct YTsaurusJsonEntry {
+pub struct YTsaurusYsonEntry {
     pub name: String,
 
     #[schemars(
-        title = "JSON value",
-        description = "Exact JSON representation of the YT attribute value"
+        title = "YSON value",
+        description = "Exact text YSON representation of the YT attribute value"
     )]
     pub value: String,
 }
@@ -1073,7 +1073,7 @@ pub enum YTsaurusTableMode {
             description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
             extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
         )]
-        table_attributes: Vec<YTsaurusJsonEntry>,
+        table_attributes: Vec<YTsaurusYsonEntry>,
 
         #[serde(default)]
         #[schemars(
@@ -1097,7 +1097,7 @@ pub enum YTsaurusTableMode {
             description = "Additional YT table_writer parameters. Explicit entries override Transferia's writer defaults.",
             extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "parameter" })
         )]
-        spec: Vec<YTsaurusJsonEntry>,
+        spec: Vec<YTsaurusYsonEntry>,
 
         #[serde(default)]
         #[schemars(
@@ -1139,7 +1139,7 @@ pub enum YTsaurusTableMode {
             description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
             extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
         )]
-        table_attributes: Vec<YTsaurusJsonEntry>,
+        table_attributes: Vec<YTsaurusYsonEntry>,
 
         #[serde(default)]
         #[schemars(
@@ -1311,7 +1311,7 @@ impl YTsaurusSinkConfig {
         }
     }
 
-    fn table_attributes(&self) -> &[YTsaurusJsonEntry] {
+    fn table_attributes(&self) -> &[YTsaurusYsonEntry] {
         match &self.tables {
             YTsaurusTableMode::StaticTables {
                 table_attributes, ..
@@ -1432,7 +1432,7 @@ impl YTsaurusSinkConfig {
     pub(super) fn parsed_table_attributes(
         &self,
     ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
-        let attributes = parse_json_entries(self.table_attributes(), "YTsaurus table attribute")?;
+        let attributes = parse_yson_entries(self.table_attributes(), "YTsaurus table attribute")?;
         for name in attributes.keys() {
             anyhow::ensure!(
                 !RESERVED_TABLE_ATTRIBUTES.contains(&name.as_str()),
@@ -1447,12 +1447,12 @@ impl YTsaurusSinkConfig {
             YTsaurusTableMode::StaticTables { spec, .. } => spec,
             YTsaurusTableMode::DynamicTables { .. } => return Ok(BTreeMap::new()),
         };
-        parse_json_entries(entries, "YT Spec")
+        parse_yson_entries(entries, "YT Spec")
     }
 }
 
-fn parse_json_entries(
-    entries: &[YTsaurusJsonEntry],
+fn parse_yson_entries(
+    entries: &[YTsaurusYsonEntry],
     subject: &str,
 ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
     let mut values = BTreeMap::new();
@@ -1461,9 +1461,9 @@ fn parse_json_entries(
             !entry.name.is_empty() && !entry.name.contains('\0'),
             "{subject} parameter names must be non-empty and contain no NUL"
         );
-        let value = serde_json::from_str(&entry.value).map_err(|error| {
+        let value = parse_text_yson(&entry.value).map_err(|error| {
             anyhow::anyhow!(
-                "{subject} parameter '{}' has invalid JSON: {error}",
+                "{subject} parameter '{}' has invalid YSON: {error}",
                 entry.name
             )
         })?;
@@ -1474,6 +1474,165 @@ fn parse_json_entries(
         );
     }
     Ok(values)
+}
+
+fn parse_text_yson(input: &str) -> anyhow::Result<serde_json::Value> {
+    let mut parser = TextYsonParser {
+        input: input.as_bytes(),
+        offset: 0,
+    };
+    let value = parser.value()?;
+    parser.whitespace();
+    anyhow::ensure!(parser.offset == parser.input.len(), "unexpected trailing input");
+    Ok(value)
+}
+
+struct TextYsonParser<'a> {
+    input: &'a [u8],
+    offset: usize,
+}
+
+impl TextYsonParser<'_> {
+    fn value(&mut self) -> anyhow::Result<serde_json::Value> {
+        self.whitespace();
+        match self.peek() {
+            Some(b'#') => {
+                self.offset += 1;
+                Ok(serde_json::Value::Null)
+            }
+            Some(b'{') => self.map(b'{', b'}').map(serde_json::Value::Object),
+            Some(b'[') => self.list(),
+            Some(b'<') => {
+                let attributes = self.map(b'<', b'>')?;
+                let value = self.value()?;
+                Ok(serde_json::json!({ "$attributes": attributes, "$value": value }))
+            }
+            Some(b'"') => Ok(serde_json::Value::String(self.quoted()?)),
+            Some(_) => self.scalar(),
+            None => anyhow::bail!("value is empty"),
+        }
+    }
+
+    fn map(
+        &mut self,
+        opening: u8,
+        closing: u8,
+    ) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
+        self.expect(opening)?;
+        let mut output = serde_json::Map::new();
+        loop {
+            self.whitespace();
+            if self.take(closing) {
+                return Ok(output);
+            }
+            let key = if self.peek() == Some(b'"') {
+                self.quoted()?
+            } else {
+                self.token(&[b'='])?
+            };
+            anyhow::ensure!(!key.is_empty(), "map key is empty");
+            self.expect(b'=')?;
+            let value = self.value()?;
+            anyhow::ensure!(output.insert(key.clone(), value).is_none(), "duplicate key '{key}'");
+            self.separator_or_end(closing)?;
+        }
+    }
+
+    fn list(&mut self) -> anyhow::Result<serde_json::Value> {
+        self.expect(b'[')?;
+        let mut output = Vec::new();
+        loop {
+            self.whitespace();
+            if self.take(b']') {
+                return Ok(serde_json::Value::Array(output));
+            }
+            output.push(self.value()?);
+            self.separator_or_end(b']')?;
+        }
+    }
+
+    fn scalar(&mut self) -> anyhow::Result<serde_json::Value> {
+        let token = self.token(&[b';', b',', b']', b'}', b'>'])?;
+        match token.as_str() {
+            "%true" => Ok(serde_json::Value::Bool(true)),
+            "%false" => Ok(serde_json::Value::Bool(false)),
+            token if token.ends_with('u') => {
+                let value = token[..token.len() - 1].parse::<u64>()?;
+                Ok(serde_json::json!({ "$uint64": value.to_string() }))
+            }
+            "%nan" | "%inf" | "%-inf" => {
+                Ok(serde_json::json!({ "$double": token }))
+            }
+            token if token.starts_with('%') => anyhow::bail!("invalid YSON scalar '{token}'"),
+            token => match token.parse::<serde_json::Number>() {
+                Ok(number) => Ok(serde_json::Value::Number(number)),
+                Err(_) if !token.is_empty() => Ok(serde_json::Value::String(token.to_owned())),
+                Err(error) => Err(error.into()),
+            },
+        }
+    }
+
+    fn quoted(&mut self) -> anyhow::Result<String> {
+        let start = self.offset;
+        self.expect(b'"')?;
+        let mut escaped = false;
+        while let Some(byte) = self.peek() {
+            self.offset += 1;
+            if byte == b'"' && !escaped {
+                return Ok(serde_json::from_slice(&self.input[start..self.offset])?);
+            }
+            escaped = byte == b'\\' && !escaped;
+            if byte != b'\\' {
+                escaped = false;
+            }
+        }
+        anyhow::bail!("unterminated quoted string")
+    }
+
+    fn token(&mut self, delimiters: &[u8]) -> anyhow::Result<String> {
+        self.whitespace();
+        let start = self.offset;
+        while let Some(byte) = self.peek() {
+            if delimiters.contains(&byte) || byte.is_ascii_whitespace() {
+                break;
+            }
+            self.offset += 1;
+        }
+        Ok(std::str::from_utf8(&self.input[start..self.offset])?.to_owned())
+    }
+
+    fn separator_or_end(&mut self, closing: u8) -> anyhow::Result<()> {
+        self.whitespace();
+        if self.peek() == Some(closing) {
+            return Ok(());
+        }
+        anyhow::ensure!(self.take(b';') || self.take(b','), "expected a separator");
+        Ok(())
+    }
+
+    fn expect(&mut self, expected: u8) -> anyhow::Result<()> {
+        self.whitespace();
+        anyhow::ensure!(self.take(expected), "expected '{}'", char::from(expected));
+        Ok(())
+    }
+
+    fn take(&mut self, expected: u8) -> bool {
+        if self.peek() != Some(expected) {
+            return false;
+        }
+        self.offset += 1;
+        true
+    }
+
+    fn whitespace(&mut self) {
+        while self.peek().is_some_and(|byte| byte.is_ascii_whitespace()) {
+            self.offset += 1;
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.input.get(self.offset).copied()
+    }
 }
 
 pub fn validate_path(path: &str) -> anyhow::Result<()> {

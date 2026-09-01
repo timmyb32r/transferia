@@ -1016,6 +1016,25 @@ pub(super) fn yson_header_value(value: &Value) -> anyhow::Result<String> {
                         .ok_or_else(|| anyhow::anyhow!("YSON envelope has no $value"))?,
                 )?;
             }
+            Value::Object(object) if object.len() == 1 && object.contains_key("$uint64") => {
+                let value = object
+                    .get("$uint64")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("YSON $uint64 value must be a string"))?;
+                value
+                    .parse::<u64>()
+                    .map_err(|error| anyhow::anyhow!("invalid YSON uint64: {error}"))?;
+                output.push_str(value);
+                output.push('u');
+            }
+            Value::Object(object) if object.len() == 1 && object.contains_key("$double") => {
+                let value = object
+                    .get("$double")
+                    .and_then(Value::as_str)
+                    .filter(|value| matches!(*value, "%nan" | "%inf" | "%-inf"))
+                    .ok_or_else(|| anyhow::anyhow!("invalid YSON $double value"))?;
+                output.push_str(value);
+            }
             Value::Object(object) => {
                 let mut entries = object.iter().collect::<Vec<_>>();
                 entries.sort_unstable_by_key(|(key, _)| key.as_str());

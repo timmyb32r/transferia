@@ -403,8 +403,13 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
 #[test]
 fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -> anyhow::Result<()>
 {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig))?;
+    let encoded = schema.to_string();
+    assert!(encoded.contains("\"title\":\"YSON value\""));
+    assert!(!encoded.contains("\"title\":\"JSON value\""));
+
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
-        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: compression_codec, value: '\"zstd_3\"' }, { name: custom_nested, value: '{\"enabled\":true,\"levels\":[1,2]}' }] }\n\
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: compression_codec, value: '\"zstd_3\"' }, { name: custom_nested, value: '{enabled=%true;levels=[1;2;];}' }, { name: custom_unsigned, value: '18446744073709551615u' }, { name: attributed, value: '<source=\"explicit\";>42' }] }\n\
          auth: { type: token, token: test }\n\
          host: localhost\n\
          port: 8000\n\
@@ -423,6 +428,14 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
         attributes["custom_nested"]["levels"],
         serde_json::json!([1, 2])
     );
+    assert_eq!(
+        yson_header_value(&attributes["custom_unsigned"])?,
+        "18446744073709551615u"
+    );
+    assert_eq!(
+        yson_header_value(&attributes["attributed"])?,
+        "<\"source\"=\"explicit\";>42"
+    );
 
     let reserved: YTsaurusSinkConfig = serde_yaml::from_str(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: schema, value: '{}' }] }\n\
@@ -438,7 +451,7 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
 #[test]
 fn static_writer_spec_overrides_defaults_with_typed_values() -> anyhow::Result<()> {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
-        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, spec: [{ name: block_size, value: '8388608' }, { name: validate_sorted, value: 'true' }] }\n\
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, spec: [{ name: block_size, value: '8388608' }, { name: validate_sorted, value: '%true' }] }\n\
          auth: { type: token, token: test }\n\
          host: localhost\n\
          port: 8000\n\
