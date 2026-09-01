@@ -161,11 +161,13 @@ fn benchmark_discard_schema_has_no_visible_settings() {
     let parser_schema =
         serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
             .expect("parser schema must serialize");
-    assert!(parser_schema["anyOf"]
+    let discard = parser_schema["anyOf"]
         .as_array()
         .expect("parser variants")
         .iter()
-        .any(|variant| variant["title"] == "Discard messages (for benchmarks)"));
+        .find(|variant| variant["title"] == "Discard messages (for benchmarks)")
+        .expect("discard parser variant");
+    assert_eq!(discard["x-ui"]["order"], 1_000_000);
     assert_eq!(
         value["properties"]["benchmark_discard"]["x-ui"]["widget"],
         "hidden"

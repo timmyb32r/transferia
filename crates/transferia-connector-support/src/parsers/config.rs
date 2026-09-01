@@ -19,7 +19,10 @@ pub enum ParserSchema {
     SchemaRegistry(SchemaRegistryParserSchema),
     #[schemars(title = "Raw to table parser")]
     RawToTable(RawToTableParserSchema),
-    #[schemars(title = "Discard messages (for benchmarks)")]
+    #[schemars(
+        title = "Discard messages (for benchmarks)",
+        extend("x-ui" = { "order": 1000000 })
+    )]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }
 

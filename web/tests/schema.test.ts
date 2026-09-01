@@ -15,6 +15,28 @@ import { validateCatalogSchemas } from "../src/delivery/editorConfig";
 import type { JsonSchema, JsonValue } from "../src/types";
 
 describe("schema compiler", () => {
+  it("keeps explicitly trailing union variants at the end", () => {
+    const node = compileSchema({
+      anyOf: [
+        {
+          title: "Discard messages",
+          type: "object",
+          "x-ui": { order: 1_000_000 },
+        },
+        { title: "JSON parser", type: "object" },
+        { title: "TSKV parser", type: "object" },
+      ],
+    });
+
+    expect(node.kind).toBe("union");
+    if (node.kind !== "union") throw new Error("expected union");
+    expect(node.branches.map((branch) => branch.label)).toEqual([
+      "JSON parser",
+      "TSKV parser",
+      "Discard messages",
+    ]);
+  });
+
   it("validates every connector schema before the catalog becomes interactive", () => {
     expect(() =>
       validateCatalogSchemas(

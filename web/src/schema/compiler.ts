@@ -102,9 +102,24 @@ export function compileSchema(
       return {
         ...base,
         kind: "union",
-        branches: choices.map((choice, index) =>
-          compileBranch(choice, index, path, compile, root, activeReferences),
-        ),
+        branches: choices
+          .map((choice, index) => ({
+            branch: compileBranch(
+              choice,
+              index,
+              path,
+              compile,
+              root,
+              activeReferences,
+            ),
+            index,
+          }))
+          .sort(
+            (left, right) =>
+              (left.branch.node.xUi.order ?? 0) -
+                (right.branch.node.xUi.order ?? 0) || left.index - right.index,
+          )
+          .map(({ branch }) => branch),
       };
     }
     if (schema.enum !== undefined || schema.const !== undefined) {
