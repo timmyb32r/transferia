@@ -259,7 +259,7 @@ async fn discover_table(
         table.name
     );
     let columns = rows
-        .into_iter()
+        .iter()
         .map(column_plan)
         .collect::<anyhow::Result<Vec<_>>>()?;
     let schema = DatasetSchema::new(
@@ -286,13 +286,13 @@ async fn discover_table(
     })
 }
 
-fn column_plan(row: Row) -> anyhow::Result<ColumnPlan> {
-    let name = required::<String>(&row, "COLUMN_NAME")?;
+fn column_plan(row: &Row) -> anyhow::Result<ColumnPlan> {
+    let name = required::<String>(row, "COLUMN_NAME")?;
     validate_identifier("column", &name)?;
-    let data_type = required::<String>(&row, "DATA_TYPE")?.to_ascii_lowercase();
-    let column_type = required::<String>(&row, "COLUMN_TYPE")?.to_ascii_lowercase();
-    let nullable = required::<String>(&row, "IS_NULLABLE")? == "YES";
-    let primary_key = required::<String>(&row, "COLUMN_KEY")? == "PRI";
+    let data_type = required::<String>(row, "DATA_TYPE")?.to_ascii_lowercase();
+    let column_type = required::<String>(row, "COLUMN_TYPE")?.to_ascii_lowercase();
+    let nullable = required::<String>(row, "IS_NULLABLE")? == "YES";
+    let primary_key = required::<String>(row, "COLUMN_KEY")? == "PRI";
     let max_length = row
         .get::<Option<u64>, _>("CHARACTER_MAXIMUM_LENGTH")
         .flatten()

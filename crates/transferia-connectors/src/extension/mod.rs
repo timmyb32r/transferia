@@ -19,8 +19,8 @@ const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// schema change that would otherwise alter the composition fingerprint.
 const CORE_EXTENSION_ABI_VERSION: u32 = 3;
 
-pub use transferia_registry::{DynamicOption, DynamicOptions, EndpointRole, OptionsRequest};
 pub use transferia_connector_support::parsers::ParserPluginSpec as ExternalParserSpec;
+pub use transferia_registry::{DynamicOption, DynamicOptions, EndpointRole, OptionsRequest};
 
 #[derive(Clone, Debug)]
 pub struct OptionsContext {
@@ -221,17 +221,10 @@ pub struct ExtensionRegistry {
 }
 
 impl ExtensionRegistry {
-    pub fn register_parser<C, F>(
-        &mut self,
-        spec: ParserPluginSpec,
-        build: F,
-    ) -> anyhow::Result<()>
+    pub fn register_parser<C, F>(&mut self, spec: ParserPluginSpec, build: F) -> anyhow::Result<()>
     where
         C: DeserializeOwned + JsonSchema + Send + Sync + 'static,
-        F: Fn(&CommonParserConfig, C, &str) -> anyhow::Result<ParserPlan>
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(&CommonParserConfig, C, &str) -> anyhow::Result<ParserPlan> + Send + Sync + 'static,
     {
         self.parser_plugins.register(spec, build)
     }

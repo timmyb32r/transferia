@@ -36,7 +36,7 @@ pub(super) struct EncodedWireBatch {
 
 pub(super) fn encode_wire_batch(batch: &RecordBatch) -> anyhow::Result<EncodedWireBatch> {
     anyhow::ensure!(
-        batch.num_columns() <= usize::from(u16::MAX),
+        u16::try_from(batch.num_columns()).is_ok(),
         "YTsaurus wire rowset has too many columns"
     );
     let columns = batch
@@ -137,13 +137,27 @@ impl<'a> WireColumn<'a> {
             return Ok(());
         }
         match self {
-            Self::Int8(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
-            Self::Int16(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
-            Self::Int32(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as i64 as u64),
-            Self::Int64(array) => write_wire_scalar(output, id, VALUE_INT64, array.value(row) as u64),
-            Self::UInt8(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
-            Self::UInt16(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
-            Self::UInt32(array) => write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row))),
+            Self::Int8(array) => {
+                write_wire_scalar(output, id, VALUE_INT64, i64::from(array.value(row)) as u64);
+            }
+            Self::Int16(array) => {
+                write_wire_scalar(output, id, VALUE_INT64, i64::from(array.value(row)) as u64);
+            }
+            Self::Int32(array) => {
+                write_wire_scalar(output, id, VALUE_INT64, i64::from(array.value(row)) as u64);
+            }
+            Self::Int64(array) => {
+                write_wire_scalar(output, id, VALUE_INT64, array.value(row) as u64);
+            }
+            Self::UInt8(array) => {
+                write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row)));
+            }
+            Self::UInt16(array) => {
+                write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row)));
+            }
+            Self::UInt32(array) => {
+                write_wire_scalar(output, id, VALUE_UINT64, u64::from(array.value(row)));
+            }
             Self::UInt64(array) => write_wire_scalar(output, id, VALUE_UINT64, array.value(row)),
             Self::Float32(array) => write_wire_scalar(
                 output,
@@ -152,10 +166,10 @@ impl<'a> WireColumn<'a> {
                 f64::from(array.value(row)).to_bits(),
             ),
             Self::Float64(array) => {
-                write_wire_scalar(output, id, VALUE_DOUBLE, array.value(row).to_bits())
+                write_wire_scalar(output, id, VALUE_DOUBLE, array.value(row).to_bits());
             }
             Self::Boolean(array) => {
-                write_wire_scalar(output, id, VALUE_BOOLEAN, u64::from(array.value(row)))
+                write_wire_scalar(output, id, VALUE_BOOLEAN, u64::from(array.value(row)));
             }
             Self::Utf8(array) => write_wire_bytes(output, id, array.value(row).as_bytes())?,
             Self::LargeUtf8(array) => write_wire_bytes(output, id, array.value(row).as_bytes())?,

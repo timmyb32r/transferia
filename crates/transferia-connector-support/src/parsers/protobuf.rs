@@ -17,19 +17,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use transferia_core::data::message::{Message, MessageMeta};
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
-use transferia_core::data::system_columns::{
-    SystemColumn, SystemColumnKind, SystemColumns,
-};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::{dlq_name, TableData};
 
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 
 const PROTOSEQ_MAGIC: [u8; 32] = [
-    31, 247, 247, 126, 190, 166, 94, 158, 55, 166, 246, 46, 254, 174, 71, 167, 183, 110,
-    191, 175, 22, 158, 159, 55, 246, 87, 247, 102, 167, 6, 175, 247,
+    31, 247, 247, 126, 190, 166, 94, 158, 55, 166, 246, 46, 254, 174, 71, 167, 183, 110, 191, 175,
+    22, 158, 159, 55, 246, 87, 247, 102, 167, 6, 175, 247,
 ];
 const PROTOSEQ_MAX_RECORD_BYTES: usize = 64 * 1024 * 1024;
 
@@ -146,7 +142,10 @@ impl DescriptorSource {
     fn read(&self) -> anyhow::Result<Vec<u8>> {
         match self {
             Self::InlineBase64 { value } => {
-                anyhow::ensure!(!value.is_empty(), "protobuf descriptor base64 must not be empty");
+                anyhow::ensure!(
+                    !value.is_empty(),
+                    "protobuf descriptor base64 must not be empty"
+                );
                 base64::engine::general_purpose::STANDARD
                     .decode(value)
                     .map_err(Into::into)
@@ -191,11 +190,8 @@ impl ProtobufParser {
             &system_kinds,
         ));
         let dlq_schema = Arc::new(dlq_arrow_schema(system_config, &system_kinds));
-        let main_system_columns = system_columns(
-            system_config,
-            &system_kinds,
-            dataset_schema.columns.len(),
-        );
+        let main_system_columns =
+            system_columns(system_config, &system_kinds, dataset_schema.columns.len());
         let dlq_system_columns = system_columns(system_config, &system_kinds, 3);
         Ok(Self {
             root_descriptor,
@@ -240,11 +236,12 @@ impl ProtobufParser {
                 ))]
             }
         };
-        let field = self
-            .root_descriptor
-            .fields()
-            .next()
-            .expect("validated repeated wrapper field");
+        let Some(field) = self.root_descriptor.fields().next() else {
+            return vec![Err((
+                raw.to_vec(),
+                "protobuf repeated wrapper descriptor has no fields".to_owned(),
+            ))];
+        };
         let Value::List(items) = wrapper.get_field(&field).into_owned() else {
             return vec![Err((
                 raw.to_vec(),
@@ -313,7 +310,10 @@ fn compile_columns(
         .collect::<HashMap<_, _>>();
     let mut keys = HashSet::with_capacity(config.primary_key.len());
     for key in &config.primary_key {
-        anyhow::ensure!(!key.is_empty(), "protobuf primary-key names must not be empty");
+        anyhow::ensure!(
+            !key.is_empty(),
+            "protobuf primary-key names must not be empty"
+        );
         anyhow::ensure!(
             keys.insert(key.as_str()),
             "protobuf.primary_key repeats field '{key}'"
@@ -341,7 +341,10 @@ fn compile_columns(
     } else {
         let mut includes = HashSet::with_capacity(config.include_columns.len());
         for column in &config.include_columns {
-            anyhow::ensure!(!column.name.is_empty(), "protobuf column names must not be empty");
+            anyhow::ensure!(
+                !column.name.is_empty(),
+                "protobuf column names must not be empty"
+            );
             anyhow::ensure!(
                 includes.insert(column.name.as_str()),
                 "protobuf.include_columns repeats field '{}'",
@@ -366,7 +369,10 @@ fn compile_columns(
         }
     }
 
-    anyhow::ensure!(!selected.is_empty(), "protobuf output schema must not be empty");
+    anyhow::ensure!(
+        !selected.is_empty(),
+        "protobuf output schema must not be empty"
+    );
     let mut compiled = Vec::with_capacity(selected.len());
     let mut schema = Vec::with_capacity(selected.len());
     for (field, required) in selected {
@@ -399,9 +405,8 @@ fn arrow_type(field: &FieldDescriptor) -> DataType {
         Kind::Uint64 | Kind::Fixed64 => DataType::UInt64,
         Kind::Float => DataType::Float32,
         Kind::Double => DataType::Float64,
-        Kind::String => DataType::Utf8,
+        Kind::String | Kind::Message(_) => DataType::Utf8,
         Kind::Bytes => DataType::Binary,
-        Kind::Message(_) => DataType::Utf8,
     }
 }
 
@@ -467,7 +472,10 @@ fn parse_messages(
     let mut parsed = Vec::new();
     let mut rejected = Vec::new();
     for (source_index, source) in messages.iter().enumerate() {
-        for (message_index, row) in parser.decode_source(source.value.as_ref()).into_iter().enumerate()
+        for (message_index, row) in parser
+            .decode_source(source.value.as_ref())
+            .into_iter()
+            .enumerate()
         {
             let message_index = u64::try_from(message_index)?;
             match row {
@@ -498,7 +506,7 @@ fn parse_messages(
         .columns
         .iter()
         .map(|column| ColumnBuilder::new(&column.data_type, parsed.len()))
-        .collect::<Vec<_>>();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let mut systems = SystemBuilders::new(&parser.system_kinds, parsed.len());
     for row in &parsed {
         for (builder, value) in builders.iter_mut().zip(&row.values) {
@@ -579,7 +587,8 @@ fn decode_protoseq(
             )));
             break;
         }
-        let size = u32::from_le_bytes(remaining[..4].try_into().expect("four bytes")) as usize;
+        let size =
+            u32::from_le_bytes([remaining[0], remaining[1], remaining[2], remaining[3]]) as usize;
         let framed = &remaining[4..];
         let frame_end = size.saturating_add(PROTOSEQ_MAGIC.len());
         if size <= PROTOSEQ_MAX_RECORD_BYTES
@@ -609,7 +618,9 @@ fn decode_protoseq(
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn ensure_no_unknown_fields(message: &DynamicMessage) -> anyhow::Result<()> {
@@ -654,7 +665,7 @@ impl PreparedValue {
         }
         Ok(match value {
             Value::Bool(value) => Self::Bool(*value),
-            Value::I32(value) => Self::I32(*value),
+            Value::I32(value) | Value::EnumNumber(value) => Self::I32(*value),
             Value::I64(value) => Self::I64(*value),
             Value::U32(value) => Self::U32(*value),
             Value::U64(value) => Self::U64(*value),
@@ -662,9 +673,11 @@ impl PreparedValue {
             Value::F64(value) => Self::F64(*value),
             Value::String(value) => Self::String(value.clone()),
             Value::Bytes(value) => Self::Bytes(value.clone()),
-            Value::EnumNumber(value) => Self::I32(*value),
             Value::Message(_) | Value::List(_) | Value::Map(_) => {
-                anyhow::bail!("protobuf field '{}' has an unexpected value kind", field.name())
+                anyhow::bail!(
+                    "protobuf field '{}' has an unexpected value kind",
+                    field.name()
+                )
             }
         })
     }
@@ -673,15 +686,16 @@ impl PreparedValue {
 fn reflect_json(value: &Value) -> anyhow::Result<serde_json::Value> {
     Ok(match value {
         Value::Bool(value) => serde_json::Value::Bool(*value),
-        Value::I32(value) => (*value).into(),
+        Value::I32(value) | Value::EnumNumber(value) => (*value).into(),
         Value::I64(value) => (*value).into(),
         Value::U32(value) => (*value).into(),
         Value::U64(value) => (*value).into(),
         Value::F32(value) => float_json(f64::from(*value)),
         Value::F64(value) => float_json(*value),
         Value::String(value) => value.clone().into(),
-        Value::Bytes(value) => base64::engine::general_purpose::STANDARD.encode(value).into(),
-        Value::EnumNumber(value) => (*value).into(),
+        Value::Bytes(value) => base64::engine::general_purpose::STANDARD
+            .encode(value)
+            .into(),
         Value::Message(value) => serde_json::to_value(value)?,
         Value::List(values) => serde_json::Value::Array(
             values
@@ -735,8 +749,8 @@ enum ColumnBuilder {
 }
 
 impl ColumnBuilder {
-    fn new(data_type: &DataType, rows: usize) -> Self {
-        match data_type {
+    fn new(data_type: &DataType, rows: usize) -> anyhow::Result<Self> {
+        Ok(match data_type {
             DataType::Boolean => Self::Boolean(BooleanBuilder::with_capacity(rows)),
             DataType::Int32 => Self::Int32(Int32Builder::with_capacity(rows)),
             DataType::Int64 => Self::Int64(Int64Builder::with_capacity(rows)),
@@ -746,8 +760,8 @@ impl ColumnBuilder {
             DataType::Float64 => Self::Float64(Float64Builder::with_capacity(rows)),
             DataType::Utf8 => Self::String(StringBuilder::with_capacity(rows, rows * 32)),
             DataType::Binary => Self::Binary(BinaryBuilder::with_capacity(rows, rows * 32)),
-            other => unreachable!("compiled protobuf Arrow type {other:?}"),
-        }
+            other => anyhow::bail!("unsupported compiled protobuf Arrow type {other:?}"),
+        })
     }
 
     fn append(&mut self, value: &PreparedValue) -> anyhow::Result<()> {

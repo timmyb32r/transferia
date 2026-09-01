@@ -14,6 +14,7 @@ const BUILTIN_PARSERS: &[&str] = &[
     "benchmark_discard",
 ];
 
+#[derive(Clone, Copy)]
 pub struct ParserPluginSpec {
     pub kind: &'static str,
 
@@ -118,9 +119,7 @@ impl ParserPluginRegistry {
         self.plugins.keys().copied()
     }
 
-    pub fn registrations(
-        &self,
-    ) -> impl Iterator<Item = (&str, &str, &[&str], &JsonValue)> {
+    pub fn registrations(&self) -> impl Iterator<Item = (&str, &str, &[&str], &JsonValue)> {
         self.plugins.iter().map(|(kind, registration)| {
             (
                 *kind,
@@ -135,9 +134,10 @@ impl ParserPluginRegistry {
 fn validate_spec(spec: &ParserPluginSpec) -> anyhow::Result<()> {
     anyhow::ensure!(
         !spec.kind.is_empty()
-            && spec.kind.bytes().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
-            }),
+            && spec
+                .kind
+                .bytes()
+                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
         "parser plugin kind must be non-empty snake_case"
     );
     anyhow::ensure!(
@@ -180,8 +180,7 @@ fn parser_variant_schema<C: JsonSchema>(spec: &ParserPluginSpec) -> anyhow::Resu
     let generator = schemars::generate::SchemaSettings::draft2020_12()
         .with(|settings| settings.inline_subschemas = true)
         .into_generator();
-    let mut common =
-        serde_json::to_value(generator.into_root_schema_for::<CommonParserConfig>())?;
+    let mut common = serde_json::to_value(generator.into_root_schema_for::<CommonParserConfig>())?;
     remove_schema_meta(&mut common);
     common
         .as_object_mut()

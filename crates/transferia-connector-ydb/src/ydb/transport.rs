@@ -97,7 +97,7 @@ impl YdbClient {
         })
     }
 
-    pub fn request<T>(&self, body: T) -> anyhow::Result<Request<T>> {
+    pub fn request<T>(&self, body: T) -> Request<T> {
         let mut request = Request::new(body);
         request
             .metadata_mut()
@@ -107,13 +107,13 @@ impl YdbClient {
                 .metadata_mut()
                 .insert("x-ydb-auth-ticket", token.clone());
         }
-        Ok(request)
+        request
     }
 
     pub async fn create_session(&mut self) -> anyhow::Result<String> {
         let request = self.request(CreateSessionRequest {
             operation_params: None,
-        })?;
+        });
         let response = tokio::time::timeout(self.timeout, self.service.create_session(request))
             .await
             .map_err(|_| anyhow::anyhow!("YDB CreateSession timed out"))??
@@ -133,7 +133,7 @@ impl YdbClient {
             include_partition_stats: false,
             include_set_val: false,
             include_shard_nodes_info: false,
-        })?;
+        });
         let response = tokio::time::timeout(self.timeout, self.service.describe_table(request))
             .await
             .map_err(|_| anyhow::anyhow!("YDB DescribeTable timed out"))??
@@ -142,7 +142,7 @@ impl YdbClient {
         let delete = self.request(DeleteSessionRequest {
             session_id,
             operation_params: None,
-        })?;
+        });
         let _ignored = self.service.delete_session(delete).await;
         result
     }
@@ -151,7 +151,7 @@ impl YdbClient {
         let request = self.request(DeleteSessionRequest {
             session_id,
             operation_params: None,
-        })?;
+        });
         let response = tokio::time::timeout(self.timeout, self.service.delete_session(request))
             .await
             .map_err(|_| anyhow::anyhow!("YDB DeleteSession timed out"))??
@@ -166,7 +166,7 @@ impl YdbClient {
             session_id: session_id.clone(),
             yql_text,
             operation_params: None,
-        })?;
+        });
         let response =
             tokio::time::timeout(self.timeout, self.service.execute_scheme_query(request))
                 .await
@@ -176,7 +176,7 @@ impl YdbClient {
         let delete = self.request(DeleteSessionRequest {
             session_id,
             operation_params: None,
-        })?;
+        });
         let _ignored = self.service.delete_session(delete).await;
         Ok(())
     }
@@ -195,7 +195,7 @@ impl YdbClient {
             data_format: Some(bulk_upsert_request::DataFormat::ArrowBatchSettings(
                 ArrowBatchSettings { schema },
             )),
-        })?;
+        });
         let response = tokio::time::timeout(self.timeout, self.service.bulk_upsert(request))
             .await
             .map_err(|_| anyhow::anyhow!("YDB BulkUpsert timed out"))??
@@ -204,7 +204,7 @@ impl YdbClient {
         Ok(())
     }
 
-    pub fn service(&mut self) -> &mut TableServiceClient<Channel> {
+    pub const fn service(&mut self) -> &mut TableServiceClient<Channel> {
         &mut self.service
     }
 

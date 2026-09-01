@@ -138,11 +138,7 @@ impl YdbDriverSourceConnector {
         cfg: LogbrokerSourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        Self::from_config_with_parsers(
-            cfg,
-            metrics_registry,
-            &ParserPluginRegistry::default(),
-        )
+        Self::from_config_with_parsers(cfg, metrics_registry, &ParserPluginRegistry::default())
     }
 
     pub fn from_config_with_parsers(
@@ -161,11 +157,8 @@ impl YdbDriverSourceConnector {
             crate::parsers::TableNaming::FromTopicName
         );
         let primary_topic = source::canonical_topic_path(&cfg.topics[0].path);
-        let mut parser_plan = ParserPlan::from_config_with_plugins(
-            &cfg.parser,
-            primary_topic,
-            parser_plugins,
-        )?;
+        let mut parser_plan =
+            ParserPlan::from_config_with_plugins(&cfg.parser, primary_topic, parser_plugins)?;
         if from_topic_name {
             parser_plan = parser_plan.route_by_message_topic();
         }
@@ -247,11 +240,7 @@ pub fn build_source_connector(
     cfg: LogbrokerSourceConfig,
     metrics_registry: Arc<MetricsRegistry>,
 ) -> anyhow::Result<Box<dyn SourceConnector>> {
-    build_source_connector_with_parsers(
-        cfg,
-        metrics_registry,
-        &ParserPluginRegistry::default(),
-    )
+    build_source_connector_with_parsers(cfg, metrics_registry, &ParserPluginRegistry::default())
 }
 
 pub fn build_source_connector_with_parsers(
@@ -268,11 +257,13 @@ pub fn build_source_connector_with_parsers(
                     && !cfg.pqv1_discard_before_decompression,
                 "PQv1-only settings require logbroker.driver=pqv1"
             );
-            Ok(Box::new(YdbDriverSourceConnector::from_config_with_parsers(
-                cfg,
-                metrics_registry,
-                parser_plugins,
-            )?))
+            Ok(Box::new(
+                YdbDriverSourceConnector::from_config_with_parsers(
+                    cfg,
+                    metrics_registry,
+                    parser_plugins,
+                )?,
+            ))
         }
         LogbrokerDriver::Pqv1 => {
             anyhow::ensure!(

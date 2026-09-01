@@ -10,7 +10,10 @@ fn column(data_type: DataType) -> SchemaColumn {
 
 #[test]
 fn maps_lossless_mysql_column_types() {
-    assert_eq!(mysql_sql_type(&column(DataType::UInt64)).unwrap(), "BIGINT UNSIGNED");
+    assert_eq!(
+        mysql_sql_type(&column(DataType::UInt64)).unwrap(),
+        "BIGINT UNSIGNED"
+    );
     assert_eq!(
         mysql_sql_type(&column(DataType::Decimal128(65, 30))).unwrap(),
         "DECIMAL(65,30)"
@@ -20,10 +23,8 @@ fn maps_lossless_mysql_column_types() {
         "DATETIME(6)"
     );
     assert_eq!(
-        mysql_sql_type(
-            &column(DataType::Utf8).with_arrow_extension(ARROW_JSON_EXTENSION_NAME)
-        )
-        .unwrap(),
+        mysql_sql_type(&column(DataType::Utf8).with_arrow_extension(ARROW_JSON_EXTENSION_NAME))
+            .unwrap(),
         "JSON"
     );
 }
@@ -37,10 +38,7 @@ fn rejects_types_mysql_cannot_preserve() {
         Some("Europe/Moscow".into()),
     )))
     .is_err());
-    assert!(mysql_sql_type(
-        &column(DataType::Utf8).with_constraints(true, false, None)
-    )
-    .is_err());
+    assert!(mysql_sql_type(&column(DataType::Utf8).with_constraints(true, false, None)).is_err());
 }
 
 #[test]

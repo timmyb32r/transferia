@@ -27,9 +27,7 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
-use super::config::{
-    YTsaurusAtomicity, YTsaurusPartitionTablesConfig, YTsaurusTableReaderConfig,
-};
+use super::config::{YTsaurusAtomicity, YTsaurusPartitionTablesConfig, YTsaurusTableReaderConfig};
 use super::yt_wire::YtWireDecoder;
 use transferia_core::data::schema::DatasetSchema;
 use transferia_delivery_contracts::metrics::SinkCounters;
@@ -824,14 +822,14 @@ pub(super) struct NativeDynamicWriter {
 
 impl NativeDynamicWriter {
     pub(super) fn new(
-        endpoints: Vec<String>,
-        token: String,
+        endpoints: &[String],
+        token: &str,
         atomicity: YTsaurusAtomicity,
         concurrency: usize,
         transaction_timeout: Duration,
         retry_initial: Duration,
         retry_max: Duration,
-        counters: Arc<SinkCounters>,
+        counters: &Arc<SinkCounters>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
             !endpoints.is_empty(),
@@ -844,15 +842,15 @@ impl NativeDynamicWriter {
         let workers = (0..concurrency)
             .map(|index| {
                 Mutex::new(NativeDynamicWorker {
-                    endpoints: endpoints.clone(),
-                    token: token.clone(),
+                    endpoints: endpoints.to_vec(),
+                    token: token.to_owned(),
                     atomicity,
                     next_endpoint: index % endpoints.len(),
                     transaction_timeout,
                     retry_initial,
                     retry_max,
                     retry_seed: stable_retry_seed(&index.to_le_bytes()),
-                    counters: Arc::clone(&counters),
+                    counters: Arc::clone(counters),
                     stream: None,
                 })
             })
@@ -878,13 +876,7 @@ impl NativeDynamicWriter {
         self.workers[worker_index]
             .lock()
             .await
-            .write_rows(
-                path,
-                row_count,
-                column_names,
-                payload,
-                require_sync_replica,
-            )
+            .write_rows(path, row_count, column_names, payload, require_sync_replica)
             .await
     }
 }

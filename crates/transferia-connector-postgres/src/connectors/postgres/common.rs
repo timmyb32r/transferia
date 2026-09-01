@@ -189,8 +189,7 @@ pub fn postgres_to_arrow(data_type: &Type) -> anyhow::Result<DataType> {
         Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME => DataType::Utf8,
         _ => match data_type.kind() {
             Kind::Pseudo => anyhow::bail!(
-                "PostgreSQL pseudo-type '{}' cannot be stored in a source table",
-                data_type
+                "PostgreSQL pseudo-type '{data_type}' cannot be stored in a source table"
             ),
             Kind::Simple
             | Kind::Enum(_)
@@ -199,16 +198,13 @@ pub fn postgres_to_arrow(data_type: &Type) -> anyhow::Result<DataType> {
             | Kind::Multirange(_)
             | Kind::Domain(_)
             | Kind::Composite(_) => DataType::Utf8,
-            other => anyhow::bail!(
-                "unsupported PostgreSQL type kind {other:?} for '{}'",
-                data_type
-            ),
+            other => anyhow::bail!("unsupported PostgreSQL type kind {other:?} for '{data_type}'"),
         },
     })
 }
 
 #[must_use]
-pub fn postgres_requires_text_projection(data_type: &Type) -> bool {
+pub const fn postgres_requires_text_projection(data_type: &Type) -> bool {
     !matches!(
         *data_type,
         Type::BOOL

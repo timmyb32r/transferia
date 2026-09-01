@@ -118,7 +118,7 @@ impl ParserSession for SchemaRegistryParserSession {
                     envelope.schema_id
                 )
             })?;
-            let value = self.decoder.decode(&schema, envelope.payload)?;
+            let value = self.decoder.decode(schema, envelope.payload)?;
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes
                 .checked_add(value.len())

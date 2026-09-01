@@ -26,11 +26,11 @@ time.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
-uuid.workspace = true
+transferia-connector-support = { path = "../transferia-connector-support" }
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-transferia-connector-support = { path = "../transferia-connector-support" }
 transferia-registry = { path = "../transferia-registry" }
+uuid.workspace = true
 
 [dev-dependencies]
 serde_yaml.workspace = true

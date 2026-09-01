@@ -127,8 +127,7 @@ impl Source for MySqlSource {
                     DataPlaneFailure::fatal(anyhow::anyhow!("MySQL source offset overflow"))
                 })?;
             self.counters.add_records(source_rows);
-            self.counters
-                .add_network_decoded_bytes(decoded_bytes);
+            self.counters.add_network_decoded_bytes(decoded_bytes);
             Ok(SourceBatch::Typed {
                 tables: vec![TableData::new(
                     Arc::from(self.table.name.as_str()),
@@ -165,10 +164,7 @@ pub(super) fn rows_to_batch(
     );
     let mut fields = Vec::with_capacity(columns.len() + 4);
     let mut arrays = Vec::with_capacity(columns.len() + 4);
-    for (index, (column, discovered)) in columns
-        .iter()
-        .zip(&discovered_schema.columns)
-        .enumerate()
+    for (index, (column, discovered)) in columns.iter().zip(&discovered_schema.columns).enumerate()
     {
         anyhow::ensure!(
             column.name == discovered.name && column.kind.arrow_type() == discovered.data_type,
@@ -176,25 +172,29 @@ pub(super) fn rows_to_batch(
             column.name
         );
         fields.push(
-            Field::new(
-                &column.name,
-                column.kind.arrow_type(),
-                column.nullable,
-            )
-            .with_metadata(discovered.arrow_metadata()),
+            Field::new(&column.name, column.kind.arrow_type(), column.nullable)
+                .with_metadata(discovered.arrow_metadata()),
         );
         arrays.push(column_array(rows, index, column)?);
     }
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
     fields.extend([
-        Field::new(SystemColumnKind::Topic.default_name(), DataType::Utf8, false),
+        Field::new(
+            SystemColumnKind::Topic.default_name(),
+            DataType::Utf8,
+            false,
+        ),
         Field::new(
             SystemColumnKind::Partition.default_name(),
             DataType::Int64,
             false,
         ),
-        Field::new(SystemColumnKind::Offset.default_name(), DataType::Int64, false),
+        Field::new(
+            SystemColumnKind::Offset.default_name(),
+            DataType::Int64,
+            false,
+        ),
         Field::new(
             SystemColumnKind::MessageIndex.default_name(),
             DataType::UInt64,
@@ -258,14 +258,14 @@ fn column_array(rows: &[Row], index: usize, column: &ColumnPlan) -> anyhow::Resu
             for row in rows {
                 match row.as_ref(index) {
                     Some(Value::NULL) | None => builder.append_null(),
-                    Some(Value::Bytes(value)) => builder.append_value(
-                        std::str::from_utf8(value).map_err(|error| {
+                    Some(Value::Bytes(value)) => {
+                        builder.append_value(std::str::from_utf8(value).map_err(|error| {
                             anyhow::anyhow!(
                                 "MySQL text column '{}' is not valid UTF-8: {error}",
                                 column.name
                             )
-                        })?,
-                    ),
+                        })?);
+                    }
                     Some(value) => anyhow::bail!(
                         "MySQL text column '{}' returned unexpected value {value:?}",
                         column.name

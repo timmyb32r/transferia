@@ -23,13 +23,13 @@ pub async fn check_network_connection(config: &YdbConnectionCheckConfig) -> anyh
     let host = uri
         .host()
         .ok_or_else(|| anyhow::anyhow!("ydb.endpoint has no host"))?;
-    let port = uri
-        .port_u16()
-        .unwrap_or(if uri.scheme_str() == Some("https") {
+    let port = uri.port_u16().unwrap_or_else(|| {
+        if uri.scheme_str() == Some("https") {
             443
         } else {
             80
-        });
+        }
+    });
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
         tokio::net::TcpStream::connect((host, port)),

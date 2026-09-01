@@ -79,10 +79,8 @@ fn parser_plugins_reject_ambiguous_registration_and_invalid_output_schema() -> a
 
 #[test]
 fn raw_to_table_public_schema_is_selectable_and_has_lossless_defaults() {
-    let schema = serde_json::to_value(schemars::schema_for!(
-        crate::parsers::config::ParserSchema
-    ))
-    .expect("parser schema must serialize");
+    let schema = serde_json::to_value(schemars::schema_for!(crate::parsers::config::ParserSchema))
+        .expect("parser schema must serialize");
     schema["anyOf"]
         .as_array()
         .expect("parser variants")

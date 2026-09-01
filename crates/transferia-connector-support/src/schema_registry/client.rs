@@ -89,7 +89,9 @@ impl RegistryClient {
             .await
             .with_context(|| format!("failed to fetch Schema Registry schema id {id}"))?;
         let format = response_format(response.schema_type.as_deref())?;
-        let references = self.resolve_references(&response.references, format).await?;
+        let references = self
+            .resolve_references(&response.references, format)
+            .await?;
         if format == SchemaFormat::Protobuf {
             let serialized = self
                 .get(
@@ -125,7 +127,9 @@ impl RegistryClient {
                 format!("failed to fetch latest Schema Registry schema for subject '{subject}'")
             })?;
         validate_format(format, response.schema_type.as_deref())?;
-        let references = self.resolve_references(&response.references, format).await?;
+        let references = self
+            .resolve_references(&response.references, format)
+            .await?;
         Ok(RegistrySchema {
             id: response
                 .id
@@ -183,7 +187,10 @@ impl RegistryClient {
                             reference.name, reference.subject, reference.version
                         )
                     })?;
-                self.versions.write().await.insert(key.clone(), fetched.clone());
+                self.versions
+                    .write()
+                    .await
+                    .insert(key.clone(), fetched.clone());
                 fetched
             };
             validate_format(expected_format, response.schema_type.as_deref())?;

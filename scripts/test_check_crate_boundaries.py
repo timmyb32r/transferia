@@ -36,10 +36,12 @@ class CrateBoundariesTest(unittest.TestCase):
         )
 
     def test_heavy_dependencies_are_owned_by_isolated_connector_crates(self):
-        manifests = {
-            owner: {"dependencies": {dependency: {"workspace": True}}}
-            for dependency, owner in boundaries.HEAVY_CONNECTOR_OWNERS.items()
-        }
+        manifests = {}
+        for dependency, owners in boundaries.HEAVY_CONNECTOR_OWNERS.items():
+            for owner in owners:
+                manifests.setdefault(owner, {"dependencies": {}})["dependencies"][
+                    dependency
+                ] = {"workspace": True}
         manifests["transferia-connector-support"] = {"dependencies": {}}
         manifests["transferia-connectors"] = {"dependencies": {}}
         manifests["transferia-middleware-datafusion"] = {

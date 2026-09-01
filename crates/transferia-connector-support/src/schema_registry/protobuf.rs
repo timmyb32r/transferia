@@ -23,7 +23,9 @@ pub fn protobuf_descriptor_pool(
 
     if root_descriptor.is_none() {
         anyhow::ensure!(
-            definitions.insert(root_name.clone(), definition.to_owned()).is_none(),
+            definitions
+                .insert(root_name.clone(), definition.to_owned())
+                .is_none(),
             "Protobuf root schema name conflicts with a referenced schema"
         );
     }
@@ -53,9 +55,7 @@ pub fn protobuf_descriptor_pool(
     Ok((pool, root_name))
 }
 
-fn decode_descriptor(
-    definition: &str,
-) -> Option<prost_reflect::prost_types::FileDescriptorProto> {
+fn decode_descriptor(definition: &str) -> Option<prost_reflect::prost_types::FileDescriptorProto> {
     base64::engine::general_purpose::STANDARD
         .decode(definition)
         .ok()
@@ -81,10 +81,9 @@ impl protox::file::FileResolver for MemoryFileResolver {
             .definitions
             .get(name)
             .ok_or_else(|| protox::Error::file_not_found(name))?;
-        if let Some(descriptor) = decode_descriptor(definition) {
-            Ok(protox::file::File::from_file_descriptor_proto(descriptor))
-        } else {
-            protox::file::File::from_source(name, definition)
-        }
+        decode_descriptor(definition).map_or_else(
+            || protox::file::File::from_source(name, definition),
+            |descriptor| Ok(protox::file::File::from_file_descriptor_proto(descriptor)),
+        )
     }
 }

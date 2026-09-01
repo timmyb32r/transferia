@@ -9,5 +9,5 @@ pub use transferia_connector_mysql::mysql;
 pub use transferia_connector_postgres::postgres;
 pub use transferia_connector_s3::s3;
 pub use transferia_connector_support::address;
-pub use transferia_connector_ytsaurus::ytsaurus;
 pub use transferia_connector_ydb::ydb;
+pub use transferia_connector_ytsaurus::ytsaurus;

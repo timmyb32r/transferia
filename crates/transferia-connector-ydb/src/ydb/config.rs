@@ -3,9 +3,10 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Default, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YdbAuth {
+    #[default]
     Anonymous,
     Token {
         #[schemars(extend("x-ui" = { "widget": "password" }))]
@@ -14,12 +15,6 @@ pub enum YdbAuth {
     TokenFile {
         token_file: String,
     },
-}
-
-impl Default for YdbAuth {
-    fn default() -> Self {
-        Self::Anonymous
-    }
 }
 
 impl YdbAuth {

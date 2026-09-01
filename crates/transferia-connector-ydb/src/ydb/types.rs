@@ -46,7 +46,7 @@ pub(super) enum ColumnKind {
 }
 
 impl ColumnKind {
-    pub fn arrow_type(&self) -> DataType {
+    pub const fn arrow_type(&self) -> DataType {
         match self {
             Self::Bool => DataType::Boolean,
             Self::Int8 => DataType::Int8,
@@ -221,7 +221,7 @@ fn primitive_kind(value: PrimitiveTypeId) -> anyhow::Result<ColumnKind> {
 }
 
 pub(super) fn result_set_to_batch(
-    result: ResultSet,
+    result: &ResultSet,
     columns: &[ColumnPlan],
 ) -> anyhow::Result<RecordBatch> {
     // StreamReadTable marks each response result set as truncated because it is
@@ -400,7 +400,7 @@ fn column_array(rows: &[Value], index: usize, column: &ColumnPlan) -> anyhow::Re
                     Some(value::Value::Low128(low)) => {
                         let high = row.items[index].high_128;
                         Ok(Some(
-                            (((u128::from(high)) << 64) | u128::from(*low)) as i128,
+                            (((u128::from(high)) << 64) | u128::from(*low)).cast_signed(),
                         ))
                     }
                     Some(other) => anyhow::bail!("YDB column '{}' returned {other:?}", column.name),
@@ -421,7 +421,7 @@ fn column_array(rows: &[Value], index: usize, column: &ColumnPlan) -> anyhow::Re
                         // YDB transmits UUID numeric fields in little-endian form;
                         // Arrow's uuid extension stores the canonical RFC byte order.
                         let canonical = uuid::Uuid::from_bytes_le(little_endian).into_bytes();
-                        builder.append_value(&canonical)?;
+                        builder.append_value(canonical)?;
                     }
                     Some(other) => anyhow::bail!("YDB column '{}' returned {other:?}", column.name),
                 }

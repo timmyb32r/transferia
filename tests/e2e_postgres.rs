@@ -28,9 +28,9 @@ use tokio_util::sync::CancellationToken;
 use transferia::connectors::clickhouse::ClickHouseSinkConnector;
 use transferia::connectors::postgres::{PostgresSinkConnector, PostgresSourceConnector};
 use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
+use transferia::core::data::message::SourceBatch;
 use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia::core::data::system_columns::SystemColumns;
-use transferia::core::data::message::SourceBatch;
 use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -429,9 +429,8 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
         .await?;
     let host = reachable_host(&postgres.get_host().await?);
     let port = postgres.get_host_port_ipv4(5432.tcp()).await?;
-    let connection = format!(
-        "host={host} port={port} user=postgres password=test dbname=transferia"
-    );
+    let connection =
+        format!("host={host} port={port} user=postgres password=test dbname=transferia");
     let pg = wait_for_postgres(&connection).await?;
     pg.batch_execute(
         r#"
@@ -580,7 +579,10 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             .expect("utf8")
             .value(0)
     };
-    assert_eq!(text("numeric_value"), "123456789012345678901234567890.12345678901234567890");
+    assert_eq!(
+        text("numeric_value"),
+        "123456789012345678901234567890.12345678901234567890"
+    );
     assert_eq!(text("date_value"), "infinity");
     assert_eq!(text("timestamp_value"), "-infinity");
     assert_eq!(text("int_array"), "[0:1]={10,20}");

@@ -152,11 +152,7 @@ impl PqV1SourceConnector {
         cfg: PqV1SourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        Self::from_config_with_parsers(
-            cfg,
-            metrics_registry,
-            &ParserPluginRegistry::default(),
-        )
+        Self::from_config_with_parsers(cfg, metrics_registry, &ParserPluginRegistry::default())
     }
 
     pub fn from_config_with_parsers(
@@ -194,11 +190,8 @@ impl PqV1SourceConnector {
         } else {
             SourceBehavior::ProducesRows
         };
-        let parser_plan = ParserPlan::from_config_with_plugins(
-            &cfg.parser,
-            &cfg.topic_path,
-            parser_plugins,
-        )?;
+        let parser_plan =
+            ParserPlan::from_config_with_plugins(&cfg.parser, &cfg.topic_path, parser_plugins)?;
         let decompression_slots = Arc::new(Semaphore::new(cfg.decompression_concurrency));
         let resolved_partitions = Arc::new(OnceLock::new());
         if !cfg.partition_group_ids.is_empty() {

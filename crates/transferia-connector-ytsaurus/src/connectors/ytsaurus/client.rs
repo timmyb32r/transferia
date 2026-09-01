@@ -12,8 +12,8 @@ use transferia_connector_support::outbound_http::{
 };
 
 use super::config::{
-    YTsaurusAtomicity, YTsaurusConnectionConfig, YTsaurusOptimizeFor,
-    YTsaurusTableReaderConfig, YTsaurusTableWriterConfig,
+    YTsaurusAtomicity, YTsaurusConnectionConfig, YTsaurusOptimizeFor, YTsaurusTableReaderConfig,
+    YTsaurusTableWriterConfig,
 };
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct DistributedWriteSession {
 }
 
 pub(super) fn static_table_attributes(
-    schema: Value,
+    schema: &Value,
     optimize_for: YTsaurusOptimizeFor,
     primary_medium: &str,
     custom_attributes: &BTreeMap<String, Value>,
@@ -571,7 +571,7 @@ impl YTsaurusClient {
     pub async fn create_table(
         &self,
         path: &str,
-        schema: Value,
+        schema: &Value,
         optimize_for: YTsaurusOptimizeFor,
         primary_medium: &str,
         custom_attributes: &BTreeMap<String, Value>,
@@ -603,7 +603,7 @@ impl YTsaurusClient {
     pub async fn create_dynamic_table(
         &self,
         path: &str,
-        schema: Value,
+        schema: &Value,
         atomicity: YTsaurusAtomicity,
         primary_medium: &str,
         custom_attributes: &BTreeMap<String, Value>,
@@ -688,7 +688,7 @@ impl YTsaurusClient {
             .get_json(&super::attribute_path(path, "tablet_count"))
             .await?;
         anyhow::ensure!(
-            actual == Value::from(tablet_count),
+            actual.as_u64() == Some(u64::try_from(tablet_count)?),
             "YTsaurus dynamic table '{path}' has {actual} tablets after reshard, expected {tablet_count}"
         );
         Ok(())
@@ -780,7 +780,7 @@ impl YTsaurusClient {
         let parameters = sort_operation_parameters(
             source_path,
             destination_path,
-            sort_by,
+            &sort_by,
             mutation_id,
             operation_pool,
         );
@@ -859,7 +859,7 @@ impl YTsaurusClient {
 }
 
 pub(super) fn dynamic_table_attributes(
-    schema: Value,
+    schema: &Value,
     atomicity: YTsaurusAtomicity,
     primary_medium: &str,
     custom_attributes: &BTreeMap<String, Value>,
@@ -892,10 +892,7 @@ pub(super) fn dynamic_table_attributes(
     Ok(attributes)
 }
 
-pub(super) fn uniform_reshard_parameters(
-    path: &str,
-    tablet_count: usize,
-) -> anyhow::Result<Value> {
+pub(super) fn uniform_reshard_parameters(path: &str, tablet_count: usize) -> anyhow::Result<Value> {
     anyhow::ensure!(!path.is_empty(), "YTsaurus reshard path must not be empty");
     anyhow::ensure!(
         (1..=10_000).contains(&tablet_count),
@@ -917,7 +914,7 @@ pub(super) fn dynamic_conversion_attributes(
     table_ttl_ms: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut attributes = dynamic_table_attributes(
-        Value::Null,
+        &Value::Null,
         atomicity,
         primary_medium,
         custom_attributes,
@@ -936,7 +933,7 @@ pub(super) fn dynamic_conversion_attributes(
 pub(super) fn sort_operation_parameters(
     source_path: &str,
     destination_path: &str,
-    sort_by: Vec<Value>,
+    sort_by: &[Value],
     mutation_id: &str,
     operation_pool: Option<&str>,
 ) -> Value {

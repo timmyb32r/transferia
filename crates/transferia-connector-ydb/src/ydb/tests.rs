@@ -124,7 +124,7 @@ fn source_decodes_values_nulls_decimal_and_uuid_losslessly() -> anyhow::Result<(
         arrow_format_meta: None,
         data: Vec::new(),
     };
-    let batch = result_set_to_batch(result, &columns)?;
+    let batch = result_set_to_batch(&result, &columns)?;
     assert_eq!(batch.num_rows(), 2);
     assert_eq!(
         batch
@@ -176,7 +176,7 @@ fn schema_drift_is_rejected_before_emitting_rows() -> anyhow::Result<()> {
         arrow_format_meta: None,
         data: Vec::new(),
     };
-    assert!(result_set_to_batch(result, &columns).is_err());
+    assert!(result_set_to_batch(&result, &columns).is_err());
     Ok(())
 }
 
@@ -197,7 +197,7 @@ fn streamed_result_chunk_may_be_marked_truncated_without_losing_rows() -> anyhow
         arrow_format_meta: None,
         data: Vec::new(),
     };
-    let batch = result_set_to_batch(result, &columns)?;
+    let batch = result_set_to_batch(&result, &columns)?;
     assert_eq!(batch.num_rows(), 1);
     Ok(())
 }

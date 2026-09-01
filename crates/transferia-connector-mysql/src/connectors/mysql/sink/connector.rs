@@ -187,7 +187,9 @@ pub(super) async fn configure_strict_session(
             "SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO'",
         )
         .await?;
-    connection.query_drop("SET SESSION time_zone = '+00:00'").await?;
+    connection
+        .query_drop("SET SESSION time_zone = '+00:00'")
+        .await?;
     Ok(())
 }
 
@@ -246,9 +248,10 @@ pub(super) fn mysql_sql_type(column: &SchemaColumn) -> anyhow::Result<String> {
             decimal_sql_type(*precision, *scale)?
         }
         DataType::Date32 => "DATE".to_owned(),
-        DataType::Date64 => "DATETIME(3)".to_owned(),
+        DataType::Date64 | DataType::Timestamp(TimeUnit::Millisecond, None) => {
+            "DATETIME(3)".to_owned()
+        }
         DataType::Timestamp(TimeUnit::Second, None) => "DATETIME".to_owned(),
-        DataType::Timestamp(TimeUnit::Millisecond, None) => "DATETIME(3)".to_owned(),
         DataType::Timestamp(TimeUnit::Microsecond | TimeUnit::Nanosecond, None) => {
             "DATETIME(6)".to_owned()
         }

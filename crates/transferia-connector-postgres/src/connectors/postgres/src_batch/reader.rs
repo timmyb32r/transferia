@@ -81,7 +81,10 @@ pub(super) fn source_select_projection(columns: &[Column]) -> anyhow::Result<Str
         .map(|columns| columns.join(", "))
 }
 
-pub(super) fn source_column_expression(name: &str, data_type: &tokio_postgres::types::Type) -> anyhow::Result<String> {
+pub(super) fn source_column_expression(
+    name: &str,
+    data_type: &tokio_postgres::types::Type,
+) -> anyhow::Result<String> {
     postgres_to_arrow(data_type)?;
     let name = quote_identifier(name);
     if postgres_requires_text_projection(data_type) {

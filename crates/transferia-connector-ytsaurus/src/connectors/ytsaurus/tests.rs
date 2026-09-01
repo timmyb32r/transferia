@@ -23,9 +23,9 @@ use super::client::{
     yson_header_value, ListedNode,
 };
 use super::config::{
-    YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor,
-    YTsaurusPrimaryKeySemantics, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
-    YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
+    YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
+    YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig,
+    YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
@@ -352,7 +352,7 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
 #[test]
 fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Result<()> {
     let scan = static_table_attributes(
-        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        &serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Scan,
         "default",
         &BTreeMap::new(),
@@ -371,7 +371,7 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     assert_eq!(config.primary_medium, "default");
     config.validate()?;
     let lookup = static_table_attributes(
-        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        &serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Lookup,
         "ssd_blobs",
         &BTreeMap::new(),
@@ -408,14 +408,17 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
     )?;
     let custom = config.parsed_table_attributes()?;
     let attributes = static_table_attributes(
-        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        &serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Scan,
         &config.primary_medium,
         &custom,
     )?;
     assert_eq!(attributes["compression_codec"], "zstd_3");
     assert_eq!(attributes["custom_nested"]["enabled"], true);
-    assert_eq!(attributes["custom_nested"]["levels"], serde_json::json!([1, 2]));
+    assert_eq!(
+        attributes["custom_nested"]["levels"],
+        serde_json::json!([1, 2])
+    );
 
     let reserved: YTsaurusSinkConfig = serde_yaml::from_str(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\n\
@@ -558,8 +561,7 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
 #[test]
 fn dynamic_wire_encoder_round_trips_values_and_explicit_nulls() -> anyhow::Result<()> {
     let dataset_schema = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None),
         SchemaColumn::new("name".into(), DataType::Utf8, true),
     ]);
     let batch = RecordBatch::try_new(
@@ -574,10 +576,8 @@ fn dynamic_wire_encoder_round_trips_values_and_explicit_nulls() -> anyhow::Resul
     )?;
 
     let encoded = encode_wire_batch(&batch)?;
-    let decoded = YtWireDecoder::new(&dataset_schema).decode(
-        &encoded.column_names,
-        encoded.payload,
-    )?;
+    let decoded =
+        YtWireDecoder::new(&dataset_schema).decode(&encoded.column_names, encoded.payload)?;
 
     assert_eq!(decoded.column(0), batch.column(0));
     assert_eq!(decoded.column(1), batch.column(1));
@@ -606,7 +606,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(write.transaction_concurrency, 8);
     assert_eq!(write.transaction_timeout_ms, 60_000);
     assert_eq!(write.buffer_bytes, 256 * 1024 * 1024);
-    assert_eq!(write.dynamic_store_overflow_threshold, 0.5);
+    assert!((write.dynamic_store_overflow_threshold - 0.5).abs() < f64::EPSILON);
     assert!(write.require_sync_replica);
     assert_eq!(write.retry_initial_ms, 100);
     assert_eq!(write.retry_max_ms, 5_000);
@@ -650,7 +650,7 @@ fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
     let parameters = sort_operation_parameters(
         "//tmp/staging",
         "//tmp/sorted",
-        vec![serde_json::json!({ "name": "id", "sort_order": "ascending" })],
+        &[serde_json::json!({ "name": "id", "sort_order": "ascending" })],
         "mutation-id",
         config.dynamic_snapshot_operation_pool(),
     );
@@ -661,8 +661,8 @@ fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
 }
 
 #[test]
-fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition(
-) -> anyhow::Result<()> {
+fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition() -> anyhow::Result<()>
+{
     let schema =
         DatasetSchema::new(vec![SchemaColumn::new("id".into(), DataType::Int64, false)
             .with_constraints(true, false, None)]);
@@ -691,7 +691,9 @@ fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition(
         ))
     };
 
-    assert!(config(false)?.validate_discovery(&discovery(vec![0])).is_err());
+    assert!(config(false)?
+        .validate_discovery(&discovery(vec![0]))
+        .is_err());
     assert!(config(true)?
         .validate_discovery(&discovery(vec![0, 1]))
         .is_err());
@@ -711,8 +713,8 @@ fn dynamic_snapshot_staging_requires_explicit_replacement_and_one_partition(
 }
 
 #[test]
-fn dynamic_initial_tablet_count_is_uniform_and_requires_an_integral_first_key(
-) -> anyhow::Result<()> {
+fn dynamic_initial_tablet_count_is_uniform_and_requires_an_integral_first_key() -> anyhow::Result<()>
+{
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
         "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, initial_tablet_count: 8 }\n\
          auth: { type: token, token: test }\n\
@@ -733,15 +735,13 @@ fn dynamic_initial_tablet_count_is_uniform_and_requires_an_integral_first_key(
     );
 
     let integral = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None),
         SchemaColumn::new("payload".into(), DataType::Utf8, true),
     ]);
     validate_initial_tablet_count(8, &integral, "events")?;
 
     let string = DatasetSchema::new(vec![
-        SchemaColumn::new("id".into(), DataType::Utf8, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::Utf8, false).with_constraints(true, false, None),
         SchemaColumn::new("payload".into(), DataType::Utf8, true),
     ]);
     let error = validate_initial_tablet_count(8, &string, "events")
@@ -775,8 +775,7 @@ fn dynamic_initial_tablet_count_rejects_out_of_range_configuration() {
 }
 
 #[test]
-fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> anyhow::Result<()>
-{
+fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> anyhow::Result<()> {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
         "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, atomicity: none }\n\
          auth: { type: token, token: test }\n\
@@ -790,7 +789,7 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
     assert_eq!(YTsaurusAtomicity::Full.rpc_value(), 0);
 
     let attributes = dynamic_table_attributes(
-        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        &serde_json::json!([{ "name": "id", "type": "int64" }]),
         config.dynamic_atomicity().expect("dynamic atomicity"),
         &config.primary_medium,
         &BTreeMap::new(),
@@ -823,7 +822,7 @@ fn dynamic_table_ttl_is_opt_in_and_applies_to_direct_and_staged_tables() -> anyh
     assert_eq!(config.dynamic_table_ttl_ms(), Some(86_400_000));
 
     let direct = dynamic_table_attributes(
-        serde_json::json!([{ "name": "id", "type": "int64" }]),
+        &serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusAtomicity::Full,
         "default",
         &BTreeMap::new(),
@@ -857,7 +856,7 @@ fn dynamic_table_ttl_is_opt_in_and_applies_to_direct_and_staged_tables() -> anyh
          trusted_native_rpc_plaintext: true\n",
     )?;
     let attributes = dynamic_table_attributes(
-        serde_json::json!([]),
+        &serde_json::json!([]),
         YTsaurusAtomicity::Full,
         "default",
         &BTreeMap::new(),
@@ -937,15 +936,17 @@ fn oversized_value_policy_fails_closed_or_drops_the_entire_row() -> anyhow::Resu
 #[test]
 fn dynamic_sink_retries_yt_backpressure_and_rebalancing_indefinitely() {
     for code in [
-        1700, 1701, 1702, 1703, 1704, 1706, 1707, 1712, 1713, 1720, 1721, 1725, 1732, 1735,
-        1736, 1740, 1742, 1745, 1746, 1747, 1748,
+        1700, 1701, 1702, 1703, 1704, 1706, 1707, 1712, 1713, 1720, 1721, 1725, 1732, 1735, 1736,
+        1740, 1742, 1745, 1746, 1747, 1748,
     ] {
         assert!(
             is_transient_dynamic_write_error_code(code),
             "expected retryable YTsaurus RPC error code: {code}"
         );
     }
-    for code in [0, 1, 1705, 1714, 1715, 1716, 1717, 1726, 1731, 1738, 1739, 1741] {
+    for code in [
+        0, 1, 1705, 1714, 1715, 1716, 1717, 1726, 1731, 1738, 1739, 1741,
+    ] {
         assert!(
             !is_transient_dynamic_write_error_code(code),
             "expected terminal YTsaurus RPC error code: {code}"

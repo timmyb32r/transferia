@@ -17,9 +17,7 @@ use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::data::system_columns::{
-    SystemColumn, SystemColumnKind, SystemColumns,
-};
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -181,7 +179,9 @@ impl SourceConnector for YdbSourceConnector {
             let tables = self.discovered_tables().await?;
             let table = tables
                 .get(usize::try_from(partition_id)?)
-                .ok_or_else(|| anyhow::anyhow!("YDB source partition {partition_id} does not exist"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("YDB source partition {partition_id} does not exist")
+                })?
                 .clone();
             let counters = self.counters(partition_id);
             self.metrics
@@ -243,7 +243,7 @@ impl YdbSource {
             batch_limit_bytes: 0,
             batch_limit_rows: u64::try_from(batch_rows)?,
             return_not_null_data_as_optional: feature_flag::Status::Disabled as i32,
-        })?;
+        });
         let response = tokio::time::timeout(
             client.timeout(),
             client.service().stream_read_table(request),
@@ -262,7 +262,7 @@ impl YdbSource {
         })
     }
 
-    fn output(&mut self, batch: RecordBatch) -> anyhow::Result<SourceBatch> {
+    fn output(&mut self, batch: &RecordBatch) -> anyhow::Result<SourceBatch> {
         let source_rows = u64::try_from(batch.num_rows())?;
         let decoded_bytes = u64::try_from(batch.get_array_memory_size())?;
         let rows = batch.num_rows();
@@ -270,15 +270,15 @@ impl YdbSource {
         let base = batch.num_columns();
         let mut fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
         let mut arrays = batch.columns().to_vec();
-        fields.extend(SYSTEM_COLUMN_KINDS.map(|kind| {
-            Arc::new(Field::new(
-                kind.default_name(),
-                kind.data_type(),
-                false,
-            ))
-        }));
+        fields.extend(
+            SYSTEM_COLUMN_KINDS
+                .map(|kind| Arc::new(Field::new(kind.default_name(), kind.data_type(), false))),
+        );
         arrays.extend([
-            Arc::new(StringArray::from(vec![self.table.config.path.clone(); rows])) as ArrayRef,
+            Arc::new(StringArray::from(vec![
+                self.table.config.path.clone();
+                rows
+            ])) as ArrayRef,
             Arc::new(Int64Array::from(vec![self.partition_id; rows])) as ArrayRef,
             Arc::new(Int64Array::from_iter_values(
                 self.offset
@@ -353,8 +353,8 @@ impl Source for YdbSource {
                 let Some(response) = response else {
                     return self.finish().await;
                 };
-                let status = StatusCode::try_from(response.status)
-                    .unwrap_or(StatusCode::Unspecified);
+                let status =
+                    StatusCode::try_from(response.status).unwrap_or(StatusCode::Unspecified);
                 if status != StatusCode::Success {
                     let error = anyhow::anyhow!(
                         "YDB StreamReadTable failed with {status:?}: {}",
@@ -375,10 +375,10 @@ impl Source for YdbSource {
                             "YDB StreamReadTable returned no result set"
                         ))
                     })?;
-                let batch = result_set_to_batch(result, &self.table.columns)
+                let batch = result_set_to_batch(&result, &self.table.columns)
                     .map_err(DataPlaneFailure::fatal)?;
                 if batch.num_rows() > 0 {
-                    return self.output(batch).map_err(DataPlaneFailure::fatal);
+                    return self.output(&batch).map_err(DataPlaneFailure::fatal);
                 }
             }
         })
@@ -392,7 +392,7 @@ impl Source for YdbSource {
     }
 }
 
-fn is_retryable_status(status: StatusCode) -> bool {
+const fn is_retryable_status(status: StatusCode) -> bool {
     matches!(
         status,
         StatusCode::Aborted

@@ -24,10 +24,8 @@ use tokio_util::sync::CancellationToken;
 use transferia::connectors::mysql::{
     MySqlConnectionConfig, MySqlSinkConnector, MySqlSourceConnector,
 };
-use transferia::core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
 use transferia::core::data::message::SourceBatch;
+use transferia::core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia::core::data::system_columns::SystemColumns;
 use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
@@ -182,7 +180,10 @@ async fn assert_mysql_family_source(image: GenericImage, password_env: &str) -> 
             other => anyhow::bail!("unexpected MySQL source batch: {other:?}"),
         }
     }
-    assert_eq!(batches.iter().map(|batch| batch.num_rows()).sum::<usize>(), 2);
+    assert_eq!(
+        batches.iter().map(|batch| batch.num_rows()).sum::<usize>(),
+        2
+    );
     let populated = batches
         .iter()
         .find(|batch| {
@@ -287,8 +288,7 @@ fn sink_batch(
         .with_constraints(true, false, None);
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::UInt64, false).with_metadata(id_column.arrow_metadata()),
-        Field::new("payload", DataType::Utf8, false)
-            .with_metadata(payload_column.arrow_metadata()),
+        Field::new("payload", DataType::Utf8, false).with_metadata(payload_column.arrow_metadata()),
     ]));
     let batch = RecordBatch::try_new(
         schema,
@@ -328,7 +328,10 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
         trusted_plaintext: true,
         tls_ca_file: None,
     };
-    wait_for_mysql(&connection_config).await?.disconnect().await?;
+    wait_for_mysql(&connection_config)
+        .await?
+        .disconnect()
+        .await?;
     let discovery = Arc::new(DeliveryDiscovery {
         source_name: Arc::from("mysql-sink-e2e"),
         source_topology: SourceTopology::StaticPartitions(vec![0]),
@@ -396,20 +399,17 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
                     vec!["must roll back"],
                     false,
                 )?,
-                sink_batch(
-                    &memory,
-                    "json_rows",
-                    vec![1],
-                    vec!["not json"],
-                    true,
-                )?,
+                sink_batch(&memory, "json_rows", vec![1], vec!["not json"], true)?,
             ],
             meta: DeliveryMeta { source_messages: 2 },
         })
         .await?;
     drop(delivery_tx);
     assert!(task.await?.is_err());
-    assert_eq!(event_rx.try_recv(), Err(mpsc::error::TryRecvError::Disconnected));
+    assert_eq!(
+        event_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Disconnected)
+    );
 
     let mut connection = wait_for_mysql(&connection_config).await?;
     let rows: Vec<(u64, String)> = connection

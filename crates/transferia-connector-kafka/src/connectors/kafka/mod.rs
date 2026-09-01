@@ -43,11 +43,7 @@ impl KafkaSourceConnector {
         config: KafkaSourceConfig,
         metrics_registry: Arc<MetricsRegistry>,
     ) -> anyhow::Result<Self> {
-        Self::from_config_with_parsers(
-            config,
-            metrics_registry,
-            &ParserPluginRegistry::default(),
-        )
+        Self::from_config_with_parsers(config, metrics_registry, &ParserPluginRegistry::default())
     }
 
     pub fn from_config_with_parsers(

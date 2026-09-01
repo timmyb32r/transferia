@@ -7,8 +7,8 @@ use arrow::array::{
     Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray, StringArray,
     TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
-use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::compute;
+use arrow::datatypes::{DataType, Schema, TimeUnit};
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -19,8 +19,8 @@ use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{
-    YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
-    YTsaurusSinkConfig, YTsaurusWriteFormat,
+    YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig,
+    YTsaurusWriteFormat,
 };
 use super::native_rpc::NativeDynamicWriter;
 use super::schema::{
@@ -163,7 +163,10 @@ impl SinkLimits for YTsaurusSinkConfig {
         }
         if !self.static_tables()
             && self.stages_dynamic_snapshots()
-            && matches!(discovery.source_topology, SourceTopology::StaticPartitions(_))
+            && matches!(
+                discovery.source_topology,
+                SourceTopology::StaticPartitions(_)
+            )
         {
             anyhow::ensure!(
                 self.replace_tables(),
@@ -245,10 +248,11 @@ impl SinkConnector for YTsaurusSinkConnector {
                 if self.config.replace_tables() {
                     self.client.remove_table(&path).await?;
                     if self.config.static_tables() {
+                        let schema = schema_to_yt(&dataset.schema)?;
                         self.client
                             .create_table(
                                 &path,
-                                schema_to_yt(&dataset.schema)?,
+                                &schema,
                                 self.config.static_optimize_for().ok_or_else(|| {
                                     anyhow::anyhow!("static table has no optimize_for config")
                                 })?,
@@ -261,10 +265,11 @@ impl SinkConnector for YTsaurusSinkConnector {
                             .config
                             .dynamic_write()
                             .ok_or_else(|| anyhow::anyhow!("dynamic table has no write config"))?;
+                        let schema = sorted_unique_schema_to_yt(&dataset.schema)?;
                         self.client
                             .create_dynamic_table(
                                 &path,
-                                sorted_unique_schema_to_yt(&dataset.schema)?,
+                                &schema,
                                 self.config.dynamic_atomicity().ok_or_else(|| {
                                     anyhow::anyhow!("dynamic table has no atomicity config")
                                 })?,
@@ -275,10 +280,8 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 self.config.dynamic_table_ttl_ms(),
                             )
                             .await?;
-                        let initial_tablet_count = self
-                            .config
-                            .initial_tablet_count()
-                            .ok_or_else(|| {
+                        let initial_tablet_count =
+                            self.config.initial_tablet_count().ok_or_else(|| {
                                 anyhow::anyhow!("dynamic table has no initial tablet count")
                             })?;
                         if initial_tablet_count > 1 {
@@ -382,17 +385,18 @@ impl SinkConnector for YTsaurusSinkConnector {
             let dynamic_writer = if stage_dynamic_snapshot {
                 None
             } else if let Some(write) = self.config.dynamic_write() {
+                let endpoints = self.client.discover_rpc_endpoints().await?;
                 Some(Arc::new(NativeDynamicWriter::new(
-                    self.client.discover_rpc_endpoints().await?,
-                    self.client.token().to_owned(),
-                    self.config.dynamic_atomicity().ok_or_else(|| {
-                        anyhow::anyhow!("dynamic table has no atomicity config")
-                    })?,
+                    &endpoints,
+                    self.client.token(),
+                    self.config
+                        .dynamic_atomicity()
+                        .ok_or_else(|| anyhow::anyhow!("dynamic table has no atomicity config"))?,
                     write.transaction_concurrency,
                     Duration::from_millis(write.transaction_timeout_ms),
                     Duration::from_millis(write.retry_initial_ms),
                     Duration::from_millis(write.retry_max_ms),
-                    Arc::clone(&context.counters),
+                    &context.counters,
                 )?))
             } else {
                 None
@@ -550,12 +554,14 @@ impl YTsaurusSink {
             }
             let staging = self.staging_path(&dataset.name)?;
             let sorted = self.sorted_path(&dataset.name)?;
+            let staging_schema = schema_to_yt(&dataset.stored_schema)?;
+            let sorted_schema = sorted_unique_schema_to_yt(&dataset.stored_schema)?;
             self.client.remove_table(&staging).await?;
             self.client.remove_table(&sorted).await?;
             self.client
                 .create_table(
                     &staging,
-                    schema_to_yt(&dataset.stored_schema)?,
+                    &staging_schema,
                     optimize_for,
                     &self.config.primary_medium,
                     &self.table_attributes,
@@ -564,7 +570,7 @@ impl YTsaurusSink {
             self.client
                 .create_table(
                     &sorted,
-                    sorted_unique_schema_to_yt(&dataset.stored_schema)?,
+                    &sorted_schema,
                     optimize_for,
                     &self.config.primary_medium,
                     &self.table_attributes,
@@ -609,9 +615,10 @@ impl YTsaurusSink {
                         self.config.dynamic_table_ttl_ms(),
                     )
                     .await?;
-                let initial_tablet_count = self.config.initial_tablet_count().ok_or_else(|| {
-                    anyhow::anyhow!("dynamic table has no initial tablet count")
-                })?;
+                let initial_tablet_count = self
+                    .config
+                    .initial_tablet_count()
+                    .ok_or_else(|| anyhow::anyhow!("dynamic table has no initial tablet count"))?;
                 if initial_tablet_count > 1 {
                     self.client
                         .reshard_table_uniform(&sorted, initial_tablet_count)
@@ -1205,8 +1212,7 @@ pub(super) fn drop_oversized_rows(
     if keep.iter().all(|keep| *keep) {
         return Ok(batch.clone());
     }
-    compute::filter_record_batch(batch, &arrow::array::BooleanArray::from(keep))
-        .map_err(Into::into)
+    compute::filter_record_batch(batch, &arrow::array::BooleanArray::from(keep)).map_err(Into::into)
 }
 
 const fn max_value_bytes(static_tables: bool) -> usize {
@@ -1229,34 +1235,34 @@ fn row_exceeds_limits(
             continue;
         }
         let value_bytes = match array.data_type() {
-                DataType::Boolean | DataType::Int8 | DataType::UInt8 => 1,
-                DataType::Int16 | DataType::UInt16 => 2,
-                DataType::Int32 | DataType::UInt32 | DataType::Float32 | DataType::Date32 => 4,
-                DataType::Int64
-                | DataType::UInt64
-                | DataType::Float64
-                | DataType::Date64
-                | DataType::Timestamp(TimeUnit::Microsecond, None) => 8,
-                DataType::Utf8 => array
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                    .value_length(row) as usize,
-                DataType::Binary => array
-                    .as_any()
-                    .downcast_ref::<BinaryArray>()
-                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                    .value_length(row) as usize,
-                DataType::LargeUtf8 => array
-                    .as_any()
-                    .downcast_ref::<LargeStringArray>()
-                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                    .value_length(row) as usize,
-                DataType::LargeBinary => array
-                    .as_any()
-                    .downcast_ref::<LargeBinaryArray>()
-                    .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
-                    .value_length(row) as usize,
+            DataType::Boolean | DataType::Int8 | DataType::UInt8 => 1,
+            DataType::Int16 | DataType::UInt16 => 2,
+            DataType::Int32 | DataType::UInt32 | DataType::Float32 | DataType::Date32 => 4,
+            DataType::Int64
+            | DataType::UInt64
+            | DataType::Float64
+            | DataType::Date64
+            | DataType::Timestamp(TimeUnit::Microsecond, None) => 8,
+            DataType::Utf8 => array
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value_length(row) as usize,
+            DataType::Binary => array
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value_length(row) as usize,
+            DataType::LargeUtf8 => array
+                .as_any()
+                .downcast_ref::<LargeStringArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value_length(row) as usize,
+            DataType::LargeBinary => array
+                .as_any()
+                .downcast_ref::<LargeBinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
+                .value_length(row) as usize,
             other => anyhow::bail!("Arrow type {other:?} is not supported by YTsaurus sink"),
         };
         if value_bytes > max_value_bytes {

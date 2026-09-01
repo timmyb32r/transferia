@@ -182,12 +182,18 @@ fn arrow_value(column: &dyn Array, row: usize) -> anyhow::Result<Value> {
         DataType::UInt64 => value!(UInt64Array, UInt),
         DataType::Float32 => {
             let value = downcast::<Float32Array>(column)?.value(row);
-            anyhow::ensure!(value.is_finite(), "MySQL FLOAT cannot preserve non-finite {value}");
+            anyhow::ensure!(
+                value.is_finite(),
+                "MySQL FLOAT cannot preserve non-finite {value}"
+            );
             Value::Float(value)
         }
         DataType::Float64 => {
             let value = downcast::<Float64Array>(column)?.value(row);
-            anyhow::ensure!(value.is_finite(), "MySQL DOUBLE cannot preserve non-finite {value}");
+            anyhow::ensure!(
+                value.is_finite(),
+                "MySQL DOUBLE cannot preserve non-finite {value}"
+            );
             Value::Double(value)
         }
         DataType::Utf8 => Value::Bytes(
@@ -211,9 +217,9 @@ fn arrow_value(column: &dyn Array, row: usize) -> anyhow::Result<Value> {
             )
             .into_bytes(),
         ),
-        DataType::Date32 => Value::Bytes(
-            date_text(downcast::<Date32Array>(column)?.value(row))?.into_bytes(),
-        ),
+        DataType::Date32 => {
+            Value::Bytes(date_text(downcast::<Date32Array>(column)?.value(row))?.into_bytes())
+        }
         DataType::Date64 => Value::Bytes(
             timestamp_text(
                 downcast::<Date64Array>(column)?.value(row),
@@ -224,15 +230,11 @@ fn arrow_value(column: &dyn Array, row: usize) -> anyhow::Result<Value> {
         DataType::Timestamp(unit, None) => {
             let value = match unit {
                 TimeUnit::Second => downcast::<TimestampSecondArray>(column)?.value(row),
-                TimeUnit::Millisecond => {
-                    downcast::<TimestampMillisecondArray>(column)?.value(row)
-                }
-                TimeUnit::Microsecond => {
-                    downcast::<TimestampMicrosecondArray>(column)?.value(row)
-                }
+                TimeUnit::Millisecond => downcast::<TimestampMillisecondArray>(column)?.value(row),
+                TimeUnit::Microsecond => downcast::<TimestampMicrosecondArray>(column)?.value(row),
                 TimeUnit::Nanosecond => downcast::<TimestampNanosecondArray>(column)?.value(row),
             };
-            Value::Bytes(timestamp_text(value, unit.clone())?.into_bytes())
+            Value::Bytes(timestamp_text(value, *unit)?.into_bytes())
         }
         data_type => anyhow::bail!("unsupported Arrow value type {data_type:?} for MySQL sink"),
     })
@@ -246,7 +248,10 @@ pub(super) fn decimal_text(unscaled: &str, scale: i8) -> String {
         return unscaled.to_owned();
     }
     if scale < 0 {
-        return format!("{sign}{digits}{}", "0".repeat(usize::from(scale.unsigned_abs())));
+        return format!(
+            "{sign}{digits}{}",
+            "0".repeat(usize::from(scale.unsigned_abs()))
+        );
     }
     let scale = usize::try_from(scale).unwrap_or_default();
     if digits.len() <= scale {
@@ -258,8 +263,8 @@ pub(super) fn decimal_text(unscaled: &str, scale: i8) -> String {
 }
 
 pub(super) fn date_text(days: i32) -> anyhow::Result<String> {
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1)
-        .ok_or_else(|| anyhow::anyhow!("invalid Unix epoch"))?;
+    let epoch =
+        NaiveDate::from_ymd_opt(1970, 1, 1).ok_or_else(|| anyhow::anyhow!("invalid Unix epoch"))?;
     let date = epoch
         .checked_add_signed(Duration::days(i64::from(days)))
         .ok_or_else(|| anyhow::anyhow!("Arrow Date32 {days} is outside the calendar range"))?;

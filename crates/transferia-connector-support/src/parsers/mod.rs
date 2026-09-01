@@ -119,11 +119,7 @@ impl ParserPlan {
                 "json_parser" => {
                     let parser_config: json_parser::JsonParserConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
-                    return Self::from_json_config(
-                        &config.common,
-                        &parser_config,
-                        topic_path,
-                    );
+                    return Self::from_json_config(&config.common, &parser_config, topic_path);
                 }
                 "schema_registry" => {
                     let table: Arc<str> = config.resolve_table_name(topic_path)?.into();
@@ -155,13 +151,7 @@ impl ParserPlan {
                         &config.common.system_columns,
                         Arc::clone(&table),
                     )?) as Arc<dyn ParserFactory>;
-                    (
-                        parser,
-                        schema,
-                        true,
-                        discovered_system_columns,
-                        primary_key,
-                    )
+                    (parser, schema, true, discovered_system_columns, primary_key)
                 }
                 "raw_to_table" => {
                     anyhow::ensure!(
@@ -182,12 +172,9 @@ impl ParserPlan {
                     return Ok(Self::from_benchmark_discard(topic_path));
                 }
                 other => {
-                    if let Some(plan) = plugins.build(
-                        other,
-                        &config.common,
-                        config.parser.raw()?,
-                        topic_path,
-                    )? {
+                    if let Some(plan) =
+                        plugins.build(other, &config.common, config.parser.raw()?, topic_path)?
+                    {
                         return Ok(plan);
                     }
                     let mut supported = vec![

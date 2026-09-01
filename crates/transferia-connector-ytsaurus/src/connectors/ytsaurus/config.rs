@@ -1216,10 +1216,7 @@ impl YTsaurusSinkConfig {
                 "ytsaurus dynamic initial_tablet_count must be between 1 and {MAX_TABLET_COUNT}"
             );
             if let Some(ttl_ms) = self.dynamic_table_ttl_ms() {
-                anyhow::ensure!(
-                    ttl_ms > 0,
-                    "ytsaurus dynamic table_ttl_ms must be positive"
-                );
+                anyhow::ensure!(ttl_ms > 0, "ytsaurus dynamic table_ttl_ms must be positive");
             }
         }
         Ok(())
@@ -1278,8 +1275,7 @@ impl YTsaurusSinkConfig {
         match &self.tables {
             YTsaurusTableMode::StaticTables { .. } => None,
             YTsaurusTableMode::DynamicTables {
-                tablet_cell_bundle,
-                ..
+                tablet_cell_bundle, ..
             } => tablet_cell_bundle.as_deref(),
         }
     }
@@ -1356,16 +1352,13 @@ impl YTsaurusSinkConfig {
         for name in attributes.keys() {
             anyhow::ensure!(
                 !RESERVED_TABLE_ATTRIBUTES.contains(&name.as_str()),
-                "YTsaurus table attribute '{}' has a dedicated configuration field and cannot be overridden",
-                name
+                "YTsaurus table attribute '{name}' has a dedicated configuration field and cannot be overridden"
             );
         }
         Ok(attributes)
     }
 
-    pub(super) fn parsed_writer_spec(
-        &self,
-    ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
+    pub(super) fn parsed_writer_spec(&self) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
         let entries = match &self.tables {
             YTsaurusTableMode::StaticTables { spec, .. } => spec,
             YTsaurusTableMode::DynamicTables { .. } => return Ok(BTreeMap::new()),

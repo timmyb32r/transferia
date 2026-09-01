@@ -19,9 +19,9 @@ chrono.workspace = true
 chrono-tz.workspace = true
 flate2.workspace = true
 futures-util.workspace = true
+itoa.workspace = true
 jsonpath_lib.workspace = true
 jsonschema.workspace = true
-itoa.workspace = true
 prost.workspace = true
 prost-reflect.workspace = true
 protox.workspace = true
@@ -35,10 +35,10 @@ serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 simd-json.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }

@@ -23,9 +23,9 @@ tokio-postgres.workspace = true
 tokio-postgres-rustls.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+transferia-connector-support = { path = "../transferia-connector-support" }
 transferia-core = { path = "../transferia-core" }
 transferia-delivery-contracts = { path = "../transferia-delivery-contracts" }
-transferia-connector-support = { path = "../transferia-connector-support" }
 transferia-registry = { path = "../transferia-registry" }
 
 [dev-dependencies]

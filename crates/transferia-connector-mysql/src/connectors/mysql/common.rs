@@ -81,9 +81,15 @@ impl MySqlConnectionConfig {
         crate::connectors::address::validate_host("mysql.host", &self.host)?;
         crate::connectors::address::validate_port("mysql.port", self.port)?;
         validate_identifier("database", &self.database)?;
-        anyhow::ensure!(!self.username.is_empty(), "mysql.username must not be empty");
+        anyhow::ensure!(
+            !self.username.is_empty(),
+            "mysql.username must not be empty"
+        );
         if let Some(path) = &self.tls_ca_file {
-            anyhow::ensure!(!path.trim().is_empty(), "mysql.tls_ca_file must not be empty");
+            anyhow::ensure!(
+                !path.trim().is_empty(),
+                "mysql.tls_ca_file must not be empty"
+            );
         }
         Ok(())
     }

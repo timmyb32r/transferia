@@ -10,9 +10,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use transferia_core::data::message::{Message, MessageHeader, MessageMeta};
-use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME,
-};
+use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::data::table_data::{dlq_name, TableData};
 
@@ -97,32 +95,17 @@ impl RawToTableParserConfig {
             );
         }
         if self.preserve_key {
-            columns.push(SchemaColumn::new(
-                "key".into(),
-                self.key_type.arrow_type(),
-                true,
-            ));
+            let mut key = SchemaColumn::new("key".into(), self.key_type.arrow_type(), true);
+            if matches!(self.key_type, RawValueType::Json) {
+                key = key.with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
+            }
+            columns.push(key);
         }
-        columns.push(SchemaColumn::new(
-            "value".into(),
-            self.value_type.arrow_type(),
-            false,
-        ));
+        let mut value = SchemaColumn::new("value".into(), self.value_type.arrow_type(), false);
         if matches!(self.value_type, RawValueType::Json) {
-            let value = columns.last_mut().expect("value column");
-            *value = value
-                .clone()
-                .with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
+            value = value.with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
         }
-        if self.preserve_key && matches!(self.key_type, RawValueType::Json) {
-            let key = columns
-                .iter_mut()
-                .find(|column| column.name == "key")
-                .expect("key column");
-            *key = key
-                .clone()
-                .with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
-        }
+        columns.push(value);
         DatasetSchema::new(columns)
     }
 }
@@ -160,7 +143,10 @@ pub struct RawToTableParser {
 
 impl RawToTableParser {
     pub fn new(config: &RawToTableParserConfig, table: Arc<str>) -> anyhow::Result<Self> {
-        anyhow::ensure!(!table.is_empty(), "raw_to_table table name must not be empty");
+        anyhow::ensure!(
+            !table.is_empty(),
+            "raw_to_table table name must not be empty"
+        );
         let schema = config.dataset_schema();
         let arrow_schema = dataset_arrow_schema(&schema);
         let dlq_schema = dataset_arrow_schema(&dlq_dataset_schema());

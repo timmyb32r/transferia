@@ -113,7 +113,13 @@ async fn registry_client_resolves_recursive_references_once() -> anyhow::Result<
     assert_eq!(schema.references[1].name, "middle.proto");
 
     let paths = server.await??;
-    assert_eq!(paths.iter().filter(|path| path.contains("middle")).count(), 1);
-    assert_eq!(paths.iter().filter(|path| path.contains("common")).count(), 1);
+    assert_eq!(
+        paths.iter().filter(|path| path.contains("middle")).count(),
+        1
+    );
+    assert_eq!(
+        paths.iter().filter(|path| path.contains("common")).count(),
+        1
+    );
     Ok(())
 }

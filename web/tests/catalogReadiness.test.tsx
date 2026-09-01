@@ -47,8 +47,10 @@ describe("connector catalog readiness", () => {
       "ClickHouse",
       "Kafka",
       "Logbroker",
+      "MySQL",
       "PostgreSQL",
       "S3",
+      "YDB",
       "YTsaurus",
       "Data generator (for benchmarks)",
     ]);
@@ -61,8 +63,10 @@ describe("connector catalog readiness", () => {
       "ClickHouse",
       "Kafka",
       "Logbroker",
+      "MySQL",
       "PostgreSQL",
       "S3",
+      "YDB",
       "YTsaurus",
       "Discard (for benchmarks)",
     ]);

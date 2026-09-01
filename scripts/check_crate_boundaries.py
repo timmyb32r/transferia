@@ -57,6 +57,12 @@ PRODUCTION_ALLOWED = {
         "transferia-connector-support",
         "transferia-registry",
     },
+    "transferia-connector-mysql": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-connector-support",
+        "transferia-registry",
+    },
     "transferia-connector-postgres": {
         "transferia-core",
         "transferia-delivery-contracts",
@@ -75,6 +81,12 @@ PRODUCTION_ALLOWED = {
         "transferia-connector-support",
         "transferia-registry",
     },
+    "transferia-connector-ydb": {
+        "transferia-core",
+        "transferia-delivery-contracts",
+        "transferia-connector-support",
+        "transferia-registry",
+    },
     "transferia-connectors": {
         "transferia-core",
         "transferia-delivery-contracts",
@@ -82,10 +94,12 @@ PRODUCTION_ALLOWED = {
         "transferia-connector-iceberg",
         "transferia-connector-kafka",
         "transferia-connector-logbroker",
+        "transferia-connector-mysql",
         "transferia-connector-postgres",
         "transferia-connector-s3",
         "transferia-connector-support",
         "transferia-connector-ytsaurus",
+        "transferia-connector-ydb",
         "transferia-middleware-datafusion",
         "transferia-middleware-filter",
         "transferia-registry",
@@ -130,21 +144,25 @@ DEV_EXTRA = {
     "transferia-connector-iceberg": {"transferia-test-support"},
     "transferia-connector-kafka": {"transferia-test-support"},
     "transferia-connector-logbroker": {"transferia-test-support"},
+    "transferia-connector-mysql": {"transferia-test-support"},
     "transferia-connector-s3": {"transferia-pipeline", "transferia-test-support"},
     "transferia-connector-support": {"transferia-pipeline"},
     "transferia-connector-ytsaurus": {"transferia-test-support"},
+    "transferia-connector-ydb": {"transferia-test-support"},
     "transferia-connectors": {"transferia-pipeline"},
 }
 
 HEAVY_CONNECTOR_OWNERS = {
-    "clickhouse-arrow": "transferia-connector-clickhouse",
-    "object_store": "transferia-connector-s3",
-    "postgres-types": "transferia-connector-postgres",
-    "rdkafka": "transferia-connector-kafka",
-    "tokio-postgres": "transferia-connector-postgres",
-    "tokio-postgres-rustls": "transferia-connector-postgres",
-    "ydb-grpc": "transferia-connector-logbroker",
-    "datafusion": "transferia-middleware-datafusion",
+    "clickhouse-arrow": {"transferia-connector-clickhouse"},
+    "datafusion": {"transferia-middleware-datafusion"},
+    "object_store": {"transferia-connector-s3"},
+    "postgres-types": {"transferia-connector-postgres"},
+    "rdkafka": {"transferia-connector-kafka"},
+    "tokio-postgres": {"transferia-connector-postgres"},
+    "tokio-postgres-rustls": {"transferia-connector-postgres"},
+    # Logbroker owns YDB Topics while the YDB connector owns table operations.
+    # Both are isolated connectors and neither leaks the SDK into neutral crates.
+    "ydb-grpc": {"transferia-connector-logbroker", "transferia-connector-ydb"},
 }
 
 DIRECT_HTTP_CLIENT = re.compile(r"reqwest::Client\s*::|\bClient\s*::builder\s*\(")
@@ -159,12 +177,17 @@ def internal_dependencies(manifest: dict[str, object], section: str) -> set[str]
 
 def connector_isolation_errors(manifests: dict[str, dict[str, object]]) -> list[str]:
     errors: list[str] = []
-    for dependency, owner in sorted(HEAVY_CONNECTOR_OWNERS.items()):
+    for dependency, owners in sorted(HEAVY_CONNECTOR_OWNERS.items()):
         for crate, manifest in manifests.items():
             dependencies = manifest.get("dependencies", {})
-            if isinstance(dependencies, dict) and dependency in dependencies and crate != owner:
+            if (
+                isinstance(dependencies, dict)
+                and dependency in dependencies
+                and crate not in owners
+            ):
                 errors.append(
-                    f"{crate}: heavy dependency '{dependency}' belongs only to {owner}"
+                    f"{crate}: heavy dependency '{dependency}' belongs only to "
+                    f"{', '.join(sorted(owners))}"
                 )
 
     connector_crates = {
