@@ -201,7 +201,7 @@ async fn read_arrow(
 }
 
 #[tokio::test]
-async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow::Result<()> {
+async fn ytsaurus_source_and_arrow_sink_use_the_real_http_api() -> anyhow::Result<()> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
     let host_port = listener.local_addr()?.port();
     drop(listener);
@@ -252,7 +252,7 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
 
     let arrow_config: transferia_connector_ytsaurus::ytsaurus::YTsaurusSinkConfig =
         serde_yaml::from_str(&format!(
-        "tables: {{ type: static_tables, replace_tables: true, format: arrow, path: //tmp/arrow_output }}\nauth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\n"
+        "tables: {{ type: static_tables, replace_tables: true, path: //tmp/arrow_output }}\nauth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\n"
     ))?;
     transferia_connector_ytsaurus::ytsaurus::check_connection(&arrow_config.connection).await?;
     let arrow_connector = YTsaurusSinkConnector::from_config(arrow_config)?;
@@ -279,37 +279,11 @@ async fn ytsaurus_source_and_both_sink_formats_use_the_real_http_api() -> anyhow
     )
     .await?;
 
-    let yson_connector = YTsaurusSinkConnector::from_config(serde_yaml::from_str(&format!(
-        "tables: {{ type: static_tables, replace_tables: true, format: yson, path: //tmp/yson_output }}\nauth: {{ type: token, token: test }}\nhost: {host}\nport: {port}\ntrusted_plaintext: true\n"
-    ))?)?;
-    yson_connector.limits().validate_discovery(&discovered)?;
-    yson_connector
-        .prepare(SinkPrepare::from_discovery(&discovered)?.expect("dataset"))
-        .await?;
-    let memory = PipelineMemory::new(16 * 1024 * 1024);
-    let yson_sink = yson_connector
-        .build_sink(SinkBuildContext {
-            durable: transferia_test_support::durable_context(),
-            partition_id: 0,
-            finite_source: true,
-            counters: Arc::new(SinkCounters::new()),
-            keep_system_columns: false,
-            discovery: Arc::clone(&discovered),
-        })
-        .await?;
-    write_delivery(yson_sink, memory, vec![batch(vec![3], vec![Some(b"b")])?]).await?;
-
     let arrow_rows = read_arrow(&client, &endpoint, "//tmp/arrow_output/events").await?;
     assert_eq!(
         arrow_rows.iter().map(RecordBatch::num_rows).sum::<usize>(),
         2
     );
-    let yson_rows = read_arrow(&client, &endpoint, "//tmp/yson_output/events").await?;
-    assert_eq!(
-        yson_rows.iter().map(RecordBatch::num_rows).sum::<usize>(),
-        1
-    );
-
     let input_schema = DatasetSchema::new(vec![
         SchemaColumn::new("id".into(), DataType::Int64, false),
         SchemaColumn::new("payload".into(), DataType::Binary, true),
