@@ -123,7 +123,7 @@ async fn schema_registry_decodes_all_confluent_formats_losslessly() -> anyhow::R
         let plan = ParserPlan::from_config(&parser, "events")?;
         let (table, dlq) = parse_one(&plan, raw).await?;
         assert!(dlq.is_none());
-        assert_row(&table.batch);
+        assert_row(&table.batch)?;
     }
     Ok(())
 }
@@ -217,16 +217,16 @@ fn encode_source(format: SchemaFormat, id: i32, definition: &str) -> anyhow::Res
     ConfluentEnvelope::encode(id, &payload)
 }
 
-fn assert_row(batch: &RecordBatch) {
+fn assert_row(batch: &RecordBatch) -> anyhow::Result<()> {
     assert_eq!(batch.num_rows(), 1);
     let data = batch
         .column(0)
         .as_any()
         .downcast_ref::<StringArray>()
-        .expect("decoded data is an Arrow JSON string");
-    let value: serde_json::Value =
-        serde_json::from_str(data.value(0)).expect("decoded data is valid JSON");
+        .ok_or_else(|| anyhow::anyhow!("decoded data is not an Arrow JSON string"))?;
+    let value: serde_json::Value = serde_json::from_str(data.value(0))?;
     assert_eq!(value["id"], 42);
     assert_eq!(value["name"], "answer");
     assert_eq!(value["enabled"], true);
+    Ok(())
 }
