@@ -327,7 +327,7 @@ fn arrow_is_the_default_sink_format() -> anyhow::Result<()> {
         Some(YTsaurusOptimizeFor::Scan)
     );
     assert_eq!(
-        config.primary_key_semantics,
+        config.primary_key_semantics(),
         YTsaurusPrimaryKeySemantics::UniqueSorted
     );
     assert_eq!(config.path_for_dataset("events")?, "//tmp/output/events");
@@ -362,14 +362,14 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     assert_eq!(scan["chunk_format"], "table_unversioned_columnar");
     assert_eq!(scan["primary_medium"], "default");
 
-    let mut config = serde_yaml::from_str::<YTsaurusSinkConfig>(
+    let config = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: false, path: //tmp/output, optimize_for: lookup }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
     assert_eq!(
         config.static_optimize_for(),
         Some(YTsaurusOptimizeFor::Lookup)
     );
-    assert_eq!(config.primary_medium, "default");
+    assert_eq!(config.primary_medium(), "default");
     config.validate()?;
     let lookup = static_table_attributes(
         &serde_json::json!([{ "name": "id", "type": "int64" }]),
@@ -389,8 +389,14 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
     assert!(serialized.contains("Optimize for"));
     assert!(serialized.contains("Primary medium"));
     assert!(serialized.contains("advanced"));
-    config.primary_medium.clear();
-    assert!(config.validate().is_err());
+    let invalid: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, primary_medium: '' }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    assert!(invalid.validate().is_err());
     Ok(())
 }
 
@@ -398,10 +404,7 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
 fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -> anyhow::Result<()>
 {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
-        "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\n\
-         table_attributes:\n\
-           - { name: compression_codec, value: '\"zstd_3\"' }\n\
-           - { name: custom_nested, value: '{\"enabled\":true,\"levels\":[1,2]}' }\n\
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: compression_codec, value: '\"zstd_3\"' }, { name: custom_nested, value: '{\"enabled\":true,\"levels\":[1,2]}' }] }\n\
          auth: { type: token, token: test }\n\
          host: localhost\n\
          port: 8000\n\
@@ -411,7 +414,7 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
     let attributes = static_table_attributes(
         &serde_json::json!([{ "name": "id", "type": "int64" }]),
         YTsaurusOptimizeFor::Scan,
-        &config.primary_medium,
+        config.primary_medium(),
         &custom,
     )?;
     assert_eq!(attributes["compression_codec"], "zstd_3");
@@ -422,8 +425,7 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
     );
 
     let reserved: YTsaurusSinkConfig = serde_yaml::from_str(
-        "tables: { type: static_tables, replace_tables: false, path: //tmp/output }\n\
-         table_attributes: [{ name: schema, value: '{}' }]\n\
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: schema, value: '{}' }] }\n\
          auth: { type: token, token: test }\n\
          host: localhost\n\
          port: 8000\n\
@@ -599,10 +601,10 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
     assert_eq!(config.initial_tablet_count(), Some(1));
     assert_eq!(config.dynamic_table_ttl_ms(), None);
-    assert_eq!(config.big_value_policy, YTsaurusBigValuePolicy::Fail);
+    assert_eq!(config.big_value_policy(), YTsaurusBigValuePolicy::Fail);
     assert!(config.stages_dynamic_snapshots());
     assert_eq!(config.dynamic_snapshot_operation_pool(), None);
-    assert_eq!(config.primary_medium, "default");
+    assert_eq!(config.primary_medium(), "default");
     assert_eq!(write.transaction_rows, 50_000);
     assert_eq!(write.transaction_concurrency, 8);
     assert_eq!(write.transaction_timeout_ms, 60_000);
@@ -649,8 +651,30 @@ fn sink_has_no_root_level_advanced_settings() {
         "table_attributes",
         "big_value_policy",
     ] {
-        assert_eq!(properties[name]["x-ui"]["widget"], "hidden", "{name}");
-        assert!(properties[name]["x-ui"].get("section").is_none(), "{name}");
+        assert!(!properties.contains_key(name), "{name}");
+    }
+}
+
+#[test]
+fn common_table_settings_live_in_each_table_mode_advanced_section() {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
+    let branches = schema
+        .pointer("/$defs/YTsaurusTableMode/oneOf")
+        .and_then(serde_json::Value::as_array)
+        .expect("table mode branches");
+    for branch in branches {
+        for name in [
+            "primary_key_semantics",
+            "primary_medium",
+            "table_attributes",
+            "big_value_policy",
+        ] {
+            assert_eq!(
+                branch["properties"][name]["x-ui"]["section"],
+                "advanced",
+                "{name}"
+            );
+        }
     }
 }
 
@@ -831,7 +855,7 @@ fn dynamic_table_atomicity_is_explicit_in_schema_creation_and_transactions() -> 
     let attributes = dynamic_table_attributes(
         &serde_json::json!([{ "name": "id", "type": "int64" }]),
         config.dynamic_atomicity().expect("dynamic atomicity"),
-        &config.primary_medium,
+        config.primary_medium(),
         &BTreeMap::new(),
         Some("cdc"),
         0.5,
@@ -960,15 +984,14 @@ fn oversized_value_policy_fails_closed_or_drops_the_entire_row() -> anyhow::Resu
     );
 
     let drop: YTsaurusSinkConfig = serde_yaml::from_str(
-        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output }\n\
-         big_value_policy: drop\n\
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output, big_value_policy: drop }\n\
          auth: { type: token, token: test }\n\
          host: localhost\n\
          port: 8000\n\
          trusted_plaintext: true\n\
          trusted_native_rpc_plaintext: true\n",
     )?;
-    assert_eq!(drop.big_value_policy, YTsaurusBigValuePolicy::Drop);
+    assert_eq!(drop.big_value_policy(), YTsaurusBigValuePolicy::Drop);
     drop.validate()?;
     Ok(())
 }

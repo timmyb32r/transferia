@@ -122,7 +122,7 @@ impl SinkLimits for YTsaurusSinkConfig {
                 .iter()
                 .any(|column| column.primary_key);
             if self.static_tables()
-                && self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+                && self.primary_key_semantics() == YTsaurusPrimaryKeySemantics::UniqueSorted
                 && has_primary_key
             {
                 static_unique_sorted = true;
@@ -134,7 +134,7 @@ impl SinkLimits for YTsaurusSinkConfig {
             }
             if !self.static_tables() {
                 anyhow::ensure!(
-                    self.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted,
+                    self.primary_key_semantics() == YTsaurusPrimaryKeySemantics::UniqueSorted,
                     "dynamic YTsaurus tables require unique_sorted primary-key semantics because duplicate keys are overwritten"
                 );
                 anyhow::ensure!(
@@ -190,7 +190,7 @@ impl SinkLimits for YTsaurusSinkConfig {
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.path_for_dataset(&batch.table)?;
-        if self.big_value_policy == YTsaurusBigValuePolicy::Fail {
+        if self.big_value_policy() == YTsaurusBigValuePolicy::Fail {
             validate_row_weight(&batch.batch, self.static_tables())?;
         }
         Ok(())
@@ -229,7 +229,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                 "dynamic snapshot delivery through static staging requires replace_tables=true"
             );
             for dataset in request.datasets {
-                let unique_sorted = self.config.primary_key_semantics
+                let unique_sorted = self.config.primary_key_semantics()
                     == YTsaurusPrimaryKeySemantics::UniqueSorted
                     && dataset
                         .schema
@@ -256,7 +256,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 self.config.static_optimize_for().ok_or_else(|| {
                                     anyhow::anyhow!("static table has no optimize_for config")
                                 })?,
-                                &self.config.primary_medium,
+                                self.config.primary_medium(),
                                 &self.table_attributes,
                             )
                             .await?;
@@ -273,7 +273,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                 self.config.dynamic_atomicity().ok_or_else(|| {
                                     anyhow::anyhow!("dynamic table has no atomicity config")
                                 })?,
-                                &self.config.primary_medium,
+                                self.config.primary_medium(),
                                 &self.table_attributes,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
@@ -322,9 +322,9 @@ impl SinkConnector for YTsaurusSinkConnector {
                         .await?;
                     anyhow::ensure!(
                         existing_primary_medium
-                            == serde_json::Value::String(self.config.primary_medium.clone()),
+                            == serde_json::Value::String(self.config.primary_medium().to_owned()),
                         "YTsaurus sink table '{path}' uses primary medium {existing_primary_medium}, but the destination requires '{}'",
-                        self.config.primary_medium
+                        self.config.primary_medium()
                     );
                     let existing = parse_schema(
                         self.client
@@ -363,7 +363,7 @@ impl SinkConnector for YTsaurusSinkConnector {
         Box::pin(async move {
             let static_unique_sorted = context.discovery.datasets.iter().any(|dataset| {
                 self.config.static_tables()
-                    && self.config.primary_key_semantics
+                    && self.config.primary_key_semantics()
                         == YTsaurusPrimaryKeySemantics::UniqueSorted
                     && dataset
                         .stored_schema
@@ -490,14 +490,14 @@ impl YTsaurusSink {
 
     fn unique_sorted(&self, table: &str) -> anyhow::Result<bool> {
         Ok(
-            self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+            self.config.primary_key_semantics() == YTsaurusPrimaryKeySemantics::UniqueSorted
                 && !self.primary_keys(table)?.is_empty(),
         )
     }
 
     fn has_staged_tables(&self) -> bool {
         (self.config.static_tables() || self.stage_dynamic_snapshot)
-            && self.config.primary_key_semantics == YTsaurusPrimaryKeySemantics::UniqueSorted
+            && self.config.primary_key_semantics() == YTsaurusPrimaryKeySemantics::UniqueSorted
             && self.discovery.datasets.iter().any(|dataset| {
                 dataset
                     .stored_schema
@@ -563,7 +563,7 @@ impl YTsaurusSink {
                     &staging,
                     &staging_schema,
                     optimize_for,
-                    &self.config.primary_medium,
+                    self.config.primary_medium(),
                     &self.table_attributes,
                 )
                 .await?;
@@ -572,7 +572,7 @@ impl YTsaurusSink {
                     &sorted,
                     &sorted_schema,
                     optimize_for,
-                    &self.config.primary_medium,
+                    self.config.primary_medium(),
                     &self.table_attributes,
                 )
                 .await?;
@@ -608,7 +608,7 @@ impl YTsaurusSink {
                         self.config.dynamic_atomicity().ok_or_else(|| {
                             anyhow::anyhow!("dynamic table has no atomicity config")
                         })?,
-                        &self.config.primary_medium,
+                        self.config.primary_medium(),
                         &self.table_attributes,
                         self.config.tablet_cell_bundle(),
                         write.dynamic_store_overflow_threshold,
@@ -783,7 +783,7 @@ impl YTsaurusSink {
                     project_user_columns(&batch.batch, &batch.system_columns)?
                 };
                 let original_rows = stored.num_rows();
-                let stored = match self.config.big_value_policy {
+                let stored = match self.config.big_value_policy() {
                     YTsaurusBigValuePolicy::Fail => stored,
                     YTsaurusBigValuePolicy::Drop => {
                         let filtered = drop_oversized_rows(&stored, self.config.static_tables())?;

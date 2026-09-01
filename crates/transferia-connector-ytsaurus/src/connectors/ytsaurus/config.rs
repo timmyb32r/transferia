@@ -945,38 +945,6 @@ pub struct YTsaurusSinkConfig {
     )]
     pub tables: YTsaurusTableMode,
 
-    #[serde(default)]
-    #[schemars(
-        title = "Primary key semantics",
-        description = "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
-        extend("x-ui" = { "widget": "hidden" })
-    )]
-    pub primary_key_semantics: YTsaurusPrimaryKeySemantics,
-
-    #[serde(default = "default_primary_medium")]
-    #[schemars(
-        title = "Primary medium",
-        description = "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
-        extend("x-ui" = { "widget": "hidden" })
-    )]
-    pub primary_medium: String,
-
-    #[serde(default)]
-    #[schemars(
-        title = "Table attributes",
-        description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
-        extend("x-ui" = { "widget": "hidden" })
-    )]
-    pub table_attributes: Vec<YTsaurusJsonEntry>,
-
-    #[serde(default)]
-    #[schemars(
-        title = "Oversized values",
-        description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
-        extend("x-ui" = { "widget": "hidden" })
-    )]
-    pub big_value_policy: YTsaurusBigValuePolicy,
-
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,
 
@@ -1085,6 +1053,38 @@ pub enum YTsaurusTableMode {
 
         #[serde(default)]
         #[schemars(
+            title = "Primary key semantics",
+            description = "For schemas with primary keys, the default stages the snapshot, sorts it by the key and fails on duplicates. Preserve every row keeps the unsorted append semantics.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        primary_key_semantics: YTsaurusPrimaryKeySemantics,
+
+        #[serde(default = "default_primary_medium")]
+        #[schemars(
+            title = "Primary medium",
+            description = "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        primary_medium: String,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Table attributes",
+            description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+            extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
+        )]
+        table_attributes: Vec<YTsaurusJsonEntry>,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Oversized values",
+            description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        big_value_policy: YTsaurusBigValuePolicy,
+
+        #[serde(default)]
+        #[schemars(
             title = "Optimize for",
             description = "Physical layout for newly written static-table chunks",
             extend("x-ui" = { "section": "advanced" })
@@ -1116,6 +1116,38 @@ pub enum YTsaurusTableMode {
         path: String,
 
         replace_tables: bool,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Primary key semantics",
+            description = "Dynamic tables require one row per primary key.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        primary_key_semantics: YTsaurusPrimaryKeySemantics,
+
+        #[serde(default = "default_primary_medium")]
+        #[schemars(
+            title = "Primary medium",
+            description = "YT storage medium used for newly created tables. The default value selects the cluster's default medium.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        primary_medium: String,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Table attributes",
+            description = "Additional attributes for every newly created table. Structural attributes have dedicated settings and cannot be overridden here.",
+            extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
+        )]
+        table_attributes: Vec<YTsaurusJsonEntry>,
+
+        #[serde(default)]
+        #[schemars(
+            title = "Oversized values",
+            description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        big_value_policy: YTsaurusBigValuePolicy,
 
         #[serde(default = "default_dynamic_snapshot_mode")]
         #[schemars(
@@ -1171,7 +1203,7 @@ impl YTsaurusSinkConfig {
         self.connection.validate()?;
         validate_path(self.path())?;
         anyhow::ensure!(
-            !self.primary_medium.trim().is_empty(),
+            !self.primary_medium().trim().is_empty(),
             "ytsaurus.primary_medium must not be empty"
         );
         self.parsed_table_attributes()?;
@@ -1242,6 +1274,51 @@ impl YTsaurusSinkConfig {
         match &self.tables {
             YTsaurusTableMode::StaticTables { replace_tables, .. }
             | YTsaurusTableMode::DynamicTables { replace_tables, .. } => *replace_tables,
+        }
+    }
+
+    #[must_use]
+    pub const fn primary_key_semantics(&self) -> YTsaurusPrimaryKeySemantics {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables {
+                primary_key_semantics,
+                ..
+            }
+            | YTsaurusTableMode::DynamicTables {
+                primary_key_semantics,
+                ..
+            } => *primary_key_semantics,
+        }
+    }
+
+    #[must_use]
+    pub fn primary_medium(&self) -> &str {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables { primary_medium, .. }
+            | YTsaurusTableMode::DynamicTables { primary_medium, .. } => primary_medium,
+        }
+    }
+
+    #[must_use]
+    pub fn big_value_policy(&self) -> YTsaurusBigValuePolicy {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables {
+                big_value_policy, ..
+            }
+            | YTsaurusTableMode::DynamicTables {
+                big_value_policy, ..
+            } => *big_value_policy,
+        }
+    }
+
+    fn table_attributes(&self) -> &[YTsaurusJsonEntry] {
+        match &self.tables {
+            YTsaurusTableMode::StaticTables {
+                table_attributes, ..
+            }
+            | YTsaurusTableMode::DynamicTables {
+                table_attributes, ..
+            } => table_attributes,
         }
     }
 
@@ -1355,7 +1432,7 @@ impl YTsaurusSinkConfig {
     pub(super) fn parsed_table_attributes(
         &self,
     ) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
-        let attributes = parse_json_entries(&self.table_attributes, "YTsaurus table attribute")?;
+        let attributes = parse_json_entries(self.table_attributes(), "YTsaurus table attribute")?;
         for name in attributes.keys() {
             anyhow::ensure!(
                 !RESERVED_TABLE_ATTRIBUTES.contains(&name.as_str()),
