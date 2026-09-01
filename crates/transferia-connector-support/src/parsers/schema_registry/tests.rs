@@ -29,11 +29,29 @@ fn schema_registry_public_config_is_complete_and_editable() {
     }
     assert!(!connection.contains_key("subject"));
     assert!(!connection.contains_key("format"));
-    assert_eq!(
-        runtime_schema.pointer("/properties/json_parser/x-ui/widget"),
-        None,
-        "the explicit JSON projection must remain editable, not hidden"
-    );
+    let properties = runtime_schema["properties"]
+        .as_object()
+        .expect("runtime parser properties are an object");
+    assert_eq!(properties.len(), 1);
+    assert!(properties.contains_key("connection"));
+    for removed in [
+        "json_parser",
+        "json_framing",
+        "columns",
+        "keys",
+        "unknown_fields",
+    ] {
+        assert!(
+            !properties.contains_key(removed),
+            "Confluent runtime config must not expose {removed}"
+        );
+    }
+    let projection = super::decoded_record_projection();
+    let schema = projection
+        .to_dataset_schema()
+        .expect("built-in lossless projection is valid");
+    assert_eq!(schema.columns.len(), 1);
+    assert_eq!(schema.columns[0].name, "data");
 }
 
 #[test]

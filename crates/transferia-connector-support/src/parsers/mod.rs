@@ -129,7 +129,8 @@ impl ParserPlan {
                     );
                     let parser_config: schema_registry::SchemaRegistryParserConfig =
                         serde_yaml::from_value(config.parser.raw()?.clone())?;
-                    let schema = parser_config.json_parser.to_dataset_schema()?;
+                    let projection = schema_registry::decoded_record_projection();
+                    let schema = projection.to_dataset_schema()?;
                     let discovered_system_columns = config
                         .common
                         .system_columns
@@ -140,12 +141,12 @@ impl ParserPlan {
                         })
                         .collect::<Vec<_>>();
                     validate_primary_key(
-                        &parser_config.json_parser,
+                        &projection,
                         &config.common.system_columns,
                         &schema,
                         &discovered_system_columns,
                     )?;
-                    let primary_key = Arc::from(parser_config.json_parser.keys.clone());
+                    let primary_key = Arc::from(projection.keys.clone());
                     let parser = Arc::new(schema_registry::SchemaRegistryParser::new(
                         &parser_config,
                         &config.common.system_columns,

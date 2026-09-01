@@ -9,7 +9,10 @@ use bytes::Bytes;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::parsers::json_parser::{JsonParser, JsonParserConfig};
+use crate::parsers::json_parser::{
+    ColumnMapping, ConversionErrorPolicy, JsonDataType, JsonFramingMode, JsonParser,
+    JsonParserConfig, UnknownFieldPolicy,
+};
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 use crate::schema_registry::{RegistryClient, SchemaRegistryConnection};
 use transferia_core::data::message::Message;
@@ -21,8 +24,27 @@ pub use decoder::SchemaDecoder;
 #[serde(deny_unknown_fields)]
 pub struct SchemaRegistryParserConfig {
     pub connection: SchemaRegistryConnection,
+}
 
-    pub json_parser: JsonParserConfig,
+pub(crate) fn decoded_record_projection() -> JsonParserConfig {
+    JsonParserConfig {
+        json_framing: JsonFramingMode::SingleDocument,
+        columns: vec![ColumnMapping {
+            jsonpath: "$.data".to_owned(),
+            column_name: "data".to_owned(),
+            json_data_type: JsonDataType::Json,
+            arrow_type: "Json".to_owned(),
+            decimal_precision: None,
+            decimal_scale: None,
+            nullable: false,
+            time_conversion: None,
+            low_cardinality: false,
+            max_length: None,
+        }],
+        conversion_error: ConversionErrorPolicy::Fail,
+        unknown_fields: UnknownFieldPolicy::Fail,
+        keys: Vec::new(),
+    }
 }
 
 pub struct SchemaRegistryParser {
@@ -36,9 +58,10 @@ impl SchemaRegistryParser {
         system_config: &SystemColumnsConfig,
         table: Arc<str>,
     ) -> anyhow::Result<Self> {
+        let projection = decoded_record_projection();
         Ok(Self {
             registry: RegistryClient::new(&config.connection)?,
-            json: Arc::new(JsonParser::new(&config.json_parser, system_config, table)?),
+            json: Arc::new(JsonParser::new(&projection, system_config, table)?),
         })
     }
 }
@@ -118,7 +141,9 @@ impl ParserSession for SchemaRegistryParserSession {
                     envelope.schema_id
                 )
             })?;
-            let value = self.decoder.decode(schema, envelope.payload)?;
+            let value = serde_json::json!({
+                "data": self.decoder.decode(schema, envelope.payload)?,
+            });
             let value = serde_json::to_vec(&value)?;
             decoded_bytes = decoded_bytes
                 .checked_add(value.len())

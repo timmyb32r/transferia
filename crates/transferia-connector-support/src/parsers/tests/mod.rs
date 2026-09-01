@@ -224,7 +224,7 @@ fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
 #[test]
 fn schema_registry_rejects_message_index_system_column() -> anyhow::Result<()> {
     let config: ParserConfig = serde_yaml::from_str(
-        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { message_index: source_message_index }\nschema_registry:\n  connection:\n    url: http://localhost:8081\n    request_timeout_ms: 1000\n    auth: { type: none }\n  json_parser:\n    columns:\n      - { jsonpath: $.value, column_name: value, json_data_type: string, arrow_type: Utf8, nullable: false }\n    conversion_error: fail\n    unknown_fields: { action: fail }\n",
+        "common:\n  table_naming: { type: from_config, name: events }\n  system_columns: { message_index: source_message_index }\nschema_registry:\n  connection:\n    url: http://localhost:8081\n    request_timeout_ms: 1000\n    auth: { type: none }\n",
     )?;
     let error = ParserPlan::from_config(&config, "topic")
         .err()
