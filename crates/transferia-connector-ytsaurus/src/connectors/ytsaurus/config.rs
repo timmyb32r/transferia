@@ -1161,6 +1161,7 @@ pub enum YTsaurusTableMode {
         table_ttl_ms: Option<u64>,
 
         #[serde(default)]
+        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
         write: YTsaurusDynamicWriteConfig,
     },
 }

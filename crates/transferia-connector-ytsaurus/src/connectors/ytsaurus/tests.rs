@@ -627,6 +627,16 @@ fn dynamic_snapshot_mode_schema_materializes_static_staging_for_batch_deliveries
 }
 
 #[test]
+fn dynamic_writer_tuning_is_not_exposed_as_an_unlabelled_ui_group() {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
+    let encoded = schema.to_string();
+    assert!(encoded.contains(concat!(
+        "\"write\":{\"$ref\":\"#/$defs/YTsaurusDynamicWriteConfig\",",
+        "\"x-ui\":{\"widget\":\"hidden\"}}"
+    )));
+}
+
+#[test]
 fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
 ) -> anyhow::Result<()> {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
