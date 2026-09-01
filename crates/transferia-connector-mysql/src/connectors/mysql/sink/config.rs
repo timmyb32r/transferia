@@ -12,7 +12,7 @@ pub struct MySqlSinkConfig {
     pub create_tables: bool,
 
     #[serde(default = "default_insert_rows")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub insert_rows: usize,
 }
 

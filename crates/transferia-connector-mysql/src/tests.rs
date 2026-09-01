@@ -37,3 +37,14 @@ fn checker_config_ignores_source_specific_fields() {
 
     assert!(!source.credentials_complete());
 }
+
+#[test]
+fn sink_hides_internal_insert_batch_tuning() {
+    let schema = serde_json::to_value(schemars::schema_for!(mysql::sink::MySqlSinkConfig))
+        .unwrap();
+    assert_eq!(
+        schema["properties"]["insert_rows"]["x-ui"]["widget"],
+        "hidden"
+    );
+    assert_eq!(schema["properties"]["insert_rows"]["default"], 1_000);
+}
