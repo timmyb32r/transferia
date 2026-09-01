@@ -62,7 +62,7 @@ pub struct YdbConnectionConfig {
     pub auth: YdbAuth,
 
     #[serde(default = "default_request_timeout_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub request_timeout_ms: u64,
 }
 
@@ -177,11 +177,10 @@ pub struct YdbSinkConfig {
     pub tables: Vec<YdbTableConfig>,
 
     #[serde(default = "default_create_tables")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub create_tables: bool,
 
     #[serde(default = "default_retry_max_ms")]
-    #[schemars(extend("x-ui" = { "section": "advanced" }))]
+    #[schemars(extend("x-ui" = { "widget": "hidden" }))]
     pub retry_max_ms: u64,
 }
 

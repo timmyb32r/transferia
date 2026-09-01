@@ -10,6 +10,16 @@ use std::sync::Arc;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use ydb_grpc::ydb_proto::r#type::{PrimitiveTypeId, Type as TypeKind};
 use ydb_grpc::ydb_proto::table::ColumnMeta;
+
+#[test]
+fn sink_schema_exposes_only_create_tables_tuning() {
+    let schema = serde_json::to_value(schemars::schema_for!(YdbSinkConfig)).unwrap();
+    let properties = &schema["properties"];
+    assert_eq!(properties["create_tables"]["default"], true);
+    assert!(properties["create_tables"].get("x-ui").is_none());
+    assert_eq!(properties["request_timeout_ms"]["x-ui"]["widget"], "hidden");
+    assert_eq!(properties["retry_max_ms"]["x-ui"]["widget"], "hidden");
+}
 use ydb_grpc::ydb_proto::{
     result_set, value, Column, DecimalType, ListType, OptionalType, ResultSet, Type, Value,
 };
