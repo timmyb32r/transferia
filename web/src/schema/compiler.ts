@@ -304,7 +304,11 @@ function validateWidgetTree(
   } else if (node.kind === "array") {
     validateWidgetTree(node.item, `${path}/items`, widgets);
   } else if (node.kind === "nullable") {
-    validateWidgetTree(node.inner, `${path}/nullable`, widgets);
+    if (
+      widget === undefined ||
+      !widgetSupportsKind(widgets, widget, "nullable")
+    )
+      validateWidgetTree(node.inner, `${path}/nullable`, widgets);
   } else if (node.kind === "union") {
     node.branches.forEach((branch, index) =>
       validateWidgetTree(branch.node, `${path}/branch-${index}`, widgets),
