@@ -724,7 +724,7 @@ pub enum YTsaurusOptimizeFor {
     Lookup,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum YTsaurusBigValuePolicy {
     #[default]
@@ -733,6 +733,10 @@ pub enum YTsaurusBigValuePolicy {
 
     #[schemars(title = "Drop oversized rows")]
     Drop,
+}
+
+fn default_big_value_policy() -> YTsaurusBigValuePolicy {
+    YTsaurusBigValuePolicy::default()
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq, Serialize)]
@@ -1075,8 +1079,9 @@ pub enum YTsaurusTableMode {
         )]
         table_attributes: Vec<YTsaurusYsonEntry>,
 
-        #[serde(default)]
+        #[serde(default = "default_big_value_policy")]
         #[schemars(
+            default = "default_big_value_policy",
             title = "Oversized values",
             description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
             extend("x-ui" = { "section": "advanced" })
@@ -1141,8 +1146,9 @@ pub enum YTsaurusTableMode {
         )]
         table_attributes: Vec<YTsaurusYsonEntry>,
 
-        #[serde(default)]
+        #[serde(default = "default_big_value_policy")]
         #[schemars(
+            default = "default_big_value_policy",
             title = "Oversized values",
             description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
             extend("x-ui" = { "section": "advanced" })

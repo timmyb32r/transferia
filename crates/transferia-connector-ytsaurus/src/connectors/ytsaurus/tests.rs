@@ -958,6 +958,14 @@ fn dynamic_table_ttl_is_opt_in_and_applies_to_direct_and_staged_tables() -> anyh
 
 #[test]
 fn oversized_value_policy_fails_closed_or_drops_the_entire_row() -> anyhow::Result<()> {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig))?;
+    let branches = schema["$defs"]["YTsaurusTableMode"]["oneOf"]
+        .as_array()
+        .expect("table mode branches");
+    for branch in branches {
+        assert_eq!(branch["properties"]["big_value_policy"]["default"], "fail");
+    }
+
     let oversized = "x".repeat(16 * 1024 * 1024 + 1);
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(vec![
