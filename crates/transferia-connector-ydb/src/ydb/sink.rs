@@ -167,7 +167,7 @@ impl SinkConnector for YdbSinkConnector {
                     .config
                     .tables
                     .iter()
-                    .map(|table| (table.name.clone(), table.path.clone()))
+                    .map(|table| (table.name().to_owned(), table.path.clone()))
                     .collect(),
                 counters: context.counters,
                 discovery: context.discovery,

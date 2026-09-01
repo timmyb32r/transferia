@@ -144,7 +144,7 @@ impl SourceConnector for YdbSourceConnector {
                         }));
                     DiscoveredDataset {
                         role: DatasetRole::Main,
-                        name: Arc::from(table.config.name.as_str()),
+                        name: Arc::from(table.config.name()),
                         stored_schema: if request.keep_system_columns {
                             incoming_schema.clone()
                         } else {
@@ -298,7 +298,7 @@ impl YdbSource {
         self.counters.add_network_decoded_bytes(decoded_bytes);
         Ok(SourceBatch::Typed {
             tables: vec![TableData::new(
-                Arc::from(self.table.config.name.as_str()),
+                Arc::from(self.table.config.name()),
                 false,
                 batch,
                 routing_system_columns(base),

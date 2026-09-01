@@ -22,7 +22,7 @@ pub fn register(
                     serde_json::json!({
                         "endpoint": "", "database": "", "trusted_plaintext": false,
                         "auth": { "type": "token", "token": "" },
-                        "tables": [{ "name": "", "path": "" }], "batch_rows": 65536,
+                        "tables": [{ "path": "" }], "batch_rows": 65536,
                         "request_timeout_ms": 30000
                     })
                 },
@@ -41,7 +41,7 @@ pub fn register(
                     serde_json::json!({
                         "endpoint": "", "database": "", "trusted_plaintext": false,
                         "auth": { "type": "token", "token": "" },
-                        "tables": [{ "name": "", "path": "" }], "create_tables": true,
+                        "tables": [{ "path": "" }], "create_tables": true,
                         "retry_max_ms": 30000,
                         "request_timeout_ms": 30000
                     })

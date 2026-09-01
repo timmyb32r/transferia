@@ -136,7 +136,6 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     wait_for_ydb(&connection).await?;
 
     let table = YdbTableConfig {
-        name: "events".to_owned(),
         path: "/local/events".to_owned(),
     };
     let sink = YdbSinkConnector::from_config(YdbSinkConfig {

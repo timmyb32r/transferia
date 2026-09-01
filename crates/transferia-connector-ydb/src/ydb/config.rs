@@ -7,11 +7,16 @@ use serde::Deserialize;
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YdbAuth {
     #[default]
+    #[schemars(title = "Anonymous")]
     Anonymous,
+
+    #[schemars(title = "Token")]
     Token {
         #[schemars(extend("x-ui" = { "widget": "password" }))]
         token: String,
     },
+
+    #[schemars(title = "Token file")]
     TokenFile {
         token_file: String,
     },
@@ -59,6 +64,7 @@ pub struct YdbConnectionConfig {
 
     pub trusted_plaintext: bool,
 
+    #[schemars(extend("x-ui" = { "control_width": "auth" }))]
     pub auth: YdbAuth,
 
     #[serde(default = "default_request_timeout_ms")]
@@ -148,9 +154,13 @@ impl YdbConnectionCheckConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct YdbTableConfig {
-    pub name: String,
-
     pub path: String,
+}
+
+impl YdbTableConfig {
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or_default()
+    }
 }
 
 #[derive(Clone, Deserialize, JsonSchema)]
@@ -194,7 +204,7 @@ impl YdbSinkConfig {
     pub fn table_path(&self, name: &str) -> anyhow::Result<&str> {
         self.tables
             .iter()
-            .find(|table| table.name == name)
+            .find(|table| table.name() == name)
             .map(|table| table.path.as_str())
             .ok_or_else(|| {
                 anyhow::anyhow!("YDB sink has no physical table mapping for dataset '{name}'")
@@ -215,14 +225,16 @@ fn validate_tables(tables: &[YdbTableConfig]) -> anyhow::Result<()> {
     let mut paths = std::collections::HashSet::new();
     let mut names = std::collections::HashSet::new();
     for table in tables {
+        let name = table.name();
         anyhow::ensure!(
-            !table.name.trim().is_empty(),
-            "ydb.tables[].name must not be empty"
+            !name.is_empty(),
+            "YDB table path '{}' has no table name",
+            table.path
         );
         anyhow::ensure!(
-            names.insert(table.name.as_str()),
+            names.insert(name),
             "ydb.tables repeats logical name '{}'",
-            table.name
+            name
         );
         anyhow::ensure!(
             table.path.starts_with('/') && !table.path.ends_with('/'),

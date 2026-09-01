@@ -15,6 +15,11 @@ use ydb_grpc::ydb_proto::table::ColumnMeta;
 fn sink_schema_exposes_only_create_tables_tuning() {
     let schema = serde_json::to_value(schemars::schema_for!(YdbSinkConfig)).unwrap();
     let properties = &schema["properties"];
+    let table_schema = serde_json::to_value(schemars::schema_for!(YdbTableConfig)).unwrap();
+    let table_properties = &table_schema["properties"];
+    assert!(table_properties.get("name").is_none());
+    assert!(table_properties.get("path").is_some());
+    assert_eq!(properties["auth"]["x-ui"]["control_width"], "auth");
     assert_eq!(properties["create_tables"]["default"], true);
     assert!(properties["create_tables"].get("x-ui").is_none());
     assert_eq!(properties["request_timeout_ms"]["x-ui"]["widget"], "hidden");
@@ -223,7 +228,6 @@ fn sink_requires_exact_table_mappings_and_primary_key() -> anyhow::Result<()> {
             request_timeout_ms: 30_000,
         },
         tables: vec![YdbTableConfig {
-            name: "events".to_owned(),
             path: "/local/events".to_owned(),
         }],
         create_tables: true,
