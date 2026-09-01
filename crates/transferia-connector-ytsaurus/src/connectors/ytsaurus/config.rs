@@ -724,6 +724,17 @@ pub enum YTsaurusOptimizeFor {
     Lookup,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusBigValuePolicy {
+    #[default]
+    #[schemars(title = "Fail delivery")]
+    Fail,
+
+    #[schemars(title = "Drop oversized rows")]
+    Drop,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum YTsaurusDynamicSnapshotMode {
@@ -953,6 +964,14 @@ pub struct YTsaurusSinkConfig {
         extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "attribute" })
     )]
     pub table_attributes: Vec<YTsaurusJsonEntry>,
+
+    #[serde(default)]
+    #[schemars(
+        title = "Oversized values",
+        description = "Fail preserves every source row. Drop explicitly acknowledges and discards an entire row if a value or the row exceeds YTsaurus storage limits.",
+        extend("x-ui" = { "section": "advanced" })
+    )]
+    pub big_value_policy: YTsaurusBigValuePolicy,
 
     #[serde(flatten)]
     pub connection: YTsaurusConnectionConfig,

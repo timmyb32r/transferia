@@ -23,9 +23,9 @@ use super::client::{
     yson_header_value, ListedNode,
 };
 use super::config::{
-    YTsaurusAtomicity, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusReadFormat,
-    YTsaurusReadOrdering, YTsaurusSinkConfig, YTsaurusSourceConfig, YTsaurusTableReaderConfig,
-    YTsaurusWriteFormat,
+    YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor,
+    YTsaurusPrimaryKeySemantics, YTsaurusReadFormat, YTsaurusReadOrdering, YTsaurusSinkConfig,
+    YTsaurusSourceConfig, YTsaurusTableReaderConfig, YTsaurusWriteFormat,
 };
 use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
@@ -35,8 +35,8 @@ use super::native_rpc::{
 };
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
-    encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches, validate_row_weight,
-    validate_initial_tablet_count, yt_guid,
+    drop_oversized_rows, encode_arrow, encode_arrow_batches, encode_yson, encode_yson_batches,
+    validate_initial_tablet_count, validate_row_weight, yt_guid,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
@@ -536,7 +536,7 @@ fn schema_round_trip_and_writers_are_native() -> anyhow::Result<()> {
             Arc::new(StringArray::from(vec![Some("alice"), None])) as ArrayRef,
         ],
     )?;
-    validate_row_weight(&batch)?;
+    validate_row_weight(&batch, true)?;
     assert!(!encode_arrow(&batch)?.is_empty());
     assert_eq!(
         encode_yson(&batch)?,
@@ -598,6 +598,7 @@ fn dynamic_sink_defaults_to_lossless_bounded_tablet_transactions() -> anyhow::Re
     assert_eq!(config.dynamic_atomicity(), Some(YTsaurusAtomicity::Full));
     assert_eq!(config.initial_tablet_count(), Some(1));
     assert_eq!(config.dynamic_table_ttl_ms(), None);
+    assert_eq!(config.big_value_policy, YTsaurusBigValuePolicy::Fail);
     assert!(config.stages_dynamic_snapshots());
     assert_eq!(config.dynamic_snapshot_operation_pool(), None);
     assert_eq!(config.primary_medium, "default");
@@ -876,6 +877,60 @@ fn dynamic_table_ttl_is_opt_in_and_applies_to_direct_and_staged_tables() -> anyh
          trusted_native_rpc_plaintext: true\n",
     )?;
     assert!(invalid.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn oversized_value_policy_fails_closed_or_drops_the_entire_row() -> anyhow::Result<()> {
+    let oversized = "x".repeat(16 * 1024 * 1024 + 1);
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("payload", DataType::Utf8, false),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![1, 2])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["small", oversized.as_str()])) as ArrayRef,
+        ],
+    )?;
+
+    validate_row_weight(&batch, true)?;
+    let error = validate_row_weight(&batch, false)
+        .expect_err("dynamic tables must reject values above their 16 MiB limit");
+    assert!(error.to_string().contains("16777216-byte table limit"));
+
+    let filtered = drop_oversized_rows(&batch, false)?;
+    assert_eq!(filtered.num_rows(), 1);
+    assert_eq!(
+        filtered
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("id column")
+            .value(0),
+        1
+    );
+    assert_eq!(
+        filtered
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("payload column")
+            .value(0),
+        "small"
+    );
+
+    let drop: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: dynamic_tables, replace_tables: false, path: //tmp/output }\n\
+         big_value_policy: drop\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n\
+         trusted_native_rpc_plaintext: true\n",
+    )?;
+    assert_eq!(drop.big_value_policy, YTsaurusBigValuePolicy::Drop);
+    drop.validate()?;
     Ok(())
 }
 

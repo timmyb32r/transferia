@@ -8,6 +8,7 @@ use arrow::array::{
     TimestampMicrosecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
 };
 use arrow::datatypes::{DataType, Schema, TimeUnit};
+use arrow::compute;
 use arrow::ipc::writer::StreamWriter;
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -18,7 +19,8 @@ use uuid::Uuid;
 
 use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{
-    YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig, YTsaurusWriteFormat,
+    YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
+    YTsaurusSinkConfig, YTsaurusWriteFormat,
 };
 use super::native_rpc::NativeDynamicWriter;
 use super::schema::{
@@ -37,6 +39,7 @@ use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
+const MAX_DYNAMIC_VALUE_BYTES: usize = 16 * 1024 * 1024;
 
 pub struct YTsaurusSinkConnector {
     config: Arc<YTsaurusSinkConfig>,
@@ -184,7 +187,9 @@ impl SinkLimits for YTsaurusSinkConfig {
     ) -> anyhow::Result<()> {
         validate_batch_against_discovery(discovery, batch)?;
         self.path_for_dataset(&batch.table)?;
-        validate_row_weight(&batch.batch)?;
+        if self.big_value_policy == YTsaurusBigValuePolicy::Fail {
+            validate_row_weight(&batch.batch, self.static_tables())?;
+        }
         Ok(())
     }
 }
@@ -770,6 +775,25 @@ impl YTsaurusSink {
                 } else {
                     project_user_columns(&batch.batch, &batch.system_columns)?
                 };
+                let original_rows = stored.num_rows();
+                let stored = match self.config.big_value_policy {
+                    YTsaurusBigValuePolicy::Fail => stored,
+                    YTsaurusBigValuePolicy::Drop => {
+                        let filtered = drop_oversized_rows(&stored, self.config.static_tables())?;
+                        let dropped = original_rows.saturating_sub(filtered.num_rows());
+                        if dropped > 0 {
+                            tracing::warn!(
+                                table = %batch.table,
+                                dropped_rows = dropped,
+                                "explicit YTsaurus oversized-value policy dropped source rows"
+                            );
+                        }
+                        filtered
+                    }
+                };
+                if stored.num_rows() == 0 {
+                    continue;
+                }
                 let index = tables
                     .iter()
                     .position(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
@@ -778,9 +802,11 @@ impl YTsaurusSink {
                         tables.len() - 1
                     });
                 let table = &mut tables[index];
+                let stored_rows = stored.num_rows() as u64;
+                let stored_bytes = stored.get_array_memory_size() as u64;
                 table.1.push(stored);
-                table.2 = table.2.saturating_add(batch.rows() as u64);
-                table.3 = table.3.saturating_add(batch.bytes() as u64);
+                table.2 = table.2.saturating_add(stored_rows);
+                table.3 = table.3.saturating_add(stored_bytes);
             }
         }
         for (table, batches, rows, bytes) in tables {
@@ -1157,14 +1183,52 @@ fn write_yson_value(output: &mut Vec<u8>, array: &dyn Array, row: usize) -> anyh
     Ok(())
 }
 
-pub(super) fn validate_row_weight(batch: &RecordBatch) -> anyhow::Result<()> {
+pub(super) fn validate_row_weight(batch: &RecordBatch, static_tables: bool) -> anyhow::Result<()> {
     for row in 0..batch.num_rows() {
-        let mut weight = 0_usize;
-        for array in batch.columns() {
-            if array.is_null(row) {
-                continue;
-            }
-            weight = weight.saturating_add(match array.data_type() {
+        if row_exceeds_limits(batch, row, static_tables)? {
+            let max_value_bytes = max_value_bytes(static_tables);
+            anyhow::bail!(
+                "YTsaurus row {row} exceeds the {MAX_STATIC_ROW_WEIGHT}-byte row limit or contains a value larger than the {max_value_bytes}-byte table limit"
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn drop_oversized_rows(
+    batch: &RecordBatch,
+    static_tables: bool,
+) -> anyhow::Result<RecordBatch> {
+    let keep = (0..batch.num_rows())
+        .map(|row| row_exceeds_limits(batch, row, static_tables).map(|exceeds| !exceeds))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if keep.iter().all(|keep| *keep) {
+        return Ok(batch.clone());
+    }
+    compute::filter_record_batch(batch, &arrow::array::BooleanArray::from(keep))
+        .map_err(Into::into)
+}
+
+const fn max_value_bytes(static_tables: bool) -> usize {
+    if static_tables {
+        MAX_STATIC_ROW_WEIGHT
+    } else {
+        MAX_DYNAMIC_VALUE_BYTES
+    }
+}
+
+fn row_exceeds_limits(
+    batch: &RecordBatch,
+    row: usize,
+    static_tables: bool,
+) -> anyhow::Result<bool> {
+    let max_value_bytes = max_value_bytes(static_tables);
+    let mut weight = 0_usize;
+    for array in batch.columns() {
+        if array.is_null(row) {
+            continue;
+        }
+        let value_bytes = match array.data_type() {
                 DataType::Boolean | DataType::Int8 | DataType::UInt8 => 1,
                 DataType::Int16 | DataType::UInt16 => 2,
                 DataType::Int32 | DataType::UInt32 | DataType::Float32 | DataType::Date32 => 4,
@@ -1193,13 +1257,15 @@ pub(super) fn validate_row_weight(batch: &RecordBatch) -> anyhow::Result<()> {
                     .downcast_ref::<LargeBinaryArray>()
                     .ok_or_else(|| anyhow::anyhow!("Arrow array type does not match schema"))?
                     .value_length(row) as usize,
-                other => anyhow::bail!("Arrow type {other:?} is not supported by YTsaurus sink"),
-            });
+            other => anyhow::bail!("Arrow type {other:?} is not supported by YTsaurus sink"),
+        };
+        if value_bytes > max_value_bytes {
+            return Ok(true);
         }
-        anyhow::ensure!(
-            weight <= MAX_STATIC_ROW_WEIGHT,
-            "YTsaurus row {row} weight {weight} exceeds {MAX_STATIC_ROW_WEIGHT} bytes"
-        );
+        weight = weight.saturating_add(value_bytes);
+        if weight > MAX_STATIC_ROW_WEIGHT {
+            return Ok(true);
+        }
     }
-    Ok(())
+    Ok(false)
 }
