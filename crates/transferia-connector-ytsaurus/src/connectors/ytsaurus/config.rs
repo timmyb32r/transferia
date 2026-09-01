@@ -1101,7 +1101,6 @@ pub enum YTsaurusTableMode {
             extend("x-ui" = { "section": "advanced", "widget": "compact_array", "item_label": "parameter" })
         )]
         spec: Vec<YTsaurusYsonEntry>,
-
     },
 
     #[schemars(title = "Dynamic tables")]
@@ -1473,7 +1472,10 @@ fn parse_text_yson(input: &str) -> anyhow::Result<serde_json::Value> {
     };
     let value = parser.value()?;
     parser.whitespace();
-    anyhow::ensure!(parser.offset == parser.input.len(), "unexpected trailing input");
+    anyhow::ensure!(
+        parser.offset == parser.input.len(),
+        "unexpected trailing input"
+    );
     Ok(value)
 }
 
@@ -1523,7 +1525,10 @@ impl TextYsonParser<'_> {
             anyhow::ensure!(!key.is_empty(), "map key is empty");
             self.expect(b'=')?;
             let value = self.value()?;
-            anyhow::ensure!(output.insert(key.clone(), value).is_none(), "duplicate key '{key}'");
+            anyhow::ensure!(
+                output.insert(key.clone(), value).is_none(),
+                "duplicate key '{key}'"
+            );
             self.separator_or_end(closing)?;
         }
     }
@@ -1550,9 +1555,7 @@ impl TextYsonParser<'_> {
                 let value = token[..token.len() - 1].parse::<u64>()?;
                 Ok(serde_json::json!({ "$uint64": value.to_string() }))
             }
-            "%nan" | "%inf" | "%-inf" => {
-                Ok(serde_json::json!({ "$double": token }))
-            }
+            "%nan" | "%inf" | "%-inf" => Ok(serde_json::json!({ "$double": token })),
             token if token.starts_with('%') => anyhow::bail!("invalid YSON scalar '{token}'"),
             token => match token.parse::<serde_json::Number>() {
                 Ok(number) => Ok(serde_json::Value::Number(number)),

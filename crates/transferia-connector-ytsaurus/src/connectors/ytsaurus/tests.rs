@@ -9,13 +9,13 @@ use arrow::ipc::reader::StreamReader;
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use prost::Message as _;
+use schemars::schema_for;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
-use schemars::schema_for;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
@@ -36,8 +36,8 @@ use super::native_rpc::{
 };
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
-    drop_oversized_rows, encode_arrow, encode_arrow_batches,
-    validate_initial_tablet_count, validate_row_weight, yt_guid,
+    drop_oversized_rows, encode_arrow, encode_arrow_batches, validate_initial_tablet_count,
+    validate_row_weight, yt_guid,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
@@ -388,8 +388,7 @@ fn static_table_layout_is_explicit_and_defaults_to_columnar_scan() -> anyhow::Re
 
     let schema = serde_json::to_value(schemars::schema_for!(YTsaurusSinkConfig))?;
     assert_eq!(
-        schema["$defs"]["YTsaurusTableMode"]["oneOf"][0]["properties"]["optimize_for"]
-            ["default"],
+        schema["$defs"]["YTsaurusTableMode"]["oneOf"][0]["properties"]["optimize_for"]["default"],
         "scan"
     );
     let serialized = serde_json::to_string(&schema)?;
@@ -633,9 +632,7 @@ fn dynamic_snapshot_mode_schema_materializes_static_staging_for_batch_deliveries
     let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
     let encoded = schema.to_string();
     assert!(encoded.contains("\"snapshot_mode\""));
-    assert!(encoded.contains(
-        "\"default\":{\"type\":\"static_staging\",\"operation_pool\":null}"
-    ));
+    assert!(encoded.contains("\"default\":{\"type\":\"static_staging\",\"operation_pool\":null}"));
     assert!(encoded.contains("\"delivery_types\":[\"batch\"]"));
 }
 
@@ -681,8 +678,7 @@ fn common_table_settings_live_in_each_table_mode_advanced_section() {
             "big_value_policy",
         ] {
             assert_eq!(
-                branch["properties"][name]["x-ui"]["section"],
-                "advanced",
+                branch["properties"][name]["x-ui"]["section"], "advanced",
                 "{name}"
             );
         }

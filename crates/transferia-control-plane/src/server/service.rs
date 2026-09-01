@@ -565,12 +565,7 @@ impl ControlPlane {
         };
         let (pipeline_count, discovery) = if catalog.supports_source_schema_preview(source_kind) {
             let discovery = catalog
-                .preview_source_schema(
-                    source_kind,
-                    raw,
-                    request,
-                    cancellation.child_token(),
-                )
+                .preview_source_schema(source_kind, raw, request, cancellation.child_token())
                 .await
                 .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
             (1, discovery)

@@ -144,9 +144,7 @@ fn transfer_log_arrays(start: u64, rows: usize) -> Vec<ArrayRef> {
         integers(indices.clone(), |row| {
             (row % 3 == 1).then_some(185_528 + row.cast_signed())
         }),
-        strings(indices.clone(), |_| {
-            Some("worker-135.compute.example.net")
-        }),
+        strings(indices.clone(), |_| Some("worker-135.compute.example.net")),
         strings(indices.clone(), |_| Some("dtth5g2ssbu0jrr88fe9")),
         strings(indices.clone(), |_| {
             Some("191f7211-e42e2e24-3f60384-1001405")

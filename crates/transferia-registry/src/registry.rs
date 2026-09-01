@@ -248,10 +248,7 @@ impl ComponentRegistration {
     #[must_use]
     pub fn source_schema_previewer<F, Fut>(mut self, previewer: F) -> Self
     where
-        F: Fn(Value, DeliveryDiscoveryRequest, CancellationToken) -> Fut
-            + Send
-            + Sync
-            + 'static,
+        F: Fn(Value, DeliveryDiscoveryRequest, CancellationToken) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = anyhow::Result<DeliveryDiscovery>> + Send + 'static,
     {
         self.source_schema_previewer = Some(Box::new(move |raw, request, cancellation| {

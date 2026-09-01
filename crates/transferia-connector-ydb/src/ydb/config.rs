@@ -17,9 +17,7 @@ pub enum YdbAuth {
     },
 
     #[schemars(title = "Token file")]
-    TokenFile {
-        token_file: String,
-    },
+    TokenFile { token_file: String },
 }
 
 impl YdbAuth {

@@ -40,8 +40,7 @@ fn checker_config_ignores_source_specific_fields() {
 
 #[test]
 fn sink_hides_internal_insert_batch_tuning() {
-    let schema = serde_json::to_value(schemars::schema_for!(mysql::sink::MySqlSinkConfig))
-        .unwrap();
+    let schema = serde_json::to_value(schemars::schema_for!(mysql::sink::MySqlSinkConfig)).unwrap();
     assert_eq!(
         schema["properties"]["insert_rows"]["x-ui"]["widget"],
         "hidden"
