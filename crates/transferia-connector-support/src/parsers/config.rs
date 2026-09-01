@@ -21,7 +21,7 @@ pub enum ParserSchema {
     RawToTable(RawToTableParserSchema),
     #[schemars(
         title = "Discard messages (for benchmarks)",
-        extend("x-ui" = { "order": 1000000 })
+        extend("x-ui" = { "order": 1_000_000 })
     )]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
 }

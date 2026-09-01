@@ -146,7 +146,7 @@ impl ParserPlan {
                         &schema,
                         &discovered_system_columns,
                     )?;
-                    let primary_key = Arc::from(projection.keys.clone());
+                    let primary_key = Arc::from(projection.keys);
                     let parser = Arc::new(schema_registry::SchemaRegistryParser::new(
                         &parser_config,
                         &config.common.system_columns,
