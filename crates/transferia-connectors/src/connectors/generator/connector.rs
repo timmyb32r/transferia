@@ -147,7 +147,7 @@ impl DataGeneratorSourceConnector {
 impl SourceConnector for DataGeneratorSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::DataGenerator(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

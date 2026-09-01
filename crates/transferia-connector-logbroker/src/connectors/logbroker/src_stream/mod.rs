@@ -169,7 +169,7 @@ impl YdbDriverSourceConnector {
             behavior: if benchmark_discard {
                 SourceBehavior::BenchmarkDiscard
             } else {
-                SourceBehavior::ProducesRows
+                SourceBehavior::AppendOnlyRows
             },
             source_counters: Mutex::new(HashMap::new()),
             token: OnceCell::new(),

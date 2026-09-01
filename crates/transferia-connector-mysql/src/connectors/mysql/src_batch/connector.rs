@@ -134,7 +134,7 @@ impl MySqlSourceConnector {
 impl SourceConnector for MySqlSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::MySql(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

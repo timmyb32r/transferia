@@ -30,7 +30,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
-use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_delivery_contracts::semantics::{EndpointDescriptor, YTsaurusSinkMode};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 const MAX_STATIC_ROW_WEIGHT: usize = 128 * 1024 * 1024;
@@ -194,7 +194,11 @@ impl SinkLimits for YTsaurusSinkConfig {
 
 impl SinkConnector for YTsaurusSinkConnector {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::YTsaurusSink
+        EndpointDescriptor::YTsaurusSink(if self.config.static_tables() {
+            YTsaurusSinkMode::Static
+        } else {
+            YTsaurusSinkMode::Dynamic
+        })
     }
 
     fn limits(&self) -> &dyn SinkLimits {

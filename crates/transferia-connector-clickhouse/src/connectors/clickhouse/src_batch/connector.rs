@@ -200,7 +200,7 @@ impl ClickHouseSourceConnector {
 impl SourceConnector for ClickHouseSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::ClickHouseSource(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

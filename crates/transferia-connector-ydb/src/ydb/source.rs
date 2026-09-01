@@ -105,7 +105,7 @@ impl YdbSourceConnector {
 impl SourceConnector for YdbSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::YdbSource(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

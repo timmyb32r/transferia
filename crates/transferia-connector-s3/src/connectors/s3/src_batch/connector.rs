@@ -137,7 +137,7 @@ impl S3SourceConnector {
 impl SourceConnector for S3SourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::S3Source(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

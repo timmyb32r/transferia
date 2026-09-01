@@ -96,7 +96,7 @@ impl IcebergSourceConnector {
 impl SourceConnector for IcebergSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::IcebergSource(SourceDescriptor {
-            behavior: SourceBehavior::FiniteSnapshotRows,
+            behavior: SourceBehavior::FiniteAppendOnlyRows,
             delivery_modes: SourceDeliveryModes::BATCH,
         })
     }

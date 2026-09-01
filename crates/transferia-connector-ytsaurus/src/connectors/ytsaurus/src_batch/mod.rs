@@ -383,7 +383,7 @@ impl SourceConnector for YTsaurusSourceConnector {
             behavior: if self.config.benchmark_discard.is_some() {
                 SourceBehavior::BenchmarkDiscard
             } else {
-                SourceBehavior::FiniteSnapshotRows
+                SourceBehavior::FiniteAppendOnlyRows
             },
             delivery_modes: SourceDeliveryModes::BATCH,
         })

@@ -233,7 +233,7 @@ fn reports_benchmark_discard_behavior() {
     let EndpointDescriptor::Logbroker(descriptor) = source.compatibility() else {
         panic!("expected PQv1 descriptor")
     };
-    assert_eq!(descriptor.behavior, SourceBehavior::ProducesRows);
+    assert_eq!(descriptor.behavior, SourceBehavior::AppendOnlyRows);
 }
 
 #[test]

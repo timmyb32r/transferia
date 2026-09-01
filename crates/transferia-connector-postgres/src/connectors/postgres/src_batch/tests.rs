@@ -1,9 +1,15 @@
+use std::sync::Arc;
+
 use super::config::PostgresSourceConfig;
+use super::connector::PostgresSourceConnector;
 use super::reader::source_column_expression;
 use arrow::datatypes::DataType;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::connectors::postgres::common::postgres_to_arrow;
+use crate::metrics::MetricsRegistry;
+use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
+use transferia_registry::SourceConnector;
 
 #[test]
 fn source_config_requires_explicit_plaintext_trust_and_tables() {
@@ -18,6 +24,36 @@ fn source_rejects_the_old_connection_string() {
         "connection: host=localhost port=5432\ntrusted_plaintext: true\ntables: []\n"
     )
     .is_err());
+}
+
+#[test]
+fn snapshot_and_replication_declare_distinct_record_semantics() {
+    let snapshot: PostgresSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\n",
+    )
+    .unwrap();
+    let replication: PostgresSourceConfig = serde_yaml::from_str(
+        "host: localhost\nport: 5432\ndatabase: postgres\nusername: postgres\npassword: test\ntrusted_plaintext: true\ntables:\n  - name: events\nreplication:\n  slot: transferia_slot\n  decoder:\n    type: pgoutput\n    publication: transferia_publication\n",
+    )
+    .unwrap();
+
+    let snapshot = PostgresSourceConnector::from_config(
+        snapshot,
+        Arc::new(MetricsRegistry::default()),
+    )
+    .unwrap()
+    .compatibility();
+    let replication = PostgresSourceConnector::from_config(
+        replication,
+        Arc::new(MetricsRegistry::default()),
+    )
+    .unwrap()
+    .compatibility();
+
+    assert_eq!(snapshot.source_behavior(), Some(SourceBehavior::FiniteAppendOnlyRows));
+    assert_eq!(snapshot.record_semantics(), Some(RecordSemantics::AppendOnly));
+    assert_eq!(replication.source_behavior(), Some(SourceBehavior::ChangelogRows));
+    assert_eq!(replication.record_semantics(), Some(RecordSemantics::Changelog));
 }
 
 #[test]

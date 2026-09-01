@@ -188,7 +188,7 @@ impl PqV1SourceConnector {
         let behavior = if parser_kind == "benchmark_discard" {
             SourceBehavior::BenchmarkDiscard
         } else {
-            SourceBehavior::ProducesRows
+            SourceBehavior::AppendOnlyRows
         };
         let parser_plan =
             ParserPlan::from_config_with_plugins(&cfg.parser, &cfg.topic_path, parser_plugins)?;

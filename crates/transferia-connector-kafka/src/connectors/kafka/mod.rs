@@ -97,7 +97,7 @@ impl KafkaSourceConnector {
 impl SourceConnector for KafkaSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Kafka(SourceDescriptor {
-            behavior: SourceBehavior::ProducesRows,
+            behavior: SourceBehavior::AppendOnlyRows,
             delivery_modes: SourceDeliveryModes::STREAM,
         })
     }

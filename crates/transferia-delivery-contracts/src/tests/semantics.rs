@@ -4,7 +4,14 @@ use transferia_core::delivery::{DiscoveredDataset, SchemaOrigin};
 
 fn source() -> EndpointDescriptor {
     EndpointDescriptor::Logbroker(SourceDescriptor {
-        behavior: SourceBehavior::ProducesRows,
+        behavior: SourceBehavior::AppendOnlyRows,
+        delivery_modes: SourceDeliveryModes::STREAM,
+    })
+}
+
+fn changelog_source() -> EndpointDescriptor {
+    EndpointDescriptor::Postgres(SourceDescriptor {
+        behavior: SourceBehavior::ChangelogRows,
         delivery_modes: SourceDeliveryModes::STREAM,
     })
 }
@@ -14,6 +21,60 @@ fn source_delivery_modes_are_explicit() {
     assert!(source().supports_delivery_type(crate::DeliveryType::Stream));
     assert!(!source().supports_delivery_type(crate::DeliveryType::Batch));
     assert!(!source().supports_delivery_type(crate::DeliveryType::BatchAndStream));
+}
+
+#[test]
+fn sources_declare_append_only_or_changelog_record_semantics() {
+    assert_eq!(source().record_semantics(), Some(RecordSemantics::AppendOnly));
+    assert_eq!(
+        changelog_source().record_semantics(),
+        Some(RecordSemantics::Changelog)
+    );
+
+    let snapshot = EndpointDescriptor::Postgres(SourceDescriptor {
+        behavior: SourceBehavior::FiniteAppendOnlyRows,
+        delivery_modes: SourceDeliveryModes::BATCH,
+    });
+    assert_eq!(
+        snapshot.record_semantics(),
+        Some(RecordSemantics::AppendOnly)
+    );
+}
+
+#[test]
+fn every_durable_sink_rejects_changelog_until_its_writer_is_operation_aware() {
+    let sinks = [
+        EndpointDescriptor::MySqlSink,
+        EndpointDescriptor::PostgresSink,
+        EndpointDescriptor::YdbSink,
+        EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Static),
+        EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Dynamic),
+        EndpointDescriptor::LogbrokerSink,
+        EndpointDescriptor::KafkaSink,
+        EndpointDescriptor::ClickHouse,
+        sink(S3Partitioning::Source, false),
+        EndpointDescriptor::IcebergSink,
+    ];
+
+    for sink in sinks {
+        assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
+        assert!(!sink.accepts_record_semantics(RecordSemantics::Changelog));
+        let report = validate_pipeline(&changelog_source(), &sink, &discovery(), false);
+        assert_eq!(report.guarantee, DeliveryGuarantee::NoDurability);
+        assert!(report.ensure_valid().is_err());
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(
+            report.diagnostics[0].code,
+            DiagnosticCode::UnsupportedRecordSemantics
+        );
+        assert_eq!(report.diagnostics[0].severity, DiagnosticSeverity::Error);
+    }
+
+    let discard = EndpointDescriptor::Discard;
+    assert!(discard.accepts_record_semantics(RecordSemantics::Changelog));
+    assert!(validate_pipeline(&changelog_source(), &discard, &discovery(), false)
+        .ensure_valid()
+        .is_ok());
 }
 
 fn discovery() -> DeliveryDiscovery {

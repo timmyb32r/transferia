@@ -80,9 +80,9 @@ impl SourceConnector for PostgresSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Postgres(SourceDescriptor {
             behavior: if self.config.replication.is_some() {
-                SourceBehavior::ProducesRows
+                SourceBehavior::ChangelogRows
             } else {
-                SourceBehavior::FiniteSnapshotRows
+                SourceBehavior::FiniteAppendOnlyRows
             },
             delivery_modes: if self.config.replication.is_some() {
                 SourceDeliveryModes::STREAM

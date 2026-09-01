@@ -227,7 +227,7 @@ async fn build_pipeline_plan(
         config.delivery_type.label()
     );
     let finite_source =
-        source_descriptor.source_behavior() == Some(SourceBehavior::FiniteSnapshotRows);
+        source_descriptor.source_behavior() == Some(SourceBehavior::FiniteAppendOnlyRows);
     let discovery = source_connector
         .delivery_discovery(SourceDiscoveryContext {
             request: DeliveryDiscoveryRequest {

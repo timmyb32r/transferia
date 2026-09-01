@@ -24,7 +24,7 @@ pub enum EndpointDescriptor {
     MySqlSink,
     PostgresSink,
     YdbSink,
-    YTsaurusSink,
+    YTsaurusSink(YTsaurusSinkMode),
     LogbrokerSink,
     KafkaSink,
     ClickHouse,
@@ -51,7 +51,7 @@ impl EndpointDescriptor {
             Self::MySqlSink
             | Self::PostgresSink
             | Self::YdbSink
-            | Self::YTsaurusSink
+            | Self::YTsaurusSink(_)
             | Self::LogbrokerSink
             | Self::KafkaSink
             | Self::ClickHouse
@@ -77,13 +77,46 @@ impl EndpointDescriptor {
             Self::MySqlSink
             | Self::PostgresSink
             | Self::YdbSink
-            | Self::YTsaurusSink
+            | Self::YTsaurusSink(_)
             | Self::LogbrokerSink
             | Self::KafkaSink
             | Self::ClickHouse
             | Self::S3(_)
             | Self::IcebergSink
             | Self::Discard => false,
+        }
+    }
+
+    #[must_use]
+    pub const fn record_semantics(&self) -> Option<RecordSemantics> {
+        match self.source_behavior() {
+            Some(SourceBehavior::AppendOnlyRows | SourceBehavior::FiniteAppendOnlyRows) => {
+                Some(RecordSemantics::AppendOnly)
+            }
+            Some(SourceBehavior::ChangelogRows) => Some(RecordSemantics::Changelog),
+            Some(SourceBehavior::BenchmarkDiscard) | None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn accepts_record_semantics(&self, semantics: RecordSemantics) -> bool {
+        match semantics {
+            RecordSemantics::AppendOnly => matches!(
+                self,
+                Self::MySqlSink
+                    | Self::PostgresSink
+                    | Self::YdbSink
+                    | Self::YTsaurusSink(_)
+                    | Self::LogbrokerSink
+                    | Self::KafkaSink
+                    | Self::ClickHouse
+                    | Self::S3(_)
+                    | Self::IcebergSink
+                    | Self::Discard
+            ),
+            // Enable changelog input for a destination only together with its
+            // replay-safe operation-aware writer implementation.
+            RecordSemantics::Changelog => matches!(self, Self::Discard),
         }
     }
 }
@@ -127,10 +160,25 @@ impl SourceDeliveryModes {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceBehavior {
-    ProducesRows,
-    FiniteSnapshotRows,
+    AppendOnlyRows,
+    FiniteAppendOnlyRows,
+    ChangelogRows,
     /// Benchmark-only mode which advances source offsets without producing rows.
     BenchmarkDiscard,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordSemantics {
+    AppendOnly,
+    Changelog,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YTsaurusSinkMode {
+    Static,
+    Dynamic,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +215,7 @@ pub enum DiagnosticSeverity {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DiagnosticCode {
     UnsupportedPipeline,
+    UnsupportedRecordSemantics,
     InvalidDeliveryDiscovery,
     MissingSystemColumn,
     SystemColumnsNotProduced,
@@ -259,6 +308,23 @@ pub fn validate_pipeline(
             )],
         };
     }
+    if let Some(record_semantics) = source.record_semantics() {
+        if !sink.accepts_record_semantics(record_semantics) {
+            return DeliverySemanticsReport {
+                guarantee: DeliveryGuarantee::NoDurability,
+                diagnostics: vec![error(
+                    DiagnosticCode::UnsupportedRecordSemantics,
+                    &["source", "sink"],
+                    &format!(
+                        "the configured sink cannot preserve {record_semantics:?} source records"
+                    ),
+                    Some(
+                        "choose a sink with explicit changelog application support, or use an append-only source",
+                    ),
+                )],
+            };
+        }
+    }
     if matches!(sink, EndpointDescriptor::ClickHouse) {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
@@ -307,7 +373,7 @@ pub fn validate_pipeline(
             }],
         };
     }
-    if matches!(sink, EndpointDescriptor::YTsaurusSink) {
+    if matches!(sink, EndpointDescriptor::YTsaurusSink(_)) {
         return DeliverySemanticsReport {
             guarantee: DeliveryGuarantee::AtLeastOnce,
             diagnostics: vec![SemanticsDiagnostic {
