@@ -1,5 +1,5 @@
 use super::config::{YdbAuth, YdbConnectionConfig, YdbSinkConfig, YdbTableConfig};
-use super::sink::{create_table_query, encode_arrow_batch};
+use super::sink::{create_table_query, encode_arrow_batch, encode_delete};
 use super::types::{column_plans, dataset_schema, result_set_to_batch, ColumnKind};
 use arrow::array::{Array as _, Decimal128Array, FixedSizeBinaryArray, StringArray, UInt64Array};
 use arrow::buffer::Buffer;
@@ -24,6 +24,33 @@ fn sink_schema_exposes_only_create_tables_tuning() {
     assert!(properties["create_tables"].get("x-ui").is_none());
     assert_eq!(properties["request_timeout_ms"]["x-ui"]["widget"], "hidden");
     assert_eq!(properties["retry_max_ms"]["x-ui"]["widget"], "hidden");
+}
+
+#[test]
+fn delete_encoding_uses_only_typed_primary_key_rows() -> anyhow::Result<()> {
+    let columns = vec![
+        SchemaColumn::new("tenant".into(), DataType::Utf8, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::UInt64, false)
+            .with_constraints(true, false, None),
+    ];
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("tenant", DataType::Utf8, false),
+            Field::new("id", DataType::UInt64, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["alpha", "beta"])),
+            Arc::new(UInt64Array::from(vec![7, 8])),
+        ],
+    )?;
+
+    let (query, parameters) = encode_delete("/local/events", &batch, &columns)?;
+    assert!(query.contains("DECLARE $batch AS List<Struct<`tenant`:Utf8, `id`:Uint64>>"));
+    assert!(query.contains("DELETE FROM `/local/events` ON SELECT `tenant`, `id`"));
+    let parameter = parameters.get("$batch").expect("delete batch parameter");
+    assert_eq!(parameter.value.as_ref().expect("list value").items.len(), 2);
+    Ok(())
 }
 use ydb_grpc::ydb_proto::{
     result_set, value, Column, DecimalType, ListType, OptionalType, ResultSet, Type, Value,

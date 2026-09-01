@@ -81,6 +81,98 @@ fn discovery(
     })
 }
 
+fn clickhouse_changelog_discovery() -> Arc<DeliveryDiscovery> {
+    let id = SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+        .with_constraints(true, false, None);
+    let name = SchemaColumn::new("name".to_owned(), DataType::Utf8, false);
+    Arc::new(DeliveryDiscovery {
+        source_name: Arc::from("postgres-cdc"),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("cdc_events"),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                SchemaColumn::new("name".to_owned(), DataType::Utf8, true),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangeOperation.default_name().into(),
+                    SystemColumnKind::ChangeOperation.data_type(),
+                    false,
+                ),
+                SchemaColumn::new(
+                    SystemColumnKind::Offset.default_name().into(),
+                    SystemColumnKind::Offset.data_type(),
+                    false,
+                ),
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, name]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    })
+}
+
+fn clickhouse_changelog_delivery(
+    memory: &PipelineMemory,
+    delivery_id: u64,
+    operations: Vec<&str>,
+    ids: Vec<i64>,
+    names: Vec<Option<&str>>,
+    lsn: i64,
+) -> anyhow::Result<Delivery> {
+    let discovery = clickhouse_changelog_discovery();
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let rows = ids.len();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(ids)) as ArrayRef,
+            Arc::new(StringArray::from(names)) as ArrayRef,
+            Arc::new(StringArray::from(operations)) as ArrayRef,
+            Arc::new(Int64Array::from(vec![lsn; rows])) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    Ok(Delivery {
+        id: DeliveryId::new(delivery_id),
+        outputs: vec![SinkBatch {
+            table: Arc::from("cdc_events"),
+            is_dlq: false,
+            batch,
+            byte_size: bytes,
+            memory: memory.reserve_transform(bytes),
+            system_columns: SystemColumns::new(vec![
+                SystemColumn {
+                    kind: SystemColumnKind::ChangeOperation,
+                    name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                    index: 2,
+                },
+                SystemColumn {
+                    kind: SystemColumnKind::Offset,
+                    name: Arc::from(SystemColumnKind::Offset.default_name()),
+                    index: 3,
+                },
+            ]),
+        }],
+        meta: DeliveryMeta {
+            source_messages: rows as u64,
+        },
+    })
+}
+
 async fn run_one_delivery(
     sink: Box<dyn transferia::core::sink::Sink>,
     memory: PipelineMemory,
@@ -199,7 +291,7 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let mut last_prepare_error = None;
     for _ in 0..50 {
         match connector
-            .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
+            .prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("row discovery"))
             .await
         {
             Ok(()) => {
@@ -271,6 +363,95 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         response,
         "{\"id\":7,\"name\":\"seven\"}\n{\"id\":8,\"name\":\"eight\"}\n"
     );
+
+    let changelog_discovery = clickhouse_changelog_discovery();
+    connector.limits().validate_discovery(&changelog_discovery)?;
+    connector
+        .prepare(
+            SinkPrepare::from_discovery(&changelog_discovery, false)?
+                .expect("changelog discovery"),
+        )
+        .await?;
+    let changelog_sink = connector
+        .build_sink(SinkBuildContext {
+            durable: support::durable_context(),
+            partition_id: 0,
+            finite_source: false,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery: changelog_discovery,
+        })
+        .await?;
+    let (delivery_tx, delivery_rx) = mpsc::channel(3);
+    let (event_tx, mut event_rx) = mpsc::channel(3);
+    let task = tokio::spawn(changelog_sink.run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation: CancellationToken::new(),
+    }));
+    for delivery in [
+        clickhouse_changelog_delivery(
+            &memory,
+            1,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )?,
+        clickhouse_changelog_delivery(
+            &memory,
+            2,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )?,
+        clickhouse_changelog_delivery(
+            &memory,
+            3,
+            vec!["d", "c"],
+            vec![1, 3],
+            vec![None, Some("three")],
+            43,
+        )?,
+    ] {
+        let id = delivery.id;
+        delivery_tx.send(delivery).await?;
+        assert_eq!(
+            tokio::time::timeout(core::time::Duration::from_secs(30), event_rx.recv()).await?,
+            Some(SinkEvent::CommittedThrough(id))
+        );
+    }
+    drop(delivery_tx);
+    task.await??;
+
+    let response = reqwest::Client::new()
+        .get(format!("http://{host}:{http_port}"))
+        .query(&[(
+            "query",
+            "SELECT id, name FROM cdc_events FINAL ORDER BY id FORMAT JSONEachRow",
+        )])
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert_eq!(response, "{\"id\":3,\"name\":\"three\"}\n");
+    let engine = reqwest::Client::new()
+        .get(format!("http://{host}:{http_port}"))
+        .query(&[(
+            "query",
+            "SELECT engine_full FROM system.tables WHERE database = 'default' AND name = 'cdc_events' FORMAT TSVRaw",
+        )])
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
+    assert!(engine.contains(
+        "ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
+    ), "{engine}");
     Ok(())
 }
 
@@ -349,7 +530,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     let discovery = discovery("topic-a", incoming, stored, &system_kinds, false);
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(SinkPrepare::from_discovery(&discovery)?.expect("row discovery"))
+        .prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("row discovery"))
         .await?;
 
     let durable_root =

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use arrow::array::{ArrayRef, StringArray, UInt64Array};
+use arrow::array::{ArrayRef, Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use testcontainers::core::{Healthcheck, IntoContainerPort as _, WaitFor};
@@ -24,7 +24,7 @@ use transferia_connector_ydb::ydb::{
 };
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
@@ -80,6 +80,42 @@ fn discovery() -> DeliveryDiscovery {
     }
 }
 
+fn changelog_discovery() -> DeliveryDiscovery {
+    let id = SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+        .with_constraints(true, false, None);
+    let payload = SchemaColumn::new("payload".to_owned(), DataType::Utf8, false);
+    DeliveryDiscovery {
+        source_name: Arc::from("postgres-cdc-e2e"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangeOperation.default_name().into(),
+                    SystemColumnKind::ChangeOperation.data_type(),
+                    false,
+                ),
+                SchemaColumn::new(
+                    SystemColumnKind::Offset.default_name().into(),
+                    SystemColumnKind::Offset.data_type(),
+                    false,
+                ),
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    }
+}
+
 fn sink_batch(
     memory: &PipelineMemory,
     ids: Vec<u64>,
@@ -106,6 +142,55 @@ fn sink_batch(
         byte_size: bytes,
         memory: memory.reserve_transform(bytes),
         system_columns: SystemColumns::default(),
+    })
+}
+
+fn changelog_sink_batch(
+    memory: &PipelineMemory,
+    operations: Vec<&str>,
+    ids: Vec<u64>,
+    payloads: Vec<Option<&str>>,
+    lsn: i64,
+) -> anyhow::Result<SinkBatch> {
+    let discovery = changelog_discovery();
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let rows = ids.len();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(UInt64Array::from(ids)) as ArrayRef,
+            Arc::new(StringArray::from(payloads)) as ArrayRef,
+            Arc::new(StringArray::from(operations)) as ArrayRef,
+            Arc::new(Int64Array::from(vec![lsn; rows])) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    Ok(SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        batch,
+        byte_size: bytes,
+        memory: memory.reserve_transform(bytes),
+        system_columns: SystemColumns::new(vec![
+            SystemColumn {
+                kind: SystemColumnKind::ChangeOperation,
+                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                index: 2,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+                index: 3,
+            },
+        ]),
     })
 }
 
@@ -146,7 +231,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     })?;
     let discovery = Arc::new(discovery());
     sink.limits().validate_discovery(&discovery)?;
-    sink.prepare(SinkPrepare::from_discovery(&discovery)?.expect("datasets"))
+    sink.prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("datasets"))
         .await?;
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
@@ -201,6 +286,52 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     drop(delivery_tx);
     task.await??;
 
+    let changelog_discovery = Arc::new(changelog_discovery());
+    sink.limits().validate_discovery(&changelog_discovery)?;
+    sink.prepare(
+        SinkPrepare::from_discovery(&changelog_discovery, false)?.expect("changelog dataset"),
+    )
+    .await?;
+    let changelog_sink = sink
+        .build_sink(SinkBuildContext {
+            partition_id: 0,
+            finite_source: false,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery: changelog_discovery,
+            durable: transferia_test_support::durable_context(),
+        })
+        .await?;
+    let (delivery_tx, delivery_rx) = mpsc::channel(2);
+    let (event_tx, mut event_rx) = mpsc::channel(2);
+    let task = tokio::spawn(changelog_sink.run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation: CancellationToken::new(),
+    }));
+    for delivery_id in [3, 4] {
+        delivery_tx
+            .send(Delivery {
+                id: DeliveryId::new(delivery_id),
+                outputs: vec![changelog_sink_batch(
+                    &memory,
+                    vec!["u", "d", "c"],
+                    vec![1, 2, 3],
+                    vec![Some("one-current"), None, Some("three")],
+                    42,
+                )?],
+                meta: DeliveryMeta { source_messages: 3 },
+            })
+            .await?;
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(30), event_rx.recv()).await?,
+            Some(SinkEvent::CommittedThrough(DeliveryId::new(delivery_id)))
+        );
+    }
+    drop(delivery_tx);
+    task.await??;
+
     let source = YdbSourceConnector::from_config(
         YdbSourceConfig {
             connection,
@@ -244,8 +375,9 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     let values = (0..batch.num_rows())
         .map(|row| (ids.value(row), payloads.value(row).to_owned()))
         .collect::<std::collections::BTreeMap<_, _>>();
-    assert_eq!(values.get(&1).map(String::as_str), Some("one-replayed"));
-    assert_eq!(values.get(&2).map(String::as_str), Some("two"));
+    assert_eq!(values.get(&1).map(String::as_str), Some("one-current"));
+    assert_eq!(values.get(&2), None);
+    assert_eq!(values.get(&3).map(String::as_str), Some("three"));
     assert!(matches!(source.read_batch().await?, SourceBatch::Finished));
     Ok(())
 }

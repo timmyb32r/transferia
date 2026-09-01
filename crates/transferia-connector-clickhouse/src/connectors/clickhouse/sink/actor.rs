@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arrow::array::{ArrayRef, UInt64Array};
+use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
@@ -11,16 +13,21 @@ use tokio_util::task::AbortOnDropHandle;
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
-use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::data::changelog::{
+    project_sink_batch, ChangelogBatch, ProjectedSinkBatch,
+};
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
-use transferia_core::sink::{Delivery, DeliveryId, Sink, SinkBatch, SinkEvent, SinkIo};
+use transferia_core::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::delivery_tracker::DeliveryTracker;
 use transferia_delivery_contracts::retry::{jittered_retry_delay, stable_retry_seed};
 
 struct BufferedBatch {
     delivery_id: DeliveryId,
-    batch: SinkBatch,
+    batch: RecordBatch,
+    rows: usize,
+    bytes: usize,
+    _memory: Arc<transferia_core::memory::MemoryReservation>,
 }
 
 struct TableBuffer {
@@ -45,7 +52,6 @@ pub struct ClickHouseSink {
     buffers: HashMap<Arc<str>, TableBuffer>,
     progress: DeliveryTracker,
     partition_retry_seed: u64,
-    keep_system_columns: bool,
     discovery: Arc<DeliveryDiscovery>,
 }
 
@@ -83,7 +89,7 @@ impl ClickHouseSink {
         counters: Arc<SinkCounters>,
         transport: Arc<dyn InsertTransport>,
         partition_id: i64,
-        keep_system_columns: bool,
+        _keep_system_columns: bool,
         discovery: Arc<DeliveryDiscovery>,
     ) -> Self {
         Self {
@@ -93,7 +99,6 @@ impl ClickHouseSink {
             buffers: HashMap::new(),
             progress: DeliveryTracker::new(),
             partition_retry_seed: stable_retry_seed(&partition_id.to_le_bytes()),
-            keep_system_columns,
             discovery,
         }
     }
@@ -107,29 +112,33 @@ impl ClickHouseSink {
                 .map_err(DataPlaneFailure::fatal)?;
         }
 
-        let remaining_outputs = delivery
-            .outputs
-            .iter()
-            .filter(|output| output.batch.num_rows() > 0)
-            .count();
+        let mut prepared = Vec::new();
+        for output in delivery.outputs {
+            if output.batch.num_rows() == 0 {
+                continue;
+            }
+            let table = Arc::clone(&output.table);
+            let projected = project_sink_batch(&self.discovery, &output)?;
+            let memory = Arc::new(output.memory);
+            let batches = match projected {
+                ProjectedSinkBatch::AppendOnly(batch) => vec![batch],
+                ProjectedSinkBatch::Changelog(changelog) => {
+                    clickhouse_changelog_batches(&changelog)?
+                }
+            };
+            for batch in batches.into_iter().filter(|batch| batch.num_rows() > 0) {
+                let rows = batch.num_rows();
+                let bytes = batch.get_array_memory_size();
+                prepared.push((Arc::clone(&table), batch, rows, bytes, Arc::clone(&memory)));
+            }
+        }
+        let remaining_outputs = prepared.len();
         self.progress.accept(
             delivery.id,
             remaining_outputs,
             delivery.meta.source_messages,
         )?;
-        for mut batch in delivery
-            .outputs
-            .into_iter()
-            .filter(|output| output.batch.num_rows() > 0)
-        {
-            if !self.keep_system_columns && !batch.system_columns.is_empty() {
-                batch.batch = without_system_columns(&batch.batch, &batch.system_columns)?;
-                batch.byte_size = batch.batch.get_array_memory_size();
-                batch.system_columns = SystemColumns::default();
-            }
-            let table = Arc::clone(&batch.table);
-            let rows = batch.rows();
-            let bytes = batch.bytes();
+        for (table, batch, rows, bytes, memory) in prepared {
             let buffer = self
                 .buffers
                 .entry(Arc::clone(&table))
@@ -145,6 +154,9 @@ impl ClickHouseSink {
             buffer.batches.push(BufferedBatch {
                 delivery_id: delivery.id,
                 batch,
+                rows,
+                bytes,
+                _memory: memory,
             });
         }
         Ok(())
@@ -176,15 +188,19 @@ impl ClickHouseSink {
         let mut rows = 0_usize;
         let mut bytes = 0_usize;
         let mut batch_count = 0_usize;
+        let first_schema = buffer.batches.first().map(|batch| batch.batch.schema());
         for buffered in &buffer.batches {
             if batch_count > 0
                 && (rows >= self.config.insert_target_rows
-                    || bytes >= self.config.insert_target_bytes)
+                    || bytes >= self.config.insert_target_bytes
+                    || first_schema
+                        .as_ref()
+                        .is_some_and(|schema| buffered.batch.schema() != *schema))
             {
                 break;
             }
-            rows = rows.saturating_add(buffered.batch.rows());
-            bytes = bytes.saturating_add(buffered.batch.bytes());
+            rows = rows.saturating_add(buffered.rows);
+            bytes = bytes.saturating_add(buffered.bytes);
             batch_count += 1;
         }
         let batches = buffer.batches.drain(..batch_count).collect();
@@ -226,7 +242,7 @@ impl ClickHouseSink {
                 let batches = active
                     .batches
                     .iter()
-                    .map(|buffered| buffered.batch.batch.clone())
+                    .map(|buffered| buffered.batch.clone())
                     .collect();
                 let started = std::time::Instant::now();
                 let result = tokio::select! {
@@ -370,44 +386,59 @@ impl ClickHouseSink {
     }
 }
 
-pub(super) fn without_system_columns(
-    batch: &RecordBatch,
-    system_columns: &transferia_core::data::system_columns::SystemColumns,
-) -> anyhow::Result<RecordBatch> {
-    let mut visible = vec![true; batch.num_columns()];
-    for column in system_columns.iter() {
-        let field = batch
-            .schema()
-            .fields()
-            .get(column.index)
-            .cloned()
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "system column {:?} points outside a {}-column ClickHouse batch",
-                    column.kind,
-                    batch.num_columns()
-                )
-            })?;
-        anyhow::ensure!(
-            visible[column.index],
-            "multiple system columns point to ClickHouse batch column {}",
-            column.index
-        );
-        anyhow::ensure!(
-            field.name() == column.name.as_ref() && field.data_type() == &column.kind.data_type(),
-            "system column metadata {:?} does not match ClickHouse batch field '{}' ({:?})",
-            column.kind,
-            field.name(),
-            field.data_type()
-        );
-        visible[column.index] = false;
+pub(super) fn clickhouse_changelog_batches(
+    changelog: &ChangelogBatch,
+) -> anyhow::Result<Vec<RecordBatch>> {
+    let mut batches = Vec::new();
+    for run in changelog.collapsed_runs()? {
+        let deleted = run.action == transferia_core::ChangelogAction::Delete;
+        batches.push(clickhouse_change_batch(
+            &run.batch,
+            &run.source_versions,
+            deleted,
+        )?);
     }
-    let projection = visible
-        .into_iter()
-        .enumerate()
-        .filter_map(|(index, visible)| visible.then_some(index))
-        .collect::<Vec<_>>();
-    Ok(batch.project(&projection)?)
+    Ok(batches)
+}
+
+fn clickhouse_change_batch(
+    base: &RecordBatch,
+    versions: &[u64],
+    deleted: bool,
+) -> anyhow::Result<RecordBatch> {
+    anyhow::ensure!(
+        base.num_rows() == versions.len(),
+        "ClickHouse changelog batch and source versions have different lengths"
+    );
+    // Zero is the explicit "not deleted" sentinel in delete_time. Shift the
+    // nonnegative source position so offset zero remains representable.
+    let versions = versions
+        .iter()
+        .map(|version| {
+            version
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse changelog source version overflow"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut arrays = base.columns().to_vec();
+    arrays.push(Arc::new(UInt64Array::from(versions.clone())) as ArrayRef);
+    arrays.push(Arc::new(UInt64Array::from(if deleted {
+        versions.to_vec()
+    } else {
+        vec![0; versions.len()]
+    })) as ArrayRef);
+    let mut fields = base.schema().fields().iter().cloned().collect::<Vec<_>>();
+    fields.push(Arc::new(Field::new(
+        super::table::CHANGE_COMMIT_TIME,
+        arrow::datatypes::DataType::UInt64,
+        false,
+    )));
+    fields.push(Arc::new(Field::new(
+        super::table::CHANGE_DELETE_TIME,
+        arrow::datatypes::DataType::UInt64,
+        false,
+    )));
+    Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
 }
 
 impl Sink for ClickHouseSink {

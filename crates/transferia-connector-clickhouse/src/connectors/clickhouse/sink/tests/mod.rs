@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use arrow::array::Int64Array;
+use arrow::array::{Int64Array, StringArray, UInt64Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
@@ -11,12 +11,13 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use super::actor::without_system_columns;
 use super::{
     ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSink, ClickHouseSinkConfig,
     InsertError, InsertTransport,
 };
+use super::actor::clickhouse_changelog_batches;
 use crate::metrics::SinkCounters;
+use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::delivery::{DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin};
@@ -251,52 +252,147 @@ async fn wait_calls(state: &FakeState, calls: usize) {
     }
 }
 
-#[test]
-fn removes_only_declared_system_columns_before_clickhouse_insert() -> anyhow::Result<()> {
-    let batch = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![
-            Field::new("value", DataType::Int64, false),
-            Field::new(
-                SystemColumnKind::Offset.default_name(),
-                SystemColumnKind::Offset.data_type(),
-                false,
-            ),
-        ])),
-        vec![
-            Arc::new(Int64Array::from(vec![7])),
-            Arc::new(Int64Array::from(vec![42])),
-        ],
-    )?;
-    let system_columns = SystemColumns::new(vec![SystemColumn {
-        kind: SystemColumnKind::Offset,
-        name: Arc::from(SystemColumnKind::Offset.default_name()),
-        index: 1,
-    }]);
-
-    let projected = without_system_columns(&batch, &system_columns)?;
-
-    assert_eq!(projected.num_columns(), 1);
-    assert_eq!(projected.schema().field(0).name(), "value");
-    Ok(())
+fn changelog_discovery() -> DeliveryDiscovery {
+    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
+        .with_constraints(true, false, None);
+    let value = SchemaColumn::new("value".into(), DataType::Int64, true);
+    let operation = SchemaColumn::new(
+        SystemColumnKind::ChangeOperation.default_name().into(),
+        SystemColumnKind::ChangeOperation.data_type(),
+        false,
+    );
+    let offset = SchemaColumn::new(
+        SystemColumnKind::Offset.default_name().into(),
+        SystemColumnKind::Offset.data_type(),
+        false,
+    );
+    DeliveryDiscovery {
+        source_name: Arc::from("postgres"),
+        source_topology: transferia_core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: true,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                value.clone(),
+                operation,
+                offset,
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, value]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    }
 }
 
-#[test]
-fn rejects_inconsistent_system_column_metadata() -> anyhow::Result<()> {
+async fn changelog_sink_batch(
+    operations: &[&str],
+    ids: &[i64],
+    values: &[i64],
+    versions: &[i64],
+) -> anyhow::Result<SinkBatch> {
+    let discovery = changelog_discovery();
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
     let batch = RecordBatch::try_new(
-        Arc::new(Schema::new(vec![Field::new(
-            "value",
-            DataType::Int64,
-            false,
-        )])),
-        vec![Arc::new(Int64Array::from(vec![7]))],
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(ids.to_vec())),
+            Arc::new(Int64Array::from(values.to_vec())),
+            Arc::new(StringArray::from(operations.to_vec())),
+            Arc::new(Int64Array::from(versions.to_vec())),
+        ],
     )?;
-    let system_columns = SystemColumns::new(vec![SystemColumn {
-        kind: SystemColumnKind::Offset,
-        name: Arc::from(SystemColumnKind::Offset.default_name()),
-        index: 0,
-    }]);
+    Ok(SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1_000_000).reserve(1).await,
+        system_columns: SystemColumns::new(vec![
+            SystemColumn {
+                kind: SystemColumnKind::ChangeOperation,
+                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                index: 2,
+            },
+            SystemColumn {
+                kind: SystemColumnKind::Offset,
+                name: Arc::from(SystemColumnKind::Offset.default_name()),
+                index: 3,
+            },
+        ]),
+    })
+}
 
-    assert!(without_system_columns(&batch, &system_columns).is_err());
+#[tokio::test]
+async fn changelog_collapses_same_lsn_changes_and_writes_pk_tombstones() -> anyhow::Result<()> {
+    let input = changelog_sink_batch(
+        &["c", "u", "c", "d"],
+        &[1, 1, 2, 2],
+        &[10, 11, 20, 20],
+        &[42, 42, 42, 42],
+    )
+    .await?;
+    let ProjectedSinkBatch::Changelog(changelog) =
+        project_sink_batch(&changelog_discovery(), &input)?
+    else {
+        panic!("CDC operation metadata must produce a changelog batch")
+    };
+    let batches = clickhouse_changelog_batches(&changelog)?;
+
+    assert_eq!(batches.len(), 2);
+    let upsert = &batches[0];
+    assert_eq!(upsert.num_rows(), 1);
+    assert_eq!(upsert.num_columns(), 4);
+    assert_eq!(
+        upsert.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        1
+    );
+    assert_eq!(
+        upsert.column(1).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        11
+    );
+    assert_eq!(
+        upsert.column(2).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        43
+    );
+    assert_eq!(
+        upsert.column(3).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        0
+    );
+
+    let tombstone = &batches[1];
+    assert_eq!(tombstone.num_rows(), 1);
+    assert_eq!(tombstone.num_columns(), 3);
+    assert_eq!(
+        tombstone.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        2
+    );
+    assert_eq!(
+        tombstone.column(1).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        43
+    );
+    assert_eq!(
+        tombstone.column(2).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        43
+    );
+    assert!(tombstone.schema().field_with_name("value").is_err());
+    assert!(tombstone
+        .schema()
+        .field_with_name(SystemColumnKind::ChangeOperation.default_name())
+        .is_err());
     Ok(())
 }
 

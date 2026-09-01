@@ -66,7 +66,7 @@ fn ddl_engine_follows_data_host_count() -> anyhow::Result<()> {
         (2, "ENGINE = ReplicatedMergeTree"),
         (3, "ENGINE = ReplicatedMergeTree"),
     ] {
-        let engine = TableEngine::for_data_host_count(data_host_count);
+        let engine = TableEngine::for_data_host_count(data_host_count, false);
         let ddl = create_table_ddl("events", &schema, &[], engine)?;
         assert!(ddl.contains(expected_engine), "{ddl}");
     }
@@ -86,6 +86,7 @@ fn replicated_table_is_created_on_the_selected_cluster() -> anyhow::Result<()> {
         &[],
         TableEngine::ReplicatedMergeTree,
         Some("default"),
+        false,
     )?;
     assert_eq!(
         ddl,
@@ -274,27 +275,121 @@ fn ddl_rejects_identifiers_outside_the_canonical_ascii_subset() {
 }
 
 #[test]
-fn only_row_preserving_mergetree_engines_are_accepted() -> anyhow::Result<()> {
-    for engine in ["MergeTree", "ReplicatedMergeTree"] {
-        validate_target_engine("events", engine)?;
-    }
-    for engine in [
-        "ReplacingMergeTree",
-        "SummingMergeTree",
-        "CollapsingMergeTree",
-        "AggregatingMergeTree",
-        "Null",
-        "Memory",
-        "Buffer",
-        "View",
-        "MaterializedView",
+fn target_engine_must_match_the_delivery_semantics() -> anyhow::Result<()> {
+    validate_target_engine("events", "MergeTree", "MergeTree", false)?;
+    validate_target_engine(
+        "events",
+        "ReplicatedMergeTree",
+        "ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')",
+        false,
+    )?;
+    for (engine, engine_full) in [
+        (
+            "ReplacingMergeTree",
+            "ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted) ORDER BY id SETTINGS index_granularity = 8192",
+        ),
+        (
+            "ReplicatedReplacingMergeTree",
+            "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}', __data_transfer_commit_time, __data_transfer_is_deleted)",
+        ),
     ] {
-        let error = validate_target_engine("events", engine).unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("expected exactly MergeTree or ReplicatedMergeTree"));
+        validate_target_engine("events", engine, engine_full, true)?;
+        assert!(validate_target_engine("events", engine, engine_full, false).is_err());
+    }
+    for (engine, engine_full) in [
+        ("MergeTree", "MergeTree"),
+        (
+            "ReplicatedMergeTree",
+            "ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')",
+        ),
+    ] {
+        assert!(validate_target_engine("events", engine, engine_full, true).is_err());
+    }
+    for engine in ["SummingMergeTree", "CollapsingMergeTree", "Null", "View"] {
+        assert!(validate_target_engine("events", engine, engine, false).is_err());
+        assert!(validate_target_engine("events", engine, engine, true).is_err());
     }
     Ok(())
+}
+
+#[test]
+fn changelog_engine_rejects_wrong_version_and_delete_columns() {
+    for engine_full in [
+        "ReplacingMergeTree(other_version, __data_transfer_is_deleted)",
+        "ReplacingMergeTree(__data_transfer_commit_time, other_delete_flag)",
+        "ReplacingMergeTree(__data_transfer_commit_time)",
+    ] {
+        let error = validate_target_engine(
+            "events",
+            "ReplacingMergeTree",
+            engine_full,
+            true,
+        )
+        .expect_err("an incompatible ReplacingMergeTree must fail before INSERT");
+        assert!(error.to_string().contains("incompatible engine definition"));
+    }
+}
+
+#[test]
+fn engine_signature_handles_parentheses_inside_replicated_paths() -> anyhow::Result<()> {
+    assert_eq!(
+        engine_signature(
+            "ReplicatedReplacingMergeTree('/clickhouse/(tables)', '{replica}', version, deleted) ORDER BY id"
+        )?,
+        "ReplicatedReplacingMergeTree('/clickhouse/(tables)', '{replica}', version, deleted)"
+    );
+    assert!(engine_signature("ReplacingMergeTree(version, deleted").is_err());
+    Ok(())
+}
+
+#[test]
+fn changelog_ddl_uses_replacing_mergetree_and_lossless_tombstones() -> anyhow::Result<()> {
+    let schema = schema(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new("value".into(), DataType::Utf8, true),
+    ]);
+    let ddl = create_table_ddl(
+        "events",
+        &schema,
+        &["id".into()],
+        TableEngine::ReplacingMergeTree,
+    )?;
+    assert!(ddl.contains("`__data_transfer_commit_time` UInt64"), "{ddl}");
+    assert!(ddl.contains("`__data_transfer_delete_time` UInt64"), "{ddl}");
+    assert!(ddl.contains(
+        "`__data_transfer_is_deleted` UInt8 MATERIALIZED if(`__data_transfer_delete_time` != 0, 1, 0)"
+    ), "{ddl}");
+    assert!(ddl.contains(
+        "ENGINE = ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
+    ), "{ddl}");
+    assert!(ddl.ends_with("ORDER BY (`id`)"), "{ddl}");
+    Ok(())
+}
+
+#[test]
+fn changelog_ddl_requires_a_primary_key_and_reserves_metadata_names() {
+    let no_key = schema(vec![SchemaColumn::new("value".into(), DataType::Int64, false)]);
+    assert!(create_table_ddl(
+        "events",
+        &no_key,
+        &[],
+        TableEngine::ReplacingMergeTree,
+    )
+    .is_err());
+
+    let collision = schema(vec![
+        SchemaColumn::new("id".into(), DataType::Int64, false)
+            .with_constraints(true, false, None),
+        SchemaColumn::new(CHANGE_COMMIT_TIME.into(), DataType::UInt64, false),
+    ]);
+    assert!(create_table_ddl(
+        "events",
+        &collision,
+        &["id".into()],
+        TableEngine::ReplacingMergeTree,
+    )
+    .is_err());
 }
 
 #[test]

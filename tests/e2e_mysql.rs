@@ -26,7 +26,7 @@ use transferia::connectors::mysql::{
 };
 use transferia::core::data::message::SourceBatch;
 use transferia::core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
-use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
     SourceTopology,
@@ -308,6 +308,98 @@ fn sink_batch(
     })
 }
 
+fn mysql_changelog_discovery() -> DeliveryDiscovery {
+    let id = SchemaColumn::new("id".to_owned(), DataType::UInt64, false)
+        .with_constraints(true, false, None);
+    let payload = SchemaColumn::new("payload".to_owned(), DataType::Utf8, false);
+    DeliveryDiscovery {
+        source_name: Arc::from("postgres-cdc"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("cdc_rows"),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                SchemaColumn::new("payload".to_owned(), DataType::Utf8, true),
+                SchemaColumn::new(
+                    SystemColumnKind::ChangeOperation.default_name().into(),
+                    SystemColumnKind::ChangeOperation.data_type(),
+                    false,
+                ),
+                SchemaColumn::new(
+                    SystemColumnKind::Offset.default_name().into(),
+                    SystemColumnKind::Offset.data_type(),
+                    false,
+                ),
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    }
+}
+
+fn mysql_changelog_delivery(
+    memory: &PipelineMemory,
+    delivery_id: u64,
+    operations: Vec<&str>,
+    ids: Vec<u64>,
+    payloads: Vec<Option<&str>>,
+    lsn: i64,
+) -> anyhow::Result<Delivery> {
+    let discovery = mysql_changelog_discovery();
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let rows = ids.len();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(UInt64Array::from(ids)) as ArrayRef,
+            Arc::new(StringArray::from(payloads)) as ArrayRef,
+            Arc::new(StringArray::from(operations)) as ArrayRef,
+            Arc::new(arrow::array::Int64Array::from(vec![lsn; rows])) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    Ok(Delivery {
+        id: DeliveryId::new(delivery_id),
+        outputs: vec![SinkBatch {
+            table: Arc::from("cdc_rows"),
+            is_dlq: false,
+            batch,
+            byte_size: bytes,
+            memory: memory.reserve_transform(bytes),
+            system_columns: SystemColumns::new(vec![
+                SystemColumn {
+                    kind: SystemColumnKind::ChangeOperation,
+                    name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                    index: 2,
+                },
+                SystemColumn {
+                    kind: SystemColumnKind::Offset,
+                    name: Arc::from(SystemColumnKind::Offset.default_name()),
+                    index: 3,
+                },
+            ]),
+        }],
+        meta: DeliveryMeta {
+            source_messages: rows as u64,
+        },
+    })
+}
+
 #[tokio::test]
 async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyhow::Result<()> {
     let container = GenericImage::new("mysql", "8.4.6")
@@ -346,8 +438,20 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     let sink = MySqlSinkConnector::from_config(serde_yaml::from_str(&format!(
         "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: root\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\ninsert_rows: 2\n"
     ))?)?;
+    let mut wrong_key_connection = wait_for_mysql(&connection_config).await?;
+    wrong_key_connection
+        .query_drop("CREATE TABLE cdc_wrong_key (id BIGINT UNSIGNED NOT NULL, payload TEXT NOT NULL) ENGINE=InnoDB")
+        .await?;
+    wrong_key_connection.disconnect().await?;
+    let mut wrong_key = mysql_changelog_discovery();
+    wrong_key.datasets[0].name = Arc::from("cdc_wrong_key");
+    let error = sink
+        .prepare(SinkPrepare::from_discovery(&wrong_key, false)?.expect("wrong-key dataset"))
+        .await
+        .expect_err("an existing changelog table without the declared key must fail at startup");
+    assert!(error.to_string().contains("has primary key []"), "{error:#}");
     sink.limits().validate_discovery(&discovery)?;
-    sink.prepare(SinkPrepare::from_discovery(&discovery)?.expect("datasets"))
+    sink.prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("datasets"))
         .await
         .context("prepare MySQL sink tables")?;
 
@@ -429,6 +533,70 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
         .await
         .context("query rolled-back MySQL rows")?;
     assert_eq!(json_rows, Some(0));
+
+    let changelog_discovery = Arc::new(mysql_changelog_discovery());
+    sink.limits().validate_discovery(&changelog_discovery)?;
+    sink.prepare(
+        SinkPrepare::from_discovery(&changelog_discovery, false)?.expect("changelog dataset"),
+    )
+    .await?;
+    let changelog_sink = sink
+        .build_sink(SinkBuildContext {
+            partition_id: 0,
+            finite_source: false,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery: changelog_discovery,
+            durable: support::durable_context(),
+        })
+        .await?;
+    let (delivery_tx, delivery_rx) = mpsc::channel(3);
+    let (event_tx, mut event_rx) = mpsc::channel(3);
+    let task = tokio::spawn(changelog_sink.run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation: CancellationToken::new(),
+    }));
+    for delivery in [
+        mysql_changelog_delivery(
+            &memory,
+            1,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )?,
+        mysql_changelog_delivery(
+            &memory,
+            2,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )?,
+        mysql_changelog_delivery(
+            &memory,
+            3,
+            vec!["d", "c"],
+            vec![1, 3],
+            vec![None, Some("three")],
+            43,
+        )?,
+    ] {
+        let id = delivery.id;
+        delivery_tx.send(delivery).await?;
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(30), event_rx.recv()).await?,
+            Some(SinkEvent::CommittedThrough(id))
+        );
+    }
+    drop(delivery_tx);
+    task.await??;
+    let cdc_rows: Vec<(u64, String)> = connection
+        .query("SELECT id, payload FROM cdc_rows ORDER BY id")
+        .await?;
+    assert_eq!(cdc_rows, vec![(3, "three".to_owned())]);
     connection.disconnect().await?;
     Ok(())
 }

@@ -8,6 +8,9 @@ pub mod sink;
 pub mod source;
 
 pub use data::change::ChangeOperation;
+pub use data::changelog::{
+    project_sink_batch, ChangelogAction, ChangelogBatch, ChangelogRun, ProjectedSinkBatch,
+};
 pub use data::message::{Message, MessageHeader, MessageMeta, SourceBatch};
 pub use data::record_batch::{compact_record_batch, compact_record_batch_chunks};
 pub use data::schema::{DatasetSchema, SchemaColumn};

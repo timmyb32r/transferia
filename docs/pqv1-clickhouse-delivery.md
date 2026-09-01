@@ -22,11 +22,21 @@ Consequences for operators:
 - changing parser or table configuration while uncommitted data can replay may
   change the rows produced by that replay.
 
-Existing destination tables must use exactly `MergeTree` or
-`ReplicatedMergeTree`. Transforming engines such as `ReplacingMergeTree`,
-`SummingMergeTree`, `CollapsingMergeTree`, and `AggregatingMergeTree` are
-rejected because a successful INSERT followed by a background merge can change
-or remove source rows.
+Append-only deliveries require `MergeTree` or `ReplicatedMergeTree` so a
+background merge cannot silently remove source records. PostgreSQL changelog
+deliveries instead require a table created by Transferia with
+`ReplacingMergeTree(__data_transfer_commit_time,
+__data_transfer_is_deleted)` (or its replicated form). The WAL LSN plus one is
+stored as the replacement version, reserving zero as the not-deleted sentinel;
+deletes are lossless primary-key tombstones. Before an
+INSERT, Transferia collapses multiple changes of one key in the same source
+transaction to its final state. This is required because PostgreSQL assigns the
+same LSN to all changes in one transaction. Existing tables with an engine that
+does not match the selected record semantics are rejected before workers start.
+
+`SummingMergeTree`, `CollapsingMergeTree`, `AggregatingMergeTree`, and
+user-created `ReplacingMergeTree` layouts remain unsupported: their merge
+semantics are not the validated Transferia changelog contract.
 
 Every connection pins `async_insert=0`, `wait_for_async_insert=1`, and
 `insert_deduplicate=0`. This prevents server/user profiles from acknowledging

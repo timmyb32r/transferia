@@ -13,6 +13,7 @@ use transferia_core::delivery::{
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
+use transferia_core::SystemColumnKind;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
@@ -93,6 +94,17 @@ impl SinkLimits for MySqlSinkConfig {
                 "MySQL table '{}' has {primary_keys} primary-key columns; the portable limit is 16",
                 dataset.name
             );
+            if dataset
+                .system_columns
+                .iter()
+                .any(|column| column.kind == SystemColumnKind::ChangeOperation)
+            {
+                anyhow::ensure!(
+                    primary_keys > 0,
+                    "MySQL changelog dataset '{}' requires a primary key",
+                    dataset.name
+                );
+            }
         }
         Ok(())
     }
@@ -117,43 +129,43 @@ impl SinkConnector for MySqlSinkConnector {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
-            if !self.config.create_tables {
-                return Ok(());
-            }
             let mut connection = connect(&self.config.connection).await?;
             configure_strict_session(&mut connection).await?;
             for dataset in request.datasets {
-                let columns = dataset
-                    .schema
-                    .columns
-                    .iter()
-                    .map(|column| {
-                        Ok(format!(
-                            "{} {}{}",
-                            quote_identifier(&column.name),
-                            mysql_sql_type(column)?,
-                            if column.nullable { "" } else { " NOT NULL" }
+                if self.config.create_tables {
+                    let columns = dataset
+                        .schema
+                        .columns
+                        .iter()
+                        .map(|column| {
+                            Ok(format!(
+                                "{} {}{}",
+                                quote_identifier(&column.name),
+                                mysql_sql_type(column)?,
+                                if column.nullable { "" } else { " NOT NULL" }
+                            ))
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+                    let primary_key = dataset
+                        .schema
+                        .columns
+                        .iter()
+                        .filter(|column| column.primary_key)
+                        .map(|column| quote_identifier(&column.name))
+                        .collect::<Vec<_>>();
+                    let mut definitions = columns;
+                    if !primary_key.is_empty() {
+                        definitions.push(format!("PRIMARY KEY ({})", primary_key.join(", ")));
+                    }
+                    connection
+                        .query_drop(format!(
+                            "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE=InnoDB",
+                            quote_identifier(&dataset.table),
+                            definitions.join(", ")
                         ))
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                let primary_key = dataset
-                    .schema
-                    .columns
-                    .iter()
-                    .filter(|column| column.primary_key)
-                    .map(|column| quote_identifier(&column.name))
-                    .collect::<Vec<_>>();
-                let mut definitions = columns;
-                if !primary_key.is_empty() {
-                    definitions.push(format!("PRIMARY KEY ({})", primary_key.join(", ")));
+                        .await?;
                 }
-                connection
-                    .query_drop(format!(
-                        "CREATE TABLE IF NOT EXISTS {} ({}) ENGINE=InnoDB",
-                        quote_identifier(&dataset.table),
-                        definitions.join(", ")
-                    ))
-                    .await?;
+                validate_changelog_primary_key(&mut connection, &dataset).await?;
             }
             connection.disconnect().await?;
             Ok(())
@@ -177,6 +189,37 @@ impl SinkConnector for MySqlSinkConnector {
             )) as Box<dyn Sink>)
         })
     }
+}
+
+async fn validate_changelog_primary_key(
+    connection: &mut mysql_async::Conn,
+    dataset: &transferia_registry::DatasetPrepare,
+) -> anyhow::Result<()> {
+    if !dataset.changelog {
+        return Ok(());
+    }
+    let actual = connection
+        .exec_map(
+            "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = 'PRIMARY' \
+             ORDER BY ORDINAL_POSITION",
+            (dataset.table.as_ref(),),
+            |name: String| name,
+        )
+        .await?;
+    let expected = dataset
+        .schema
+        .columns
+        .iter()
+        .filter(|column| column.primary_key)
+        .map(|column| column.name.as_str())
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        actual.iter().map(String::as_str).collect::<Vec<_>>() == expected,
+        "MySQL changelog table '{}' has primary key {actual:?}, expected {expected:?}",
+        dataset.table
+    );
+    Ok(())
 }
 
 pub(super) async fn configure_strict_session(

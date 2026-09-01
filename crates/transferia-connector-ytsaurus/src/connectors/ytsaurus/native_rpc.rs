@@ -820,6 +820,21 @@ pub(super) struct NativeDynamicWriter {
     next_worker: AtomicUsize,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum NativeRowModification {
+    Write,
+    Delete,
+}
+
+impl NativeRowModification {
+    pub(super) const fn rpc_value(self) -> i32 {
+        match self {
+            Self::Write => 0,
+            Self::Delete => 1,
+        }
+    }
+}
+
 impl NativeDynamicWriter {
     pub(super) fn new(
         endpoints: &[String],
@@ -868,6 +883,7 @@ impl NativeDynamicWriter {
         column_names: &[String],
         payload: Bytes,
         require_sync_replica: bool,
+        modification: NativeRowModification,
     ) -> anyhow::Result<()> {
         if row_count == 0 {
             return Ok(());
@@ -876,7 +892,14 @@ impl NativeDynamicWriter {
         self.workers[worker_index]
             .lock()
             .await
-            .write_rows(path, row_count, column_names, payload, require_sync_replica)
+            .write_rows(
+                path,
+                row_count,
+                column_names,
+                payload,
+                require_sync_replica,
+                modification,
+            )
             .await
     }
 }
@@ -930,6 +953,7 @@ impl NativeDynamicWorker {
         column_names: &[String],
         payload: Bytes,
         require_sync_replica: bool,
+        modification: NativeRowModification,
     ) -> anyhow::Result<()> {
         let mut attempt = 0_u32;
         let mut delay = self.retry_initial;
@@ -942,6 +966,7 @@ impl NativeDynamicWorker {
                     column_names,
                     payload.clone(),
                     require_sync_replica,
+                    modification,
                 )
                 .await;
             match result {
@@ -973,6 +998,7 @@ impl NativeDynamicWorker {
         column_names: &[String],
         payload: Bytes,
         require_sync_replica: bool,
+        modification: NativeRowModification,
     ) -> anyhow::Result<()> {
         let stream = self
             .stream
@@ -1015,7 +1041,7 @@ impl NativeDynamicWorker {
             sequence_number_source_id: response.sequence_number_source_id,
             transaction_id: transaction_id.clone(),
             path: path.as_bytes().to_vec(),
-            row_modification_types: vec![0; row_count],
+            row_modification_types: vec![modification.rpc_value(); row_count],
             require_sync_replica: Some(require_sync_replica),
             rowset_descriptor: descriptor,
         };

@@ -32,8 +32,14 @@ use super::discard::{output_format, DiscardDecoder};
 use super::native_rpc::{
     checksum_matches, crc64, credentials, is_transient_dynamic_write_error,
     is_transient_dynamic_write_error_code, receive_read_worker_item, rowset_payload,
-    NativeReadFormat,
+    NativeReadFormat, NativeRowModification,
 };
+
+#[test]
+fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
+    assert_eq!(NativeRowModification::Write.rpc_value(), 0);
+    assert_eq!(NativeRowModification::Delete.rpc_value(), 1);
+}
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
     drop_oversized_rows, encode_arrow, encode_arrow_batches, validate_initial_tablet_count,

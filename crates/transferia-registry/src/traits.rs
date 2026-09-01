@@ -180,10 +180,15 @@ pub struct DatasetPrepare {
     pub table: Arc<str>,
 
     pub schema: DatasetSchema,
+
+    pub changelog: bool,
 }
 
 impl SinkPrepare {
-    pub fn from_discovery(discovery: &DeliveryDiscovery) -> anyhow::Result<Option<Self>> {
+    pub fn from_discovery(
+        discovery: &DeliveryDiscovery,
+        finite_source: bool,
+    ) -> anyhow::Result<Option<Self>> {
         if discovery.datasets.is_empty() {
             return Ok(None);
         }
@@ -195,12 +200,16 @@ impl SinkPrepare {
                     role: dataset.role,
                     table: Arc::clone(&dataset.name),
                     schema: dataset.stored_schema.clone(),
+                    changelog: dataset
+                        .system_columns
+                        .iter()
+                        .any(|column| {
+                            column.kind
+                                == transferia_core::data::system_columns::SystemColumnKind::ChangeOperation
+                        }),
                 })
                 .collect(),
-            finite_source: matches!(
-                discovery.source_topology,
-                transferia_core::delivery::SourceTopology::StaticPartitions(_)
-            ),
+            finite_source,
         }))
     }
 }

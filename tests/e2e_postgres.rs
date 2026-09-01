@@ -30,7 +30,7 @@ use transferia::connectors::postgres::{PostgresSinkConnector, PostgresSourceConn
 use transferia::connectors::s3::sink::{S3SinkConfig, S3SinkConnector};
 use transferia::core::data::message::SourceBatch;
 use transferia::core::data::schema::{DatasetSchema, SchemaColumn};
-use transferia::core::data::system_columns::SystemColumns;
+use transferia::core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia::core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset, SchemaOrigin,
 };
@@ -97,7 +97,7 @@ async fn run_pipeline(
     discovery: Arc<DeliveryDiscovery>,
 ) -> anyhow::Result<()> {
     sink.limits().validate_discovery(&discovery)?;
-    if let Some(prepare) = SinkPrepare::from_discovery(&discovery)? {
+    if let Some(prepare) = SinkPrepare::from_discovery(&discovery, true)? {
         sink.prepare(prepare).await?;
     }
     let memory = PipelineMemory::new(256 * 1024 * 1024);
@@ -156,6 +156,200 @@ async fn run_one_delivery(
         .ok_or_else(|| anyhow::anyhow!("PostgreSQL sink closed without a commit event"))?;
     assert_eq!(event, SinkEvent::CommittedThrough(DeliveryId::new(1)));
     task.await??;
+    Ok(())
+}
+
+fn changelog_discovery(table: &str) -> DeliveryDiscovery {
+    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
+        .with_constraints(true, false, None);
+    let payload = SchemaColumn::new("payload".into(), DataType::Utf8, false);
+    let incoming_payload = SchemaColumn::new("payload".into(), DataType::Utf8, true);
+    let operation = SchemaColumn::new(
+        SystemColumnKind::ChangeOperation.default_name().into(),
+        SystemColumnKind::ChangeOperation.data_type(),
+        false,
+    );
+    let offset = SchemaColumn::new(
+        SystemColumnKind::Offset.default_name().into(),
+        SystemColumnKind::Offset.data_type(),
+        false,
+    );
+    DeliveryDiscovery {
+        source_name: Arc::from("postgres-cdc-e2e"),
+        source_topology: transferia::core::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from(table),
+            incoming_schema: DatasetSchema::new(vec![
+                id.clone(),
+                incoming_payload,
+                operation,
+                offset,
+            ]),
+            stored_schema: DatasetSchema::new(vec![id, payload]),
+            system_columns: vec![
+                SystemColumnKind::ChangeOperation.into(),
+                SystemColumnKind::Offset.into(),
+            ],
+        }],
+        performance_advice: Vec::new(),
+    }
+}
+
+async fn changelog_delivery(
+    memory: &PipelineMemory,
+    delivery_id: u64,
+    operations: Vec<&str>,
+    ids: Vec<i64>,
+    payloads: Vec<Option<&str>>,
+    lsn: i64,
+) -> anyhow::Result<Delivery> {
+    let discovery = changelog_discovery("cdc_target");
+    let fields = discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .iter()
+        .map(|column| {
+            Field::new(&column.name, column.data_type.clone(), column.nullable)
+                .with_metadata(column.arrow_metadata())
+        })
+        .collect::<Vec<_>>();
+    let rows = ids.len();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(ids)) as ArrayRef,
+            Arc::new(StringArray::from(payloads)) as ArrayRef,
+            Arc::new(StringArray::from(operations)) as ArrayRef,
+            Arc::new(Int64Array::from(vec![lsn; rows])) as ArrayRef,
+        ],
+    )?;
+    let bytes = batch.get_array_memory_size();
+    Ok(Delivery {
+        id: DeliveryId::new(delivery_id),
+        outputs: vec![SinkBatch {
+            table: Arc::from("cdc_target"),
+            is_dlq: false,
+            batch,
+            byte_size: bytes,
+            memory: memory.reserve_transform(bytes),
+            system_columns: SystemColumns::new(vec![
+                SystemColumn {
+                    kind: SystemColumnKind::ChangeOperation,
+                    name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
+                    index: 2,
+                },
+                SystemColumn {
+                    kind: SystemColumnKind::Offset,
+                    name: Arc::from(SystemColumnKind::Offset.default_name()),
+                    index: 3,
+                },
+            ]),
+        }],
+        meta: DeliveryMeta {
+            source_messages: rows as u64,
+        },
+    })
+}
+
+#[tokio::test]
+async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -> anyhow::Result<()> {
+    let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
+        .with_exposed_port(5432.tcp())
+        .with_wait_for(WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        ))
+        .with_env_var("POSTGRES_PASSWORD", "test")
+        .with_env_var("POSTGRES_DB", "transferia")
+        .start()
+        .await?;
+    let host = reachable_host(&postgres.get_host().await?);
+    let port = postgres.get_host_port_ipv4(5432.tcp()).await?;
+    let connection =
+        format!("host={host} port={port} user=postgres password=test dbname=transferia");
+    let pg = wait_for_postgres(&connection).await?;
+    let discovery = Arc::new(changelog_discovery("cdc_target"));
+    let connector = PostgresSinkConnector::from_config(serde_yaml::from_str(&format!(
+        "host: '{host}'\nport: {port}\ndatabase: transferia\nusername: postgres\npassword: test\ntrusted_plaintext: true\ncreate_tables: true\n"
+    ))?)?;
+    pg.batch_execute("CREATE TABLE cdc_wrong_key (id bigint NOT NULL, payload text NOT NULL)")
+        .await?;
+    let wrong_key = changelog_discovery("cdc_wrong_key");
+    let error = connector
+        .prepare(SinkPrepare::from_discovery(&wrong_key, false)?.expect("wrong-key dataset"))
+        .await
+        .expect_err("an existing changelog table without the declared key must fail at startup");
+    assert!(error.to_string().contains("has primary key []"), "{error:#}");
+    connector.limits().validate_discovery(&discovery)?;
+    connector
+        .prepare(SinkPrepare::from_discovery(&discovery, false)?.expect("dataset"))
+        .await?;
+    let memory = PipelineMemory::new(16 * 1024 * 1024);
+    let sink = connector
+        .build_sink(SinkBuildContext {
+            durable: support::durable_context(),
+            partition_id: 0,
+            finite_source: false,
+            counters: Arc::new(SinkCounters::new()),
+            keep_system_columns: false,
+            discovery,
+        })
+        .await?;
+    let (delivery_tx, delivery_rx) = mpsc::channel(3);
+    let (event_tx, mut event_rx) = mpsc::channel(3);
+    let task = tokio::spawn(sink.run(SinkIo {
+        deliveries: delivery_rx,
+        events: event_tx,
+        memory: memory.clone(),
+        cancellation: CancellationToken::new(),
+    }));
+    for delivery in [
+        changelog_delivery(
+            &memory,
+            1,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )
+        .await?,
+        changelog_delivery(
+            &memory,
+            2,
+            vec!["c", "u", "c", "d"],
+            vec![1, 1, 2, 2],
+            vec![Some("old"), Some("current"), Some("deleted"), None],
+            42,
+        )
+        .await?,
+        changelog_delivery(
+            &memory,
+            3,
+            vec!["d", "c"],
+            vec![1, 3],
+            vec![None, Some("three")],
+            43,
+        )
+        .await?,
+    ] {
+        let id = delivery.id;
+        delivery_tx.send(delivery).await?;
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(30), event_rx.recv()).await?,
+            Some(SinkEvent::CommittedThrough(id))
+        );
+    }
+    drop(delivery_tx);
+    task.await??;
+
+    let rows = pg
+        .query("SELECT id, payload FROM cdc_target ORDER BY id", &[])
+        .await?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get::<_, i64>(0), 3);
+    assert_eq!(rows[0].get::<_, String>(1), "three");
     Ok(())
 }
 
@@ -354,7 +548,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     ))?)?;
     postgres_sink.limits().validate_discovery(&copy_discovery)?;
     postgres_sink
-        .prepare(SinkPrepare::from_discovery(&copy_discovery)?.expect("dataset"))
+        .prepare(SinkPrepare::from_discovery(&copy_discovery, true)?.expect("dataset"))
         .await?;
     let sink = postgres_sink
         .build_sink(SinkBuildContext {

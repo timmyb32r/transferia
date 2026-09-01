@@ -6,10 +6,10 @@ use futures_util::SinkExt as _;
 use super::copy_binary;
 use crate::connectors::postgres::common::quote_identifier;
 use crate::metrics::SinkCounters;
-use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch};
 
 pub struct PostgresSink {
     client: tokio_postgres::Client,
@@ -33,72 +33,226 @@ impl PostgresSink {
         }
     }
 
-    async fn write_delivery(&self, delivery: &Delivery) -> anyhow::Result<()> {
+    async fn write_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
         for batch in &delivery.outputs {
             self.limits
                 .validate_batch(&self.discovery, batch)
                 .map_err(DataPlaneFailure::fatal)?;
         }
-        for batch in &delivery.outputs {
-            if batch.rows() == 0 {
-                continue;
+        let projected = delivery
+            .outputs
+            .iter()
+            .map(|batch| project_sink_batch(&self.discovery, batch))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let started = std::time::Instant::now();
+        let transaction = self.client.transaction().await?;
+        let mut flushes = 0;
+        for (batch_index, (batch, projected)) in
+            delivery.outputs.iter().zip(projected).enumerate()
+        {
+            match projected {
+                ProjectedSinkBatch::AppendOnly(stored) => {
+                    if stored.num_rows() > 0 {
+                        copy_batch(&transaction, &batch.table, &stored).await?;
+                        flushes += 1;
+                    }
+                }
+                ProjectedSinkBatch::Changelog(changelog) => {
+                    for (run_index, run) in
+                        changelog.collapsed_runs()?.into_iter().enumerate()
+                    {
+                        if run.batch.num_rows() == 0 {
+                            continue;
+                        }
+                        let staging = format!(
+                            "__transferia_{}_{}_{}",
+                            delivery.id.get(),
+                            batch_index,
+                            run_index
+                        );
+                        create_staging_table(
+                            &transaction,
+                            &batch.table,
+                            &staging,
+                            run.action,
+                            &changelog.primary_keys,
+                        )
+                        .await?;
+                        copy_batch(&transaction, &staging, &run.batch).await?;
+                        match run.action {
+                            ChangelogAction::Upsert => {
+                                upsert_from_staging(
+                                    &transaction,
+                                    &batch.table,
+                                    &staging,
+                                    &run.batch,
+                                    &changelog.primary_keys,
+                                )
+                                .await?;
+                            }
+                            ChangelogAction::Delete => {
+                                delete_from_staging(
+                                    &transaction,
+                                    &batch.table,
+                                    &staging,
+                                    &changelog.primary_keys,
+                                )
+                                .await?;
+                            }
+                        }
+                        flushes += 1;
+                    }
+                }
             }
-            let stored_batch = if self.discovery.keep_system_columns {
-                batch.batch.clone()
-            } else {
-                without_system_columns(&batch.batch, &batch.system_columns)?
-            };
-            let columns = stored_batch
-                .schema()
-                .fields()
-                .iter()
-                .map(|field| quote_identifier(field.name()))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let query = format!(
-                "COPY {} ({columns}) FROM STDIN BINARY",
-                quote_identifier(&batch.table)
-            );
-            let payload = copy_binary::encode(&stored_batch).map_err(DataPlaneFailure::fatal)?;
-            let started = std::time::Instant::now();
-            let sink = self.client.copy_in(&query).await?;
-            tokio::pin!(sink);
-            sink.as_mut().send(payload).await?;
-            let rows = sink.as_mut().finish().await?;
-            anyhow::ensure!(
-                rows == batch.rows() as u64,
-                "PostgreSQL COPY inserted {rows} rows, expected {}",
-                batch.rows()
-            );
-            self.counters.add_busy(started.elapsed());
-            self.counters.add_rows(rows);
-            self.counters.add_bytes(batch.bytes() as u64);
+        }
+        transaction.commit().await?;
+        self.counters.add_busy(started.elapsed());
+        self.counters
+            .add_rows(delivery.outputs.iter().map(|batch| batch.rows() as u64).sum());
+        self.counters
+            .add_bytes(delivery.outputs.iter().map(|batch| batch.bytes() as u64).sum());
+        for _ in 0..flushes {
             self.counters.add_flush();
         }
         Ok(())
     }
 }
 
-fn without_system_columns(
+async fn create_staging_table(
+    transaction: &tokio_postgres::Transaction<'_>,
+    table: &str,
+    staging: &str,
+    action: ChangelogAction,
+    primary_keys: &[String],
+) -> anyhow::Result<()> {
+    let query = match action {
+        ChangelogAction::Upsert => format!(
+            "CREATE TEMP TABLE {} (LIKE {} INCLUDING DEFAULTS) ON COMMIT DROP",
+            quote_identifier(staging),
+            quote_identifier(table)
+        ),
+        ChangelogAction::Delete => format!(
+            "CREATE TEMP TABLE {} ON COMMIT DROP AS SELECT {} FROM {} WITH NO DATA",
+            quote_identifier(staging),
+            primary_keys
+                .iter()
+                .map(|key| quote_identifier(key))
+                .collect::<Vec<_>>()
+                .join(", "),
+            quote_identifier(table)
+        ),
+    };
+    transaction.batch_execute(&query).await?;
+    Ok(())
+}
+
+async fn copy_batch(
+    transaction: &tokio_postgres::Transaction<'_>,
+    table: &str,
     batch: &arrow::record_batch::RecordBatch,
-    system_columns: &SystemColumns,
-) -> anyhow::Result<arrow::record_batch::RecordBatch> {
-    if system_columns.is_empty() {
-        return Ok(batch.clone());
-    }
-    let system_indexes = system_columns
+) -> anyhow::Result<()> {
+    let columns = batch
+        .schema()
+        .fields()
         .iter()
-        .map(|column| column.index)
-        .collect::<std::collections::HashSet<_>>();
-    let indexes = (0..batch.num_columns())
-        .filter(|index| !system_indexes.contains(index))
+        .map(|field| quote_identifier(field.name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "COPY {} ({columns}) FROM STDIN BINARY",
+        quote_identifier(table)
+    );
+    let payload = copy_binary::encode(batch).map_err(DataPlaneFailure::fatal)?;
+    let sink = transaction.copy_in(&query).await?;
+    tokio::pin!(sink);
+    sink.as_mut().send(payload).await?;
+    let rows = sink.as_mut().finish().await?;
+    anyhow::ensure!(
+        rows == batch.num_rows() as u64,
+        "PostgreSQL COPY inserted {rows} rows, expected {}",
+        batch.num_rows()
+    );
+    Ok(())
+}
+
+async fn upsert_from_staging(
+    transaction: &tokio_postgres::Transaction<'_>,
+    table: &str,
+    staging: &str,
+    batch: &arrow::record_batch::RecordBatch,
+    primary_keys: &[String],
+) -> anyhow::Result<()> {
+    let columns = batch
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| quote_identifier(field.name()))
         .collect::<Vec<_>>();
-    Ok(batch.project(&indexes)?)
+    let updates = batch
+        .schema()
+        .fields()
+        .iter()
+        .filter(|field| !primary_keys.iter().any(|key| key == field.name()))
+        .map(|field| {
+            let column = quote_identifier(field.name());
+            format!("{column} = EXCLUDED.{column}")
+        })
+        .collect::<Vec<_>>();
+    let conflict = if updates.is_empty() {
+        "DO NOTHING".to_owned()
+    } else {
+        format!("DO UPDATE SET {}", updates.join(", "))
+    };
+    transaction
+        .execute(
+            &format!(
+                "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) {conflict}",
+                quote_identifier(table),
+                columns.join(", "),
+                columns.join(", "),
+                quote_identifier(staging),
+                primary_keys
+                    .iter()
+                    .map(|key| quote_identifier(key))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            &[],
+        )
+        .await?;
+    Ok(())
+}
+
+async fn delete_from_staging(
+    transaction: &tokio_postgres::Transaction<'_>,
+    table: &str,
+    staging: &str,
+    primary_keys: &[String],
+) -> anyhow::Result<()> {
+    let predicate = primary_keys
+        .iter()
+        .map(|key| {
+            let key = quote_identifier(key);
+            format!("target.{key} = staged.{key}")
+        })
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    transaction
+        .execute(
+            &format!(
+                "DELETE FROM {} AS target USING {} AS staged WHERE {predicate}",
+                quote_identifier(table),
+                quote_identifier(staging)
+            ),
+            &[],
+        )
+        .await?;
+    Ok(())
 }
 
 impl Sink for PostgresSink {
     fn run(
-        self: Box<Self>,
+        mut self: Box<Self>,
         mut io: SinkIo,
     ) -> BoxFuture<'static, transferia_core::failure::DataPlaneResult<()>> {
         Box::pin(async move {

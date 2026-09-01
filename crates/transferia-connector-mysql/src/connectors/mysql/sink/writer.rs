@@ -15,10 +15,10 @@ use mysql_async::{Conn, Params, Value};
 
 use crate::connectors::mysql::common::quote_identifier;
 use crate::metrics::SinkCounters;
-use transferia_core::data::system_columns::SystemColumns;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch};
 
 const MAX_PREPARED_PARAMETERS: usize = 65_535;
 
@@ -51,45 +51,57 @@ impl MySqlSink {
         for batch in &delivery.outputs {
             self.limits.validate_batch(&self.discovery, batch)?;
         }
+        let projected = delivery
+            .outputs
+            .iter()
+            .map(|batch| project_sink_batch(&self.discovery, batch))
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let started = std::time::Instant::now();
         self.connection.query_drop("START TRANSACTION").await?;
         let write_result = async {
             let mut flushes = 0_u64;
             let mut rows = 0_u64;
             let mut bytes = 0_u64;
-            for batch in &delivery.outputs {
+            for (batch, projected) in delivery.outputs.iter().zip(projected) {
                 if batch.rows() == 0 {
                     continue;
                 }
-                let stored_batch = if self.discovery.keep_system_columns {
-                    batch.batch.clone()
-                } else {
-                    without_system_columns(&batch.batch, &batch.system_columns)?
-                };
-                anyhow::ensure!(
-                    stored_batch.num_columns() > 0,
-                    "MySQL table '{}' cannot receive a batch with no stored columns",
-                    batch.table
-                );
-                let max_rows = self
-                    .insert_rows
-                    .min(MAX_PREPARED_PARAMETERS / stored_batch.num_columns());
-                anyhow::ensure!(
-                    max_rows > 0,
-                    "MySQL table '{}' has too many columns for one prepared row",
-                    batch.table
-                );
-                for offset in (0..stored_batch.num_rows()).step_by(max_rows) {
-                    let len = max_rows.min(stored_batch.num_rows() - offset);
-                    insert_chunk(
-                        &mut self.connection,
-                        &batch.table,
-                        &stored_batch,
-                        offset,
-                        len,
-                    )
-                    .await?;
-                    flushes += 1;
+                match projected {
+                    ProjectedSinkBatch::AppendOnly(stored) => {
+                        flushes += write_insert_batches(
+                            &mut self.connection,
+                            &batch.table,
+                            &stored,
+                            self.insert_rows,
+                            None,
+                        )
+                        .await?;
+                    }
+                    ProjectedSinkBatch::Changelog(changelog) => {
+                        for run in changelog.collapsed_runs()? {
+                            flushes += match run.action {
+                                ChangelogAction::Upsert => {
+                                    write_insert_batches(
+                                        &mut self.connection,
+                                        &batch.table,
+                                        &run.batch,
+                                        self.insert_rows,
+                                        Some(&changelog.primary_keys),
+                                    )
+                                    .await?
+                                }
+                                ChangelogAction::Delete => {
+                                    write_delete_batches(
+                                        &mut self.connection,
+                                        &batch.table,
+                                        &run.batch,
+                                        self.insert_rows,
+                                    )
+                                    .await?
+                                }
+                            };
+                        }
+                    }
                 }
                 rows += batch.rows() as u64;
                 bytes += batch.bytes() as u64;
@@ -122,12 +134,46 @@ impl MySqlSink {
     }
 }
 
+async fn write_insert_batches(
+    connection: &mut Conn,
+    table: &str,
+    batch: &RecordBatch,
+    insert_rows: usize,
+    upsert_primary_keys: Option<&[String]>,
+) -> anyhow::Result<u64> {
+    anyhow::ensure!(
+        batch.num_columns() > 0,
+        "MySQL table '{table}' cannot receive a batch with no stored columns"
+    );
+    let max_rows = insert_rows.min(MAX_PREPARED_PARAMETERS / batch.num_columns());
+    anyhow::ensure!(
+        max_rows > 0,
+        "MySQL table '{table}' has too many columns for one prepared row"
+    );
+    let mut flushes = 0;
+    for offset in (0..batch.num_rows()).step_by(max_rows) {
+        let len = max_rows.min(batch.num_rows() - offset);
+        insert_chunk(
+            connection,
+            table,
+            batch,
+            offset,
+            len,
+            upsert_primary_keys,
+        )
+        .await?;
+        flushes += 1;
+    }
+    Ok(flushes)
+}
+
 async fn insert_chunk(
     connection: &mut Conn,
     table: &str,
     batch: &RecordBatch,
     offset: usize,
     len: usize,
+    upsert_primary_keys: Option<&[String]>,
 ) -> anyhow::Result<()> {
     let columns = batch
         .schema()
@@ -145,10 +191,29 @@ async fn insert_chunk(
     let values_clause = std::iter::repeat_n(row_placeholders.as_str(), len)
         .collect::<Vec<_>>()
         .join(", ");
-    let query = format!(
+    let mut query = format!(
         "INSERT INTO {} ({columns}) VALUES {values_clause}",
         quote_identifier(table)
     );
+    if let Some(primary_keys) = upsert_primary_keys {
+        let updates = batch
+            .schema()
+            .fields()
+            .iter()
+            .filter(|field| !primary_keys.iter().any(|key| key == field.name()))
+            .map(|field| {
+                let column = quote_identifier(field.name());
+                format!("{column} = VALUES({column})")
+            })
+            .collect::<Vec<_>>();
+        let updates = if updates.is_empty() {
+            let key = quote_identifier(&primary_keys[0]);
+            format!("{key} = VALUES({key})")
+        } else {
+            updates.join(", ")
+        };
+        query.push_str(&format!(" ON DUPLICATE KEY UPDATE {updates}"));
+    }
     let mut values = Vec::with_capacity(len.saturating_mul(batch.num_columns()));
     for row in offset..offset + len {
         for column in batch.columns() {
@@ -159,6 +224,55 @@ async fn insert_chunk(
         .exec_drop(query, Params::Positional(values))
         .await?;
     Ok(())
+}
+
+async fn write_delete_batches(
+    connection: &mut Conn,
+    table: &str,
+    primary_keys: &RecordBatch,
+    delete_rows: usize,
+) -> anyhow::Result<u64> {
+    anyhow::ensure!(
+        primary_keys.num_columns() > 0,
+        "MySQL changelog delete for table '{table}' requires a primary key"
+    );
+    let max_rows = delete_rows.min(MAX_PREPARED_PARAMETERS / primary_keys.num_columns());
+    anyhow::ensure!(max_rows > 0, "MySQL primary key has too many columns");
+    let columns = primary_keys
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| quote_identifier(field.name()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let tuple = format!(
+        "({})",
+        std::iter::repeat_n("?", primary_keys.num_columns())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let mut flushes = 0;
+    for offset in (0..primary_keys.num_rows()).step_by(max_rows) {
+        let len = max_rows.min(primary_keys.num_rows() - offset);
+        let placeholders = std::iter::repeat_n(tuple.as_str(), len)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let query = format!(
+            "DELETE FROM {} WHERE ({columns}) IN ({placeholders})",
+            quote_identifier(table)
+        );
+        let mut values = Vec::with_capacity(len.saturating_mul(primary_keys.num_columns()));
+        for row in offset..offset + len {
+            for column in primary_keys.columns() {
+                values.push(arrow_value(column.as_ref(), row)?);
+            }
+        }
+        connection
+            .exec_drop(query, Params::Positional(values))
+            .await?;
+        flushes += 1;
+    }
+    Ok(flushes)
 }
 
 fn arrow_value(column: &dyn Array, row: usize) -> anyhow::Result<Value> {
@@ -312,23 +426,6 @@ fn downcast<T: Array + 'static>(column: &dyn Array) -> anyhow::Result<&T> {
             column.data_type()
         )
     })
-}
-
-fn without_system_columns(
-    batch: &RecordBatch,
-    system_columns: &SystemColumns,
-) -> anyhow::Result<RecordBatch> {
-    if system_columns.is_empty() {
-        return Ok(batch.clone());
-    }
-    let system_indexes = system_columns
-        .iter()
-        .map(|column| column.index)
-        .collect::<std::collections::HashSet<_>>();
-    let indexes = (0..batch.num_columns())
-        .filter(|index| !system_indexes.contains(index))
-        .collect::<Vec<_>>();
-    Ok(batch.project(&indexes)?)
 }
 
 impl Sink for MySqlSink {

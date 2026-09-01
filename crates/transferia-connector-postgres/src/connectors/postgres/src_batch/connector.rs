@@ -126,11 +126,21 @@ impl SourceConnector for PostgresSourceConnector {
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
-                    let stored = if request.keep_system_columns {
-                        incoming.clone()
-                    } else {
-                        table.schema.clone()
-                    };
+                    let mut stored = table.schema.clone();
+                    if request.keep_system_columns {
+                        stored.columns.extend(
+                            system_columns
+                                .iter()
+                                .filter(|kind| **kind != SystemColumnKind::ChangeOperation)
+                                .map(|kind| {
+                                    SchemaColumn::new(
+                                        kind.default_name().to_owned(),
+                                        kind.data_type(),
+                                        false,
+                                    )
+                                }),
+                        );
+                    }
                     DiscoveredDataset {
                         role: DatasetRole::Main,
                         name: Arc::from(table.config.name.as_str()),

@@ -8,8 +8,10 @@ use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
 use ydb_grpc::ydb_proto::table::{
     bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CreateSessionRequest,
     CreateSessionResult, DeleteSessionRequest, DescribeTableRequest, DescribeTableResult,
-    ExecuteSchemeQueryRequest,
+    ExecuteDataQueryRequest, ExecuteQueryResult, ExecuteSchemeQueryRequest, Query,
+    QueryCachePolicy, SerializableModeSettings, TransactionControl, TransactionSettings,
 };
+use ydb_grpc::ydb_proto::{table, TypedValue};
 
 use super::config::YdbConnectionConfig;
 
@@ -173,6 +175,47 @@ impl YdbClient {
                 .map_err(|_| anyhow::anyhow!("YDB ExecuteSchemeQuery timed out"))??
                 .into_inner();
         ensure_operation(response.operation, "ExecuteSchemeQuery")?;
+        let delete = self.request(DeleteSessionRequest {
+            session_id,
+            operation_params: None,
+        });
+        let _ignored = self.service.delete_session(delete).await;
+        Ok(())
+    }
+
+    pub async fn execute_data_query(
+        &mut self,
+        yql_text: String,
+        parameters: std::collections::HashMap<String, TypedValue>,
+    ) -> anyhow::Result<()> {
+        let session_id = self.create_session().await?;
+        let request = self.request(ExecuteDataQueryRequest {
+            session_id: session_id.clone(),
+            tx_control: Some(TransactionControl {
+                commit_tx: true,
+                tx_selector: Some(table::transaction_control::TxSelector::BeginTx(
+                    TransactionSettings {
+                        tx_mode: Some(table::transaction_settings::TxMode::SerializableReadWrite(
+                            SerializableModeSettings {},
+                        )),
+                    },
+                )),
+            }),
+            query: Some(Query {
+                query: Some(table::query::Query::YqlText(yql_text)),
+            }),
+            parameters,
+            query_cache_policy: Some(QueryCachePolicy {
+                keep_in_cache: true,
+            }),
+            operation_params: None,
+            collect_stats: table::query_stats_collection::Mode::StatsCollectionNone.into(),
+        });
+        let response = tokio::time::timeout(self.timeout, self.service.execute_data_query(request))
+            .await
+            .map_err(|_| anyhow::anyhow!("YDB ExecuteDataQuery timed out"))??
+            .into_inner();
+        decode_operation::<ExecuteQueryResult>(response.operation, "ExecuteDataQuery")?;
         let delete = self.request(DeleteSessionRequest {
             session_id,
             operation_params: None,

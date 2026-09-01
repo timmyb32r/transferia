@@ -1,6 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use arrow::array::{
+    Array, BinaryArray, BooleanArray, Date32Array, Decimal128Array, FixedSizeBinaryArray,
+    Int16Array, Int32Array, Int64Array, Int8Array, StringArray, TimestampMicrosecondArray,
+    TimestampSecondArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
+};
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::ipc::writer::{
     write_message, CompressionContext, DictionaryTracker, IpcDataGenerator, IpcWriteOptions,
@@ -16,7 +21,9 @@ use super::types::{
     YDB_YSON_EXTENSION,
 };
 use transferia_core::data::schema::{SchemaColumn, ARROW_JSON_EXTENSION_NAME};
-use transferia_core::data::system_columns::SystemColumns;
+use transferia_core::data::changelog::{
+    project_sink_batch, ChangelogAction, ProjectedSinkBatch,
+};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
@@ -26,6 +33,11 @@ use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
 use transferia_delivery_contracts::metrics::SinkCounters;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
+use ydb_grpc::ydb_proto::r#type::{PrimitiveTypeId, Type as TypeVariant};
+use ydb_grpc::ydb_proto::value::Value as ValueVariant;
+use ydb_grpc::ydb_proto::{
+    DecimalType, ListType, StructMember, StructType, Type, TypedValue, Value,
+};
 
 pub struct YdbSinkConnector {
     config: Arc<YdbSinkConfig>,
@@ -239,12 +251,22 @@ struct EncodedBatch {
     bytes: u64,
 }
 
+enum EncodedAction {
+    Upsert(EncodedBatch),
+    Delete {
+        path: String,
+        query: String,
+        parameters: HashMap<String, TypedValue>,
+        rows: u64,
+        bytes: u64,
+    },
+}
+
 impl YdbSink {
     async fn write_delivery(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
         for batch in &delivery.outputs {
             self.limits.validate_batch(&self.discovery, batch)?;
         }
-        let keep_system_columns = self.discovery.keep_system_columns;
         let work = delivery
             .outputs
             .iter()
@@ -260,41 +282,88 @@ impl YdbSink {
                             batch.table
                         )
                     })?;
-                let stored = if keep_system_columns {
-                    batch.batch.clone()
-                } else {
-                    without_system_columns(&batch.batch, &batch.system_columns)?
-                };
-                Ok((path, stored, batch.rows() as u64, batch.bytes() as u64))
+                Ok((
+                    path,
+                    project_sink_batch(&self.discovery, batch)?,
+                    batch.bytes() as u64,
+                ))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         // IPC serialization is CPU work. Keep it off Tokio's I/O workers, and
         // finish every conversion before the first irreversible BulkUpsert.
         let encoded = tokio::task::spawn_blocking(move || {
-            work.into_iter()
-                .map(|(path, batch, rows, bytes)| {
-                    let (schema, data) = encode_arrow_batch(&batch)?;
-                    Ok(EncodedBatch {
-                        path,
-                        schema,
-                        data,
-                        rows,
-                        bytes,
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()
+            let mut encoded = Vec::new();
+            for (path, projected, source_bytes) in work {
+                match projected {
+                    ProjectedSinkBatch::AppendOnly(batch) => {
+                        encoded.push(EncodedAction::Upsert(encode_upsert(
+                            path,
+                            batch,
+                            source_bytes,
+                        )?));
+                    }
+                    ProjectedSinkBatch::Changelog(changelog) => {
+                        for run in changelog.collapsed_runs()? {
+                            let rows = run.batch.num_rows() as u64;
+                            let bytes = run.batch.get_array_memory_size() as u64;
+                            match run.action {
+                                ChangelogAction::Upsert => {
+                                    encoded.push(EncodedAction::Upsert(encode_upsert(
+                                        path.clone(),
+                                        run.batch,
+                                        bytes,
+                                    )?));
+                                }
+                                ChangelogAction::Delete => {
+                                    let (query, parameters) = encode_delete(
+                                        &path,
+                                        &run.batch,
+                                        &changelog.primary_key_columns,
+                                    )?;
+                                    encoded.push(EncodedAction::Delete {
+                                        path: path.clone(),
+                                        query,
+                                        parameters,
+                                        rows,
+                                        bytes,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Ok::<_, anyhow::Error>(encoded)
         })
         .await??;
 
         let started = std::time::Instant::now();
         let mut rows = 0_u64;
         let mut bytes = 0_u64;
-        for batch in encoded {
-            self.client
-                .bulk_upsert(batch.path, batch.schema, batch.data)
-                .await?;
-            rows += batch.rows;
-            bytes += batch.bytes;
+        for action in encoded {
+            let (action_rows, action_bytes) = match action {
+                EncodedAction::Upsert(batch) => {
+                    self.client
+                        .bulk_upsert(batch.path, batch.schema, batch.data)
+                        .await?;
+                    (batch.rows, batch.bytes)
+                }
+                EncodedAction::Delete {
+                    path,
+                    query,
+                    parameters,
+                    rows,
+                    bytes,
+                } => {
+                    self.client
+                        .execute_data_query(query, parameters)
+                        .await
+                        .map_err(|error| error.context(format!("deleting rows from '{path}'")))?;
+                    (rows, bytes)
+                }
+            };
+            rows += action_rows;
+            bytes += action_bytes;
             self.counters.add_flush();
         }
         self.counters.add_busy(started.elapsed());
@@ -302,6 +371,81 @@ impl YdbSink {
         self.counters.add_bytes(bytes);
         Ok(())
     }
+}
+
+fn encode_upsert(path: String, batch: RecordBatch, bytes: u64) -> anyhow::Result<EncodedBatch> {
+    let rows = batch.num_rows() as u64;
+    let (schema, data) = encode_arrow_batch(&batch)?;
+    Ok(EncodedBatch {
+        path,
+        schema,
+        data,
+        rows,
+        bytes,
+    })
+}
+
+pub(super) fn encode_delete(
+    path: &str,
+    batch: &RecordBatch,
+    columns: &[SchemaColumn],
+) -> anyhow::Result<(String, HashMap<String, TypedValue>)> {
+    anyhow::ensure!(
+        batch.num_columns() == columns.len(),
+        "YDB delete key batch has {} columns, expected {}",
+        batch.num_columns(),
+        columns.len()
+    );
+    let declared = columns
+        .iter()
+        .map(|column| Ok(format!("{}:{}", quote_identifier(&column.name), yql_type(column)?)))
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .join(", ");
+    let selected = columns
+        .iter()
+        .map(|column| quote_identifier(&column.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let query = format!(
+        "--!syntax_v1\nDECLARE $batch AS List<Struct<{declared}>>;\nDELETE FROM {} ON SELECT {selected} FROM AS_TABLE($batch);",
+        quote_identifier(path)
+    );
+    let members = columns
+        .iter()
+        .map(|column| {
+            Ok(StructMember {
+                name: column.name.clone(),
+                r#type: Some(ydb_type(column)?),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let items = (0..batch.num_rows())
+        .map(|row| {
+            let items = columns
+                .iter()
+                .enumerate()
+                .map(|(index, column)| ydb_key_value(batch.column(index).as_ref(), row, column))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            Ok(Value {
+                items,
+                ..Value::default()
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let parameter = TypedValue {
+        r#type: Some(Type {
+            r#type: Some(TypeVariant::ListType(Box::new(ListType {
+                item: Some(Box::new(Type {
+                    r#type: Some(TypeVariant::StructType(StructType { members })),
+                })),
+            }))),
+        }),
+        value: Some(Value {
+            items,
+            ..Value::default()
+        }),
+    };
+    Ok((query, HashMap::from([("$batch".to_owned(), parameter)])))
 }
 
 impl Sink for YdbSink {
@@ -489,6 +633,181 @@ fn column_kind(column: &SchemaColumn) -> anyhow::Result<ColumnKind> {
     })
 }
 
+fn ydb_type(column: &SchemaColumn) -> anyhow::Result<Type> {
+    let kind = column_kind(column)?;
+    let r#type = match kind {
+        ColumnKind::Decimal { precision, scale } => {
+            let scale = u32::try_from(scale).map_err(|_| {
+                anyhow::anyhow!(
+                    "YDB primary-key Decimal column '{}' has negative scale {scale}",
+                    column.name
+                )
+            })?;
+            TypeVariant::DecimalType(DecimalType {
+                precision: u32::from(precision),
+                scale,
+            })
+        }
+        kind => TypeVariant::TypeId(ydb_primitive_type(&kind)?.into()),
+    };
+    Ok(Type {
+        r#type: Some(r#type),
+    })
+}
+
+fn ydb_primitive_type(kind: &ColumnKind) -> anyhow::Result<PrimitiveTypeId> {
+    Ok(match kind {
+        ColumnKind::Bool => PrimitiveTypeId::Bool,
+        ColumnKind::Int8 => PrimitiveTypeId::Int8,
+        ColumnKind::UInt8 => PrimitiveTypeId::Uint8,
+        ColumnKind::Int16 => PrimitiveTypeId::Int16,
+        ColumnKind::UInt16 => PrimitiveTypeId::Uint16,
+        ColumnKind::Int32 => PrimitiveTypeId::Int32,
+        ColumnKind::UInt32 => PrimitiveTypeId::Uint32,
+        ColumnKind::Int64 => PrimitiveTypeId::Int64,
+        ColumnKind::UInt64 => PrimitiveTypeId::Uint64,
+        ColumnKind::Date32 => PrimitiveTypeId::Date,
+        ColumnKind::TimestampSecond => PrimitiveTypeId::Datetime,
+        ColumnKind::TimestampMicrosecond => PrimitiveTypeId::Timestamp,
+        ColumnKind::Binary(None) => PrimitiveTypeId::String,
+        ColumnKind::Utf8(None) => PrimitiveTypeId::Utf8,
+        ColumnKind::Uuid => PrimitiveTypeId::Uuid,
+        ColumnKind::Float32
+        | ColumnKind::Float64
+        | ColumnKind::DurationMicrosecond
+        | ColumnKind::Binary(Some(_))
+        | ColumnKind::Utf8(Some(_))
+        | ColumnKind::Decimal { .. } => {
+            return Err(anyhow::anyhow!("YDB type is not primary-key compatible"));
+        }
+    })
+}
+
+fn ydb_key_value(
+    array: &dyn Array,
+    row: usize,
+    column: &SchemaColumn,
+) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        !array.is_null(row),
+        "YDB delete has NULL in primary-key column '{}' at row {row}",
+        column.name
+    );
+    macro_rules! value {
+        ($array:ty, $variant:ident) => {{
+            let array = array.as_any().downcast_ref::<$array>().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "YDB primary-key column '{}' is not {:?}",
+                    column.name,
+                    column.data_type
+                )
+            })?;
+            Value {
+                value: Some(ValueVariant::$variant(array.value(row).into())),
+                ..Value::default()
+            }
+        }};
+    }
+    Ok(match column_kind(column)? {
+        ColumnKind::Bool => value!(BooleanArray, BoolValue),
+        ColumnKind::Int8 => value!(Int8Array, Int32Value),
+        ColumnKind::UInt8 => value!(UInt8Array, Uint32Value),
+        ColumnKind::Int16 => value!(Int16Array, Int32Value),
+        ColumnKind::UInt16 => value!(UInt16Array, Uint32Value),
+        ColumnKind::Int32 => value!(Int32Array, Int32Value),
+        ColumnKind::UInt32 => value!(UInt32Array, Uint32Value),
+        ColumnKind::Int64 => value!(Int64Array, Int64Value),
+        ColumnKind::UInt64 => value!(UInt64Array, Uint64Value),
+        ColumnKind::Date32 => {
+            let array = array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| anyhow::anyhow!("YDB Date primary key is not Arrow Date32"))?;
+            Value {
+                value: Some(ValueVariant::Uint32Value(u32::try_from(array.value(row))?)),
+                ..Value::default()
+            }
+        }
+        ColumnKind::TimestampSecond => {
+            let array = array
+                .as_any()
+                .downcast_ref::<TimestampSecondArray>()
+                .ok_or_else(|| anyhow::anyhow!("YDB Datetime primary key is not TimestampSecond"))?;
+            Value {
+                value: Some(ValueVariant::Uint32Value(u32::try_from(array.value(row))?)),
+                ..Value::default()
+            }
+        }
+        ColumnKind::TimestampMicrosecond => {
+            let array = array
+                .as_any()
+                .downcast_ref::<TimestampMicrosecondArray>()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("YDB Timestamp primary key is not TimestampMicrosecond")
+                })?;
+            Value {
+                value: Some(ValueVariant::Uint64Value(u64::try_from(array.value(row))?)),
+                ..Value::default()
+            }
+        }
+        ColumnKind::Binary(None) => {
+            let array = array
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("YDB String primary key is not Arrow Binary"))?;
+            Value {
+                value: Some(ValueVariant::BytesValue(array.value(row).to_vec())),
+                ..Value::default()
+            }
+        }
+        ColumnKind::Utf8(None) => {
+            let array = array
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("YDB Utf8 primary key is not Arrow Utf8"))?;
+            Value {
+                value: Some(ValueVariant::TextValue(array.value(row).to_owned())),
+                ..Value::default()
+            }
+        }
+        ColumnKind::Decimal { .. } => {
+            let array = array
+                .as_any()
+                .downcast_ref::<Decimal128Array>()
+                .ok_or_else(|| anyhow::anyhow!("YDB Decimal primary key is not Decimal128"))?;
+            let bits = array.value(row).cast_unsigned();
+            Value {
+                high_128: (bits >> 64) as u64,
+                value: Some(ValueVariant::Low128(bits as u64)),
+                ..Value::default()
+            }
+        }
+        ColumnKind::Uuid => {
+            let array = array
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("YDB Uuid primary key is not FixedSizeBinary"))?;
+            let uuid = uuid::Uuid::from_slice(array.value(row))?;
+            let little_endian = uuid.to_bytes_le();
+            let low = u64::from_le_bytes(little_endian[..8].try_into()?);
+            let high = u64::from_le_bytes(little_endian[8..].try_into()?);
+            Value {
+                high_128: high,
+                value: Some(ValueVariant::Low128(low)),
+                ..Value::default()
+            }
+        }
+        ColumnKind::Float32
+        | ColumnKind::Float64
+        | ColumnKind::DurationMicrosecond
+        | ColumnKind::Binary(Some(_))
+        | ColumnKind::Utf8(Some(_)) => anyhow::bail!(
+            "YDB column '{}' uses a type that is not primary-key compatible",
+            column.name
+        ),
+    })
+}
+
 fn ensure_primary_key_type(kind: &ColumnKind, column: &SchemaColumn) -> anyhow::Result<()> {
     anyhow::ensure!(
         matches!(
@@ -514,23 +833,6 @@ fn ensure_primary_key_type(kind: &ColumnKind, column: &SchemaColumn) -> anyhow::
         column.name
     );
     Ok(())
-}
-
-fn without_system_columns(
-    batch: &RecordBatch,
-    system_columns: &SystemColumns,
-) -> anyhow::Result<RecordBatch> {
-    if system_columns.is_empty() {
-        return Ok(batch.clone());
-    }
-    let system_indexes = system_columns
-        .iter()
-        .map(|column| column.index)
-        .collect::<HashSet<_>>();
-    let indexes = (0..batch.num_columns())
-        .filter(|index| !system_indexes.contains(index))
-        .collect::<Vec<_>>();
-    Ok(batch.project(&indexes)?)
 }
 
 pub(super) fn encode_arrow_batch(batch: &RecordBatch) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {

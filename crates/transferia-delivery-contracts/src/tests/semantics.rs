@@ -42,21 +42,32 @@ fn sources_declare_append_only_or_changelog_record_semantics() {
 }
 
 #[test]
-fn every_durable_sink_rejects_changelog_until_its_writer_is_operation_aware() {
-    let sinks = [
+fn only_operation_aware_state_sinks_accept_changelog_rows() {
+    let operation_aware = [
         EndpointDescriptor::MySqlSink,
         EndpointDescriptor::PostgresSink,
         EndpointDescriptor::YdbSink,
-        EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Static),
         EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Dynamic),
+        EndpointDescriptor::ClickHouse,
+        EndpointDescriptor::Discard,
+    ];
+    for sink in operation_aware {
+        assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
+        assert!(sink.accepts_record_semantics(RecordSemantics::Changelog));
+        assert!(validate_pipeline(&changelog_source(), &sink, &discovery(), false)
+            .ensure_valid()
+            .is_ok());
+    }
+
+    let append_only = [
+        EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Static),
         EndpointDescriptor::LogbrokerSink,
         EndpointDescriptor::KafkaSink,
-        EndpointDescriptor::ClickHouse,
         sink(S3Partitioning::Source, false),
         EndpointDescriptor::IcebergSink,
     ];
 
-    for sink in sinks {
+    for sink in append_only {
         assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
         assert!(!sink.accepts_record_semantics(RecordSemantics::Changelog));
         let report = validate_pipeline(&changelog_source(), &sink, &discovery(), false);
@@ -70,11 +81,6 @@ fn every_durable_sink_rejects_changelog_until_its_writer_is_operation_aware() {
         assert_eq!(report.diagnostics[0].severity, DiagnosticSeverity::Error);
     }
 
-    let discard = EndpointDescriptor::Discard;
-    assert!(discard.accepts_record_semantics(RecordSemantics::Changelog));
-    assert!(validate_pipeline(&changelog_source(), &discard, &discovery(), false)
-        .ensure_valid()
-        .is_ok());
 }
 
 fn discovery() -> DeliveryDiscovery {

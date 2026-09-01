@@ -402,6 +402,10 @@ pub fn validate_stored_projection(
     discovery: &DeliveryDiscovery,
     dataset: &DiscoveredDataset,
 ) -> anyhow::Result<()> {
+    let changelog_input = dataset
+        .system_columns
+        .iter()
+        .any(|column| column.kind == SystemColumnKind::ChangeOperation);
     let system_names = dataset
         .system_columns
         .iter()
@@ -436,7 +440,13 @@ pub fn validate_stored_projection(
         .columns
         .iter()
         .filter(|column| {
-            discovery.keep_system_columns || !system_names.contains(column.name.as_str())
+            let system = dataset
+                .system_columns
+                .iter()
+                .find(|system| system.name.as_ref() == column.name);
+            !matches!(system, Some(system) if system.kind == SystemColumnKind::ChangeOperation)
+                && (discovery.keep_system_columns
+                    || !system_names.contains(column.name.as_str()))
         })
         .collect::<Vec<_>>();
     anyhow::ensure!(
@@ -449,7 +459,8 @@ pub fn validate_stored_projection(
                 .all(|(stored, incoming)| {
                     stored.name == incoming.name
                         && stored.data_type == incoming.data_type
-                        && stored.nullable == incoming.nullable
+                        && (stored.nullable == incoming.nullable
+                            || (changelog_input && !stored.nullable && incoming.nullable))
                         && stored.primary_key == incoming.primary_key
                         && stored.low_cardinality == incoming.low_cardinality
                         && stored.max_length == incoming.max_length

@@ -17,7 +17,7 @@ use super::client::{classify_http_failure, YTsaurusClient};
 use super::config::{
     YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics, YTsaurusSinkConfig,
 };
-use super::native_rpc::NativeDynamicWriter;
+use super::native_rpc::{NativeDynamicWriter, NativeRowModification};
 use super::schema::{
     arrow_to_yt, parse_schema, schema_to_yt, schemas_equal, sorted_unique_schema_to_yt,
     validate_column_name, MAX_COLUMNS,
@@ -30,6 +30,7 @@ use transferia_core::delivery::{
 };
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_core::{project_sink_batch, ChangelogAction, ProjectedSinkBatch, SystemColumnKind};
 use transferia_delivery_contracts::semantics::{EndpointDescriptor, YTsaurusSinkMode};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
@@ -97,6 +98,14 @@ impl SinkLimits for YTsaurusSinkConfig {
             );
             self.path_for_dataset(&dataset.name)?;
             validate_stored_projection(discovery, dataset)?;
+            let changelog = dataset
+                .system_columns
+                .iter()
+                .any(|column| column.kind == SystemColumnKind::ChangeOperation);
+            anyhow::ensure!(
+                !changelog || !self.static_tables(),
+                "static YTsaurus tables cannot preserve changelog operations"
+            );
             anyhow::ensure!(
                 !dataset.stored_schema.columns.is_empty(),
                 "YTsaurus table for dataset '{}' cannot have an empty schema",
@@ -749,6 +758,7 @@ impl YTsaurusSink {
                             &encoded.column_names,
                             encoded.payload,
                             require_sync_replica,
+                            NativeRowModification::Write,
                         )
                         .await
                 }
@@ -758,6 +768,45 @@ impl YTsaurusSink {
             .await
             .into_iter()
             .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(())
+    }
+
+    async fn write_dynamic_changelog_run(
+        &self,
+        writer: &Arc<NativeDynamicWriter>,
+        table: &str,
+        batch: RecordBatch,
+        action: ChangelogAction,
+    ) -> anyhow::Result<()> {
+        let config = self
+            .config
+            .dynamic_write()
+            .ok_or_else(|| anyhow::anyhow!("dynamic YTsaurus writer has no transaction config"))?;
+        let path = self.config.path_for_dataset(table)?;
+        let modification = match action {
+            ChangelogAction::Upsert => NativeRowModification::Write,
+            ChangelogAction::Delete => NativeRowModification::Delete,
+        };
+        // Runs are deliberately sequential. A primary key may occur more than
+        // once in one source transaction, so concurrent chunks could reorder
+        // its final state.
+        for offset in (0..batch.num_rows()).step_by(config.transaction_rows) {
+            let length = config.transaction_rows.min(batch.num_rows() - offset);
+            let chunk = batch.slice(offset, length);
+            let encoded = tokio::task::spawn_blocking(move || encode_wire_batch(&chunk))
+                .await
+                .map_err(|error| anyhow::anyhow!("YTsaurus wire encoder task failed: {error}"))??;
+            writer
+                .write_rows(
+                    &path,
+                    length,
+                    &encoded.column_names,
+                    encoded.payload,
+                    config.require_sync_replica,
+                    modification,
+                )
+                .await?;
+        }
         Ok(())
     }
 
@@ -771,43 +820,56 @@ impl YTsaurusSink {
                 if batch.rows() == 0 {
                     continue;
                 }
-                let stored = if self.discovery.keep_system_columns {
-                    batch.batch.clone()
-                } else {
-                    project_user_columns(&batch.batch, &batch.system_columns)?
-                };
-                let original_rows = stored.num_rows();
-                let stored = match self.config.big_value_policy() {
-                    YTsaurusBigValuePolicy::Fail => stored,
-                    YTsaurusBigValuePolicy::Drop => {
-                        let filtered = drop_oversized_rows(&stored, self.config.static_tables())?;
-                        let dropped = original_rows.saturating_sub(filtered.num_rows());
-                        if dropped > 0 {
-                            tracing::warn!(
-                                table = %batch.table,
-                                dropped_rows = dropped,
-                                "explicit YTsaurus oversized-value policy dropped source rows"
-                            );
+                match project_sink_batch(&self.discovery, batch)? {
+                    ProjectedSinkBatch::AppendOnly(stored) => {
+                        let stored = self.apply_big_value_policy(&batch.table, stored)?;
+                        if stored.num_rows() == 0 {
+                            continue;
                         }
-                        filtered
+                        let index = tables
+                            .iter()
+                            .position(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
+                            .unwrap_or_else(|| {
+                                tables.push((Arc::clone(&batch.table), Vec::new(), 0, 0));
+                                tables.len() - 1
+                            });
+                        let table = &mut tables[index];
+                        let stored_rows = stored.num_rows() as u64;
+                        let stored_bytes = stored.get_array_memory_size() as u64;
+                        table.1.push(stored);
+                        table.2 = table.2.saturating_add(stored_rows);
+                        table.3 = table.3.saturating_add(stored_bytes);
                     }
-                };
-                if stored.num_rows() == 0 {
-                    continue;
+                    ProjectedSinkBatch::Changelog(changelog) => {
+                        anyhow::ensure!(
+                            !self.config.static_tables(),
+                            "static YTsaurus tables cannot preserve changelog operations"
+                        );
+                        let writer = self.dynamic_writer.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!("dynamic YTsaurus changelog writer is unavailable")
+                        })?;
+                        for run in changelog.collapsed_runs()? {
+                            let stored = self.apply_big_value_policy(&batch.table, run.batch)?;
+                            if stored.num_rows() == 0 {
+                                continue;
+                            }
+                            let rows = stored.num_rows() as u64;
+                            let bytes = stored.get_array_memory_size() as u64;
+                            let started = Instant::now();
+                            self.write_dynamic_changelog_run(
+                                writer,
+                                &batch.table,
+                                stored,
+                                run.action,
+                            )
+                            .await?;
+                            self.counters.add_busy(started.elapsed());
+                            self.counters.add_rows(rows);
+                            self.counters.add_bytes(bytes);
+                            self.counters.add_flush();
+                        }
+                    }
                 }
-                let index = tables
-                    .iter()
-                    .position(|(table, _, _, _)| table.as_ref() == batch.table.as_ref())
-                    .unwrap_or_else(|| {
-                        tables.push((Arc::clone(&batch.table), Vec::new(), 0, 0));
-                        tables.len() - 1
-                    });
-                let table = &mut tables[index];
-                let stored_rows = stored.num_rows() as u64;
-                let stored_bytes = stored.get_array_memory_size() as u64;
-                table.1.push(stored);
-                table.2 = table.2.saturating_add(stored_rows);
-                table.3 = table.3.saturating_add(stored_bytes);
             }
         }
         for (table, batches, rows, bytes) in tables {
@@ -821,6 +883,29 @@ impl YTsaurusSink {
             self.counters.add_flush();
         }
         Ok(())
+    }
+
+    fn apply_big_value_policy(
+        &self,
+        table: &str,
+        stored: RecordBatch,
+    ) -> anyhow::Result<RecordBatch> {
+        let original_rows = stored.num_rows();
+        let stored = match self.config.big_value_policy() {
+            YTsaurusBigValuePolicy::Fail => stored,
+            YTsaurusBigValuePolicy::Drop => {
+                drop_oversized_rows(&stored, self.config.static_tables())?
+            }
+        };
+        let dropped = original_rows.saturating_sub(stored.num_rows());
+        if dropped > 0 {
+            tracing::warn!(
+                table,
+                dropped_rows = dropped,
+                "explicit YTsaurus oversized-value policy dropped source rows"
+            );
+        }
+        Ok(stored)
     }
 
     async fn flush_pending(
@@ -958,20 +1043,6 @@ impl Sink for YTsaurusSink {
             }
         })
     }
-}
-
-fn project_user_columns(
-    batch: &RecordBatch,
-    system_columns: &transferia_core::data::system_columns::SystemColumns,
-) -> anyhow::Result<RecordBatch> {
-    let system_indexes = system_columns
-        .iter()
-        .map(|column| column.index)
-        .collect::<HashSet<_>>();
-    let indexes = (0..batch.num_columns())
-        .filter(|index| !system_indexes.contains(index))
-        .collect::<Vec<_>>();
-    Ok(batch.project(&indexes)?)
 }
 
 fn dynamic_schemas_equal(
