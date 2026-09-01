@@ -943,6 +943,7 @@ pub struct YTsaurusSinkConfig {
         extend("x-ui" = {
             "control_width": "full",
             "defer_variant_details": true,
+            "indent_variant_details": false,
             "order": -100,
             "reveal_rest_on_selection": true
         })

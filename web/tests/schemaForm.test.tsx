@@ -577,6 +577,49 @@ describe("schema form", () => {
     view.unmount();
   });
 
+  it("can render deferred variant details flush with their parent form", () => {
+    const view = render(
+      <SchemaForm
+        node={{
+          kind: "object",
+          properties: {
+            tables: {
+              kind: "union",
+              branches: [
+                {
+                  label: "Dynamic tables",
+                  discriminator: { key: "type", value: "dynamic" },
+                  node: {
+                    kind: "object",
+                    properties: {
+                      path: { kind: "string", title: "Path", xUi: {} },
+                    },
+                    required: new Set(["path"]),
+                    xUi: {},
+                  },
+                },
+              ],
+              xUi: {
+                defer_variant_details: true,
+                indent_variant_details: false,
+              },
+            },
+          },
+          required: new Set(["tables"]),
+          xUi: {},
+        }}
+        value={{ tables: { type: "dynamic", path: "//tmp/output" } }}
+        onChange={() => undefined}
+      />,
+    );
+
+    const details = view.container.querySelector(".deferred-variant-details");
+    expect(details).toBeTruthy();
+    expect(details?.classList.contains("nested-section")).toBe(false);
+    expect(view.getByDisplayValue("//tmp/output")).toBeTruthy();
+    view.unmount();
+  });
+
   it("ignores dynamic options returned for an older source", async () => {
     const oldRequest = deferred<Awaited<ReturnType<typeof api.options>>>();
     const newRequest = deferred<Awaited<ReturnType<typeof api.options>>>();

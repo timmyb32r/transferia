@@ -25,6 +25,7 @@ export interface UiHints {
   order?: number;
   reveal_rest_on_selection?: boolean;
   defer_variant_details?: boolean;
+  indent_variant_details?: boolean;
   delivery_types?: readonly string[];
 }
 
@@ -46,6 +47,7 @@ const SUPPORTED_HINTS = new Set<keyof UiHints>([
   "order",
   "reveal_rest_on_selection",
   "defer_variant_details",
+  "indent_variant_details",
   "delivery_types",
 ]);
 
@@ -191,6 +193,12 @@ export function decodeUiHints(
   )
     fail(`${path}: x-ui defer_variant_details must be a boolean`);
   const deliveryTypes = value.delivery_types;
+  const indentVariantDetails = value.indent_variant_details;
+  if (
+    indentVariantDetails !== undefined &&
+    typeof indentVariantDetails !== "boolean"
+  )
+    fail(`${path}: x-ui indent_variant_details must be a boolean`);
   if (
     deliveryTypes !== undefined &&
     (!Array.isArray(deliveryTypes) ||
@@ -240,6 +248,9 @@ export function decodeUiHints(
     ...(deferVariantDetails === undefined
       ? {}
       : { defer_variant_details: deferVariantDetails }),
+    ...(indentVariantDetails === undefined
+      ? {}
+      : { indent_variant_details: indentVariantDetails }),
     ...(deliveryTypes === undefined
       ? {}
       : { delivery_types: deliveryTypes as readonly string[] }),

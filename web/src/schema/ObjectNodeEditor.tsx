@@ -155,7 +155,17 @@ export function ObjectNodeEditor({
         </Fragment>
       ))}
       {deferredVariants.map(({ name, branchIndex, branch }) => (
-        <div class="nested-section deferred-variant-details" key={name}>
+        <div
+          class={[
+            "deferred-variant-details",
+            node.properties[name]?.xUi.indent_variant_details === false
+              ? ""
+              : "nested-section",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          key={name}
+        >
           <NodeEditor
             node={branch.node}
             value={value[name] ?? {}}

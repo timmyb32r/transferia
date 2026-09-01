@@ -692,6 +692,15 @@ fn common_table_settings_live_in_each_table_mode_advanced_section() {
 }
 
 #[test]
+fn table_mode_details_do_not_request_nested_ui_indentation() {
+    let schema = serde_json::to_value(schema_for!(YTsaurusSinkConfig)).expect("serialize schema");
+    assert_eq!(
+        schema["properties"]["tables"]["x-ui"]["indent_variant_details"],
+        false
+    );
+}
+
+#[test]
 fn dynamic_snapshot_staging_is_lossless_and_uses_the_configured_operation_pool(
 ) -> anyhow::Result<()> {
     let config: YTsaurusSinkConfig = serde_yaml::from_str(
