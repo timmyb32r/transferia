@@ -29,15 +29,10 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "field",
-                    "value"
-                  ]
+                  "required": ["field", "value"]
                 }
               },
-              "required": [
-                "filter"
-              ],
+              "required": ["filter"],
               "additionalProperties": false
             },
             {
@@ -58,14 +53,10 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "sql"
-                  ]
+                  "required": ["sql"]
                 }
               },
-              "required": [
-                "datafusion"
-              ],
+              "required": ["datafusion"],
               "additionalProperties": false
             }
           ]
@@ -94,19 +85,11 @@
         ]
       }
     },
-    "required": [
-      "delivery_type",
-      "middlewares",
-      "pipeline_memory_limit_bytes"
-    ],
+    "required": ["delivery_type", "middlewares", "pipeline_memory_limit_bytes"],
     "$defs": {
       "DeliveryType": {
         "type": "string",
-        "enum": [
-          "batch",
-          "stream",
-          "batch_and_stream"
-        ]
+        "enum": ["batch", "stream", "batch_and_stream"]
       },
       "MetricsConfig": {
         "type": "object",
@@ -181,12 +164,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -287,10 +265,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -305,10 +280,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -334,9 +306,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "path"
-              ]
+              "required": ["path"]
             },
             "LogbrokerDriver": {
               "oneOf": [
@@ -391,10 +361,7 @@
                   "$ref": "#/$defs/JsonParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "json_parser"
-              ],
+              "required": ["common", "json_parser"],
               "x-ui": {
                 "widget": "json_parser"
               }
@@ -424,9 +391,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "table_naming"
-              ]
+              "required": ["table_naming"]
             },
             "TableNaming": {
               "oneOf": [
@@ -443,10 +408,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "name"
-                  ]
+                  "required": ["type", "name"]
                 },
                 {
                   "title": "From topic name",
@@ -457,9 +419,7 @@
                       "const": "from_topic_name"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 }
               ]
@@ -468,40 +428,25 @@
               "type": "object",
               "properties": {
                 "topic": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "partition": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "offset": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "message_index": {
                   "description": "Zero-based index of a record inside one source message when framing yields multiple records",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "write_timestamp_ms": {
                   "description": "Source-reported message write time as Unix epoch milliseconds",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 }
               },
@@ -570,18 +515,12 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "columns"
-              ]
+              "required": ["columns"]
             },
             "JsonFramingMode": {
               "description": "Record framing policy owned by the JSON parser.",
               "type": "string",
-              "enum": [
-                "single_document",
-                "json_lines",
-                "json_array"
-              ]
+              "enum": ["single_document", "json_lines", "json_array"]
             },
             "ColumnMapping": {
               "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
@@ -640,10 +579,7 @@
                 },
                 "decimal_precision": {
                   "title": "Decimal precision",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint8",
                   "minimum": 0,
                   "maximum": 255,
@@ -654,10 +590,7 @@
                 },
                 "decimal_scale": {
                   "title": "Decimal scale",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "int8",
                   "minimum": -128,
                   "maximum": 127,
@@ -685,20 +618,14 @@
                   "default": false
                 },
                 "max_length": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint",
                   "minimum": 0,
                   "default": null
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "jsonpath",
-                "column_name"
-              ]
+              "required": ["jsonpath", "column_name"]
             },
             "JsonDataType": {
               "oneOf": [
@@ -743,10 +670,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "format"
-                  ]
+                  "required": ["type", "format"]
                 },
                 {
                   "type": "object",
@@ -760,29 +684,17 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "unit"
-                  ]
+                  "required": ["type", "unit"]
                 }
               ]
             },
             "EpochUnit": {
               "type": "string",
-              "enum": [
-                "seconds",
-                "milliseconds",
-                "microseconds",
-                "nanoseconds"
-              ]
+              "enum": ["seconds", "milliseconds", "microseconds", "nanoseconds"]
             },
             "ConversionErrorPolicy": {
               "type": "string",
-              "enum": [
-                "dlq",
-                "drop",
-                "fail"
-              ]
+              "enum": ["dlq", "drop", "fail"]
             },
             "UnknownFieldPolicy": {
               "oneOf": [
@@ -795,9 +707,7 @@
                       "const": "drop"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -809,9 +719,7 @@
                       "const": "fail"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -829,9 +737,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "action"
-                  ]
+                  "required": ["action"]
                 }
               ]
             },
@@ -850,10 +756,7 @@
                   "$ref": "#/$defs/SchemaRegistryParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "schema_registry"
-              ]
+              "required": ["common", "schema_registry"]
             },
             "SchemaRegistryParserConfig": {
               "type": "object",
@@ -863,9 +766,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "connection"
-              ]
+              "required": ["connection"]
             },
             "SchemaRegistryConnection": {
               "type": "object",
@@ -892,10 +793,7 @@
                 },
                 "ca_certificate": {
                   "title": "CA certificate (PEM)",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "section": "advanced"
@@ -903,10 +801,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "url",
-                "request_timeout_ms"
-              ]
+              "required": ["url", "request_timeout_ms"]
             },
             "SchemaRegistryAuth": {
               "oneOf": [
@@ -919,9 +814,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -943,11 +836,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password"
-                  ]
+                  "required": ["type", "username", "password"]
                 },
                 {
                   "title": "Bearer token",
@@ -965,10 +854,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 }
               ]
             },
@@ -987,10 +873,7 @@
                   "$ref": "#/$defs/RawToTableParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "raw_to_table"
-              ]
+              "required": ["common", "raw_to_table"]
             },
             "RawToTableCommonConfig": {
               "type": "object",
@@ -1003,9 +886,7 @@
                   }
                 }
               },
-              "required": [
-                "table_naming"
-              ]
+              "required": ["table_naming"]
             },
             "RawToTableParserConfig": {
               "type": "object",
@@ -1088,9 +969,7 @@
                   }
                 }
               },
-              "required": [
-                "benchmark_discard"
-              ]
+              "required": ["benchmark_discard"]
             },
             "EmptyParserConfig": {
               "type": "object"
@@ -1120,9 +999,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "stream"
-        ],
+        "delivery_modes": ["stream"],
+        "record_semantics": ["append_only"],
         "partitioned": true,
         "connection_check": true,
         "message_preview": true
@@ -1165,12 +1043,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -1190,10 +1063,7 @@
             "partition_id": {
               "title": "Partition ID",
               "description": "Write to one explicit partition; leave empty for automatic assignment",
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "int64",
               "default": null,
               "x-ui": {
@@ -1215,13 +1085,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "auth",
-            "topic",
-            "serializer",
-            "driver",
-            "installation"
-          ],
+          "required": ["auth", "topic", "serializer", "driver", "installation"],
           "$defs": {
             "LogbrokerAuthConfig": {
               "oneOf": [
@@ -1241,10 +1105,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -1259,10 +1120,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -1282,10 +1140,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "topic_path"
-                  ]
+                  "required": ["type", "topic_path"]
                 },
                 {
                   "title": "Topic prefix",
@@ -1302,10 +1157,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "topic_prefix"
-                  ]
+                  "required": ["type", "topic_prefix"]
                 }
               ]
             },
@@ -1320,9 +1172,7 @@
                       "const": "json"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -1348,9 +1198,7 @@
                         "type": "integer",
                         "format": "int32"
                       },
-                      "default": [
-                        0
-                      ],
+                      "default": [0],
                       "x-ui": {
                         "section": "advanced"
                       }
@@ -1361,12 +1209,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "connection",
-                    "subject",
-                    "format"
-                  ]
+                  "required": ["type", "connection", "subject", "format"]
                 }
               ]
             },
@@ -1395,10 +1238,7 @@
                 },
                 "ca_certificate": {
                   "title": "CA certificate (PEM)",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "section": "advanced"
@@ -1406,10 +1246,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "url",
-                "request_timeout_ms"
-              ]
+              "required": ["url", "request_timeout_ms"]
             },
             "SchemaRegistryAuth": {
               "oneOf": [
@@ -1422,9 +1259,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -1446,11 +1281,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password"
-                  ]
+                  "required": ["type", "username", "password"]
                 },
                 {
                   "title": "Bearer token",
@@ -1468,20 +1299,13 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 }
               ]
             },
             "SchemaFormat": {
               "type": "string",
-              "enum": [
-                "avro",
-                "json_schema",
-                "protobuf"
-              ]
+              "enum": ["avro", "json_schema", "protobuf"]
             },
             "LogbrokerDriver": {
               "oneOf": [
@@ -1521,6 +1345,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -1566,9 +1391,7 @@
                               "const": "plaintext"
                             }
                           },
-                          "required": [
-                            "type"
-                          ],
+                          "required": ["type"],
                           "additionalProperties": false
                         },
                         {
@@ -1590,9 +1413,7 @@
                               "title": "CA file"
                             }
                           },
-                          "required": [
-                            "type"
-                          ],
+                          "required": ["type"],
                           "additionalProperties": false
                         },
                         {
@@ -1616,10 +1437,7 @@
                             "mechanism": {
                               "type": "string",
                               "title": "Mechanism",
-                              "enum": [
-                                "scram_sha256",
-                                "scram_sha512"
-                              ]
+                              "enum": ["scram_sha256", "scram_sha512"]
                             },
                             "ca_file": {
                               "anyOf": [
@@ -1647,11 +1465,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "brokers",
-                    "security",
-                    "type"
-                  ],
+                  "required": ["brokers", "security", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -1726,19 +1540,14 @@
                       "const": "plaintext"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
                   "type": "object",
                   "properties": {
                     "ca_file": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -1747,9 +1556,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "type": "object",
@@ -1767,10 +1574,7 @@
                       "$ref": "#/$defs/KafkaSaslMechanism"
                     },
                     "ca_file": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -1779,28 +1583,17 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password",
-                    "mechanism"
-                  ]
+                  "required": ["type", "username", "password", "mechanism"]
                 }
               ]
             },
             "KafkaSaslMechanism": {
               "type": "string",
-              "enum": [
-                "scram_sha256",
-                "scram_sha512"
-              ]
+              "enum": ["scram_sha256", "scram_sha512"]
             },
             "KafkaOffsetReset": {
               "type": "string",
-              "enum": [
-                "earliest",
-                "latest"
-              ]
+              "enum": ["earliest", "latest"]
             },
             "ParserSchema": {
               "description": "Public parser schema used by the control plane. Runtime dispatch remains\nregistry-based, while this tagged union lists the forms that the UI can\nconfigure completely.",
@@ -1841,10 +1634,7 @@
                   "$ref": "#/$defs/JsonParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "json_parser"
-              ],
+              "required": ["common", "json_parser"],
               "x-ui": {
                 "widget": "json_parser"
               }
@@ -1874,9 +1664,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "table_naming"
-              ]
+              "required": ["table_naming"]
             },
             "TableNaming": {
               "oneOf": [
@@ -1893,10 +1681,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "name"
-                  ]
+                  "required": ["type", "name"]
                 },
                 {
                   "title": "From topic name",
@@ -1907,9 +1692,7 @@
                       "const": "from_topic_name"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 }
               ]
@@ -1918,40 +1701,25 @@
               "type": "object",
               "properties": {
                 "topic": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "partition": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "offset": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "message_index": {
                   "description": "Zero-based index of a record inside one source message when framing yields multiple records",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "write_timestamp_ms": {
                   "description": "Source-reported message write time as Unix epoch milliseconds",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 }
               },
@@ -2020,18 +1788,12 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "columns"
-              ]
+              "required": ["columns"]
             },
             "JsonFramingMode": {
               "description": "Record framing policy owned by the JSON parser.",
               "type": "string",
-              "enum": [
-                "single_document",
-                "json_lines",
-                "json_array"
-              ]
+              "enum": ["single_document", "json_lines", "json_array"]
             },
             "ColumnMapping": {
               "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
@@ -2090,10 +1852,7 @@
                 },
                 "decimal_precision": {
                   "title": "Decimal precision",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint8",
                   "minimum": 0,
                   "maximum": 255,
@@ -2104,10 +1863,7 @@
                 },
                 "decimal_scale": {
                   "title": "Decimal scale",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "int8",
                   "minimum": -128,
                   "maximum": 127,
@@ -2135,20 +1891,14 @@
                   "default": false
                 },
                 "max_length": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint",
                   "minimum": 0,
                   "default": null
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "jsonpath",
-                "column_name"
-              ]
+              "required": ["jsonpath", "column_name"]
             },
             "JsonDataType": {
               "oneOf": [
@@ -2193,10 +1943,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "format"
-                  ]
+                  "required": ["type", "format"]
                 },
                 {
                   "type": "object",
@@ -2210,29 +1957,17 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "unit"
-                  ]
+                  "required": ["type", "unit"]
                 }
               ]
             },
             "EpochUnit": {
               "type": "string",
-              "enum": [
-                "seconds",
-                "milliseconds",
-                "microseconds",
-                "nanoseconds"
-              ]
+              "enum": ["seconds", "milliseconds", "microseconds", "nanoseconds"]
             },
             "ConversionErrorPolicy": {
               "type": "string",
-              "enum": [
-                "dlq",
-                "drop",
-                "fail"
-              ]
+              "enum": ["dlq", "drop", "fail"]
             },
             "UnknownFieldPolicy": {
               "oneOf": [
@@ -2245,9 +1980,7 @@
                       "const": "drop"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -2259,9 +1992,7 @@
                       "const": "fail"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -2279,9 +2010,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "action"
-                  ]
+                  "required": ["action"]
                 }
               ]
             },
@@ -2300,10 +2029,7 @@
                   "$ref": "#/$defs/SchemaRegistryParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "schema_registry"
-              ]
+              "required": ["common", "schema_registry"]
             },
             "SchemaRegistryParserConfig": {
               "type": "object",
@@ -2313,9 +2039,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "connection"
-              ]
+              "required": ["connection"]
             },
             "SchemaRegistryConnection": {
               "type": "object",
@@ -2342,10 +2066,7 @@
                 },
                 "ca_certificate": {
                   "title": "CA certificate (PEM)",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "section": "advanced"
@@ -2353,10 +2074,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "url",
-                "request_timeout_ms"
-              ]
+              "required": ["url", "request_timeout_ms"]
             },
             "SchemaRegistryAuth": {
               "oneOf": [
@@ -2369,9 +2087,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -2393,11 +2109,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password"
-                  ]
+                  "required": ["type", "username", "password"]
                 },
                 {
                   "title": "Bearer token",
@@ -2415,10 +2127,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 }
               ]
             },
@@ -2437,10 +2146,7 @@
                   "$ref": "#/$defs/RawToTableParserConfig"
                 }
               },
-              "required": [
-                "common",
-                "raw_to_table"
-              ]
+              "required": ["common", "raw_to_table"]
             },
             "RawToTableCommonConfig": {
               "type": "object",
@@ -2453,9 +2159,7 @@
                   }
                 }
               },
-              "required": [
-                "table_naming"
-              ]
+              "required": ["table_naming"]
             },
             "RawToTableParserConfig": {
               "type": "object",
@@ -2538,9 +2242,7 @@
                   }
                 }
               },
-              "required": [
-                "benchmark_discard"
-              ]
+              "required": ["benchmark_discard"]
             },
             "EmptyParserConfig": {
               "type": "object"
@@ -2549,27 +2251,22 @@
         },
         "initial": {
           "request_timeout_ms": 30000,
-          "topics": [
-            ""
-          ],
+          "topics": [""],
           "consumer_group": "",
           "batch_max_bytes": 16777216,
           "offset_reset": "earliest",
           "parser": {},
           "batch_max_messages": 1000,
           "installation": {
-            "brokers": [
-              ""
-            ],
+            "brokers": [""],
             "security": {
               "type": "plaintext"
             },
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "stream"
-        ],
+        "delivery_modes": ["stream"],
+        "record_semantics": ["append_only"],
         "partitioned": true,
         "connection_check": true,
         "message_preview": false
@@ -2611,9 +2308,7 @@
                               "const": "plaintext"
                             }
                           },
-                          "required": [
-                            "type"
-                          ],
+                          "required": ["type"],
                           "additionalProperties": false
                         },
                         {
@@ -2635,9 +2330,7 @@
                               "title": "CA file"
                             }
                           },
-                          "required": [
-                            "type"
-                          ],
+                          "required": ["type"],
                           "additionalProperties": false
                         },
                         {
@@ -2661,10 +2354,7 @@
                             "mechanism": {
                               "type": "string",
                               "title": "Mechanism",
-                              "enum": [
-                                "scram_sha256",
-                                "scram_sha512"
-                              ]
+                              "enum": ["scram_sha256", "scram_sha512"]
                             },
                             "ca_file": {
                               "anyOf": [
@@ -2692,11 +2382,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "brokers",
-                    "security",
-                    "type"
-                  ],
+                  "required": ["brokers", "security", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -2715,10 +2401,7 @@
               }
             },
             "partition": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "int32",
               "default": null,
               "x-ui": {
@@ -2745,11 +2428,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "topic",
-            "serializer",
-            "installation"
-          ],
+          "required": ["topic", "serializer", "installation"],
           "$defs": {
             "KafkaTopicConfig": {
               "oneOf": [
@@ -2766,10 +2445,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "topic"
-                  ]
+                  "required": ["type", "topic"]
                 },
                 {
                   "title": "Topic prefix",
@@ -2786,10 +2462,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "topic_prefix"
-                  ]
+                  "required": ["type", "topic_prefix"]
                 }
               ]
             },
@@ -2803,19 +2476,14 @@
                       "const": "plaintext"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
                   "type": "object",
                   "properties": {
                     "ca_file": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -2824,9 +2492,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "type": "object",
@@ -2844,10 +2510,7 @@
                       "$ref": "#/$defs/KafkaSaslMechanism"
                     },
                     "ca_file": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -2856,21 +2519,13 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password",
-                    "mechanism"
-                  ]
+                  "required": ["type", "username", "password", "mechanism"]
                 }
               ]
             },
             "KafkaSaslMechanism": {
               "type": "string",
-              "enum": [
-                "scram_sha256",
-                "scram_sha512"
-              ]
+              "enum": ["scram_sha256", "scram_sha512"]
             },
             "SerializerConfig": {
               "oneOf": [
@@ -2883,9 +2538,7 @@
                       "const": "json"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -2911,9 +2564,7 @@
                         "type": "integer",
                         "format": "int32"
                       },
-                      "default": [
-                        0
-                      ],
+                      "default": [0],
                       "x-ui": {
                         "section": "advanced"
                       }
@@ -2924,12 +2575,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "connection",
-                    "subject",
-                    "format"
-                  ]
+                  "required": ["type", "connection", "subject", "format"]
                 }
               ]
             },
@@ -2958,10 +2604,7 @@
                 },
                 "ca_certificate": {
                   "title": "CA certificate (PEM)",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "section": "advanced"
@@ -2969,10 +2612,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "url",
-                "request_timeout_ms"
-              ]
+              "required": ["url", "request_timeout_ms"]
             },
             "SchemaRegistryAuth": {
               "oneOf": [
@@ -2985,9 +2625,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -3009,11 +2647,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "username",
-                    "password"
-                  ]
+                  "required": ["type", "username", "password"]
                 },
                 {
                   "title": "Bearer token",
@@ -3031,20 +2665,13 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 }
               ]
             },
             "SchemaFormat": {
               "type": "string",
-              "enum": [
-                "avro",
-                "json_schema",
-                "protobuf"
-              ]
+              "enum": ["avro", "json_schema", "protobuf"]
             }
           }
         },
@@ -3060,9 +2687,7 @@
           },
           "partition": null,
           "installation": {
-            "brokers": [
-              ""
-            ],
+            "brokers": [""],
             "security": {
               "type": "plaintext"
             },
@@ -3070,6 +2695,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3124,12 +2750,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -3179,9 +2800,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "name"
-              ]
+              "required": ["name"]
             }
           }
         },
@@ -3203,9 +2822,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3256,12 +2874,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -3315,6 +2928,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3369,12 +2983,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -3405,6 +3014,17 @@
               "x-ui": {
                 "widget": "hidden"
               }
+            },
+            "replication": {
+              "description": "Enables an infinite logical-replication stream instead of a finite snapshot.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PostgresReplicationConfig"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "additionalProperties": false,
@@ -3428,23 +3048,82 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "name"
+              "required": ["name"]
+            },
+            "PostgresReplicationConfig": {
+              "type": "object",
+              "properties": {
+                "slot": {
+                  "type": "string"
+                },
+                "decoder": {
+                  "$ref": "#/$defs/LogicalDecoder"
+                },
+                "max_changes": {
+                  "type": "integer",
+                  "format": "uint",
+                  "minimum": 0,
+                  "default": 4096,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                },
+                "poll_interval_ms": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "default": 100,
+                  "x-ui": {
+                    "section": "advanced"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": ["slot", "decoder"]
+            },
+            "LogicalDecoder": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "publication": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "pgoutput"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": ["type", "publication"]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "wal2_json"
+                    }
+                  },
+                  "required": ["type"],
+                  "additionalProperties": false
+                }
               ]
             }
           }
         },
         "initial": {
+          "replication": null,
           "batch_rows": 65536,
+          "database": "",
+          "username": "",
+          "password": "",
           "tables": [
             {
               "schema": "",
               "name": ""
             }
           ],
-          "database": "",
-          "username": "",
-          "password": "",
           "installation": {
             "host": "",
             "port": 5432,
@@ -3453,9 +3132,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch", "stream"],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3506,12 +3184,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "host",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["host", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -3555,6 +3228,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3616,12 +3290,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "hosts",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["hosts", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -3679,11 +3348,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "username",
-            "tables",
-            "installation"
-          ],
+          "required": ["username", "tables", "installation"],
           "$defs": {
             "TableConfig": {
               "type": "object",
@@ -3696,10 +3361,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "database",
-                "name"
-              ]
+              "required": ["database", "name"]
             },
             "ClickHouseSnapshotReader": {
               "oneOf": [
@@ -3750,9 +3412,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "title": "Native TCP",
@@ -3774,26 +3434,17 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 }
               ]
             },
             "ClickHouseParquetCompression": {
               "type": "string",
-              "enum": [
-                "lz4",
-                "zstd"
-              ]
+              "enum": ["lz4", "zstd"]
             },
             "ClickHouseCompression": {
               "type": "string",
-              "enum": [
-                "none",
-                "lz4",
-                "zstd"
-              ]
+              "enum": ["none", "lz4", "zstd"]
             }
           }
         },
@@ -3818,18 +3469,15 @@
             }
           ],
           "installation": {
-            "hosts": [
-              ""
-            ],
+            "hosts": [""],
             "port": 9440,
             "trusted_plaintext": true,
             "tls_ca_file": null,
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -3887,12 +3535,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "hosts",
-                    "port",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["hosts", "port", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -4016,10 +3659,7 @@
               }
             },
             "retry_max_attempts": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": ["integer", "null"],
               "format": "uint32",
               "minimum": 0,
               "default": null,
@@ -4047,27 +3687,15 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "database",
-            "username",
-            "installation"
-          ],
+          "required": ["database", "username", "installation"],
           "$defs": {
             "ClickHouseInsertFormat": {
               "type": "string",
-              "enum": [
-                "native",
-                "parquet",
-                "arrow_stream"
-              ]
+              "enum": ["native", "parquet", "arrow_stream"]
             },
             "ClickHouseCompression": {
               "type": "string",
-              "enum": [
-                "none",
-                "lz4",
-                "zstd"
-              ]
+              "enum": ["none", "lz4", "zstd"]
             }
           }
         },
@@ -4089,9 +3717,7 @@
           "parquet_row_group_rows": 1000000,
           "flush_interval_ms": 100,
           "installation": {
-            "hosts": [
-              ""
-            ],
+            "hosts": [""],
             "port": 9440,
             "trusted_plaintext": true,
             "tls_ca_file": null,
@@ -4099,6 +3725,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -4155,10 +3782,7 @@
                           }
                         }
                       },
-                      "required": [
-                        "access_key",
-                        "secret_key"
-                      ],
+                      "required": ["access_key", "secret_key"],
                       "additionalProperties": false
                     },
                     "type": {
@@ -4204,11 +3828,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "table_name",
-            "parser",
-            "installation"
-          ],
+          "required": ["table_name", "parser", "installation"],
           "$defs": {
             "S3CredentialsConfig": {
               "type": "object",
@@ -4224,10 +3844,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "access_key",
-                "secret_key"
-              ]
+              "required": ["access_key", "secret_key"]
             },
             "S3InputParser": {
               "oneOf": [
@@ -4252,11 +3869,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "common",
-                    "json_parser"
-                  ],
+                  "required": ["type", "common", "json_parser"],
                   "x-ui": {
                     "widget": "json_parser"
                   }
@@ -4280,9 +3893,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
@@ -4306,9 +3917,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 }
               ]
             },
@@ -4335,40 +3944,25 @@
               "type": "object",
               "properties": {
                 "topic": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "partition": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "offset": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "message_index": {
                   "description": "Zero-based index of a record inside one source message when framing yields multiple records",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 },
                 "write_timestamp_ms": {
                   "description": "Source-reported message write time as Unix epoch milliseconds",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null
                 }
               },
@@ -4437,18 +4031,12 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "columns"
-              ]
+              "required": ["columns"]
             },
             "JsonFramingMode": {
               "description": "Record framing policy owned by the JSON parser.",
               "type": "string",
-              "enum": [
-                "single_document",
-                "json_lines",
-                "json_array"
-              ]
+              "enum": ["single_document", "json_lines", "json_array"]
             },
             "ColumnMapping": {
               "description": "Explicit `JSONPath` and JSON-to-Arrow conversion for one output column.",
@@ -4507,10 +4095,7 @@
                 },
                 "decimal_precision": {
                   "title": "Decimal precision",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint8",
                   "minimum": 0,
                   "maximum": 255,
@@ -4521,10 +4106,7 @@
                 },
                 "decimal_scale": {
                   "title": "Decimal scale",
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "int8",
                   "minimum": -128,
                   "maximum": 127,
@@ -4552,20 +4134,14 @@
                   "default": false
                 },
                 "max_length": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint",
                   "minimum": 0,
                   "default": null
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "jsonpath",
-                "column_name"
-              ]
+              "required": ["jsonpath", "column_name"]
             },
             "JsonDataType": {
               "oneOf": [
@@ -4610,10 +4186,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "format"
-                  ]
+                  "required": ["type", "format"]
                 },
                 {
                   "type": "object",
@@ -4627,29 +4200,17 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "unit"
-                  ]
+                  "required": ["type", "unit"]
                 }
               ]
             },
             "EpochUnit": {
               "type": "string",
-              "enum": [
-                "seconds",
-                "milliseconds",
-                "microseconds",
-                "nanoseconds"
-              ]
+              "enum": ["seconds", "milliseconds", "microseconds", "nanoseconds"]
             },
             "ConversionErrorPolicy": {
               "type": "string",
-              "enum": [
-                "dlq",
-                "drop",
-                "fail"
-              ]
+              "enum": ["dlq", "drop", "fail"]
             },
             "UnknownFieldPolicy": {
               "oneOf": [
@@ -4662,9 +4223,7 @@
                       "const": "drop"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -4676,9 +4235,7 @@
                       "const": "fail"
                     }
                   },
-                  "required": [
-                    "action"
-                  ],
+                  "required": ["action"],
                   "additionalProperties": false
                 },
                 {
@@ -4696,9 +4253,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "action"
-                  ]
+                  "required": ["action"]
                 }
               ]
             },
@@ -4727,9 +4282,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -4782,10 +4336,7 @@
                           }
                         }
                       },
-                      "required": [
-                        "access_key",
-                        "secret_key"
-                      ],
+                      "required": ["access_key", "secret_key"],
                       "additionalProperties": false
                     },
                     "type": {
@@ -4854,9 +4405,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "installation"
-          ],
+          "required": ["installation"],
           "$defs": {
             "S3CredentialsConfig": {
               "type": "object",
@@ -4872,10 +4421,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "access_key",
-                "secret_key"
-              ]
+              "required": ["access_key", "secret_key"]
             },
             "S3OutputFormat": {
               "oneOf": [
@@ -4888,9 +4434,7 @@
                       "const": "json"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -4915,20 +4459,13 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 }
               ]
             },
             "ParquetCompression": {
               "type": "string",
-              "enum": [
-                "uncompressed",
-                "snappy",
-                "gzip",
-                "zstd"
-              ]
+              "enum": ["uncompressed", "snappy", "gzip", "zstd"]
             },
             "ParquetRowGroupConfig": {
               "type": "object",
@@ -4961,9 +4498,7 @@
                       "const": "source"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -4981,10 +4516,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "columns"
-                  ]
+                  "required": ["type", "columns"]
                 },
                 {
                   "type": "object",
@@ -5009,10 +4541,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "window"
-                  ]
+                  "required": ["type", "window"]
                 }
               ]
             },
@@ -5032,19 +4561,13 @@
                   }
                 },
                 "record_time_interval": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "x-ui": {
                     "widget": "duration"
                   }
                 },
                 "wall_clock_interval": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "x-ui": {
                     "widget": "duration"
                   }
@@ -5057,10 +4580,7 @@
             },
             "PartitionPathChange": {
               "type": "string",
-              "enum": [
-                "rotate",
-                "keep_epoch"
-              ]
+              "enum": ["rotate", "keep_epoch"]
             },
             "BufferingConfig": {
               "type": "object",
@@ -5088,10 +4608,7 @@
                 },
                 "max_epoch_bytes": {
                   "description": "Stable limit for serialized payload plus retained routing metadata in\none epoch. Metadata is measured as its UTF-8 lengths plus a fixed\n128-byte logical overhead per row, independent of Rust's ABI. When\nomitted, the limit is derived only from sink configuration, never from\nin-memory delivery state.",
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "x-ui": {
                     "widget": "byte_size"
                   }
@@ -5212,6 +4729,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -5283,10 +4801,7 @@
                                       }
                                     }
                                   },
-                                  "required": [
-                                    "access_key",
-                                    "secret_key"
-                                  ],
+                                  "required": ["access_key", "secret_key"],
                                   "additionalProperties": false
                                 },
                                 {
@@ -5402,10 +4917,7 @@
                       ]
                     }
                   },
-                  "required": [
-                    "type",
-                    "storage"
-                  ],
+                  "required": ["type", "storage"],
                   "additionalProperties": false
                 }
               ]
@@ -5482,12 +4994,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "catalog",
-            "namespace",
-            "table_names",
-            "installation"
-          ],
+          "required": ["catalog", "namespace", "table_names", "installation"],
           "$defs": {
             "RestCatalogConfig": {
               "type": "object",
@@ -5505,10 +5012,7 @@
                   }
                 },
                 "warehouse": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "widget": "hidden"
@@ -5525,9 +5029,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "uri"
-              ]
+              "required": ["uri"]
             },
             "RestCatalogAuth": {
               "oneOf": [
@@ -5539,9 +5041,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "type": "object",
@@ -5557,10 +5057,7 @@
                       "const": "token"
                     }
                   },
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "type": "object",
@@ -5575,17 +5072,11 @@
                       }
                     },
                     "scope": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "token_url": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -5593,11 +5084,7 @@
                       "const": "o_auth2"
                     }
                   },
-                  "required": [
-                    "type",
-                    "client_id",
-                    "client_secret"
-                  ]
+                  "required": ["type", "client_id", "client_secret"]
                 }
               ]
             },
@@ -5646,20 +5133,14 @@
                       }
                     },
                     "region": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null,
                       "x-ui": {
                         "widget": "hidden"
                       }
                     },
                     "endpoint": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "credentials": {
@@ -5675,10 +5156,7 @@
                       "default": null
                     },
                     "session_token": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null,
                       "x-ui": {
                         "widget": "hidden"
@@ -5704,10 +5182,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "bucket"
-                  ]
+                  "required": ["type", "bucket"]
                 },
                 {
                   "type": "object",
@@ -5749,10 +5224,7 @@
                       "default": "/"
                     },
                     "user": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -5761,11 +5233,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "endpoint",
-                    "authority"
-                  ]
+                  "required": ["type", "endpoint", "authority"]
                 }
               ]
             },
@@ -5785,10 +5253,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "access_key",
-                "secret_key"
-              ]
+              "required": ["access_key", "secret_key"]
             }
           }
         },
@@ -5801,9 +5266,7 @@
               "type": "none"
             }
           },
-          "table_names": [
-            ""
-          ],
+          "table_names": [""],
           "namespace": "default",
           "installation": {
             "type": "on_premise",
@@ -5820,9 +5283,8 @@
             }
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -5890,10 +5352,7 @@
                                       }
                                     }
                                   },
-                                  "required": [
-                                    "access_key",
-                                    "secret_key"
-                                  ],
+                                  "required": ["access_key", "secret_key"],
                                   "additionalProperties": false
                                 },
                                 {
@@ -6009,10 +5468,7 @@
                       ]
                     }
                   },
-                  "required": [
-                    "type",
-                    "storage"
-                  ],
+                  "required": ["type", "storage"],
                   "additionalProperties": false
                 }
               ]
@@ -6076,10 +5532,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "catalog",
-            "installation"
-          ],
+          "required": ["catalog", "installation"],
           "$defs": {
             "RestCatalogConfig": {
               "type": "object",
@@ -6097,10 +5550,7 @@
                   }
                 },
                 "warehouse": {
-                  "type": [
-                    "string",
-                    "null"
-                  ],
+                  "type": ["string", "null"],
                   "default": null,
                   "x-ui": {
                     "widget": "hidden"
@@ -6117,9 +5567,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "uri"
-              ]
+              "required": ["uri"]
             },
             "RestCatalogAuth": {
               "oneOf": [
@@ -6131,9 +5579,7 @@
                       "const": "none"
                     }
                   },
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "type": "object",
@@ -6149,10 +5595,7 @@
                       "const": "token"
                     }
                   },
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "type": "object",
@@ -6167,17 +5610,11 @@
                       }
                     },
                     "scope": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "token_url": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -6185,11 +5622,7 @@
                       "const": "o_auth2"
                     }
                   },
-                  "required": [
-                    "type",
-                    "client_id",
-                    "client_secret"
-                  ]
+                  "required": ["type", "client_id", "client_secret"]
                 }
               ]
             },
@@ -6238,20 +5671,14 @@
                       }
                     },
                     "region": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null,
                       "x-ui": {
                         "widget": "hidden"
                       }
                     },
                     "endpoint": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "credentials": {
@@ -6267,10 +5694,7 @@
                       "default": null
                     },
                     "session_token": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null,
                       "x-ui": {
                         "widget": "hidden"
@@ -6296,10 +5720,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "bucket"
-                  ]
+                  "required": ["type", "bucket"]
                 },
                 {
                   "type": "object",
@@ -6341,10 +5762,7 @@
                       "default": "/"
                     },
                     "user": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -6353,11 +5771,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "endpoint",
-                    "authority"
-                  ]
+                  "required": ["type", "endpoint", "authority"]
                 }
               ]
             },
@@ -6377,18 +5791,11 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "access_key",
-                "secret_key"
-              ]
+              "required": ["access_key", "secret_key"]
             },
             "IcebergParquetCompression": {
               "type": "string",
-              "enum": [
-                "none",
-                "lz4",
-                "zstd"
-              ]
+              "enum": ["none", "lz4", "zstd"]
             }
           }
         },
@@ -6424,6 +5831,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -6461,11 +5869,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "endpoint",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["endpoint", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -6509,12 +5913,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "database",
-            "auth",
-            "tables",
-            "installation"
-          ],
+          "required": ["database", "auth", "tables", "installation"],
           "$defs": {
             "YdbAuth": {
               "oneOf": [
@@ -6527,9 +5926,7 @@
                       "const": "anonymous"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -6548,10 +5945,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -6566,10 +5960,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -6581,9 +5972,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "path"
-              ]
+              "required": ["path"]
             }
           }
         },
@@ -6606,9 +5995,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -6642,11 +6030,7 @@
                       "const": "on_premise"
                     }
                   },
-                  "required": [
-                    "endpoint",
-                    "trusted_plaintext",
-                    "type"
-                  ],
+                  "required": ["endpoint", "trusted_plaintext", "type"],
                   "additionalProperties": false
                 }
               ]
@@ -6694,12 +6078,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "database",
-            "auth",
-            "tables",
-            "installation"
-          ],
+          "required": ["database", "auth", "tables", "installation"],
           "$defs": {
             "YdbAuth": {
               "oneOf": [
@@ -6712,9 +6091,7 @@
                       "const": "anonymous"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -6733,10 +6110,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -6751,10 +6125,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -6766,9 +6137,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "path"
-              ]
+              "required": ["path"]
             }
           }
         },
@@ -6793,6 +6162,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -6965,11 +6335,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "auth",
-            "tables",
-            "installation"
-          ],
+          "required": ["auth", "tables", "installation"],
           "$defs": {
             "YTsaurusAuthConfig": {
               "oneOf": [
@@ -6989,10 +6355,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -7007,10 +6370,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -7024,9 +6384,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "path"
-              ]
+              "required": ["path"]
             },
             "YTsaurusReadOrdering": {
               "oneOf": [
@@ -7039,9 +6397,7 @@
                       "const": "ordered"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -7053,9 +6409,7 @@
                       "const": "unordered"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -7098,9 +6452,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 }
               ]
             },
@@ -7108,152 +6460,86 @@
               "type": "object",
               "properties": {
                 "window_size": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint64",
                   "minimum": 0
                 },
                 "group_size": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint64",
                   "minimum": 0
                 },
                 "max_buffer_size": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint64",
                   "minimum": 0
                 },
                 "max_parallel_readers": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint16",
                   "minimum": 0,
                   "maximum": 65535
                 },
                 "use_uncompressed_block_cache": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "group_out_of_order_blocks": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "use_block_cache": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "use_async_block_cache": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "populate_cache": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "enable_workload_fifo_scheduling": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "use_read_blocks_batcher": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "prefer_local_data_center": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "disk_queue_size_factor": {
-                  "type": [
-                    "number",
-                    "null"
-                  ],
+                  "type": ["number", "null"],
                   "format": "double"
                 },
                 "net_queue_size_factor": {
-                  "type": [
-                    "number",
-                    "null"
-                  ],
+                  "type": ["number", "null"],
                   "format": "double"
                 },
                 "cached_block_count_factor": {
-                  "type": [
-                    "number",
-                    "null"
-                  ],
+                  "type": ["number", "null"],
                   "format": "double"
                 },
                 "cached_block_size_factor": {
-                  "type": [
-                    "number",
-                    "null"
-                  ],
+                  "type": ["number", "null"],
                   "format": "double"
                 },
                 "use_direct_io": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "fetch_from_peers": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "probe_peer_count": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint16",
                   "minimum": 0,
                   "maximum": 65535
                 },
                 "use_chunk_prober": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "enable_chunk_meta_cache": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
+                  "type": ["boolean", "null"]
                 },
                 "block_rpc_hedging_delay_ms": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ],
+                  "type": ["integer", "null"],
                   "format": "uint64",
                   "minimum": 0
                 }
@@ -7280,16 +6566,11 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "format"
-              ]
+              "required": ["format"]
             },
             "YTsaurusBenchmarkTransport": {
               "type": "string",
-              "enum": [
-                "http",
-                "native_rpc"
-              ]
+              "enum": ["http", "native_rpc"]
             },
             "YTsaurusReadFormat": {
               "type": "string",
@@ -7334,9 +6615,8 @@
             "type": "on_premise"
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -7481,11 +6761,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "tables",
-            "auth",
-            "installation"
-          ],
+          "required": ["tables", "auth", "installation"],
           "$defs": {
             "YTsaurusTableMode": {
               "oneOf": [
@@ -7568,11 +6844,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "path",
-                    "replace_tables"
-                  ]
+                  "required": ["type", "path", "replace_tables"]
                 },
                 {
                   "title": "Dynamic tables",
@@ -7634,9 +6906,7 @@
                         "operation_pool": null
                       },
                       "x-ui": {
-                        "delivery_types": [
-                          "batch"
-                        ]
+                        "delivery_types": ["batch"]
                       }
                     },
                     "atomicity": {
@@ -7651,10 +6921,7 @@
                     "tablet_cell_bundle": {
                       "title": "Tablet cell bundle",
                       "description": "Optional bundle used when Transferia creates the dynamic table",
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null,
                       "x-ui": {
                         "section": "advanced"
@@ -7675,10 +6942,7 @@
                     "table_ttl_ms": {
                       "title": "Table TTL",
                       "description": "Delete dynamic-table rows after the configured duration. Months are exactly 30 days and years are exactly 365 days. Disabled by default so data is never expired implicitly.",
-                      "type": [
-                        "integer",
-                        "null"
-                      ],
+                      "type": ["integer", "null"],
                       "format": "uint64",
                       "minimum": 1,
                       "default": null,
@@ -7699,11 +6963,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "path",
-                    "replace_tables"
-                  ]
+                  "required": ["type", "path", "replace_tables"]
                 }
               ]
             },
@@ -7734,10 +6994,7 @@
                 }
               },
               "additionalProperties": false,
-              "required": [
-                "name",
-                "value"
-              ]
+              "required": ["name", "value"]
             },
             "YTsaurusBigValuePolicy": {
               "oneOf": [
@@ -7776,10 +7033,7 @@
                     "operation_pool": {
                       "title": "Sort/merge operation pool",
                       "description": "Optional YTsaurus scheduler pool used only for the snapshot sort operation",
-                      "type": [
-                        "string",
-                        "null"
-                      ],
+                      "type": ["string", "null"],
                       "default": null
                     },
                     "type": {
@@ -7788,9 +7042,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
+                  "required": ["type"]
                 },
                 {
                   "title": "Direct tablet writes",
@@ -7801,19 +7053,14 @@
                       "const": "direct"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 }
               ]
             },
             "YTsaurusAtomicity": {
               "type": "string",
-              "enum": [
-                "full",
-                "none"
-              ]
+              "enum": ["full", "none"]
             },
             "YTsaurusDynamicWriteConfig": {
               "type": "object",
@@ -7925,10 +7172,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token"
-                  ]
+                  "required": ["type", "token"]
                 },
                 {
                   "title": "Token file",
@@ -7943,10 +7187,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "token_file"
-                  ]
+                  "required": ["type", "token_file"]
                 }
               ]
             },
@@ -8003,6 +7244,7 @@
           }
         },
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": true,
         "message_preview": false
@@ -8043,11 +7285,7 @@
             }
           },
           "additionalProperties": false,
-          "required": [
-            "table_name",
-            "preset",
-            "amount"
-          ],
+          "required": ["table_name", "preset", "amount"],
           "$defs": {
             "DataGeneratorPreset": {
               "oneOf": [
@@ -8060,9 +7298,7 @@
                       "const": "transfer_logs"
                     }
                   },
-                  "required": [
-                    "type"
-                  ],
+                  "required": ["type"],
                   "additionalProperties": false
                 },
                 {
@@ -8081,10 +7317,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "column_count"
-                  ]
+                  "required": ["type", "column_count"]
                 }
               ]
             },
@@ -8109,10 +7342,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "row_count"
-                  ]
+                  "required": ["type", "row_count"]
                 },
                 {
                   "title": "Data size",
@@ -8133,10 +7363,7 @@
                     }
                   },
                   "additionalProperties": false,
-                  "required": [
-                    "type",
-                    "data_size_bytes"
-                  ]
+                  "required": ["type", "data_size_bytes"]
                 }
               ]
             }
@@ -8152,9 +7379,8 @@
             "row_count": 50000000
           }
         },
-        "delivery_modes": [
-          "batch"
-        ],
+        "delivery_modes": ["batch"],
+        "record_semantics": ["append_only"],
         "partitioned": false,
         "connection_check": false,
         "message_preview": false
@@ -8172,6 +7398,7 @@
         },
         "initial": {},
         "delivery_modes": [],
+        "record_semantics": ["append_only", "changelog"],
         "partitioned": false,
         "connection_check": false,
         "message_preview": false

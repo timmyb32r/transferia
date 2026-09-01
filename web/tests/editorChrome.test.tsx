@@ -244,9 +244,9 @@ describe("editor chrome", () => {
 
     expect(onMissingRequired).toHaveBeenCalledOnce();
     expect(onActivate).not.toHaveBeenCalled();
-    expect(
-      view.getByRole("tooltip").textContent,
-    ).toBe("Complete the required delivery, source, and destination fields");
+    expect(view.getByRole("tooltip").textContent).toBe(
+      "Complete the required delivery, source, and destination fields",
+    );
   });
 
   it("explains an inactive Activate immediately", () => {
@@ -342,6 +342,7 @@ describe("editor chrome", () => {
     const onToggleDataWidget = vi.fn();
     const view = render(
       <DeliverySidebar
+        catalog={{ common_schema: {}, initial: {}, connectors: [] }}
         deliveries={[
           {
             id: "delivery-1",

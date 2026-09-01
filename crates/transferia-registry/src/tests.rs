@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use super::*;
 
@@ -25,6 +26,44 @@ fn source_registration(key: &'static str) -> anyhow::Result<ComponentRegistratio
             anyhow::bail!("test factory intentionally has no runtime connector")
         },
     )
+}
+
+#[test]
+fn endpoint_definitions_publish_their_record_semantics() -> anyhow::Result<()> {
+    let mut builder = RegistryBuilder::new();
+    builder.register(source_registration("source")?.source_record_semantics(vec![
+        RecordSemantics::AppendOnly,
+        RecordSemantics::Changelog,
+    ])?)?;
+
+    assert_eq!(
+        builder.build().definitions()[0]
+            .source
+            .as_ref()
+            .unwrap()
+            .record_semantics,
+        vec![RecordSemantics::AppendOnly, RecordSemantics::Changelog]
+    );
+    Ok(())
+}
+
+#[test]
+fn endpoint_semantics_must_be_nonempty_and_unique() -> anyhow::Result<()> {
+    let empty = source_registration("empty")?
+        .source_record_semantics(Vec::new())
+        .err()
+        .expect("an endpoint without semantics must fail");
+    assert!(empty.to_string().contains("at least one"));
+
+    let duplicate = source_registration("duplicate")?
+        .source_record_semantics(vec![
+            RecordSemantics::AppendOnly,
+            RecordSemantics::AppendOnly,
+        ])
+        .err()
+        .expect("duplicate semantics must fail");
+    assert!(duplicate.to_string().contains("duplicate"));
+    Ok(())
 }
 
 fn middleware_registration(key: &'static str) -> anyhow::Result<MiddlewareRegistration> {

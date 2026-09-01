@@ -4,6 +4,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
+use transferia_delivery_contracts::semantics::RecordSemantics;
+
 #[derive(Clone, Copy, Debug, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryMode {
@@ -27,6 +29,12 @@ pub struct EndpointDefinition {
     pub initial: JsonValue,
 
     pub delivery_modes: Vec<DeliveryMode>,
+
+    /// Record streams this source can produce or this sink can accept.
+    ///
+    /// A connector that supports multiple semantics may require a matching
+    /// endpoint mode; delivery preparation remains the authoritative check.
+    pub record_semantics: Vec<RecordSemantics>,
 
     pub partitioned: bool,
 

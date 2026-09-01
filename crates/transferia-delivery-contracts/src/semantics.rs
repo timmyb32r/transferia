@@ -3,6 +3,7 @@
 //! rules that relate a source pipeline to a sink.
 
 use arrow::datatypes::DataType;
+use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::DeliveryType;
@@ -175,7 +176,7 @@ pub enum SourceBehavior {
     BenchmarkDiscard,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, JsonSchema, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RecordSemantics {
     AppendOnly,

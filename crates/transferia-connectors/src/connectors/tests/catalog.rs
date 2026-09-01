@@ -1,4 +1,5 @@
 use super::*;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 
 #[test]
 fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
@@ -177,6 +178,52 @@ fn every_endpoint_has_a_schema_and_object_initial_value() -> anyhow::Result<()> 
         if let Some(sink) = &definition.sink {
             assert!(sink.schema.is_object());
             assert!(sink.initial.is_object());
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyhow::Result<()> {
+    let catalog = build_connector_catalog(&Arc::new(MetricsRegistry::new()))?;
+    let changelog_sources = catalog
+        .definitions()
+        .iter()
+        .filter(|definition| {
+            definition.source.as_ref().is_some_and(|source| {
+                source.record_semantics.contains(&RecordSemantics::Changelog)
+            })
+        })
+        .map(|definition| definition.key)
+        .collect::<Vec<_>>();
+    let changelog_sinks = catalog
+        .definitions()
+        .iter()
+        .filter(|definition| {
+            definition.sink.as_ref().is_some_and(|sink| {
+                sink.record_semantics.contains(&RecordSemantics::Changelog)
+            })
+        })
+        .map(|definition| definition.key)
+        .collect::<Vec<_>>();
+
+    assert_eq!(changelog_sources, ["postgres"]);
+    assert_eq!(
+        changelog_sinks,
+        ["mysql", "postgres", "clickhouse", "ydb", "ytsaurus", "discard"]
+    );
+    for definition in catalog.definitions() {
+        for endpoint in [definition.source.as_ref(), definition.sink.as_ref()]
+            .into_iter()
+            .flatten()
+        {
+            assert!(
+                endpoint
+                    .record_semantics
+                    .contains(&RecordSemantics::AppendOnly),
+                "{} must preserve append-only support",
+                definition.key
+            );
         }
     }
     Ok(())

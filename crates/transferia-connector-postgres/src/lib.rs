@@ -12,6 +12,7 @@ pub use connectors::postgres;
 
 use std::sync::Arc;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -41,6 +42,10 @@ pub fn register(
                     }
                 },
             )?
+            .source_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .source_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
                 check_postgres_connection(config).await
             })
@@ -57,6 +62,10 @@ pub fn register(
                     )?))
                 },
             )?
+            .sink_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .sink_checker::<postgres::PostgresConnectionCheckConfig, _, _>(|config| async move {
                 check_postgres_connection(config).await
             }),

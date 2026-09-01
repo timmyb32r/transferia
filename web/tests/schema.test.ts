@@ -54,6 +54,7 @@ describe("schema compiler", () => {
                 },
                 initial: {},
                 delivery_modes: [],
+                record_semantics: ["append_only"],
                 partitioned: false,
                 connection_check: false,
                 message_preview: false,
@@ -87,6 +88,7 @@ describe("schema compiler", () => {
                 },
                 initial: { name: "", optional_port: 0 },
                 delivery_modes: ["batch"],
+                record_semantics: ["append_only"],
                 partitioned: false,
                 connection_check: false,
                 message_preview: false,
@@ -122,6 +124,7 @@ describe("schema compiler", () => {
                 },
                 initial: { hidden_region: "us-east-1" },
                 delivery_modes: ["batch"],
+                record_semantics: ["append_only"],
                 partitioned: false,
                 connection_check: false,
                 message_preview: false,
@@ -160,6 +163,7 @@ describe("schema compiler", () => {
                 },
                 initial: { hidden_region: "" },
                 delivery_modes: ["batch"],
+                record_semantics: ["append_only"],
                 partitioned: false,
                 connection_check: false,
                 message_preview: false,
@@ -191,9 +195,7 @@ describe("schema compiler", () => {
         },
         productionWidgetRegistry,
       ),
-    ).toThrow(
-      /common.*hidden required field.*hidden_mode.*deterministically/,
-    );
+    ).toThrow(/common.*hidden required field.*hidden_mode.*deterministically/);
   });
 
   it("rejects every non-deterministic hidden composite and accepts a complete marker", () => {
@@ -217,6 +219,7 @@ describe("schema compiler", () => {
             },
             initial: { hidden: initial },
             delivery_modes: ["batch" as const],
+            record_semantics: ["append_only" as const],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -267,7 +270,9 @@ describe("schema compiler", () => {
           catalogWith(schema, initial),
           productionWidgetRegistry,
         ),
-      ).toThrow(/hidden required field.*cannot be materialized deterministically/);
+      ).toThrow(
+        /hidden required field.*cannot be materialized deterministically/,
+      );
 
     expect(() =>
       validateCatalogSchemas(
@@ -317,6 +322,7 @@ describe("schema compiler", () => {
                 schema,
                 initial: { host_selection: "first_alive_replica" },
                 delivery_modes: ["batch"],
+                record_semantics: ["append_only"],
                 partitioned: false,
                 connection_check: false,
                 message_preview: false,
@@ -362,6 +368,7 @@ describe("schema compiler", () => {
           host_selection: "first_alive_replica",
         },
         delivery_modes: ["batch" as const],
+        record_semantics: ["append_only" as const],
         partitioned: false,
         connection_check: false,
         message_preview: false,
@@ -394,9 +401,7 @@ describe("schema compiler", () => {
         catalogWith(brokenBranch),
         productionWidgetRegistry,
       ),
-    ).toThrow(
-      /postgres source.*branch-1.*hidden_region.*deterministically/,
-    );
+    ).toThrow(/postgres source.*branch-1.*hidden_region.*deterministically/);
 
     const repairedBranch = structuredClone(brokenBranch);
     repairedBranch.properties!.hidden_region!.default = "us-east-1";
@@ -566,10 +571,12 @@ describe("schema compiler", () => {
       code: "min_items",
       hidden: true,
     });
-    expect(isComplete(node, {
-      connection: "https://registry.example",
-      projection: { columns: [] },
-    })).toBe(false);
+    expect(
+      isComplete(node, {
+        connection: "https://registry.example",
+        projection: { columns: [] },
+      }),
+    ).toBe(false);
   });
 
   it("enforces minItems when deciding whether an array is complete", () => {

@@ -1,6 +1,6 @@
 import type { EditorState } from "../state";
 import { isDirty } from "../state";
-import type { DeliverySummary } from "../types";
+import type { DeliverySummary, UiCatalog } from "../types";
 import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
 import { InstantTooltip } from "../ui/InstantTooltip";
@@ -87,11 +87,7 @@ export function EditorActions({
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
         </Button>
-        <Button
-          disabled={blocked}
-          pending={validatePending}
-          onClick={validate}
-        >
+        <Button disabled={blocked} pending={validatePending} onClick={validate}>
           Validate
         </Button>
         <ActivationButton
@@ -110,11 +106,7 @@ export function EditorActions({
       <Button disabled={blocked || !isDirty(editor)} onClick={onSave}>
         Save
       </Button>
-      <Button
-        disabled={blocked}
-        pending={validatePending}
-        onClick={validate}
-      >
+      <Button disabled={blocked} pending={validatePending} onClick={validate}>
         Validate
       </Button>
       <ActivationButton
@@ -171,6 +163,7 @@ export function DeliverySidebar({
   onNew,
   onOpen,
   appearance,
+  catalog,
   onAppearance,
   dataWidgetAvailable,
   dataWidgetUnavailableReason,
@@ -182,6 +175,7 @@ export function DeliverySidebar({
   onNew: () => void;
   onOpen: (id: string) => void;
   appearance: Appearance;
+  catalog: UiCatalog;
   onAppearance: (appearance: Appearance) => void;
   dataWidgetAvailable: boolean;
   dataWidgetUnavailableReason?: string | undefined;
@@ -244,7 +238,11 @@ export function DeliverySidebar({
           Data widget
         </Button>
       </InstantTooltip>
-      <AppearanceSettings value={appearance} onChange={onAppearance} />
+      <AppearanceSettings
+        value={appearance}
+        catalog={catalog}
+        onChange={onAppearance}
+      />
     </aside>
   );
 }
@@ -388,7 +386,7 @@ export function OperationNotices({
                 title="Dismiss"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onDismiss(key as OperationKey, operation.requestId)
+                  onDismiss(key as OperationKey, operation.requestId);
                 }}
               >
                 ×
@@ -416,9 +414,7 @@ export function OperationNotices({
               }}
             >
               <span>{operation.success}</span>
-              <span aria-hidden="true">
-                ×
-              </span>
+              <span aria-hidden="true">×</span>
             </div>
           ),
       )}

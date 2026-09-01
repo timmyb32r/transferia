@@ -184,6 +184,7 @@ describe("App request orchestration", () => {
             },
             initial: { host: "" },
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -202,6 +203,7 @@ describe("App request orchestration", () => {
             },
             initial: { database: "" },
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -308,6 +310,7 @@ describe("App request orchestration", () => {
             },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -324,6 +327,7 @@ describe("App request orchestration", () => {
             },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -391,6 +395,7 @@ describe("App request orchestration", () => {
               projection: { columns: [] },
             },
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -403,6 +408,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -507,6 +513,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -519,6 +526,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -698,6 +706,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -710,6 +719,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -777,12 +787,12 @@ describe("App request orchestration", () => {
     await waitFor(() =>
       expect(api.validate).toHaveBeenCalledWith("existing", 2, "2"),
     );
-    expect(
-      vi.mocked(api.parseYaml).mock.invocationCallOrder[0],
-    ).toBeLessThan(vi.mocked(api.update).mock.invocationCallOrder[0]!);
-    expect(
-      vi.mocked(api.update).mock.invocationCallOrder[0],
-    ).toBeLessThan(vi.mocked(api.validate).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(api.parseYaml).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.update).mock.invocationCallOrder[0]!,
+    );
+    expect(vi.mocked(api.update).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.validate).mock.invocationCallOrder[0]!,
+    );
   });
 
   it("does not validate stale state after YAML parsing fails", async () => {
@@ -819,6 +829,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,
@@ -831,6 +842,7 @@ describe("App request orchestration", () => {
             schema: { type: "object", properties: {} },
             initial: {},
             delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
             partitioned: false,
             connection_check: false,
             message_preview: false,

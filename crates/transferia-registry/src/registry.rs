@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use crate::ui_contract::validate_ui_dialect;
 use crate::{
@@ -276,7 +277,12 @@ impl ComponentRegistration {
                 self.key
             )
         })?;
-        let definition = endpoint_definition::<C>(initial, delivery_modes, partitioned)?;
+        let definition = endpoint_definition::<C>(
+            initial,
+            delivery_modes,
+            vec![RecordSemantics::AppendOnly],
+            partitioned,
+        )?;
         self.source = Some((
             definition,
             Box::new(move |raw| {
@@ -306,7 +312,12 @@ impl ComponentRegistration {
         F: Fn(C) -> anyhow::Result<Box<dyn SourceConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
-        let definition = endpoint_definition::<C>(initial(), delivery_modes, partitioned)?;
+        let definition = endpoint_definition::<C>(
+            initial(),
+            delivery_modes,
+            vec![RecordSemantics::AppendOnly],
+            partitioned,
+        )?;
         self.source = Some((
             definition,
             Box::new(move |raw| {
@@ -331,7 +342,12 @@ impl ComponentRegistration {
                 self.key
             )
         })?;
-        let definition = endpoint_definition::<C>(initial, Vec::new(), false)?;
+        let definition = endpoint_definition::<C>(
+            initial,
+            Vec::new(),
+            vec![RecordSemantics::AppendOnly],
+            false,
+        )?;
         self.sink = Some((
             definition,
             Box::new(move |raw| {
@@ -351,7 +367,12 @@ impl ComponentRegistration {
         F: Fn(C) -> anyhow::Result<Box<dyn SinkConnector>> + Send + Sync + 'static,
         I: FnOnce() -> JsonValue,
     {
-        let definition = endpoint_definition::<C>(initial(), Vec::new(), false)?;
+        let definition = endpoint_definition::<C>(
+            initial(),
+            Vec::new(),
+            vec![RecordSemantics::AppendOnly],
+            false,
+        )?;
         self.sink = Some((
             definition,
             Box::new(move |raw| {
@@ -360,6 +381,34 @@ impl ComponentRegistration {
                 factory(config)
             }),
         ));
+        Ok(self)
+    }
+
+    /// Declares all record semantics that the registered source can produce.
+    pub fn source_record_semantics(
+        mut self,
+        record_semantics: Vec<RecordSemantics>,
+    ) -> anyhow::Result<Self> {
+        validate_record_semantics(self.key, "source", &record_semantics)?;
+        self.source
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("component '{}' has no source", self.key))?
+            .0
+            .record_semantics = record_semantics;
+        Ok(self)
+    }
+
+    /// Declares all record semantics that the registered sink can accept.
+    pub fn sink_record_semantics(
+        mut self,
+        record_semantics: Vec<RecordSemantics>,
+    ) -> anyhow::Result<Self> {
+        validate_record_semantics(self.key, "sink", &record_semantics)?;
+        self.sink
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("component '{}' has no sink", self.key))?
+            .0
+            .record_semantics = record_semantics;
         Ok(self)
     }
 
@@ -395,6 +444,25 @@ impl ComponentRegistration {
         }));
         self
     }
+}
+
+fn validate_record_semantics(
+    key: &str,
+    role: &str,
+    record_semantics: &[RecordSemantics],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !record_semantics.is_empty(),
+        "component '{key}' {role} must declare at least one record semantics"
+    );
+    anyhow::ensure!(
+        !record_semantics
+            .iter()
+            .enumerate()
+            .any(|(index, semantics)| record_semantics[index + 1..].contains(semantics)),
+        "component '{key}' {role} declares duplicate record semantics"
+    );
+    Ok(())
 }
 
 pub struct RegistryBuilder {
@@ -701,6 +769,7 @@ fn definition_shape(definitions: &[ConnectorDefinition]) -> Vec<(&'static str, b
 fn endpoint_definition<C: JsonSchema>(
     initial: JsonValue,
     delivery_modes: Vec<DeliveryMode>,
+    record_semantics: Vec<RecordSemantics>,
     partitioned: bool,
 ) -> anyhow::Result<EndpointDefinition> {
     let schema = serde_json::to_value(schema_for!(C))?;
@@ -709,6 +778,7 @@ fn endpoint_definition<C: JsonSchema>(
         schema,
         initial,
         delivery_modes,
+        record_semantics,
         partitioned,
         connection_check: false,
         message_preview: false,

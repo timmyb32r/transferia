@@ -11,11 +11,11 @@ pub struct PostgresReplicationConfig {
     pub decoder: LogicalDecoder,
 
     #[serde(default = "default_max_changes")]
-    #[schemars(extend("x-ui" = { "advanced": true }))]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub max_changes: usize,
 
     #[serde(default = "default_poll_interval_ms")]
-    #[schemars(extend("x-ui" = { "advanced": true }))]
+    #[schemars(extend("x-ui" = { "section": "advanced" }))]
     pub poll_interval_ms: u64,
 }
 

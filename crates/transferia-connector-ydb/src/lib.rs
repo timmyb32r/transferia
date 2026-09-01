@@ -7,6 +7,7 @@ pub mod ydb;
 use std::sync::Arc;
 
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -48,6 +49,10 @@ pub fn register(
                 },
                 |config| Ok(Box::new(ydb::YdbSinkConnector::from_config(config)?)),
             )?
+            .sink_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .source_checker::<ydb::YdbConnectionCheckConfig, _, _>(|config| async move {
                 if config.credentials_complete() {
                     ydb::check_connection(&config.connection()).await?;

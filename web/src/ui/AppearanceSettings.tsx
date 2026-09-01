@@ -1,10 +1,12 @@
 import { useState } from "preact/hooks";
 
+import type { UiCatalog } from "../generated/apiContract";
 import {
   AutofillResistantInput,
   useOpaqueFieldName,
 } from "./AutofillResistantField";
 import { Button } from "./Button";
+import { CompatibilityMatrixDialog } from "./CompatibilityMatrixDialog";
 import type { Appearance, ColorTheme, InterfaceDesign } from "./appearance";
 
 const DESIGNS: ReadonlyArray<{
@@ -40,12 +42,15 @@ function SettingsIcon() {
 
 export function AppearanceSettings({
   value,
+  catalog,
   onChange,
 }: {
   value: Appearance;
+  catalog: UiCatalog;
   onChange: (appearance: Appearance) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [matrixOpen, setMatrixOpen] = useState(false);
   const designGroupName = useOpaqueFieldName();
   const themeGroupName = useOpaqueFieldName();
 
@@ -143,14 +148,34 @@ export function AppearanceSettings({
               Automatically open schema widget
             </label>
           </fieldset>
+
+          <section class="compatibility-settings">
+            <div>
+              <strong>Transfer compatibility</strong>
+              <small>
+                See every source, destination, and supported data flow
+              </small>
+            </div>
+            <Button onClick={() => setMatrixOpen(true)}>View matrix</Button>
+          </section>
         </div>
+      )}
+
+      {matrixOpen && (
+        <CompatibilityMatrixDialog
+          catalog={catalog}
+          onClose={() => setMatrixOpen(false)}
+        />
       )}
 
       <Button
         class="settings-toggle"
         aria-expanded={open}
         aria-controls="appearance-settings-panel"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setOpen((current) => !current);
+          setMatrixOpen(false);
+        }}
       >
         <SettingsIcon />
         <span>Settings</span>

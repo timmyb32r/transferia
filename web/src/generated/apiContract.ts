@@ -149,6 +149,7 @@ export type EndpointDefinition = {
   initial: JsonObject;
   message_preview: boolean;
   partitioned: boolean;
+  record_semantics: Array<RecordSemantics>;
   schema: JsonSchema;
 };
 
@@ -252,6 +253,8 @@ export type PerformanceAdvice = {
 };
 
 export type PerformanceAdviceSeverity = "info" | "warning";
+
+export type RecordSemantics = "append_only" | "changelog";
 
 export type RevisionRequest = {
   expected_record_version: string;

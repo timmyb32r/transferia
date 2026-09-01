@@ -13,6 +13,7 @@ pub use connectors::ytsaurus;
 use std::sync::Arc;
 
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::{
     ComponentRegistration, ConnectionCheckResult, DeliveryMode, RegistryBuilder,
 };
@@ -69,6 +70,10 @@ pub fn register(
                     )?))
                 },
             )?
+            .sink_record_semantics(vec![
+                RecordSemantics::AppendOnly,
+                RecordSemantics::Changelog,
+            ])?
             .sink_checker::<ytsaurus::YTsaurusSinkConfig, _, _>(check_sink_connection),
     )?;
     Ok(())

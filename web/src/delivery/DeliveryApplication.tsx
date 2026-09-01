@@ -224,7 +224,11 @@ export function DeliveryApplication() {
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";
-  const { discovery, setDiscovery, error: discoveryError } = useDiscovery({
+  const {
+    discovery,
+    setDiscovery,
+    error: discoveryError,
+  } = useDiscovery({
     editor,
     structurallyComplete: sourceSchemaComplete,
     job: discoveryJob,
@@ -538,6 +542,7 @@ export function DeliveryApplication() {
         deliveries={deliveries}
         selectedId={editor.id}
         appearance={appearance}
+        catalog={catalog}
         onAppearance={setAppearance}
         dataWidgetAvailable={dataSchemaAvailable}
         dataWidgetUnavailableReason={dataSchemaUnavailableReason}

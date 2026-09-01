@@ -35,6 +35,7 @@ const endpoint: EndpointDefinition = {
   },
   initial: { host: "", password: "", shard_group: "", timeout_ms: 1000 },
   delivery_modes: [],
+  record_semantics: ["append_only"],
   partitioned: false,
   connection_check: true,
   message_preview: false,
@@ -210,7 +211,9 @@ describe("endpoint connection check", () => {
         title="Destination"
         role="sink"
         selectedKey="clickhouse"
-        connectors={[{ key: "clickhouse", title: "ClickHouse", sink: endpoint }]}
+        connectors={[
+          { key: "clickhouse", title: "ClickHouse", sink: endpoint },
+        ]}
         endpoint={endpoint}
         config={{ sink: { clickhouse: { host: "db.example" } } }}
         readOnly={false}
@@ -237,7 +240,9 @@ describe("endpoint connection check", () => {
         title="Source"
         role="source"
         selectedKey="postgres"
-        connectors={[{ key: "postgres", title: "PostgreSQL", source: endpoint }]}
+        connectors={[
+          { key: "postgres", title: "PostgreSQL", source: endpoint },
+        ]}
         endpoint={endpoint}
         config={{ source: { postgres: { host: "db.example" } } }}
         readOnly
@@ -289,6 +294,7 @@ describe("endpoint connection check", () => {
       },
       initial: { token_file: "", parser: {} },
       delivery_modes: [],
+      record_semantics: ["append_only"],
       partitioned: true,
       connection_check: false,
       message_preview: true,

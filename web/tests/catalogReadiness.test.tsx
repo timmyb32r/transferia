@@ -59,6 +59,7 @@ describe("connector catalog readiness", () => {
             },
             initial: { brokers: [], parser: { table_name: "" } },
             delivery_modes: ["stream"],
+            record_semantics: ["append_only"],
             partitioned: true,
             connection_check: true,
             message_preview: true,
@@ -108,11 +109,7 @@ describe("connector catalog readiness", () => {
   });
 
   it("orders regular endpoints alphabetically and keeps benchmark endpoints last", () => {
-    const catalog = decodeApi(
-      "catalog_response",
-      catalogFixture,
-      "catalog",
-    );
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
 
     expect(
       orderedEndpointConnectors(catalog, "source").map(
@@ -149,11 +146,7 @@ describe("connector catalog readiness", () => {
   });
 
   it("accepts every current catalog schema and initial value at startup", () => {
-    const catalog = decodeApi(
-      "catalog_response",
-      catalogFixture,
-      "catalog",
-    );
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
 
     expect(() =>
       validateCatalogSchemas(catalog, productionWidgetRegistry),
@@ -161,11 +154,7 @@ describe("connector catalog readiness", () => {
   });
 
   it("gives every incomplete source and sink initial state an actionable target", () => {
-    const catalog = decodeApi(
-      "catalog_response",
-      catalogFixture,
-      "catalog",
-    );
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     let sourceCount = 0;
     let sinkCount = 0;
 
@@ -177,10 +166,7 @@ describe("connector catalog readiness", () => {
         if (endpoint === undefined) continue;
         if (role === "source") sourceCount += 1;
         else sinkCount += 1;
-        const node = compileSchema(
-          endpoint.schema,
-          productionWidgetRegistry,
-        );
+        const node = compileSchema(endpoint.schema, productionWidgetRegistry);
         const view = render(
           <SchemaForm
             node={node}
@@ -212,11 +198,7 @@ describe("connector catalog readiness", () => {
   });
 
   it("leaves no non-editable blocker undiscovered in any selectable endpoint variant", () => {
-    const catalog = decodeApi(
-      "catalog_response",
-      catalogFixture,
-      "catalog",
-    );
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     let variantCount = 0;
 
     for (const connector of catalog.connectors) {
@@ -225,10 +207,7 @@ describe("connector catalog readiness", () => {
         ["sink", connector.sink],
       ] as const) {
         if (endpoint === undefined) continue;
-        const node = compileSchema(
-          endpoint.schema,
-          productionWidgetRegistry,
-        );
+        const node = compileSchema(endpoint.schema, productionWidgetRegistry);
         for (const scenario of unionScenarios(node)) {
           const value = visibleWitness(
             node,
@@ -250,17 +229,14 @@ describe("connector catalog readiness", () => {
   });
 
   it("accepts a complete structural witness for every source and destination pair", () => {
-    const catalog = decodeApi(
-      "catalog_response",
-      catalogFixture,
-      "catalog",
-    );
+    const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     const common = compileSchema(
       catalog.common_schema,
       productionWidgetRegistry,
     );
     const commonValue = completeWitness(common, catalog.initial);
-    if (!isObject(commonValue)) throw new Error("common witness is not an object");
+    if (!isObject(commonValue))
+      throw new Error("common witness is not an object");
     const sources = catalog.connectors.flatMap((connector) =>
       connector.source === undefined
         ? []
@@ -328,7 +304,8 @@ function completeWitness(
           seed === undefined ? false : branchMatches(candidate, seed),
         ) ?? node.branches[0];
       if (branch === undefined) throw new Error("union has no branch");
-      if (branch.constant !== undefined) return structuredClone(branch.constant);
+      if (branch.constant !== undefined)
+        return structuredClone(branch.constant);
       const value = completeWitness(branch.node, seed, required);
       return branch.discriminator !== undefined && isObject(value)
         ? {
@@ -345,11 +322,7 @@ function completeWitness(
       for (const [name, child] of Object.entries(node.properties)) {
         const childRequired = node.required.has(name);
         if (childRequired || source[name] !== undefined)
-          value[name] = completeWitness(
-            child,
-            source[name],
-            childRequired,
-          );
+          value[name] = completeWitness(child, source[name], childRequired);
       }
       return value;
     }
@@ -384,7 +357,8 @@ function unionScenarios(
     label: string;
     forces: Map<CompiledNode, number>;
   }> = [];
-  if (path === "#") scenarios.push({ label: "initial branches", forces: ancestors });
+  if (path === "#")
+    scenarios.push({ label: "initial branches", forces: ancestors });
   if (node.hidden === true) return scenarios;
   switch (node.kind) {
     case "union":
@@ -456,7 +430,8 @@ function visibleWitness(
         );
       const branch = node.branches[index < 0 ? 0 : index];
       if (branch === undefined) throw new Error("union has no branch");
-      if (branch.constant !== undefined) return structuredClone(branch.constant);
+      if (branch.constant !== undefined)
+        return structuredClone(branch.constant);
       const value = visibleWitness(branch.node, seed, required, forces);
       return branch.discriminator !== undefined && isObject(value)
         ? {
@@ -520,18 +495,14 @@ function containsForcedUnion(
   if (node.kind === "union")
     return (
       forces.has(node) ||
-      node.branches.some((branch) =>
-        containsForcedUnion(branch.node, forces),
-      )
+      node.branches.some((branch) => containsForcedUnion(branch.node, forces))
     );
   if (node.kind === "object")
     return Object.values(node.properties).some((child) =>
       containsForcedUnion(child, forces),
     );
-  if (node.kind === "array")
-    return containsForcedUnion(node.item, forces);
-  if (node.kind === "nullable")
-    return containsForcedUnion(node.inner, forces);
+  if (node.kind === "array") return containsForcedUnion(node.item, forces);
+  if (node.kind === "nullable") return containsForcedUnion(node.inner, forces);
   return false;
 }
 

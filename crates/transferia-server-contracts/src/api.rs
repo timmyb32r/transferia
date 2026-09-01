@@ -464,6 +464,10 @@ pub fn fixture() -> anyhow::Result<Value> {
                     transferia_registry::DeliveryMode::Batch,
                     transferia_registry::DeliveryMode::Stream,
                 ],
+                record_semantics: vec![
+                    transferia_delivery_contracts::semantics::RecordSemantics::AppendOnly,
+                    transferia_delivery_contracts::semantics::RecordSemantics::Changelog,
+                ],
                 partitioned: false,
                 connection_check: true,
                 message_preview: false,

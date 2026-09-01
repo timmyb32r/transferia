@@ -384,7 +384,11 @@ fn build_base_connector_catalog(
                     crate::connectors::discard::connector::DiscardSinkConnector,
                 ))
             },
-        )?,
+        )?
+        .sink_record_semantics(vec![
+            transferia_delivery_contracts::semantics::RecordSemantics::AppendOnly,
+            transferia_delivery_contracts::semantics::RecordSemantics::Changelog,
+        ])?,
     )?;
 
     Ok(catalog.build())
