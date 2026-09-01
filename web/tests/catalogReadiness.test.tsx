@@ -21,7 +21,7 @@ import {
   type CompiledNode,
 } from "../src/schema/compiler";
 import { SchemaForm } from "../src/schema/SchemaForm";
-import type { JsonObject, JsonValue } from "../src/types";
+import type { JsonObject, JsonValue, UiCatalog } from "../src/types";
 import {
   nextRequiredTarget,
   REQUIRED_CONTROL_SELECTOR,
@@ -31,6 +31,69 @@ import { render } from "./support/render";
 afterEach(cleanup);
 
 describe("connector catalog readiness", () => {
+  it("allows parser-defined schema preview before source connectivity is configured", () => {
+    const catalog: UiCatalog = {
+      common_schema: { type: "object" },
+      initial: {},
+      connectors: [
+        {
+          key: "queue",
+          title: "Queue",
+          source: {
+            schema: {
+              type: "object",
+              properties: {
+                brokers: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 1,
+                },
+                parser: {
+                  type: "object",
+                  properties: { table_name: { type: "string" } },
+                  required: ["table_name"],
+                },
+              },
+              required: ["brokers", "parser"],
+            },
+            initial: { brokers: [], parser: { table_name: "" } },
+            delivery_modes: ["stream"],
+            partitioned: true,
+            connection_check: true,
+            message_preview: true,
+          },
+        },
+      ],
+    };
+
+    const incomplete = configurationReadiness(
+      catalog,
+      {
+        delivery_type: "stream",
+        source: { queue: { brokers: [], parser: { table_name: "" } } },
+      },
+      productionWidgetRegistry,
+    );
+    expect(incomplete.sourceComplete).toBe(false);
+    expect(incomplete.sourceSchemaReady).toBe(false);
+    expect(incomplete.sourceSchemaIssue?.path).toBe(
+      "#/source/queue/parser/table_name",
+    );
+
+    const previewable = configurationReadiness(
+      catalog,
+      {
+        delivery_type: "stream",
+        source: {
+          queue: { brokers: [], parser: { table_name: "events" } },
+        },
+      },
+      productionWidgetRegistry,
+    );
+    expect(previewable.sourceComplete).toBe(false);
+    expect(previewable.sourceSchemaReady).toBe(true);
+  });
+
   it("orders regular endpoints alphabetically and keeps benchmark endpoints last", () => {
     const catalog = decodeApi(
       "catalog_response",

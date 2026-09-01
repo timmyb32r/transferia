@@ -366,6 +366,8 @@ export function configurationReadiness(
   sinkIssue: CompletionIssue | undefined;
   commonComplete: boolean;
   sourceComplete: boolean;
+  sourceSchemaIssue: CompletionIssue | undefined;
+  sourceSchemaReady: boolean;
   sinkComplete: boolean;
   sourceReady: boolean;
   complete: boolean;
@@ -395,10 +397,35 @@ export function configurationReadiness(
           ),
           `#/sink/${escapePointer(selection.sinkKey)}`,
         );
+  const sourceNode =
+    selection.source === undefined
+      ? undefined
+      : compiledSchema(selection.source.schema, widgets);
+  const sourceValue = endpointValue(config, "source", selection.sourceKey);
+  const parserNode =
+    sourceNode?.kind === "object" ? sourceNode.properties.parser : undefined;
+  const sourceSchemaIssue =
+    sourceNode === undefined
+      ? undefined
+      : prefixIssue(
+          firstCompletionIssue(
+            parserNode ?? sourceNode,
+            parserNode === undefined || !isObject(sourceValue)
+              ? sourceValue
+              : sourceValue.parser,
+          ),
+          parserNode === undefined
+            ? `#/source/${escapePointer(selection.sourceKey)}`
+            : `#/source/${escapePointer(selection.sourceKey)}/parser`,
+        );
   const commonComplete =
     selection.error === undefined && commonIssue === undefined;
   const sourceComplete =
     selection.source !== undefined && sourceIssue === undefined;
+  const sourceSchemaReady =
+    selection.error === undefined &&
+    selection.source !== undefined &&
+    sourceSchemaIssue === undefined;
   const sinkComplete =
     selection.sink !== undefined && sinkIssue === undefined;
   const sourceReady = commonComplete && sourceComplete;
@@ -406,9 +433,11 @@ export function configurationReadiness(
     selection,
     commonIssue,
     sourceIssue,
+    sourceSchemaIssue,
     sinkIssue,
     commonComplete,
     sourceComplete,
+    sourceSchemaReady,
     sinkComplete,
     sourceReady,
     complete: sourceReady && sinkComplete,

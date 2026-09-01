@@ -555,38 +555,53 @@ impl ControlPlane {
         })?;
         let raw = serde_yaml::to_value(source_config)
             .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let resolved = self
-            .transferia
-            .registry()
-            .resolve_many(
-                source_kind,
-                transferia_connectors::extension::EndpointRole::Source,
-                raw,
-                cancellation.child_token(),
-            )
-            .await
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let pipeline_count = resolved.len();
-        let source_config = resolved.into_iter().next().ok_or_else(|| {
-            ServiceError::Validation("source installation resolved no endpoints".to_owned())
-        })?;
         let catalog = transferia_connectors::connectors::catalog::build_connector_catalog_with(
             &self.transferia,
             &Arc::new(transferia_connectors::metrics::MetricsRegistry::new()),
         )
         .map_err(ServiceError::Internal)?;
-        let source_connector = catalog
-            .build_source(source_kind, source_config)
-            .map_err(|error| ServiceError::Validation(error.to_string()))?;
-        let discovery = source_connector
-            .delivery_discovery(SourceDiscoveryContext {
-                request: DeliveryDiscoveryRequest {
-                    keep_system_columns: true,
-                },
-                cancellation: cancellation.child_token(),
-            })
-            .await
-            .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+        let request = DeliveryDiscoveryRequest {
+            keep_system_columns: true,
+        };
+        let (pipeline_count, discovery) = if catalog.supports_source_schema_preview(source_kind) {
+            let discovery = catalog
+                .preview_source_schema(
+                    source_kind,
+                    raw,
+                    request,
+                    cancellation.child_token(),
+                )
+                .await
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            (1, discovery)
+        } else {
+            let resolved = self
+                .transferia
+                .registry()
+                .resolve_many(
+                    source_kind,
+                    transferia_connectors::extension::EndpointRole::Source,
+                    raw,
+                    cancellation.child_token(),
+                )
+                .await
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let pipeline_count = resolved.len();
+            let source_config = resolved.into_iter().next().ok_or_else(|| {
+                ServiceError::Validation("source installation resolved no endpoints".to_owned())
+            })?;
+            let source_connector = catalog
+                .build_source(source_kind, source_config)
+                .map_err(|error| ServiceError::Validation(error.to_string()))?;
+            let discovery = source_connector
+                .delivery_discovery(SourceDiscoveryContext {
+                    request,
+                    cancellation: cancellation.child_token(),
+                })
+                .await
+                .map_err(|error| ServiceError::Validation(format!("{error:#}")))?;
+            (pipeline_count, discovery)
+        };
 
         let configured_sink = config
             .get("sink")

@@ -26,6 +26,7 @@ pub fn register_with_parsers(
     metrics: &Arc<MetricsRegistry>,
     parser_plugins: parsers::ParserPluginRegistry,
 ) -> anyhow::Result<()> {
+    let schema_preview_plugins = parser_plugins.clone();
     registry.register(
         ComponentRegistration::new("kafka", "Kafka")
             .source_draft::<kafka::KafkaSourceConfig, _, _>(
@@ -52,6 +53,37 @@ pub fn register_with_parsers(
                     }
                 },
             )?
+            .source_schema_previewer(move |raw, request, _cancellation| {
+                let parser_plugins = schema_preview_plugins.clone();
+                async move {
+                    let parser = raw
+                        .get("parser")
+                        .cloned()
+                        .ok_or_else(|| anyhow::anyhow!("select a parser first"))?;
+                    let parser: parsers::ParserConfig = serde_yaml::from_value(parser)?;
+                    let source_name = raw
+                        .get("topics")
+                        .and_then(serde_yaml::Value::as_sequence)
+                        .and_then(|topics| topics.first())
+                        .and_then(serde_yaml::Value::as_str)
+                        .unwrap_or_default();
+                    let plan = parsers::ParserPlan::from_config_with_plugins(
+                        &parser,
+                        source_name,
+                        &parser_plugins,
+                    )?;
+                    let discovery_source = if source_name.is_empty() {
+                        plan.table()
+                    } else {
+                        Arc::from(source_name)
+                    };
+                    plan.delivery_discovery(
+                        discovery_source,
+                        transferia_core::delivery::SourceTopology::DynamicWorkerLanes,
+                        request,
+                    )
+                }
+            })
             .source_checker::<kafka::KafkaSourceConfig, _, _>(|config| async move {
                 kafka::check_source_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

@@ -217,7 +217,7 @@ export function DeliveryApplication() {
     [catalog, editor.config, widgets],
   );
   const selection = readiness?.selection;
-  const sourceSchemaComplete = readiness?.sourceReady ?? false;
+  const sourceSchemaComplete = readiness?.sourceSchemaReady ?? false;
   const structurallyComplete = readiness?.complete ?? false;
   const requiredFieldsComplete =
     structurallyComplete && editor.name.trim() !== "";

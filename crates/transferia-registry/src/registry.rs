@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use serde_yaml::Value;
 use tokio_util::sync::CancellationToken;
+use transferia_core::delivery::{DeliveryDiscovery, DeliveryDiscoveryRequest};
 use transferia_delivery_contracts::metrics::MetricsRegistry;
 use transferia_delivery_contracts::middleware::Middleware;
 
@@ -28,6 +29,15 @@ type SourcePreviewer = Box<
             usize,
             CancellationToken,
         ) -> Pin<Box<dyn Future<Output = anyhow::Result<SourcePreview>> + Send>>
+        + Send
+        + Sync,
+>;
+type SourceSchemaPreviewer = Box<
+    dyn Fn(
+            Value,
+            DeliveryDiscoveryRequest,
+            CancellationToken,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<DeliveryDiscovery>> + Send>>
         + Send
         + Sync,
 >;
@@ -117,6 +127,7 @@ pub struct ComponentRegistration {
     source_checker: Option<ConnectionChecker>,
     sink_checker: Option<ConnectionChecker>,
     source_previewer: Option<SourcePreviewer>,
+    source_schema_previewer: Option<SourceSchemaPreviewer>,
 }
 
 pub struct MiddlewareRegistration {
@@ -208,6 +219,7 @@ impl ComponentRegistration {
             source_checker: None,
             sink_checker: None,
             source_previewer: None,
+            source_schema_previewer: None,
         }
     }
 
@@ -227,6 +239,24 @@ impl ComponentRegistration {
                     }),
                 },
             ));
+        self
+    }
+
+    /// Registers schema discovery that only depends on parser-related source
+    /// fields. This keeps data-schema preview usable before connection and
+    /// authentication settings are complete.
+    #[must_use]
+    pub fn source_schema_previewer<F, Fut>(mut self, previewer: F) -> Self
+    where
+        F: Fn(Value, DeliveryDiscoveryRequest, CancellationToken) -> Fut
+            + Send
+            + Sync
+            + 'static,
+        Fut: Future<Output = anyhow::Result<DeliveryDiscovery>> + Send + 'static,
+    {
+        self.source_schema_previewer = Some(Box::new(move |raw, request, cancellation| {
+            Box::pin(previewer(raw, request, cancellation))
+        }));
         self
     }
 
@@ -414,6 +444,11 @@ impl RegistryBuilder {
             registration.key
         );
         anyhow::ensure!(
+            registration.source_schema_previewer.is_none() || registration.source.is_some(),
+            "component '{}' registers source schema preview without a source",
+            registration.key
+        );
+        anyhow::ensure!(
             registration.sink_checker.is_none() || registration.sink.is_some(),
             "component '{}' registers a sink connection check without a sink",
             registration.key
@@ -448,6 +483,7 @@ impl RegistryBuilder {
         let mut source_checkers = BTreeMap::new();
         let mut sink_checkers = BTreeMap::new();
         let mut source_previewers = BTreeMap::new();
+        let mut source_schema_previewers = BTreeMap::new();
         for registration in self.registrations {
             let source = registration.source.map(|(mut definition, factory)| {
                 definition.connection_check = registration.source_checker.is_some();
@@ -468,6 +504,9 @@ impl RegistryBuilder {
             }
             if let Some(previewer) = registration.source_previewer {
                 source_previewers.insert(registration.key, previewer);
+            }
+            if let Some(previewer) = registration.source_schema_previewer {
+                source_schema_previewers.insert(registration.key, previewer);
             }
             definitions.push(ConnectorDefinition {
                 key: registration.key,
@@ -493,6 +532,7 @@ impl RegistryBuilder {
             source_checkers,
             sink_checkers,
             source_previewers,
+            source_schema_previewers,
             middleware_definitions,
             middlewares,
             middleware_previewers,
@@ -513,6 +553,7 @@ pub struct Registry {
     source_checkers: BTreeMap<&'static str, ConnectionChecker>,
     sink_checkers: BTreeMap<&'static str, ConnectionChecker>,
     source_previewers: BTreeMap<&'static str, SourcePreviewer>,
+    source_schema_previewers: BTreeMap<&'static str, SourceSchemaPreviewer>,
     middleware_definitions: Vec<MiddlewareDefinition>,
     middlewares: BTreeMap<&'static str, MiddlewareFactory>,
     middleware_previewers: BTreeMap<&'static str, MiddlewarePreviewer>,
@@ -527,6 +568,11 @@ impl Registry {
     #[must_use]
     pub fn middleware_definitions(&self) -> &[MiddlewareDefinition] {
         &self.middleware_definitions
+    }
+
+    #[must_use]
+    pub fn supports_source_schema_preview(&self, kind: &str) -> bool {
+        self.source_schema_previewers.contains_key(kind)
     }
 
     pub fn edit_definitions(
@@ -614,6 +660,19 @@ impl Registry {
             .get(kind)
             .ok_or_else(|| anyhow::anyhow!("{kind} source does not support message preview"))?;
         previewer(raw, max_bytes, cancellation).await
+    }
+
+    pub async fn preview_source_schema(
+        &self,
+        kind: &str,
+        raw: Value,
+        request: DeliveryDiscoveryRequest,
+        cancellation: CancellationToken,
+    ) -> anyhow::Result<DeliveryDiscovery> {
+        let previewer = self.source_schema_previewers.get(kind).ok_or_else(|| {
+            anyhow::anyhow!("{kind} source does not support partial schema preview")
+        })?;
+        previewer(raw, request, cancellation).await
     }
 }
 

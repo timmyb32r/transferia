@@ -419,6 +419,44 @@ async fn source_preview_is_a_typed_optional_capability() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn source_schema_preview_accepts_an_incomplete_runtime_configuration() -> anyhow::Result<()> {
+    let registration = source_registration("source")?.source_schema_previewer(
+        |raw, request, _cancellation| async move {
+            anyhow::ensure!(
+                raw.get("parser").and_then(serde_yaml::Value::as_str) == Some("raw"),
+                "schema preview received the parser-only draft"
+            );
+            Ok(transferia_core::delivery::DeliveryDiscovery {
+                source_name: "events".into(),
+                source_topology: transferia_core::delivery::SourceTopology::DynamicWorkerLanes,
+                schema_origin: transferia_core::delivery::SchemaOrigin::ParserProjection,
+                keep_system_columns: request.keep_system_columns,
+                datasets: Vec::new(),
+                performance_advice: Vec::new(),
+            })
+        },
+    );
+    let mut builder = RegistryBuilder::new();
+    builder.register(registration)?;
+    let registry = builder.build();
+
+    assert!(registry.supports_source_schema_preview("source"));
+    let discovery = registry
+        .preview_source_schema(
+            "source",
+            serde_yaml::from_str("parser: raw")?,
+            transferia_core::delivery::DeliveryDiscoveryRequest {
+                keep_system_columns: true,
+            },
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await?;
+    assert_eq!(&*discovery.source_name, "events");
+    assert!(discovery.keep_system_columns);
+    Ok(())
+}
+
 #[test]
 fn verified_connection_result_confirms_entity_access() {
     let result = ConnectionCheckResult::default();

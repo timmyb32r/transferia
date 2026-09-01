@@ -20,6 +20,7 @@ prost-types.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 sha2.workspace = true
 shellexpand.workspace = true
 tokio.workspace = true
@@ -41,7 +42,6 @@ tonic-prost-build.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
-serde_yaml.workspace = true
 transferia-connector-support = { path = "../transferia-connector-support", features = ["test"] }
 transferia-test-support = { path = "../transferia-test-support" }
 
