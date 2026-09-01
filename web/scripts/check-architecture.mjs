@@ -108,6 +108,13 @@ async function checkCssCustomProperties() {
     css.match(/\*::\-webkit-scrollbar\s*\{([^}]*)\}/)?.[1] ?? "";
   if (!globalScrollbar.includes("display: block"))
     violations.push("style.css: scrollbars must remain visible without hover");
+  const responsiveEditor = css.match(
+    /@media\s*\(max-width:\s*(\d+)px\)\s*\{\s*\.shell\s*\{[\s\S]*?\.route-composition\s*\{\s*grid-template-columns:\s*1fr;/,
+  );
+  if (!responsiveEditor || Number(responsiveEditor[1]) < 1280)
+    violations.push(
+      "style.css: the two-column editor must collapse before its minimum tracks overflow the viewport",
+    );
 }
 
 async function checkStableInteractiveHitTargets() {
