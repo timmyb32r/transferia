@@ -8,14 +8,14 @@ use crate::schema_registry::{
     encode_message_indexes, ConfluentEnvelope, RegistryClient, RegistrySchema, SchemaFormat,
     SchemaRegistryConnection,
 };
-use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::data::schema::{
-    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
-    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
+use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::sink::Delivery;
 
 use super::debezium::DebeziumJsonEncoder;
@@ -95,9 +95,7 @@ impl SerializerConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Json => Ok(()),
-            Self::DebeziumJson { logical_name } => {
-                validate_debezium_logical_name(logical_name)
-            }
+            Self::DebeziumJson { logical_name } => validate_debezium_logical_name(logical_name),
             Self::DebeziumSchemaRegistry {
                 logical_name,
                 connection,
@@ -112,10 +110,7 @@ impl SerializerConfig {
                 if let Some(subject) = key_subject {
                     validate_subject("debezium_schema_registry.key_subject", subject)?;
                 }
-                validate_subject(
-                    "debezium_schema_registry.value_subject",
-                    value_subject,
-                )?;
+                validate_subject("debezium_schema_registry.value_subject", value_subject)?;
                 if *format == SchemaFormat::Protobuf {
                     validate_message_indexes(
                         "debezium_schema_registry.key_protobuf_message_indexes",
@@ -239,25 +234,49 @@ impl SerializerConfig {
                 SystemColumnKind::ChangedColumns,
             ] {
                 anyhow::ensure!(
-                    dataset.system_columns.iter().any(|column| column.kind == kind),
+                    dataset
+                        .system_columns
+                        .iter()
+                        .any(|column| column.kind == kind),
                     "Debezium dataset '{}' is missing required {kind:?} metadata",
                     dataset.name
                 );
             }
             for (role, data_type) in [
-                (SYSTEM_ROLE_SOURCE_DATABASE, arrow::datatypes::DataType::Utf8),
+                (
+                    SYSTEM_ROLE_SOURCE_DATABASE,
+                    arrow::datatypes::DataType::Utf8,
+                ),
                 (SYSTEM_ROLE_SOURCE_SCHEMA, arrow::datatypes::DataType::Utf8),
                 (SYSTEM_ROLE_SOURCE_TABLE, arrow::datatypes::DataType::Utf8),
                 (
                     SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
                     arrow::datatypes::DataType::UInt64,
                 ),
-                (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, arrow::datatypes::DataType::Int64),
-                (SYSTEM_ROLE_SOURCE_TIMESTAMP_US, arrow::datatypes::DataType::Int64),
-                (SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, arrow::datatypes::DataType::Int64),
-                (SYSTEM_ROLE_EVENT_TIMESTAMP_MS, arrow::datatypes::DataType::Int64),
-                (SYSTEM_ROLE_EVENT_TIMESTAMP_US, arrow::datatypes::DataType::Int64),
-                (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, arrow::datatypes::DataType::Int64),
+                (
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+                    arrow::datatypes::DataType::Int64,
+                ),
+                (
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+                    arrow::datatypes::DataType::Int64,
+                ),
+                (
+                    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+                    arrow::datatypes::DataType::Int64,
+                ),
+                (
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+                    arrow::datatypes::DataType::Int64,
+                ),
+                (
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+                    arrow::datatypes::DataType::Int64,
+                ),
+                (
+                    SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+                    arrow::datatypes::DataType::Int64,
+                ),
             ] {
                 let matches = dataset
                     .incoming_schema
@@ -528,7 +547,7 @@ impl DeliverySerializer {
             let mut payloads = Vec::with_capacity(batch.rows());
             for row in 0..batch.rows() {
                 let mut json = Vec::new();
-                encoder.write_row(row, &mut json);
+                encoder.write_row(row, &mut json)?;
                 let newline = json.pop();
                 anyhow::ensure!(
                     newline == Some(b'\n'),
@@ -550,12 +569,12 @@ impl DeliverySerializer {
                         message_indexes,
                         &json,
                     )?,
-                    SerializerKind::DebeziumJson(_) => {
-                        unreachable!("Debezium batches are handled before row serialization")
+                    SerializerKind::DebeziumJson(_)
+                    | SerializerKind::DebeziumSchemaRegistry { .. } => {
+                        anyhow::bail!(
+                            "internal error: Debezium batch reached ordinary row serialization"
+                        )
                     }
-                    SerializerKind::DebeziumSchemaRegistry { .. } => unreachable!(
-                        "Debezium Schema Registry batches are handled before row serialization"
-                    ),
                 };
                 validate_payload_size(&output, message_size_limit)?;
                 payloads.push(SerializedMessage {
@@ -596,8 +615,8 @@ fn encode_debezium_registered_batch(
         if let Some(value) = &mut message.value {
             *value = encode_registered(value_schema, value_message_indexes, value)?;
         }
-        let message_bytes = message.key.as_ref().map_or(0, Vec::len)
-            + message.value.as_ref().map_or(0, Vec::len);
+        let message_bytes =
+            message.key.as_ref().map_or(0, Vec::len) + message.value.as_ref().map_or(0, Vec::len);
         anyhow::ensure!(
             message_bytes <= message_size_limit,
             "serialized queue message exceeds configured transport limit: message_bytes={message_bytes}, transport_limit_bytes={message_size_limit}"

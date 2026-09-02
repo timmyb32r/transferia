@@ -8,6 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use arrow::record_batch::RecordBatch;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner as _;
@@ -16,7 +17,10 @@ use tokio_util::sync::CancellationToken;
 use transferia_connector_postgres::metrics::MetricsRegistry;
 use transferia_connector_postgres::postgres::PostgresSourceConnector;
 use transferia_core::data::message::SourceBatch;
-use transferia_core::data::schema::META_OLD_VALUE_OF;
+use transferia_core::data::schema::{
+    META_OLD_VALUE_OF, META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+};
 use transferia_core::data::system_columns::{SystemColumnKind, SystemColumns};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::{CommitMarker, Source};
@@ -73,19 +77,22 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
              CREATE TABLE ignored (id integer PRIMARY KEY);\
              CREATE PUBLICATION transferia_publication FOR TABLE accounts, ignored;",
         )
-        .await?;
+        .await
+        .context("creating PostgreSQL CDC test schema and publication")?;
     client
         .query_one(
             "SELECT * FROM pg_create_logical_replication_slot('transferia_pgoutput', 'pgoutput')",
             &[],
         )
-        .await?;
+        .await
+        .context("creating pgoutput replication slot")?;
     client
         .query_one(
             "SELECT * FROM pg_create_logical_replication_slot('transferia_wal2json', 'wal2json')",
             &[],
         )
-        .await?;
+        .await
+        .context("creating wal2json replication slot")?;
 
     let mut pgoutput = source(&host, port, "pgoutput").await?;
     let mut wal2json = source(&host, port, "wal2json").await?;
@@ -95,14 +102,15 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
     client
         .batch_execute(
             "BEGIN;\
-             INSERT INTO accounts\
-             SELECT 1, 'alice', 10, string_agg(md5(value::text), '')\
+             INSERT INTO accounts \
+             SELECT 1, 'alice', 10, string_agg(md5(value::text), '') \
              FROM generate_series(1, 10000) AS value;\
              UPDATE accounts SET name = 'alice-2', balance = 11 WHERE id = 1;\
              DELETE FROM accounts WHERE id = 1;\
              COMMIT;",
         )
-        .await?;
+        .await
+        .context("writing the PostgreSQL CDC parity transaction")?;
 
     let pgoutput_batch = read_changes(&mut pgoutput).await?;
     let wal2json_batch = read_changes(&mut wal2json).await?;
@@ -132,12 +140,16 @@ async fn pgoutput_and_wal2json_emit_identical_committable_arrow_changes() -> any
         .commit_offsets(std::slice::from_ref(&wal2json_marker))
         .await?;
 
-    assert!(tokio::time::timeout(Duration::from_millis(400), pgoutput.read_batch())
-        .await
-        .is_err());
-    assert!(tokio::time::timeout(Duration::from_millis(400), wal2json.read_batch())
-        .await
-        .is_err());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), pgoutput.read_batch())
+            .await
+            .is_err()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(400), wal2json.read_batch())
+            .await
+            .is_err()
+    );
     Ok(())
 }
 
@@ -147,11 +159,7 @@ struct ChangeBatch {
     marker: CommitMarker,
 }
 
-async fn source(
-    host: &str,
-    port: u16,
-    decoder: &str,
-) -> anyhow::Result<Box<dyn Source>> {
+async fn source(host: &str, port: u16, decoder: &str) -> anyhow::Result<Box<dyn Source>> {
     let decoder = match decoder {
         "pgoutput" => "{ type: pgoutput, publication: transferia_publication }",
         "wal2json" => "{ type: wal2_json }",
@@ -159,7 +167,7 @@ async fn source(
     };
     let connector = PostgresSourceConnector::from_config(
         serde_yaml::from_str(&format!(
-            r#"host: '{host}'
+            r"host: '{host}'
 port: {port}
 database: transferia
 username: postgres
@@ -171,7 +179,7 @@ replication:
   slot: transferia_{decoder_name}
   decoder: {decoder}
   poll_interval_ms: 10
-"#,
+",
             decoder_name = if decoder.contains("pgoutput") {
                 "pgoutput"
             } else {
@@ -245,8 +253,28 @@ async fn read_filtered_transaction(source: &mut Box<dyn Source>) -> anyhow::Resu
 fn assert_same_change_rows(left: &ChangeBatch, right: &ChangeBatch) {
     assert_eq!(left.batch.num_rows(), right.batch.num_rows());
     assert_eq!(left.batch.num_columns(), right.batch.num_columns());
+    assert_eq!(left.batch.schema(), right.batch.schema());
+    let schema = left.batch.schema();
     for index in 0..left.batch.num_columns() {
-        assert_eq!(left.batch.column(index).to_data(), right.batch.column(index).to_data());
+        let field = schema.field(index);
+        if matches!(
+            field.metadata().get(META_SYSTEM_ROLE).map(String::as_str),
+            Some(
+                SYSTEM_ROLE_EVENT_TIMESTAMP_MS
+                    | SYSTEM_ROLE_EVENT_TIMESTAMP_US
+                    | SYSTEM_ROLE_EVENT_TIMESTAMP_NS
+            )
+        ) {
+            // Event timestamps intentionally measure local observation time,
+            // so two decoder sessions reading the same WAL cannot be equal.
+            continue;
+        }
+        assert_eq!(
+            left.batch.column(index).to_data(),
+            right.batch.column(index).to_data(),
+            "decoder output differs in deterministic field '{}'",
+            field.name(),
+        );
     }
 }
 

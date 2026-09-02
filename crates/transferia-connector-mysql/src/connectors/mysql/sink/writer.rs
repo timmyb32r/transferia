@@ -80,8 +80,7 @@ impl MySqlSink {
                         .await?;
                     }
                     ProjectedSinkBatch::Changelog(changelog) => {
-                        for (run_index, run) in
-                            changelog.collapsed_runs()?.into_iter().enumerate()
+                        for (run_index, run) in changelog.collapsed_runs()?.into_iter().enumerate()
                         {
                             flushes += match run.operation {
                                 transferia_core::ChangeOperation::Create
@@ -185,14 +184,8 @@ async fn write_update_batch(
         ))
         .await?;
     let result = async {
-        let mut flushes = write_insert_batches(
-            connection,
-            staging,
-            batch,
-            insert_rows,
-            None,
-        )
-        .await?;
+        let mut flushes =
+            write_insert_batches(connection, staging, batch, insert_rows, None).await?;
         let predicate = primary_keys
             .iter()
             .map(|key| {
@@ -236,7 +229,10 @@ async fn write_update_batch(
     }
     .await;
     let drop_result = connection
-        .query_drop(format!("DROP TEMPORARY TABLE {}", quote_identifier(staging)))
+        .query_drop(format!(
+            "DROP TEMPORARY TABLE {}",
+            quote_identifier(staging)
+        ))
         .await;
     match (result, drop_result) {
         (Ok(flushes), Ok(())) => Ok(flushes),
@@ -264,15 +260,7 @@ async fn write_insert_batches(
     let mut flushes = 0;
     for offset in (0..batch.num_rows()).step_by(max_rows) {
         let len = max_rows.min(batch.num_rows() - offset);
-        insert_chunk(
-            connection,
-            table,
-            batch,
-            offset,
-            len,
-            upsert_primary_keys,
-        )
-        .await?;
+        insert_chunk(connection, table, batch, offset, len, upsert_primary_keys).await?;
         flushes += 1;
     }
     Ok(flushes)
@@ -323,7 +311,8 @@ async fn insert_chunk(
         } else {
             updates.join(", ")
         };
-        query.push_str(&format!(" ON DUPLICATE KEY UPDATE {updates}"));
+        query.push_str(" ON DUPLICATE KEY UPDATE ");
+        query.push_str(&updates);
     }
     let mut values = Vec::with_capacity(len.saturating_mul(batch.num_columns()));
     for row in offset..offset + len {

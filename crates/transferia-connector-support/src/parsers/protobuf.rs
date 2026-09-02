@@ -832,9 +832,12 @@ impl SystemBuilders {
                     SystemColumnKind::MessageIndex => {
                         SystemBuilder::UInt64(UInt64Builder::with_capacity(rows))
                     }
-                    SystemColumnKind::ChangedColumns => SystemBuilder::Binary(
-                        BinaryBuilder::with_capacity(rows, rows.saturating_mul(data_columns.div_ceil(8))),
-                    ),
+                    SystemColumnKind::ChangedColumns => {
+                        SystemBuilder::Binary(BinaryBuilder::with_capacity(
+                            rows,
+                            rows.saturating_mul(data_columns.div_ceil(8)),
+                        ))
+                    }
                 })
                 .collect(),
         )

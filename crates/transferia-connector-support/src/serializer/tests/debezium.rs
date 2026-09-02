@@ -5,10 +5,10 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use transferia_core::data::schema::{
     SchemaColumn, META_CHANGE_OPERATION, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::memory::PipelineMemory;
@@ -43,10 +43,7 @@ async fn kafka_emits_debezium_keys_tombstones_and_primary_key_change_sequence() 
     let update = json(encoded.messages[1].value.as_deref().unwrap());
     assert_eq!(update["before"]["id"], 1);
     assert!(update["before"]["payload"].is_null());
-    assert_eq!(
-        update["after"]["payload"],
-        "__debezium_unavailable_value"
-    );
+    assert_eq!(update["after"]["payload"], "__debezium_unavailable_value");
     assert_eq!(update["op"], "u");
 
     assert_eq!(json(encoded.messages[2].key.as_deref().unwrap())["id"], 1);
@@ -75,8 +72,7 @@ async fn kafka_emits_debezium_keys_tombstones_and_primary_key_change_sequence() 
 #[tokio::test]
 async fn logbroker_omits_keys_and_tombstones_without_losing_pk_change_events() {
     let batch = cdc_batch().await;
-    let encoder =
-        DebeziumJsonEncoder::new("inventory".to_owned(), QueueMessageMode::ValuesOnly);
+    let encoder = DebeziumJsonEncoder::new("inventory".to_owned(), QueueMessageMode::ValuesOnly);
     let encoded = encoder.encode_batch(&batch, usize::MAX).unwrap();
 
     assert_eq!(encoded.messages.len(), 5);
@@ -115,9 +111,21 @@ async fn cdc_batch() -> SinkBatch {
     let old_key = SchemaColumn::new("_system_old_key_0".to_owned(), DataType::Int64, true)
         .with_old_key_of("id".to_owned());
     let roles = [
-        ("_system_source_database", SYSTEM_ROLE_SOURCE_DATABASE, DataType::Utf8),
-        ("_system_source_schema", SYSTEM_ROLE_SOURCE_SCHEMA, DataType::Utf8),
-        ("_system_source_table", SYSTEM_ROLE_SOURCE_TABLE, DataType::Utf8),
+        (
+            "_system_source_database",
+            SYSTEM_ROLE_SOURCE_DATABASE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_schema",
+            SYSTEM_ROLE_SOURCE_SCHEMA,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_table",
+            SYSTEM_ROLE_SOURCE_TABLE,
+            DataType::Utf8,
+        ),
         (
             "_system_source_transaction_id",
             SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
@@ -156,8 +164,7 @@ async fn cdc_batch() -> SinkBatch {
     ];
     let mut fields = vec![
         Field::new("id", DataType::Int64, true).with_metadata(user_id.arrow_metadata()),
-        Field::new("payload", DataType::Utf8, true)
-            .with_metadata(user_payload.arrow_metadata()),
+        Field::new("payload", DataType::Utf8, true).with_metadata(user_payload.arrow_metadata()),
         Field::new("_system_old_key_0", DataType::Int64, true)
             .with_metadata(old_key.arrow_metadata()),
     ];
@@ -193,12 +200,7 @@ async fn cdc_batch() -> SinkBatch {
         Arc::new(Schema::new(fields)),
         vec![
             Arc::new(Int64Array::from(vec![Some(1), Some(1), Some(2), None])),
-            Arc::new(StringArray::from(vec![
-                Some("alpha"),
-                None,
-                None,
-                None,
-            ])),
+            Arc::new(StringArray::from(vec![Some("alpha"), None, None, None])),
             Arc::new(Int64Array::from(vec![None, Some(1), Some(1), Some(2)])),
             Arc::new(StringArray::from(vec!["postgres"; 4])),
             Arc::new(StringArray::from(vec!["public"; 4])),

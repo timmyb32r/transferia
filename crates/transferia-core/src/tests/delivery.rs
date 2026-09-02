@@ -95,8 +95,15 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
     assert!(validate_stored_projection(&wrong_type, &wrong_type.datasets[0]).is_err());
 
     let mut nullable = projection_discovery(false);
-    nullable.datasets[0].incoming_schema.columns[1].nullable = true;
-    assert!(validate_stored_projection(&nullable, &nullable.datasets[0]).is_err());
+    nullable.datasets[0].incoming_schema.columns[0].nullable = true;
+    validate_stored_projection(&nullable, &nullable.datasets[0]).unwrap();
+
+    let mut stored_more_nullable = projection_discovery(false);
+    stored_more_nullable.datasets[0].stored_schema.columns[0].nullable = true;
+    assert!(
+        validate_stored_projection(&stored_more_nullable, &stored_more_nullable.datasets[0])
+            .is_err()
+    );
 }
 
 #[test]
@@ -104,7 +111,7 @@ fn semantic_control_columns_are_never_part_of_stored_user_data() -> anyhow::Resu
     let user = SchemaColumn::new("value".into(), DataType::Int64, false);
     let control = SchemaColumn::new("_system_source_database".into(), DataType::Utf8, false)
         .with_system_role(crate::data::schema::SYSTEM_ROLE_SOURCE_DATABASE);
-    let discovery = DeliveryDiscovery {
+    let mut discovery = DeliveryDiscovery {
         source_name: Arc::from("postgres"),
         source_topology: SourceTopology::StaticPartitions(vec![0]),
         schema_origin: SchemaOrigin::SourceNative,
@@ -121,8 +128,7 @@ fn semantic_control_columns_are_never_part_of_stored_user_data() -> anyhow::Resu
 
     validate_stored_projection(&discovery, &discovery.datasets[0])?;
 
-    let mut leaked = discovery.clone();
-    leaked.datasets[0].stored_schema.columns.push(control);
-    assert!(validate_stored_projection(&leaked, &leaked.datasets[0]).is_err());
+    discovery.datasets[0].stored_schema.columns.push(control);
+    assert!(validate_stored_projection(&discovery, &discovery.datasets[0]).is_err());
     Ok(())
 }

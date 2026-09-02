@@ -25,7 +25,10 @@ fn source_delivery_modes_are_explicit() {
 
 #[test]
 fn sources_declare_append_only_or_changelog_record_semantics() {
-    assert_eq!(source().record_semantics(), Some(RecordSemantics::AppendOnly));
+    assert_eq!(
+        source().record_semantics(),
+        Some(RecordSemantics::AppendOnly)
+    );
     assert_eq!(
         changelog_source().record_semantics(),
         Some(RecordSemantics::Changelog)
@@ -54,9 +57,11 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
     for sink in operation_aware {
         assert!(sink.accepts_record_semantics(RecordSemantics::AppendOnly));
         assert!(sink.accepts_record_semantics(RecordSemantics::Changelog));
-        assert!(validate_pipeline(&changelog_source(), &sink, &discovery(), false)
-            .ensure_valid()
-            .is_ok());
+        assert!(
+            validate_pipeline(&changelog_source(), &sink, &discovery(), false)
+                .ensure_valid()
+                .is_ok()
+        );
     }
 
     let append_only = [
@@ -86,11 +91,12 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
         EndpointDescriptor::KafkaSink(QueueSinkDescriptor { changelog: true }),
     ] {
         assert!(sink.accepts_record_semantics(RecordSemantics::Changelog));
-        assert!(validate_pipeline(&changelog_source(), &sink, &discovery(), false)
-            .ensure_valid()
-            .is_ok());
+        assert!(
+            validate_pipeline(&changelog_source(), &sink, &discovery(), false)
+                .ensure_valid()
+                .is_ok()
+        );
     }
-
 }
 
 fn discovery() -> DeliveryDiscovery {

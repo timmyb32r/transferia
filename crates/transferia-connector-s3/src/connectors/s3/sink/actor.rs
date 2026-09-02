@@ -397,7 +397,9 @@ impl S3Sink {
             buffer.start_offset = buffer.start_offset.min(row.route.offset);
             buffer.rows = buffer.rows.saturating_add(1);
             let before = buffer.payload.len();
-            encoders[row.output_index].write_row(row.row_index, &mut buffer.payload);
+            encoders[row.output_index]
+                .write_row(row.row_index, &mut buffer.payload)
+                .map_err(DataPlaneFailure::fatal)?;
             let row_bytes = buffer.payload.len().saturating_sub(before);
             serialized_bytes = serialized_bytes.saturating_add(row_bytes);
             retained_bytes =

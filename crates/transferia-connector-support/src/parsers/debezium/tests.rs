@@ -17,6 +17,16 @@ use crate::schema_registry::{
     encode_message_indexes, json_to_avro, protobuf_descriptor_pool, RegistrySchema, SchemaFormat,
 };
 
+#[test]
+fn primary_keys_are_an_explicit_required_editor_field() -> anyhow::Result<()> {
+    let schema = serde_json::to_value(schemars::schema_for!(DebeziumParserConfig))?;
+    let keys = &schema["properties"]["keys"];
+    assert_eq!(keys["minItems"], 1);
+    assert!(keys.get("x-ui").is_none());
+    assert_eq!(keys["title"], "Primary key columns");
+    Ok(())
+}
+
 #[tokio::test]
 async fn json_parser_preserves_changelog_controls_to_sink_projection() -> anyhow::Result<()> {
     let config = config(DebeziumInput::Json);
@@ -56,20 +66,30 @@ async fn json_parser_preserves_changelog_controls_to_sink_projection() -> anyhow
     let parser = plan.parser();
     let mut session = parser.create_session(4 * 1024 * 1024);
     let messages = vec![
-        message(envelope("c", Value::Null, row(1, Value::from("alpha")), 10)),
-        message(envelope(
+        message(&envelope(
+            "c",
+            &Value::Null,
+            &row(1, &Value::from("alpha")),
+            10,
+        )),
+        message(&envelope(
             "u",
-            row(1, Value::from("alpha")),
-            row(1, Value::from(UNAVAILABLE_VALUE)),
+            &row(1, &Value::from("alpha")),
+            &row(1, &Value::from(UNAVAILABLE_VALUE)),
             11,
         )),
-        message(envelope("d", row(1, Value::from("alpha")), Value::Null, 12)),
+        message(&envelope(
+            "d",
+            &row(1, &Value::from("alpha")),
+            &Value::Null,
+            12,
+        )),
         Message {
             value: Bytes::new(),
             tombstone: true,
             key: Some(Bytes::from_static(br#"{"id":1}"#)),
             headers: Arc::from([]),
-            meta: Default::default(),
+            meta: transferia_core::data::message::MessageMeta::default(),
         },
     ];
     let (main, dlq) = session.parse_into(messages)?;
@@ -123,8 +143,8 @@ async fn json_parser_preserves_changelog_controls_to_sink_projection() -> anyhow
 fn json_and_all_schema_registry_formats_normalize_identically() -> anyhow::Result<()> {
     let value = envelope(
         "u",
-        row(7, Value::from("old")),
-        row(7, Value::from("new")),
+        &row(7, &Value::from("old")),
+        &row(7, &Value::from("new")),
         42,
     );
     let paths = [
@@ -133,10 +153,10 @@ fn json_and_all_schema_registry_formats_normalize_identically() -> anyhow::Resul
     ];
     let types = [JsonDataType::Number, JsonDataType::String];
     let fields = ["id".to_owned(), "payload".to_owned()];
-    let expected = normalize_envelope(value.clone(), &paths, &types, &fields)?;
+    let expected = normalize_envelope(&value, &paths, &types, &fields)?;
 
     for (format, decoded) in registry_decoded_values(&value)? {
-        let actual = normalize_envelope(decoded, &paths, &types, &fields)
+        let actual = normalize_envelope(&decoded, &paths, &types, &fields)
             .with_context(|| format!("normalizing {format:?} Debezium envelope"))?;
         assert_eq!(actual, expected, "{format:?}");
     }
@@ -150,16 +170,16 @@ fn parser_rejects_unknown_user_fields_and_invalid_event_shapes() -> anyhow::Resu
     let fields = ["id".to_owned()];
     let unknown = envelope(
         "c",
-        Value::Null,
-        serde_json::json!({"id": 1, "lost": "must fail"}),
+        &Value::Null,
+        &serde_json::json!({"id": 1, "lost": "must fail"}),
         1,
     );
-    assert!(normalize_envelope(unknown, &paths, &types, &fields)
+    assert!(normalize_envelope(&unknown, &paths, &types, &fields)
         .unwrap_err()
         .to_string()
         .contains("unmapped field 'lost'"));
-    let invalid = envelope("u", Value::Null, row(1, Value::Null), 1);
-    assert!(normalize_envelope(invalid, &paths, &types, &fields)
+    let invalid = envelope("u", &Value::Null, &row(1, &Value::Null), 1);
+    assert!(normalize_envelope(&invalid, &paths, &types, &fields)
         .unwrap_err()
         .to_string()
         .contains("update before"));
@@ -195,10 +215,10 @@ fn unavailable_nonnullable_value_is_nullable_only_in_the_incoming_schema() -> an
 
     let parser = Arc::new(DebeziumParser::new(&config, Arc::from("accounts"))?);
     let mut session = parser.create_session(4 * 1024 * 1024);
-    let (batch, _) = session.parse_into(vec![message(envelope(
+    let (batch, _) = session.parse_into(vec![message(&envelope(
         "u",
-        row(1, Value::from("old")),
-        row(1, Value::from(UNAVAILABLE_VALUE)),
+        &row(1, &Value::from("old")),
+        &row(1, &Value::from(UNAVAILABLE_VALUE)),
         11,
     ))])?;
     assert!(batch.batch.column(1).is_null(0));
@@ -237,15 +257,15 @@ fn mapping(
     }
 }
 
-fn message(value: Value) -> Message {
+fn message(value: &Value) -> Message {
     Message::new(Bytes::from(serde_json::to_vec(&value).unwrap()))
 }
 
-fn row(id: i64, payload: Value) -> Value {
+fn row(id: i64, payload: &Value) -> Value {
     serde_json::json!({"id": id, "payload": payload})
 }
 
-fn envelope(operation: &str, before: Value, after: Value, lsn: i64) -> Value {
+fn envelope(operation: &str, before: &Value, after: &Value, lsn: i64) -> Value {
     serde_json::json!({
         "before": before,
         "after": after,

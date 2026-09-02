@@ -122,7 +122,11 @@ pub struct DebeziumParserConfig {
     )]
     pub columns: Vec<ColumnMapping>,
 
-    #[schemars(title = "Keys", extend("x-ui" = { "widget": "column_keys" }))]
+    #[schemars(
+        title = "Primary key columns",
+        description = "At least one non-nullable output column that uniquely identifies a row",
+        length(min = 1)
+    )]
     pub keys: Vec<String>,
 }
 
@@ -253,7 +257,7 @@ impl DebeziumParserConfig {
             JsonDataType::String,
             "Utf8",
         ));
-        projection.keys = self.keys.clone();
+        projection.keys.clone_from(&self.keys);
         projection.unknown_fields = UnknownFieldPolicy::Drop;
         Ok(projection)
     }
@@ -263,6 +267,7 @@ pub struct DebeziumParser {
     input: DebeziumInput,
     json: Arc<JsonParser>,
     incoming_schema: DatasetSchema,
+    registry: Option<RegistryClient>,
     user_paths: Arc<[jsonpath_lib::Compiled]>,
     user_json_types: Arc<[JsonDataType]>,
     user_top_level_fields: Arc<[String]>,
@@ -273,6 +278,10 @@ impl DebeziumParser {
     pub fn new(config: &DebeziumParserConfig, table: Arc<str>) -> anyhow::Result<Self> {
         let (incoming_schema, _) = config.schemas()?;
         let projection = config.normalized_projection()?;
+        let registry = match &config.input {
+            DebeziumInput::Json => None,
+            DebeziumInput::SchemaRegistry { connection } => Some(RegistryClient::new(connection)?),
+        };
         let user_paths = config
             .columns
             .iter()
@@ -299,6 +308,7 @@ impl DebeziumParser {
                 Arc::clone(&table),
             )?),
             incoming_schema,
+            registry,
             user_paths: user_paths.into(),
             user_json_types: config
                 .columns
@@ -314,16 +324,10 @@ impl DebeziumParser {
 
 impl ParserFactory for DebeziumParser {
     fn create_session(self: Arc<Self>, memory_limit_bytes: usize) -> Box<dyn ParserSession> {
-        let registry = match &self.input {
-            DebeziumInput::Json => None,
-            DebeziumInput::SchemaRegistry { connection } => {
-                Some(RegistryClient::new(connection).expect("validated registry connection"))
-            }
-        };
         Box::new(DebeziumParserSession {
             parser: Arc::clone(&self),
             json: Arc::clone(&self.json).create_session(memory_limit_bytes),
-            registry,
+            registry: self.registry.clone(),
             decoder: SchemaDecoder::default(),
             runtime: None,
             memory_limit_bytes,
@@ -430,7 +434,7 @@ impl ParserSession for DebeziumParserSession {
             let decoded = self.decode_value(&message, &schemas)?;
             let envelope = unwrap_payload(decoded)?;
             let (value, mask) = normalize_envelope(
-                envelope,
+                &envelope,
                 &self.parser.user_paths,
                 &self.parser.user_json_types,
                 &self.parser.user_top_level_fields,
@@ -526,7 +530,7 @@ impl ParserSession for DebeziumParserSession {
 }
 
 fn normalize_envelope(
-    value: Value,
+    value: &Value,
     paths: &[jsonpath_lib::Compiled],
     json_types: &[JsonDataType],
     top_level_fields: &[String],
@@ -566,7 +570,7 @@ fn normalize_envelope(
             );
             anyhow::ensure!(after.is_null(), "Debezium delete after must be null");
         }
-        _ => unreachable!(),
+        other => anyhow::bail!("unsupported Debezium operation '{other}'"),
     }
 
     let current_object = if operation == "d" { &before } else { &after };

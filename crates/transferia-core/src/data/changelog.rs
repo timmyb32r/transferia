@@ -14,6 +14,10 @@ use crate::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
 use crate::sink::SinkBatch;
 
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "boxing every changelog batch would add a hot-path allocation"
+)]
 pub enum ProjectedSinkBatch {
     AppendOnly(RecordBatch),
     Changelog(ChangelogBatch),
@@ -83,9 +87,13 @@ impl ChangelogBatch {
     /// Collapse all changes of the same primary key to its last state, then
     /// return operation-homogeneous runs in original event order.
     ///
-    /// A PostgreSQL transaction assigns one WAL LSN to all of its changes. A
+    /// A `PostgreSQL` transaction assigns one WAL LSN to all of its changes. A
     /// state sink must therefore settle same-key ordering before performing
     /// any side effect instead of relying on the source version to break ties.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the event-order state machine is clearer when its transitions remain together"
+    )]
     pub fn collapsed_runs(&self) -> anyhow::Result<Vec<ChangelogRun>> {
         let key_columns = self
             .primary_key_indexes
@@ -368,7 +376,10 @@ impl ChangelogBatch {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the validated CDC projections are independent invariants, not one domain object"
+)]
 fn apply_collapsed_event(
     latest: &mut HashMap<Vec<u8>, CollapsedRow>,
     key: Vec<u8>,
@@ -436,6 +447,10 @@ fn apply_collapsed_event(
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "all pre-side-effect changelog validation must remain in one auditable boundary"
+)]
 pub fn project_sink_batch(
     discovery: &DeliveryDiscovery,
     batch: &SinkBatch,
@@ -443,6 +458,14 @@ pub fn project_sink_batch(
     let dataset = validate_batch_against_discovery(discovery, batch)?;
     let stored = project_columns(&batch.batch, &dataset.stored_schema.columns)?;
     let Some(operation) = batch.system_columns.get(SystemColumnKind::ChangeOperation) else {
+        for (index, column) in dataset.stored_schema.columns.iter().enumerate() {
+            anyhow::ensure!(
+                column.nullable || stored.column(index).null_count() == 0,
+                "append-only dataset '{}' has a null value in non-nullable column '{}'",
+                dataset.name,
+                column.name,
+            );
+        }
         return Ok(ProjectedSinkBatch::AppendOnly(stored));
     };
     anyhow::ensure!(
@@ -564,7 +587,7 @@ pub fn project_sink_batch(
                         user_column_names
                             .iter()
                             .position(|name| *name == column.name.as_str())
-                            .map_or(true, |index| user_changed[index])
+                            .is_none_or(|index| user_changed[index])
                     })
                     .collect()
             }
@@ -703,7 +726,7 @@ fn old_primary_key_batch(
         );
         for (column, key) in old.columns().iter().zip(primary_keys) {
             anyhow::ensure!(
-                requires_old == !column.is_null(row),
+                requires_old != column.is_null(row),
                 "changelog row {row} old primary-key column '{}' must be {}",
                 key.name,
                 if requires_old { "present" } else { "null" },
@@ -725,7 +748,7 @@ fn decode_changed_columns(
         "changelog dataset '{dataset}' row {row} changed-columns mask has {} bytes, expected {expected_bytes}",
         mask.len()
     );
-    if columns % 8 != 0 {
+    if !columns.is_multiple_of(8) {
         let used = columns % 8;
         let unused = mask.last().copied().unwrap_or_default() & !((1_u8 << used) - 1);
         anyhow::ensure!(

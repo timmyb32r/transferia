@@ -117,20 +117,21 @@ impl EndpointDescriptor {
             ),
             // Enable changelog input for a destination only together with its
             // replay-safe operation-aware writer implementation.
-            RecordSemantics::Changelog => matches!(
-                self,
-                Self::MySqlSink
-                    | Self::PostgresSink
-                    | Self::YdbSink
-                    | Self::YTsaurusSink(YTsaurusSinkMode::Dynamic)
-                    | Self::ClickHouse
-                    | Self::Discard
-            ) || matches!(
-                self,
-                Self::LogbrokerSink(QueueSinkDescriptor {
-                    changelog: true
-                }) | Self::KafkaSink(QueueSinkDescriptor { changelog: true })
-            ),
+            RecordSemantics::Changelog => {
+                matches!(
+                    self,
+                    Self::MySqlSink
+                        | Self::PostgresSink
+                        | Self::YdbSink
+                        | Self::YTsaurusSink(YTsaurusSinkMode::Dynamic)
+                        | Self::ClickHouse
+                        | Self::Discard
+                ) || matches!(
+                    self,
+                    Self::LogbrokerSink(QueueSinkDescriptor { changelog: true })
+                        | Self::KafkaSink(QueueSinkDescriptor { changelog: true })
+                )
+            }
         }
     }
 }

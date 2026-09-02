@@ -11,11 +11,11 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
+use super::actor::clickhouse_changelog_batches;
 use super::{
     ClickHouseCompression, ClickHouseInsertFormat, ClickHouseSink, ClickHouseSinkConfig,
     InsertError, InsertTransport,
 };
-use super::actor::clickhouse_changelog_batches;
 use crate::metrics::SinkCounters;
 use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
@@ -324,8 +324,8 @@ async fn wait_calls(state: &FakeState, calls: usize) {
 }
 
 fn changelog_discovery() -> DeliveryDiscovery {
-    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
-        .with_constraints(true, false, None);
+    let id =
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None);
     let value = SchemaColumn::new("value".into(), DataType::Int64, true);
     let operation = SchemaColumn::new(
         SystemColumnKind::ChangeOperation.default_name().into(),
@@ -422,7 +422,10 @@ async fn changelog_sink_batch(
     })
 }
 
-async fn partial_update_sink_batch(id: i64, version: i64) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
+async fn partial_update_sink_batch(
+    id: i64,
+    version: i64,
+) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
     let discovery = changelog_discovery();
     let fields = discovery.datasets[0]
         .incoming_schema
@@ -470,8 +473,7 @@ async fn partial_update_sink_batch(id: i64, version: i64) -> anyhow::Result<(Del
     Ok((discovery, sink_batch))
 }
 
-async fn full_identity_update_sink_batch(
-) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
+async fn full_identity_update_sink_batch() -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
     let mut discovery = changelog_discovery();
     let old_id = SchemaColumn::new("_system_old_value_0".into(), DataType::Int64, true)
         .with_old_value_of("id".into());
@@ -529,15 +531,12 @@ async fn full_identity_update_sink_batch(
     Ok((discovery, sink_batch))
 }
 
-async fn default_identity_key_change_sink_batch(
-) -> anyhow::Result<(DeliveryDiscovery, SinkBatch)> {
+async fn default_identity_key_change_sink_batch() -> anyhow::Result<(DeliveryDiscovery, SinkBatch)>
+{
     let mut discovery = changelog_discovery();
     let old_key = SchemaColumn::new("_system_old_key_0".into(), DataType::Int64, true)
         .with_old_key_of("id".into());
-    discovery.datasets[0]
-        .incoming_schema
-        .columns
-        .push(old_key);
+    discovery.datasets[0].incoming_schema.columns.push(old_key);
     let fields = discovery.datasets[0]
         .incoming_schema
         .columns
@@ -611,32 +610,47 @@ async fn changelog_collapses_same_lsn_changes_and_writes_pk_tombstones() -> anyh
         panic!("CDC operation metadata must produce a changelog batch")
     };
     let (transport, _) = FakeTransport::new(false, []);
-    let batches = clickhouse_changelog_batches(
-        &changelog,
-        transport.as_ref(),
-        &config(),
-        "events",
-    )
-    .await?;
+    let batches =
+        clickhouse_changelog_batches(&changelog, transport.as_ref(), &config(), "events").await?;
 
     assert_eq!(batches.len(), 2);
     let upsert = &batches[0];
     assert_eq!(upsert.num_rows(), 1);
     assert_eq!(upsert.num_columns(), 4);
     assert_eq!(
-        upsert.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        upsert
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
         1
     );
     assert_eq!(
-        upsert.column(1).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        upsert
+            .column(1)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
         11
     );
     assert_eq!(
-        upsert.column(2).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        upsert
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
         43
     );
     assert_eq!(
-        upsert.column(3).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        upsert
+            .column(3)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
         0
     );
 
@@ -644,15 +658,30 @@ async fn changelog_collapses_same_lsn_changes_and_writes_pk_tombstones() -> anyh
     assert_eq!(tombstone.num_rows(), 1);
     assert_eq!(tombstone.num_columns(), 3);
     assert_eq!(
-        tombstone.column(0).as_any().downcast_ref::<Int64Array>().unwrap().value(0),
+        tombstone
+            .column(0)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap()
+            .value(0),
         2
     );
     assert_eq!(
-        tombstone.column(1).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        tombstone
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
         43
     );
     assert_eq!(
-        tombstone.column(2).as_any().downcast_ref::<UInt64Array>().unwrap().value(0),
+        tombstone
+            .column(2)
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .value(0),
         43
     );
     assert!(tombstone.schema().field_with_name("value").is_err());
@@ -671,13 +700,8 @@ async fn replica_identity_full_primary_key_change_writes_old_tombstone_and_new_r
         panic!("CDC operation metadata must produce a changelog batch")
     };
     let (transport, _) = FakeTransport::new(false, []);
-    let batches = clickhouse_changelog_batches(
-        &changelog,
-        transport.as_ref(),
-        &config(),
-        "events",
-    )
-    .await?;
+    let batches =
+        clickhouse_changelog_batches(&changelog, transport.as_ref(), &config(), "events").await?;
 
     assert_eq!(batches.len(), 2);
     assert_eq!(
@@ -727,13 +751,8 @@ async fn default_identity_same_lsn_key_changes_write_old_tombstones_and_last_new
         panic!("CDC operation metadata must produce a changelog batch")
     };
     let (transport, _) = FakeTransport::new(false, []);
-    let batches = clickhouse_changelog_batches(
-        &changelog,
-        transport.as_ref(),
-        &config(),
-        "events",
-    )
-    .await?;
+    let batches =
+        clickhouse_changelog_batches(&changelog, transport.as_ref(), &config(), "events").await?;
 
     assert_eq!(batches.len(), 2);
     assert_eq!(
@@ -797,13 +816,7 @@ async fn partial_updates_restore_unchanged_values_before_replacing_merge_tree_in
         queries: Arc::clone(&queries),
     };
 
-    let batches = clickhouse_changelog_batches(
-        &changelog,
-        &transport,
-        &config(),
-        "events",
-    )
-    .await?;
+    let batches = clickhouse_changelog_batches(&changelog, &transport, &config(), "events").await?;
 
     assert_eq!(batches.len(), 1);
     assert_eq!(batches[0].num_columns(), 4);
@@ -829,6 +842,7 @@ async fn partial_updates_restore_unchanged_values_before_replacing_merge_tree_in
     assert_eq!(queries.len(), 1);
     assert!(queries[0].contains("FROM `default`.`events` FINAL"));
     assert!(queries[0].contains("`id` = 5"));
+    drop(queries);
     Ok(())
 }
 
@@ -843,14 +857,9 @@ async fn partial_updates_fail_closed_when_destination_state_is_missing() -> anyh
         queries: Arc::new(Mutex::new(Vec::new())),
     };
 
-    let error = clickhouse_changelog_batches(
-        &changelog,
-        &transport,
-        &config(),
-        "events",
-    )
-    .await
-    .expect_err("missing current state must not silently write NULL/default values");
+    let error = clickhouse_changelog_batches(&changelog, &transport, &config(), "events")
+        .await
+        .expect_err("missing current state must not silently write NULL/default values");
     assert!(error.to_string().contains("no current rows"));
     Ok(())
 }
@@ -877,13 +886,8 @@ async fn partial_update_queries_only_after_the_previous_changelog_insert_commits
         events: Arc::clone(&events),
     });
     let counters = Arc::new(SinkCounters::new());
-    let (tx, mut committed, cancellation, task) = spawn_sink_with_discovery(
-        config(),
-        transport,
-        memory,
-        counters,
-        Arc::new(discovery),
-    );
+    let (tx, mut committed, cancellation, task) =
+        spawn_sink_with_discovery(config(), transport, memory, counters, Arc::new(discovery));
 
     tx.send(changelog_delivery(1, create)).await?;
     tx.send(changelog_delivery(2, update)).await?;

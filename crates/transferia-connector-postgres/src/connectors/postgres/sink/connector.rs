@@ -12,8 +12,8 @@ use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
 };
-use transferia_core::SystemColumnKind;
 use transferia_core::sink::Sink;
+use transferia_core::SystemColumnKind;
 use transferia_delivery_contracts::semantics::EndpointDescriptor;
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 

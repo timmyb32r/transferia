@@ -113,13 +113,14 @@ impl JsonBatchEncoder {
     }
 
     /// Append exactly one compact JSON object followed by a newline.
-    pub fn write_row(&self, row: usize, output: &mut Vec<u8>) {
-        self.write_object(row, output);
+    pub fn write_row(&self, row: usize, output: &mut Vec<u8>) -> anyhow::Result<()> {
+        self.write_object(row, output)?;
         output.push(b'\n');
+        Ok(())
     }
 
-    pub(crate) fn write_object(&self, row: usize, output: &mut Vec<u8>) {
-        self.write_object_with(row, output, |_, _, _| false);
+    pub(crate) fn write_object(&self, row: usize, output: &mut Vec<u8>) -> anyhow::Result<()> {
+        self.write_object_with(row, output, |_, _, _| false)
     }
 
     pub(crate) fn write_object_with(
@@ -127,7 +128,7 @@ impl JsonBatchEncoder {
         row: usize,
         output: &mut Vec<u8>,
         mut override_value: impl FnMut(Option<usize>, &str, &mut Vec<u8>) -> bool,
-    ) {
+    ) -> anyhow::Result<()> {
         output.push(b'{');
         for (index, column) in self.columns.iter().enumerate() {
             if index != 0 {
@@ -143,10 +144,11 @@ impl JsonBatchEncoder {
             } else {
                 column
                     .writer
-                    .write_value(output, row, self.non_finite_floats);
+                    .write_value(output, row, self.non_finite_floats)?;
             }
         }
         output.push(b'}');
+        Ok(())
     }
 
     pub(crate) fn row_equals(&self, other: &Self, row: usize) -> bool {
@@ -346,14 +348,14 @@ impl ColumnWriter {
         buf: &mut Vec<u8>,
         row: usize,
         non_finite_floats: NonFiniteFloatEncoding,
-    ) {
+    ) -> anyhow::Result<()> {
         match self {
             Self::Null => buf.extend_from_slice(b"null"),
             Self::Utf8(a) => write_json_string(buf, a.value(row)),
             Self::LargeUtf8(a) => write_json_string(buf, a.value(row)),
-            Self::Binary(a) => write_base64(buf, a.value(row)),
-            Self::LargeBinary(a) => write_base64(buf, a.value(row)),
-            Self::FixedSizeBinary(a) => write_base64(buf, a.value(row)),
+            Self::Binary(a) => write_base64(buf, a.value(row))?,
+            Self::LargeBinary(a) => write_base64(buf, a.value(row))?,
+            Self::FixedSizeBinary(a) => write_base64(buf, a.value(row))?,
             Self::Int8(a) => write_int(buf, a.value(row)),
             Self::Int16(a) => write_int(buf, a.value(row)),
             Self::Int32(a) => write_int(buf, a.value(row)),
@@ -378,6 +380,7 @@ impl ColumnWriter {
             Self::TimestampMicrosecond(a) => write_int(buf, a.value(row)),
             Self::TimestampNanosecond(a) => write_int(buf, a.value(row)),
         }
+        Ok(())
     }
 
     /// Check if the value is null at the given row.
@@ -417,9 +420,7 @@ impl ColumnWriter {
         match (self, other) {
             (Self::Null, Self::Null) => true,
             (Self::Utf8(left), Self::Utf8(right)) => left.value(row) == right.value(row),
-            (Self::LargeUtf8(left), Self::LargeUtf8(right)) => {
-                left.value(row) == right.value(row)
-            }
+            (Self::LargeUtf8(left), Self::LargeUtf8(right)) => left.value(row) == right.value(row),
             (Self::Binary(left), Self::Binary(right)) => left.value(row) == right.value(row),
             (Self::LargeBinary(left), Self::LargeBinary(right)) => {
                 left.value(row) == right.value(row)
@@ -461,17 +462,21 @@ impl ColumnWriter {
     }
 }
 
-fn write_base64(buf: &mut Vec<u8>, value: &[u8]) {
+fn write_base64(buf: &mut Vec<u8>, value: &[u8]) -> anyhow::Result<()> {
     buf.push(b'"');
     let encoded_len = base64::encoded_len(value.len(), true)
-        .expect("base64 length cannot overflow for an allocated Arrow value");
+        .ok_or_else(|| anyhow::anyhow!("base64 length overflow"))?;
     let start = buf.len();
-    buf.resize(start + encoded_len, 0);
+    let output_len = start
+        .checked_add(encoded_len)
+        .ok_or_else(|| anyhow::anyhow!("base64 output length overflow"))?;
+    buf.resize(output_len, 0);
     let written = base64::engine::general_purpose::STANDARD
         .encode_slice(value, &mut buf[start..])
-        .expect("preallocated base64 output has the exact encoded length");
+        .map_err(|error| anyhow::anyhow!("base64 encoding failed: {error}"))?;
     debug_assert_eq!(written, encoded_len);
     buf.push(b'"');
+    Ok(())
 }
 
 /// Fast integer formatting via `itoa`.
@@ -501,15 +506,11 @@ fn write_float<T: ryu::Float>(
         },
         "inf" => match non_finite_floats {
             NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
-            NonFiniteFloatEncoding::ProtobufJsonString => {
-                buf.extend_from_slice(b"\"Infinity\"")
-            }
+            NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"Infinity\""),
         },
         "-inf" => match non_finite_floats {
             NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
-            NonFiniteFloatEncoding::ProtobufJsonString => {
-                buf.extend_from_slice(b"\"-Infinity\"")
-            }
+            NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"-Infinity\""),
         },
         finite => buf.extend_from_slice(finite.as_bytes()),
     }

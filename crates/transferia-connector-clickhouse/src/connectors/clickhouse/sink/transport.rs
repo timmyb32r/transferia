@@ -28,10 +28,8 @@ pub trait InsertTransport: Send + Sync {
         batches: Vec<RecordBatch>,
     ) -> BoxFuture<'static, Result<(), InsertError>>;
 
-    fn query_all(
-        &self,
-        query: String,
-    ) -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>>;
+    fn query_all(&self, query: String)
+        -> BoxFuture<'static, Result<Vec<RecordBatch>, InsertError>>;
 }
 
 pub(super) struct NativeTransport {

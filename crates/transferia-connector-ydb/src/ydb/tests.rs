@@ -31,8 +31,7 @@ fn delete_encoding_uses_only_typed_primary_key_rows() -> anyhow::Result<()> {
     let columns = vec![
         SchemaColumn::new("tenant".into(), DataType::Utf8, false)
             .with_constraints(true, false, None),
-        SchemaColumn::new("id".into(), DataType::UInt64, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::UInt64, false).with_constraints(true, false, None),
     ];
     let batch = RecordBatch::try_new(
         Arc::new(Schema::new(vec![
@@ -55,8 +54,8 @@ fn delete_encoding_uses_only_typed_primary_key_rows() -> anyhow::Result<()> {
 
 #[test]
 fn update_encoding_checks_every_primary_key_before_commit() -> anyhow::Result<()> {
-    let primary_key = SchemaColumn::new("id".into(), DataType::UInt64, false)
-        .with_constraints(true, false, None);
+    let primary_key =
+        SchemaColumn::new("id".into(), DataType::UInt64, false).with_constraints(true, false, None);
     let value = SchemaColumn::new("value".into(), DataType::Utf8, true);
     let columns = vec![primary_key.clone(), value];
     let batch = RecordBatch::try_new(
@@ -70,8 +69,7 @@ fn update_encoding_checks_every_primary_key_before_commit() -> anyhow::Result<()
         ],
     )?;
 
-    let (query, parameters) =
-        encode_update("/local/events", &batch, &columns, &[primary_key])?;
+    let (query, parameters) = encode_update("/local/events", &batch, &columns, &[primary_key])?;
     assert!(query.contains("SELECT COUNT(*) AS matched"));
     assert!(query.contains("target.`id` = staged.`id`"));
     assert!(query.contains("UPDATE `/local/events` ON SELECT `id`, `value`"));

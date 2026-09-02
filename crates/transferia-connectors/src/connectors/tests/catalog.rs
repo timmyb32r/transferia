@@ -191,7 +191,9 @@ fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyh
         .iter()
         .filter(|definition| {
             definition.source.as_ref().is_some_and(|source| {
-                source.record_semantics.contains(&RecordSemantics::Changelog)
+                source
+                    .record_semantics
+                    .contains(&RecordSemantics::Changelog)
             })
         })
         .map(|definition| definition.key)
@@ -200,17 +202,25 @@ fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyh
         .definitions()
         .iter()
         .filter(|definition| {
-            definition.sink.as_ref().is_some_and(|sink| {
-                sink.record_semantics.contains(&RecordSemantics::Changelog)
-            })
+            definition
+                .sink
+                .as_ref()
+                .is_some_and(|sink| sink.record_semantics.contains(&RecordSemantics::Changelog))
         })
         .map(|definition| definition.key)
         .collect::<Vec<_>>();
 
-    assert_eq!(changelog_sources, ["postgres"]);
+    assert_eq!(changelog_sources, ["logbroker", "kafka", "postgres"]);
     assert_eq!(
         changelog_sinks,
-        ["mysql", "postgres", "clickhouse", "ydb", "ytsaurus", "discard"]
+        [
+            "mysql",
+            "postgres",
+            "clickhouse",
+            "ydb",
+            "ytsaurus",
+            "discard"
+        ]
     );
     for definition in catalog.definitions() {
         for endpoint in [definition.source.as_ref(), definition.sink.as_ref()]

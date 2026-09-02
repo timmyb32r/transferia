@@ -8,11 +8,17 @@
         "key": "clickhouse",
         "sink": {
           "connection_check": true,
-          "delivery_modes": ["batch", "stream"],
+          "delivery_modes": [
+            "batch",
+            "stream"
+          ],
           "initial": {},
           "message_preview": false,
           "partitioned": false,
-          "record_semantics": ["append_only", "changelog"],
+          "record_semantics": [
+            "append_only",
+            "changelog"
+          ],
           "schema": {
             "type": "object"
           }
@@ -88,7 +94,11 @@
         "syntax": "ascii_identifier"
       },
       "sink": "clickhouse",
-      "supported_arrow_types": ["utf8", "signed_integer", "timestamp"]
+      "supported_arrow_types": [
+        "utf8",
+        "signed_integer",
+        "timestamp"
+      ]
     },
     "source": "logbroker"
   },

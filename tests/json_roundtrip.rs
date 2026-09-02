@@ -36,7 +36,7 @@ fn json_serializer_output_can_be_parsed() -> anyhow::Result<()> {
     let encoder = JsonBatchEncoder::new(&batch, |_| true)?;
     let mut output = Vec::new();
     for row in 0..batch.num_rows() {
-        encoder.write_row(row, &mut output);
+        encoder.write_row(row, &mut output)?;
     }
 
     let parser_config = JsonParserConfig {

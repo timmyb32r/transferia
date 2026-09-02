@@ -18,17 +18,17 @@ use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
 use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{
-    old_key_column_name, old_value_column_name, DiscoveredTable,
-    POSTGRES_CDC_METADATA_COLUMNS, POSTGRES_REPLICATION_SYSTEM_COLUMNS,
+    old_key_column_name, old_value_column_name, DiscoveredTable, POSTGRES_CDC_METADATA_COLUMNS,
+    POSTGRES_REPLICATION_SYSTEM_COLUMNS,
 };
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::{
-    META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
-    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
@@ -37,7 +37,7 @@ use transferia_core::source::{CommitMarker, Source};
 use transferia_core::ChangeOperation;
 use transferia_registry::durable::DurableContext;
 
-pub(crate) struct PostgresReplicationSource {
+pub struct PostgresReplicationSource {
     client: Client,
     config: PostgresReplicationConfig,
     database: Arc<str>,
@@ -163,10 +163,7 @@ impl PostgresReplicationSource {
         Ok(())
     }
 
-    fn normalize_pgoutput(
-        &self,
-        decoded: PgOutputEvent,
-    ) -> anyhow::Result<Option<ChangeEvent>> {
+    fn normalize_pgoutput(&self, decoded: PgOutputEvent) -> anyhow::Result<Option<ChangeEvent>> {
         let Some(table) = self.tables.get(&(
             Arc::clone(&decoded.event.schema),
             Arc::clone(&decoded.event.table),
@@ -180,10 +177,10 @@ impl PostgresReplicationSource {
         &self,
         decoded: wal2json::Wal2JsonEvent,
     ) -> anyhow::Result<Option<ChangeEvent>> {
-        let Some(table) = self
-            .tables
-            .get(&(Arc::clone(&decoded.event.schema), Arc::clone(&decoded.event.table)))
-        else {
+        let Some(table) = self.tables.get(&(
+            Arc::clone(&decoded.event.schema),
+            Arc::clone(&decoded.event.table),
+        )) else {
             return Ok(None);
         };
         normalize_wal2json_event(table, decoded).map(Some)
@@ -196,7 +193,10 @@ impl PostgresReplicationSource {
         );
         let mut by_table: BTreeMap<(Arc<str>, Arc<str>), Vec<ChangeEvent>> = BTreeMap::new();
         for event in events {
-            if self.tables.contains_key(&(Arc::clone(&event.schema), Arc::clone(&event.table))) {
+            if self
+                .tables
+                .contains_key(&(Arc::clone(&event.schema), Arc::clone(&event.table)))
+            {
                 by_table
                     .entry((Arc::clone(&event.schema), Arc::clone(&event.table)))
                     .or_default()
@@ -308,17 +308,14 @@ pub(super) fn normalize_wal2json_event(
         .map(|column| {
             positions.get(column.name.as_str()).map_or_else(
                 || match decoded.event.operation {
-                    transferia_core::ChangeOperation::Create => anyhow::bail!(
-                        "wal2json INSERT omits column '{}'",
-                        column.name
-                    ),
-                    transferia_core::ChangeOperation::Update => {
-                        Ok(LogicalValue::UnchangedToast)
+                    transferia_core::ChangeOperation::Create => {
+                        anyhow::bail!("wal2json INSERT omits column '{}'", column.name)
                     }
+                    transferia_core::ChangeOperation::Update => Ok(LogicalValue::UnchangedToast),
                     transferia_core::ChangeOperation::Delete => Ok(LogicalValue::Null),
-                    transferia_core::ChangeOperation::SnapshotRead => anyhow::bail!(
-                        "wal2json cannot emit snapshot-read events"
-                    ),
+                    transferia_core::ChangeOperation::SnapshotRead => {
+                        anyhow::bail!("wal2json cannot emit snapshot-read events")
+                    }
                 },
                 |index| Ok(decoded.event.values[*index].clone()),
             )
@@ -329,11 +326,7 @@ pub(super) fn normalize_wal2json_event(
         .old_values
         .take()
         .map(|old| {
-            for (name, oid) in decoded
-                .old_key_names
-                .iter()
-                .zip(&decoded.old_key_type_oids)
-            {
+            for (name, oid) in decoded.old_key_names.iter().zip(&decoded.old_key_type_oids) {
                 anyhow::ensure!(
                     expected.get(name.as_str()) == Some(oid),
                     "wal2json old-key column '{name}' OID {oid} does not match discovery"
@@ -389,7 +382,9 @@ impl Source for PostgresReplicationSource {
                     return Ok(SourceBatch::Typed {
                         tables: batch.tables,
                         source_rows: batch.rows,
-                        commit_marker: Some(CommitMarker::new(ReplicationMarker { lsn: batch.lsn })),
+                        commit_marker: Some(CommitMarker::new(ReplicationMarker {
+                            lsn: batch.lsn,
+                        })),
                         memory: Vec::new(),
                     });
                 }
@@ -443,7 +438,7 @@ impl Source for PostgresReplicationSource {
     }
 }
 
-fn empty_batch() -> SourceBatch {
+const fn empty_batch() -> SourceBatch {
     SourceBatch::Typed {
         tables: Vec::new(),
         source_rows: 0,
@@ -527,11 +522,8 @@ pub(super) fn events_to_table_data(
             )?);
         }
     }
-    let event_timestamp_us = i64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)?
-            .as_micros(),
-    )?;
+    let event_timestamp_us =
+        i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros())?;
     for column in POSTGRES_CDC_METADATA_COLUMNS {
         fields.push(
             Field::new(column.name, column.data_type.clone(), false).with_metadata(
@@ -565,11 +557,7 @@ pub(super) fn events_to_table_data(
             )]));
         }
         fields.push(field);
-        arrays.push(replication_system_array(
-            *kind,
-            events,
-            &changed_columns,
-        )?);
+        arrays.push(replication_system_array(*kind, events, &changed_columns)?);
     }
     let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
     let system_columns = POSTGRES_REPLICATION_SYSTEM_COLUMNS
@@ -656,10 +644,13 @@ fn cdc_metadata_array(
                 .iter()
                 .map(|event| event.commit_timestamp_micros.checked_mul(1_000))
                 .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| anyhow::anyhow!("PostgreSQL commit timestamp nanoseconds overflow"))?,
+                .ok_or_else(|| {
+                    anyhow::anyhow!("PostgreSQL commit timestamp nanoseconds overflow")
+                })?,
         )) as ArrayRef,
         SYSTEM_ROLE_EVENT_TIMESTAMP_MS => Arc::new(Int64Array::from(vec![
-            event_timestamp_us.div_euclid(1_000);
+            event_timestamp_us
+                .div_euclid(1_000);
             events.len()
         ])) as ArrayRef,
         SYSTEM_ROLE_EVENT_TIMESTAMP_US => {
@@ -668,17 +659,16 @@ fn cdc_metadata_array(
         SYSTEM_ROLE_EVENT_TIMESTAMP_NS => Arc::new(Int64Array::from(vec![
             event_timestamp_us
                 .checked_mul(1_000)
-                .ok_or_else(|| anyhow::anyhow!("event timestamp nanoseconds overflow"))?;
+                .ok_or_else(
+                    || anyhow::anyhow!("event timestamp nanoseconds overflow")
+                )?;
             events.len()
         ])) as ArrayRef,
         _ => anyhow::bail!("unsupported PostgreSQL CDC metadata role '{role}'"),
     })
 }
 
-fn changed_columns_mask(
-    table: &DiscoveredTable,
-    event: &ChangeEvent,
-) -> anyhow::Result<Vec<u8>> {
+fn changed_columns_mask(table: &DiscoveredTable, event: &ChangeEvent) -> anyhow::Result<Vec<u8>> {
     let mut mask = vec![0_u8; table.schema.columns.len().div_ceil(8)];
     for (index, column) in table.schema.columns.iter().enumerate() {
         let changed = match event.operation {
@@ -764,11 +754,7 @@ enum LogicalProjection {
 
 static NULL_LOGICAL_VALUE: LogicalValue = LogicalValue::Null;
 
-fn event_value(
-    event: &ChangeEvent,
-    index: usize,
-    projection: LogicalProjection,
-) -> &LogicalValue {
+fn event_value(event: &ChangeEvent, index: usize, projection: LogicalProjection) -> &LogicalValue {
     match projection {
         LogicalProjection::Old => event
             .old_values
@@ -811,15 +797,12 @@ fn validate_old_values(table: &DiscoveredTable, events: &[ChangeEvent]) -> anyho
             anyhow::ensure!(
                 !requires_old
                     || (event.old_values_kind == Some(OldValuesKind::Full)
-                        && event
-                            .old_values
-                            .as_ref()
-                            .is_some_and(|values| {
-                                values.len() == table.schema.columns.len()
-                                    && values
-                                        .iter()
-                                        .all(|value| !matches!(value, LogicalValue::UnchangedToast))
-                            })),
+                        && event.old_values.as_ref().is_some_and(|values| {
+                            values.len() == table.schema.columns.len()
+                                && values
+                                    .iter()
+                                    .all(|value| !matches!(value, LogicalValue::UnchangedToast))
+                        })),
                 "PostgreSQL REPLICA IDENTITY FULL row {row} has no complete old tuple",
             );
         } else if requires_old {
@@ -840,7 +823,9 @@ fn validate_old_values(table: &DiscoveredTable, events: &[ChangeEvent]) -> anyho
                         "PostgreSQL DELETE row {row} has no old primary-key value for '{}'",
                         column.name,
                     ),
-                    ChangeOperation::Create | ChangeOperation::SnapshotRead => unreachable!(),
+                    ChangeOperation::Create | ChangeOperation::SnapshotRead => anyhow::bail!(
+                        "internal PostgreSQL CDC error: append operation entered old-key validation"
+                    ),
                 }
             }
         }
@@ -850,18 +835,17 @@ fn validate_old_values(table: &DiscoveredTable, events: &[ChangeEvent]) -> anyho
 
 fn parse_text(value: &LogicalValue) -> anyhow::Result<Option<&str>> {
     match value {
-        LogicalValue::Null => Ok(None),
+        LogicalValue::Null | LogicalValue::UnchangedToast => Ok(None),
         LogicalValue::Text(value) => Ok(Some(std::str::from_utf8(value)?)),
         LogicalValue::Binary(_) => {
             anyhow::bail!("binary pgoutput value cannot populate an Utf8 column")
         }
-        LogicalValue::UnchangedToast => Ok(None),
     }
 }
 
 fn parse_binary(value: &LogicalValue) -> anyhow::Result<Option<Vec<u8>>> {
     match value {
-        LogicalValue::Null => Ok(None),
+        LogicalValue::Null | LogicalValue::UnchangedToast => Ok(None),
         LogicalValue::Binary(value) => Ok(Some(value.to_vec())),
         LogicalValue::Text(value) => {
             let value = std::str::from_utf8(value)?;
@@ -874,13 +858,10 @@ fn parse_binary(value: &LogicalValue) -> anyhow::Result<Option<Vec<u8>>> {
             );
             (0..hex.len())
                 .step_by(2)
-                .map(|index| {
-                    u8::from_str_radix(&hex[index..index + 2], 16).map_err(Into::into)
-                })
+                .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).map_err(Into::into))
                 .collect::<anyhow::Result<Vec<_>>>()
                 .map(Some)
         }
-        LogicalValue::UnchangedToast => Ok(None),
     }
 }
 

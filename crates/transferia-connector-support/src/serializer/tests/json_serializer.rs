@@ -7,7 +7,7 @@ fn encode_batch(batch: &RecordBatch) -> anyhow::Result<Vec<u8>> {
     let encoder = JsonBatchEncoder::new(batch, |_| true)?;
     let mut output = Vec::new();
     for row in 0..batch.num_rows() {
-        encoder.write_row(row, &mut output);
+        encoder.write_row(row, &mut output)?;
     }
     Ok(output)
 }
@@ -129,7 +129,7 @@ fn debezium_preserves_non_finite_float_values_as_protobuf_json_strings() -> anyh
     )?;
     let mut output = Vec::new();
     for row in 0..batch.num_rows() {
-        encoder.write_row(row, &mut output);
+        encoder.write_row(row, &mut output)?;
     }
     let values = String::from_utf8(output)?
         .lines()
@@ -150,7 +150,9 @@ fn binary_values_use_the_kafka_connect_base64_json_representation() -> anyhow::R
     )]));
     let batch = RecordBatch::try_new(
         schema,
-        vec![Arc::new(BinaryArray::from_iter_values([b"\x00\xff".as_slice()]))],
+        vec![Arc::new(BinaryArray::from_iter_values([
+            b"\x00\xff".as_slice()
+        ]))],
     )?;
     let value: serde_json::Value = serde_json::from_slice(&encode_batch(&batch)?)?;
     assert_eq!(value["bytes"], "AP8=");

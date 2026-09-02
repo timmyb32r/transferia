@@ -347,11 +347,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
             .send(Delivery {
                 id: DeliveryId::new(delivery_id),
                 outputs: vec![changelog_sink_batch(
-                    &memory,
-                    operations,
-                    ids,
-                    payloads,
-                    lsn,
+                    &memory, operations, ids, payloads, lsn,
                 )?],
                 meta: DeliveryMeta { source_messages: 3 },
             })

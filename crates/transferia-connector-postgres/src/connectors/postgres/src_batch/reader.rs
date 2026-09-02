@@ -205,7 +205,7 @@ fn rows_to_batch(
             discovered.data_type,
             data_type
         );
-        fields.push(Field::new(column.name(), data_type, true));
+        fields.push(Field::new(column.name(), data_type, discovered.nullable));
         arrays.push(column_array(rows, index, column.type_())?);
     }
     let len = rows.len();

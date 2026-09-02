@@ -14,7 +14,7 @@ pub enum SystemColumnKind {
     ChangeOperation,
     /// Bit mask identifying user columns physically present in a changelog row.
     ///
-    /// PostgreSQL logical replication uses this to distinguish an unchanged
+    /// `PostgreSQL` logical replication uses this to distinguish an unchanged
     /// TOAST value from SQL `NULL`. Bit `n` corresponds to user column `n`.
     ChangedColumns,
 }
@@ -36,10 +36,9 @@ impl SystemColumnKind {
     #[must_use]
     pub const fn data_type(self) -> DataType {
         match self {
-            Self::Topic => DataType::Utf8,
+            Self::Topic | Self::ChangeOperation => DataType::Utf8,
             Self::Partition | Self::Offset | Self::WriteTimestampMs => DataType::Int64,
             Self::MessageIndex => DataType::UInt64,
-            Self::ChangeOperation => DataType::Utf8,
             Self::ChangedColumns => DataType::Binary,
         }
     }

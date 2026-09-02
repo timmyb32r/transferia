@@ -11,10 +11,9 @@ use crate::connectors::postgres::common::{
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{
-    DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
-    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
+    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
@@ -27,7 +26,7 @@ use transferia_delivery_contracts::semantics::{
 };
 use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
 
-pub(crate) const POSTGRES_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
+pub const POSTGRES_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
     SystemColumnKind::Topic,
     SystemColumnKind::Partition,
     SystemColumnKind::Offset,
@@ -36,7 +35,7 @@ pub(crate) const POSTGRES_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
     SystemColumnKind::ChangedColumns,
 ];
 
-pub(crate) struct PostgresCdcMetadataColumn {
+pub struct PostgresCdcMetadataColumn {
     pub(crate) name: &'static str,
 
     pub(crate) role: &'static str,
@@ -44,7 +43,7 @@ pub(crate) struct PostgresCdcMetadataColumn {
     pub(crate) data_type: arrow::datatypes::DataType,
 }
 
-pub(crate) const POSTGRES_CDC_METADATA_COLUMNS: &[PostgresCdcMetadataColumn] = &[
+pub const POSTGRES_CDC_METADATA_COLUMNS: &[PostgresCdcMetadataColumn] = &[
     PostgresCdcMetadataColumn {
         name: "_system_source_database",
         role: SYSTEM_ROLE_SOURCE_DATABASE,
@@ -105,7 +104,7 @@ const POSTGRES_SNAPSHOT_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
 ];
 
 #[derive(Clone)]
-pub(crate) struct DiscoveredTable {
+pub struct DiscoveredTable {
     pub(crate) config: TableConfig,
     pub(crate) schema: DatasetSchema,
     pub(crate) type_oids: Vec<u32>,
@@ -199,22 +198,21 @@ impl SourceConnector for PostgresSourceConnector {
             let datasets = tables
                 .iter()
                 .map(|table| {
-                    let mut incoming = table.schema.clone();
-                    for column in &mut incoming.columns {
-                        column.nullable = true;
-                    }
+                    let mut incoming = incoming_user_schema(&table.schema);
                     if self.config.replication.is_some() {
                         if table.replica_identity_full {
-                            incoming.columns.extend(table.schema.columns.iter().enumerate().map(
-                                |(index, column)| {
-                                    SchemaColumn::new(
-                                        old_value_column_name(index),
-                                        column.data_type.clone(),
-                                        true,
-                                    )
-                                    .with_old_value_of(column.name.clone())
-                                },
-                            ));
+                            incoming
+                                .columns
+                                .extend(table.schema.columns.iter().enumerate().map(
+                                    |(index, column)| {
+                                        SchemaColumn::new(
+                                            old_value_column_name(index),
+                                            column.data_type.clone(),
+                                            true,
+                                        )
+                                        .with_old_value_of(column.name.clone())
+                                    },
+                                ));
                         } else {
                             incoming.columns.extend(
                                 table
@@ -233,16 +231,16 @@ impl SourceConnector for PostgresSourceConnector {
                                     }),
                             );
                         }
-                        incoming.columns.extend(POSTGRES_CDC_METADATA_COLUMNS.iter().map(
-                            |column| {
+                        incoming
+                            .columns
+                            .extend(POSTGRES_CDC_METADATA_COLUMNS.iter().map(|column| {
                                 SchemaColumn::new(
                                     column.name.to_owned(),
                                     column.data_type.clone(),
                                     false,
                                 )
                                 .with_system_role(column.role)
-                            },
-                        ));
+                            }));
                     }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
@@ -337,7 +335,7 @@ impl SourceConnector for PostgresSourceConnector {
                 PostgresSource::new(
                     client,
                     table.config,
-                    table.schema,
+                    incoming_user_schema(&table.schema),
                     self.config.batch_rows,
                     counters,
                 )
@@ -353,6 +351,17 @@ impl SourceConnector for PostgresSourceConnector {
     fn parses_rows(&self) -> bool {
         self.parser_plan.parses_rows()
     }
+}
+
+pub(super) fn incoming_user_schema(stored: &DatasetSchema) -> DatasetSchema {
+    // Snapshot and CDC expose one stable Arrow user schema. CDC needs nullable
+    // incoming fields for unchanged TOAST values; snapshots use the same
+    // representation so consumers cannot distinguish the modes by data fields.
+    let mut incoming = stored.clone();
+    for column in &mut incoming.columns {
+        column.nullable = true;
+    }
+    incoming
 }
 
 async fn discover_table(
@@ -423,14 +432,12 @@ async fn discover_table(
                     column.name()
                 )
             })?;
-            Ok(
-                SchemaColumn::new(
-                    column.name().to_owned(),
-                    postgres_to_arrow(column.type_())?,
-                    nullable,
-                )
-                .with_constraints(physical.get::<_, bool>(2), false, None),
+            Ok(SchemaColumn::new(
+                column.name().to_owned(),
+                postgres_to_arrow(column.type_())?,
+                nullable,
             )
+            .with_constraints(physical.get::<_, bool>(2), false, None))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let type_oids = physical_types
@@ -466,10 +473,10 @@ async fn discover_table(
     })
 }
 
-pub(crate) fn old_value_column_name(index: usize) -> String {
+pub fn old_value_column_name(index: usize) -> String {
     format!("_system_old_value_{index}")
 }
 
-pub(crate) fn old_key_column_name(index: usize) -> String {
+pub fn old_key_column_name(index: usize) -> String {
     format!("_system_old_key_{index}")
 }

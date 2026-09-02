@@ -6,8 +6,8 @@ use ydb_grpc::ydb_proto::formats::ArrowBatchSettings;
 use ydb_grpc::ydb_proto::status_ids::StatusCode;
 use ydb_grpc::ydb_proto::table::v1::table_service_client::TableServiceClient;
 use ydb_grpc::ydb_proto::table::{
-    bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CreateSessionRequest,
-    CommitTransactionRequest, CommitTransactionResult, CreateSessionResult, DeleteSessionRequest,
+    bulk_upsert_request, BulkUpsertRequest, BulkUpsertResult, CommitTransactionRequest,
+    CommitTransactionResult, CreateSessionRequest, CreateSessionResult, DeleteSessionRequest,
     DescribeTableRequest, DescribeTableResult, ExecuteDataQueryRequest, ExecuteQueryResult,
     ExecuteSchemeQueryRequest, Query, QueryCachePolicy, RollbackTransactionRequest,
     SerializableModeSettings, TransactionControl, TransactionSettings,
@@ -258,7 +258,8 @@ impl YdbClient {
             .await
             .map_err(|_| anyhow::anyhow!("YDB ExecuteDataQuery timed out"))??
             .into_inner();
-        let result = decode_operation::<ExecuteQueryResult>(response.operation, "ExecuteDataQuery")?;
+        let result =
+            decode_operation::<ExecuteQueryResult>(response.operation, "ExecuteDataQuery")?;
         let transaction_id = result
             .tx_meta
             .as_ref()
@@ -282,13 +283,11 @@ impl YdbClient {
                 tx_id: transaction_id,
                 operation_params: None,
             });
-            let response = tokio::time::timeout(
-                self.timeout,
-                self.service.rollback_transaction(rollback),
-            )
-            .await
-            .map_err(|_| anyhow::anyhow!("YDB RollbackTransaction timed out"))??
-            .into_inner();
+            let response =
+                tokio::time::timeout(self.timeout, self.service.rollback_transaction(rollback))
+                    .await
+                    .map_err(|_| anyhow::anyhow!("YDB RollbackTransaction timed out"))??
+                    .into_inner();
             ensure_operation(response.operation, "RollbackTransaction")?;
             let delete = self.request(DeleteSessionRequest {
                 session_id,

@@ -15,8 +15,11 @@ use crate::sink::SinkBatch;
 use crate::{DatasetSchema, SystemColumn, SystemColumns};
 
 fn schema_column(name: &str, nullable: bool, primary_key: bool) -> SchemaColumn {
-    SchemaColumn::new(name.into(), arrow::datatypes::DataType::Int64, nullable)
-        .with_constraints(primary_key, false, None)
+    SchemaColumn::new(name.into(), arrow::datatypes::DataType::Int64, nullable).with_constraints(
+        primary_key,
+        false,
+        None,
+    )
 }
 
 fn discovery() -> DeliveryDiscovery {
@@ -143,6 +146,45 @@ async fn splits_create_read_update_and_delete_without_storing_operation() {
     assert_eq!(ids.value(0), 4);
 }
 
+#[tokio::test]
+async fn append_only_projection_rejects_null_before_the_sink_side_effect() {
+    let incoming = SchemaColumn::new("value".into(), DataType::Int64, true);
+    let stored = SchemaColumn::new("value".into(), DataType::Int64, false);
+    let discovery = DeliveryDiscovery {
+        source_name: Arc::from("snapshot"),
+        source_topology: crate::delivery::SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(vec![incoming.clone()]),
+            stored_schema: DatasetSchema::new(vec![stored]),
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    };
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            &incoming.name,
+            incoming.data_type,
+            true,
+        )])),
+        vec![Arc::new(Int64Array::from(vec![None]))],
+    )
+    .unwrap();
+    let batch = SinkBatch {
+        table: Arc::from("events"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1024).reserve(1).await,
+        system_columns: SystemColumns::new(Vec::new()),
+    };
+
+    assert!(project_sink_batch(&discovery, &batch).is_err());
+}
+
 async fn batch_with_changed_masks(
     operations: Vec<Option<&str>>,
     ids: Vec<Option<i64>>,
@@ -151,11 +193,14 @@ async fn batch_with_changed_masks(
 ) -> (DeliveryDiscovery, SinkBatch) {
     let mut discovery = discovery();
     let changed = DiscoveredSystemColumn::from(SystemColumnKind::ChangedColumns);
-    discovery.datasets[0].incoming_schema.columns.push(SchemaColumn::new(
-        changed.name.to_string(),
-        SystemColumnKind::ChangedColumns.data_type(),
-        false,
-    ));
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .push(SchemaColumn::new(
+            changed.name.to_string(),
+            SystemColumnKind::ChangedColumns.data_type(),
+            false,
+        ));
     discovery.datasets[0].system_columns.push(changed.clone());
     let mut batch = batch(operations, ids).await;
     let mut arrays = batch.batch.columns().to_vec();
@@ -278,8 +323,7 @@ async fn preserves_unchanged_columns_while_collapsing_same_key_events() {
         vec![Some(&[0b11]), Some(&[0b01]), Some(&[0b11])],
     )
     .await;
-    let ProjectedSinkBatch::Changelog(changelog) =
-        project_sink_batch(&discovery, &batch).unwrap()
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
     else {
         panic!("operation column must produce a changelog batch")
     };
@@ -309,8 +353,7 @@ async fn replica_identity_full_collapses_primary_key_changes_without_leaving_old
     )
     .await;
     validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
-    let ProjectedSinkBatch::Changelog(changelog) =
-        project_sink_batch(&discovery, &batch).unwrap()
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
     else {
         panic!("operation column must produce a changelog batch")
     };
@@ -351,8 +394,7 @@ async fn old_key_metadata_collapses_same_lsn_primary_key_changes_in_event_order(
     )
     .await;
     validate_stored_projection(&discovery, &discovery.datasets[0]).unwrap();
-    let ProjectedSinkBatch::Changelog(changelog) =
-        project_sink_batch(&discovery, &batch).unwrap()
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
     else {
         panic!("operation column must produce a changelog batch")
     };
@@ -416,8 +458,7 @@ async fn old_key_contract_rejects_missing_duplicate_and_null_primary_keys() {
 
 #[tokio::test]
 async fn replica_identity_full_contract_is_bijective_and_fails_closed() {
-    let (discovery, batch) =
-        full_old_value_batch(vec![2], vec![Some(1)], vec![Some("u")]).await;
+    let (discovery, batch) = full_old_value_batch(vec![2], vec![Some(1)], vec![Some("u")]).await;
 
     let mut missing = discovery.clone();
     missing.datasets[0].incoming_schema.columns.pop();
@@ -443,8 +484,7 @@ async fn emits_only_primary_key_and_changed_values_for_partial_update() {
         vec![Some(&[0b01])],
     )
     .await;
-    let ProjectedSinkBatch::Changelog(changelog) =
-        project_sink_batch(&discovery, &batch).unwrap()
+    let ProjectedSinkBatch::Changelog(changelog) = project_sink_batch(&discovery, &batch).unwrap()
     else {
         panic!("operation column must produce a changelog batch")
     };
@@ -484,12 +524,10 @@ async fn rejects_unknown_null_operations_and_null_delete_keys() {
 #[tokio::test]
 async fn rejects_missing_negative_and_null_source_versions() {
     let mut missing = batch(vec![Some("u")], vec![Some(1)]).await;
-    missing.system_columns = SystemColumns::new(vec![
-        missing
-            .system_columns
-            .get(SystemColumnKind::ChangeOperation)
-            .unwrap(),
-    ]);
+    missing.system_columns = SystemColumns::new(vec![missing
+        .system_columns
+        .get(SystemColumnKind::ChangeOperation)
+        .unwrap()]);
     assert!(project_sink_batch(&discovery(), &missing).is_err());
 
     for versions in [vec![Some(-1)], vec![None]] {

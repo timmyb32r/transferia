@@ -21,10 +21,8 @@ use super::types::{
     YDB_TZ_DATETIME_EXTENSION, YDB_TZ_DATE_EXTENSION, YDB_TZ_TIMESTAMP_EXTENSION,
     YDB_YSON_EXTENSION,
 };
+use transferia_core::data::changelog::{project_sink_batch, ProjectedSinkBatch};
 use transferia_core::data::schema::{SchemaColumn, ARROW_JSON_EXTENSION_NAME};
-use transferia_core::data::changelog::{
-    project_sink_batch, ProjectedSinkBatch,
-};
 use transferia_core::delivery::{
     validate_stored_projection, ArrowTypeFamily, DeliveryDiscovery, NameSyntax, SinkLimits,
     SinkLimitsDescription, TextLimit,
@@ -306,7 +304,7 @@ impl YdbSink {
                     ProjectedSinkBatch::AppendOnly(batch) => {
                         encoded.push(EncodedAction::Upsert(encode_upsert(
                             path,
-                            batch,
+                            &batch,
                             source_bytes,
                         )?));
                     }
@@ -319,15 +317,13 @@ impl YdbSink {
                                 | transferia_core::ChangeOperation::SnapshotRead => {
                                     encoded.push(EncodedAction::Upsert(encode_upsert(
                                         path.clone(),
-                                        run.batch,
+                                        &run.batch,
                                         bytes,
                                     )?));
                                 }
                                 transferia_core::ChangeOperation::Update => {
-                                    let columns = columns_for_batch(
-                                        &run.batch,
-                                        &changelog.stored_columns,
-                                    )?;
+                                    let columns =
+                                        columns_for_batch(&run.batch, &changelog.stored_columns)?;
                                     let (query, parameters) = encode_update(
                                         &path,
                                         &run.batch,
@@ -414,9 +410,9 @@ impl YdbSink {
     }
 }
 
-fn encode_upsert(path: String, batch: RecordBatch, bytes: u64) -> anyhow::Result<EncodedBatch> {
+fn encode_upsert(path: String, batch: &RecordBatch, bytes: u64) -> anyhow::Result<EncodedBatch> {
     let rows = batch.num_rows() as u64;
-    let (schema, data) = encode_arrow_batch(&batch)?;
+    let (schema, data) = encode_arrow_batch(batch)?;
     Ok(EncodedBatch {
         path,
         schema,
@@ -523,8 +519,7 @@ fn encode_row_query(
             quote_identifier(path)
         ),
     };
-    let query =
-        format!("--!syntax_v1\nDECLARE $batch AS List<Struct<{declared}>>;\n{statement}");
+    let query = format!("--!syntax_v1\nDECLARE $batch AS List<Struct<{declared}>>;\n{statement}");
     let members = columns
         .iter()
         .map(|column| {
@@ -870,7 +865,9 @@ fn ydb_parameter_value(
             let array = array
                 .as_any()
                 .downcast_ref::<TimestampSecondArray>()
-                .ok_or_else(|| anyhow::anyhow!("YDB Datetime primary key is not TimestampSecond"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("YDB Datetime primary key is not TimestampSecond")
+                })?;
             Value {
                 value: Some(ValueVariant::Int64Value(array.value(row))),
                 ..Value::default()
@@ -892,13 +889,15 @@ fn ydb_parameter_value(
             let array = array
                 .as_any()
                 .downcast_ref::<DurationMicrosecondArray>()
-                .ok_or_else(|| anyhow::anyhow!("YDB Interval64 value is not DurationMicrosecond"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("YDB Interval64 value is not DurationMicrosecond")
+                })?;
             Value {
                 value: Some(ValueVariant::Int64Value(array.value(row))),
                 ..Value::default()
             }
         }
-        ColumnKind::Binary(None) | ColumnKind::Binary(Some(YDB_YSON_EXTENSION)) => {
+        ColumnKind::Binary(None | Some(YDB_YSON_EXTENSION)) => {
             let array = array
                 .as_any()
                 .downcast_ref::<BinaryArray>()
@@ -908,12 +907,16 @@ fn ydb_parameter_value(
                 ..Value::default()
             }
         }
-        ColumnKind::Utf8(None)
-        | ColumnKind::Utf8(Some(ARROW_JSON_EXTENSION_NAME))
-        | ColumnKind::Utf8(Some(YDB_DYNUMBER_EXTENSION))
-        | ColumnKind::Utf8(Some(YDB_TZ_DATE_EXTENSION))
-        | ColumnKind::Utf8(Some(YDB_TZ_DATETIME_EXTENSION))
-        | ColumnKind::Utf8(Some(YDB_TZ_TIMESTAMP_EXTENSION)) => {
+        ColumnKind::Utf8(
+            None
+            | Some(
+                ARROW_JSON_EXTENSION_NAME
+                | YDB_DYNUMBER_EXTENSION
+                | YDB_TZ_DATE_EXTENSION
+                | YDB_TZ_DATETIME_EXTENSION
+                | YDB_TZ_TIMESTAMP_EXTENSION,
+            ),
+        ) => {
             let array = array
                 .as_any()
                 .downcast_ref::<StringArray>()

@@ -3,12 +3,12 @@ use arrow::datatypes::DataType;
 use bytes::{BufMut, Bytes, BytesMut};
 
 use super::config::{LogicalDecoder, PostgresReplicationConfig};
+use super::event::LogicalValue;
 use super::pgoutput::PgOutputDecoder;
 use super::reader::{
     events_to_table_data, normalize_pgoutput_event, normalize_wal2json_event, parse_lsn,
     parse_postgres_char,
 };
-use super::event::LogicalValue;
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
 use transferia_core::data::schema::{
@@ -145,20 +145,53 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .unwrap();
     assert_eq!(operation.name.as_ref(), "_system_change_operation");
     assert_eq!(
-        data.batch.schema().field(operation.index).metadata().get(META_CHANGE_OPERATION),
+        data.batch
+            .schema()
+            .field(operation.index)
+            .metadata()
+            .get(META_CHANGE_OPERATION),
         Some(&"true".to_owned())
     );
     let operations = data.batch.column(operation.index);
     let operations = operations.as_any().downcast_ref::<StringArray>().unwrap();
-    assert_eq!(operations.iter().collect::<Vec<_>>(), [Some("c"), Some("u"), Some("d")]);
+    assert_eq!(
+        operations.iter().collect::<Vec<_>>(),
+        [Some("c"), Some("u"), Some("d")]
+    );
 
-    let ids = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-    let names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-    let balances = data.batch.column(2).as_any().downcast_ref::<Int64Array>().unwrap();
+    let ids = data
+        .batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
+    let names = data
+        .batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let balances = data
+        .batch
+        .column(2)
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
     assert_eq!(ids.iter().collect::<Vec<_>>(), [Some(1), Some(1), Some(1)]);
-    assert_eq!(names.iter().collect::<Vec<_>>(), [Some("alice"), Some("alice-2"), None]);
-    assert_eq!(balances.iter().collect::<Vec<_>>(), [Some(10), Some(11), None]);
-    let old_key = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
+    assert_eq!(
+        names.iter().collect::<Vec<_>>(),
+        [Some("alice"), Some("alice-2"), None]
+    );
+    assert_eq!(
+        balances.iter().collect::<Vec<_>>(),
+        [Some(10), Some(11), None]
+    );
+    let old_key = data
+        .batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
     assert_eq!(old_key.iter().collect::<Vec<_>>(), [None, Some(1), Some(1)]);
     assert_eq!(
         data.batch.schema().field(3).metadata().get(META_OLD_KEY_OF),
@@ -174,7 +207,10 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .as_any()
         .downcast_ref::<BinaryArray>()
         .unwrap();
-    assert_eq!(changed.iter().collect::<Vec<_>>(), [Some(&[0b111][..]), Some(&[0b111][..]), Some(&[0b001][..])]);
+    assert_eq!(
+        changed.iter().collect::<Vec<_>>(),
+        [Some(&[0b111][..]), Some(&[0b111][..]), Some(&[0b001][..])]
+    );
     let message_index = data
         .system_columns
         .get(SystemColumnKind::MessageIndex)
@@ -192,7 +228,9 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         schema
             .fields()
             .iter()
-            .position(|field| field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role))
+            .position(|field| {
+                field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role)
+            })
             .unwrap()
     };
     let database = data
@@ -258,8 +296,18 @@ fn default_replica_identity_preserves_the_old_key_when_an_update_renames_it() {
         .collect::<Vec<_>>();
     let data = events_to_table_data(&table, "postgres", &events).unwrap();
 
-    let current = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-    let old = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
+    let current = data
+        .batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
+    let old = data
+        .batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
     assert_eq!(current.value(0), 2);
     assert_eq!(old.value(0), 1);
 }
@@ -268,7 +316,11 @@ fn default_replica_identity_preserves_the_old_key_when_an_update_renames_it() {
 fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
     let table = discovered_table();
     let mut decoder = PgOutputDecoder::default();
-    for message in [relation_message(), begin_message(), toasted_update_message()] {
+    for message in [
+        relation_message(),
+        begin_message(),
+        toasted_update_message(),
+    ] {
         assert!(decoder.decode(&message).unwrap().is_empty());
     }
     let pgoutput = decoder
@@ -298,7 +350,12 @@ fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
         .downcast_ref::<BinaryArray>()
         .unwrap();
     assert_eq!(changed.value(0), &[0b101]);
-    let names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+    let names = data
+        .batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert!(names.is_null(0));
 }
 
@@ -326,15 +383,32 @@ fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows()
     let schema = data.batch.schema();
     for (index, column) in table.schema.columns.iter().enumerate() {
         let old = schema.field(3 + index);
-        assert_eq!(
-            old.metadata().get(META_OLD_VALUE_OF),
-            Some(&column.name)
-        );
+        assert_eq!(old.metadata().get(META_OLD_VALUE_OF), Some(&column.name));
     }
-    let current_ids = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-    let current_names = data.batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
-    let old_ids = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
-    let old_names = data.batch.column(4).as_any().downcast_ref::<StringArray>().unwrap();
+    let current_ids = data
+        .batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
+    let current_names = data
+        .batch
+        .column(1)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let old_ids = data
+        .batch
+        .column(3)
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .unwrap();
+    let old_names = data
+        .batch
+        .column(4)
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
     assert_eq!(current_ids.value(0), 2);
     assert_eq!(current_names.value(0), "alice");
     assert_eq!(old_ids.value(0), 1);
@@ -365,7 +439,7 @@ fn pgoutput_uses_commit_end_lsn_as_the_durable_offset() {
 #[test]
 fn pgoutput_rejects_truncation_unknown_relations_and_invalid_transaction_order() {
     let mut decoder = PgOutputDecoder::default();
-    assert!(decoder.decode(&[b'B']).is_err());
+    assert!(decoder.decode(b"B").is_err());
     assert!(decoder.decode(&commit_message()).is_err());
     assert!(decoder.decode(&truncate_message()).is_err());
 
@@ -424,7 +498,10 @@ fn wal2json_rejects_unknown_operations_and_shape_or_type_drift() {
 
     let table = discovered_table();
     let wrong_oid = wal2json_transaction().replacen("[23,25,20]", "[999,25,20]", 1);
-    let event = wal2json::decode(wrong_oid.as_bytes()).unwrap().events.remove(0);
+    let event = wal2json::decode(wrong_oid.as_bytes())
+        .unwrap()
+        .events
+        .remove(0);
     assert!(normalize_wal2json_event(&table, event).is_err());
 }
 
@@ -433,7 +510,10 @@ fn lsn_parser_is_strict_and_round_trips_protocol_examples() {
     assert_eq!(parse_lsn("0/65").unwrap(), 101);
     assert_eq!(parse_lsn("6E/85004178").unwrap(), 0x0000_006e_8500_4178);
     for invalid in ["", "65", "0/", "/65", "0/xyz", "0/1/2"] {
-        assert!(parse_lsn(invalid).is_err(), "accepted invalid LSN {invalid:?}");
+        assert!(
+            parse_lsn(invalid).is_err(),
+            "accepted invalid LSN {invalid:?}"
+        );
     }
 }
 
@@ -466,7 +546,11 @@ fn relation_message_with_identity(identity: u8) -> Vec<u8> {
     put_cstring(&mut message, "accounts");
     message.put_u8(identity);
     message.put_u16(3);
-    for (key, name, oid) in [(true, "id", 23), (false, "name", 25), (false, "balance", 20)] {
+    for (key, name, oid) in [
+        (true, "id", 23),
+        (false, "name", 25),
+        (false, "balance", 20),
+    ] {
         message.put_u8(u8::from(key));
         put_cstring(&mut message, name);
         message.put_u32(oid);
@@ -495,30 +579,63 @@ fn commit_message() -> Vec<u8> {
 }
 
 fn insert_message() -> Vec<u8> {
-    row_message(b'I', None, [WireValue::Text("1"), WireValue::Text("alice"), WireValue::Text("10")])
+    row_message(
+        b'I',
+        None,
+        [
+            WireValue::Text("1"),
+            WireValue::Text("alice"),
+            WireValue::Text("10"),
+        ],
+    )
 }
 
 fn update_message() -> Vec<u8> {
     row_message(
         b'U',
-        Some((b'K', [WireValue::Text("1"), WireValue::Text("alice"), WireValue::Text("10")])),
-        [WireValue::Text("1"), WireValue::Text("alice-2"), WireValue::Text("11")],
+        Some((
+            b'K',
+            [
+                WireValue::Text("1"),
+                WireValue::Text("alice"),
+                WireValue::Text("10"),
+            ],
+        )),
+        [
+            WireValue::Text("1"),
+            WireValue::Text("alice-2"),
+            WireValue::Text("11"),
+        ],
     )
 }
 
 fn toasted_update_message() -> Vec<u8> {
     row_message(
         b'U',
-        Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
-        [WireValue::Text("1"), WireValue::Unchanged, WireValue::Text("11")],
+        Some((
+            b'K',
+            [WireValue::Text("1"), WireValue::Null, WireValue::Null],
+        )),
+        [
+            WireValue::Text("1"),
+            WireValue::Unchanged,
+            WireValue::Text("11"),
+        ],
     )
 }
 
 fn primary_key_update_message() -> Vec<u8> {
     row_message(
         b'U',
-        Some((b'K', [WireValue::Text("1"), WireValue::Null, WireValue::Null])),
-        [WireValue::Text("2"), WireValue::Text("alice"), WireValue::Text("10")],
+        Some((
+            b'K',
+            [WireValue::Text("1"), WireValue::Null, WireValue::Null],
+        )),
+        [
+            WireValue::Text("2"),
+            WireValue::Text("alice"),
+            WireValue::Text("10"),
+        ],
     )
 }
 
@@ -527,16 +644,31 @@ fn full_identity_update_message() -> Vec<u8> {
         b'U',
         Some((
             b'O',
-            [WireValue::Text("1"), WireValue::Text("alice"), WireValue::Text("10")],
+            [
+                WireValue::Text("1"),
+                WireValue::Text("alice"),
+                WireValue::Text("10"),
+            ],
         )),
-        [WireValue::Text("2"), WireValue::Unchanged, WireValue::Text("11")],
+        [
+            WireValue::Text("2"),
+            WireValue::Unchanged,
+            WireValue::Text("11"),
+        ],
     )
 }
 
 fn delete_message() -> Vec<u8> {
     row_message(
         b'D',
-        Some((b'K', [WireValue::Text("1"), WireValue::Text("alice-2"), WireValue::Text("11")])),
+        Some((
+            b'K',
+            [
+                WireValue::Text("1"),
+                WireValue::Text("alice-2"),
+                WireValue::Text("11"),
+            ],
+        )),
         [WireValue::Null, WireValue::Null, WireValue::Null],
     )
 }

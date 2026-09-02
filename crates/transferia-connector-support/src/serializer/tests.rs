@@ -88,7 +88,7 @@ fn debezium_schema_registry_rejects_invalid_subjects_and_protobuf_paths() {
         ..
     } = &mut config
     else {
-        unreachable!()
+        panic!("test fixture changed serializer variant")
     };
     *value_subject = "inventory.accounts-value".to_owned();
     value_protobuf_message_indexes.clear();
@@ -145,9 +145,7 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
             SystemColumnKind::ChangedColumns,
         ]
         .into_iter()
-        .map(|kind| {
-            SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
-        }),
+        .map(|kind| SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)),
     );
     let mut discovery = DeliveryDiscovery {
         source_name: "postgres".into(),
@@ -176,7 +174,10 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
         .incoming_schema
         .columns
         .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_TABLE));
-    let error = config.validate_discovery(&discovery).unwrap_err().to_string();
+    let error = config
+        .validate_discovery(&discovery)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains(SYSTEM_ROLE_SOURCE_TABLE), "{error}");
 }
 
@@ -314,7 +315,8 @@ fn debezium_registry_wrapper_supports_json_avro_and_protobuf_without_losing_tomb
 
 #[test]
 fn avro_debezium_encoding_preserves_non_finite_floats() -> anyhow::Result<()> {
-    let definition = r#"{"type":"record","name":"Floating","fields":[{"name":"value","type":"double"}]}"#;
+    let definition =
+        r#"{"type":"record","name":"Floating","fields":[{"name":"value","type":"double"}]}"#;
     let schema = compile_writer_schema(
         &crate::schema_registry::RegistrySchema {
             id: 31,
@@ -340,9 +342,9 @@ fn avro_debezium_encoding_preserves_non_finite_floats() -> anyhow::Result<()> {
         };
         match value {
             "NaN" => assert!(decoded.is_nan()),
-            "Infinity" => assert_eq!(decoded, f64::INFINITY),
-            "-Infinity" => assert_eq!(decoded, f64::NEG_INFINITY),
-            _ => unreachable!(),
+            "Infinity" => assert!(decoded.is_infinite() && decoded.is_sign_positive()),
+            "-Infinity" => assert!(decoded.is_infinite() && decoded.is_sign_negative()),
+            _ => panic!("test fixture contains an unknown non-finite value"),
         }
     }
     Ok(())

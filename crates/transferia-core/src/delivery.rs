@@ -290,6 +290,10 @@ impl SinkLimits for NoLimits {
 }
 
 /// Validate the stable batch identity and Arrow schema shared by every sink.
+#[allow(
+    clippy::too_many_lines,
+    reason = "runtime validation keeps the complete pre-side-effect contract in one boundary"
+)]
 pub fn validate_batch_against_discovery<'a>(
     discovery: &'a DeliveryDiscovery,
     batch: &SinkBatch,
@@ -346,8 +350,7 @@ pub fn validate_batch_against_discovery<'a>(
                         .as_ref()
                         .map(usize::to_string)
                         .as_deref()
-                && metadata.get(META_OLD_VALUE_OF)
-                    == expected_column.old_value_of.as_ref()
+                && metadata.get(META_OLD_VALUE_OF) == expected_column.old_value_of.as_ref()
                 && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref()
                 && metadata.get(META_SYSTEM_ROLE) == expected_column.system_role.as_ref(),
             "runtime dataset '{}' column '{}' metadata does not match discovery",
@@ -463,8 +466,7 @@ pub fn validate_stored_projection(
                         SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns
                     )
                 )
-                && (discovery.keep_system_columns
-                    || !system_names.contains(column.name.as_str()))
+                && (discovery.keep_system_columns || !system_names.contains(column.name.as_str()))
         })
         .collect::<Vec<_>>();
     anyhow::ensure!(
@@ -477,8 +479,14 @@ pub fn validate_stored_projection(
                 .all(|(stored, incoming)| {
                     stored.name == incoming.name
                         && stored.data_type == incoming.data_type
+                        // Incoming Arrow may be more permissive than the
+                        // destination contract (notably for unchanged TOAST
+                        // values and snapshot/CDC schema parity). Runtime
+                        // projection rejects actual nulls before an append-only
+                        // side effect; changelog projection validates them
+                        // against the changed-column mask.
                         && (stored.nullable == incoming.nullable
-                            || (changelog_input && !stored.nullable && incoming.nullable))
+                            || (!stored.nullable && incoming.nullable))
                         && stored.primary_key == incoming.primary_key
                         && stored.low_cardinality == incoming.low_cardinality
                         && stored.max_length == incoming.max_length
@@ -493,6 +501,10 @@ pub fn validate_stored_projection(
     Ok(())
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "CDC metadata invariants are reviewed and enforced as one fail-closed contract"
+)]
 fn validate_cdc_control_columns(
     dataset: &DiscoveredDataset,
     changelog_input: bool,

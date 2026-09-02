@@ -102,7 +102,7 @@ impl KafkaSource {
                 .entry((record.topic().to_owned(), record.partition()))
                 .and_modify(|current| *current = (*current).max(next_offset))
                 .or_insert(next_offset);
-            messages.push(source_message(&record)?);
+            messages.push(source_message(&record));
         }
         self.counters
             .add_records(u64::try_from(messages.len()).unwrap_or(u64::MAX));
@@ -144,13 +144,13 @@ impl KafkaSource {
     }
 }
 
-fn source_message(record: &OwnedMessage) -> DataPlaneResult<Message> {
+fn source_message(record: &OwnedMessage) -> Message {
     let payload = record.payload();
     let timestamp = match record.timestamp() {
         Timestamp::NotAvailable => None,
         Timestamp::CreateTime(value) | Timestamp::LogAppendTime(value) => Some(value),
     };
-    Ok(Message {
+    Message {
         value: payload.map_or_else(Bytes::new, Bytes::copy_from_slice),
         tombstone: payload.is_none(),
         key: record.key().map(Bytes::copy_from_slice),
@@ -173,7 +173,7 @@ fn source_message(record: &OwnedMessage) -> DataPlaneResult<Message> {
             offset: Some(record.offset()),
             write_timestamp_ms: timestamp,
         },
-    })
+    }
 }
 
 fn record_retained_bytes(record: &OwnedMessage) -> DataPlaneResult<usize> {

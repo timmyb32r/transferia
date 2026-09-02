@@ -15,28 +15,28 @@ use transferia_registry::SinkPrepare;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TableEngine {
-    MergeTree,
-    ReplicatedMergeTree,
-    ReplacingMergeTree,
-    ReplicatedReplacingMergeTree,
+    Ordinary,
+    Replicated,
+    Replacing,
+    ReplicatedReplacing,
 }
 
 impl TableEngine {
     const fn for_data_host_count(data_host_count: usize, changelog: bool) -> Self {
         match (data_host_count > 1, changelog) {
-            (false, false) => Self::MergeTree,
-            (true, false) => Self::ReplicatedMergeTree,
-            (false, true) => Self::ReplacingMergeTree,
-            (true, true) => Self::ReplicatedReplacingMergeTree,
+            (false, false) => Self::Ordinary,
+            (true, false) => Self::Replicated,
+            (false, true) => Self::Replacing,
+            (true, true) => Self::ReplicatedReplacing,
         }
     }
 
     const fn as_str(self) -> &'static str {
         match self {
-            Self::MergeTree => "MergeTree",
-            Self::ReplicatedMergeTree => "ReplicatedMergeTree",
-            Self::ReplacingMergeTree => "ReplacingMergeTree",
-            Self::ReplicatedReplacingMergeTree => "ReplicatedReplacingMergeTree",
+            Self::Ordinary => "MergeTree",
+            Self::Replicated => "ReplicatedMergeTree",
+            Self::Replacing => "ReplacingMergeTree",
+            Self::ReplicatedReplacing => "ReplicatedReplacingMergeTree",
         }
     }
 }
@@ -130,14 +130,8 @@ async fn create_table(
 ) -> anyhow::Result<()> {
     let data_host_count = config.effective_data_host_count();
     let engine = TableEngine::for_data_host_count(data_host_count, changelog);
-    let ddl = create_table_ddl_for_cluster(
-        name,
-        schema,
-        sorting_key,
-        engine,
-        shard_group,
-        changelog,
-    )?;
+    let ddl =
+        create_table_ddl_for_cluster(name, schema, sorting_key, engine, shard_group, changelog)?;
     tracing::info!(
         table = name,
         engine = engine.as_str(),
@@ -174,9 +168,7 @@ fn validate_changelog_columns(
         );
     }
     let deleted = target.get(CHANGE_IS_DELETED).ok_or_else(|| {
-        anyhow::anyhow!(
-            "ClickHouse changelog table '{table}' is missing '{CHANGE_IS_DELETED}'"
-        )
+        anyhow::anyhow!("ClickHouse changelog table '{table}' is missing '{CHANGE_IS_DELETED}'")
     })?;
     anyhow::ensure!(
         deleted.data_type == Some(DataType::UInt8)
@@ -196,7 +188,7 @@ fn create_table_ddl(
 ) -> anyhow::Result<String> {
     let changelog = matches!(
         engine,
-        TableEngine::ReplacingMergeTree | TableEngine::ReplicatedReplacingMergeTree
+        TableEngine::Replacing | TableEngine::ReplicatedReplacing
     );
     create_table_ddl_for_cluster(name, schema, sorting_key, engine, None, changelog)
 }
@@ -251,14 +243,14 @@ fn create_table_ddl_for_cluster(
         .map(|cluster| format!(" ON CLUSTER {}", quote_identifier(cluster)))
         .unwrap_or_default();
     let engine_clause = match engine {
-        TableEngine::MergeTree => "MergeTree",
-        TableEngine::ReplicatedMergeTree => {
+        TableEngine::Ordinary => "MergeTree",
+        TableEngine::Replicated => {
             "ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')"
         }
-        TableEngine::ReplacingMergeTree => {
+        TableEngine::Replacing => {
             "ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
         }
-        TableEngine::ReplicatedReplacingMergeTree => {
+        TableEngine::ReplicatedReplacing => {
             "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}', __data_transfer_commit_time, __data_transfer_is_deleted)"
         }
     };
@@ -402,9 +394,7 @@ async fn fetch_target_table_metadata(
             .ok_or_else(|| anyhow::anyhow!("ClickHouse table sorting keys are not strings"))?;
         for row in 0..batch.num_rows() {
             anyhow::ensure!(
-                !engines.is_null(row)
-                    && !engine_full.is_null(row)
-                    && !sorting_keys.is_null(row),
+                !engines.is_null(row) && !engine_full.is_null(row) && !sorting_keys.is_null(row),
                 "ClickHouse metadata query for '{table}' returned NULL"
             );
             anyhow::ensure!(
@@ -429,14 +419,21 @@ fn validate_target_engine(
     changelog: bool,
 ) -> anyhow::Result<()> {
     let supported = if changelog {
-        matches!(engine, "ReplacingMergeTree" | "ReplicatedReplacingMergeTree")
+        matches!(
+            engine,
+            "ReplacingMergeTree" | "ReplicatedReplacingMergeTree"
+        )
     } else {
         matches!(engine, "MergeTree" | "ReplicatedMergeTree")
     };
     anyhow::ensure!(
         supported,
         "ClickHouse table '{table}' uses unsupported engine '{engine}' for {} input",
-        if changelog { "changelog" } else { "append-only" }
+        if changelog {
+            "changelog"
+        } else {
+            "append-only"
+        }
     );
     if changelog {
         let signature = engine_signature(engine_full)?;
@@ -444,17 +441,17 @@ fn validate_target_engine(
             .chars()
             .filter(|character| !character.is_ascii_whitespace() && *character != '`')
             .collect::<String>();
-        let valid_arguments = match engine {
-            "ReplacingMergeTree" => normalized
-                == "ReplacingMergeTree(__data_transfer_commit_time,__data_transfer_is_deleted)",
-            "ReplicatedReplacingMergeTree" => {
-                normalized.starts_with("ReplicatedReplacingMergeTree(")
-                    && normalized.ends_with(
-                        ",__data_transfer_commit_time,__data_transfer_is_deleted)",
-                    )
-            }
-            _ => false,
-        };
+        let valid_arguments =
+            match engine {
+                "ReplacingMergeTree" => normalized
+                    == "ReplacingMergeTree(__data_transfer_commit_time,__data_transfer_is_deleted)",
+                "ReplicatedReplacingMergeTree" => {
+                    normalized.starts_with("ReplicatedReplacingMergeTree(")
+                        && normalized
+                            .ends_with(",__data_transfer_commit_time,__data_transfer_is_deleted)")
+                }
+                _ => false,
+            };
         anyhow::ensure!(
             valid_arguments,
             "ClickHouse changelog table '{table}' uses incompatible engine definition '{engine_full}'; expected '{CHANGE_COMMIT_TIME}' as the version and '{CHANGE_IS_DELETED}' as the delete flag"
@@ -465,7 +462,10 @@ fn validate_target_engine(
 
 fn engine_signature(engine_full: &str) -> anyhow::Result<&str> {
     let Some(opening) = engine_full.find('(') else {
-        return Ok(engine_full.split_ascii_whitespace().next().unwrap_or_default());
+        return Ok(engine_full
+            .split_ascii_whitespace()
+            .next()
+            .unwrap_or_default());
     };
     let mut depth = 0_u32;
     let mut quoted = false;
@@ -490,7 +490,9 @@ fn engine_signature(engine_full: &str) -> anyhow::Result<&str> {
             '(' => depth = depth.saturating_add(1),
             ')' => {
                 depth = depth.checked_sub(1).ok_or_else(|| {
-                    anyhow::anyhow!("ClickHouse engine definition has an unmatched closing parenthesis")
+                    anyhow::anyhow!(
+                        "ClickHouse engine definition has an unmatched closing parenthesis"
+                    )
                 })?;
                 if depth == 0 {
                     return Ok(&engine_full[..opening + offset + character.len_utf8()]);

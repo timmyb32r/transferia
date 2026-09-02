@@ -128,10 +128,8 @@ impl PqV1Sink {
             .last_sequence_number
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
-        let mut serializer = DeliverySerializer::new(
-            &self.config.serializer,
-            QueueMessageMode::ValuesOnly,
-        )?;
+        let mut serializer =
+            DeliverySerializer::new(&self.config.serializer, QueueMessageMode::ValuesOnly)?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();

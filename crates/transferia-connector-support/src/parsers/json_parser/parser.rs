@@ -547,10 +547,10 @@ fn append_typed(
         TypedScratch::Str(range) => {
             let s = str_val(json_buf, *range)?;
             match builder {
-                AnyBuilder::Binary(_) => append_null(builder),
                 AnyBuilder::Utf8(b) => b.append_value(s),
                 AnyBuilder::LargeUtf8(b) => b.append_value(s),
-                AnyBuilder::Int8(_)
+                AnyBuilder::Binary(_)
+                | AnyBuilder::Int8(_)
                 | AnyBuilder::Int16(_)
                 | AnyBuilder::Int32(_)
                 | AnyBuilder::Int64(_)

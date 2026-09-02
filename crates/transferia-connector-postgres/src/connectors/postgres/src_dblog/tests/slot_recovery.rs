@@ -71,5 +71,8 @@ async fn durable_replication_offset_has_single_writer_cas_semantics() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(decode_state(&stored.payload, "slot", "pgoutput").unwrap(), 300);
+    assert_eq!(
+        decode_state(&stored.payload, "slot", "pgoutput").unwrap(),
+        300
+    );
 }

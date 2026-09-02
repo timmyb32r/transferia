@@ -49,11 +49,9 @@ pub(super) struct Wal2JsonTransaction {
 pub(super) fn decode(data: &[u8]) -> anyhow::Result<Wal2JsonTransaction> {
     let transaction: ChangeSet = serde_json::from_slice(data)?;
     let end_lsn = super::reader::parse_lsn(&transaction.nextlsn)?;
-    let commit_timestamp_micros = chrono::DateTime::parse_from_str(
-        &transaction.timestamp,
-        "%Y-%m-%d %H:%M:%S%.f%#z",
-    )?
-    .timestamp_micros();
+    let commit_timestamp_micros =
+        chrono::DateTime::parse_from_str(&transaction.timestamp, "%Y-%m-%d %H:%M:%S%.f%#z")?
+            .timestamp_micros();
     let events = transaction
         .change
         .into_iter()

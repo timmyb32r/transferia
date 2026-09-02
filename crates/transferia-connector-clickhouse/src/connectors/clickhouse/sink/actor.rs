@@ -15,9 +15,7 @@ use tokio_util::task::AbortOnDropHandle;
 use super::transport::{InsertError, InsertTransport};
 use super::ClickHouseSinkConfig;
 use crate::metrics::SinkCounters;
-use transferia_core::data::changelog::{
-    project_sink_batch, ChangelogBatch, ProjectedSinkBatch,
-};
+use transferia_core::data::changelog::{project_sink_batch, ChangelogBatch, ProjectedSinkBatch};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::failure::DataPlaneFailure;
@@ -348,9 +346,9 @@ impl ClickHouseSink {
                 serial_changelog_active = false;
             }
             if pending_changelog.is_some() && self.buffers.is_empty() && active.is_empty() {
-                let delivery = pending_changelog
-                    .take()
-                    .expect("pending ClickHouse changelog delivery disappeared");
+                let delivery = pending_changelog.take().ok_or_else(|| {
+                    anyhow::anyhow!("pending ClickHouse changelog delivery disappeared")
+                })?;
                 self.accept(delivery).await?;
                 serial_changelog_active = true;
             }
@@ -528,7 +526,9 @@ async fn restore_clickhouse_update(
                 .schema()
                 .index_of(name)
                 .map(|index| Arc::clone(update.column(index)))
-                .map_err(|_| anyhow::anyhow!("ClickHouse partial update omits primary key '{name}'"))
+                .map_err(|_| {
+                    anyhow::anyhow!("ClickHouse partial update omits primary key '{name}'")
+                })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     let converter = RowConverter::new(key_types)?;
@@ -590,9 +590,17 @@ fn current_rows_query(
                 .iter()
                 .map(|column| {
                     let index = update.schema().index_of(&column.name).map_err(|_| {
-                        anyhow::anyhow!("ClickHouse partial update omits primary key '{}'", column.name)
+                        anyhow::anyhow!(
+                            "ClickHouse partial update omits primary key '{}'",
+                            column.name
+                        )
                     })?;
-                    key_predicate(&column.name, update.column(index).as_ref(), row, &column.data_type)
+                    key_predicate(
+                        &column.name,
+                        update.column(index).as_ref(),
+                        row,
+                        &column.data_type,
+                    )
                 })
                 .collect::<anyhow::Result<Vec<_>>>()
                 .map(|parts| format!("({})", parts.join(" AND ")))
@@ -613,7 +621,10 @@ fn key_predicate(
     row: usize,
     data_type: &DataType,
 ) -> anyhow::Result<String> {
-    anyhow::ensure!(!array.is_null(row), "ClickHouse primary key '{name}' is null");
+    anyhow::ensure!(
+        !array.is_null(row),
+        "ClickHouse primary key '{name}' is null"
+    );
     let name = super::client::quote_identifier(name);
     macro_rules! primitive {
         ($array:ty) => {{
@@ -626,19 +637,37 @@ fn key_predicate(
     }
     Ok(match data_type {
         DataType::Utf8 => {
-            let values = array.as_any().downcast_ref::<arrow::array::StringArray>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
-            format!("{name} = {}", super::table::quote_string_literal(values.value(row)))
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::StringArray>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            format!(
+                "{name} = {}",
+                super::table::quote_string_literal(values.value(row))
+            )
         }
         DataType::LargeUtf8 => {
-            let values = array.as_any().downcast_ref::<arrow::array::LargeStringArray>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
-            format!("{name} = {}", super::table::quote_string_literal(values.value(row)))
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::LargeStringArray>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            format!(
+                "{name} = {}",
+                super::table::quote_string_literal(values.value(row))
+            )
         }
         DataType::Binary => {
-            let values = array.as_any().downcast_ref::<arrow::array::BinaryArray>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::BinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
             format!("{name} = unhex('{}')", hex(values.value(row)))
         }
         DataType::LargeBinary => {
-            let values = array.as_any().downcast_ref::<arrow::array::LargeBinaryArray>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::LargeBinaryArray>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
             format!("{name} = unhex('{}')", hex(values.value(row)))
         }
         DataType::Int8 => primitive!(arrow::array::Int8Array),
@@ -650,21 +679,39 @@ fn key_predicate(
         DataType::UInt32 => primitive!(arrow::array::UInt32Array),
         DataType::UInt64 => primitive!(arrow::array::UInt64Array),
         DataType::Float32 => {
-            let values = array.as_any().downcast_ref::<arrow::array::Float32Array>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
-            format!("reinterpretAsUInt32({name}) = {}", values.value(row).to_bits())
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::Float32Array>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            format!(
+                "reinterpretAsUInt32({name}) = {}",
+                values.value(row).to_bits()
+            )
         }
         DataType::Float64 => {
-            let values = array.as_any().downcast_ref::<arrow::array::Float64Array>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
-            format!("reinterpretAsUInt64({name}) = {}", values.value(row).to_bits())
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::Float64Array>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            format!(
+                "reinterpretAsUInt64({name}) = {}",
+                values.value(row).to_bits()
+            )
         }
         DataType::Boolean => {
-            let values = array.as_any().downcast_ref::<arrow::array::BooleanArray>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::BooleanArray>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
             format!("{name} = {}", u8::from(values.value(row)))
         }
         DataType::Decimal128(precision, scale) => {
-            let values = array.as_any().downcast_ref::<arrow::array::Decimal128Array>().ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
+            let values = array
+                .as_any()
+                .downcast_ref::<arrow::array::Decimal128Array>()
+                .ok_or_else(|| anyhow::anyhow!("ClickHouse primary-key Arrow type mismatch"))?;
             let value = decimal_literal(values.value(row), *scale)?;
-            format!("{name} = CAST('{}' AS Decimal({precision}, {scale}))", value)
+            format!("{name} = CAST('{value}' AS Decimal({precision}, {scale}))")
         }
         DataType::Timestamp(unit, _) => {
             let value = timestamp_value(array, row, *unit)?;
@@ -674,10 +721,14 @@ fn key_predicate(
                 TimeUnit::Microsecond => value.checked_mul(1_000),
                 TimeUnit::Nanosecond => Some(value),
             }
-            .ok_or_else(|| anyhow::anyhow!("ClickHouse timestamp primary key overflows nanoseconds"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("ClickHouse timestamp primary key overflows nanoseconds")
+            })?;
             format!("toUnixTimestamp64Nano({name}) = {nanoseconds}")
         }
-        other => anyhow::bail!("ClickHouse cannot restore TOAST values for primary-key type {other:?}"),
+        other => {
+            anyhow::bail!("ClickHouse cannot restore TOAST values for primary-key type {other:?}")
+        }
     })
 }
 
@@ -687,7 +738,9 @@ fn timestamp_value(array: &dyn Array, row: usize, unit: TimeUnit) -> anyhow::Res
             array
                 .as_any()
                 .downcast_ref::<$array>()
-                .ok_or_else(|| anyhow::anyhow!("ClickHouse timestamp primary-key Arrow type mismatch"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("ClickHouse timestamp primary-key Arrow type mismatch")
+                })?
                 .value(row)
         };
     }
@@ -700,7 +753,10 @@ fn timestamp_value(array: &dyn Array, row: usize, unit: TimeUnit) -> anyhow::Res
 }
 
 fn decimal_literal(value: i128, scale: i8) -> anyhow::Result<String> {
-    anyhow::ensure!(scale >= 0, "ClickHouse Decimal primary-key scale must be nonnegative");
+    anyhow::ensure!(
+        scale >= 0,
+        "ClickHouse Decimal primary-key scale must be nonnegative"
+    );
     let scale = usize::from(scale.unsigned_abs());
     let negative = value.is_negative();
     let mut digits = value.unsigned_abs().to_string();
@@ -748,7 +804,7 @@ fn clickhouse_change_batch(
     let mut arrays = base.columns().to_vec();
     arrays.push(Arc::new(UInt64Array::from(versions.clone())) as ArrayRef);
     arrays.push(Arc::new(UInt64Array::from(if deleted {
-        versions.to_vec()
+        versions
     } else {
         vec![0; versions.len()]
     })) as ArrayRef);

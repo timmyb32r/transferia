@@ -264,7 +264,10 @@ fn take_cstring(input: &mut Bytes) -> anyhow::Result<String> {
 
 fn expect_tag(input: &mut Bytes, expected: u8) -> anyhow::Result<()> {
     let actual = take_u8(input)?;
-    anyhow::ensure!(actual == expected, "expected pgoutput tag 0x{expected:02x}, received 0x{actual:02x}");
+    anyhow::ensure!(
+        actual == expected,
+        "expected pgoutput tag 0x{expected:02x}, received 0x{actual:02x}"
+    );
     Ok(())
 }
 

@@ -47,8 +47,7 @@ impl PostgresSink {
         let started = std::time::Instant::now();
         let transaction = self.client.transaction().await?;
         let mut flushes = 0;
-        for (batch_index, (batch, projected)) in
-            delivery.outputs.iter().zip(projected).enumerate()
+        for (batch_index, (batch, projected)) in delivery.outputs.iter().zip(projected).enumerate()
         {
             match projected {
                 ProjectedSinkBatch::AppendOnly(stored) => {
@@ -58,9 +57,7 @@ impl PostgresSink {
                     }
                 }
                 ProjectedSinkBatch::Changelog(changelog) => {
-                    for (run_index, run) in
-                        changelog.collapsed_runs()?.into_iter().enumerate()
-                    {
+                    for (run_index, run) in changelog.collapsed_runs()?.into_iter().enumerate() {
                         if run.batch.num_rows() == 0 {
                             continue;
                         }
@@ -118,10 +115,20 @@ impl PostgresSink {
         }
         transaction.commit().await?;
         self.counters.add_busy(started.elapsed());
-        self.counters
-            .add_rows(delivery.outputs.iter().map(|batch| batch.rows() as u64).sum());
-        self.counters
-            .add_bytes(delivery.outputs.iter().map(|batch| batch.bytes() as u64).sum());
+        self.counters.add_rows(
+            delivery
+                .outputs
+                .iter()
+                .map(|batch| batch.rows() as u64)
+                .sum(),
+        );
+        self.counters.add_bytes(
+            delivery
+                .outputs
+                .iter()
+                .map(|batch| batch.bytes() as u64)
+                .sum(),
+        );
         for _ in 0..flushes {
             self.counters.add_flush();
         }
@@ -143,18 +150,20 @@ async fn create_staging_table(
             quote_identifier(staging),
             quote_identifier(table)
         ),
-        transferia_core::ChangeOperation::Update | transferia_core::ChangeOperation::Delete => format!(
-            "CREATE TEMP TABLE {} ON COMMIT DROP AS SELECT {} FROM {} WITH NO DATA",
-            quote_identifier(staging),
-            batch
-                .schema()
-                .fields()
-                .iter()
-                .map(|field| quote_identifier(field.name()))
-                .collect::<Vec<_>>()
-                .join(", "),
-            quote_identifier(table)
-        ),
+        transferia_core::ChangeOperation::Update | transferia_core::ChangeOperation::Delete => {
+            format!(
+                "CREATE TEMP TABLE {} ON COMMIT DROP AS SELECT {} FROM {} WITH NO DATA",
+                quote_identifier(staging),
+                batch
+                    .schema()
+                    .fields()
+                    .iter()
+                    .map(|field| quote_identifier(field.name()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                quote_identifier(table)
+            )
+        }
     };
     transaction.batch_execute(&query).await?;
     Ok(())

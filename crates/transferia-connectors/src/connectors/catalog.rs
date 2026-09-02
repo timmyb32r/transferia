@@ -377,18 +377,19 @@ fn build_base_connector_catalog(
     )?;
 
     catalog.register(
-        component_registration("discard")?.sink::<EmptyConfig, _, _>(
-            || serde_json::json!({}),
-            |_config| {
-                Ok(Box::new(
-                    crate::connectors::discard::connector::DiscardSinkConnector,
-                ))
-            },
-        )?
-        .sink_record_semantics(vec![
-            transferia_delivery_contracts::semantics::RecordSemantics::AppendOnly,
-            transferia_delivery_contracts::semantics::RecordSemantics::Changelog,
-        ])?,
+        component_registration("discard")?
+            .sink::<EmptyConfig, _, _>(
+                || serde_json::json!({}),
+                |_config| {
+                    Ok(Box::new(
+                        crate::connectors::discard::connector::DiscardSinkConnector,
+                    ))
+                },
+            )?
+            .sink_record_semantics(vec![
+                transferia_delivery_contracts::semantics::RecordSemantics::AppendOnly,
+                transferia_delivery_contracts::semantics::RecordSemantics::Changelog,
+            ])?,
     )?;
 
     Ok(catalog.build())

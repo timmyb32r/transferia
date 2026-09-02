@@ -15,7 +15,7 @@ fn merge_tree_ddl(
     schema: &DatasetSchema,
     sorting_key: &[String],
 ) -> anyhow::Result<String> {
-    create_table_ddl(name, schema, sorting_key, TableEngine::MergeTree)
+    create_table_ddl(name, schema, sorting_key, TableEngine::Ordinary)
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn replicated_table_is_created_on_the_selected_cluster() -> anyhow::Result<()> {
         "events",
         &schema,
         &[],
-        TableEngine::ReplicatedMergeTree,
+        TableEngine::Replicated,
         Some("default"),
         false,
     )?;
@@ -319,13 +319,8 @@ fn changelog_engine_rejects_wrong_version_and_delete_columns() {
         "ReplacingMergeTree(__data_transfer_commit_time, other_delete_flag)",
         "ReplacingMergeTree(__data_transfer_commit_time)",
     ] {
-        let error = validate_target_engine(
-            "events",
-            "ReplacingMergeTree",
-            engine_full,
-            true,
-        )
-        .expect_err("an incompatible ReplacingMergeTree must fail before INSERT");
+        let error = validate_target_engine("events", "ReplacingMergeTree", engine_full, true)
+            .expect_err("an incompatible ReplacingMergeTree must fail before INSERT");
         assert!(error.to_string().contains("incompatible engine definition"));
     }
 }
@@ -345,51 +340,47 @@ fn engine_signature_handles_parentheses_inside_replicated_paths() -> anyhow::Res
 #[test]
 fn changelog_ddl_uses_replacing_mergetree_and_lossless_tombstones() -> anyhow::Result<()> {
     let schema = schema(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None),
         SchemaColumn::new("value".into(), DataType::Utf8, true),
     ]);
-    let ddl = create_table_ddl(
-        "events",
-        &schema,
-        &["id".into()],
-        TableEngine::ReplacingMergeTree,
-    )?;
-    assert!(ddl.contains("`__data_transfer_commit_time` UInt64"), "{ddl}");
-    assert!(ddl.contains("`__data_transfer_delete_time` UInt64"), "{ddl}");
+    let ddl = create_table_ddl("events", &schema, &["id".into()], TableEngine::Replacing)?;
+    assert!(
+        ddl.contains("`__data_transfer_commit_time` UInt64"),
+        "{ddl}"
+    );
+    assert!(
+        ddl.contains("`__data_transfer_delete_time` UInt64"),
+        "{ddl}"
+    );
     assert!(ddl.contains(
         "`__data_transfer_is_deleted` UInt8 MATERIALIZED if(`__data_transfer_delete_time` != 0, 1, 0)"
     ), "{ddl}");
-    assert!(ddl.contains(
-        "ENGINE = ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
-    ), "{ddl}");
+    assert!(
+        ddl.contains(
+            "ENGINE = ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
+        ),
+        "{ddl}"
+    );
     assert!(ddl.ends_with("ORDER BY (`id`)"), "{ddl}");
     Ok(())
 }
 
 #[test]
 fn changelog_ddl_requires_a_primary_key_and_reserves_metadata_names() {
-    let no_key = schema(vec![SchemaColumn::new("value".into(), DataType::Int64, false)]);
-    assert!(create_table_ddl(
-        "events",
-        &no_key,
-        &[],
-        TableEngine::ReplacingMergeTree,
-    )
-    .is_err());
+    let no_key = schema(vec![SchemaColumn::new(
+        "value".into(),
+        DataType::Int64,
+        false,
+    )]);
+    assert!(create_table_ddl("events", &no_key, &[], TableEngine::Replacing,).is_err());
 
     let collision = schema(vec![
-        SchemaColumn::new("id".into(), DataType::Int64, false)
-            .with_constraints(true, false, None),
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None),
         SchemaColumn::new(CHANGE_COMMIT_TIME.into(), DataType::UInt64, false),
     ]);
-    assert!(create_table_ddl(
-        "events",
-        &collision,
-        &["id".into()],
-        TableEngine::ReplacingMergeTree,
-    )
-    .is_err());
+    assert!(
+        create_table_ddl("events", &collision, &["id".into()], TableEngine::Replacing,).is_err()
+    );
 }
 
 #[test]

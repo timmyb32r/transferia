@@ -6,7 +6,7 @@ use transferia_core::ChangeOperation;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum LogicalValue {
     Null,
-    /// PostgreSQL omitted an unchanged TOAST value from an update tuple.
+    /// `PostgreSQL` omitted an unchanged TOAST value from an update tuple.
     UnchangedToast,
     Text(Bytes),
     Binary(Bytes),

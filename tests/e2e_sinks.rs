@@ -388,11 +388,12 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     );
 
     let changelog_discovery = clickhouse_changelog_discovery();
-    connector.limits().validate_discovery(&changelog_discovery)?;
+    connector
+        .limits()
+        .validate_discovery(&changelog_discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&changelog_discovery, false)?
-                .expect("changelog discovery"),
+            SinkPrepare::from_discovery(&changelog_discovery, false)?.expect("changelog discovery"),
         )
         .await?;
     let changelog_sink = connector
@@ -473,9 +474,12 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .error_for_status()?
         .text()
         .await?;
-    assert!(engine.contains(
-        "ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
-    ), "{engine}");
+    assert!(
+        engine.contains(
+            "ReplacingMergeTree(__data_transfer_commit_time, __data_transfer_is_deleted)"
+        ),
+        "{engine}"
+    );
     Ok(())
 }
 

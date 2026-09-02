@@ -7,7 +7,9 @@
           "$ref": "#/$defs/ApiErrorView"
         }
       },
-      "required": ["error"],
+      "required": [
+        "error"
+      ],
       "type": "object"
     },
     "ApiErrorCode": {
@@ -31,7 +33,10 @@
           "type": "string"
         }
       },
-      "required": ["code", "message"],
+      "required": [
+        "code",
+        "message"
+      ],
       "type": "object"
     },
     "ArrowTypeFamily": {
@@ -63,7 +68,10 @@
         "max_length": {
           "format": "uint",
           "minimum": 0,
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "x-omit-none": true
         },
         "name": {
@@ -94,7 +102,9 @@
           "x-typescript-type": "JsonObject"
         }
       },
-      "required": ["config"],
+      "required": [
+        "config"
+      ],
       "type": "object"
     },
     "ConfigResponse": {
@@ -106,7 +116,9 @@
           "x-typescript-type": "JsonObject"
         }
       },
-      "required": ["config"],
+      "required": [
+        "config"
+      ],
       "type": "object"
     },
     "ConnectionCheckRequest": {
@@ -124,14 +136,21 @@
           "$ref": "#/$defs/EndpointRole"
         }
       },
-      "required": ["connector", "role", "config"],
+      "required": [
+        "connector",
+        "role",
+        "config"
+      ],
       "type": "object"
     },
     "ConnectionCheckResult": {
       "additionalProperties": false,
       "properties": {
         "message": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "options": {
           "additionalProperties": {
@@ -146,11 +165,17 @@
           "$ref": "#/$defs/ConnectionCheckStatus"
         }
       },
-      "required": ["status", "options"],
+      "required": [
+        "status",
+        "options"
+      ],
       "type": "object"
     },
     "ConnectionCheckStatus": {
-      "enum": ["verified", "network_reachable"],
+      "enum": [
+        "verified",
+        "network_reachable"
+      ],
       "type": "string"
     },
     "ConnectorDefinition": {
@@ -185,7 +210,10 @@
           "type": "string"
         }
       },
-      "required": ["key", "title"],
+      "required": [
+        "key",
+        "title"
+      ],
       "type": "object"
     },
     "CreateDraftRequest": {
@@ -204,11 +232,17 @@
           "type": "string"
         }
       },
-      "required": ["name", "config"],
+      "required": [
+        "name",
+        "config"
+      ],
       "type": "object"
     },
     "DatasetRoleView": {
-      "enum": ["Main", "DeadLetterQueue"],
+      "enum": [
+        "Main",
+        "DeadLetterQueue"
+      ],
       "type": "string"
     },
     "DatasetView": {
@@ -233,11 +267,19 @@
           "$ref": "#/$defs/DatasetRoleView"
         }
       },
-      "required": ["role", "name", "intermediate_columns", "final_columns"],
+      "required": [
+        "role",
+        "name",
+        "intermediate_columns",
+        "final_columns"
+      ],
       "type": "object"
     },
     "DeliveryMode": {
-      "enum": ["batch", "stream"],
+      "enum": [
+        "batch",
+        "stream"
+      ],
       "type": "string"
     },
     "DeliveryRecord": {
@@ -352,7 +394,10 @@
         "max_length": {
           "format": "uint",
           "minimum": 0,
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "x-omit-none": true
         },
         "name": {
@@ -425,7 +470,10 @@
           "type": "string"
         }
       },
-      "required": ["value", "label"],
+      "required": [
+        "value",
+        "label"
+      ],
       "type": "object"
     },
     "DynamicOptions": {
@@ -438,11 +486,16 @@
           "type": "array"
         },
         "warning": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "x-omit-none": true
         }
       },
-      "required": ["options"],
+      "required": [
+        "options"
+      ],
       "type": "object"
     },
     "EndpointDefinition": {
@@ -493,7 +546,10 @@
       "type": "object"
     },
     "EndpointRole": {
-      "enum": ["source", "sink"],
+      "enum": [
+        "source",
+        "sink"
+      ],
       "type": "string"
     },
     "HealthResponse": {
@@ -503,7 +559,9 @@
           "type": "string"
         }
       },
-      "required": ["status"],
+      "required": [
+        "status"
+      ],
       "type": "object"
     },
     "InferredColumn": {
@@ -522,7 +580,12 @@
           "type": "string"
         }
       },
-      "required": ["name", "source_type", "arrow_type", "nullable"],
+      "required": [
+        "name",
+        "source_type",
+        "arrow_type",
+        "nullable"
+      ],
       "type": "object"
     },
     "MessagePreviewMetadata": {
@@ -538,15 +601,24 @@
         },
         "created_at_ms": {
           "format": "int64",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "declared_uncompressed_size": {
           "format": "uint",
           "minimum": 0,
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "message_group_id": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "message_metadata": {
           "items": {
@@ -584,7 +656,10 @@
         },
         "written_at_ms": {
           "format": "int64",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -611,10 +686,16 @@
           "type": "string"
         },
         "value_text": {
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
-      "required": ["key", "value_base64"],
+      "required": [
+        "key",
+        "value_base64"
+      ],
       "type": "object"
     },
     "MessagePreviewRequest": {
@@ -634,7 +715,11 @@
           "type": "integer"
         }
       },
-      "required": ["connector", "config", "max_bytes"],
+      "required": [
+        "connector",
+        "config",
+        "max_bytes"
+      ],
       "type": "object"
     },
     "MessagePreviewResult": {
@@ -700,7 +785,10 @@
           "type": "boolean"
         }
       },
-      "required": ["max_utf8_bytes", "normalized_relative_path"],
+      "required": [
+        "max_utf8_bytes",
+        "normalized_relative_path"
+      ],
       "type": "object"
     },
     "OptionsRequest": {
@@ -715,7 +803,10 @@
         },
         "query": {
           "default": null,
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "refresh": {
           "default": false,
@@ -789,7 +880,12 @@
           "type": "boolean"
         }
       },
-      "required": ["key", "label", "content", "truncated"],
+      "required": [
+        "key",
+        "label",
+        "content",
+        "truncated"
+      ],
       "type": "object"
     },
     "PerformanceAdvice": {
@@ -829,11 +925,17 @@
       "type": "object"
     },
     "PerformanceAdviceSeverity": {
-      "enum": ["info", "warning"],
+      "enum": [
+        "info",
+        "warning"
+      ],
       "type": "string"
     },
     "RecordSemantics": {
-      "enum": ["append_only", "changelog"],
+      "enum": [
+        "append_only",
+        "changelog"
+      ],
       "type": "string"
     },
     "RevisionRequest": {
@@ -849,7 +951,10 @@
           "type": "integer"
         }
       },
-      "required": ["expected_revision", "expected_record_version"],
+      "required": [
+        "expected_revision",
+        "expected_record_version"
+      ],
       "type": "object"
     },
     "RuntimeState": {
@@ -861,7 +966,9 @@
               "type": "string"
             }
           },
-          "required": ["state"],
+          "required": [
+            "state"
+          ],
           "type": "object"
         },
         {
@@ -871,7 +978,9 @@
               "type": "string"
             }
           },
-          "required": ["state"],
+          "required": [
+            "state"
+          ],
           "type": "object"
         },
         {
@@ -884,7 +993,10 @@
               "type": "string"
             }
           },
-          "required": ["state", "run_id"],
+          "required": [
+            "state",
+            "run_id"
+          ],
           "type": "object"
         },
         {
@@ -902,7 +1014,11 @@
               "type": "string"
             }
           },
-          "required": ["state", "run_id", "pid"],
+          "required": [
+            "state",
+            "run_id",
+            "pid"
+          ],
           "type": "object"
         },
         {
@@ -915,7 +1031,10 @@
               "type": "string"
             }
           },
-          "required": ["state", "run_id"],
+          "required": [
+            "state",
+            "run_id"
+          ],
           "type": "object"
         },
         {
@@ -931,7 +1050,11 @@
               "type": "string"
             }
           },
-          "required": ["state", "run_id", "message"],
+          "required": [
+            "state",
+            "run_id",
+            "message"
+          ],
           "type": "object"
         }
       ]
@@ -983,7 +1106,10 @@
           "type": "array"
         }
       },
-      "required": ["sink", "supported_arrow_types"],
+      "required": [
+        "sink",
+        "supported_arrow_types"
+      ],
       "type": "object"
     },
     "SqlPlaygroundRequest": {
@@ -997,7 +1123,10 @@
           "type": "string"
         }
       },
-      "required": ["sql", "rows"],
+      "required": [
+        "sql",
+        "rows"
+      ],
       "type": "object"
     },
     "SqlPlaygroundResult": {
@@ -1014,7 +1143,10 @@
           "type": "array"
         }
       },
-      "required": ["columns", "rows"],
+      "required": [
+        "columns",
+        "rows"
+      ],
       "type": "object"
     },
     "StopRequest": {
@@ -1046,14 +1178,19 @@
         "max_utf8_bytes": {
           "format": "uint",
           "minimum": 0,
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "x-omit-none": true
         },
         "syntax": {
           "$ref": "#/$defs/NameSyntax"
         }
       },
-      "required": ["syntax"],
+      "required": [
+        "syntax"
+      ],
       "type": "object"
     },
     "UiCatalog": {
@@ -1076,7 +1213,11 @@
           "x-typescript-type": "JsonObject"
         }
       },
-      "required": ["common_schema", "initial", "connectors"],
+      "required": [
+        "common_schema",
+        "initial",
+        "connectors"
+      ],
       "type": "object"
     },
     "UpdateDraftRequest": {
@@ -1130,7 +1271,9 @@
           "x-omit-none": true
         }
       },
-      "required": ["delivery"],
+      "required": [
+        "delivery"
+      ],
       "type": "object"
     },
     "ValidationState": {
@@ -1142,7 +1285,9 @@
               "type": "string"
             }
           },
-          "required": ["state"],
+          "required": [
+            "state"
+          ],
           "type": "object"
         },
         {
@@ -1157,7 +1302,10 @@
               "type": "string"
             }
           },
-          "required": ["state", "revision"],
+          "required": [
+            "state",
+            "revision"
+          ],
           "type": "object"
         },
         {
@@ -1175,7 +1323,11 @@
               "type": "string"
             }
           },
-          "required": ["state", "revision", "message"],
+          "required": [
+            "state",
+            "revision",
+            "message"
+          ],
           "type": "object"
         }
       ]
@@ -1221,13 +1373,19 @@
           "default": null,
           "format": "uint64",
           "minimum": 0,
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "limit_bytes": {
           "default": null,
           "format": "uint",
           "minimum": 0,
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -1247,7 +1405,11 @@
           "type": "string"
         }
       },
-      "required": ["worker_id", "size_bytes", "active"],
+      "required": [
+        "worker_id",
+        "size_bytes",
+        "active"
+      ],
       "type": "object"
     },
     "WorkerLogsResult": {
@@ -1260,7 +1422,9 @@
           "type": "array"
         }
       },
-      "required": ["workers"],
+      "required": [
+        "workers"
+      ],
       "type": "object"
     },
     "YamlRequest": {
@@ -1270,7 +1434,9 @@
           "type": "string"
         }
       },
-      "required": ["yaml"],
+      "required": [
+        "yaml"
+      ],
       "type": "object"
     },
     "YamlResponse": {
@@ -1280,7 +1446,9 @@
           "type": "string"
         }
       },
-      "required": ["yaml"],
+      "required": [
+        "yaml"
+      ],
       "type": "object"
     }
   },

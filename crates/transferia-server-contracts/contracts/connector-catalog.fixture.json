@@ -1016,14 +1016,13 @@
                   }
                 },
                 "keys": {
-                  "title": "Keys",
+                  "title": "Primary key columns",
+                  "description": "At least one non-nullable output column that uniquely identifies a row",
                   "type": "array",
                   "items": {
                     "type": "string"
                   },
-                  "x-ui": {
-                    "widget": "column_keys"
-                  }
+                  "minItems": 1
                 }
               },
               "additionalProperties": false,
@@ -2657,14 +2656,13 @@
                   }
                 },
                 "keys": {
-                  "title": "Keys",
+                  "title": "Primary key columns",
+                  "description": "At least one non-nullable output column that uniquely identifies a row",
                   "type": "array",
                   "items": {
                     "type": "string"
                   },
-                  "x-ui": {
-                    "widget": "column_keys"
-                  }
+                  "minItems": 1
                 }
               },
               "additionalProperties": false,

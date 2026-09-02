@@ -4,9 +4,9 @@ use std::sync::Arc;
 use arrow::array::{Array as _, BinaryArray, Int64Array, StringArray, UInt64Array};
 use transferia_core::data::schema::{
     META_OLD_KEY_OF, META_OLD_VALUE_OF, META_PRIMARY_KEY, META_SYSTEM_ROLE,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
-    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
-    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
     SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
@@ -64,11 +64,8 @@ pub(super) struct DebeziumJsonEncoder {
 }
 
 impl DebeziumJsonEncoder {
-    pub(super) fn new(logical_name: String, mode: QueueMessageMode) -> Self {
-        Self {
-            logical_name,
-            mode,
-        }
+    pub(super) const fn new(logical_name: String, mode: QueueMessageMode) -> Self {
+        Self { logical_name, mode }
     }
 
     pub(super) fn encode_batch(
@@ -81,8 +78,8 @@ impl DebeziumJsonEncoder {
         for row in 0..batch.rows() {
             let operation = encoder.operation(row)?;
             if operation == "u" && !encoder.old_key.row_equals(&encoder.current_key, row) {
-                let old_key = self.key(&encoder.old_key, row);
-                let delete = encoder.envelope(row, &self.logical_name, "d", false, true, true);
+                let old_key = self.key(&encoder.old_key, row)?;
+                let delete = encoder.envelope(row, &self.logical_name, "d", false, true, true)?;
                 validate_message_size(old_key.as_deref(), Some(&delete), message_size_limit)?;
                 messages.push(SerializedMessage {
                     key: old_key.clone(),
@@ -95,8 +92,8 @@ impl DebeziumJsonEncoder {
                         value: None,
                     });
                 }
-                let key = self.key(&encoder.current_key, row);
-                let create = encoder.envelope(row, &self.logical_name, "c", true, false, true);
+                let key = self.key(&encoder.current_key, row)?;
+                let create = encoder.envelope(row, &self.logical_name, "c", true, false, true)?;
                 validate_message_size(key.as_deref(), Some(&create), message_size_limit)?;
                 messages.push(SerializedMessage {
                     key,
@@ -110,7 +107,7 @@ impl DebeziumJsonEncoder {
             } else {
                 &encoder.current_key
             };
-            let key = self.key(key_encoder, row);
+            let key = self.key(key_encoder, row)?;
             let value = encoder.envelope(
                 row,
                 &self.logical_name,
@@ -118,7 +115,7 @@ impl DebeziumJsonEncoder {
                 operation != "d",
                 operation != "c" && operation != "r",
                 operation == "u",
-            );
+            )?;
             validate_message_size(key.as_deref(), Some(&value), message_size_limit)?;
             messages.push(SerializedMessage {
                 key: key.clone(),
@@ -135,13 +132,13 @@ impl DebeziumJsonEncoder {
         })
     }
 
-    fn key(&self, encoder: &JsonBatchEncoder, row: usize) -> Option<Vec<u8>> {
+    fn key(&self, encoder: &JsonBatchEncoder, row: usize) -> anyhow::Result<Option<Vec<u8>>> {
         if self.mode == QueueMessageMode::ValuesOnly {
-            return None;
+            return Ok(None);
         }
         let mut key = Vec::new();
-        encoder.write_object(row, &mut key);
-        Some(key)
+        encoder.write_object(row, &mut key)?;
+        Ok(Some(key))
     }
 }
 
@@ -205,16 +202,17 @@ impl DebeziumBatchEncoder {
             &batch.batch,
             user_columns.iter().map(|(_, name)| JsonColumnProjection {
                 output_name: name.clone(),
-                source_index: old_value
-                    .get(name)
-                    .or_else(|| old_key.get(name))
-                    .copied(),
+                source_index: old_value.get(name).or_else(|| old_key.get(name)).copied(),
             }),
         )?;
         let primary_keys = user_columns
             .iter()
             .filter(|(index, _)| {
-                schema.field(*index).metadata().get(META_PRIMARY_KEY).map(String::as_str)
+                schema
+                    .field(*index)
+                    .metadata()
+                    .get(META_PRIMARY_KEY)
+                    .map(String::as_str)
                     == Some("true")
             })
             .collect::<Vec<_>>();
@@ -256,34 +254,13 @@ impl DebeziumBatchEncoder {
             database: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_DATABASE)?,
             source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
             source_table: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_TABLE)?,
-            transaction_id: role_array::<UInt64Array>(
-                batch,
-                SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
-            )?,
-            source_timestamp_ms: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
-            )?,
-            source_timestamp_us: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
-            )?,
-            source_timestamp_ns: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
-            )?,
-            event_timestamp_ms: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
-            )?,
-            event_timestamp_us: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_EVENT_TIMESTAMP_US,
-            )?,
-            event_timestamp_ns: role_array::<Int64Array>(
-                batch,
-                SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
-            )?,
+            transaction_id: role_array::<UInt64Array>(batch, SYSTEM_ROLE_SOURCE_TRANSACTION_ID)?,
+            source_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS)?,
+            source_timestamp_us: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_US)?,
+            source_timestamp_ns: role_array::<Int64Array>(batch, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS)?,
+            event_timestamp_ms: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_MS)?,
+            event_timestamp_us: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_US)?,
+            event_timestamp_ns: role_array::<Int64Array>(batch, SYSTEM_ROLE_EVENT_TIMESTAMP_NS)?,
             user_ordinal_by_source_index,
         })
     }
@@ -306,22 +283,20 @@ impl DebeziumBatchEncoder {
         include_after: bool,
         include_before: bool,
         source_is_update: bool,
-    ) -> Vec<u8> {
+    ) -> anyhow::Result<Vec<u8>> {
         let mut output = Vec::with_capacity(512);
         output.extend_from_slice(b"{\"before\":");
         if include_before {
-            self.before.write_object(row, &mut output);
+            self.before.write_object(row, &mut output)?;
         } else {
             output.extend_from_slice(b"null");
         }
         output.extend_from_slice(b",\"after\":");
         if include_after {
-            self.current.write_object_with(
-                row,
-                &mut output,
-                |source_index, _, output| {
-                    let Some(ordinal) = source_index
-                        .and_then(|index| self.user_ordinal_by_source_index[index])
+            self.current
+                .write_object_with(row, &mut output, |source_index, _, output| {
+                    let Some(ordinal) =
+                        source_index.and_then(|index| self.user_ordinal_by_source_index[index])
                     else {
                         return false;
                     };
@@ -335,12 +310,13 @@ impl DebeziumBatchEncoder {
                         return true;
                     }
                     false
-                },
-            );
+                })?;
         } else {
             output.extend_from_slice(b"null");
         }
-        output.extend_from_slice(b",\"source\":{\"version\":\"transferia\",\"connector\":\"postgresql\",\"name\":");
+        output.extend_from_slice(
+            b",\"source\":{\"version\":\"transferia\",\"connector\":\"postgresql\",\"name\":",
+        );
         write_json_string(&mut output, logical_name);
         output.extend_from_slice(b",\"ts_ms\":");
         write_i64(&mut output, self.source_timestamp_ms.value(row));
@@ -367,7 +343,7 @@ impl DebeziumBatchEncoder {
         output.extend_from_slice(b",\"ts_ns\":");
         write_i64(&mut output, self.event_timestamp_ns.value(row));
         output.extend_from_slice(b",\"transaction\":null}");
-        output
+        Ok(output)
     }
 }
 
@@ -385,8 +361,9 @@ fn mapped_columns(batch: &SinkBatch, metadata_key: &str) -> anyhow::Result<HashM
                 .map(|current| (current.clone(), index))
         })
         .try_fold(HashMap::new(), |mut columns, (current, index)| {
+            let previous = columns.insert(current.clone(), index);
             anyhow::ensure!(
-                columns.insert(current.clone(), index).is_none(),
+                previous.is_none(),
                 "Debezium input has duplicate {metadata_key} mapping for '{current}'"
             );
             Ok(columns)
@@ -420,13 +397,9 @@ where
     T: arrow::array::Array + Clone + 'static,
 {
     let schema = batch.batch.schema();
-    let mut matches = schema
-        .fields()
-        .iter()
-        .enumerate()
-        .filter(|(_, field)| {
-            field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role)
-        });
+    let mut matches = schema.fields().iter().enumerate().filter(|(_, field)| {
+        field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role)
+    });
     let (index, field) = matches
         .next()
         .ok_or_else(|| anyhow::anyhow!("Debezium input is missing system role '{role}'"))?;

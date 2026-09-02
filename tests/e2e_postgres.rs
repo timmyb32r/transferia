@@ -160,8 +160,8 @@ async fn run_one_delivery(
 }
 
 fn changelog_discovery(table: &str) -> DeliveryDiscovery {
-    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
-        .with_constraints(true, false, None);
+    let id =
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None);
     let payload = SchemaColumn::new("payload".into(), DataType::Utf8, false);
     let incoming_payload = SchemaColumn::new("payload".into(), DataType::Utf8, true);
     let operation = SchemaColumn::new(
@@ -279,7 +279,8 @@ async fn changelog_delivery(
 }
 
 #[tokio::test]
-async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -> anyhow::Result<()> {
+async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -> anyhow::Result<()>
+{
     let postgres = GenericImage::new(POSTGRES_IMAGE, POSTGRES_TAG)
         .with_exposed_port(5432.tcp())
         .with_wait_for(WaitFor::message_on_stderr(
@@ -305,7 +306,10 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
         .prepare(SinkPrepare::from_discovery(&wrong_key, false)?.expect("wrong-key dataset"))
         .await
         .expect_err("an existing changelog table without the declared key must fail at startup");
-    assert!(error.to_string().contains("has primary key []"), "{error:#}");
+    assert!(
+        error.to_string().contains("has primary key []"),
+        "{error:#}"
+    );
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(SinkPrepare::from_discovery(&discovery, false)?.expect("dataset"))
@@ -886,7 +890,10 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
             "Arrow field mismatch for {name}"
         );
         assert_eq!(
-            batch.column_by_name(name).expect("snapshot column").to_data(),
+            batch
+                .column_by_name(name)
+                .expect("snapshot column")
+                .to_data(),
             replication_batch
                 .column_by_name(name)
                 .expect("replication column")

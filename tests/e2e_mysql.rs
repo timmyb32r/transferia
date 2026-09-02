@@ -472,7 +472,10 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
         .prepare(SinkPrepare::from_discovery(&wrong_key, false)?.expect("wrong-key dataset"))
         .await
         .expect_err("an existing changelog table without the declared key must fail at startup");
-    assert!(error.to_string().contains("has primary key []"), "{error:#}");
+    assert!(
+        error.to_string().contains("has primary key []"),
+        "{error:#}"
+    );
     sink.limits().validate_discovery(&discovery)?;
     sink.prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("datasets"))
         .await

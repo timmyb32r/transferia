@@ -64,8 +64,8 @@ use transferia_core::sink::SinkBatch;
 #[tokio::test]
 async fn dynamic_partial_update_preserves_toast_by_using_modify_with_only_changed_columns(
 ) -> anyhow::Result<()> {
-    let id = SchemaColumn::new("id".into(), DataType::Int64, false)
-        .with_constraints(true, false, None);
+    let id =
+        SchemaColumn::new("id".into(), DataType::Int64, false).with_constraints(true, false, None);
     let payload = SchemaColumn::new("payload".into(), DataType::Utf8, true);
     let discovery = DeliveryDiscovery {
         source_name: Arc::from("postgres-cdc"),
