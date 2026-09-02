@@ -30,13 +30,13 @@ pub enum SerializerConfig {
     #[schemars(title = "JSON", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "json", "record_semantics": ["append_only"] } }))]
     Json,
 
-    #[schemars(title = "Debezium JSON", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_json", "record_semantics": ["changelog"] } }))]
+    #[schemars(title = "Debezium JSON", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_json", "record_semantics": ["append_only", "changelog"] } }))]
     DebeziumJson {
         #[schemars(title = "Logical source name")]
         logical_name: String,
     },
 
-    #[schemars(title = "Debezium Schema Registry", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_schema_registry", "record_semantics": ["changelog"] } }))]
+    #[schemars(title = "Debezium Schema Registry", extend("x-ui" = { "capabilities": { "component": "serializer", "key": "debezium_schema_registry", "record_semantics": ["append_only", "changelog"] } }))]
     DebeziumSchemaRegistry {
         #[schemars(title = "Logical source name")]
         logical_name: String,
@@ -185,22 +185,28 @@ impl SerializerConfig {
     }
 
     #[must_use]
-    pub const fn record_semantics(&self) -> RecordSemantics {
+    pub const fn record_semantics(&self) -> &'static [RecordSemantics] {
         match self {
-            Self::Json | Self::SchemaRegistry { .. } => RecordSemantics::AppendOnly,
+            Self::Json | Self::SchemaRegistry { .. } => &[RecordSemantics::AppendOnly],
             Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. } => {
-                RecordSemantics::Changelog
+                &[RecordSemantics::AppendOnly, RecordSemantics::Changelog]
             }
         }
     }
 
     #[must_use]
     pub const fn supports_changelog(&self) -> bool {
-        matches!(self.record_semantics(), RecordSemantics::Changelog)
+        matches!(
+            self,
+            Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. }
+        )
     }
 
     pub fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
-        if !self.supports_changelog() {
+        if !matches!(
+            self,
+            Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. }
+        ) {
             return Ok(());
         }
         let datasets = discovery
@@ -224,33 +230,44 @@ impl SerializerConfig {
                 "Debezium dataset '{}' requires at least one primary-key column",
                 dataset.name
             );
-            for key in primary_keys {
-                let mappings = dataset
-                    .incoming_schema
-                    .columns
-                    .iter()
-                    .filter(|column| {
-                        column.old_key_of.as_deref() == Some(key.name.as_str())
-                            || column.old_value_of.as_deref() == Some(key.name.as_str())
-                    })
-                    .count();
-                anyhow::ensure!(
-                    mappings == 1,
-                    "Debezium dataset '{}' primary key '{}' must have exactly one old-key or old-value mapping, found {mappings}",
-                    dataset.name,
-                    key.name
-                );
+            let changelog = dataset
+                .system_columns
+                .iter()
+                .any(|column| column.kind == SystemColumnKind::ChangeOperation);
+            if changelog {
+                for key in primary_keys {
+                    let mappings = dataset
+                        .incoming_schema
+                        .columns
+                        .iter()
+                        .filter(|column| {
+                            column.old_key_of.as_deref() == Some(key.name.as_str())
+                                || column.old_value_of.as_deref() == Some(key.name.as_str())
+                        })
+                        .count();
+                    anyhow::ensure!(
+                        mappings == 1,
+                        "Debezium dataset '{}' primary key '{}' must have exactly one old-key or old-value mapping, found {mappings}",
+                        dataset.name,
+                        key.name
+                    );
+                }
             }
-            for kind in [
-                SystemColumnKind::Offset,
-                SystemColumnKind::ChangeOperation,
-                SystemColumnKind::ChangedColumns,
-            ] {
+            let required_system_columns = if changelog {
+                &[
+                    SystemColumnKind::Offset,
+                    SystemColumnKind::ChangeOperation,
+                    SystemColumnKind::ChangedColumns,
+                ][..]
+            } else {
+                &[SystemColumnKind::Offset][..]
+            };
+            for kind in required_system_columns {
                 anyhow::ensure!(
                     dataset
                         .system_columns
                         .iter()
-                        .any(|column| column.kind == kind),
+                        .any(|column| column.kind == *kind),
                     "Debezium dataset '{}' is missing required {kind:?} metadata",
                     dataset.name
                 );

@@ -35,7 +35,7 @@ pub const POSTGRES_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
     SystemColumnKind::ChangedColumns,
 ];
 
-pub struct PostgresCdcMetadataColumn {
+pub struct PostgresSourceMetadataColumn {
     pub(crate) name: &'static str,
 
     pub(crate) role: &'static str,
@@ -43,53 +43,53 @@ pub struct PostgresCdcMetadataColumn {
     pub(crate) data_type: arrow::datatypes::DataType,
 }
 
-pub const POSTGRES_CDC_METADATA_COLUMNS: &[PostgresCdcMetadataColumn] = &[
-    PostgresCdcMetadataColumn {
+pub const POSTGRES_SOURCE_METADATA_COLUMNS: &[PostgresSourceMetadataColumn] = &[
+    PostgresSourceMetadataColumn {
         name: "_system_source_database",
         role: SYSTEM_ROLE_SOURCE_DATABASE,
         data_type: arrow::datatypes::DataType::Utf8,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_schema",
         role: SYSTEM_ROLE_SOURCE_SCHEMA,
         data_type: arrow::datatypes::DataType::Utf8,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_table",
         role: SYSTEM_ROLE_SOURCE_TABLE,
         data_type: arrow::datatypes::DataType::Utf8,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_transaction_id",
         role: SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
         data_type: arrow::datatypes::DataType::UInt64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_timestamp_ms",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
         data_type: arrow::datatypes::DataType::Int64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_timestamp_us",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
         data_type: arrow::datatypes::DataType::Int64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_source_timestamp_ns",
         role: SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
         data_type: arrow::datatypes::DataType::Int64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_event_timestamp_ms",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
         data_type: arrow::datatypes::DataType::Int64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_event_timestamp_us",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_US,
         data_type: arrow::datatypes::DataType::Int64,
     },
-    PostgresCdcMetadataColumn {
+    PostgresSourceMetadataColumn {
         name: "_system_event_timestamp_ns",
         role: SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
         data_type: arrow::datatypes::DataType::Int64,
@@ -231,17 +231,17 @@ impl SourceConnector for PostgresSourceConnector {
                                     }),
                             );
                         }
-                        incoming
-                            .columns
-                            .extend(POSTGRES_CDC_METADATA_COLUMNS.iter().map(|column| {
-                                SchemaColumn::new(
-                                    column.name.to_owned(),
-                                    column.data_type.clone(),
-                                    false,
-                                )
-                                .with_system_role(column.role)
-                            }));
                     }
+                    incoming
+                        .columns
+                        .extend(POSTGRES_SOURCE_METADATA_COLUMNS.iter().map(|column| {
+                            SchemaColumn::new(
+                                column.name.to_owned(),
+                                column.data_type.clone(),
+                                false,
+                            )
+                            .with_system_role(column.role)
+                        }));
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
                     }));
@@ -336,6 +336,7 @@ impl SourceConnector for PostgresSourceConnector {
                     client,
                     table.config,
                     incoming_user_schema(&table.schema),
+                    self.config.connection.database.clone(),
                     self.config.batch_rows,
                     counters,
                 )

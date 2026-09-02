@@ -12,10 +12,11 @@ use tokio_postgres::{Client, Column, Row, Statement};
 use crate::connectors::postgres::common::{
     postgres_requires_text_projection, postgres_to_arrow, quote_identifier,
 };
-use crate::connectors::postgres::source::TableConfig;
+use crate::connectors::postgres::source::{TableConfig, POSTGRES_SOURCE_METADATA_COLUMNS};
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;
+use transferia_core::data::schema::SchemaColumn;
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
@@ -26,6 +27,10 @@ pub struct PostgresSource {
     table: TableConfig,
     statement: Statement,
     schema: DatasetSchema,
+    database: String,
+    snapshot_lsn: i64,
+    snapshot_transaction_id: u64,
+    snapshot_timestamp_ns: i64,
     offset: i64,
     finished: bool,
     counters: Arc<SourceCounters>,
@@ -36,6 +41,7 @@ impl PostgresSource {
         client: Client,
         table: TableConfig,
         schema: DatasetSchema,
+        database: String,
         batch_rows: usize,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
@@ -55,6 +61,15 @@ impl PostgresSource {
         client
             .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             .await?;
+        let snapshot = client
+            .query_one(
+                "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint, txid_current()::text, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint",
+                &[],
+            )
+            .await?;
+        let snapshot_lsn = snapshot.try_get::<_, i64>(0)?;
+        let snapshot_transaction_id = snapshot.try_get::<_, &str>(1)?.parse::<u64>()?;
+        let snapshot_timestamp_ns = snapshot.try_get::<_, i64>(2)?;
         client.batch_execute(&query).await?;
         let statement = client
             .prepare(&format!(
@@ -66,6 +81,10 @@ impl PostgresSource {
             table,
             statement,
             schema,
+            database,
+            snapshot_lsn,
+            snapshot_transaction_id,
+            snapshot_timestamp_ns,
             offset: 0,
             finished: false,
             counters,
@@ -116,8 +135,21 @@ impl Source for PostgresSource {
                 return Ok(SourceBatch::Finished);
             }
             let source_rows = rows.len() as u64;
-            let batch = rows_to_batch(&self.schema, &self.statement, &rows, self.offset)
-                .map_err(DataPlaneFailure::fatal)?;
+            let batch = rows_to_batch(
+                &self.schema,
+                &self.statement,
+                &rows,
+                self.offset,
+                SnapshotMetadata {
+                    database: &self.database,
+                    schema: &self.table.schema,
+                    table: &self.table.name,
+                    lsn: self.snapshot_lsn,
+                    transaction_id: self.snapshot_transaction_id,
+                    timestamp_ns: self.snapshot_timestamp_ns,
+                },
+            )
+            .map_err(DataPlaneFailure::fatal)?;
             self.offset = self
                 .offset
                 .checked_add(
@@ -182,9 +214,15 @@ fn rows_to_batch(
     statement: &Statement,
     rows: &[Row],
     start_offset: i64,
+    snapshot: SnapshotMetadata<'_>,
 ) -> anyhow::Result<RecordBatch> {
-    let mut fields = Vec::with_capacity(statement.columns().len() + 4);
-    let mut arrays = Vec::with_capacity(statement.columns().len() + 4);
+    let output_columns = statement
+        .columns()
+        .len()
+        .checked_add(POSTGRES_SOURCE_METADATA_COLUMNS.len() + 4)
+        .ok_or_else(|| anyhow::anyhow!("PostgreSQL source column count overflow"))?;
+    let mut fields = Vec::with_capacity(output_columns);
+    let mut arrays = Vec::with_capacity(output_columns);
     anyhow::ensure!(
         discovered_schema.columns.len() == statement.columns().len(),
         "PostgreSQL query schema has {} columns, discovery declared {}",
@@ -210,6 +248,7 @@ fn rows_to_batch(
     }
     let len = rows.len();
     let len_i64 = i64::try_from(len)?;
+    fields.extend(snapshot_metadata_fields());
     fields.extend([
         Field::new(
             SystemColumnKind::Topic.default_name(),
@@ -232,18 +271,64 @@ fn rows_to_batch(
             false,
         ),
     ]);
+    arrays.extend(snapshot_metadata_arrays(snapshot, len));
     arrays.extend([
         Arc::new(StringArray::from(vec!["postgres"; len])) as ArrayRef,
         Arc::new(Int64Array::from(vec![0_i64; len])) as ArrayRef,
-        Arc::new(Int64Array::from_iter_values(
-            start_offset
-                ..start_offset
-                    .checked_add(len_i64)
-                    .ok_or_else(|| anyhow::anyhow!("PostgreSQL source offset overflow"))?,
+        Arc::new(Int64Array::from(vec![snapshot.lsn; len])) as ArrayRef,
+        Arc::new(UInt64Array::from_iter_values(
+            u64::try_from(start_offset)?
+                ..u64::try_from(
+                    start_offset
+                        .checked_add(len_i64)
+                        .ok_or_else(|| anyhow::anyhow!("PostgreSQL source offset overflow"))?,
+                )?,
         )) as ArrayRef,
-        Arc::new(UInt64Array::from(vec![0_u64; len])) as ArrayRef,
     ]);
     Ok(RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?)
+}
+
+#[derive(Clone, Copy)]
+struct SnapshotMetadata<'a> {
+    database: &'a str,
+    schema: &'a str,
+    table: &'a str,
+    lsn: i64,
+    transaction_id: u64,
+    timestamp_ns: i64,
+}
+
+fn snapshot_metadata_fields() -> Vec<Field> {
+    POSTGRES_SOURCE_METADATA_COLUMNS
+        .iter()
+        .map(|column| {
+            Field::new(column.name, column.data_type.clone(), false).with_metadata(
+                SchemaColumn::new(column.name.to_owned(), column.data_type.clone(), false)
+                    .with_system_role(column.role)
+                    .arrow_metadata(),
+            )
+        })
+        .collect()
+}
+
+fn snapshot_metadata_arrays(
+    snapshot: SnapshotMetadata<'_>,
+    len: usize,
+) -> Vec<ArrayRef> {
+    let timestamp_us = snapshot.timestamp_ns / 1_000;
+    let timestamp_ms = snapshot.timestamp_ns / 1_000_000;
+    vec![
+        Arc::new(StringArray::from(vec![snapshot.database; len])) as ArrayRef,
+        Arc::new(StringArray::from(vec![snapshot.schema; len])) as ArrayRef,
+        Arc::new(StringArray::from(vec![snapshot.table; len])) as ArrayRef,
+        Arc::new(UInt64Array::from(vec![snapshot.transaction_id; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![timestamp_ms; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![timestamp_us; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![snapshot.timestamp_ns; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![timestamp_ms; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![timestamp_us; len])) as ArrayRef,
+        Arc::new(Int64Array::from(vec![snapshot.timestamp_ns; len])) as ArrayRef,
+    ]
 }
 
 fn column_array(

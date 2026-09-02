@@ -147,8 +147,8 @@ struct DebeziumBatchEncoder {
     before: JsonBatchEncoder,
     current_key: JsonBatchEncoder,
     old_key: JsonBatchEncoder,
-    changed_columns: BinaryArray,
-    operation: StringArray,
+    changed_columns: Option<BinaryArray>,
+    operation: Option<StringArray>,
     lsn: Int64Array,
     database: StringArray,
     source_schema: StringArray,
@@ -231,12 +231,18 @@ impl DebeziumBatchEncoder {
         )?;
         let old_key = JsonBatchEncoder::projected_debezium(
             &batch.batch,
-            primary_keys.iter().map(|(_, name)| JsonColumnProjection {
+            primary_keys.iter().map(|(index, name)| JsonColumnProjection {
                 output_name: (*name).clone(),
                 source_index: old_value
                     .get(name.as_str())
                     .or_else(|| old_key.get(name.as_str()))
-                    .copied(),
+                    .copied()
+                    .or_else(|| {
+                        (!batch
+                            .system_columns
+                            .contains(SystemColumnKind::ChangeOperation))
+                        .then_some(*index)
+                    }),
             }),
         )?;
         let mut user_ordinal_by_source_index = vec![None; batch.batch.num_columns()];
@@ -248,8 +254,14 @@ impl DebeziumBatchEncoder {
             before,
             current_key,
             old_key,
-            changed_columns: system_array::<BinaryArray>(batch, SystemColumnKind::ChangedColumns)?,
-            operation: system_array::<StringArray>(batch, SystemColumnKind::ChangeOperation)?,
+            changed_columns: optional_system_array::<BinaryArray>(
+                batch,
+                SystemColumnKind::ChangedColumns,
+            )?,
+            operation: optional_system_array::<StringArray>(
+                batch,
+                SystemColumnKind::ChangeOperation,
+            )?,
             lsn: system_array::<Int64Array>(batch, SystemColumnKind::Offset)?,
             database: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_DATABASE)?,
             source_schema: role_array::<StringArray>(batch, SYSTEM_ROLE_SOURCE_SCHEMA)?,
@@ -266,8 +278,11 @@ impl DebeziumBatchEncoder {
     }
 
     fn operation(&self, row: usize) -> anyhow::Result<&str> {
-        anyhow::ensure!(!self.operation.is_null(row), "Debezium operation is null");
-        let operation = self.operation.value(row);
+        let Some(operation) = &self.operation else {
+            return Ok("r");
+        };
+        anyhow::ensure!(!operation.is_null(row), "Debezium operation is null");
+        let operation = operation.value(row);
         anyhow::ensure!(
             matches!(operation, "c" | "r" | "u" | "d"),
             "unsupported Debezium operation '{operation}'"
@@ -300,9 +315,12 @@ impl DebeziumBatchEncoder {
                     else {
                         return false;
                     };
-                    let changed = self.changed_columns.value(row);
                     if source_is_update
-                        && changed
+                        && self
+                            .changed_columns
+                            .as_ref()
+                            .expect("updates require the changed-column mask")
+                            .value(row)
                             .get(ordinal / 8)
                             .is_some_and(|byte| byte & (1 << (ordinal % 8)) == 0)
                     {
@@ -320,7 +338,12 @@ impl DebeziumBatchEncoder {
         write_json_string(&mut output, logical_name);
         output.extend_from_slice(b",\"ts_ms\":");
         write_i64(&mut output, self.source_timestamp_ms.value(row));
-        output.extend_from_slice(b",\"snapshot\":\"false\",\"db\":");
+        output.extend_from_slice(b",\"snapshot\":");
+        write_json_string(
+            &mut output,
+            if operation == "r" { "true" } else { "false" },
+        );
+        output.extend_from_slice(b",\"db\":");
         write_json_string(&mut output, self.database.value(row));
         output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
         write_i64(&mut output, self.source_timestamp_us.value(row));
@@ -390,6 +413,20 @@ where
         "Debezium {kind:?} column contains null values"
     );
     Ok(array)
+}
+
+fn optional_system_array<T>(
+    batch: &SinkBatch,
+    kind: SystemColumnKind,
+) -> anyhow::Result<Option<T>>
+where
+    T: arrow::array::Array + Clone + 'static,
+{
+    batch
+        .system_columns
+        .contains(kind)
+        .then(|| system_array(batch, kind))
+        .transpose()
 }
 
 fn role_array<T>(batch: &SinkBatch, role: &str) -> anyhow::Result<T>

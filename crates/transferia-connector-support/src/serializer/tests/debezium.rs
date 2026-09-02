@@ -94,6 +94,27 @@ async fn logbroker_omits_keys_and_tombstones_without_losing_pk_change_events() {
 }
 
 #[tokio::test]
+async fn append_only_rows_are_byte_exact_debezium_snapshot_events() {
+    let batch = snapshot_batch().await;
+    let encoder = DebeziumJsonEncoder::new(
+        "inventory".to_owned(),
+        QueueMessageMode::KeyedWithTombstones,
+    );
+
+    let encoded = encoder.encode_batch(&batch, usize::MAX).unwrap();
+
+    assert_eq!(encoded.messages.len(), 1);
+    assert_eq!(encoded.messages[0].key.as_deref(), Some(br#"{"id":1}"#.as_slice()));
+    assert_eq!(
+        encoded.messages[0].value.as_deref(),
+        Some(
+            br#"{"before":null,"after":{"id":1,"payload":"alpha"},"source":{"version":"transferia","connector":"postgresql","name":"inventory","ts_ms":1000,"snapshot":"true","db":"postgres","sequence":null,"ts_us":1000000,"ts_ns":1000000000,"schema":"public","table":"accounts","txId":7,"lsn":100,"xmin":null},"op":"r","ts_ms":2000,"ts_us":2000000,"ts_ns":2000000000,"transaction":null}"#
+                .as_slice(),
+        ),
+    );
+}
+
+#[tokio::test]
 async fn transport_limit_is_checked_after_debezium_envelope_expansion() {
     let batch = cdc_batch().await;
     let encoder = DebeziumJsonEncoder::new(
@@ -246,6 +267,111 @@ async fn cdc_batch() -> SinkBatch {
                 name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
             },
         ]),
+    }
+}
+
+async fn snapshot_batch() -> SinkBatch {
+    let user_id = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
+        .with_constraints(true, false, None);
+    let user_payload = SchemaColumn::new("payload".to_owned(), DataType::Utf8, true);
+    let roles = [
+        (
+            "_system_source_database",
+            SYSTEM_ROLE_SOURCE_DATABASE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_schema",
+            SYSTEM_ROLE_SOURCE_SCHEMA,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_table",
+            SYSTEM_ROLE_SOURCE_TABLE,
+            DataType::Utf8,
+        ),
+        (
+            "_system_source_transaction_id",
+            SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+            DataType::UInt64,
+        ),
+        (
+            "_system_source_timestamp_ms",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+            DataType::Int64,
+        ),
+        (
+            "_system_source_timestamp_us",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+            DataType::Int64,
+        ),
+        (
+            "_system_source_timestamp_ns",
+            SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_ms",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_us",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+            DataType::Int64,
+        ),
+        (
+            "_system_event_timestamp_ns",
+            SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+            DataType::Int64,
+        ),
+    ];
+    let mut fields = vec![
+        Field::new("id", DataType::Int64, true).with_metadata(user_id.arrow_metadata()),
+        Field::new("payload", DataType::Utf8, true).with_metadata(user_payload.arrow_metadata()),
+    ];
+    fields.extend(roles.into_iter().map(|(name, role, data_type)| {
+        Field::new(name, data_type.clone(), false).with_metadata(
+            SchemaColumn::new(name.to_owned(), data_type, false)
+                .with_system_role(role)
+                .arrow_metadata(),
+        )
+    }));
+    fields.push(Field::new(
+        SystemColumnKind::Offset.default_name(),
+        DataType::Int64,
+        false,
+    ));
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![
+            Arc::new(Int64Array::from(vec![1_i64])),
+            Arc::new(StringArray::from(vec!["alpha"])),
+            Arc::new(StringArray::from(vec!["postgres"])),
+            Arc::new(StringArray::from(vec!["public"])),
+            Arc::new(StringArray::from(vec!["accounts"])),
+            Arc::new(UInt64Array::from(vec![7_u64])),
+            Arc::new(Int64Array::from(vec![1_000_i64])),
+            Arc::new(Int64Array::from(vec![1_000_000_i64])),
+            Arc::new(Int64Array::from(vec![1_000_000_000_i64])),
+            Arc::new(Int64Array::from(vec![2_000_i64])),
+            Arc::new(Int64Array::from(vec![2_000_000_i64])),
+            Arc::new(Int64Array::from(vec![2_000_000_000_i64])),
+            Arc::new(Int64Array::from(vec![100_i64])),
+        ],
+    )
+    .unwrap();
+    SinkBatch {
+        table: Arc::from("accounts"),
+        is_dlq: false,
+        byte_size: batch.get_array_memory_size(),
+        batch,
+        memory: PipelineMemory::new(1024 * 1024).reserve(1).await,
+        system_columns: SystemColumns::new(vec![SystemColumn {
+            kind: SystemColumnKind::Offset,
+            index: 12,
+            name: Arc::from(SystemColumnKind::Offset.default_name()),
+        }]),
     }
 }
 

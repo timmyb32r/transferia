@@ -53,7 +53,10 @@ fn serializers_publish_their_record_semantics() {
     use transferia_delivery_contracts::semantics::RecordSemantics;
 
     let serializers = [
-        (SerializerConfig::Json, RecordSemantics::AppendOnly),
+        (
+            SerializerConfig::Json,
+            &[RecordSemantics::AppendOnly][..],
+        ),
         (
             SerializerConfig::SchemaRegistry {
                 connection: registry_connection(),
@@ -61,13 +64,13 @@ fn serializers_publish_their_record_semantics() {
                 format: crate::schema_registry::SchemaFormat::JsonSchema,
                 protobuf_message_indexes: vec![0],
             },
-            RecordSemantics::AppendOnly,
+            &[RecordSemantics::AppendOnly][..],
         ),
         (
             SerializerConfig::DebeziumJson {
                 logical_name: "inventory".to_owned(),
             },
-            RecordSemantics::Changelog,
+            &[RecordSemantics::AppendOnly, RecordSemantics::Changelog][..],
         ),
         (
             SerializerConfig::DebeziumSchemaRegistry {
@@ -79,7 +82,7 @@ fn serializers_publish_their_record_semantics() {
                 key_protobuf_message_indexes: vec![0],
                 value_protobuf_message_indexes: vec![0],
             },
-            RecordSemantics::Changelog,
+            &[RecordSemantics::AppendOnly, RecordSemantics::Changelog][..],
         ),
     ];
 
@@ -87,7 +90,7 @@ fn serializers_publish_their_record_semantics() {
         assert_eq!(serializer.record_semantics(), expected);
         assert_eq!(
             serializer.supports_changelog(),
-            expected == RecordSemantics::Changelog
+            expected.contains(&RecordSemantics::Changelog)
         );
     }
     assert_eq!(
@@ -227,6 +230,73 @@ fn debezium_discovery_fails_closed_without_every_cdc_control() {
         .unwrap_err()
         .to_string();
     assert!(error.contains(SYSTEM_ROLE_SOURCE_TABLE), "{error}");
+}
+
+#[test]
+fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+        SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+        SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::delivery::{
+        DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let id = SchemaColumn::new("id".to_owned(), DataType::Int64, false)
+        .with_constraints(true, false, None);
+    let roles = [
+        (SYSTEM_ROLE_SOURCE_DATABASE, DataType::Utf8),
+        (SYSTEM_ROLE_SOURCE_SCHEMA, DataType::Utf8),
+        (SYSTEM_ROLE_SOURCE_TABLE, DataType::Utf8),
+        (SYSTEM_ROLE_SOURCE_TRANSACTION_ID, DataType::UInt64),
+        (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, DataType::Int64),
+        (SYSTEM_ROLE_SOURCE_TIMESTAMP_US, DataType::Int64),
+        (SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, DataType::Int64),
+        (SYSTEM_ROLE_EVENT_TIMESTAMP_MS, DataType::Int64),
+        (SYSTEM_ROLE_EVENT_TIMESTAMP_US, DataType::Int64),
+        (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, DataType::Int64),
+    ];
+    let mut incoming = vec![id.clone()];
+    incoming.extend(roles.into_iter().enumerate().map(|(index, (role, data_type))| {
+        SchemaColumn::new(format!("_system_role_{index}"), data_type, false)
+            .with_system_role(role)
+    }));
+    incoming.push(SchemaColumn::new(
+        SystemColumnKind::Offset.default_name().to_owned(),
+        DataType::Int64,
+        false,
+    ));
+    let mut discovery = DeliveryDiscovery {
+        source_name: "postgres".into(),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: true,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: "accounts".into(),
+            incoming_schema: DatasetSchema::new(incoming),
+            stored_schema: DatasetSchema::new(vec![id]),
+            system_columns: vec![SystemColumnKind::Offset.into()],
+        }],
+        performance_advice: Vec::new(),
+    };
+    let config = SerializerConfig::DebeziumJson {
+        logical_name: "inventory".to_owned(),
+    };
+
+    config.validate_discovery(&discovery).unwrap();
+
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_SCHEMA));
+    let error = config.validate_discovery(&discovery).unwrap_err().to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_SCHEMA), "{error}");
 }
 
 #[test]

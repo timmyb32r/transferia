@@ -18,7 +18,7 @@ use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
 use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::source::{
-    old_key_column_name, old_value_column_name, DiscoveredTable, POSTGRES_CDC_METADATA_COLUMNS,
+    old_key_column_name, old_value_column_name, DiscoveredTable, POSTGRES_SOURCE_METADATA_COLUMNS,
     POSTGRES_REPLICATION_SYSTEM_COLUMNS,
 };
 use crate::metrics::SourceCounters;
@@ -465,7 +465,7 @@ pub(super) fn events_to_table_data(
     };
     let capacity = table.schema.columns.len()
         + old_columns
-        + POSTGRES_CDC_METADATA_COLUMNS.len()
+        + POSTGRES_SOURCE_METADATA_COLUMNS.len()
         + POSTGRES_REPLICATION_SYSTEM_COLUMNS.len();
     let mut fields = Vec::with_capacity(capacity);
     let mut arrays = Vec::with_capacity(capacity);
@@ -524,7 +524,7 @@ pub(super) fn events_to_table_data(
     }
     let event_timestamp_us =
         i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros())?;
-    for column in POSTGRES_CDC_METADATA_COLUMNS {
+    for column in POSTGRES_SOURCE_METADATA_COLUMNS {
         fields.push(
             Field::new(column.name, column.data_type.clone(), false).with_metadata(
                 transferia_core::data::schema::SchemaColumn::new(
