@@ -26,8 +26,8 @@ pub enum EndpointDescriptor {
     PostgresSink,
     YdbSink,
     YTsaurusSink(YTsaurusSinkMode),
-    LogbrokerSink,
-    KafkaSink,
+    LogbrokerSink(QueueSinkDescriptor),
+    KafkaSink(QueueSinkDescriptor),
     ClickHouse,
     S3(S3Descriptor),
     IcebergSink,
@@ -53,8 +53,8 @@ impl EndpointDescriptor {
             | Self::PostgresSink
             | Self::YdbSink
             | Self::YTsaurusSink(_)
-            | Self::LogbrokerSink
-            | Self::KafkaSink
+            | Self::LogbrokerSink(_)
+            | Self::KafkaSink(_)
             | Self::ClickHouse
             | Self::S3(_)
             | Self::IcebergSink
@@ -79,8 +79,8 @@ impl EndpointDescriptor {
             | Self::PostgresSink
             | Self::YdbSink
             | Self::YTsaurusSink(_)
-            | Self::LogbrokerSink
-            | Self::KafkaSink
+            | Self::LogbrokerSink(_)
+            | Self::KafkaSink(_)
             | Self::ClickHouse
             | Self::S3(_)
             | Self::IcebergSink
@@ -108,8 +108,8 @@ impl EndpointDescriptor {
                     | Self::PostgresSink
                     | Self::YdbSink
                     | Self::YTsaurusSink(_)
-                    | Self::LogbrokerSink
-                    | Self::KafkaSink
+                    | Self::LogbrokerSink(_)
+                    | Self::KafkaSink(_)
                     | Self::ClickHouse
                     | Self::S3(_)
                     | Self::IcebergSink
@@ -125,9 +125,19 @@ impl EndpointDescriptor {
                     | Self::YTsaurusSink(YTsaurusSinkMode::Dynamic)
                     | Self::ClickHouse
                     | Self::Discard
+            ) || matches!(
+                self,
+                Self::LogbrokerSink(QueueSinkDescriptor {
+                    changelog: true
+                }) | Self::KafkaSink(QueueSinkDescriptor { changelog: true })
             ),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QueueSinkDescriptor {
+    pub changelog: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +250,7 @@ pub enum DiagnosticCode {
     YTsaurusAtLeastOnce,
     IcebergAtLeastOnce,
     PqV1AtLeastOnce,
+    KafkaAtLeastOnce,
     BenchmarkDiscard,
     BenchmarkSourceDiscard,
 }
@@ -406,8 +417,20 @@ pub fn validate_pipeline(
             }],
         };
     }
-    if matches!(sink, EndpointDescriptor::LogbrokerSink) {
+    if matches!(sink, EndpointDescriptor::LogbrokerSink(_)) {
         return DeliverySemanticsReport { guarantee: DeliveryGuarantee::AtLeastOnce, diagnostics: vec![SemanticsDiagnostic { code: DiagnosticCode::PqV1AtLeastOnce, severity: DiagnosticSeverity::Info, config_paths: vec!["sink.logbroker".into()], explanation: "Logbroker write acknowledgement precedes source progress commit, so an ambiguous retry may produce a duplicate unless the destination deduplicates the configured producer sequence".into(), remediation: None }] };
+    }
+    if matches!(sink, EndpointDescriptor::KafkaSink(_)) {
+        return DeliverySemanticsReport {
+            guarantee: DeliveryGuarantee::AtLeastOnce,
+            diagnostics: vec![SemanticsDiagnostic {
+                code: DiagnosticCode::KafkaAtLeastOnce,
+                severity: DiagnosticSeverity::Info,
+                config_paths: vec!["sink.kafka".into()],
+                explanation: "Kafka acknowledgement precedes source progress commit, so an ambiguous retry may produce a duplicate record".into(),
+                remediation: Some("enable downstream idempotency or deduplication when duplicate-free final state is required".into()),
+            }],
+        };
     }
     let EndpointDescriptor::S3(sink) = sink else {
         return DeliverySemanticsReport {

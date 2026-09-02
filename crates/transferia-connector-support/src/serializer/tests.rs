@@ -33,6 +33,107 @@ fn protobuf_serializer_rejects_empty_message_path() {
 }
 
 #[test]
+fn debezium_json_requires_an_explicit_stable_logical_source_name() {
+    for logical_name in ["", " inventory", "inventory "] {
+        assert!(SerializerConfig::DebeziumJson {
+            logical_name: logical_name.to_owned(),
+        }
+        .validate()
+        .is_err());
+    }
+    assert!(SerializerConfig::DebeziumJson {
+        logical_name: "inventory".to_owned(),
+    }
+    .validate()
+    .is_ok());
+}
+
+#[test]
+fn debezium_discovery_fails_closed_without_every_cdc_control() {
+    use arrow::datatypes::DataType;
+    use transferia_core::data::schema::{
+        DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+        SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+        SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+    };
+    use transferia_core::delivery::{
+        DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
+    };
+    use transferia_core::SystemColumnKind;
+
+    let config = SerializerConfig::DebeziumJson {
+        logical_name: "inventory".to_owned(),
+    };
+    let id = SchemaColumn::new("id".to_owned(), DataType::Int64, true)
+        .with_constraints(true, false, None);
+    let old_id = SchemaColumn::new("_system_old_key_0".to_owned(), DataType::Int64, true)
+        .with_old_key_of("id".to_owned());
+    let mut incoming = vec![id.clone(), old_id];
+    incoming.extend(
+        [
+            (SYSTEM_ROLE_SOURCE_DATABASE, DataType::Utf8),
+            (SYSTEM_ROLE_SOURCE_SCHEMA, DataType::Utf8),
+            (SYSTEM_ROLE_SOURCE_TABLE, DataType::Utf8),
+            (SYSTEM_ROLE_SOURCE_TRANSACTION_ID, DataType::UInt64),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, DataType::Int64),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_US, DataType::Int64),
+            (SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, DataType::Int64),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_MS, DataType::Int64),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_US, DataType::Int64),
+            (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, DataType::Int64),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, data_type))| {
+            SchemaColumn::new(format!("_system_role_{index}"), data_type, false)
+                .with_system_role(role)
+        }),
+    );
+    incoming.extend(
+        [
+            SystemColumnKind::Offset,
+            SystemColumnKind::ChangeOperation,
+            SystemColumnKind::ChangedColumns,
+        ]
+        .into_iter()
+        .map(|kind| {
+            SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
+        }),
+    );
+    let mut discovery = DeliveryDiscovery {
+        source_name: "postgres".into(),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: false,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: "accounts".into(),
+            incoming_schema: DatasetSchema::new(incoming),
+            stored_schema: DatasetSchema::new(vec![id]),
+            system_columns: [
+                SystemColumnKind::Offset,
+                SystemColumnKind::ChangeOperation,
+                SystemColumnKind::ChangedColumns,
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        }],
+        performance_advice: Vec::new(),
+    };
+    config.validate_discovery(&discovery).unwrap();
+
+    discovery.datasets[0]
+        .incoming_schema
+        .columns
+        .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_TABLE));
+    let error = config.validate_discovery(&discovery).unwrap_err().to_string();
+    assert!(error.contains(SYSTEM_ROLE_SOURCE_TABLE), "{error}");
+}
+
+#[test]
 fn json_schema_serializer_rejects_values_outside_contract() -> anyhow::Result<()> {
     let schema = compile_writer_schema(
         &crate::schema_registry::RegistrySchema {

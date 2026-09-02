@@ -18,7 +18,7 @@ use crate::connectors::logbroker::proto::pers_queue::v1::{
     StreamingWriteClientMessage, StreamingWriteServerMessage,
 };
 use crate::metrics::SinkCounters;
-use crate::serializer::DeliverySerializer;
+use crate::serializer::{DeliverySerializer, QueueMessageMode, SerializedDelivery};
 use transferia_core::delivery::SinkLimits;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
@@ -128,11 +128,14 @@ impl PqV1Sink {
             .last_sequence_number
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("PQv1 sequence overflow"))?;
-        let mut serializer = DeliverySerializer::new(&self.config.serializer)?;
+        let mut serializer = DeliverySerializer::new(
+            &self.config.serializer,
+            QueueMessageMode::ValuesOnly,
+        )?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();
-            let (payloads, rows) = serialize_delivery(
+            let serialized = serialize_delivery(
                 &mut serializer,
                 &delivery,
                 &self.discovery,
@@ -140,6 +143,22 @@ impl PqV1Sink {
             )
             .await
             .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
+            let payload_bytes = serialized.payload_bytes()?;
+            let rows = serialized.source_rows;
+            let payloads = serialized
+                .batches
+                .into_iter()
+                .flat_map(|batch| batch.messages)
+                .map(|message| {
+                    anyhow::ensure!(
+                        message.key.is_none(),
+                        "PQv1 value-only serializer unexpectedly produced a key"
+                    );
+                    message.value.ok_or_else(|| {
+                        anyhow::anyhow!("PQv1 value-only serializer produced a tombstone")
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
             if payloads.is_empty() {
                 io.events
                     .send(SinkEvent::CommittedThrough(delivery.id))
@@ -178,13 +197,7 @@ impl PqV1Sink {
             }
             validate_ack(&acknowledged, &sequence_numbers)?;
             self.counters.add_rows(rows);
-            self.counters.add_bytes(u64::try_from(
-                delivery
-                    .outputs
-                    .iter()
-                    .map(|batch| batch.byte_size)
-                    .sum::<usize>(),
-            )?);
+            self.counters.add_bytes(payload_bytes);
             self.counters.add_flush();
             self.counters
                 .add_source_messages(delivery.meta.source_messages);
@@ -258,7 +271,7 @@ pub async fn serialize_delivery(
     delivery: &Delivery,
     discovery: &transferia_core::delivery::DeliveryDiscovery,
     limits: &dyn SinkLimits,
-) -> anyhow::Result<(Vec<Vec<u8>>, u64)> {
+) -> anyhow::Result<SerializedDelivery> {
     serializer
         .serialize(delivery, discovery, limits, MAX_GRPC_MESSAGE_SIZE / 2)
         .await

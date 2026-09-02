@@ -495,6 +495,7 @@ pub fn project_sink_batch(
         .filter(|column| {
             column.old_value_of.is_none()
                 && column.old_key_of.is_none()
+                && column.system_role.is_none()
                 && !system_names.contains(column.name.as_str())
         })
         .map(|column| column.name.as_str())

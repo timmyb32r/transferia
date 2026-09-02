@@ -13,6 +13,9 @@ use super::wal2json;
 use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
+    META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_DATABASE,
+    SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
 };
 use transferia_core::data::system_columns::SystemColumnKind;
 
@@ -133,7 +136,8 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .into_iter()
         .map(|event| normalize_pgoutput_event(&table, event).unwrap())
         .collect::<Vec<_>>();
-    let data = events_to_table_data(&table, &events).unwrap();
+    let commit_timestamp_micros = events[0].commit_timestamp_micros;
+    let data = events_to_table_data(&table, "postgres", &events).unwrap();
 
     let operation = data
         .system_columns
@@ -182,6 +186,57 @@ fn normalized_cdc_batch_marks_and_indexes_the_operation_column() {
         .downcast_ref::<UInt64Array>()
         .unwrap();
     assert_eq!(message_index.values(), &[0, 1, 2]);
+
+    let schema = data.batch.schema();
+    let role_index = |role: &str| {
+        schema
+            .fields()
+            .iter()
+            .position(|field| field.metadata().get(META_SYSTEM_ROLE).map(String::as_str) == Some(role))
+            .unwrap()
+    };
+    let database = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_DATABASE))
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let source_schema = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_SCHEMA))
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let source_table = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_TABLE))
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let transaction_id = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_TRANSACTION_ID))
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    let source_timestamp = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_SOURCE_TIMESTAMP_US))
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    let event_timestamp = data
+        .batch
+        .column(role_index(SYSTEM_ROLE_EVENT_TIMESTAMP_NS))
+        .as_any()
+        .downcast_ref::<Int64Array>()
+        .unwrap();
+    assert_eq!(database.value(0), "postgres");
+    assert_eq!(source_schema.value(0), "public");
+    assert_eq!(source_table.value(0), "accounts");
+    assert_eq!(transaction_id.value(0), u64::from(TRANSACTION_ID));
+    assert_eq!(source_timestamp.value(0), commit_timestamp_micros);
+    assert!(event_timestamp.value(0) > commit_timestamp_micros);
 }
 
 #[test]
@@ -201,7 +256,7 @@ fn default_replica_identity_preserves_the_old_key_when_an_update_renames_it() {
         .into_iter()
         .map(|event| normalize_pgoutput_event(&table, event).unwrap())
         .collect::<Vec<_>>();
-    let data = events_to_table_data(&table, &events).unwrap();
+    let data = events_to_table_data(&table, "postgres", &events).unwrap();
 
     let current = data.batch.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
     let old = data.batch.column(3).as_any().downcast_ref::<Int32Array>().unwrap();
@@ -231,7 +286,7 @@ fn pgoutput_and_wal2json_mark_the_same_unchanged_toast_columns() {
 
     assert_eq!(pgoutput, wal2json);
     assert_eq!(pgoutput[0].values[1], LogicalValue::UnchangedToast);
-    let data = events_to_table_data(&table, &pgoutput).unwrap();
+    let data = events_to_table_data(&table, "postgres", &pgoutput).unwrap();
     let changed = data
         .system_columns
         .get(SystemColumnKind::ChangedColumns)
@@ -265,9 +320,9 @@ fn replica_identity_full_emits_bijective_old_columns_and_complete_current_rows()
         .into_iter()
         .map(|event| normalize_pgoutput_event(&table, event).unwrap())
         .collect::<Vec<_>>();
-    let data = events_to_table_data(&table, &events).unwrap();
+    let data = events_to_table_data(&table, "postgres", &events).unwrap();
 
-    assert_eq!(data.batch.num_columns(), 3 + 3 + 6);
+    assert_eq!(data.batch.num_columns(), 3 + 3 + 10 + 6);
     let schema = data.batch.schema();
     for (index, column) in table.schema.columns.iter().enumerate() {
         let old = schema.field(3 + index);

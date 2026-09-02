@@ -98,3 +98,31 @@ fn stored_projection_rejects_partial_or_user_column_loss() {
     nullable.datasets[0].incoming_schema.columns[1].nullable = true;
     assert!(validate_stored_projection(&nullable, &nullable.datasets[0]).is_err());
 }
+
+#[test]
+fn semantic_control_columns_are_never_part_of_stored_user_data() -> anyhow::Result<()> {
+    let user = SchemaColumn::new("value".into(), DataType::Int64, false);
+    let control = SchemaColumn::new("_system_source_database".into(), DataType::Utf8, false)
+        .with_system_role(crate::data::schema::SYSTEM_ROLE_SOURCE_DATABASE);
+    let discovery = DeliveryDiscovery {
+        source_name: Arc::from("postgres"),
+        source_topology: SourceTopology::StaticPartitions(vec![0]),
+        schema_origin: SchemaOrigin::SourceNative,
+        keep_system_columns: true,
+        datasets: vec![DiscoveredDataset {
+            role: DatasetRole::Main,
+            name: Arc::from("events"),
+            incoming_schema: DatasetSchema::new(vec![user.clone(), control.clone()]),
+            stored_schema: DatasetSchema::new(vec![user]),
+            system_columns: Vec::new(),
+        }],
+        performance_advice: Vec::new(),
+    };
+
+    validate_stored_projection(&discovery, &discovery.datasets[0])?;
+
+    let mut leaked = discovery.clone();
+    leaked.datasets[0].stored_schema.columns.push(control);
+    assert!(validate_stored_projection(&leaked, &leaked.datasets[0]).is_err());
+    Ok(())
+}

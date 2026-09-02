@@ -61,8 +61,8 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
 
     let append_only = [
         EndpointDescriptor::YTsaurusSink(YTsaurusSinkMode::Static),
-        EndpointDescriptor::LogbrokerSink,
-        EndpointDescriptor::KafkaSink,
+        EndpointDescriptor::LogbrokerSink(QueueSinkDescriptor { changelog: false }),
+        EndpointDescriptor::KafkaSink(QueueSinkDescriptor { changelog: false }),
         sink(S3Partitioning::Source, false),
         EndpointDescriptor::IcebergSink,
     ];
@@ -79,6 +79,16 @@ fn only_operation_aware_state_sinks_accept_changelog_rows() {
             DiagnosticCode::UnsupportedRecordSemantics
         );
         assert_eq!(report.diagnostics[0].severity, DiagnosticSeverity::Error);
+    }
+
+    for sink in [
+        EndpointDescriptor::LogbrokerSink(QueueSinkDescriptor { changelog: true }),
+        EndpointDescriptor::KafkaSink(QueueSinkDescriptor { changelog: true }),
+    ] {
+        assert!(sink.accepts_record_semantics(RecordSemantics::Changelog));
+        assert!(validate_pipeline(&changelog_source(), &sink, &discovery(), false)
+            .ensure_valid()
+            .is_ok());
     }
 
 }

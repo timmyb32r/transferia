@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use arrow::array::{
     ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
@@ -19,10 +19,17 @@ use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{
     old_key_column_name, old_value_column_name, DiscoveredTable,
+    POSTGRES_CDC_METADATA_COLUMNS, POSTGRES_REPLICATION_SYSTEM_COLUMNS,
 };
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
-use transferia_core::data::schema::{META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF};
+use transferia_core::data::schema::{
+    META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
+    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+};
 use transferia_core::data::system_columns::{SystemColumn, SystemColumnKind, SystemColumns};
 use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
@@ -33,6 +40,7 @@ use transferia_registry::durable::DurableContext;
 pub(crate) struct PostgresReplicationSource {
     client: Client,
     config: PostgresReplicationConfig,
+    database: Arc<str>,
     tables: HashMap<(Arc<str>, Arc<str>), DiscoveredTable>,
     pgoutput: PgOutputDecoder,
     pending: VecDeque<QueuedBatch>,
@@ -58,6 +66,7 @@ impl PostgresReplicationSource {
     pub(crate) async fn new(
         client: Client,
         config: PostgresReplicationConfig,
+        database: Arc<str>,
         tables: Vec<DiscoveredTable>,
         counters: Arc<SourceCounters>,
         cancellation: CancellationToken,
@@ -80,6 +89,7 @@ impl PostgresReplicationSource {
         Ok(Self {
             client,
             config,
+            database,
             tables,
             pgoutput: PgOutputDecoder::default(),
             pending: VecDeque::new(),
@@ -203,7 +213,7 @@ impl PostgresReplicationSource {
             row_count = row_count
                 .checked_add(u64::try_from(events.len())?)
                 .ok_or_else(|| anyhow::anyhow!("PostgreSQL CDC row count overflow"))?;
-            tables.push(events_to_table_data(table, &events)?);
+            tables.push(events_to_table_data(table, &self.database, &events)?);
         }
         self.last_peek_lsn = self.last_peek_lsn.max(lsn);
         self.pending.push_back(QueuedBatch {
@@ -444,6 +454,7 @@ fn empty_batch() -> SourceBatch {
 
 pub(super) fn events_to_table_data(
     table: &DiscoveredTable,
+    database: &str,
     events: &[ChangeEvent],
 ) -> anyhow::Result<TableData> {
     validate_old_values(table, events)?;
@@ -457,8 +468,12 @@ pub(super) fn events_to_table_data(
             .filter(|column| column.primary_key)
             .count()
     };
-    let mut fields = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
-    let mut arrays = Vec::with_capacity(table.schema.columns.len() + old_columns + 6);
+    let capacity = table.schema.columns.len()
+        + old_columns
+        + POSTGRES_CDC_METADATA_COLUMNS.len()
+        + POSTGRES_REPLICATION_SYSTEM_COLUMNS.len();
+    let mut fields = Vec::with_capacity(capacity);
+    let mut arrays = Vec::with_capacity(capacity);
     for (index, column) in table.schema.columns.iter().enumerate() {
         fields.push(
             Field::new(&column.name, column.data_type.clone(), true)
@@ -512,95 +527,152 @@ pub(super) fn events_to_table_data(
             )?);
         }
     }
-    let routing_index = fields.len();
-    let routing = [
-        (SystemColumnKind::Topic, DataType::Utf8),
-        (SystemColumnKind::Partition, DataType::Int64),
-        (SystemColumnKind::Offset, DataType::Int64),
-        (SystemColumnKind::MessageIndex, DataType::UInt64),
-    ];
-    for (kind, data_type) in routing {
-        fields.push(Field::new(kind.default_name(), data_type, false));
+    let event_timestamp_us = i64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_micros(),
+    )?;
+    for column in POSTGRES_CDC_METADATA_COLUMNS {
+        fields.push(
+            Field::new(column.name, column.data_type.clone(), false).with_metadata(
+                transferia_core::data::schema::SchemaColumn::new(
+                    column.name.to_owned(),
+                    column.data_type.clone(),
+                    false,
+                )
+                .with_system_role(column.role)
+                .arrow_metadata(),
+            ),
+        );
+        arrays.push(cdc_metadata_array(
+            column.role,
+            database,
+            events,
+            event_timestamp_us,
+        )?);
     }
-    arrays.extend([
-        Arc::new(StringArray::from(vec!["postgres"; events.len()])) as ArrayRef,
-        Arc::new(Int64Array::from(vec![0_i64; events.len()])) as ArrayRef,
-        Arc::new(Int64Array::from_iter_values(
+    let system_start = fields.len();
+    let changed_columns = events
+        .iter()
+        .map(|event| changed_columns_mask(table, event))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    for kind in POSTGRES_REPLICATION_SYSTEM_COLUMNS {
+        let mut field = Field::new(kind.default_name(), kind.data_type(), false);
+        if *kind == SystemColumnKind::ChangeOperation {
+            field = field.with_metadata(HashMap::from([(
+                META_CHANGE_OPERATION.to_owned(),
+                "true".to_owned(),
+            )]));
+        }
+        fields.push(field);
+        arrays.push(replication_system_array(
+            *kind,
+            events,
+            &changed_columns,
+        )?);
+    }
+    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
+    let system_columns = POSTGRES_REPLICATION_SYSTEM_COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(offset, kind)| SystemColumn {
+            kind: *kind,
+            index: system_start + offset,
+            name: Arc::from(kind.default_name()),
+        })
+        .collect::<Vec<_>>();
+    Ok(TableData::new(
+        Arc::from(table.config.name.as_str()),
+        false,
+        batch,
+        SystemColumns::new(system_columns),
+    ))
+}
+
+fn replication_system_array(
+    kind: SystemColumnKind,
+    events: &[ChangeEvent],
+    changed_columns: &[Vec<u8>],
+) -> anyhow::Result<ArrayRef> {
+    Ok(match kind {
+        SystemColumnKind::Topic => {
+            Arc::new(StringArray::from(vec!["postgres"; events.len()])) as ArrayRef
+        }
+        SystemColumnKind::Partition => {
+            Arc::new(Int64Array::from(vec![0_i64; events.len()])) as ArrayRef
+        }
+        SystemColumnKind::Offset => Arc::new(Int64Array::from_iter_values(
             events
                 .iter()
                 .map(|event| i64::try_from(event.lsn))
                 .collect::<Result<Vec<_>, _>>()?,
         )) as ArrayRef,
-        Arc::new(UInt64Array::from_iter_values(
-            (0..events.len()).map(u64::try_from).collect::<Result<Vec<_>, _>>()?,
+        SystemColumnKind::MessageIndex => Arc::new(UInt64Array::from_iter_values(
+            (0..events.len())
+                .map(u64::try_from)
+                .collect::<Result<Vec<_>, _>>()?,
         )) as ArrayRef,
-    ]);
-    let operation_index = fields.len();
-    fields.push(
-        Field::new(
-            SystemColumnKind::ChangeOperation.default_name(),
-            DataType::Utf8,
-            false,
-        )
-        .with_metadata(HashMap::from([(
-            META_CHANGE_OPERATION.to_owned(),
-            "true".to_owned(),
-        )])),
-    );
-    arrays.push(Arc::new(StringArray::from_iter_values(
-        events.iter().map(|event| event.operation.code()),
-    )) as ArrayRef);
-    let changed_columns_index = fields.len();
-    fields.push(Field::new(
-        SystemColumnKind::ChangedColumns.default_name(),
-        DataType::Binary,
-        false,
-    ));
-    let changed_columns = events
-        .iter()
-        .map(|event| changed_columns_mask(table, event))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    arrays.push(Arc::new(BinaryArray::from_iter_values(
-        changed_columns.iter().map(Vec::as_slice),
-    )) as ArrayRef);
-    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
-    Ok(TableData::new(
-        Arc::from(table.config.name.as_str()),
-        false,
-        batch,
-        SystemColumns::new(vec![
-            SystemColumn {
-                kind: SystemColumnKind::Topic,
-                index: routing_index,
-                name: Arc::from(SystemColumnKind::Topic.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::Partition,
-                index: routing_index + 1,
-                name: Arc::from(SystemColumnKind::Partition.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::Offset,
-                index: routing_index + 2,
-                name: Arc::from(SystemColumnKind::Offset.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::MessageIndex,
-                index: routing_index + 3,
-                name: Arc::from(SystemColumnKind::MessageIndex.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::ChangeOperation,
-                index: operation_index,
-                name: Arc::from(SystemColumnKind::ChangeOperation.default_name()),
-            },
-            SystemColumn {
-                kind: SystemColumnKind::ChangedColumns,
-                index: changed_columns_index,
-                name: Arc::from(SystemColumnKind::ChangedColumns.default_name()),
-            },
-        ]),
-    ))
+        SystemColumnKind::ChangeOperation => Arc::new(StringArray::from_iter_values(
+            events.iter().map(|event| event.operation.code()),
+        )) as ArrayRef,
+        SystemColumnKind::ChangedColumns => Arc::new(BinaryArray::from_iter_values(
+            changed_columns.iter().map(Vec::as_slice),
+        )) as ArrayRef,
+        SystemColumnKind::WriteTimestampMs => {
+            anyhow::bail!("PostgreSQL replication does not expose write-timestamp metadata")
+        }
+    })
+}
+
+fn cdc_metadata_array(
+    role: &str,
+    database: &str,
+    events: &[ChangeEvent],
+    event_timestamp_us: i64,
+) -> anyhow::Result<ArrayRef> {
+    Ok(match role {
+        SYSTEM_ROLE_SOURCE_DATABASE => {
+            Arc::new(StringArray::from(vec![database; events.len()])) as ArrayRef
+        }
+        SYSTEM_ROLE_SOURCE_SCHEMA => Arc::new(StringArray::from_iter_values(
+            events.iter().map(|event| event.schema.as_ref()),
+        )) as ArrayRef,
+        SYSTEM_ROLE_SOURCE_TABLE => Arc::new(StringArray::from_iter_values(
+            events.iter().map(|event| event.table.as_ref()),
+        )) as ArrayRef,
+        SYSTEM_ROLE_SOURCE_TRANSACTION_ID => Arc::new(UInt64Array::from_iter_values(
+            events.iter().map(|event| u64::from(event.transaction_id)),
+        )) as ArrayRef,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_MS => Arc::new(Int64Array::from_iter_values(
+            events
+                .iter()
+                .map(|event| event.commit_timestamp_micros.div_euclid(1_000)),
+        )) as ArrayRef,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_US => Arc::new(Int64Array::from_iter_values(
+            events.iter().map(|event| event.commit_timestamp_micros),
+        )) as ArrayRef,
+        SYSTEM_ROLE_SOURCE_TIMESTAMP_NS => Arc::new(Int64Array::from_iter_values(
+            events
+                .iter()
+                .map(|event| event.commit_timestamp_micros.checked_mul(1_000))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| anyhow::anyhow!("PostgreSQL commit timestamp nanoseconds overflow"))?,
+        )) as ArrayRef,
+        SYSTEM_ROLE_EVENT_TIMESTAMP_MS => Arc::new(Int64Array::from(vec![
+            event_timestamp_us.div_euclid(1_000);
+            events.len()
+        ])) as ArrayRef,
+        SYSTEM_ROLE_EVENT_TIMESTAMP_US => {
+            Arc::new(Int64Array::from(vec![event_timestamp_us; events.len()])) as ArrayRef
+        }
+        SYSTEM_ROLE_EVENT_TIMESTAMP_NS => Arc::new(Int64Array::from(vec![
+            event_timestamp_us
+                .checked_mul(1_000)
+                .ok_or_else(|| anyhow::anyhow!("event timestamp nanoseconds overflow"))?;
+            events.len()
+        ])) as ArrayRef,
+        _ => anyhow::bail!("unsupported PostgreSQL CDC metadata role '{role}'"),
+    })
 }
 
 fn changed_columns_mask(

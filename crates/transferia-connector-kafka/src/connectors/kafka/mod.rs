@@ -24,7 +24,7 @@ use transferia_core::delivery::{
 use transferia_core::sink::Sink;
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
-    EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+    EndpointDescriptor, QueueSinkDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SourceBuildContext, SourceConnector,
@@ -187,6 +187,7 @@ impl SinkLimits for KafkaSinkConfig {
             }),
             supported_arrow_types: vec![
                 ArrowTypeFamily::Utf8,
+                ArrowTypeFamily::Binary,
                 ArrowTypeFamily::SignedInteger,
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
@@ -228,13 +229,16 @@ impl SinkLimits for KafkaSinkConfig {
             let batch = arrow::record_batch::RecordBatch::try_new(Arc::new(schema), arrays)?;
             JsonBatchEncoder::new(&batch, |_| true)?;
         }
+        self.serializer.validate_discovery(discovery)?;
         Ok(())
     }
 }
 
 impl SinkConnector for KafkaSinkConnector {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::KafkaSink
+        EndpointDescriptor::KafkaSink(QueueSinkDescriptor {
+            changelog: self.config.serializer.supports_changelog(),
+        })
     }
 
     fn limits(&self) -> &dyn SinkLimits {
@@ -258,7 +262,10 @@ impl SinkConnector for KafkaSinkConnector {
     ) -> BoxFuture<'_, anyhow::Result<Box<dyn Sink>>> {
         Box::pin(async move {
             let producer = self.producer()?;
-            let serializer = crate::serializer::DeliverySerializer::new(&self.config.serializer)?;
+            let serializer = crate::serializer::DeliverySerializer::new(
+                &self.config.serializer,
+                crate::serializer::QueueMessageMode::KeyedWithTombstones,
+            )?;
             Ok(Box::new(KafkaSink::new(
                 Arc::clone(&self.config),
                 producer,

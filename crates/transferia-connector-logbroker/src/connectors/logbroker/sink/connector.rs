@@ -11,7 +11,7 @@ use transferia_core::delivery::{
     SinkLimitsDescription, TextLimit,
 };
 use transferia_core::sink::Sink;
-use transferia_delivery_contracts::semantics::EndpointDescriptor;
+use transferia_delivery_contracts::semantics::{EndpointDescriptor, QueueSinkDescriptor};
 use transferia_registry::{SinkBuildContext, SinkConnector, SinkPrepare};
 
 pub struct YdbDriverSinkConnector {
@@ -116,6 +116,7 @@ impl SinkLimits for LogbrokerSinkConfig {
             }),
             supported_arrow_types: vec![
                 ArrowTypeFamily::Utf8,
+                ArrowTypeFamily::Binary,
                 ArrowTypeFamily::SignedInteger,
                 ArrowTypeFamily::UnsignedInteger,
                 ArrowTypeFamily::FloatingPoint,
@@ -167,6 +168,7 @@ impl SinkLimits for LogbrokerSinkConfig {
                 ))
             })?;
         }
+        self.serializer.validate_discovery(discovery)?;
         let producer_id = &discovery
             .dataset(transferia_core::delivery::DatasetRole::Main)?
             .name;
@@ -180,7 +182,9 @@ impl SinkLimits for LogbrokerSinkConfig {
 
 impl SinkConnector for YdbDriverSinkConnector {
     fn compatibility(&self) -> EndpointDescriptor {
-        EndpointDescriptor::LogbrokerSink
+        EndpointDescriptor::LogbrokerSink(QueueSinkDescriptor {
+            changelog: self.config.serializer.supports_changelog(),
+        })
     }
 
     fn limits(&self) -> &dyn SinkLimits {

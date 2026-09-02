@@ -37,7 +37,7 @@ impl KafkaSink {
     }
 
     async fn write(&mut self, delivery: &Delivery) -> anyhow::Result<()> {
-        let (payloads, rows) = self
+        let serialized = self
             .serializer
             .serialize(
                 delivery,
@@ -46,22 +46,23 @@ impl KafkaSink {
                 4 * 1024 * 1024,
             )
             .await?;
-        let payload_bytes = payloads.iter().map(Vec::len).sum::<usize>();
+        let payload_bytes = serialized.payload_bytes()?;
         let timeout = super::config::timeout(self.config.request_timeout_ms);
         let mut pending = FuturesUnordered::new();
-        let mut payloads = payloads.into_iter();
-        for batch in &delivery.outputs {
+        for batch in serialized.batches {
             let topic: Arc<str> = self.config.topic.topic_for_table(&batch.table).into();
-            for _ in 0..batch.rows() {
-                let payload = payloads.next().ok_or_else(|| {
-                    anyhow::anyhow!("Kafka serializer returned fewer payloads than input rows")
-                })?;
+            for message in batch.messages {
                 let producer = self.producer.clone();
                 let topic = Arc::clone(&topic);
                 let partition = self.config.partition;
                 pending.push(async move {
-                    let mut record =
-                        FutureRecord::<(), [u8]>::to(topic.as_ref()).payload(payload.as_ref());
+                    let mut record = FutureRecord::<[u8], [u8]>::to(topic.as_ref());
+                    if let Some(key) = &message.key {
+                        record = record.key(key);
+                    }
+                    if let Some(value) = &message.value {
+                        record = record.payload(value);
+                    }
                     if let Some(partition) = partition {
                         record = record.partition(partition);
                     }
@@ -76,16 +77,11 @@ impl KafkaSink {
                 }
             }
         }
-        anyhow::ensure!(
-            payloads.next().is_none(),
-            "Kafka serializer returned more payloads than input rows"
-        );
         while let Some(result) = pending.next().await {
             result?;
         }
-        self.counters.add_rows(rows);
-        self.counters
-            .add_bytes(u64::try_from(payload_bytes).unwrap_or(u64::MAX));
+        self.counters.add_rows(serialized.source_rows);
+        self.counters.add_bytes(payload_bytes);
         self.counters.add_flush();
         Ok(())
     }

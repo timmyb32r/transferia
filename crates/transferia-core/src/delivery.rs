@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::data::schema::{
     DatasetSchema, META_LOW_CARDINALITY, META_MAX_LENGTH, META_OLD_KEY_OF, META_OLD_VALUE_OF,
-    META_PRIMARY_KEY,
+    META_PRIMARY_KEY, META_SYSTEM_ROLE,
 };
 use crate::data::system_columns::SystemColumnKind;
 use crate::sink::SinkBatch;
@@ -348,7 +348,8 @@ pub fn validate_batch_against_discovery<'a>(
                         .as_deref()
                 && metadata.get(META_OLD_VALUE_OF)
                     == expected_column.old_value_of.as_ref()
-                && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref(),
+                && metadata.get(META_OLD_KEY_OF) == expected_column.old_key_of.as_ref()
+                && metadata.get(META_SYSTEM_ROLE) == expected_column.system_role.as_ref(),
             "runtime dataset '{}' column '{}' metadata does not match discovery",
             batch.table,
             actual.name(),
@@ -453,14 +454,15 @@ pub fn validate_stored_projection(
                 .find(|system| system.name.as_ref() == column.name);
             column.old_value_of.is_none()
                 && column.old_key_of.is_none()
+                && column.system_role.is_none()
                 && !matches!(
-                system,
-                Some(system)
+                    system,
+                    Some(system)
                     if matches!(
                         system.kind,
                         SystemColumnKind::ChangeOperation | SystemColumnKind::ChangedColumns
                     )
-            )
+                )
                 && (discovery.keep_system_columns
                     || !system_names.contains(column.name.as_str()))
         })
@@ -482,6 +484,7 @@ pub fn validate_stored_projection(
                         && stored.max_length == incoming.max_length
                         && stored.old_value_of.is_none()
                         && stored.old_key_of.is_none()
+                        && stored.system_role.is_none()
                 }),
         "stored schema for {:?} dataset '{}' is not the exact incoming schema after system-column projection",
         dataset.role,
@@ -502,6 +505,7 @@ fn validate_cdc_control_columns(
         .filter(|column| {
             column.old_value_of.is_none()
                 && column.old_key_of.is_none()
+                && column.system_role.is_none()
                 && !system_names.contains(column.name.as_str())
         })
         .map(|column| (column.name.as_str(), column))
@@ -617,7 +621,8 @@ fn validate_cdc_control_column(
             && control.nullable
             && !control.primary_key
             && !control.low_cardinality
-            && control.max_length.is_none(),
+            && control.max_length.is_none()
+            && control.system_role.is_none(),
         "discovered {:?} dataset '{}' CDC control column '{}' must have exactly one mapping, be nullable and unconstrained, and have the exact Arrow type of '{current_name}'",
         dataset.role,
         dataset.name,

@@ -1,5 +1,5 @@
 use super::*;
-use arrow::array::{BooleanArray, Float64Array, Int64Array, StringBuilder};
+use arrow::array::{BinaryArray, BooleanArray, Float64Array, Int64Array, StringBuilder};
 use arrow::datatypes::{DataType, Field, Schema};
 use std::sync::Arc;
 
@@ -102,5 +102,21 @@ fn non_finite_floats_are_valid_json_nulls() -> anyhow::Result<()> {
         .collect::<Result<Vec<_>, _>>()?;
     anyhow::ensure!(rows[..3].iter().all(|row| row["value"].is_null()));
     anyhow::ensure!(rows[3]["value"] == serde_json::json!(1.5));
+    Ok(())
+}
+
+#[test]
+fn binary_values_use_the_kafka_connect_base64_json_representation() -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "bytes",
+        DataType::Binary,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(BinaryArray::from_iter_values([b"\x00\xff".as_slice()]))],
+    )?;
+    let value: serde_json::Value = serde_json::from_slice(&encode_batch(&batch)?)?;
+    assert_eq!(value["bytes"], "AP8=");
     Ok(())
 }

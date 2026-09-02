@@ -26,7 +26,7 @@ use crate::connectors::logbroker::pqv1::pq_v1::set_ydb_headers;
 use crate::connectors::logbroker::pqv1::sink::writer::{serialize_delivery, MAX_GRPC_MESSAGE_SIZE};
 use crate::connectors::logbroker::transport::connect_http2_prior_knowledge;
 use crate::metrics::SinkCounters;
-use crate::serializer::DeliverySerializer;
+use crate::serializer::{DeliverySerializer, QueueMessageMode};
 use transferia_core::delivery::SinkLimits;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Sink, SinkEvent, SinkIo};
@@ -85,11 +85,14 @@ impl YdbTopicSink {
 
     async fn run_session(&self, mut io: SinkIo) -> anyhow::Result<()> {
         let mut sessions = HashMap::<String, YdbWriteSession>::new();
-        let mut serializer = DeliverySerializer::new(&self.config.serializer)?;
+        let mut serializer = DeliverySerializer::new(
+            &self.config.serializer,
+            QueueMessageMode::ValuesOnly,
+        )?;
 
         while let Some(delivery) = io.deliveries.recv().await {
             let started = std::time::Instant::now();
-            let (payloads, rows) = serialize_delivery(
+            let serialized = serialize_delivery(
                 &mut serializer,
                 &delivery,
                 &self.discovery,
@@ -97,8 +100,8 @@ impl YdbTopicSink {
             )
             .await
             .map_err(|error| anyhow::Error::from(DataPlaneFailure::fatal(error)))?;
-            let mut payloads = payloads.into_iter();
-            for batch in &delivery.outputs {
+            let payload_bytes = serialized.payload_bytes()?;
+            for batch in serialized.batches {
                 let topic = self.config.topic.topic_for_table(&batch.table);
                 if !sessions.contains_key(&topic) {
                     let session = self.connect_session(&topic, &io.cancellation).await?;
@@ -107,29 +110,23 @@ impl YdbTopicSink {
                 let session = sessions
                     .get_mut(&topic)
                     .ok_or_else(|| anyhow::anyhow!("YDB Topic writer session disappeared"))?;
-                let batch_payloads = (0..batch.rows())
-                    .map(|_| {
-                        payloads.next().ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Logbroker serializer returned fewer payloads than input rows"
-                            )
+                let batch_payloads = batch
+                    .messages
+                    .into_iter()
+                    .map(|message| {
+                        anyhow::ensure!(
+                            message.key.is_none(),
+                            "Logbroker value-only serializer unexpectedly produced a key"
+                        );
+                        message.value.ok_or_else(|| {
+                            anyhow::anyhow!("Logbroker value-only serializer produced a tombstone")
                         })
                     })
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 session.write_payloads(batch_payloads).await?;
             }
-            anyhow::ensure!(
-                payloads.next().is_none(),
-                "Logbroker serializer returned more payloads than input rows"
-            );
-            self.counters.add_rows(rows);
-            self.counters.add_bytes(u64::try_from(
-                delivery
-                    .outputs
-                    .iter()
-                    .map(|batch| batch.byte_size)
-                    .sum::<usize>(),
-            )?);
+            self.counters.add_rows(serialized.source_rows);
+            self.counters.add_bytes(payload_bytes);
             self.counters.add_flush();
             self.counters
                 .add_source_messages(delivery.meta.source_messages);

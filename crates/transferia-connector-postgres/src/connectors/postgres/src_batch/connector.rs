@@ -10,7 +10,13 @@ use crate::connectors::postgres::common::{
 };
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
-use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
+use transferia_core::data::schema::{
+    DatasetSchema, SchemaColumn, SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+    SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA, SYSTEM_ROLE_SOURCE_TABLE,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+};
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DiscoveredDataset, SchemaOrigin, SourceTopology,
@@ -20,6 +26,83 @@ use transferia_delivery_contracts::semantics::{
     EndpointDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
 };
 use transferia_registry::{SourceBuildContext, SourceConnector, SourceDiscoveryContext};
+
+pub(crate) const POSTGRES_REPLICATION_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
+    SystemColumnKind::Topic,
+    SystemColumnKind::Partition,
+    SystemColumnKind::Offset,
+    SystemColumnKind::MessageIndex,
+    SystemColumnKind::ChangeOperation,
+    SystemColumnKind::ChangedColumns,
+];
+
+pub(crate) struct PostgresCdcMetadataColumn {
+    pub(crate) name: &'static str,
+
+    pub(crate) role: &'static str,
+
+    pub(crate) data_type: arrow::datatypes::DataType,
+}
+
+pub(crate) const POSTGRES_CDC_METADATA_COLUMNS: &[PostgresCdcMetadataColumn] = &[
+    PostgresCdcMetadataColumn {
+        name: "_system_source_database",
+        role: SYSTEM_ROLE_SOURCE_DATABASE,
+        data_type: arrow::datatypes::DataType::Utf8,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_schema",
+        role: SYSTEM_ROLE_SOURCE_SCHEMA,
+        data_type: arrow::datatypes::DataType::Utf8,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_table",
+        role: SYSTEM_ROLE_SOURCE_TABLE,
+        data_type: arrow::datatypes::DataType::Utf8,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_transaction_id",
+        role: SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+        data_type: arrow::datatypes::DataType::UInt64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_timestamp_ms",
+        role: SYSTEM_ROLE_SOURCE_TIMESTAMP_MS,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_timestamp_us",
+        role: SYSTEM_ROLE_SOURCE_TIMESTAMP_US,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_source_timestamp_ns",
+        role: SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_event_timestamp_ms",
+        role: SYSTEM_ROLE_EVENT_TIMESTAMP_MS,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_event_timestamp_us",
+        role: SYSTEM_ROLE_EVENT_TIMESTAMP_US,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+    PostgresCdcMetadataColumn {
+        name: "_system_event_timestamp_ns",
+        role: SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+        data_type: arrow::datatypes::DataType::Int64,
+    },
+];
+
+const POSTGRES_SNAPSHOT_SYSTEM_COLUMNS: &[SystemColumnKind] = &[
+    SystemColumnKind::Topic,
+    SystemColumnKind::Partition,
+    SystemColumnKind::Offset,
+    SystemColumnKind::MessageIndex,
+];
 
 #[derive(Clone)]
 pub(crate) struct DiscoveredTable {
@@ -103,16 +186,11 @@ impl SourceConnector for PostgresSourceConnector {
                 cancellation,
             } = context;
             let tables = tokio::select! { biased; () = cancellation.cancelled() => anyhow::bail!("PostgreSQL discovery cancelled"), tables = self.discovered_tables() => tables? };
-            let mut system_columns = vec![
-                SystemColumnKind::Topic,
-                SystemColumnKind::Partition,
-                SystemColumnKind::Offset,
-                SystemColumnKind::MessageIndex,
-            ];
-            if self.config.replication.is_some() {
-                system_columns.push(SystemColumnKind::ChangeOperation);
-                system_columns.push(SystemColumnKind::ChangedColumns);
-            }
+            let system_columns = if self.config.replication.is_some() {
+                POSTGRES_REPLICATION_SYSTEM_COLUMNS
+            } else {
+                POSTGRES_SNAPSHOT_SYSTEM_COLUMNS
+            };
             let discovered_system_columns = system_columns
                 .iter()
                 .copied()
@@ -155,6 +233,16 @@ impl SourceConnector for PostgresSourceConnector {
                                     }),
                             );
                         }
+                        incoming.columns.extend(POSTGRES_CDC_METADATA_COLUMNS.iter().map(
+                            |column| {
+                                SchemaColumn::new(
+                                    column.name.to_owned(),
+                                    column.data_type.clone(),
+                                    false,
+                                )
+                                .with_system_role(column.role)
+                            },
+                        ));
                     }
                     incoming.columns.extend(system_columns.iter().map(|kind| {
                         SchemaColumn::new(kind.default_name().to_owned(), kind.data_type(), false)
@@ -166,7 +254,7 @@ impl SourceConnector for PostgresSourceConnector {
                                 .iter()
                                 .filter(|kind| {
                                     !matches!(
-                                        **kind,
+                                        kind,
                                         SystemColumnKind::ChangeOperation
                                             | SystemColumnKind::ChangedColumns
                                     )
@@ -229,6 +317,7 @@ impl SourceConnector for PostgresSourceConnector {
                     crate::connectors::postgres::src_dblog::PostgresReplicationSource::new(
                         client,
                         replication.clone(),
+                        Arc::from(self.config.connection.database.as_str()),
                         tables.as_ref().clone(),
                         counters,
                         context.cancellation,

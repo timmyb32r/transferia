@@ -9,15 +9,31 @@ use crate::schema_registry::{
     SchemaRegistryConnection,
 };
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
+use transferia_core::data::schema::{
+    SYSTEM_ROLE_EVENT_TIMESTAMP_MS, SYSTEM_ROLE_EVENT_TIMESTAMP_NS,
+    SYSTEM_ROLE_EVENT_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_DATABASE, SYSTEM_ROLE_SOURCE_SCHEMA,
+    SYSTEM_ROLE_SOURCE_TABLE, SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, SYSTEM_ROLE_SOURCE_TIMESTAMP_NS,
+    SYSTEM_ROLE_SOURCE_TIMESTAMP_US, SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+};
+use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::sink::Delivery;
 
-use super::JsonBatchEncoder;
+use super::debezium::DebeziumJsonEncoder;
+use super::{
+    JsonBatchEncoder, QueueMessageMode, SerializedBatch, SerializedDelivery, SerializedMessage,
+};
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SerializerConfig {
     #[schemars(title = "JSON")]
     Json,
+
+    #[schemars(title = "Debezium JSON")]
+    DebeziumJson {
+        #[schemars(title = "Logical source name")]
+        logical_name: String,
+    },
 
     #[schemars(title = "Schema Registry")]
     SchemaRegistry {
@@ -47,6 +63,13 @@ impl SerializerConfig {
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Json => Ok(()),
+            Self::DebeziumJson { logical_name } => {
+                anyhow::ensure!(
+                    logical_name.trim() == logical_name && !logical_name.is_empty(),
+                    "debezium_json.logical_name must be nonempty and must not contain leading or trailing whitespace"
+                );
+                Ok(())
+            }
             Self::SchemaRegistry {
                 connection,
                 subject,
@@ -77,6 +100,9 @@ impl SerializerConfig {
     ) -> anyhow::Result<String> {
         match self {
             Self::Json => Ok(format!("JSON {}", json_type_name(data_type)?)),
+            Self::DebeziumJson { .. } => {
+                Ok(format!("Debezium JSON {}", json_type_name(data_type)?))
+            }
             Self::SchemaRegistry {
                 subject, format, ..
             } => Ok(format!(
@@ -90,6 +116,101 @@ impl SerializerConfig {
             )),
         }
     }
+
+    #[must_use]
+    pub const fn supports_changelog(&self) -> bool {
+        matches!(self, Self::DebeziumJson { .. })
+    }
+
+    pub fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
+        if !self.supports_changelog() {
+            return Ok(());
+        }
+        let datasets = discovery
+            .datasets
+            .iter()
+            .filter(|dataset| dataset.role == transferia_core::delivery::DatasetRole::Main)
+            .collect::<Vec<_>>();
+        anyhow::ensure!(
+            !datasets.is_empty(),
+            "Debezium serializer requires at least one main dataset"
+        );
+        for dataset in datasets {
+            let primary_keys = dataset
+                .incoming_schema
+                .columns
+                .iter()
+                .filter(|column| column.primary_key)
+                .collect::<Vec<_>>();
+            anyhow::ensure!(
+                !primary_keys.is_empty(),
+                "Debezium dataset '{}' requires at least one primary-key column",
+                dataset.name
+            );
+            for key in primary_keys {
+                let mappings = dataset
+                    .incoming_schema
+                    .columns
+                    .iter()
+                    .filter(|column| {
+                        column.old_key_of.as_deref() == Some(key.name.as_str())
+                            || column.old_value_of.as_deref() == Some(key.name.as_str())
+                    })
+                    .count();
+                anyhow::ensure!(
+                    mappings == 1,
+                    "Debezium dataset '{}' primary key '{}' must have exactly one old-key or old-value mapping, found {mappings}",
+                    dataset.name,
+                    key.name
+                );
+            }
+            for kind in [
+                SystemColumnKind::Offset,
+                SystemColumnKind::ChangeOperation,
+                SystemColumnKind::ChangedColumns,
+            ] {
+                anyhow::ensure!(
+                    dataset.system_columns.iter().any(|column| column.kind == kind),
+                    "Debezium dataset '{}' is missing required {kind:?} metadata",
+                    dataset.name
+                );
+            }
+            for (role, data_type) in [
+                (SYSTEM_ROLE_SOURCE_DATABASE, arrow::datatypes::DataType::Utf8),
+                (SYSTEM_ROLE_SOURCE_SCHEMA, arrow::datatypes::DataType::Utf8),
+                (SYSTEM_ROLE_SOURCE_TABLE, arrow::datatypes::DataType::Utf8),
+                (
+                    SYSTEM_ROLE_SOURCE_TRANSACTION_ID,
+                    arrow::datatypes::DataType::UInt64,
+                ),
+                (SYSTEM_ROLE_SOURCE_TIMESTAMP_MS, arrow::datatypes::DataType::Int64),
+                (SYSTEM_ROLE_SOURCE_TIMESTAMP_US, arrow::datatypes::DataType::Int64),
+                (SYSTEM_ROLE_SOURCE_TIMESTAMP_NS, arrow::datatypes::DataType::Int64),
+                (SYSTEM_ROLE_EVENT_TIMESTAMP_MS, arrow::datatypes::DataType::Int64),
+                (SYSTEM_ROLE_EVENT_TIMESTAMP_US, arrow::datatypes::DataType::Int64),
+                (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, arrow::datatypes::DataType::Int64),
+            ] {
+                let matches = dataset
+                    .incoming_schema
+                    .columns
+                    .iter()
+                    .filter(|column| column.system_role.as_deref() == Some(role))
+                    .collect::<Vec<_>>();
+                anyhow::ensure!(
+                    matches.len() == 1,
+                    "Debezium dataset '{}' must have exactly one '{role}' control column, found {}",
+                    dataset.name,
+                    matches.len()
+                );
+                anyhow::ensure!(
+                    matches[0].data_type == data_type && !matches[0].nullable,
+                    "Debezium dataset '{}' control role '{role}' must be non-nullable {data_type:?}",
+                    dataset.name,
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 fn json_type_name(data_type: &arrow::datatypes::DataType) -> anyhow::Result<&'static str> {
@@ -97,6 +218,9 @@ fn json_type_name(data_type: &arrow::datatypes::DataType) -> anyhow::Result<&'st
     Ok(match data_type {
         DataType::Utf8
         | DataType::LargeUtf8
+        | DataType::Binary
+        | DataType::LargeBinary
+        | DataType::FixedSizeBinary(_)
         | DataType::Date32
         | DataType::Date64
         | DataType::Timestamp(_, _) => "string",
@@ -122,6 +246,7 @@ pub struct DeliverySerializer {
 
 enum SerializerKind {
     Json,
+    DebeziumJson(DebeziumJsonEncoder),
     SchemaRegistry {
         registry: RegistryClient,
         subject: String,
@@ -147,10 +272,13 @@ enum CompiledWriterSchema {
 }
 
 impl DeliverySerializer {
-    pub fn new(config: &SerializerConfig) -> anyhow::Result<Self> {
+    pub fn new(config: &SerializerConfig, mode: QueueMessageMode) -> anyhow::Result<Self> {
         config.validate()?;
         let kind = match config {
             SerializerConfig::Json => SerializerKind::Json,
+            SerializerConfig::DebeziumJson { logical_name } => {
+                SerializerKind::DebeziumJson(DebeziumJsonEncoder::new(logical_name.clone(), mode))
+            }
             SerializerConfig::SchemaRegistry {
                 connection,
                 subject,
@@ -173,7 +301,7 @@ impl DeliverySerializer {
         discovery: &DeliveryDiscovery,
         limits: &dyn SinkLimits,
         message_size_limit: usize,
-    ) -> anyhow::Result<(Vec<Vec<u8>>, u64)> {
+    ) -> anyhow::Result<SerializedDelivery> {
         if let SerializerKind::SchemaRegistry {
             registry,
             subject,
@@ -190,16 +318,24 @@ impl DeliverySerializer {
             }
         }
 
-        let mut payloads = Vec::new();
+        let mut batches = Vec::with_capacity(delivery.outputs.len());
         let mut rows = 0_u64;
         for batch in &delivery.outputs {
             limits.validate_batch(discovery, batch)?;
+            if let SerializerKind::DebeziumJson(encoder) = &self.kind {
+                batches.push(encoder.encode_batch(batch, message_size_limit)?);
+                rows = rows
+                    .checked_add(u64::try_from(batch.rows())?)
+                    .ok_or_else(|| anyhow::anyhow!("queue sink row counter overflow"))?;
+                continue;
+            }
             let encoder = JsonBatchEncoder::new(&batch.batch, |index| {
                 !batch
                     .system_columns
                     .iter()
                     .any(|column| column.index == index)
             })?;
+            let mut payloads = Vec::with_capacity(batch.rows());
             for row in 0..batch.rows() {
                 let mut json = Vec::new();
                 encoder.write_row(row, &mut json);
@@ -224,20 +360,38 @@ impl DeliverySerializer {
                         message_indexes,
                         &json,
                     )?,
+                    SerializerKind::DebeziumJson(_) => {
+                        unreachable!("Debezium batches are handled before row serialization")
+                    }
                 };
-                anyhow::ensure!(
-                    output.len() <= message_size_limit,
-                    "Logbroker serialized message exceeds configured transport limit: message_bytes={}, transport_limit_bytes={message_size_limit}",
-                    output.len()
-                );
-                payloads.push(output);
+                validate_payload_size(&output, message_size_limit)?;
+                payloads.push(SerializedMessage {
+                    key: None,
+                    value: Some(output),
+                });
             }
+            batches.push(SerializedBatch {
+                table: std::sync::Arc::clone(&batch.table),
+                messages: payloads,
+            });
             rows = rows
                 .checked_add(batch.rows() as u64)
-                .ok_or_else(|| anyhow::anyhow!("Logbroker sink row counter overflow"))?;
+                .ok_or_else(|| anyhow::anyhow!("queue sink row counter overflow"))?;
         }
-        Ok((payloads, rows))
+        Ok(SerializedDelivery {
+            batches,
+            source_rows: rows,
+        })
     }
+}
+
+fn validate_payload_size(payload: &[u8], message_size_limit: usize) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        payload.len() <= message_size_limit,
+        "serialized queue message exceeds configured transport limit: message_bytes={}, transport_limit_bytes={message_size_limit}",
+        payload.len()
+    );
+    Ok(())
 }
 
 fn compile_writer_schema(

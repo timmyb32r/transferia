@@ -1,6 +1,7 @@
 use arrow::array::Array;
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
+use base64::Engine as _;
 
 /// JSON Lines (NDJSON) serializer: one JSON object per row.
 ///
@@ -17,7 +18,19 @@ use arrow::record_batch::RecordBatch;
 /// not once per value.
 /// A pre-classified, optionally projected view of one Arrow batch.
 pub struct JsonBatchEncoder {
-    columns: Vec<(String, ColumnWriter)>,
+    columns: Vec<JsonColumnWriter>,
+}
+
+pub(crate) struct JsonColumnProjection {
+    pub(crate) output_name: String,
+
+    pub(crate) source_index: Option<usize>,
+}
+
+struct JsonColumnWriter {
+    source_index: Option<usize>,
+    output_name: String,
+    writer: ColumnWriter,
 }
 
 impl JsonBatchEncoder {
@@ -25,42 +38,95 @@ impl JsonBatchEncoder {
         batch: &RecordBatch,
         mut include_column: impl FnMut(usize) -> bool,
     ) -> anyhow::Result<Self> {
-        let columns = batch
+        let projection = batch
             .schema()
             .fields()
             .iter()
-            .zip(batch.columns())
             .enumerate()
             .filter(|(index, _)| include_column(*index))
-            .map(|(_, (field, column))| {
-                ColumnWriter::classify(field.name(), column.as_ref()).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "JSON serializer: unsupported type {:?} for column '{}'",
-                        field.data_type(),
-                        field.name(),
-                    )
+            .map(|(index, field)| JsonColumnProjection {
+                output_name: field.name().to_owned(),
+                source_index: Some(index),
+            })
+            .collect::<Vec<_>>();
+        Self::projected(batch, projection)
+    }
+
+    pub(crate) fn projected(
+        batch: &RecordBatch,
+        projection: impl IntoIterator<Item = JsonColumnProjection>,
+    ) -> anyhow::Result<Self> {
+        let schema = batch.schema();
+        let columns = projection
+            .into_iter()
+            .map(|projection| {
+                let writer = if let Some(index) = projection.source_index {
+                    let field = schema.field(index);
+                    ColumnWriter::classify(batch.column(index).as_ref()).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "JSON serializer: unsupported type {:?} for column '{}'",
+                            field.data_type(),
+                            field.name(),
+                        )
+                    })?
+                } else {
+                    ColumnWriter::Null
+                };
+                Ok(JsonColumnWriter {
+                    source_index: projection.source_index,
+                    output_name: projection.output_name,
+                    writer,
                 })
             })
-            .collect::<anyhow::Result<_>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(Self { columns })
     }
 
     /// Append exactly one compact JSON object followed by a newline.
     pub fn write_row(&self, row: usize, output: &mut Vec<u8>) {
+        self.write_object(row, output);
+        output.push(b'\n');
+    }
+
+    pub(crate) fn write_object(&self, row: usize, output: &mut Vec<u8>) {
+        self.write_object_with(row, output, |_, _, _| false);
+    }
+
+    pub(crate) fn write_object_with(
+        &self,
+        row: usize,
+        output: &mut Vec<u8>,
+        mut override_value: impl FnMut(Option<usize>, &str, &mut Vec<u8>) -> bool,
+    ) {
         output.push(b'{');
-        for (index, (name, writer)) in self.columns.iter().enumerate() {
+        for (index, column) in self.columns.iter().enumerate() {
             if index != 0 {
                 output.push(b',');
             }
-            write_json_string(output, name);
+            write_json_string(output, &column.output_name);
             output.push(b':');
-            if writer.is_null_at(row) {
+            if override_value(column.source_index, &column.output_name, output) {
+                continue;
+            }
+            if column.writer.is_null_at(row) {
                 output.extend_from_slice(b"null");
             } else {
-                writer.write_value(output, row);
+                column.writer.write_value(output, row);
             }
         }
-        output.extend_from_slice(b"}\n");
+        output.push(b'}');
+    }
+
+    pub(crate) fn row_equals(&self, other: &Self, row: usize) -> bool {
+        self.columns.len() == other.columns.len()
+            && self
+                .columns
+                .iter()
+                .zip(&other.columns)
+                .all(|(left, right)| {
+                    left.output_name == right.output_name
+                        && left.writer.value_equals(&right.writer, row)
+                })
     }
 }
 
@@ -71,8 +137,12 @@ impl JsonBatchEncoder {
 /// Date and Timestamp types map to their integer representation:
 ///   Date32 → Int32, Date64 → Int64, Timestamp(*) → Int64.
 enum ColumnWriter {
+    Null,
     Utf8(arrow::array::StringArray),
     LargeUtf8(arrow::array::LargeStringArray),
+    Binary(arrow::array::BinaryArray),
+    LargeBinary(arrow::array::LargeBinaryArray),
+    FixedSizeBinary(arrow::array::FixedSizeBinaryArray),
     Int8(arrow::array::Int8Array),
     Int16(arrow::array::Int16Array),
     Int32(arrow::array::Int32Array),
@@ -95,11 +165,11 @@ enum ColumnWriter {
 impl ColumnWriter {
     /// Classify an Arrow array into the appropriate writer variant.
     /// Returns `None` for unsupported types.
-    fn classify(name: &str, array: &dyn Array) -> Option<(String, Self)> {
+    fn classify(array: &dyn Array) -> Option<Self> {
         use arrow::array::{
-            BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
-            Int8Array, LargeStringArray, StringArray, UInt16Array, UInt32Array, UInt64Array,
-            UInt8Array,
+            BinaryArray, BooleanArray, FixedSizeBinaryArray, Float32Array, Float64Array,
+            Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, LargeStringArray,
+            StringArray, UInt16Array, UInt32Array, UInt64Array, UInt8Array,
         };
 
         let dt = array.data_type();
@@ -111,6 +181,18 @@ impl ColumnWriter {
             DataType::LargeUtf8 => {
                 let a = array.as_any().downcast_ref::<LargeStringArray>()?;
                 Self::LargeUtf8(a.clone())
+            }
+            DataType::Binary => {
+                let a = array.as_any().downcast_ref::<BinaryArray>()?;
+                Self::Binary(a.clone())
+            }
+            DataType::LargeBinary => {
+                let a = array.as_any().downcast_ref::<LargeBinaryArray>()?;
+                Self::LargeBinary(a.clone())
+            }
+            DataType::FixedSizeBinary(_) => {
+                let a = array.as_any().downcast_ref::<FixedSizeBinaryArray>()?;
+                Self::FixedSizeBinary(a.clone())
             }
             DataType::Int8 => {
                 let a = array.as_any().downcast_ref::<Int8Array>()?;
@@ -204,9 +286,6 @@ impl ColumnWriter {
             | DataType::Time64(_)
             | DataType::Duration(_)
             | DataType::Interval(_)
-            | DataType::Binary
-            | DataType::FixedSizeBinary(_)
-            | DataType::LargeBinary
             | DataType::BinaryView
             | DataType::Utf8View
             | DataType::List(_)
@@ -224,7 +303,7 @@ impl ColumnWriter {
             | DataType::Map(..)
             | DataType::RunEndEncoded(..) => return None,
         };
-        Some((name.to_string(), writer))
+        Some(writer)
     }
 
     /// Write the value at the given row index into the buffer.
@@ -232,8 +311,12 @@ impl ColumnWriter {
     #[inline]
     fn write_value(&self, buf: &mut Vec<u8>, row: usize) {
         match self {
+            Self::Null => buf.extend_from_slice(b"null"),
             Self::Utf8(a) => write_json_string(buf, a.value(row)),
             Self::LargeUtf8(a) => write_json_string(buf, a.value(row)),
+            Self::Binary(a) => write_base64(buf, a.value(row)),
+            Self::LargeBinary(a) => write_base64(buf, a.value(row)),
+            Self::FixedSizeBinary(a) => write_base64(buf, a.value(row)),
             Self::Int8(a) => write_int(buf, a.value(row)),
             Self::Int16(a) => write_int(buf, a.value(row)),
             Self::Int32(a) => write_int(buf, a.value(row)),
@@ -264,8 +347,12 @@ impl ColumnWriter {
     #[inline]
     fn is_null_at(&self, row: usize) -> bool {
         match self {
+            Self::Null => true,
             Self::Utf8(a) => a.is_null(row),
             Self::LargeUtf8(a) => a.is_null(row),
+            Self::Binary(a) => a.is_null(row),
+            Self::LargeBinary(a) => a.is_null(row),
+            Self::FixedSizeBinary(a) => a.is_null(row),
             Self::Int8(a) => a.is_null(row),
             Self::Int16(a) => a.is_null(row),
             Self::Int32(a) => a.is_null(row),
@@ -285,6 +372,69 @@ impl ColumnWriter {
             Self::TimestampNanosecond(a) => a.is_null(row),
         }
     }
+
+    fn value_equals(&self, other: &Self, row: usize) -> bool {
+        if self.is_null_at(row) || other.is_null_at(row) {
+            return self.is_null_at(row) == other.is_null_at(row);
+        }
+        match (self, other) {
+            (Self::Null, Self::Null) => true,
+            (Self::Utf8(left), Self::Utf8(right)) => left.value(row) == right.value(row),
+            (Self::LargeUtf8(left), Self::LargeUtf8(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::Binary(left), Self::Binary(right)) => left.value(row) == right.value(row),
+            (Self::LargeBinary(left), Self::LargeBinary(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::FixedSizeBinary(left), Self::FixedSizeBinary(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::Int8(left), Self::Int8(right)) => left.value(row) == right.value(row),
+            (Self::Int16(left), Self::Int16(right)) => left.value(row) == right.value(row),
+            (Self::Int32(left), Self::Int32(right)) => left.value(row) == right.value(row),
+            (Self::Int64(left), Self::Int64(right)) => left.value(row) == right.value(row),
+            (Self::UInt8(left), Self::UInt8(right)) => left.value(row) == right.value(row),
+            (Self::UInt16(left), Self::UInt16(right)) => left.value(row) == right.value(row),
+            (Self::UInt32(left), Self::UInt32(right)) => left.value(row) == right.value(row),
+            (Self::UInt64(left), Self::UInt64(right)) => left.value(row) == right.value(row),
+            (Self::Float32(left), Self::Float32(right)) => {
+                left.value(row).to_bits() == right.value(row).to_bits()
+            }
+            (Self::Float64(left), Self::Float64(right)) => {
+                left.value(row).to_bits() == right.value(row).to_bits()
+            }
+            (Self::Boolean(left), Self::Boolean(right)) => left.value(row) == right.value(row),
+            (Self::Date32(left), Self::Date32(right)) => left.value(row) == right.value(row),
+            (Self::Date64(left), Self::Date64(right)) => left.value(row) == right.value(row),
+            (Self::TimestampSecond(left), Self::TimestampSecond(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::TimestampMillisecond(left), Self::TimestampMillisecond(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::TimestampMicrosecond(left), Self::TimestampMicrosecond(right)) => {
+                left.value(row) == right.value(row)
+            }
+            (Self::TimestampNanosecond(left), Self::TimestampNanosecond(right)) => {
+                left.value(row) == right.value(row)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn write_base64(buf: &mut Vec<u8>, value: &[u8]) {
+    buf.push(b'"');
+    let encoded_len = base64::encoded_len(value.len(), true)
+        .expect("base64 length cannot overflow for an allocated Arrow value");
+    let start = buf.len();
+    buf.resize(start + encoded_len, 0);
+    let written = base64::engine::general_purpose::STANDARD
+        .encode_slice(value, &mut buf[start..])
+        .expect("preallocated base64 output has the exact encoded length");
+    debug_assert_eq!(written, encoded_len);
+    buf.push(b'"');
 }
 
 /// Fast integer formatting via `itoa`.
