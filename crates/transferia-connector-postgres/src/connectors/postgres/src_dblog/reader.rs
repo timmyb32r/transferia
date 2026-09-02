@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::config::{LogicalDecoder, PostgresReplicationConfig};
 use super::event::{ChangeEvent, LogicalValue, OldValuesKind};
 use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
+use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::src_batch::{old_value_column_name, DiscoveredTable};
 use crate::metrics::SourceCounters;
@@ -25,6 +26,7 @@ use transferia_core::data::table_data::TableData;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::source::{CommitMarker, Source};
 use transferia_core::ChangeOperation;
+use transferia_registry::durable::DurableContext;
 
 pub(crate) struct PostgresReplicationSource {
     client: Client,
@@ -36,6 +38,7 @@ pub(crate) struct PostgresReplicationSource {
     committed_lsn: u64,
     counters: Arc<SourceCounters>,
     cancellation: CancellationToken,
+    slot_tracker: ReplicationSlotTracker,
 }
 
 struct QueuedBatch {
@@ -56,32 +59,10 @@ impl PostgresReplicationSource {
         tables: Vec<DiscoveredTable>,
         counters: Arc<SourceCounters>,
         cancellation: CancellationToken,
+        durable: DurableContext,
     ) -> anyhow::Result<Self> {
-        let slot = client
-            .query_opt(
-                "SELECT plugin, confirmed_flush_lsn::text FROM pg_replication_slots WHERE slot_name = $1",
-                &[&config.slot],
-            )
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "PostgreSQL replication slot '{}' does not exist",
-                    config.slot
-                )
-            })?;
-        let plugin: String = slot.get(0);
-        anyhow::ensure!(
-            plugin == config.decoder.plugin(),
-            "PostgreSQL slot '{}' uses plugin '{plugin}', configuration requires '{}'",
-            config.slot,
-            config.decoder.plugin()
-        );
-        let committed_lsn = slot
-            .get::<_, Option<String>>(1)
-            .as_deref()
-            .map(parse_lsn)
-            .transpose()?
-            .unwrap_or(0);
+        let (slot_tracker, committed_lsn) =
+            ReplicationSlotTracker::prepare(&client, &config, durable).await?;
         let tables = tables
             .into_iter()
             .map(|table| {
@@ -104,6 +85,7 @@ impl PostgresReplicationSource {
             committed_lsn,
             counters,
             cancellation,
+            slot_tracker,
         })
     }
 
@@ -436,13 +418,13 @@ impl Source for PostgresReplicationSource {
                     "PostgreSQL replication commit LSN moved backwards"
                 )));
             }
-            self.client
-                .query_one(
-                    "SELECT pg_replication_slot_advance($1, $2::text::pg_lsn)::text",
-                    &[&self.config.slot, &format_lsn(lsn)],
-                )
+            self.slot_tracker
+                .store(lsn)
                 .await
-                .map_err(|error| DataPlaneFailure::retryable(error.into()))?;
+                .map_err(DataPlaneFailure::fatal)?;
+            advance_slot(&self.client, &self.config.slot, lsn)
+                .await
+                .map_err(DataPlaneFailure::retryable)?;
             self.committed_lsn = lsn;
             Ok::<(), DataPlaneFailure>(())
         })
@@ -804,6 +786,6 @@ pub(super) fn parse_lsn(value: &str) -> anyhow::Result<u64> {
     Ok((u64::from_str_radix(high, 16)? << 32) | u64::from_str_radix(low, 16)?)
 }
 
-fn format_lsn(value: u64) -> String {
+pub(super) fn format_lsn(value: u64) -> String {
     format!("{:X}/{:X}", value >> 32, value & u64::from(u32::MAX))
 }

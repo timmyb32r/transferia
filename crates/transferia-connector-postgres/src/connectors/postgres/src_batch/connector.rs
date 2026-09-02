@@ -213,6 +213,7 @@ impl SourceConnector for PostgresSourceConnector {
                         tables.as_ref().clone(),
                         counters,
                         context.cancellation,
+                        context.durable,
                     )
                     .await?,
                 ) as Box<dyn Source>);
