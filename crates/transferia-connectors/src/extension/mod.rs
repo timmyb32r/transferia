@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use transferia_connector_support::parsers::{
-    CommonParserConfig, ParserPlan, ParserPluginRegistry, ParserPluginSpec,
+    CommonParserConfig, ParserDetector, ParserPlan, ParserPluginRegistry, ParserPluginSpec,
 };
 
 const RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -254,6 +254,17 @@ impl ExtensionRegistry {
         F: Fn(&CommonParserConfig, C, &str) -> anyhow::Result<ParserPlan> + Send + Sync + 'static,
     {
         self.parser_plugins.register(spec, build)
+    }
+
+    pub fn register_parser_detector<D>(
+        &mut self,
+        kind: &str,
+        detector: D,
+    ) -> anyhow::Result<()>
+    where
+        D: ParserDetector + 'static,
+    {
+        self.parser_plugins.register_detector(kind, detector)
     }
 
     pub fn register_field_before_installation(
@@ -975,6 +986,15 @@ impl Transferia {
     #[must_use]
     pub fn composition_fingerprint(&self) -> &str {
         self.composition.fingerprint()
+    }
+
+    #[must_use]
+    pub fn detect_parser_samples(
+        &self,
+        payloads: &[&[u8]],
+        max_rows: usize,
+    ) -> Vec<transferia_connector_support::parsers::ParserDetection> {
+        self.registry().parser_plugins().detect_samples(payloads, max_rows)
     }
 }
 

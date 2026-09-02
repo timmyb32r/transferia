@@ -70,10 +70,10 @@ export function MessagePreviewDialog({
     result && result.preview_bytes < result.byte_length,
   );
   const shownInFull = Boolean(result && (!truncated || showFull));
-  const selectedDetection = result?.detections.find(
-    (detection) => detection.key === selectedParser,
+  const previewGroups = useMemo(
+    () => groupParserPreviews(result?.detections ?? []),
+    [result],
   );
-  const parserTabs = selectedDetection?.preview_tabs ?? [];
   const selectParsed = (detection: ParserDetection) => {
     setSelectedParser(detection.key);
     setActiveTab("parsed");
@@ -135,9 +135,9 @@ export function MessagePreviewDialog({
                 { key: "text", label: "Text" },
                 { key: "binary", label: "Binary" },
                 { key: "metadata", label: "Metadata" },
-                ...parserTabs.map((tab) => ({
-                  key: `parser:${tab.key}`,
-                  label: tab.label,
+                ...previewGroups.map((group) => ({
+                  key: `parser:${group.key}`,
+                  label: group.label,
                 })),
                 { key: "parsed", label: "Schema" },
               ].map((tab) => (
@@ -160,9 +160,11 @@ export function MessagePreviewDialog({
               {activeTab === "binary" && <HexEditor columns={binary} />}
               {activeTab.startsWith("parser:") && (
                 <ParserPreview
-                  tab={parserTabs.find(
-                    (tab) => `parser:${tab.key}` === activeTab,
+                  group={previewGroups.find(
+                    (group) => `parser:${group.key}` === activeTab,
                   )}
+                  selectedParser={selectedParser}
+                  onSelectParser={setSelectedParser}
                 />
               )}
               {activeTab === "metadata" && <MessageMetadata result={result} />}
@@ -290,14 +292,40 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 function ParserPreview({
-  tab,
+  group,
+  selectedParser,
+  onSelectParser,
 }: {
-  tab: ParserDetection["preview_tabs"][number] | undefined;
+  group: ParserPreviewGroup | undefined;
+  selectedParser: string;
+  onSelectParser: (key: string) => void;
 }) {
-  if (!tab) return <div class="message-preview-state">Preview unavailable</div>;
+  if (!group) return <div class="message-preview-state">Preview unavailable</div>;
+  const selected =
+    group.entries.find((entry) => entry.detection.key === selectedParser) ??
+    group.entries[0];
+  if (!selected)
+    return <div class="message-preview-state">Preview unavailable</div>;
+  const { tab } = selected;
   const json = tab.key.toLowerCase().includes("json");
   return (
     <div class="parser-preview-tab">
+      {group.entries.length > 1 && (
+        <div class="parser-preview-toolbar">
+          <span>Pretty-print parser</span>
+          <SelectControl
+            value={selected.detection.key}
+            placeholder="Parser"
+            options={group.entries.map((entry) => ({
+              value: entry.detection.key,
+              label: entry.detection.label,
+            }))}
+            searchable={false}
+            clearable={false}
+            onChange={onSelectParser}
+          />
+        </div>
+      )}
       <pre>
         {json ? (
           <SyntaxHighlight value={tab.content} language="json" />
@@ -310,6 +338,32 @@ function ParserPreview({
       )}
     </div>
   );
+}
+
+interface ParserPreviewGroup {
+  key: string;
+  label: string;
+  entries: Array<{
+    detection: ParserDetection;
+    tab: ParserDetection["preview_tabs"][number];
+  }>;
+}
+
+function groupParserPreviews(
+  detections: ParserDetection[],
+): ParserPreviewGroup[] {
+  const groups = new Map<string, ParserPreviewGroup>();
+  for (const detection of detections) {
+    for (const tab of detection.preview_tabs) {
+      let group = groups.get(tab.label);
+      if (group === undefined) {
+        group = { key: tab.label, label: tab.label, entries: [] };
+        groups.set(tab.label, group);
+      }
+      group.entries.push({ detection, tab });
+    }
+  }
+  return [...groups.values()];
 }
 
 function ParsedPreview({

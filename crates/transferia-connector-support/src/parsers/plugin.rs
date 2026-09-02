@@ -5,6 +5,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 
+use super::detection::{ParserDetection, ParserDetector};
 use super::{CommonParserConfig, ParserPlan};
 
 const BUILTIN_PARSERS: &[&str] = &[
@@ -58,6 +59,9 @@ struct ParserPluginRegistration {
     title: &'static str,
     connectors: &'static [&'static str],
     schema: JsonValue,
+
+    detector: Option<Arc<dyn ParserDetector>>,
+
     plugin: Arc<dyn ErasedParserPlugin>,
 }
 
@@ -78,6 +82,7 @@ impl ParserPluginRegistry {
             title: spec.title,
             connectors: spec.connectors,
             schema,
+            detector: None,
             plugin: Arc::new(TypedParserPlugin::<C, F> {
                 build,
                 marker: std::marker::PhantomData,
@@ -89,6 +94,33 @@ impl ParserPluginRegistry {
             spec.kind
         );
         Ok(())
+    }
+
+    pub fn register_detector<D>(&mut self, kind: &str, detector: D) -> anyhow::Result<()>
+    where
+        D: ParserDetector + 'static,
+    {
+        let registration = self
+            .plugins
+            .get_mut(kind)
+            .ok_or_else(|| anyhow::anyhow!("parser detector '{kind}' has no registered parser"))?;
+        anyhow::ensure!(
+            registration.detector.is_none(),
+            "parser detector '{kind}' is registered more than once"
+        );
+        registration.detector = Some(Arc::new(detector));
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn detect_samples(&self, payloads: &[&[u8]], max_rows: usize) -> Vec<ParserDetection> {
+        let mut detections = super::detection::detect_samples(payloads, max_rows);
+        detections.extend(self.plugins.iter().filter_map(|(kind, registration)| {
+            let detector = registration.detector.as_ref()?;
+            let detection = detector.try_parse_samples(payloads, max_rows).ok()??;
+            (detection.key == *kind).then_some(detection)
+        }));
+        detections
     }
 
     pub fn build(

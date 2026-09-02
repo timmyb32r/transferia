@@ -177,7 +177,61 @@ describe("message preview dialog", () => {
       expect.objectContaining({ key: "json_parser" }),
     );
   });
+
+  it("groups equivalent pretty-print previews and lets the user choose the parser", () => {
+    const payload = btoa("tskv\tlevel=INFO\tmessage=ready");
+    const view = render(
+      <MessagePreviewDialog
+        loading={false}
+        allowApply
+        result={{
+          text_preview: "tskv\tlevel=INFO\tmessage=ready",
+          payload_preview_base64: payload,
+          payload_base64: payload,
+          byte_length: 29,
+          preview_bytes: 29,
+          metadata: metadata(),
+          detections: [
+            detection("json_parser", "JSON parser", "{ pretty json }"),
+            detection("tskv", "TSKV parser", "level   = INFO"),
+          ],
+        }}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(view.getAllByRole("tab", { name: "Pretty print" })).toHaveLength(1);
+    fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
+    expect(view.getByText("{ pretty json }")).toBeTruthy();
+    fireEvent.click(view.getByRole("button", { name: "JSON parser" }));
+    fireEvent.click(view.getByRole("option", { name: "TSKV parser" }));
+    expect(view.container.querySelector(".parser-preview-tab pre")?.textContent).toBe(
+      "level   = INFO",
+    );
+    expect(view.queryByText("{ pretty json }")).toBeNull();
+  });
 });
+
+function detection(key: string, label: string, content: string) {
+  return {
+    key,
+    label,
+    config: {},
+    inferred_columns: [],
+    sample_rows: [],
+    preview_tabs: [
+      {
+        key: `${key}_pretty_print`,
+        label: "Pretty print",
+        content,
+        truncated: false,
+      },
+    ],
+    sampled_messages: 1,
+    sampled_rows: 1,
+  };
+}
 
 function metadata() {
   return {

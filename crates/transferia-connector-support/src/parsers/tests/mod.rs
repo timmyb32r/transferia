@@ -8,6 +8,28 @@ struct TestPluginConfig {
     column: String,
 }
 
+struct TestPluginDetector;
+
+impl ParserDetector for TestPluginDetector {
+    fn try_parse(&self, payload: &[u8]) -> anyhow::Result<Option<ParserDetection>> {
+        Ok((payload == b"plugin").then(|| ParserDetection {
+            key: "test_plugin".to_owned(),
+            label: "Test plugin".to_owned(),
+            config: serde_json::json!({}),
+            inferred_columns: Vec::new(),
+            sample_rows: Vec::new(),
+            preview_tabs: vec![ParserPreviewTab {
+                key: "test_pretty".to_owned(),
+                label: "Pretty print".to_owned(),
+                content: "plugin tree".to_owned(),
+                truncated: false,
+            }],
+            sampled_messages: 1,
+            sampled_rows: 0,
+        }))
+    }
+}
+
 #[test]
 fn parser_plugins_are_typed_scoped_and_executable() -> anyhow::Result<()> {
     let mut plugins = ParserPluginRegistry::default();
@@ -41,6 +63,43 @@ fn parser_plugins_are_typed_scoped_and_executable() -> anyhow::Result<()> {
     assert_eq!(plan.dataset_schema().columns[0].name, "payload");
     assert_eq!(plugins.variants_for("kafka").count(), 1);
     assert_eq!(plugins.variants_for("logbroker").count(), 0);
+    Ok(())
+}
+
+#[test]
+fn parser_plugins_can_contribute_detection_and_pretty_print_without_global_hooks(
+) -> anyhow::Result<()> {
+    let mut plugins = ParserPluginRegistry::default();
+    plugins.register::<TestPluginConfig, _>(
+        ParserPluginSpec {
+            kind: "test_plugin",
+            title: "Test plugin",
+            connectors: &["kafka"],
+        },
+        |common, _config, source_name| {
+            ParserPlan::from_plugin(
+                common,
+                source_name,
+                Arc::new(benchmark_discard::BenchmarkDiscardParser::new(Arc::from(
+                    source_name,
+                ))),
+                DatasetSchema::default(),
+                None,
+            )
+        },
+    )?;
+    plugins.register_detector("test_plugin", TestPluginDetector)?;
+    assert!(plugins
+        .register_detector("test_plugin", TestPluginDetector)
+        .is_err());
+    assert!(plugins
+        .register_detector("missing_plugin", TestPluginDetector)
+        .is_err());
+
+    let detections = plugins.detect_samples(&[b"plugin"], 10);
+    assert_eq!(detections.len(), 1);
+    assert_eq!(detections[0].key, "test_plugin");
+    assert_eq!(detections[0].preview_tabs[0].content, "plugin tree");
     Ok(())
 }
 

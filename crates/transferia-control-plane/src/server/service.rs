@@ -383,10 +383,9 @@ impl ControlPlane {
             byte_length: preview.payload.len(),
             preview_bytes,
             metadata: message_preview_metadata(preview.metadata),
-            detections: transferia_connectors::parsers::detection::detect_samples(
-                &detection_payloads,
-                1_000,
-            ),
+            detections: self
+                .transferia
+                .detect_parser_samples(&detection_payloads, 1_000),
         })
     }
 

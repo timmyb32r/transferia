@@ -25,6 +25,7 @@ use transferia_core::delivery::{
 use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
+pub use detection::{InferredColumn, ParserDetection, ParserDetector, ParserPreviewTab};
 pub use plugin::{ParserPluginRegistry, ParserPluginSpec};
 pub use schema_registry::SchemaDecoder;
 
