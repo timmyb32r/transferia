@@ -89,6 +89,11 @@ pub fn register_with_parsers(
                     )
                 }
             })
+            .source_previewer::<kafka::KafkaSourceConfig, _, _>(
+                |config, max_bytes, cancellation| async move {
+                    kafka::preview_message(&config, max_bytes, cancellation).await
+                },
+            )
             .source_checker::<kafka::KafkaSourceConfig, _, _>(|config| async move {
                 kafka::check_source_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

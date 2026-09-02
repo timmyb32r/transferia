@@ -54,3 +54,59 @@ fn null_payload_is_an_explicit_tombstone_not_an_empty_value() {
     assert!(message.value.is_empty());
     assert_eq!(message.key.as_deref(), Some(&[1, 2, 3][..]));
 }
+
+#[test]
+fn preview_preserves_payload_coordinates_key_duplicate_headers_and_timestamp() {
+    let headers = OwnedHeaders::new()
+        .insert(Header {
+            key: "duplicate",
+            value: Some(&[1_u8, 2][..]),
+        })
+        .insert(Header::<&[u8]> {
+            key: "duplicate",
+            value: None,
+        });
+    let record = OwnedMessage::new(
+        Some(vec![7, 8, 9]),
+        Some(vec![0, 255]),
+        "events".into(),
+        Timestamp::LogAppendTime(1234),
+        4,
+        99,
+        Some(headers),
+    );
+
+    let preview = preview_message(&record, 3).unwrap();
+    assert_eq!(preview.payload, [7, 8, 9]);
+    assert_eq!(preview.detection_payloads, [vec![7, 8, 9]]);
+    assert_eq!(preview.metadata.topic, "events");
+    assert_eq!(preview.metadata.partition, 4);
+    assert_eq!(preview.metadata.offset, 99);
+    assert_eq!(preview.metadata.sequence_number, 99);
+    assert_eq!(preview.metadata.created_at_ms, None);
+    assert_eq!(preview.metadata.written_at_ms, Some(1234));
+    assert_eq!(preview.metadata.declared_uncompressed_size, Some(3));
+    assert_eq!(preview.metadata.message_metadata.len(), 3);
+    assert_eq!(preview.metadata.message_metadata[0].key, "kafka.key");
+    assert_eq!(preview.metadata.message_metadata[0].value, [0, 255]);
+    assert_eq!(preview.metadata.message_metadata[1].key, "duplicate");
+    assert_eq!(preview.metadata.message_metadata[1].value, [1, 2]);
+    assert_eq!(preview.metadata.message_metadata[2].key, "duplicate");
+    assert!(preview.metadata.message_metadata[2].value.is_empty());
+}
+
+#[test]
+fn preview_rejects_a_message_larger_than_the_explicit_limit() {
+    let record = OwnedMessage::new(
+        Some(vec![1, 2, 3]),
+        None,
+        "events".into(),
+        Timestamp::NotAvailable,
+        0,
+        1,
+        None,
+    );
+
+    let error = preview_message(&record, 2).err().unwrap();
+    assert!(error.to_string().contains("exceeding max_bytes=2"));
+}

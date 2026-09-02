@@ -15,6 +15,7 @@ use transferia_core::data::message::{Message, MessageHeader, MessageMeta, Source
 use transferia_core::failure::{DataPlaneFailure, DataPlaneResult};
 use transferia_core::memory::PipelineMemory;
 use transferia_core::source::{CommitMarker, Source};
+use transferia_registry::{SourcePreview, SourcePreviewMetadata, SourcePreviewMetadataItem};
 
 #[derive(Debug)]
 struct KafkaCommitMarker {
@@ -174,6 +175,60 @@ fn source_message(record: &OwnedMessage) -> Message {
             write_timestamp_ms: timestamp,
         },
     }
+}
+
+pub(super) fn preview_message(
+    record: &OwnedMessage,
+    max_bytes: usize,
+) -> anyhow::Result<SourcePreview> {
+    let payload = record.payload().unwrap_or_default();
+    anyhow::ensure!(
+        payload.len() <= max_bytes,
+        "Kafka message payload is {} bytes, exceeding max_bytes={max_bytes}",
+        payload.len()
+    );
+    let timestamp = record.timestamp();
+    let mut message_metadata = Vec::new();
+    if let Some(key) = record.key() {
+        message_metadata.push(SourcePreviewMetadataItem {
+            key: "kafka.key".to_owned(),
+            value: key.to_vec(),
+        });
+    }
+    if let Some(headers) = record.headers() {
+        message_metadata.extend(headers.iter().map(|header| {
+            SourcePreviewMetadataItem {
+                key: header.key.to_owned(),
+                value: header.value.unwrap_or_default().to_vec(),
+            }
+        }));
+    }
+    Ok(SourcePreview {
+        payload: payload.to_vec(),
+        detection_payloads: vec![payload.to_vec()],
+        metadata: SourcePreviewMetadata {
+            topic: record.topic().to_owned(),
+            partition: i64::from(record.partition()),
+            partition_session_id: 0,
+            offset: record.offset(),
+            sequence_number: record.offset(),
+            created_at_ms: match timestamp {
+                Timestamp::CreateTime(value) => Some(value),
+                Timestamp::NotAvailable | Timestamp::LogAppendTime(_) => None,
+            },
+            written_at_ms: match timestamp {
+                Timestamp::LogAppendTime(value) => Some(value),
+                Timestamp::NotAvailable | Timestamp::CreateTime(_) => None,
+            },
+            producer_id: String::new(),
+            message_group_id: None,
+            codec: "librdkafka-decoded".to_owned(),
+            compressed_size: 0,
+            declared_uncompressed_size: Some(payload.len()),
+            message_metadata,
+            write_session_metadata: BTreeMap::new(),
+        },
+    })
 }
 
 fn record_retained_bytes(record: &OwnedMessage) -> DataPlaneResult<usize> {

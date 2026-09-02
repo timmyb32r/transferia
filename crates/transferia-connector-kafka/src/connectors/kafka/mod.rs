@@ -3,6 +3,7 @@ mod sink;
 mod source;
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures_util::future::BoxFuture;
@@ -66,18 +67,7 @@ impl KafkaSourceConnector {
     }
 
     fn consumer(&self) -> anyhow::Result<StreamConsumer> {
-        let mut config = config::base_client_config(
-            &self.config.brokers,
-            &self.config.security,
-            self.config.request_timeout_ms,
-        )?;
-        config
-            .set("group.id", &self.config.consumer_group)
-            .set("enable.auto.commit", "false")
-            .set("enable.auto.offset.store", "false")
-            .set("auto.offset.reset", self.config.offset_reset.as_str())
-            .set("enable.partition.eof", "false");
-        config.create().map_err(Into::into)
+        source_consumer(&self.config, &self.config.consumer_group)
     }
 
     fn counters_for_partition(&self, partition_id: i64) -> Arc<SourceCounters> {
@@ -92,6 +82,49 @@ impl KafkaSourceConnector {
             counters
         }))
     }
+}
+
+static PREVIEW_GROUP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+pub async fn preview_message(
+    config: &KafkaSourceConfig,
+    max_bytes: usize,
+    cancellation: tokio_util::sync::CancellationToken,
+) -> anyhow::Result<transferia_registry::SourcePreview> {
+    validate_source_config(config)?;
+    anyhow::ensure!(max_bytes > 0, "Kafka message preview max_bytes must be positive");
+    let sequence = PREVIEW_GROUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let group = format!("transferia-preview-{}-{sequence}", std::process::id());
+    let consumer = source_consumer(config, &group)?;
+    let topics = config.topics.iter().map(String::as_str).collect::<Vec<_>>();
+    consumer.subscribe(&topics)?;
+    let message = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => anyhow::bail!("Kafka message preview cancelled"),
+        result = tokio::time::timeout(
+            config::timeout(config.request_timeout_ms),
+            consumer.recv(),
+        ) => result.map_err(|_| anyhow::anyhow!(
+            "Kafka message preview timed out after {} ms",
+            config.request_timeout_ms,
+        ))??.detach(),
+    };
+    source::preview_message(&message, max_bytes)
+}
+
+fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<StreamConsumer> {
+    let mut client = config::base_client_config(
+        &config.brokers,
+        &config.security,
+        config.request_timeout_ms,
+    )?;
+    client
+        .set("group.id", group)
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("auto.offset.reset", config.offset_reset.as_str())
+        .set("enable.partition.eof", "false");
+    client.create().map_err(Into::into)
 }
 
 impl SourceConnector for KafkaSourceConnector {
