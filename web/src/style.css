@@ -3622,7 +3622,7 @@ button::after {
 .compatibility-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: 1300;
   display: grid;
   place-items: center;
   max-width: 100vw;

@@ -204,16 +204,21 @@ describe("appearance preferences", () => {
       name: "Transfer compatibility",
     });
     expect(dialog).toBeTruthy();
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
     expect(document.activeElement).toBe(
       view.getByRole("button", { name: "Close compatibility matrix" }),
     );
     expect(
       view
-        .getByLabelText("PostgreSQL to S3: Rows supported; CDC not supported")
+        .getByLabelText(
+          "PostgreSQL to S3: Batch supported; Stream not supported",
+        )
         .classList.contains("partial"),
     ).toBe(true);
     expect(
-      view.getByLabelText("PostgreSQL to PostgreSQL: Rows and CDC supported"),
+      view.getByLabelText(
+        "PostgreSQL to PostgreSQL: Batch and Stream supported",
+      ),
     ).toBeTruthy();
     expect(view.getByRole("button", { name: /Settings/ })).toBe(settings);
 

@@ -1,3 +1,4 @@
+import { createPortal } from "preact/compat";
 import { useEffect, useMemo, useRef } from "preact/hooks";
 
 import type {
@@ -8,8 +9,8 @@ import type {
 import { Button } from "./Button";
 
 const SEMANTICS_LABEL: Record<RecordSemantics, string> = {
-  append_only: "Rows",
-  changelog: "CDC",
+  append_only: "Batch",
+  changelog: "Stream",
 };
 
 export interface CompatibilityRoute {
@@ -84,7 +85,7 @@ export function CompatibilityMatrixDialog({
     };
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div class="compatibility-backdrop" onMouseDown={onClose}>
       <section
         ref={dialog}
@@ -100,8 +101,8 @@ export function CompatibilityMatrixDialog({
             <small>LIVE CONNECTOR CATALOG</small>
             <h2 id="compatibility-title">Transfer compatibility</h2>
             <p id="compatibility-description">
-              Rows are append-only snapshots or events. CDC includes inserts,
-              updates, and deletes.
+              Batch is an append-only flow. Stream includes inserts, updates,
+              and deletes.
             </p>
           </div>
           <Button
@@ -114,10 +115,10 @@ export function CompatibilityMatrixDialog({
         </header>
 
         <div class="compatibility-legend" aria-label="Legend">
-          <span class="compatibility-badge append-only">Rows</span>
-          <span>Append-only data is supported</span>
-          <span class="compatibility-badge changelog">CDC</span>
-          <span>Change events are supported</span>
+          <span class="compatibility-badge append-only">Batch</span>
+          <span>Batch flow is supported</span>
+          <span class="compatibility-badge changelog">Stream</span>
+          <span>Stream flow is supported</span>
           <span class="compatibility-unavailable" aria-hidden="true">
             —
           </span>
@@ -162,7 +163,8 @@ export function CompatibilityMatrixDialog({
           authoritative.
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
