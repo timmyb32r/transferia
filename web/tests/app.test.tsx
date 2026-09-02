@@ -518,6 +518,52 @@ describe("App request orchestration", () => {
     expect(app.getByRole("button", { name: "Save" })).toBeTruthy();
   });
 
+  it("clones a saved delivery under the next name with independent state", async () => {
+    const existing = {
+      ...delivery("dttoriginal", "orders9"),
+      description: "cloned description",
+      config: {
+        delivery_id: "dttoriginal",
+        durable_storage: {
+          type: "local_file",
+          path: ".transferia-server/workers/original/state",
+        },
+        delivery_type: "batch",
+        source: {},
+        sink: {},
+      },
+    } satisfies DeliveryRecord;
+    installApiMocks([existing]);
+    vi.mocked(api.delivery).mockResolvedValue(existing);
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByText("orders9");
+
+    fireEvent.click(app.getByText("orders9").closest("button")!);
+    await app.findByRole("heading", { name: "orders9" });
+    fireEvent.click(app.getByRole("button", { name: "Clone" }));
+
+    expect(app.getByRole("heading", { name: "orders10" })).toBeTruthy();
+    expect((app.getByLabelText("Delivery name") as HTMLInputElement).value).toBe(
+      "orders10",
+    );
+    expect(
+      (app.getByLabelText("Description", { exact: false }) as HTMLInputElement)
+        .value,
+    ).toBe("cloned description");
+    expect(view.container.querySelector(".transfer-id-slot")?.textContent).toBe(
+      "TRANSFER ID · assigned on save",
+    );
+
+    vi.mocked(api.create).mockResolvedValue(delivery("dttclone", "orders10"));
+    fireEvent.click(app.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.create).toHaveBeenCalledOnce());
+    const cloned = vi.mocked(api.create).mock.calls[0]![2];
+    expect(cloned.delivery_id).toBeUndefined();
+    expect(cloned.durable_storage).not.toEqual(existing.config.durable_storage);
+    expect(cloned.delivery_type).toBe("batch");
+  });
+
   it("does not auto-open the data widget for an existing delivery", async () => {
     const existing = {
       ...delivery("existing", "Existing"),

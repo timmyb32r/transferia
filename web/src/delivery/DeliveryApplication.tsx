@@ -31,6 +31,8 @@ import { YamlEditorPanel } from "./YamlEditorPanel";
 import {
   compiledSchema,
   completionIssueLabel,
+  clonedConfig,
+  clonedDeliveryName,
   configurationReadiness,
   endpointValue,
   errorMessage,
@@ -495,6 +497,21 @@ export function DeliveryApplication() {
       onEdit={() => {
         setRequiredErrorScope("none");
         dispatch({ type: "edit" });
+      }}
+      onClone={() => {
+        jobs.cancelEditorJobs();
+        resetOperations({});
+        setRequiredErrorScope("none");
+        dispatch({
+          type: "clone",
+          sessionId: nextSession(),
+          name: clonedDeliveryName(editor.name),
+          description: editor.description,
+          config: clonedConfig(catalog, editor.config),
+        });
+        yamlEditor.reset();
+        setDiscovery(undefined);
+        setSchemaInspectorVisible(false);
       }}
       onDelete={() => {
         if (!window.confirm(`Delete delivery “${editor.name}”?`)) return;

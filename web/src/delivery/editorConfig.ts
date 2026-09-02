@@ -284,6 +284,20 @@ export function freshConfig(catalog: UiCatalog): JsonObject {
   };
 }
 
+export function clonedConfig(catalog: UiCatalog, current: JsonObject): JsonObject {
+  const config = structuredClone(current);
+  delete config.delivery_id;
+  config.durable_storage = freshConfig(catalog).durable_storage!;
+  return config;
+}
+
+export function clonedDeliveryName(current: string): string {
+  const suffix = current.match(/^(.*?)(\d+)$/u);
+  return suffix === null
+    ? `${current}2`
+    : `${suffix[1]}${BigInt(suffix[2]!) + 1n}`;
+}
+
 const SPECIAL_CONNECTOR_ORDER = new Map([
   ["data_generator", 0],
   ["discard", 1],

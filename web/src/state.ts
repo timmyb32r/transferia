@@ -25,6 +25,13 @@ export type EditorSessionId = string;
 export type EditorAction =
   | { type: "new"; sessionId: EditorSessionId; config: JsonObject }
   | {
+      type: "clone";
+      sessionId: EditorSessionId;
+      name: string;
+      description: string;
+      config: JsonObject;
+    }
+  | {
       type: "open";
       sessionId: EditorSessionId;
       delivery: DeliveryRecord;
@@ -58,6 +65,17 @@ export function editorReducer(
         localRevision: 0,
         name: "",
         description: "",
+        config: action.config,
+        validation: { state: "draft" },
+        runtime: { state: "stopped" },
+      };
+    case "clone":
+      return {
+        sessionId: action.sessionId,
+        editing: true,
+        localRevision: 0,
+        name: action.name,
+        description: action.description,
         config: action.config,
         validation: { state: "draft" },
         runtime: { state: "stopped" },

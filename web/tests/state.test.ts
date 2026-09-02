@@ -1,8 +1,49 @@
 import { describe, expect, it } from "vitest";
 
+import { clonedDeliveryName } from "../src/delivery/editorConfig";
 import { editorReducer, isDirty } from "../src/state";
 
 describe("editor state", () => {
+  it("increments a trailing numeric clone suffix without numeric overflow", () => {
+    expect(clonedDeliveryName("orders")).toBe("orders2");
+    expect(clonedDeliveryName("orders2")).toBe("orders3");
+    expect(clonedDeliveryName("999999999999999999999999")).toBe(
+      "1000000000000000000000000",
+    );
+  });
+
+  it("creates a dirty independent editor for a cloned delivery", () => {
+    const cloned = editorReducer(
+      {
+        sessionId: "old",
+        editing: false,
+        id: "dttold",
+        persistedRevision: 3,
+        recordVersion: "4",
+        localRevision: 0,
+        savedLocalRevision: 0,
+        name: "orders",
+        description: "description",
+        config: { delivery_id: "dttold" },
+        validation: { state: "ready", revision: 3 },
+        runtime: { state: "stopped" },
+      },
+      {
+        type: "clone",
+        sessionId: "new",
+        name: "orders2",
+        description: "description",
+        config: { source: {} },
+      },
+    );
+
+    expect(cloned.id).toBeUndefined();
+    expect(cloned.name).toBe("orders2");
+    expect(cloned.config).toEqual({ source: {} });
+    expect(cloned.editing).toBe(true);
+    expect(isDirty(cloned)).toBe(true);
+  });
+
   it("tracks persisted and edited revisions independently", () => {
     const fresh = editorReducer(
       {

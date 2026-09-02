@@ -120,6 +120,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -141,6 +142,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -173,6 +175,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={onEdit}
+        onClone={() => undefined}
         onDelete={onDelete}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -197,6 +200,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={onEdit}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -229,6 +233,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete={false}
         onMissingRequired={onMissingRequired}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -260,6 +265,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -286,6 +292,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete
         onMissingRequired={() => undefined}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={() => undefined}
@@ -318,6 +325,7 @@ describe("editor chrome", () => {
         requiredFieldsComplete={false}
         onMissingRequired={onMissingRequired}
         onEdit={() => undefined}
+        onClone={() => undefined}
         onDelete={() => undefined}
         onSave={() => undefined}
         onValidate={onValidate}

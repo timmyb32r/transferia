@@ -18,6 +18,7 @@ export function EditorActions({
   requiredFieldsComplete,
   onMissingRequired,
   onEdit,
+  onClone,
   onDelete,
   onSave,
   onValidate,
@@ -31,6 +32,7 @@ export function EditorActions({
   requiredFieldsComplete: boolean;
   onMissingRequired: () => void;
   onEdit: () => void;
+  onClone: () => void;
   onDelete: () => void;
   onSave: () => void;
   onValidate: () => void;
@@ -84,6 +86,9 @@ export function EditorActions({
       <div class="actions">
         <Button variant="danger" disabled={blocked} onClick={onDelete}>
           Delete
+        </Button>
+        <Button disabled={blocked} onClick={onClone}>
+          Clone
         </Button>
         <Button disabled={blocked || !runtimeAllowsEditing} onClick={onEdit}>
           Edit
