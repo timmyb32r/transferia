@@ -27,9 +27,7 @@ const PROPERTY_LABELS: Record<string, string> = {
   "delivery_mode.batch": "Batch delivery",
   "delivery_mode.stream": "Stream delivery",
   "record_semantics.append_only": "Append-only records",
-  "record_semantics.changelog": "Changelog records",
   "record_semantics.only_append_only": "Only append-only records",
-  "record_semantics.only_changelog": "Only changelog records",
   "component.source": "All sources",
   "component.destination": "All destinations",
   "component.parser": "All parsers",
@@ -52,6 +50,11 @@ const KIND_LABELS: Record<CapabilityKind, string> = {
 export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
   const groups = new Map<string, CapabilityGroup>();
   const add = (property: string, kind: CapabilityKind, title: string) => {
+    if (
+      property === "record_semantics.changelog" ||
+      property === "record_semantics.only_changelog" ||
+      (property === "delivery_mode.batch" && kind === "destination")
+    ) return;
     const group = groups.get(property) ?? {
       key: property,
       label: PROPERTY_LABELS[property] ?? property.replaceAll("_", " "),
@@ -383,12 +386,16 @@ export function CompatibilityMatrixDialog({
               <div class="capability-membership-columns">
                 <CapabilityMembership
                   title="Has property"
+                  property={selectedCapabilityGroup.key}
                   groups={selectedCapabilityGroup.members}
                 />
-                <CapabilityMembership
-                  title="Does not have property"
-                  groups={selectedCapabilityGroup.nonMembers}
-                />
+                {!selectedCapabilityGroup.key.startsWith("component.") && (
+                  <CapabilityMembership
+                    title="Does not have property"
+                    property={selectedCapabilityGroup.key}
+                    groups={selectedCapabilityGroup.nonMembers}
+                  />
+                )}
               </div>
             </section>
           )}
@@ -407,9 +414,11 @@ export function CompatibilityMatrixDialog({
 
 function CapabilityMembership({
   title,
+  property,
   groups,
 }: {
   title: string;
+  property: string;
   groups: Map<CapabilityKind, Set<string>>;
 }) {
   const populated = [...groups.entries()].filter(([, members]) => members.size > 0);
@@ -420,12 +429,22 @@ function CapabilityMembership({
         <p>None</p>
       ) : populated.map(([kind, members]) => (
         <section key={kind}>
-          <h5>{KIND_LABELS[kind]}</h5>
+          <h5>{capabilityKindLabel(property, kind)}</h5>
           <ul>{[...members].sort().map((member) => <li key={member}>{member}</li>)}</ul>
         </section>
       ))}
     </section>
   );
+}
+
+function capabilityKindLabel(property: string, kind: CapabilityKind): string {
+  if (property.includes("append_only") && kind === "parser") {
+    return "Parsers — append-only output";
+  }
+  if (property.includes("append_only") && kind === "serializer") {
+    return "Serializers — append-only input";
+  }
+  return KIND_LABELS[kind];
 }
 
 function CompatibilityCell({
