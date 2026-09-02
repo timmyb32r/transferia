@@ -6,6 +6,7 @@ pub mod json_parser;
 mod native_source;
 mod plugin;
 pub mod protobuf;
+pub mod protoscope;
 pub mod raw_to_table;
 pub mod schema_registry;
 

@@ -23,7 +23,7 @@ use transferia_core::data::table_data::{dlq_name, TableData};
 
 use crate::parsers::{ParserFactory, ParserSession, SystemColumnsConfig};
 
-const PROTOSEQ_MAGIC: [u8; 32] = [
+pub(super) const PROTOSEQ_MAGIC: [u8; 32] = [
     31, 247, 247, 126, 190, 166, 94, 158, 55, 166, 246, 46, 254, 174, 71, 167, 183, 110, 191, 175,
     22, 158, 159, 55, 246, 87, 247, 102, 167, 6, 175, 247,
 ];
