@@ -172,6 +172,8 @@ pub struct SinkPrepare {
     pub datasets: Vec<DatasetPrepare>,
 
     pub finite_source: bool,
+
+    pub transfer_id: Arc<str>,
 }
 
 pub struct DatasetPrepare {
@@ -188,6 +190,7 @@ impl SinkPrepare {
     pub fn from_discovery(
         discovery: &DeliveryDiscovery,
         finite_source: bool,
+        transfer_id: impl Into<Arc<str>>,
     ) -> anyhow::Result<Option<Self>> {
         if discovery.datasets.is_empty() {
             return Ok(None);
@@ -210,6 +213,7 @@ impl SinkPrepare {
                 })
                 .collect(),
             finite_source,
+            transfer_id: transfer_id.into(),
         }))
     }
 }

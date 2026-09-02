@@ -44,7 +44,7 @@ fn dynamic_row_modification_codes_match_the_native_rpc_contract() {
 use super::schema::{parse_schema, schema_to_yt, sorted_unique_schema_to_yt};
 use super::sink::{
     drop_oversized_rows, dynamic_row_modification, encode_arrow, encode_arrow_batches,
-    validate_initial_tablet_count, validate_row_weight, yt_guid,
+    validate_initial_tablet_count, validate_row_weight, yt_guid, YTsaurusSinkConnector,
 };
 use super::src_batch::{
     dataset_arrow_schema, normalize_read_batch, performance_advice, system_column_layout,
@@ -566,6 +566,31 @@ fn custom_table_attributes_are_typed_and_cannot_override_structural_settings() -
          trusted_plaintext: true\n",
     )?;
     assert!(reserved.validate().is_err());
+
+    let transfer_id_override: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: false, path: //tmp/output, table_attributes: [{ name: _transfer_id, value: '\"spoofed\"' }] }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    assert!(transfer_id_override.validate().is_err());
+    Ok(())
+}
+
+#[test]
+fn created_table_attributes_include_the_authoritative_transfer_id() -> anyhow::Result<()> {
+    let config: YTsaurusSinkConfig = serde_yaml::from_str(
+        "tables: { type: static_tables, replace_tables: true, path: //tmp/output, table_attributes: [{ name: owner, value: '\"team\"' }] }\n\
+         auth: { type: token, token: test }\n\
+         host: localhost\n\
+         port: 8000\n\
+         trusted_plaintext: true\n",
+    )?;
+    let connector = YTsaurusSinkConnector::from_config(config)?;
+    let attributes = connector.table_attributes_for_transfer("dttabcdefghijklmnopq");
+    assert_eq!(attributes["_transfer_id"], "dttabcdefghijklmnopq");
+    assert_eq!(attributes["owner"], "team");
     Ok(())
 }
 

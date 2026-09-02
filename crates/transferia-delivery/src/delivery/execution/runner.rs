@@ -173,7 +173,9 @@ async fn start_pipeline(
         return Ok(None);
     }
 
-    if let Some(request) = SinkPrepare::from_discovery(&discovery, finite_source)? {
+    if let Some(request) =
+        SinkPrepare::from_discovery(&discovery, finite_source, config.delivery_id.clone())?
+    {
         sink_connector.prepare(request).await?;
     }
     if let Some(metrics) = &config.metrics {

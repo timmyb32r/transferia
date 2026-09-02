@@ -43,7 +43,8 @@ const DEFAULT_TABLE_WRITER_GROUP_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_TABLE_WRITER_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_PRIMARY_KEY_SORT_TIMEOUT_MS: u64 = 24 * 60 * 60 * 1_000;
 
-const RESERVED_TABLE_ATTRIBUTES: [&str; 14] = [
+const RESERVED_TABLE_ATTRIBUTES: [&str; 15] = [
+    "_transfer_id",
     "atomicity",
     "auto_compaction_period",
     "chunk_format",

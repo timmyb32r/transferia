@@ -57,6 +57,18 @@ impl YTsaurusSinkConnector {
             writer_spec,
         })
     }
+
+    pub(super) fn table_attributes_for_transfer(
+        &self,
+        transfer_id: &str,
+    ) -> BTreeMap<String, serde_json::Value> {
+        let mut attributes = self.table_attributes.as_ref().clone();
+        attributes.insert(
+            "_transfer_id".to_owned(),
+            serde_json::Value::String(transfer_id.to_owned()),
+        );
+        attributes
+    }
 }
 
 impl SinkLimits for YTsaurusSinkConfig {
@@ -228,6 +240,7 @@ impl SinkConnector for YTsaurusSinkConnector {
 
     fn prepare(&self, request: SinkPrepare) -> BoxFuture<'_, anyhow::Result<()>> {
         Box::pin(async move {
+            let table_attributes = self.table_attributes_for_transfer(&request.transfer_id);
             self.client.create_directory(self.config.path()).await?;
             let stage_dynamic_snapshot = !self.config.static_tables()
                 && self.config.stages_dynamic_snapshots()
@@ -265,7 +278,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                     anyhow::anyhow!("static table has no optimize_for config")
                                 })?,
                                 self.config.primary_medium(),
-                                &self.table_attributes,
+                                &table_attributes,
                             )
                             .await?;
                     } else {
@@ -282,7 +295,7 @@ impl SinkConnector for YTsaurusSinkConnector {
                                     anyhow::anyhow!("dynamic table has no atomicity config")
                                 })?,
                                 self.config.primary_medium(),
-                                &self.table_attributes,
+                                &table_attributes,
                                 self.config.tablet_cell_bundle(),
                                 write.dynamic_store_overflow_threshold,
                                 self.config.dynamic_table_ttl_ms(),
@@ -410,11 +423,14 @@ impl SinkConnector for YTsaurusSinkConnector {
                 None
             };
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
+            let table_attributes = Arc::new(
+                self.table_attributes_for_transfer(context.durable.delivery_id.as_ref()),
+            );
             Ok(Box::new(YTsaurusSink {
                 client: self.client.clone(),
                 dynamic_writer,
                 config: Arc::clone(&self.config),
-                table_attributes: Arc::clone(&self.table_attributes),
+                table_attributes,
                 writer_spec: Arc::clone(&self.writer_spec),
                 counters: context.counters,
                 discovery: context.discovery,

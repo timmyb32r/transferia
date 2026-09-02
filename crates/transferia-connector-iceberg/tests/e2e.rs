@@ -135,7 +135,10 @@ async fn iceberg_sink_and_source_round_trip_through_rest_catalog_and_s3() -> any
     });
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("row discovery"))
+        .prepare(
+            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?
+                .expect("row discovery"),
+        )
         .await
         .context("prepare Iceberg table through REST catalog")?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);

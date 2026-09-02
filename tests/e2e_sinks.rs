@@ -314,7 +314,10 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
     let mut last_prepare_error = None;
     for _ in 0..50 {
         match connector
-            .prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("row discovery"))
+            .prepare(
+                SinkPrepare::from_discovery(&discovery, true, "test-transfer")?
+                    .expect("row discovery"),
+            )
             .await
         {
             Ok(()) => {
@@ -393,7 +396,8 @@ async fn clickhouse_sink_writes_to_a_real_native_server() -> anyhow::Result<()> 
         .validate_discovery(&changelog_discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&changelog_discovery, false)?.expect("changelog discovery"),
+            SinkPrepare::from_discovery(&changelog_discovery, false, "test-transfer")?
+                .expect("changelog discovery"),
         )
         .await?;
     let changelog_sink = connector
@@ -558,7 +562,10 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     let discovery = discovery("topic-a", incoming, stored, &system_kinds, false);
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(SinkPrepare::from_discovery(&discovery, true)?.expect("row discovery"))
+        .prepare(
+            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?
+                .expect("row discovery"),
+        )
         .await?;
 
     let durable_root =
