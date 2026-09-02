@@ -20,6 +20,7 @@ use iceberg::{Catalog, TableCreation};
 use parquet::basic::{Compression as ParquetCompression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use sha2::{Digest as _, Sha256};
+use transferia_connector_support::external_request::elapsed_millis;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 use transferia_core::delivery::{
     validate_batch_against_discovery, validate_stored_projection, ArrowTypeFamily,
@@ -345,7 +346,19 @@ impl IcebergSink {
                 )]));
         }
         let transaction = append.apply(transaction)?;
-        if let Err(commit_error) = transaction.commit(self.catalog.as_ref()).await {
+        let commit_started = Instant::now();
+        let commit_result = transaction.commit(self.catalog.as_ref()).await;
+        tracing::info!(
+            target: "transferia.external_request",
+            external_system = "iceberg_rest_catalog",
+            operation = "commit_snapshot",
+            dataset,
+            delivery_id,
+            elapsed_ms = elapsed_millis(commit_started),
+            success = commit_result.is_ok(),
+            "Iceberg REST catalog commit completed"
+        );
+        if let Err(commit_error) = commit_result {
             let committed_after_error = if let Some(commit) = &commit {
                 let refreshed = self.catalog.load_table(&table_ident(&table_ref)?).await;
                 matches!(

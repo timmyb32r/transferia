@@ -7,7 +7,15 @@ use tokio::{
     sync::Notify,
 };
 
-use super::{NetworkPolicy, OutboundHttpClient, OutboundHttpError, PolicyResolver};
+use super::{http_target, NetworkPolicy, OutboundHttpClient, OutboundHttpError, PolicyResolver};
+
+#[test]
+fn logged_http_target_excludes_paths_queries_fragments_and_credentials() {
+    let url = "https://user:secret@example.test:8443/private/token?key=secret#fragment"
+        .parse()
+        .unwrap();
+    assert_eq!(http_target(&url), "https://example.test:8443");
+}
 
 #[tokio::test]
 async fn rejects_redirect_without_contacting_target() {

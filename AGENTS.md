@@ -186,6 +186,22 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   test proving that 3xx responses are not followed and that sensitive headers and
   bodies are not forwarded to the redirect target.
 
+## External request observability
+
+- Every production request to an external system must record its completion and
+  elapsed time through the shared external-request instrumentation. This includes
+  databases, queues, object storage, catalogs, control APIs, and transport-level
+  discovery calls. Do not add connector-local timing formats.
+- Direct HTTP calls inherit timing from `OutboundHttpRequest`. An SDK that only
+  accepts an opaque transport must wrap each semantic request with
+  `observe_external_request`; long-lived streaming requests must additionally
+  expose their existing source/sink counters so transfer throughput remains
+  observable.
+- Use stable, credential-free system and operation names. Never log request or
+  response bodies, authorization material, URL userinfo/query strings, or an SDK
+  error value that may reproduce sensitive request data. Add a regression test
+  whenever a new adapter or logging boundary is introduced.
+
 ## Performance and design
 
 - Use non-cryptographic hashes for non-cryptographic work such as hash-table

@@ -1,9 +1,12 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use reqwest::{redirect, Client, Method, RequestBuilder, Response, StatusCode, Url};
 use thiserror::Error;
+
+use crate::external_request::elapsed_millis;
 
 #[derive(Debug, Error)]
 pub enum OutboundHttpError {
@@ -112,6 +115,7 @@ impl OutboundHttpClient {
 
     #[must_use]
     pub fn request(&self, method: Method, url: Url) -> OutboundHttpRequest {
+        let target = http_target(&url);
         let policy_error = if !matches!(url.scheme(), "http" | "https") {
             Some("scheme must be http or https")
         } else if self
@@ -131,8 +135,10 @@ impl OutboundHttpClient {
             None
         };
         OutboundHttpRequest {
-            inner: self.inner.request(method, url),
+            inner: self.inner.request(method.clone(), url),
             policy_error,
+            method,
+            target,
         }
     }
 
@@ -221,6 +227,8 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
 pub struct OutboundHttpRequest {
     inner: RequestBuilder,
     policy_error: Option<&'static str>,
+    method: Method,
+    target: String,
 }
 
 impl OutboundHttpRequest {
@@ -229,6 +237,8 @@ impl OutboundHttpRequest {
         Self {
             inner: configure(self.inner),
             policy_error: self.policy_error,
+            method: self.method,
+            target: self.target,
         }
     }
 
@@ -236,13 +246,47 @@ impl OutboundHttpRequest {
         if let Some(reason) = self.policy_error {
             return Err(OutboundHttpError::InvalidUrl { reason });
         }
-        let response = self.inner.send().await?;
+        let started = Instant::now();
+        let response = match self.inner.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::info!(
+                    target: "transferia.external_request",
+                    external_system = "http",
+                    operation = %self.method,
+                    target = %self.target,
+                    elapsed_ms = elapsed_millis(started),
+                    outcome = "transport_error",
+                    "external request completed"
+                );
+                return Err(error.into());
+            }
+        };
+        let status = response.status();
+        tracing::info!(
+            target: "transferia.external_request",
+            external_system = "http",
+            operation = %self.method,
+            target = %self.target,
+            elapsed_ms = elapsed_millis(started),
+            status = status.as_u16(),
+            outcome = if status.is_redirection() { "redirect_rejected" } else { "response" },
+            "external request completed"
+        );
         if response.status().is_redirection() {
             return Err(OutboundHttpError::RedirectRejected {
                 status: response.status(),
             });
         }
         Ok(response)
+    }
+}
+
+fn http_target(url: &Url) -> String {
+    let host = url.host_str().unwrap_or("<missing-host>");
+    match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
     }
 }
 
