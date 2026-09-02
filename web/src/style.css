@@ -3671,7 +3671,7 @@ button::after {
   min-height: 48px;
   padding: 9px 22px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 13px;
   border-bottom: 1px solid var(--line-inner);
 }
 
@@ -3694,9 +3694,9 @@ button::after {
 .capability-groups > nav button {
   justify-content: flex-start;
   width: 100%;
-  height: 28px;
-  padding-inline: 9px;
-  font-size: 9px;
+  height: 34px;
+  padding-inline: 11px;
+  font-size: 12px;
 }
 
 .capability-groups > nav button[aria-pressed="true"] {
@@ -3725,7 +3725,7 @@ button::after {
 .capability-group h3 {
   margin-bottom: 7px;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 15px;
 }
 
 .capability-membership-columns {
@@ -3745,20 +3745,20 @@ button::after {
 .capability-membership > h4 {
   margin-bottom: 7px;
   color: var(--text-primary);
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .capability-membership h5 {
   margin-top: 16px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .capability-membership p {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .capability-group ul {
@@ -3768,8 +3768,8 @@ button::after {
 
 .capability-group li {
   overflow: hidden;
-  margin-top: 3px;
-  font-size: 9px;
+  margin-top: 5px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3792,7 +3792,7 @@ button::after {
 
 .compatibility-dialog > header small {
   color: var(--blue);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.13em;
 }
@@ -3806,7 +3806,7 @@ button::after {
 .compatibility-dialog > header p {
   margin-top: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .compatibility-legend {
@@ -3817,7 +3817,7 @@ button::after {
   min-height: 48px;
   padding: 9px 22px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   border-bottom: 1px solid var(--line-inner);
 }
 
@@ -3862,7 +3862,7 @@ button::after {
   height: 42px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3896,14 +3896,14 @@ button::after {
 }
 
 .compatibility-table tbody th strong {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 550;
 }
 
 .compatibility-table tbody th small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -3943,7 +3943,7 @@ button::after {
   border-radius: 999px;
   color: var(--success-text);
   background: var(--success-surface);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.045em;
   text-transform: uppercase;
@@ -3964,7 +3964,7 @@ button::after {
   min-height: 46px;
   padding: 13px 22px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.5;
   border-top: 1px solid var(--line);
 }
