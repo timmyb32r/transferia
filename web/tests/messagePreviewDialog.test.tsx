@@ -26,7 +26,10 @@ describe("message preview dialog", () => {
             {
               key: "json_parser",
               label: "JSON parser",
-              config: { common: {}, json_parser: {} },
+              config: {
+                common: {},
+                json_parser: { json_framing: "json_lines" },
+              },
               inferred_columns: [],
               sample_rows: [{}],
               preview_tabs: [],
@@ -113,7 +116,10 @@ describe("message preview dialog", () => {
             {
               key: "json_parser",
               label: "JSON parser",
-              config: { common: {}, json_parser: {} },
+              config: {
+                common: {},
+                json_parser: { json_framing: "json_lines" },
+              },
               inferred_columns: [
                 {
                   name: "id",
@@ -152,6 +158,7 @@ describe("message preview dialog", () => {
     expect(view.container.querySelector(".message-preview-download")).toBe(
       actionBar,
     );
+    expect(view.getByText("JSON parser · JSON lines")).toBeTruthy();
     fireEvent.click(view.getByRole("tab", { name: "Binary" }));
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
     await waitFor(() => expect(copyBinary).toHaveBeenCalledTimes(1));

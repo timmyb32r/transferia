@@ -243,7 +243,7 @@ export function MessagePreviewDialog({
               <div class="detected-parsers">
                 {result.detections.map((detection) => (
                   <div class="detected-parser" key={detection.key}>
-                    <span>{detection.label}</span>
+                    <span>{detectionDisplayLabel(detection)}</span>
                     <Button onClick={() => selectParsed(detection)}>
                       See parsed
                     </Button>
@@ -333,7 +333,7 @@ function ParserPreview({
             placeholder="Parser"
             options={group.entries.map((entry) => ({
               value: entry.detection.key,
-              label: entry.detection.label,
+              label: detectionDisplayLabel(entry.detection),
             }))}
             searchable={false}
             clearable={false}
@@ -409,7 +409,7 @@ function ParsedPreview({
           placeholder="Not selected"
           options={detections.map((detection) => ({
             value: detection.key,
-            label: detection.label,
+            label: detectionDisplayLabel(detection),
           }))}
           onChange={onSelect}
         />
@@ -588,6 +588,26 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function detectionDisplayLabel(detection: ParserDetection): string {
+  if (!isObject(detection.config)) return detection.label;
+  const parser = detection.config["json_parser"];
+  if (!isObject(parser)) return detection.label;
+  const framing = parser["json_framing"];
+  const label =
+    framing === "json_lines"
+      ? "JSON lines"
+      : framing === "json_array"
+        ? "JSON array"
+        : framing === "single_document"
+          ? "Single document"
+          : undefined;
+  return label ? `${detection.label} · ${label}` : detection.label;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function downloadMessage(result: MessagePreviewResult) {
