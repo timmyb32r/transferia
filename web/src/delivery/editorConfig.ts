@@ -53,6 +53,7 @@ export function validateCatalogSchemas(
     ),
   );
   validateInitial("common", common, commonInitial);
+  validateInitialBranchOrder("common", common, commonInitial);
   validateHiddenInitialValues("common", common, commonInitial);
   validateEditorMaterialization("common", common);
   for (const connector of catalog.connectors) {
@@ -64,10 +65,50 @@ export function validateCatalogSchemas(
       const node = compiledSchema(endpoint.schema, widgets);
       const owner = `${connector.key} ${role}`;
       validateInitial(owner, node, endpoint.initial);
+      validateInitialBranchOrder(owner, node, endpoint.initial);
       validateHiddenInitialValues(owner, node, endpoint.initial);
       validateEditorMaterialization(owner, node);
     }
   }
+}
+
+function validateInitialBranchOrder(
+  owner: string,
+  node: CompiledNode,
+  value: JsonValue | undefined,
+  path = "#",
+): void {
+  if (value === undefined) return;
+  if (node.kind === "union") {
+    const selected = node.branches.findIndex((branch) =>
+      branchMatches(branch, value),
+    );
+    if (selected < 0) return;
+    if (selected !== 0)
+      throw new SchemaContractError(
+        `${owner} initial value selects ${path} branch ${selected + 1}; the default branch must be first`,
+      );
+    validateInitialBranchOrder(owner, node.branches[0]!.node, value, path);
+    return;
+  }
+  if (node.kind === "object" && isObject(value)) {
+    for (const [name, child] of Object.entries(node.properties))
+      validateInitialBranchOrder(
+        owner,
+        child,
+        value[name],
+        `${path}/${escapePointer(name)}`,
+      );
+    return;
+  }
+  if (node.kind === "array" && Array.isArray(value)) {
+    value.forEach((item, index) =>
+      validateInitialBranchOrder(owner, node.item, item, `${path}/${index}`),
+    );
+    return;
+  }
+  if (node.kind === "nullable" && value !== null)
+    validateInitialBranchOrder(owner, node.inner, value, path);
 }
 
 function validateHiddenInitialValues(

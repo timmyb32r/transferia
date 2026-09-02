@@ -5027,6 +5027,29 @@
             "S3InputParser": {
               "oneOf": [
                 {
+                  "title": "Parquet",
+                  "type": "object",
+                  "properties": {
+                    "batch_rows": {
+                      "type": "integer",
+                      "format": "uint",
+                      "minimum": 0,
+                      "default": 65536,
+                      "x-ui": {
+                        "widget": "hidden"
+                      }
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "parquet"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type"
+                  ]
+                },
+                {
                   "title": "JSON",
                   "type": "object",
                   "properties": {
@@ -5055,29 +5078,6 @@
                   "x-ui": {
                     "widget": "json_parser"
                   }
-                },
-                {
-                  "title": "Parquet",
-                  "type": "object",
-                  "properties": {
-                    "batch_rows": {
-                      "type": "integer",
-                      "format": "uint",
-                      "minimum": 0,
-                      "default": 65536,
-                      "x-ui": {
-                        "widget": "hidden"
-                      }
-                    },
-                    "type": {
-                      "type": "string",
-                      "const": "parquet"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "type"
-                  ]
                 },
                 {
                   "title": "Discard messages (for benchmarks)",
@@ -5678,20 +5678,6 @@
             "S3OutputFormat": {
               "oneOf": [
                 {
-                  "title": "JSON",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "json"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                },
-                {
                   "title": "Parquet",
                   "type": "object",
                   "properties": {
@@ -5716,6 +5702,20 @@
                   "required": [
                     "type"
                   ]
+                },
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
                 }
               ]
             },
@@ -7326,20 +7326,6 @@
             "YdbAuth": {
               "oneOf": [
                 {
-                  "title": "Anonymous",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "anonymous"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                },
-                {
                   "title": "Token",
                   "type": "object",
                   "properties": {
@@ -7377,6 +7363,20 @@
                     "type",
                     "token_file"
                   ]
+                },
+                {
+                  "title": "Anonymous",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "anonymous"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
                 }
               ]
             },
@@ -7514,20 +7514,6 @@
             "YdbAuth": {
               "oneOf": [
                 {
-                  "title": "Anonymous",
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "type": "string",
-                      "const": "anonymous"
-                    }
-                  },
-                  "required": [
-                    "type"
-                  ],
-                  "additionalProperties": false
-                },
-                {
                   "title": "Token",
                   "type": "object",
                   "properties": {
@@ -7565,6 +7551,20 @@
                     "type",
                     "token_file"
                   ]
+                },
+                {
+                  "title": "Anonymous",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "anonymous"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
                 }
               ]
             },

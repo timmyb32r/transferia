@@ -52,6 +52,13 @@ pub struct S3SourceConfig {
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum S3InputParser {
+    #[schemars(title = "Parquet")]
+    Parquet {
+        #[serde(default = "default_parquet_batch_rows")]
+        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
+        batch_rows: usize,
+    },
+
     #[schemars(title = "JSON", extend("x-ui" = { "widget": "json_parser" }))]
     Json {
         #[schemars(
@@ -62,13 +69,6 @@ pub enum S3InputParser {
 
         #[schemars(with = "S3JsonParserSchema", title = "JSON parser")]
         json_parser: JsonParserConfig,
-    },
-
-    #[schemars(title = "Parquet")]
-    Parquet {
-        #[serde(default = "default_parquet_batch_rows")]
-        #[schemars(extend("x-ui" = { "widget": "hidden" }))]
-        batch_rows: usize,
     },
 
     #[schemars(title = "Discard messages (for benchmarks)")]

@@ -598,6 +598,21 @@ async fn typed_installation_derives_schema_initial_and_runtime_codec() -> anyhow
         .ok_or_else(|| anyhow::anyhow!("typed installation was not compiled"))?;
     assert_eq!(registration.schema["properties"]["type"]["const"], "typed");
     assert_eq!(registration.initial["port"], 5432);
+    let postgres = transferia
+        .composition()
+        .connector_definitions()
+        .iter()
+        .find(|definition| definition.key == "postgres")
+        .ok_or_else(|| anyhow::anyhow!("postgres definition is missing"))?;
+    let source = postgres
+        .source
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("postgres source definition is missing"))?;
+    assert_eq!(source.initial["installation"]["type"], "typed");
+    assert_eq!(
+        source.schema["properties"]["installation"]["oneOf"][0]["title"],
+        "Typed"
+    );
     let resolved = transferia
         .registry()
         .resolve(

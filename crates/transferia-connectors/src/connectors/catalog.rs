@@ -813,10 +813,11 @@ fn apply_endpoint_installations(
     endpoint: &mut EndpointDefinition,
     registry: &ExtensionRegistry,
 ) -> anyhow::Result<()> {
-    let registrations = registry.installations_for(connector, role);
+    let mut registrations = registry.installations_for(connector, role);
     if registrations.is_empty() {
         return Ok(());
     }
+    registrations.sort_by_key(|registration| !registration.preferred);
     let replaced = installation_contract(connector, role)
         .ok_or_else(|| anyhow::anyhow!("connector '{connector}' does not support {role:?}"))?
         .output_fields

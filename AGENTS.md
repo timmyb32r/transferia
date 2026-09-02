@@ -77,6 +77,11 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
 
 ## Frontend interaction stability: zero unexpected layout shift
 
+- In every selectable `oneOf`/`anyOf`, place the authored default branch first so
+  it appears immediately after `Not selected`. When extensions contribute a
+  preferred variant, schema composition must move that variant to the first
+  branch and contract tests must verify the emitted catalog order.
+
 - **Every user interaction must receive immediate visible feedback.** The
   pressed state must appear on pointer-down/keyboard activation, and the
   resulting state transition must be rendered synchronously or on the next

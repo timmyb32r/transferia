@@ -153,6 +153,40 @@ describe("connector catalog readiness", () => {
     ).not.toThrow();
   });
 
+  it("rejects a catalog whose initial value selects a non-first union branch", () => {
+    const catalog: UiCatalog = {
+      common_schema: { type: "object" },
+      initial: {},
+      connectors: [
+        {
+          key: "source",
+          title: "Source",
+          source: {
+            schema: {
+              oneOf: [
+                { type: "object", properties: { type: { const: "other" } } },
+                {
+                  type: "object",
+                  properties: { type: { const: "default" } },
+                },
+              ],
+            },
+            initial: { type: "default" },
+            delivery_modes: ["batch"],
+            record_semantics: ["append_only"],
+            partitioned: false,
+            connection_check: false,
+            message_preview: false,
+          },
+        },
+      ],
+    };
+
+    expect(() =>
+      validateCatalogSchemas(catalog, productionWidgetRegistry),
+    ).toThrow("the default branch must be first");
+  });
+
   it("gives every incomplete source and sink initial state an actionable target", () => {
     const catalog = decodeApi("catalog_response", catalogFixture, "catalog");
     let sourceCount = 0;

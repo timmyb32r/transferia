@@ -80,13 +80,9 @@ pub struct S3SinkConfig {
     pub retry: RetryConfig,
 }
 
-#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum S3OutputFormat {
-    #[default]
-    #[schemars(title = "JSON")]
-    Json,
-
     #[schemars(title = "Parquet")]
     Parquet {
         #[serde(default)]
@@ -97,6 +93,18 @@ pub enum S3OutputFormat {
         #[schemars(extend("x-ui" = { "section": "advanced_parquet" }))]
         row_group: ParquetRowGroupConfig,
     },
+
+    #[schemars(title = "JSON")]
+    Json,
+}
+
+impl Default for S3OutputFormat {
+    fn default() -> Self {
+        Self::Parquet {
+            compression: ParquetCompression::default(),
+            row_group: ParquetRowGroupConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, JsonSchema)]
