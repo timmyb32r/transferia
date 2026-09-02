@@ -44,6 +44,16 @@ For the demonstration control plane, run:
 transferia --server --bind 127.0.0.1:8080 --state-dir .transferia-server
 ```
 
+To expose the web control plane on every IPv4 network interface, opt in
+explicitly and select its port:
+
+```bash
+transferia --server --listen-all 8080 --state-dir .transferia-server
+```
+
+This exposes the control plane to the surrounding network. Restrict access with
+the host firewall or another trusted network boundary.
+
 The embedded Preact UI saves incomplete drafts, renders connector forms from the
 Rust-generated schema catalog, and keeps a copyable runnable YAML preview.
 Validation and activation share the same complete preflight sequence as a CLI

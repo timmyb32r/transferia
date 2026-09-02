@@ -27,6 +27,10 @@ struct Cli {
     #[arg(long, default_value = "127.0.0.1:8080")]
     bind: std::net::SocketAddr,
 
+    /// Listen on every IPv4 network interface using the selected port.
+    #[arg(long, value_name = "PORT", conflicts_with = "bind")]
+    listen_all: Option<u16>,
+
     #[arg(long, default_value = ".transferia-server")]
     state_dir: std::path::PathBuf,
 
@@ -96,12 +100,22 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
         .init();
     let cli = Cli::parse();
     if cli.server {
+        let allow_non_loopback = cli.listen_all.is_some();
+        let bind = cli
+            .listen_all
+            .map_or(cli.bind, |port| std::net::SocketAddr::from(([0, 0, 0, 0], port)));
         let supervisor = std::sync::Arc::new(LocalWorkerSupervisor::new(
             std::env::current_exe()?,
             cli.state_dir.clone(),
         ));
-        return transferia_control_plane::run_with(cli.bind, cli.state_dir, transferia, supervisor)
-            .await;
+        return transferia_control_plane::run_with(
+            bind,
+            allow_non_loopback,
+            cli.state_dir,
+            transferia,
+            supervisor,
+        )
+        .await;
     }
     validate_worker_assignment(&cli)?;
     let config_path = cli

@@ -17,14 +17,18 @@ pub mod ui_catalog;
 
 pub async fn run_with(
     bind: SocketAddr,
+    allow_non_loopback: bool,
     state_dir: PathBuf,
     transferia: Transferia,
     supervisor: Arc<dyn WorkerSupervisor>,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
-        bind.ip().is_loopback(),
-        "the local control plane may only bind to a loopback address"
+        bind.ip().is_loopback() || allow_non_loopback,
+        "the local control plane may only bind to a non-loopback address after explicit opt-in"
     );
+    if !bind.ip().is_loopback() {
+        tracing::warn!(%bind, "control plane is exposed on a non-loopback interface");
+    }
     let store = Arc::new(store::JsonDeliveryStore::open(state_dir.clone()).await?);
     let control_plane = Arc::new(
         service::ControlPlane::new(store, supervisor, transferia.clone())
