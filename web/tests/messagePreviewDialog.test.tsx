@@ -85,12 +85,17 @@ describe("message preview dialog", () => {
     expect(view.getByText("cdc/prod/logs")).toBeTruthy();
   });
 
-  it("copies hexadecimal bytes and exposes parser-owned and parsed previews", async () => {
-    const copy = vi.fn().mockResolvedValue(undefined);
+  it("copies text as text and binary as bytes, with raw actions only on raw tabs", async () => {
+    const copyText = vi.fn().mockResolvedValue(undefined);
+    const copyBinary = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: copy },
+      value: { writeText: copyText, write: copyBinary },
     });
+    class TestClipboardItem {
+      constructor(readonly items: Record<string, Blob>) {}
+    }
+    vi.stubGlobal("ClipboardItem", TestClipboardItem);
     const apply = vi.fn();
     const payload = btoa('{"id":1}');
     const view = render(
@@ -138,18 +143,30 @@ describe("message preview dialog", () => {
 
     const actionBar = view.container.querySelector(".message-preview-download");
     fireEvent.click(view.getByRole("button", { name: "Copy message" }));
-    expect(copy).toHaveBeenCalledWith("7b 22 69 64 22 3a 31 7d");
+    expect(copyText).toHaveBeenCalledWith('{"id":1}');
     await waitFor(() =>
       expect(
-        actionBar?.contains(
-          view.getByText("Message copied as hexadecimal bytes"),
-        ),
+        actionBar?.contains(view.getByText("Message copied as text")),
       ).toBe(true),
     );
     expect(view.container.querySelector(".message-preview-download")).toBe(
       actionBar,
     );
+    fireEvent.click(view.getByRole("tab", { name: "Binary" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy message" }));
+    await waitFor(() => expect(copyBinary).toHaveBeenCalledTimes(1));
+    const [clipboardItems] = copyBinary.mock.calls[0] as [
+      TestClipboardItem[],
+    ];
+    expect(Object.keys(clipboardItems[0]!.items)).toEqual([
+      "web application/octet-stream",
+    ]);
+    expect(clipboardItems[0]!.items["web application/octet-stream"]?.size).toBe(
+      8,
+    );
     fireEvent.click(view.getByRole("tab", { name: "Pretty print" }));
+    expect(view.queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(view.queryByRole("button", { name: "Download message" })).toBeNull();
     expect(view.container.querySelector(".syntax-code")?.textContent).toContain(
       '"id": 1',
     );
@@ -176,6 +193,21 @@ describe("message preview dialog", () => {
     expect(apply).toHaveBeenCalledWith(
       expect.objectContaining({ key: "json_parser" }),
     );
+    vi.unstubAllGlobals();
+  });
+
+  it("labels the dialog as exactly one message", () => {
+    const view = render(
+      <MessagePreviewDialog
+        loading={false}
+        allowApply
+        result={undefined}
+        onApply={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(view.getByRole("heading", { name: "One message preview" })).toBeTruthy();
   });
 
   it("groups equivalent pretty-print previews and lets the user choose the parser", () => {

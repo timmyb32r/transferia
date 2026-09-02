@@ -50,6 +50,7 @@ export function MessagePreviewDialog({
     setSelectedParser(result?.detections[0]?.key ?? "");
     setCopyState("idle");
   }, [previewBytes, result]);
+  useEffect(() => setCopyState("idle"), [activeTab]);
   const fullBytes = useMemo(
     () =>
       result && showFull
@@ -78,13 +79,26 @@ export function MessagePreviewDialog({
     setSelectedParser(detection.key);
     setActiveTab("parsed");
   };
-  const copyMessage = async () => {
+  const copyMessage = async (format: "text" | "binary") => {
     if (!result || copyState === "copying") return;
     setCopyState("copying");
     try {
-      await navigator.clipboard.writeText(
-        bytesToHex(decodeBase64(result.payload_base64)),
-      );
+      const bytes = decodeBase64(result.payload_base64);
+      if (format === "text") {
+        await navigator.clipboard.writeText(
+          new TextDecoder("utf-8", { fatal: false }).decode(bytes),
+        );
+      } else {
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "web application/octet-stream": new Blob([buffer], {
+              type: "application/octet-stream",
+            }),
+          }),
+        ]);
+      }
       setCopyState("copied");
     } catch {
       setCopyState("error");
@@ -102,7 +116,7 @@ export function MessagePreviewDialog({
       >
         <header>
           <div>
-            <h2 id="message-preview-title">Message preview</h2>
+            <h2 id="message-preview-title">One message preview</h2>
             <span>
               {result
                 ? `${result.byte_length} bytes (${shownInFull ? "shown in full" : "partially shown"}) · not committed`
@@ -178,44 +192,47 @@ export function MessagePreviewDialog({
                 />
               )}
             </div>
-            {truncated && (
-              <div class="message-preview-truncation" role="note">
-                <CopyStatus state={copyState} />
-                <span>
-                  Showing{" "}
-                  {formatBytes(
-                    showFull ? result.byte_length : result.preview_bytes,
-                  )}{" "}
-                  of {formatBytes(result.byte_length)}
-                </span>
-                <Button onClick={() => setShowFull((current) => !current)}>
-                  {showFull ? "Show 16 KiB preview" : "View full"}
-                </Button>
-                <Button
-                  pending={copyState === "copying"}
-                  onClick={() => void copyMessage()}
-                >
-                  Copy message
-                </Button>
-                <Button onClick={() => downloadMessage(result)}>
-                  Download full message
-                </Button>
-              </div>
-            )}
-            {!truncated && (
-              <div class="message-preview-download">
-                <CopyStatus state={copyState} />
-                <Button
-                  pending={copyState === "copying"}
-                  onClick={() => void copyMessage()}
-                >
-                  Copy message
-                </Button>
-                <Button onClick={() => downloadMessage(result)}>
-                  Download message
-                </Button>
-              </div>
-            )}
+            <div
+              class={
+                truncated
+                  ? "message-preview-truncation"
+                  : "message-preview-download"
+              }
+              role={truncated ? "note" : undefined}
+            >
+              {(activeTab === "text" || activeTab === "binary") && (
+                <>
+                  <CopyStatus state={copyState} format={activeTab} />
+                  {truncated && (
+                    <>
+                      <span>
+                        Showing{" "}
+                        {formatBytes(
+                          showFull
+                            ? result.byte_length
+                            : result.preview_bytes,
+                        )}{" "}
+                        of {formatBytes(result.byte_length)}
+                      </span>
+                      <Button
+                        onClick={() => setShowFull((current) => !current)}
+                      >
+                        {showFull ? "Show 16 KiB preview" : "View full"}
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    pending={copyState === "copying"}
+                    onClick={() => void copyMessage(activeTab)}
+                  >
+                    Copy message
+                  </Button>
+                  <Button onClick={() => downloadMessage(result)}>
+                    {truncated ? "Download full message" : "Download message"}
+                  </Button>
+                </>
+              )}
+            </div>
             <footer>
               <div>
                 <strong>Detected parsers</strong>
@@ -260,8 +277,10 @@ export function MessagePreviewDialog({
 
 function CopyStatus({
   state,
+  format,
 }: {
   state: "idle" | "copying" | "copied" | "error";
+  format: "text" | "binary";
 }) {
   return (
     <span
@@ -270,7 +289,9 @@ function CopyStatus({
       aria-live="polite"
     >
       {state === "copied"
-        ? "Message copied as hexadecimal bytes"
+        ? format === "text"
+          ? "Message copied as text"
+          : "Message copied as binary data"
         : state === "error"
           ? "Could not copy the message"
           : state === "copying"
@@ -283,12 +304,6 @@ function CopyStatus({
 function decodeBase64(value: string): Uint8Array {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-    " ",
-  );
 }
 
 function ParserPreview({
