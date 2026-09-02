@@ -9,10 +9,10 @@ use arrow::record_batch::RecordBatch;
 use futures_util::future::BoxFuture;
 use tokio_postgres::{Client, Column, Row, Statement};
 
-use super::config::TableConfig;
 use crate::connectors::postgres::common::{
     postgres_requires_text_projection, postgres_to_arrow, quote_identifier,
 };
+use crate::connectors::postgres::source::TableConfig;
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;
 use transferia_core::data::schema::DatasetSchema;

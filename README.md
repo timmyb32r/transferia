@@ -28,18 +28,15 @@ requires an explicit logical-to-physical table mapping plus a non-null primary
 key. The batch-only data generator and non-durable `discard` sink are explicit
 benchmark components.
 
-Source implementations are grouped by delivery mode inside each connector:
+Shared source configuration, discovery, and mode dispatch live in `source`.
 `src_batch` contains finite snapshot readers, while `src_stream` contains live
 queue streams and ordinary database replication. `src_dblog` is reserved for
 incremental snapshots coordinated with a replication log and has not been
 implemented yet. PostgreSQL replication supports both `pgoutput` and `wal2json`;
 both decoders emit the same Arrow changelog contract, including operation,
 source position, changed-column presence, and old values for
-`REPLICA IDENTITY FULL`.
-Connector-wide transport, credentials, and shared configuration remain at the
-connector root; mode-specific configuration belongs to the corresponding source
-module. A connector may expose more than one source mode without duplicating its
-common contract.
+`REPLICA IDENTITY FULL`. Connector-wide transport and credentials remain at the
+connector root, while each mode owns only its specific settings and reader.
 
 For the demonstration control plane, run:
 

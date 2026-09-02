@@ -21,7 +21,7 @@ pub fn register(
 ) -> anyhow::Result<()> {
     registry.register(
         ComponentRegistration::new("postgres", "PostgreSQL")
-            .source::<postgres::src_batch::PostgresSourceConfig, _, _>(
+            .source::<postgres::source::PostgresSourceConfig, _, _>(
                 vec![DeliveryMode::Batch, DeliveryMode::Stream],
                 false,
                 || {

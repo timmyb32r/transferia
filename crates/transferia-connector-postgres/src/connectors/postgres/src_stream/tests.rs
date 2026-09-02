@@ -10,7 +10,7 @@ use super::reader::{
     parse_postgres_char,
 };
 use super::wal2json;
-use crate::connectors::postgres::src_batch::{DiscoveredTable, TableConfig};
+use crate::connectors::postgres::source::{DiscoveredTable, TableConfig};
 use transferia_core::data::schema::{
     DatasetSchema, SchemaColumn, META_CHANGE_OPERATION, META_OLD_KEY_OF, META_OLD_VALUE_OF,
     META_SYSTEM_ROLE, SYSTEM_ROLE_EVENT_TIMESTAMP_NS, SYSTEM_ROLE_SOURCE_DATABASE,

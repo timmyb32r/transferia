@@ -4,10 +4,10 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::BoxFuture;
 
 use super::config::{PostgresSourceConfig, TableConfig};
-use super::reader::PostgresSource;
 use crate::connectors::postgres::common::{
     connect, postgres_to_arrow, quote_identifier, validate_identifier,
 };
+use crate::connectors::postgres::src_batch::PostgresSource;
 use crate::metrics::{MetricsRegistry, SourceCounters};
 use crate::parsers::ParserPlan;
 use transferia_core::data::schema::{

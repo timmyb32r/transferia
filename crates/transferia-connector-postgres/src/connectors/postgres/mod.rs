@@ -1,5 +1,6 @@
 mod common;
 pub mod sink;
+pub mod source;
 pub mod src_batch;
 pub mod src_stream;
 
@@ -8,4 +9,4 @@ pub use common::{
     PostgresConnectionConfig,
 };
 pub use sink::PostgresSinkConnector;
-pub use src_batch::PostgresSourceConnector;
+pub use source::PostgresSourceConnector;
