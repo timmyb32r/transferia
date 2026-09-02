@@ -837,6 +837,14 @@ select {
   letter-spacing: 0.12em;
   color: var(--muted);
 }
+.transfer-id-slot {
+  display: block;
+  width: min(36ch, 100%);
+  min-height: 1.25em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 h1 {
   font-size: 20px;
   line-height: 1.25;

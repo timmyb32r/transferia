@@ -598,10 +598,10 @@ export function DeliveryApplication() {
         />
         <header class="page-header">
           <div>
-            <small>
+            <small class="transfer-id-slot">
               {editor.id === undefined
-                ? "NEW DELIVERY"
-                : `DELIVERY · ${editor.id}`}
+                ? "TRANSFER ID · assigned on save"
+                : `TRANSFER ID · ${editor.id}`}
             </small>
             <h1>{editor.name || "Untitled delivery"}</h1>
           </div>

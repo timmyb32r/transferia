@@ -101,6 +101,10 @@ export function editorReducer(
         persistedRevision: action.delivery.revision,
         recordVersion: action.delivery.record_version,
         savedLocalRevision: action.savedLocalRevision,
+        config:
+          action.savedLocalRevision === state.localRevision
+            ? action.delivery.config
+            : state.config,
         editing:
           action.savedLocalRevision === state.localRevision
             ? false

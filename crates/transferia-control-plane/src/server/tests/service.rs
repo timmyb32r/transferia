@@ -275,6 +275,39 @@ async fn editing_increments_revision_and_invalidates_validation() -> anyhow::Res
 }
 
 #[tokio::test]
+async fn first_save_assigns_one_stable_terry_transfer_id() -> anyhow::Result<()> {
+    let service = service();
+    let created = service
+        .create_draft(
+            "test".to_owned(),
+            String::new(),
+            serde_json::json!({ "delivery_id": "client-value" }),
+        )
+        .await?;
+
+    assert_eq!(created.id.len(), 20);
+    assert!(created.id.starts_with("dtt"));
+    assert!(created.id[3..]
+        .bytes()
+        .all(|byte| matches!(byte, b'a'..=b'v' | b'0'..=b'9')));
+    assert_eq!(created.config["delivery_id"], created.id);
+
+    let updated = service
+        .update_draft(
+            &created.id,
+            created.revision,
+            created.record_version,
+            "renamed".to_owned(),
+            String::new(),
+            serde_json::json!({ "delivery_id": "replacement" }),
+        )
+        .await?;
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.config["delivery_id"], created.id);
+    Ok(())
+}
+
+#[tokio::test]
 async fn deleting_a_draft_is_versioned_and_removes_it() -> anyhow::Result<()> {
     let service = service();
     let created = service

@@ -274,7 +274,6 @@ export function freshConfig(catalog: UiCatalog): JsonObject {
   const id = crypto.randomUUID();
   return {
     ...structuredClone(catalog.initial),
-    delivery_id: `delivery-${id}`,
     durable_storage: {
       type: "local_file",
       path: `.transferia-server/workers/${id}/state`,

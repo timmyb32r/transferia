@@ -406,14 +406,16 @@ impl ControlPlane {
         &self,
         name: String,
         description: String,
-        config: Value,
+        mut config: Value,
     ) -> Result<DeliveryRecord, ServiceError> {
         let name = validate_name(&name)?;
         validate_draft_shape(&config)?;
         let _mutation = self.mutation.lock().await;
+        let id = new_transfer_id()?;
+        set_runtime_delivery_id(&mut config, &id)?;
         let now = now_ms();
         let record = DeliveryRecord {
-            id: new_id()?,
+            id,
             name,
             description,
             config,
@@ -435,7 +437,7 @@ impl ControlPlane {
         expected_record_version: u64,
         name: String,
         description: String,
-        config: Value,
+        mut config: Value,
     ) -> Result<DeliveryRecord, ServiceError> {
         let name = validate_name(&name)?;
         validate_draft_shape(&config)?;
@@ -453,6 +455,7 @@ impl ControlPlane {
             )));
         }
         ensure_record_version(id, record.record_version, expected_record_version)?;
+        set_runtime_delivery_id(&mut config, &record.id)?;
         record.name = name;
         record.description = description;
         record.config = config;
@@ -1169,6 +1172,17 @@ fn validate_draft_shape(config: &Value) -> Result<(), ServiceError> {
     Ok(())
 }
 
+fn set_runtime_delivery_id(config: &mut Value, delivery_id: &str) -> Result<(), ServiceError> {
+    let object = config.as_object_mut().ok_or_else(|| {
+        ServiceError::InvalidInput("delivery configuration must be a JSON object".to_owned())
+    })?;
+    object.insert(
+        "delivery_id".to_owned(),
+        Value::String(delivery_id.to_owned()),
+    );
+    Ok(())
+}
+
 fn config_yaml_from_json(config: &Value) -> Result<String, ServiceError> {
     validate_draft_shape(config)?;
     ControlPlane::render_yaml(config)
@@ -1297,7 +1311,22 @@ fn now_ms() -> u64 {
         .map_or(0, |duration| duration.as_millis() as u64)
 }
 
-fn new_id() -> Result<String, ServiceError> {
+fn new_transfer_id() -> Result<String, ServiceError> {
+    const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuv0123456789";
+
+    let mut entropy = [0_u8; 17];
+    getrandom::fill(&mut entropy).map_err(anyhow::Error::from)?;
+    let mut id = String::with_capacity(20);
+    id.push_str("dtt");
+    id.extend(
+        entropy
+            .into_iter()
+            .map(|byte| char::from(ALPHABET[usize::from(byte & 31)])),
+    );
+    Ok(id)
+}
+
+fn new_run_id() -> Result<RunId, ServiceError> {
     use std::fmt::Write as _;
 
     let mut bytes = [0_u8; 16];
@@ -1306,11 +1335,7 @@ fn new_id() -> Result<String, ServiceError> {
     for byte in bytes {
         write!(id, "{byte:02x}").map_err(anyhow::Error::from)?;
     }
-    Ok(id)
-}
-
-fn new_run_id() -> Result<RunId, ServiceError> {
-    new_id().map(RunId)
+    Ok(RunId(id))
 }
 
 fn next_version(version: u64) -> Result<u64, ServiceError> {

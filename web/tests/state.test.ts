@@ -28,7 +28,7 @@ describe("editor state", () => {
         id: "delivery-1",
         name: "orders",
         description: "",
-        config: edited.config,
+        config: { ...edited.config, delivery_id: "delivery-1" },
         revision: 1,
         validation: { state: "draft" },
         runtime: { state: "stopped" },
@@ -40,6 +40,7 @@ describe("editor state", () => {
     expect(isDirty(saved)).toBe(false);
     expect(saved.persistedRevision).toBe(1);
     expect(saved.editing).toBe(false);
+    expect(saved.config.delivery_id).toBe("delivery-1");
   });
 
   it("marks only the submitted snapshot as saved", () => {
@@ -65,6 +66,7 @@ describe("editor state", () => {
     expect(saved.savedLocalRevision).toBe(1);
     expect(isDirty(saved)).toBe(true);
     expect(saved.name).toBe("newer local name");
+    expect(saved.config).toEqual({});
     expect(saved.editing).toBe(true);
   });
 

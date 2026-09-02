@@ -52,6 +52,32 @@ describe("App request orchestration", () => {
     expect(deliveries).toHaveBeenCalledOnce();
   });
 
+  it("shows the server-assigned transfer id in a stable header slot after first save", async () => {
+    installApiMocks([]);
+    const transferId = "dttabcdefghijklmnopq";
+    vi.mocked(api.create).mockResolvedValue(delivery(transferId, "Saved"));
+    const view = render(<App />);
+    const app = within(view.container as HTMLElement);
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    const slot = view.container.querySelector(".transfer-id-slot");
+    expect(slot?.textContent).toBe("TRANSFER ID · assigned on save");
+
+    fireEvent.input(app.getByLabelText("Delivery name"), {
+      target: { value: "Saved" },
+    });
+    fireEvent.click(app.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(slot?.textContent).toBe(`TRANSFER ID · ${transferId}`),
+    );
+    expect(view.container.querySelector(".transfer-id-slot")).toBe(slot);
+    expect(api.create).toHaveBeenCalledWith(
+      "Saved",
+      "",
+      expect.not.objectContaining({ delivery_id: expect.anything() }),
+    );
+  });
+
   it("lists delivery types as batch, stream, then batch and stream", async () => {
     installApiMocks([]);
     const view = render(<App />);
