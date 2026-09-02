@@ -27,12 +27,15 @@ non-null primary key. The batch-only data generator and non-durable `discard`
 sink are explicit benchmark components.
 
 Source implementations are grouped by delivery mode inside each connector:
-`src_batch` contains finite snapshot readers and `src_stream` contains live
-streams. `src_dblog` is reserved for database-log readers and will be added with
-the first implementation. Connector-wide transport, credentials, and shared
-configuration remain at the connector root; mode-specific configuration belongs
-to the corresponding source module. A connector may expose more than one source
-mode without duplicating its common contract.
+`src_batch` contains finite snapshot readers, `src_stream` contains queue-like
+live streams, and `src_dblog` contains database-log readers. PostgreSQL supports
+logical replication through both `pgoutput` and `wal2json`; both decoders emit
+the same Arrow changelog contract, including operation, source position,
+changed-column presence, and old values for `REPLICA IDENTITY FULL`.
+Connector-wide transport, credentials, and shared configuration remain at the
+connector root; mode-specific configuration belongs to the corresponding source
+module. A connector may expose more than one source mode without duplicating its
+common contract.
 
 For the demonstration control plane, run:
 
