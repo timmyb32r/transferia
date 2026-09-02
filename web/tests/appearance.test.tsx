@@ -207,22 +207,44 @@ describe("appearance preferences", () => {
         },
       },
     };
+    catalog.connectors[2]!.source = endpoint(["append_only"], ["batch"]);
+    catalog.connectors[2]!.source!.schema = {
+      title: "Parquet parser",
+      "x-ui": {
+        capabilities: {
+          component: "parser",
+          key: "parquet",
+          record_semantics: ["append_only"],
+        },
+      },
+    };
     const groups = catalogCapabilityGroups(catalog);
     const appendOnly = groups.find(
       (group) => group.key === "record_semantics.append_only",
     )!;
 
-    expect([...appendOnly.members.get("source")!].sort()).toEqual(["Kafka", "PostgreSQL"]);
+    expect([...appendOnly.members.get("source")!].sort()).toEqual([
+      "Kafka",
+      "PostgreSQL",
+      "S3",
+    ]);
     expect([...appendOnly.members.get("destination")!]).toEqual(["PostgreSQL", "S3"]);
     expect([...appendOnly.nonMembers.get("parser")!]).toEqual(["Debezium parser"]);
     expect(groups.some((group) => group.key === "record_semantics.changelog")).toBe(false);
     expect(groups.some((group) => group.key === "record_semantics.only_changelog")).toBe(false);
     expect(groups.find((group) => group.key === "delivery_mode.batch")?.members.has("destination")).toBe(false);
+    expect(groups.some((group) => group.key === "component.parser")).toBe(false);
+    expect(
+      [...groups.find((group) => group.key === "component.parser.queue")!.members.get("parser")!],
+    ).toEqual(["Debezium parser"]);
+    expect(
+      [...groups.find((group) => group.key === "component.parser.s3")!.members.get("parser")!],
+    ).toEqual(["Parquet parser"]);
   });
 
   it("opens a stable accessible compatibility dialog and restores focus", () => {
     const catalog = structuredClone(CATALOG);
-    catalog.common_schema = {
+    catalog.connectors[1]!.source!.schema = {
       title: "JSON parser",
       "x-ui": {
         capabilities: {
@@ -263,7 +285,7 @@ describe("appearance preferences", () => {
     expect(view.getByText("Has property")).toBeTruthy();
     expect(view.getByText("Does not have property")).toBeTruthy();
     expect(view.getByText("Parsers — append-only output")).toBeTruthy();
-    fireEvent.click(view.getByRole("button", { name: "All parsers" }));
+    fireEvent.click(view.getByRole("button", { name: "Kafka / Logbroker parsers" }));
     expect(view.queryByText("Does not have property")).toBeNull();
     fireEvent.click(view.getByRole("tab", { name: "Matrix" }));
     expect(document.activeElement).toBe(

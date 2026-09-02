@@ -30,7 +30,8 @@ const PROPERTY_LABELS: Record<string, string> = {
   "record_semantics.only_append_only": "Only append-only records",
   "component.source": "All sources",
   "component.destination": "All destinations",
-  "component.parser": "All parsers",
+  "component.parser.queue": "Kafka / Logbroker parsers",
+  "component.parser.s3": "S3 parsers",
   "component.serializer": "All serializers",
   "component.transformer": "All transformers",
   partitioned: "Partitioned execution",
@@ -81,7 +82,11 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
       if (endpoint.partitioned) add("partitioned", kind, connector.title);
       if (endpoint.connection_check) add("connection_check", kind, connector.title);
       if (endpoint.message_preview) add("message_preview", kind, connector.title);
-      collectSchemaCapabilities(endpoint.schema, add);
+      collectSchemaCapabilities(
+        endpoint.schema,
+        add,
+        kind === "source" ? parserScope(connector.key) : undefined,
+      );
     }
   }
   collectSchemaCapabilities(catalog.common_schema, add);
@@ -89,7 +94,9 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
   for (const group of groups.values()) {
     if (!group.key.startsWith("component.")) continue;
     for (const [kind, members] of group.members) {
-      universes.set(kind, new Set(members));
+      const universe = universes.get(kind) ?? new Set<string>();
+      members.forEach((member) => universe.add(member));
+      universes.set(kind, universe);
     }
   }
   for (const group of groups.values()) {
@@ -106,6 +113,7 @@ export function catalogCapabilityGroups(catalog: UiCatalog): CapabilityGroup[] {
 
 function applicableKinds(property: string): CapabilityKind[] {
   if (property.startsWith("component.")) {
+    if (property.startsWith("component.parser.")) return ["parser"];
     return [property.slice("component.".length) as CapabilityKind];
   }
   if (property.startsWith("record_semantics.")) {
@@ -115,12 +123,19 @@ function applicableKinds(property: string): CapabilityKind[] {
   return ["source", "destination"];
 }
 
+function parserScope(connectorKey: string): "queue" | "s3" | undefined {
+  if (connectorKey === "s3") return "s3";
+  if (connectorKey === "kafka" || connectorKey === "logbroker") return "queue";
+  return undefined;
+}
+
 function collectSchemaCapabilities(
   value: unknown,
   add: (property: string, kind: CapabilityKind, title: string) => void,
+  parserGroup?: "queue" | "s3",
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((item) => collectSchemaCapabilities(item, add));
+    value.forEach((item) => collectSchemaCapabilities(item, add, parserGroup));
     return;
   }
   if (value === null || typeof value !== "object") return;
@@ -146,12 +161,21 @@ function collectSchemaCapabilities(
       const exclusive = declaredSemantics.length === 1
         ? [`record_semantics.only_${declaredSemantics[0]}`]
         : [];
-      [`component.${kind}`, ...properties, ...semantics, ...exclusive].forEach((property) => {
+      [
+        kind === "parser"
+          ? parserGroup && `component.parser.${parserGroup}`
+          : `component.${kind}`,
+        ...properties,
+        ...semantics,
+        ...exclusive,
+      ].forEach((property) => {
         if (typeof property === "string") add(property, kind, title);
       });
     }
   }
-  Object.values(object).forEach((child) => collectSchemaCapabilities(child, add));
+  Object.values(object).forEach((child) =>
+    collectSchemaCapabilities(child, add, parserGroup),
+  );
 }
 
 export interface CompatibilityRoute {
