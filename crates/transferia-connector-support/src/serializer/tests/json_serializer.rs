@@ -106,6 +106,42 @@ fn non_finite_floats_are_valid_json_nulls() -> anyhow::Result<()> {
 }
 
 #[test]
+fn debezium_preserves_non_finite_float_values_as_protobuf_json_strings() -> anyhow::Result<()> {
+    let schema = Arc::new(Schema::new(vec![Field::new(
+        "value",
+        DataType::Float64,
+        false,
+    )]));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![Arc::new(Float64Array::from(vec![
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ]))],
+    )?;
+    let encoder = JsonBatchEncoder::projected_debezium(
+        &batch,
+        [JsonColumnProjection {
+            output_name: "value".to_owned(),
+            source_index: Some(0),
+        }],
+    )?;
+    let mut output = Vec::new();
+    for row in 0..batch.num_rows() {
+        encoder.write_row(row, &mut output);
+    }
+    let values = String::from_utf8(output)?
+        .lines()
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(values[0]["value"], "NaN");
+    assert_eq!(values[1]["value"], "Infinity");
+    assert_eq!(values[2]["value"], "-Infinity");
+    Ok(())
+}
+
+#[test]
 fn binary_values_use_the_kafka_connect_base64_json_representation() -> anyhow::Result<()> {
     let schema = Arc::new(Schema::new(vec![Field::new(
         "bytes",

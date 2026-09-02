@@ -35,6 +35,38 @@ pub enum SerializerConfig {
         logical_name: String,
     },
 
+    #[schemars(title = "Debezium Schema Registry")]
+    DebeziumSchemaRegistry {
+        #[schemars(title = "Logical source name")]
+        logical_name: String,
+
+        #[schemars(title = "Connection")]
+        connection: SchemaRegistryConnection,
+
+        #[schemars(title = "Key subject")]
+        key_subject: Option<String>,
+
+        #[schemars(title = "Value subject")]
+        value_subject: String,
+
+        #[schemars(title = "Format")]
+        format: SchemaFormat,
+
+        #[serde(default = "default_message_indexes")]
+        #[schemars(
+            title = "Key Protobuf message indexes",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        key_protobuf_message_indexes: Vec<i32>,
+
+        #[serde(default = "default_message_indexes")]
+        #[schemars(
+            title = "Value Protobuf message indexes",
+            extend("x-ui" = { "section": "advanced" })
+        )]
+        value_protobuf_message_indexes: Vec<i32>,
+    },
+
     #[schemars(title = "Schema Registry")]
     SchemaRegistry {
         #[schemars(title = "Connection")]
@@ -64,10 +96,36 @@ impl SerializerConfig {
         match self {
             Self::Json => Ok(()),
             Self::DebeziumJson { logical_name } => {
-                anyhow::ensure!(
-                    logical_name.trim() == logical_name && !logical_name.is_empty(),
-                    "debezium_json.logical_name must be nonempty and must not contain leading or trailing whitespace"
-                );
+                validate_debezium_logical_name(logical_name)
+            }
+            Self::DebeziumSchemaRegistry {
+                logical_name,
+                connection,
+                key_subject,
+                value_subject,
+                format,
+                key_protobuf_message_indexes,
+                value_protobuf_message_indexes,
+            } => {
+                validate_debezium_logical_name(logical_name)?;
+                connection.validate()?;
+                if let Some(subject) = key_subject {
+                    validate_subject("debezium_schema_registry.key_subject", subject)?;
+                }
+                validate_subject(
+                    "debezium_schema_registry.value_subject",
+                    value_subject,
+                )?;
+                if *format == SchemaFormat::Protobuf {
+                    validate_message_indexes(
+                        "debezium_schema_registry.key_protobuf_message_indexes",
+                        key_protobuf_message_indexes,
+                    )?;
+                    validate_message_indexes(
+                        "debezium_schema_registry.value_protobuf_message_indexes",
+                        value_protobuf_message_indexes,
+                    )?;
+                }
                 Ok(())
             }
             Self::SchemaRegistry {
@@ -103,6 +161,14 @@ impl SerializerConfig {
             Self::DebeziumJson { .. } => {
                 Ok(format!("Debezium JSON {}", json_type_name(data_type)?))
             }
+            Self::DebeziumSchemaRegistry {
+                value_subject,
+                format,
+                ..
+            } => Ok(format!(
+                "Debezium {} ({value_subject})",
+                schema_format_title(*format)
+            )),
             Self::SchemaRegistry {
                 subject, format, ..
             } => Ok(format!(
@@ -119,7 +185,10 @@ impl SerializerConfig {
 
     #[must_use]
     pub const fn supports_changelog(&self) -> bool {
-        matches!(self, Self::DebeziumJson { .. })
+        matches!(
+            self,
+            Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. }
+        )
     }
 
     pub fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {
@@ -213,6 +282,39 @@ impl SerializerConfig {
     }
 }
 
+fn validate_debezium_logical_name(logical_name: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        logical_name.trim() == logical_name && !logical_name.is_empty(),
+        "Debezium logical source name must be nonempty and must not contain leading or trailing whitespace"
+    );
+    Ok(())
+}
+
+fn validate_subject(path: &str, subject: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        subject.trim() == subject && !subject.is_empty(),
+        "{path} must be nonempty and must not contain leading or trailing whitespace"
+    );
+    Ok(())
+}
+
+fn validate_message_indexes(path: &str, indexes: &[i32]) -> anyhow::Result<()> {
+    anyhow::ensure!(!indexes.is_empty(), "{path} must not be empty");
+    anyhow::ensure!(
+        indexes.iter().all(|index| *index >= 0),
+        "{path} must contain only nonnegative indexes"
+    );
+    Ok(())
+}
+
+const fn schema_format_title(format: SchemaFormat) -> &'static str {
+    match format {
+        SchemaFormat::Avro => "Avro",
+        SchemaFormat::JsonSchema => "JSON Schema",
+        SchemaFormat::Protobuf => "Protobuf",
+    }
+}
+
 fn json_type_name(data_type: &arrow::datatypes::DataType) -> anyhow::Result<&'static str> {
     use arrow::datatypes::DataType;
     Ok(match data_type {
@@ -247,6 +349,17 @@ pub struct DeliverySerializer {
 enum SerializerKind {
     Json,
     DebeziumJson(DebeziumJsonEncoder),
+    DebeziumSchemaRegistry {
+        encoder: DebeziumJsonEncoder,
+        registry: RegistryClient,
+        key_subject: Option<String>,
+        value_subject: String,
+        format: SchemaFormat,
+        key_message_indexes: Vec<i32>,
+        value_message_indexes: Vec<i32>,
+        key_schema: Box<Option<CompiledWriterSchema>>,
+        value_schema: Box<Option<CompiledWriterSchema>>,
+    },
     SchemaRegistry {
         registry: RegistryClient,
         subject: String,
@@ -278,6 +391,31 @@ impl DeliverySerializer {
             SerializerConfig::Json => SerializerKind::Json,
             SerializerConfig::DebeziumJson { logical_name } => {
                 SerializerKind::DebeziumJson(DebeziumJsonEncoder::new(logical_name.clone(), mode))
+            }
+            SerializerConfig::DebeziumSchemaRegistry {
+                logical_name,
+                connection,
+                key_subject,
+                value_subject,
+                format,
+                key_protobuf_message_indexes,
+                value_protobuf_message_indexes,
+            } => {
+                anyhow::ensure!(
+                    mode == QueueMessageMode::ValuesOnly || key_subject.is_some(),
+                    "Debezium Schema Registry serializer requires key_subject for a keyed queue sink"
+                );
+                SerializerKind::DebeziumSchemaRegistry {
+                    encoder: DebeziumJsonEncoder::new(logical_name.clone(), mode),
+                    registry: RegistryClient::new(connection)?,
+                    key_subject: key_subject.clone(),
+                    value_subject: value_subject.clone(),
+                    format: *format,
+                    key_message_indexes: key_protobuf_message_indexes.clone(),
+                    value_message_indexes: value_protobuf_message_indexes.clone(),
+                    key_schema: Box::new(None),
+                    value_schema: Box::new(None),
+                }
             }
             SerializerConfig::SchemaRegistry {
                 connection,
@@ -317,6 +455,33 @@ impl DeliverySerializer {
                 )?);
             }
         }
+        if let SerializerKind::DebeziumSchemaRegistry {
+            registry,
+            key_subject,
+            value_subject,
+            format,
+            key_message_indexes,
+            value_message_indexes,
+            key_schema,
+            value_schema,
+            ..
+        } = &mut self.kind
+        {
+            if value_schema.is_none() {
+                **value_schema = Some(compile_writer_schema(
+                    &registry.latest_schema(value_subject, *format).await?,
+                    value_message_indexes,
+                )?);
+            }
+            if key_schema.is_none() {
+                if let Some(subject) = key_subject {
+                    **key_schema = Some(compile_writer_schema(
+                        &registry.latest_schema(subject, *format).await?,
+                        key_message_indexes,
+                    )?);
+                }
+            }
+        }
 
         let mut batches = Vec::with_capacity(delivery.outputs.len());
         let mut rows = 0_u64;
@@ -324,6 +489,31 @@ impl DeliverySerializer {
             limits.validate_batch(discovery, batch)?;
             if let SerializerKind::DebeziumJson(encoder) = &self.kind {
                 batches.push(encoder.encode_batch(batch, message_size_limit)?);
+                rows = rows
+                    .checked_add(u64::try_from(batch.rows())?)
+                    .ok_or_else(|| anyhow::anyhow!("queue sink row counter overflow"))?;
+                continue;
+            }
+            if let SerializerKind::DebeziumSchemaRegistry {
+                encoder,
+                key_message_indexes,
+                value_message_indexes,
+                key_schema,
+                value_schema,
+                ..
+            } = &self.kind
+            {
+                let encoded = encoder.encode_batch(batch, usize::MAX)?;
+                batches.push(encode_debezium_registered_batch(
+                    encoded,
+                    key_schema.as_ref().as_ref(),
+                    key_message_indexes,
+                    value_schema.as_ref().as_ref().ok_or_else(|| {
+                        anyhow::anyhow!("Debezium Schema Registry value schema was not initialized")
+                    })?,
+                    value_message_indexes,
+                    message_size_limit,
+                )?);
                 rows = rows
                     .checked_add(u64::try_from(batch.rows())?)
                     .ok_or_else(|| anyhow::anyhow!("queue sink row counter overflow"))?;
@@ -363,6 +553,9 @@ impl DeliverySerializer {
                     SerializerKind::DebeziumJson(_) => {
                         unreachable!("Debezium batches are handled before row serialization")
                     }
+                    SerializerKind::DebeziumSchemaRegistry { .. } => unreachable!(
+                        "Debezium Schema Registry batches are handled before row serialization"
+                    ),
                 };
                 validate_payload_size(&output, message_size_limit)?;
                 payloads.push(SerializedMessage {
@@ -383,6 +576,34 @@ impl DeliverySerializer {
             source_rows: rows,
         })
     }
+}
+
+fn encode_debezium_registered_batch(
+    mut batch: SerializedBatch,
+    key_schema: Option<&CompiledWriterSchema>,
+    key_message_indexes: &[i32],
+    value_schema: &CompiledWriterSchema,
+    value_message_indexes: &[i32],
+    message_size_limit: usize,
+) -> anyhow::Result<SerializedBatch> {
+    for message in &mut batch.messages {
+        if let Some(key) = &mut message.key {
+            let schema = key_schema.ok_or_else(|| {
+                anyhow::anyhow!("Debezium Schema Registry key schema was not initialized")
+            })?;
+            *key = encode_registered(schema, key_message_indexes, key)?;
+        }
+        if let Some(value) = &mut message.value {
+            *value = encode_registered(value_schema, value_message_indexes, value)?;
+        }
+        let message_bytes = message.key.as_ref().map_or(0, Vec::len)
+            + message.value.as_ref().map_or(0, Vec::len);
+        anyhow::ensure!(
+            message_bytes <= message_size_limit,
+            "serialized queue message exceeds configured transport limit: message_bytes={message_bytes}, transport_limit_bytes={message_size_limit}"
+        );
+    }
+    Ok(batch)
 }
 
 fn validate_payload_size(payload: &[u8], message_size_limit: usize) -> anyhow::Result<()> {

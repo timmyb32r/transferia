@@ -192,7 +192,7 @@ impl DebeziumBatchEncoder {
         );
         let old_value = mapped_columns(batch, META_OLD_VALUE_OF)?;
         let old_key = mapped_columns(batch, META_OLD_KEY_OF)?;
-        let current = JsonBatchEncoder::projected(
+        let current = JsonBatchEncoder::projected_debezium(
             &batch.batch,
             user_columns
                 .iter()
@@ -201,7 +201,7 @@ impl DebeziumBatchEncoder {
                     source_index: Some(*index),
                 }),
         )?;
-        let before = JsonBatchEncoder::projected(
+        let before = JsonBatchEncoder::projected_debezium(
             &batch.batch,
             user_columns.iter().map(|(_, name)| JsonColumnProjection {
                 output_name: name.clone(),
@@ -222,7 +222,7 @@ impl DebeziumBatchEncoder {
             !primary_keys.is_empty(),
             "Debezium serializer requires at least one primary-key column"
         );
-        let current_key = JsonBatchEncoder::projected(
+        let current_key = JsonBatchEncoder::projected_debezium(
             &batch.batch,
             primary_keys
                 .iter()
@@ -231,7 +231,7 @@ impl DebeziumBatchEncoder {
                     source_index: Some(*index),
                 }),
         )?;
-        let old_key = JsonBatchEncoder::projected(
+        let old_key = JsonBatchEncoder::projected_debezium(
             &batch.batch,
             primary_keys.iter().map(|(_, name)| JsonColumnProjection {
                 output_name: (*name).clone(),

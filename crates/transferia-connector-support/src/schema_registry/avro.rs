@@ -80,8 +80,8 @@ pub fn json_to_avro(schema: &Schema, value: &Value) -> anyhow::Result<AvroValue>
                 .as_i64()
                 .ok_or_else(|| anyhow::anyhow!("expected signed integer"))?,
         ),
-        Schema::Float => AvroValue::Float(number(value)? as f32),
-        Schema::Double => AvroValue::Double(number(value)?),
+        Schema::Float => AvroValue::Float(float_number(value)? as f32),
+        Schema::Double => AvroValue::Double(float_number(value)?),
         Schema::Bytes => AvroValue::Bytes(decode_base64(value)?),
         Schema::String => AvroValue::String(string(value)?.to_owned()),
         Schema::Array(array) => AvroValue::Array(
@@ -173,10 +173,16 @@ pub fn json_to_avro(schema: &Schema, value: &Value) -> anyhow::Result<AvroValue>
     })
 }
 
-fn number(value: &Value) -> anyhow::Result<f64> {
-    value
-        .as_f64()
-        .ok_or_else(|| anyhow::anyhow!("expected number"))
+fn float_number(value: &Value) -> anyhow::Result<f64> {
+    if let Some(value) = value.as_f64() {
+        return Ok(value);
+    }
+    Ok(match value.as_str() {
+        Some("NaN") => f64::NAN,
+        Some("Infinity") => f64::INFINITY,
+        Some("-Infinity") => f64::NEG_INFINITY,
+        _ => anyhow::bail!("expected number or a Protobuf-JSON non-finite float string"),
+    })
 }
 
 fn integer32(value: &Value) -> anyhow::Result<i32> {

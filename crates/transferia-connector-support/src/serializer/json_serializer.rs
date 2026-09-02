@@ -19,6 +19,14 @@ use base64::Engine as _;
 /// A pre-classified, optionally projected view of one Arrow batch.
 pub struct JsonBatchEncoder {
     columns: Vec<JsonColumnWriter>,
+
+    non_finite_floats: NonFiniteFloatEncoding,
+}
+
+#[derive(Clone, Copy)]
+enum NonFiniteFloatEncoding {
+    Null,
+    ProtobufJsonString,
 }
 
 pub(crate) struct JsonColumnProjection {
@@ -56,6 +64,25 @@ impl JsonBatchEncoder {
         batch: &RecordBatch,
         projection: impl IntoIterator<Item = JsonColumnProjection>,
     ) -> anyhow::Result<Self> {
+        Self::projected_with_float_encoding(batch, projection, NonFiniteFloatEncoding::Null)
+    }
+
+    pub(crate) fn projected_debezium(
+        batch: &RecordBatch,
+        projection: impl IntoIterator<Item = JsonColumnProjection>,
+    ) -> anyhow::Result<Self> {
+        Self::projected_with_float_encoding(
+            batch,
+            projection,
+            NonFiniteFloatEncoding::ProtobufJsonString,
+        )
+    }
+
+    fn projected_with_float_encoding(
+        batch: &RecordBatch,
+        projection: impl IntoIterator<Item = JsonColumnProjection>,
+        non_finite_floats: NonFiniteFloatEncoding,
+    ) -> anyhow::Result<Self> {
         let schema = batch.schema();
         let columns = projection
             .into_iter()
@@ -79,7 +106,10 @@ impl JsonBatchEncoder {
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
-        Ok(Self { columns })
+        Ok(Self {
+            columns,
+            non_finite_floats,
+        })
     }
 
     /// Append exactly one compact JSON object followed by a newline.
@@ -111,7 +141,9 @@ impl JsonBatchEncoder {
             if column.writer.is_null_at(row) {
                 output.extend_from_slice(b"null");
             } else {
-                column.writer.write_value(output, row);
+                column
+                    .writer
+                    .write_value(output, row, self.non_finite_floats);
             }
         }
         output.push(b'}');
@@ -309,7 +341,12 @@ impl ColumnWriter {
     /// Write the value at the given row index into the buffer.
     /// No dynamic dispatch: the variant is pre-determined.
     #[inline]
-    fn write_value(&self, buf: &mut Vec<u8>, row: usize) {
+    fn write_value(
+        &self,
+        buf: &mut Vec<u8>,
+        row: usize,
+        non_finite_floats: NonFiniteFloatEncoding,
+    ) {
         match self {
             Self::Null => buf.extend_from_slice(b"null"),
             Self::Utf8(a) => write_json_string(buf, a.value(row)),
@@ -326,10 +363,10 @@ impl ColumnWriter {
             Self::UInt32(a) => write_uint(buf, a.value(row)),
             Self::UInt64(a) => write_uint(buf, a.value(row)),
             Self::Float32(a) => {
-                write_float(buf, a.value(row));
+                write_float(buf, a.value(row), non_finite_floats);
             }
             Self::Float64(a) => {
-                write_float(buf, a.value(row));
+                write_float(buf, a.value(row), non_finite_floats);
             }
             Self::Boolean(a) => {
                 buf.extend_from_slice(if a.value(row) { b"true" } else { b"false" });
@@ -450,13 +487,31 @@ fn write_uint<T: itoa::Integer>(buf: &mut Vec<u8>, v: T) {
 }
 
 #[inline]
-fn write_float<T: ryu::Float>(buf: &mut Vec<u8>, value: T) {
+fn write_float<T: ryu::Float>(
+    buf: &mut Vec<u8>,
+    value: T,
+    non_finite_floats: NonFiniteFloatEncoding,
+) {
     let mut formatter = ryu::Buffer::new();
     let formatted = formatter.format(value);
-    if matches!(formatted, "NaN" | "inf" | "-inf") {
-        buf.extend_from_slice(b"null");
-    } else {
-        buf.extend_from_slice(formatted.as_bytes());
+    match formatted {
+        "NaN" => match non_finite_floats {
+            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::ProtobufJsonString => buf.extend_from_slice(b"\"NaN\""),
+        },
+        "inf" => match non_finite_floats {
+            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::ProtobufJsonString => {
+                buf.extend_from_slice(b"\"Infinity\"")
+            }
+        },
+        "-inf" => match non_finite_floats {
+            NonFiniteFloatEncoding::Null => buf.extend_from_slice(b"null"),
+            NonFiniteFloatEncoding::ProtobufJsonString => {
+                buf.extend_from_slice(b"\"-Infinity\"")
+            }
+        },
+        finite => buf.extend_from_slice(finite.as_bytes()),
     }
 }
 

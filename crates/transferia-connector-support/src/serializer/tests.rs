@@ -49,6 +49,53 @@ fn debezium_json_requires_an_explicit_stable_logical_source_name() {
 }
 
 #[test]
+fn keyed_debezium_schema_registry_requires_both_subjects() {
+    let config = SerializerConfig::DebeziumSchemaRegistry {
+        logical_name: "inventory".to_owned(),
+        connection: registry_connection(),
+        key_subject: None,
+        value_subject: "inventory.accounts-value".to_owned(),
+        format: crate::schema_registry::SchemaFormat::JsonSchema,
+        key_protobuf_message_indexes: vec![0],
+        value_protobuf_message_indexes: vec![0],
+    };
+
+    assert!(config.validate().is_ok());
+    let error = DeliverySerializer::new(&config, QueueMessageMode::KeyedWithTombstones)
+        .err()
+        .expect("keyed mode must reject an absent key subject")
+        .to_string();
+    assert!(error.contains("key_subject"), "{error}");
+    DeliverySerializer::new(&config, QueueMessageMode::ValuesOnly).unwrap();
+}
+
+#[test]
+fn debezium_schema_registry_rejects_invalid_subjects_and_protobuf_paths() {
+    let mut config = SerializerConfig::DebeziumSchemaRegistry {
+        logical_name: "inventory".to_owned(),
+        connection: registry_connection(),
+        key_subject: Some("inventory.accounts-key".to_owned()),
+        value_subject: " inventory.accounts-value".to_owned(),
+        format: crate::schema_registry::SchemaFormat::Protobuf,
+        key_protobuf_message_indexes: vec![0],
+        value_protobuf_message_indexes: vec![0],
+    };
+    assert!(config.validate().is_err());
+
+    let SerializerConfig::DebeziumSchemaRegistry {
+        value_subject,
+        value_protobuf_message_indexes,
+        ..
+    } = &mut config
+    else {
+        unreachable!()
+    };
+    *value_subject = "inventory.accounts-value".to_owned();
+    value_protobuf_message_indexes.clear();
+    assert!(config.validate().is_err());
+}
+
+#[test]
 fn debezium_discovery_fails_closed_without_every_cdc_control() {
     use arrow::datatypes::DataType;
     use transferia_core::data::schema::{
@@ -186,12 +233,128 @@ fn avro_and_protobuf_serializers_emit_confluent_envelopes() -> anyhow::Result<()
         &[0],
         br#"{"id":"8","name":"event","enabled":true}"#,
     )?;
+    assert!(encode_registered(
+        &protobuf,
+        &[0],
+        br#"{"id":"8","name":"event","enabled":true,"unknown":"must not disappear"}"#,
+    )
+    .is_err());
     let envelope = crate::schema_registry::ConfluentEnvelope::decode(&encoded)?;
     assert_eq!(envelope.schema_id, 13);
     let (indexes, payload) = crate::schema_registry::decode_message_indexes(envelope.payload)?;
     assert_eq!(indexes, [0]);
     assert!(!payload.is_empty());
     Ok(())
+}
+
+#[test]
+fn debezium_registry_wrapper_supports_json_avro_and_protobuf_without_losing_tombstones(
+) -> anyhow::Result<()> {
+    let json = br#"{"id":8,"name":"event","enabled":true}"#;
+    let definitions = [
+        (
+            crate::schema_registry::SchemaFormat::JsonSchema,
+            r#"{"type":"object","required":["id","name","enabled"],"properties":{"id":{"type":"integer"},"name":{"type":"string"},"enabled":{"type":"boolean"}},"additionalProperties":false}"#.to_owned(),
+        ),
+        (
+            crate::schema_registry::SchemaFormat::Avro,
+            r#"{"type":"record","name":"Event","fields":[{"name":"id","type":"long"},{"name":"name","type":"string"},{"name":"enabled","type":"boolean"}]}"#.to_owned(),
+        ),
+        (
+            crate::schema_registry::SchemaFormat::Protobuf,
+            protobuf_definition()?,
+        ),
+    ];
+
+    for (ordinal, (format, definition)) in definitions.into_iter().enumerate() {
+        let schema = compile_writer_schema(
+            &crate::schema_registry::RegistrySchema {
+                id: i32::try_from(20 + ordinal)?,
+                definition,
+                format,
+                references: Arc::from([]),
+            },
+            &[0],
+        )?;
+        let batch = SerializedBatch {
+            table: "accounts".into(),
+            messages: vec![
+                SerializedMessage {
+                    key: Some(json.to_vec()),
+                    value: Some(json.to_vec()),
+                },
+                SerializedMessage {
+                    key: Some(json.to_vec()),
+                    value: None,
+                },
+            ],
+        };
+        let encoded = encode_debezium_registered_batch(
+            batch,
+            Some(&schema),
+            &[0],
+            &schema,
+            &[0],
+            usize::MAX,
+        )?;
+        assert_eq!(encoded.messages.len(), 2);
+        for field in [
+            encoded.messages[0].key.as_deref(),
+            encoded.messages[0].value.as_deref(),
+            encoded.messages[1].key.as_deref(),
+        ] {
+            let envelope = crate::schema_registry::ConfluentEnvelope::decode(field.unwrap())?;
+            assert_eq!(envelope.schema_id, i32::try_from(20 + ordinal)?);
+            assert!(!envelope.payload.is_empty());
+        }
+        assert!(encoded.messages[1].value.is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn avro_debezium_encoding_preserves_non_finite_floats() -> anyhow::Result<()> {
+    let definition = r#"{"type":"record","name":"Floating","fields":[{"name":"value","type":"double"}]}"#;
+    let schema = compile_writer_schema(
+        &crate::schema_registry::RegistrySchema {
+            id: 31,
+            definition: definition.to_owned(),
+            format: crate::schema_registry::SchemaFormat::Avro,
+            references: Arc::from([]),
+        },
+        &[0],
+    )?;
+
+    for value in ["NaN", "Infinity", "-Infinity"] {
+        let json = serde_json::to_vec(&serde_json::json!({"value": value}))?;
+        let encoded = encode_registered(&schema, &[0], &json)?;
+        let envelope = crate::schema_registry::ConfluentEnvelope::decode(&encoded)?;
+        let parsed = apache_avro::Schema::parse_str(definition)?;
+        let mut payload = envelope.payload;
+        let decoded = apache_avro::from_avro_datum(&parsed, &mut payload, None)?;
+        let apache_avro::types::Value::Record(fields) = decoded else {
+            anyhow::bail!("expected Avro record")
+        };
+        let apache_avro::types::Value::Double(decoded) = fields[0].1 else {
+            anyhow::bail!("expected Avro double")
+        };
+        match value {
+            "NaN" => assert!(decoded.is_nan()),
+            "Infinity" => assert_eq!(decoded, f64::INFINITY),
+            "-Infinity" => assert_eq!(decoded, f64::NEG_INFINITY),
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
+
+fn registry_connection() -> crate::schema_registry::SchemaRegistryConnection {
+    crate::schema_registry::SchemaRegistryConnection {
+        url: "http://registry".to_owned(),
+        request_timeout_ms: 1_000,
+        auth: crate::schema_registry::SchemaRegistryAuth::None,
+        ca_certificate: None,
+    }
 }
 
 fn protobuf_definition() -> anyhow::Result<String> {
