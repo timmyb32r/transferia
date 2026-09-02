@@ -312,7 +312,7 @@ impl SourceConnector for PostgresSourceConnector {
                     "PostgreSQL replication has exactly one source partition"
                 );
                 return Ok(Box::new(
-                    crate::connectors::postgres::src_dblog::PostgresReplicationSource::new(
+                    crate::connectors::postgres::src_stream::PostgresReplicationSource::new(
                         client,
                         replication.clone(),
                         Arc::from(self.config.connection.database.as_str()),

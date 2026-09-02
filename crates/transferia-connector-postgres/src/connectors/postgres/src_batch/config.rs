@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::connectors::postgres::common::{validate_identifier, PostgresConnectionConfig};
-use crate::connectors::postgres::src_dblog::PostgresReplicationConfig;
+use crate::connectors::postgres::src_stream::PostgresReplicationConfig;
 
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

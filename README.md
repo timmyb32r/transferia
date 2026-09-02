@@ -7,6 +7,7 @@ share expensive connection pools and upload clients:
 ```text
 stream: Logbroker (YDB or PQv1) | Kafka
 batch:  PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsaurus | data generator
+replication: PostgreSQL (pgoutput or wal2json)
                                     |
                                     v
                          parser or native Arrow
@@ -20,18 +21,21 @@ Logbroker | Kafka | PostgreSQL | MySQL | YDB | ClickHouse | S3 | Iceberg | YTsau
 
 Source and sink connectors are selected from the runtime registry; parser kinds
 are validated explicitly. Logbroker and Kafka provide streaming sources and
-sinks. PostgreSQL, MySQL, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide
-finite-snapshot sources and sinks. YDB writes production Arrow IPC batches with
-`BulkUpsert` and requires an explicit logical-to-physical table mapping plus a
-non-null primary key. The batch-only data generator and non-durable `discard`
-sink are explicit benchmark components.
+sinks. PostgreSQL provides finite snapshots, ordinary logical replication, and
+a sink; MySQL, YDB, ClickHouse, S3, Iceberg, and YTsaurus provide finite-snapshot
+sources and sinks. YDB writes production Arrow IPC batches with `BulkUpsert` and
+requires an explicit logical-to-physical table mapping plus a non-null primary
+key. The batch-only data generator and non-durable `discard` sink are explicit
+benchmark components.
 
 Source implementations are grouped by delivery mode inside each connector:
-`src_batch` contains finite snapshot readers, `src_stream` contains queue-like
-live streams, and `src_dblog` contains database-log readers. PostgreSQL supports
-logical replication through both `pgoutput` and `wal2json`; both decoders emit
-the same Arrow changelog contract, including operation, source position,
-changed-column presence, and old values for `REPLICA IDENTITY FULL`.
+`src_batch` contains finite snapshot readers, while `src_stream` contains live
+queue streams and ordinary database replication. `src_dblog` is reserved for
+incremental snapshots coordinated with a replication log and has not been
+implemented yet. PostgreSQL replication supports both `pgoutput` and `wal2json`;
+both decoders emit the same Arrow changelog contract, including operation,
+source position, changed-column presence, and old values for
+`REPLICA IDENTITY FULL`.
 Connector-wide transport, credentials, and shared configuration remain at the
 connector root; mode-specific configuration belongs to the corresponding source
 module. A connector may expose more than one source mode without duplicating its

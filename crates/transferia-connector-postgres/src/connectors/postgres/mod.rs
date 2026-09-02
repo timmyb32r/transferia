@@ -1,7 +1,7 @@
 mod common;
 pub mod sink;
 pub mod src_batch;
-pub mod src_dblog;
+pub mod src_stream;
 
 pub use common::{
     check_connection, check_network_connection, PostgresConnectionCheckConfig,

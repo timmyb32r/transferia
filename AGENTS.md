@@ -251,10 +251,12 @@ whose purpose is to crystallize good concepts quickly, not to preserve old APIs.
   source/sink behavior. Do not expose Logbroker/YDB transport details through
   connector-neutral modules.
 - Connector source implementations live in mode-specific `src_batch/`,
-  `src_stream/`, or `src_dblog/` modules. Keep connector-wide configuration and
-  transport in the connector root; each mode extends those common pieces with
-  its own settings. Do not create empty mode modules before an implementation
-  exists.
+  `src_stream/`, or `src_dblog/` modules. `src_stream/` owns live queue streams
+  and ordinary database replication. Reserve `src_dblog/` for an incremental
+  snapshot coordinated with a replication log; ordinary CDC does not belong
+  there. Keep connector-wide configuration and transport in the connector root;
+  each mode extends those common pieces with its own settings. Do not create
+  empty mode modules before an implementation exists.
 - `crates/transferia-runtime/` defines the environment-neutral worker-runtime
   boundary. `crates/transferia-runtime-local/` owns local process supervision.
   Executable CLI/worker composition belongs to `crates/transferia-composition/`.
