@@ -49,6 +49,54 @@ fn debezium_json_requires_an_explicit_stable_logical_source_name() {
 }
 
 #[test]
+fn serializers_publish_their_record_semantics() {
+    use transferia_delivery_contracts::semantics::RecordSemantics;
+
+    let serializers = [
+        (SerializerConfig::Json, RecordSemantics::AppendOnly),
+        (
+            SerializerConfig::SchemaRegistry {
+                connection: registry_connection(),
+                subject: "events-value".to_owned(),
+                format: crate::schema_registry::SchemaFormat::JsonSchema,
+                protobuf_message_indexes: vec![0],
+            },
+            RecordSemantics::AppendOnly,
+        ),
+        (
+            SerializerConfig::DebeziumJson {
+                logical_name: "inventory".to_owned(),
+            },
+            RecordSemantics::Changelog,
+        ),
+        (
+            SerializerConfig::DebeziumSchemaRegistry {
+                logical_name: "inventory".to_owned(),
+                connection: registry_connection(),
+                key_subject: Some("inventory.events-key".to_owned()),
+                value_subject: "inventory.events-value".to_owned(),
+                format: crate::schema_registry::SchemaFormat::JsonSchema,
+                key_protobuf_message_indexes: vec![0],
+                value_protobuf_message_indexes: vec![0],
+            },
+            RecordSemantics::Changelog,
+        ),
+    ];
+
+    for (serializer, expected) in serializers {
+        assert_eq!(serializer.record_semantics(), expected);
+        assert_eq!(
+            serializer.supports_changelog(),
+            expected == RecordSemantics::Changelog
+        );
+    }
+    assert_eq!(
+        SerializerConfig::SUPPORTED_RECORD_SEMANTICS,
+        [RecordSemantics::AppendOnly, RecordSemantics::Changelog]
+    );
+}
+
+#[test]
 fn keyed_debezium_schema_registry_requires_both_subjects() {
     let config = SerializerConfig::DebeziumSchemaRegistry {
         logical_name: "inventory".to_owned(),

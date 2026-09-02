@@ -105,6 +105,9 @@ pub fn register_with_parsers(
                 },
                 |config| Ok(Box::new(kafka::KafkaSinkConnector::from_config(config)?)),
             )?
+            .sink_record_semantics(
+                serializer::SerializerConfig::SUPPORTED_RECORD_SEMANTICS.to_vec(),
+            )?
             .sink_checker::<kafka::KafkaSinkConfig, _, _>(|config| async move {
                 kafka::check_sink_connection(&config).await?;
                 Ok(transferia_registry::ConnectionCheckResult::default())

@@ -214,6 +214,8 @@ fn catalog_publishes_the_same_changelog_boundary_as_runtime_validation() -> anyh
     assert_eq!(
         changelog_sinks,
         [
+            "logbroker",
+            "kafka",
             "mysql",
             "postgres",
             "clickhouse",

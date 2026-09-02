@@ -17,6 +17,7 @@ use transferia_core::data::schema::{
 use transferia_core::data::system_columns::SystemColumnKind;
 use transferia_core::delivery::{DeliveryDiscovery, SinkLimits};
 use transferia_core::sink::Delivery;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 
 use super::debezium::DebeziumJsonEncoder;
 use super::{
@@ -92,6 +93,11 @@ fn default_message_indexes() -> Vec<i32> {
 }
 
 impl SerializerConfig {
+    pub const SUPPORTED_RECORD_SEMANTICS: [RecordSemantics; 2] = [
+        RecordSemantics::AppendOnly,
+        RecordSemantics::Changelog,
+    ];
+
     pub fn validate(&self) -> anyhow::Result<()> {
         match self {
             Self::Json => Ok(()),
@@ -179,11 +185,18 @@ impl SerializerConfig {
     }
 
     #[must_use]
+    pub const fn record_semantics(&self) -> RecordSemantics {
+        match self {
+            Self::Json | Self::SchemaRegistry { .. } => RecordSemantics::AppendOnly,
+            Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. } => {
+                RecordSemantics::Changelog
+            }
+        }
+    }
+
+    #[must_use]
     pub const fn supports_changelog(&self) -> bool {
-        matches!(
-            self,
-            Self::DebeziumJson { .. } | Self::DebeziumSchemaRegistry { .. }
-        )
+        matches!(self.record_semantics(), RecordSemantics::Changelog)
     }
 
     pub fn validate_discovery(&self, discovery: &DeliveryDiscovery) -> anyhow::Result<()> {

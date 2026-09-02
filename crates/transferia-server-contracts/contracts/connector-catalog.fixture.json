@@ -1709,7 +1709,8 @@
         },
         "delivery_modes": [],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": false,
         "connection_check": true,
@@ -3448,7 +3449,8 @@
         },
         "delivery_modes": [],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": false,
         "connection_check": true,

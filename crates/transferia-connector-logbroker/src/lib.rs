@@ -130,6 +130,9 @@ pub fn register_with_parsers(
                 }),
                 logbroker::build_sink_connector,
             )?
+            .sink_record_semantics(
+                serializer::SerializerConfig::SUPPORTED_RECORD_SEMANTICS.to_vec(),
+            )?
             .sink_checker::<logbroker::sink::LogbrokerSinkCheckConfig, _, _>(|config| async move {
                 let cancellation = tokio_util::sync::CancellationToken::new();
                 if !config.auth.is_configured() {
