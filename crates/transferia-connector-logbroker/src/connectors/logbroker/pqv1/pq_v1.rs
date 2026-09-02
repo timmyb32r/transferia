@@ -1648,6 +1648,7 @@ impl PqV1Source {
             let write_timestamp_ms = i64::try_from(message.write_timestamp_ms)?;
             messages.push(Message {
                 value: message.data,
+                tombstone: false,
                 key: None,
                 headers: Arc::from([]),
                 meta: MessageMeta {

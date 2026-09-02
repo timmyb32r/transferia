@@ -1,4 +1,4 @@
-use arrow::array::{BinaryArray, Int64Array, StringArray};
+use arrow::array::{BinaryArray, BooleanArray, Int64Array, StringArray};
 use bytes::Bytes;
 
 use super::*;
@@ -6,6 +6,7 @@ use super::*;
 fn message(value: &'static [u8]) -> Message {
     Message {
         value: Bytes::from_static(value),
+        tombstone: false,
         key: Some(Bytes::from_static(b"\xffkey")),
         headers: vec![
             MessageHeader {
@@ -38,7 +39,7 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
 
     assert!(dlq.is_none());
     assert_eq!(main.batch.num_rows(), 1);
-    assert_eq!(main.batch.num_columns(), 7);
+    assert_eq!(main.batch.num_columns(), 8);
     assert_eq!(
         main.batch
             .column(0)
@@ -77,13 +78,37 @@ fn defaults_preserve_binary_key_headers_timestamp_and_i64_offset() -> anyhow::Re
     );
     assert_eq!(
         main.batch
-            .column(6)
+            .column(7)
             .as_any()
             .downcast_ref::<BinaryArray>()
             .unwrap()
             .value(0),
         b"\0\xffvalue"
     );
+    Ok(())
+}
+
+#[test]
+fn tombstone_is_distinct_from_an_empty_value() -> anyhow::Result<()> {
+    let parser = Arc::new(RawToTableParser::new(
+        &RawToTableParserConfig::default(),
+        Arc::from("events"),
+    )?);
+    let mut session = parser.create_session(1024 * 1024);
+    let mut tombstone = message(b"");
+    tombstone.tombstone = true;
+    let (main, dlq) = session.parse_into(vec![message(b""), tombstone])?;
+
+    assert!(dlq.is_none());
+    let markers = main
+        .batch
+        .column(6)
+        .as_any()
+        .downcast_ref::<BooleanArray>()
+        .unwrap();
+    assert!(!markers.value(0));
+    assert!(markers.value(1));
+    assert!(main.batch.column(7).is_null(1));
     Ok(())
 }
 
@@ -100,7 +125,7 @@ fn invalid_typed_value_reaches_lossless_dlq() -> anyhow::Result<()> {
     assert_eq!(main.batch.num_rows(), 0);
     let dlq = dlq.expect("invalid JSON must reach DLQ");
     assert_eq!(dlq.batch.num_rows(), 1);
-    assert_eq!(dlq.batch.num_columns(), 8);
+    assert_eq!(dlq.batch.num_columns(), 9);
     assert_eq!(
         dlq.batch
             .column(5)
@@ -112,7 +137,7 @@ fn invalid_typed_value_reaches_lossless_dlq() -> anyhow::Result<()> {
     );
     assert_eq!(
         dlq.batch
-            .column(6)
+            .column(7)
             .as_any()
             .downcast_ref::<BinaryArray>()
             .unwrap()
@@ -121,7 +146,7 @@ fn invalid_typed_value_reaches_lossless_dlq() -> anyhow::Result<()> {
     );
     assert!(dlq
         .batch
-        .column(7)
+        .column(8)
         .as_any()
         .downcast_ref::<StringArray>()
         .unwrap()
@@ -162,6 +187,6 @@ fn destructive_omissions_are_explicit_and_remove_only_selected_columns() {
             .iter()
             .map(|column| column.name.as_str())
             .collect::<Vec<_>>(),
-        ["topic", "partition", "offset", "value"]
+        ["topic", "partition", "offset", "tombstone", "value"]
     );
 }

@@ -163,6 +163,7 @@ fn renamed_system_columns_are_materialized_physically() -> anyhow::Result<()> {
     let parser = JsonParser::new(&config, &system, "test".into())?;
     let message = Message {
         value: Bytes::from_static(b"{\"id\":1}"),
+        tombstone: false,
         key: None,
         headers: Arc::from([]),
         meta: transferia_core::data::message::MessageMeta {
@@ -817,6 +818,7 @@ fn materializes_system_columns_on_main_and_dlq() -> anyhow::Result<()> {
     let parser = JsonParser::new(&config, &system, "test".into())?;
     let message = Message {
         value: Bytes::from_static(b"{\"id\":\"ok\"}\nnot-json"),
+        tombstone: false,
         key: None,
         headers: Arc::from([]),
         meta: MessageMeta {

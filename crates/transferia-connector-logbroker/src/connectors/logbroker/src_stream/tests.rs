@@ -332,6 +332,7 @@ fn from_topic_name_discovers_and_routes_every_configured_topic() -> anyhow::Resu
     let mut session = connector.parser_plan.parser().create_session(1024 * 1024);
     let message = Message {
         value: bytes::Bytes::from_static(b"{\"id\":1}"),
+        tombstone: false,
         key: None,
         headers: Arc::from([]),
         meta: MessageMeta {

@@ -151,7 +151,6 @@ impl YdbDriverSourceConnector {
             cfg.driver == LogbrokerDriver::Ydb,
             "YdbDriverSourceConnector requires driver=ydb"
         );
-        let benchmark_discard = cfg.parser.parser.kind()? == "benchmark_discard";
         let from_topic_name = matches!(
             cfg.parser.common.table_naming,
             crate::parsers::TableNaming::FromTopicName
@@ -162,15 +161,12 @@ impl YdbDriverSourceConnector {
         if from_topic_name {
             parser_plan = parser_plan.route_by_message_topic();
         }
+        let behavior = parser_plan.source_behavior();
         Ok(Self {
             cfg,
             parser_plan,
             metrics_registry,
-            behavior: if benchmark_discard {
-                SourceBehavior::BenchmarkDiscard
-            } else {
-                SourceBehavior::AppendOnlyRows
-            },
+            behavior,
             source_counters: Mutex::new(HashMap::new()),
             token: OnceCell::new(),
         })

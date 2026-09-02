@@ -145,20 +145,14 @@ impl KafkaSource {
 }
 
 fn source_message(record: &OwnedMessage) -> DataPlaneResult<Message> {
-    let payload = record.payload().ok_or_else(|| {
-        DataPlaneFailure::fatal(anyhow::anyhow!(
-            "Kafka record at {}:{}:{} has no value",
-            record.topic(),
-            record.partition(),
-            record.offset()
-        ))
-    })?;
+    let payload = record.payload();
     let timestamp = match record.timestamp() {
         Timestamp::NotAvailable => None,
         Timestamp::CreateTime(value) | Timestamp::LogAppendTime(value) => Some(value),
     };
     Ok(Message {
-        value: Bytes::copy_from_slice(payload),
+        value: payload.map_or_else(Bytes::new, Bytes::copy_from_slice),
+        tombstone: payload.is_none(),
         key: record.key().map(Bytes::copy_from_slice),
         headers: record
             .headers()

@@ -155,6 +155,7 @@ impl ParserSession for SchemaRegistryParserSession {
             );
             decoded.push(Message {
                 value: Bytes::from(value),
+                tombstone: false,
                 key: message.key,
                 headers: message.headers,
                 meta: message.meta,

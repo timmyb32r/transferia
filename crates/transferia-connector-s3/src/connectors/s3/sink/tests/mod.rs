@@ -1057,6 +1057,7 @@ async fn multirow_pqv1_message_with_field_partitioning_commits_after_every_objec
             value: Bytes::from_static(
                 b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
             ),
+            tombstone: false,
             key: None,
             headers: Arc::from([]),
             meta: MessageMeta {
@@ -1129,6 +1130,7 @@ async fn partial_epoch_failure_replays_to_the_uninterrupted_object_map() {
                 value: Bytes::from_static(
                     b"{\"id\":77,\"nullable\":null}\n{\"id\":88,\"nullable\":null}",
                 ),
+                tombstone: false,
                 key: None,
                 headers: Arc::from([]),
                 meta: MessageMeta {
@@ -1268,6 +1270,7 @@ async fn deterministic_epoch_can_grow_beyond_pipeline_channel_capacity() {
     let batches = (1..=DELIVERIES)
         .map(|offset| Message {
             value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
+            tombstone: false,
             key: None,
             headers: Arc::from([]),
             meta: MessageMeta {
@@ -1323,6 +1326,7 @@ async fn durable_epoch_releases_memory_before_a_delivery_tail_closes() {
     let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
     let message = |offset| Message {
         value: Bytes::from(format!("{{\"id\":{offset},\"nullable\":null}}")),
+        tombstone: false,
         key: None,
         headers: Arc::from([]),
         meta: MessageMeta {
@@ -1590,6 +1594,7 @@ async fn partition_change_tracks_the_last_row_of_a_multirow_source_message() {
     let (commit_tx, mut commit_rx) = mpsc::unbounded_channel();
     let message = |value: &'static [u8], offset| Message {
         value: Bytes::from_static(value),
+        tombstone: false,
         key: None,
         headers: Arc::from([]),
         meta: MessageMeta {

@@ -9,6 +9,10 @@ use crate::source::CommitMarker;
 pub struct Message {
     pub value: Bytes,
 
+    /// True only when the transport carried an explicit null queue value.
+    /// Empty byte strings remain ordinary payloads.
+    pub tombstone: bool,
+
     pub key: Option<Bytes>,
 
     pub headers: Arc<[MessageHeader]>,
@@ -39,6 +43,7 @@ impl Message {
     pub fn new(value: Bytes) -> Self {
         Self {
             value,
+            tombstone: false,
             key: None,
             headers: Arc::from([]),
             meta: MessageMeta::default(),

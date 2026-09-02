@@ -127,30 +127,45 @@ impl ChangelogBatch {
                         )?;
                     }
                     ChangeOperation::Update => {
-                        anyhow::ensure!(
-                            changed.iter().all(|changed| *changed),
-                            "full-old-value changelog update must carry a complete current row"
-                        );
-                        apply_collapsed_event(
-                            &mut latest,
-                            old_keys.row(row).as_ref().to_vec(),
-                            row * 2,
-                            ChangeOperation::Delete,
-                            ValueSource::OldPrimaryKey(row),
-                            changed,
-                            &self.primary_key_indexes,
-                            self.source_versions[row],
-                        )?;
-                        apply_collapsed_event(
-                            &mut latest,
-                            keys.row(row).as_ref().to_vec(),
-                            row * 2 + 1,
-                            ChangeOperation::Create,
-                            ValueSource::Current(row),
-                            changed,
-                            &self.primary_key_indexes,
-                            self.source_versions[row],
-                        )?;
+                        let old_key = old_keys.row(row).as_ref().to_vec();
+                        let current_key = keys.row(row).as_ref().to_vec();
+                        if old_key == current_key {
+                            apply_collapsed_event(
+                                &mut latest,
+                                current_key,
+                                row * 2 + 1,
+                                operation,
+                                ValueSource::Current(row),
+                                changed,
+                                &self.primary_key_indexes,
+                                self.source_versions[row],
+                            )?;
+                        } else {
+                            anyhow::ensure!(
+                                changed.iter().all(|changed| *changed),
+                                "primary-key-changing changelog update must carry a complete current row"
+                            );
+                            apply_collapsed_event(
+                                &mut latest,
+                                old_key,
+                                row * 2,
+                                ChangeOperation::Delete,
+                                ValueSource::OldPrimaryKey(row),
+                                changed,
+                                &self.primary_key_indexes,
+                                self.source_versions[row],
+                            )?;
+                            apply_collapsed_event(
+                                &mut latest,
+                                current_key,
+                                row * 2 + 1,
+                                ChangeOperation::Create,
+                                ValueSource::Current(row),
+                                changed,
+                                &self.primary_key_indexes,
+                                self.source_versions[row],
+                            )?;
+                        }
                     }
                     ChangeOperation::Delete => {
                         apply_collapsed_event(
@@ -240,13 +255,10 @@ impl ChangelogBatch {
                         }
                         ChangeOperation::Delete => {
                             collapsed.operation = ChangeOperation::Delete;
-                            for (index, value_source) in
-                                collapsed.value_rows.iter_mut().enumerate()
+                            for (index, value_source) in collapsed.value_rows.iter_mut().enumerate()
                             {
-                                *value_source = self
-                                    .primary_key_indexes
-                                    .contains(&index)
-                                    .then_some(source);
+                                *value_source =
+                                    self.primary_key_indexes.contains(&index).then_some(source);
                             }
                         }
                     }
@@ -294,12 +306,19 @@ impl ChangelogBatch {
                         .iter()
                         .map(|row| {
                             row.value_rows[column_index]
-                                .ok_or_else(|| anyhow::anyhow!("collapsed changelog column source is missing"))
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!("collapsed changelog column source is missing")
+                                })
                                 .and_then(|source| match source {
-                                    ValueSource::Current(row) => u32::try_from(row).map_err(Into::into),
+                                    ValueSource::Current(row) => {
+                                        u32::try_from(row).map_err(Into::into)
+                                    }
                                     ValueSource::OldPrimaryKey(row) => u32::try_from(
-                                        self.rows.num_rows().checked_add(row).ok_or_else(|| anyhow::anyhow!("old-value row index overflow"))?
-                                    ).map_err(Into::into),
+                                        self.rows.num_rows().checked_add(row).ok_or_else(|| {
+                                            anyhow::anyhow!("old-value row index overflow")
+                                        })?,
+                                    )
+                                    .map_err(Into::into),
                                 })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -308,7 +327,9 @@ impl ChangelogBatch {
                             .primary_key_indexes
                             .iter()
                             .position(|index| *index == column_index)
-                            .ok_or_else(|| anyhow::anyhow!("primary-key projection is inconsistent"))?;
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("primary-key projection is inconsistent")
+                            })?;
                         if let Some(old) = &self.old_primary_keys {
                             concat(&[
                                 self.rows.column(column_index).as_ref(),
@@ -320,12 +341,7 @@ impl ChangelogBatch {
                     } else {
                         self.rows.column(column_index).clone()
                     };
-                    take(
-                        source.as_ref(),
-                        &UInt32Array::from(indexes),
-                        None,
-                    )
-                    .map_err(Into::into)
+                    take(source.as_ref(), &UInt32Array::from(indexes), None).map_err(Into::into)
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let fields = column_indexes
@@ -426,10 +442,7 @@ pub fn project_sink_batch(
 ) -> anyhow::Result<ProjectedSinkBatch> {
     let dataset = validate_batch_against_discovery(discovery, batch)?;
     let stored = project_columns(&batch.batch, &dataset.stored_schema.columns)?;
-    let Some(operation) = batch
-        .system_columns
-        .get(SystemColumnKind::ChangeOperation)
-    else {
+    let Some(operation) = batch.system_columns.get(SystemColumnKind::ChangeOperation) else {
         return Ok(ProjectedSinkBatch::AppendOnly(stored));
     };
     anyhow::ensure!(
@@ -616,13 +629,23 @@ fn old_primary_key_batch(
         .incoming_schema
         .columns
         .iter()
-        .filter_map(|column| column.old_value_of.as_deref().map(|current| (current, column)))
+        .filter_map(|column| {
+            column
+                .old_value_of
+                .as_deref()
+                .map(|current| (current, column))
+        })
         .collect::<HashMap<_, _>>();
     let old_key_columns = dataset
         .incoming_schema
         .columns
         .iter()
-        .filter_map(|column| column.old_key_of.as_deref().map(|current| (current, column)))
+        .filter_map(|column| {
+            column
+                .old_key_of
+                .as_deref()
+                .map(|current| (current, column))
+        })
         .collect::<HashMap<_, _>>();
     if old_value_columns.is_empty() && old_key_columns.is_empty() {
         return Ok(None);
@@ -645,7 +668,10 @@ fn old_primary_key_batch(
                 anyhow::anyhow!("primary-key column '{}' has no old-value pair", key.name)
             })?;
             schema.index_of(&old.name).map_err(|_| {
-                anyhow::anyhow!("old-value column '{}' is absent from the Arrow batch", old.name)
+                anyhow::anyhow!(
+                    "old-value column '{}' is absent from the Arrow batch",
+                    old.name
+                )
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

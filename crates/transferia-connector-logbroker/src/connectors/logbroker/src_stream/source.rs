@@ -1090,6 +1090,7 @@ pub(super) fn decode_batches(
             });
             messages.push(Message {
                 value,
+                tombstone: false,
                 key: None,
                 headers,
                 meta: MessageMeta {

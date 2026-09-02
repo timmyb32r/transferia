@@ -201,6 +201,7 @@ impl Source for S3Source {
             Ok(SourceBatch::Raw {
                 messages: vec![Message {
                     value: payload,
+                    tombstone: false,
                     key: None,
                     headers: Arc::from([]),
                     meta: MessageMeta {

@@ -1,6 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::parsers::debezium::DebeziumParserConfig;
 use crate::parsers::json_parser::JsonParserConfig;
 use crate::parsers::raw_to_table::RawToTableParserConfig;
 use crate::parsers::schema_registry::SchemaRegistryParserConfig;
@@ -17,6 +18,8 @@ pub enum ParserSchema {
     Json(JsonParserSchema),
     #[schemars(title = "Confluent Schema Registry parser")]
     SchemaRegistry(SchemaRegistryParserSchema),
+    #[schemars(title = "Debezium parser")]
+    Debezium(DebeziumParserSchema),
     #[schemars(title = "Raw to table parser")]
     RawToTable(RawToTableParserSchema),
     #[schemars(
@@ -24,6 +27,18 @@ pub enum ParserSchema {
         extend("x-ui" = { "order": 1_000_000 })
     )]
     BenchmarkDiscard(BenchmarkDiscardParserSchema),
+}
+
+#[derive(JsonSchema)]
+pub struct DebeziumParserSchema {
+    #[schemars(
+        title = "Parser settings",
+        extend("x-ui" = { "widget": "parser_common" })
+    )]
+    pub common: CommonParserConfig,
+
+    #[schemars(title = "Debezium parser")]
+    pub debezium: DebeziumParserConfig,
 }
 
 #[derive(JsonSchema)]

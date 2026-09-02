@@ -124,6 +124,7 @@ fn raw_to_table_plan_uses_source_coordinates_as_primary_key() -> anyhow::Result<
             "timestamp",
             "headers",
             "key",
+            "tombstone",
             "value",
             "failure_reason"
         ]
@@ -196,7 +197,7 @@ fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
     )?;
     let plan = ParserPlan::from_config(&config, "topic")?;
 
-    let hidden = plan.sink_schema(false);
+    let hidden = plan.stored_schema(false);
     assert_eq!(
         hidden
             .columns
@@ -205,7 +206,7 @@ fn parser_plan_schemas_follow_system_column_visibility() -> anyhow::Result<()> {
             .collect::<Vec<_>>(),
         ["value"]
     );
-    let visible = plan.sink_schema(true);
+    let visible = plan.incoming_schema();
     assert_eq!(
         visible
             .columns

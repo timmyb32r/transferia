@@ -1,5 +1,6 @@
 pub mod benchmark_discard;
 pub mod config;
+pub mod debezium;
 pub mod detection;
 pub mod json_parser;
 mod native_source;
@@ -21,6 +22,7 @@ use transferia_core::delivery::{
     DatasetRole, DeliveryDiscovery, DeliveryDiscoveryRequest, DiscoveredDataset,
     DiscoveredSystemColumn, SchemaOrigin, SourceTopology,
 };
+use transferia_delivery_contracts::semantics::{RecordSemantics, SourceBehavior};
 
 pub use config::{CommonParserConfig, ParserConfig, SystemColumnsConfig, TableNaming};
 pub use plugin::{ParserPluginRegistry, ParserPluginSpec};
@@ -36,7 +38,9 @@ pub struct ParserPlan {
     parser: Arc<dyn ParserFactory>,
     table: Arc<str>,
     dataset_schema: DatasetSchema,
+    stored_dataset_schema: DatasetSchema,
     parses_rows: bool,
+    record_semantics: RecordSemantics,
     discovered_system_columns: Vec<DiscoveredSystemColumn>,
     primary_key: Arc<[String]>,
     dlq_dataset_schema: DatasetSchema,
@@ -49,7 +53,9 @@ impl ParserPlan {
             parser: Arc::new(native_source::NativeSourceParser),
             table: Arc::from(""),
             dataset_schema: DatasetSchema::default(),
+            stored_dataset_schema: DatasetSchema::default(),
             parses_rows: true,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
             dlq_dataset_schema: default_dlq_schema(),
@@ -77,8 +83,8 @@ impl ParserPlan {
                 DiscoveredDataset {
                     role: DatasetRole::Main,
                     name: table,
-                    incoming_schema: self.sink_schema(true),
-                    stored_schema: self.sink_schema(request.keep_system_columns),
+                    incoming_schema: self.incoming_schema(),
+                    stored_schema: self.stored_schema(request.keep_system_columns),
                     system_columns: system_columns.clone(),
                 },
                 DiscoveredDataset {
@@ -154,6 +160,11 @@ impl ParserPlan {
                     )?) as Arc<dyn ParserFactory>;
                     (parser, schema, true, discovered_system_columns, primary_key)
                 }
+                "debezium" => {
+                    let parser_config: debezium::DebeziumParserConfig =
+                        serde_yaml::from_value(config.parser.raw()?.clone())?;
+                    return Self::from_debezium_config(&config.common, &parser_config, topic_path);
+                }
                 "raw_to_table" => {
                     anyhow::ensure!(
                         config.common.system_columns.enabled().next().is_none(),
@@ -181,6 +192,7 @@ impl ParserPlan {
                     let mut supported = vec![
                         "json_parser",
                         "schema_registry",
+                        "debezium",
                         "raw_to_table",
                         "benchmark_discard",
                     ];
@@ -194,10 +206,49 @@ impl ParserPlan {
         Ok(Self {
             parser,
             table: config.resolve_table_name(topic_path)?.into(),
+            stored_dataset_schema: dataset_schema.clone(),
             dataset_schema,
             parses_rows,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns,
             primary_key,
+            dlq_dataset_schema: default_dlq_schema(),
+        })
+    }
+
+    pub fn from_debezium_config(
+        common: &CommonParserConfig,
+        parser_config: &debezium::DebeziumParserConfig,
+        source_name: &str,
+    ) -> anyhow::Result<Self> {
+        common.system_columns.validate()?;
+        anyhow::ensure!(
+            common.system_columns.enabled().next().is_none(),
+            "debezium owns its changelog and source-metadata columns; common.system_columns must be empty"
+        );
+        let table: Arc<str> = common.resolve_table_name(source_name)?.into();
+        let (dataset_schema, stored_dataset_schema) = parser_config.schemas()?;
+        let discovered_system_columns = [
+            transferia_core::data::system_columns::SystemColumnKind::Offset,
+            transferia_core::data::system_columns::SystemColumnKind::ChangeOperation,
+            transferia_core::data::system_columns::SystemColumnKind::ChangedColumns,
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+        let parser = Arc::new(debezium::DebeziumParser::new(
+            parser_config,
+            Arc::clone(&table),
+        )?) as Arc<dyn ParserFactory>;
+        Ok(Self {
+            parser,
+            table,
+            dataset_schema,
+            stored_dataset_schema,
+            parses_rows: true,
+            record_semantics: RecordSemantics::Changelog,
+            discovered_system_columns,
+            primary_key: Arc::from(parser_config.keys.clone()),
             dlq_dataset_schema: default_dlq_schema(),
         })
     }
@@ -229,8 +280,10 @@ impl ParserPlan {
         Ok(Self {
             parser,
             table,
+            stored_dataset_schema: dataset_schema.clone(),
             dataset_schema,
             parses_rows: true,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns,
             primary_key: primary_key.into(),
             dlq_dataset_schema: dlq_dataset_schema.unwrap_or_else(default_dlq_schema),
@@ -267,8 +320,10 @@ impl ParserPlan {
         Ok(Self {
             parser,
             table,
+            stored_dataset_schema: schema.clone(),
             dataset_schema: schema,
             parses_rows: true,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns,
             primary_key: Arc::from(parser_config.keys.clone()),
             dlq_dataset_schema: default_dlq_schema(),
@@ -293,8 +348,10 @@ impl ParserPlan {
         Ok(Self {
             parser,
             table,
+            stored_dataset_schema: parser_config.dataset_schema(),
             dataset_schema: parser_config.dataset_schema(),
             parses_rows: true,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from(raw_to_table::PRIMARY_KEY.map(str::to_owned)),
             dlq_dataset_schema: raw_to_table::dlq_dataset_schema(),
@@ -310,7 +367,9 @@ impl ParserPlan {
             ))),
             table,
             dataset_schema: DatasetSchema::default(),
+            stored_dataset_schema: DatasetSchema::default(),
             parses_rows: false,
+            record_semantics: RecordSemantics::AppendOnly,
             discovered_system_columns: Vec::new(),
             primary_key: Arc::from([]),
             dlq_dataset_schema: default_dlq_schema(),
@@ -353,21 +412,64 @@ impl ParserPlan {
     }
 
     #[must_use]
-    pub fn sink_schema(&self, keep_system_columns: bool) -> DatasetSchema {
+    pub const fn record_semantics(&self) -> RecordSemantics {
+        self.record_semantics
+    }
+
+    #[must_use]
+    pub const fn source_behavior(&self) -> SourceBehavior {
+        if !self.parses_rows {
+            return SourceBehavior::BenchmarkDiscard;
+        }
+        match self.record_semantics {
+            RecordSemantics::AppendOnly => SourceBehavior::AppendOnlyRows,
+            RecordSemantics::Changelog => SourceBehavior::ChangelogRows,
+        }
+    }
+
+    #[must_use]
+    pub fn incoming_schema(&self) -> DatasetSchema {
         let mut schema = self.dataset_schema.clone();
+        schema
+            .columns
+            .extend(self.discovered_system_columns.iter().map(|column| {
+                SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+                    .with_constraints(
+                        self.primary_key
+                            .iter()
+                            .any(|name| name == column.name.as_ref()),
+                        false,
+                        None,
+                    )
+            }));
+        schema
+    }
+
+    #[must_use]
+    pub fn stored_schema(&self, keep_system_columns: bool) -> DatasetSchema {
+        let mut schema = self.stored_dataset_schema.clone();
         if keep_system_columns {
-            schema
-                .columns
-                .extend(self.discovered_system_columns.iter().map(|column| {
-                    SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
-                        .with_constraints(
-                            self.primary_key
-                                .iter()
-                                .any(|name| name == column.name.as_ref()),
-                            false,
-                            None,
+            schema.columns.extend(
+                self.discovered_system_columns
+                    .iter()
+                    .filter(|column| {
+                        !matches!(
+                            column.kind,
+                            transferia_core::data::system_columns::SystemColumnKind::ChangeOperation
+                                | transferia_core::data::system_columns::SystemColumnKind::ChangedColumns
                         )
-                }));
+                    })
+                    .map(|column| {
+                        SchemaColumn::new(column.name.to_string(), column.kind.data_type(), false)
+                            .with_constraints(
+                                self.primary_key
+                                    .iter()
+                                    .any(|name| name == column.name.as_ref()),
+                                false,
+                                None,
+                            )
+                    }),
+            );
         }
         schema
     }
@@ -541,7 +643,7 @@ impl ParserEntry {
         match *keys.as_slice() {
             [single] => Ok(single),
             [] => anyhow::bail!(
-                "parser: no parser key found (expected 'json_parser', 'schema_registry', 'raw_to_table', or 'benchmark_discard')"
+                "parser: no parser key found (expected 'json_parser', 'schema_registry', 'debezium', 'raw_to_table', or 'benchmark_discard')"
             ),
             _ => anyhow::bail!("parser: expected exactly one parser key, got {keys:?}"),
         }

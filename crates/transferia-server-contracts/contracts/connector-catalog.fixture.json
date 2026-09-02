@@ -364,6 +364,10 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
+                  "title": "Debezium parser",
+                  "$ref": "#/$defs/DebeziumParserSchema"
+                },
+                {
                   "title": "Raw to table parser",
                   "$ref": "#/$defs/RawToTableParserSchema"
                 },
@@ -972,6 +976,98 @@
                 }
               ]
             },
+            "DebeziumParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "debezium": {
+                  "title": "Debezium parser",
+                  "$ref": "#/$defs/DebeziumParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "debezium"
+              ]
+            },
+            "DebeziumParserConfig": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "title": "Input format",
+                  "$ref": "#/$defs/DebeziumInput"
+                },
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ColumnMapping"
+                  },
+                  "minItems": 1,
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns",
+                "keys"
+              ]
+            },
+            "DebeziumInput": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Confluent Schema Registry",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "schema_registry"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection"
+                  ]
+                }
+              ]
+            },
             "RawToTableParserSchema": {
               "type": "object",
               "properties": {
@@ -1124,7 +1220,8 @@
           "stream"
         ],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": true,
         "connection_check": true,
@@ -1908,6 +2005,10 @@
                   "$ref": "#/$defs/SchemaRegistryParserSchema"
                 },
                 {
+                  "title": "Debezium parser",
+                  "$ref": "#/$defs/DebeziumParserSchema"
+                },
+                {
                   "title": "Raw to table parser",
                   "$ref": "#/$defs/RawToTableParserSchema"
                 },
@@ -2516,6 +2617,98 @@
                 }
               ]
             },
+            "DebeziumParserSchema": {
+              "type": "object",
+              "properties": {
+                "common": {
+                  "title": "Parser settings",
+                  "$ref": "#/$defs/CommonParserConfig",
+                  "x-ui": {
+                    "widget": "parser_common"
+                  }
+                },
+                "debezium": {
+                  "title": "Debezium parser",
+                  "$ref": "#/$defs/DebeziumParserConfig"
+                }
+              },
+              "required": [
+                "common",
+                "debezium"
+              ]
+            },
+            "DebeziumParserConfig": {
+              "type": "object",
+              "properties": {
+                "input": {
+                  "title": "Input format",
+                  "$ref": "#/$defs/DebeziumInput"
+                },
+                "columns": {
+                  "title": "Data schema",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ColumnMapping"
+                  },
+                  "minItems": 1,
+                  "x-ui": {
+                    "widget": "column_mappings",
+                    "initial_items": 1
+                  }
+                },
+                "keys": {
+                  "title": "Keys",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "x-ui": {
+                    "widget": "column_keys"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "columns",
+                "keys"
+              ]
+            },
+            "DebeziumInput": {
+              "oneOf": [
+                {
+                  "title": "JSON",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "json"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "title": "Confluent Schema Registry",
+                  "type": "object",
+                  "properties": {
+                    "connection": {
+                      "$ref": "#/$defs/SchemaRegistryConnection"
+                    },
+                    "type": {
+                      "type": "string",
+                      "const": "schema_registry"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "connection"
+                  ]
+                }
+              ]
+            },
             "RawToTableParserSchema": {
               "type": "object",
               "properties": {
@@ -2665,7 +2858,8 @@
           "stream"
         ],
         "record_semantics": [
-          "append_only"
+          "append_only",
+          "changelog"
         ],
         "partitioned": true,
         "connection_check": true,

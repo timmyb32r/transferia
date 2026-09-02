@@ -24,7 +24,7 @@ use transferia_core::delivery::{
 use transferia_core::sink::Sink;
 use transferia_core::source::Source;
 use transferia_delivery_contracts::semantics::{
-    EndpointDescriptor, QueueSinkDescriptor, SourceBehavior, SourceDeliveryModes, SourceDescriptor,
+    EndpointDescriptor, QueueSinkDescriptor, SourceDeliveryModes, SourceDescriptor,
 };
 use transferia_registry::{
     SinkBuildContext, SinkConnector, SinkPrepare, SourceBuildContext, SourceConnector,
@@ -97,7 +97,7 @@ impl KafkaSourceConnector {
 impl SourceConnector for KafkaSourceConnector {
     fn compatibility(&self) -> EndpointDescriptor {
         EndpointDescriptor::Kafka(SourceDescriptor {
-            behavior: SourceBehavior::AppendOnlyRows,
+            behavior: self.parser_plan.source_behavior(),
             delivery_modes: SourceDeliveryModes::STREAM,
         })
     }

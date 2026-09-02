@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, Int64Builder, StringBuilder, TimestampMillisecondBuilder,
+    ArrayRef, BinaryBuilder, BooleanBuilder, Int64Builder, StringBuilder,
+    TimestampMillisecondBuilder,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -101,7 +102,12 @@ impl RawToTableParserConfig {
             }
             columns.push(key);
         }
-        let mut value = SchemaColumn::new("value".into(), self.value_type.arrow_type(), false);
+        columns.push(SchemaColumn::new(
+            "tombstone".into(),
+            DataType::Boolean,
+            false,
+        ));
+        let mut value = SchemaColumn::new("value".into(), self.value_type.arrow_type(), true);
         if matches!(self.value_type, RawValueType::Json) {
             value = value.with_arrow_extension(ARROW_JSON_EXTENSION_NAME);
         }
@@ -225,16 +231,23 @@ fn parse_messages(
         .config
         .preserve_key
         .then(|| RawBuilder::new(parser.config.key_type));
+    let mut tombstone = BooleanBuilder::new();
     let mut value = RawBuilder::new(parser.config.value_type);
     let mut rejected = Vec::<(usize, String)>::new();
     let mut headers_scratch = Vec::new();
 
     for (index, message) in messages.iter().enumerate() {
         let (message_topic, message_partition, message_offset) = required_metadata(&message.meta)?;
-        let validation = parser
-            .config
-            .value_type
-            .validate(&message.value, "value")
+        let validation = (!message.tombstone || message.value.is_empty())
+            .then_some(())
+            .ok_or_else(|| "raw_to_table tombstone carries a nonempty value".to_owned())
+            .and_then(|()| {
+                if message.tombstone {
+                    Ok(())
+                } else {
+                    parser.config.value_type.validate(&message.value, "value")
+                }
+            })
             .and_then(|()| {
                 if parser.config.preserve_key {
                     if let Some(message_key) = &message.key {
@@ -261,7 +274,12 @@ fn parse_messages(
         if let Some(builder) = &mut key {
             builder.append_option(message.key.as_deref())?;
         }
-        value.append(&message.value)?;
+        tombstone.append_value(message.tombstone);
+        if message.tombstone {
+            value.append_option(None)?;
+        } else {
+            value.append(&message.value)?;
+        }
     }
 
     let mut arrays: Vec<ArrayRef> = vec![
@@ -278,6 +296,7 @@ fn parse_messages(
     if let Some(builder) = &mut key {
         arrays.push(builder.finish());
     }
+    arrays.push(Arc::new(tombstone.finish()));
     arrays.push(value.finish());
     let main = TableData::new(
         Arc::clone(&parser.table),
@@ -305,6 +324,7 @@ fn build_dlq(
     let mut write_timestamp = TimestampMillisecondBuilder::new();
     let mut headers = StringBuilder::new();
     let mut key = BinaryBuilder::new();
+    let mut tombstone = BooleanBuilder::new();
     let mut value = BinaryBuilder::new();
     let mut failure_reason = StringBuilder::new();
     let mut headers_scratch = Vec::new();
@@ -318,6 +338,7 @@ fn build_dlq(
         write_headers_json(&message.headers, &mut headers_scratch)?;
         headers.append_value(std::str::from_utf8(&headers_scratch)?);
         key.append_option(message.key.as_deref());
+        tombstone.append_value(message.tombstone);
         value.append_value(&message.value);
         failure_reason.append_value(reason);
     }
@@ -328,6 +349,7 @@ fn build_dlq(
         Arc::new(write_timestamp.finish()),
         Arc::new(headers.finish()),
         Arc::new(key.finish()),
+        Arc::new(tombstone.finish()),
         Arc::new(value.finish()),
         Arc::new(failure_reason.finish()),
     ];
@@ -456,6 +478,7 @@ pub fn dlq_dataset_schema() -> DatasetSchema {
         SchemaColumn::new("headers".into(), DataType::Utf8, false)
             .with_arrow_extension(ARROW_JSON_EXTENSION_NAME),
         SchemaColumn::new("key".into(), DataType::Binary, true),
+        SchemaColumn::new("tombstone".into(), DataType::Boolean, false),
         SchemaColumn::new("value".into(), DataType::Binary, false),
         SchemaColumn::new("failure_reason".into(), DataType::Utf8, false),
     ]);

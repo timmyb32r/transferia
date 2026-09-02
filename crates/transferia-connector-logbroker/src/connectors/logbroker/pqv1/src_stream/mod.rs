@@ -185,13 +185,9 @@ impl PqV1SourceConnector {
             !cfg.benchmark_discard_before_decompression || parser_kind == "benchmark_discard",
             "pqv1.benchmark_discard_before_decompression requires parser.benchmark_discard"
         );
-        let behavior = if parser_kind == "benchmark_discard" {
-            SourceBehavior::BenchmarkDiscard
-        } else {
-            SourceBehavior::AppendOnlyRows
-        };
         let parser_plan =
             ParserPlan::from_config_with_plugins(&cfg.parser, &cfg.topic_path, parser_plugins)?;
+        let behavior = parser_plan.source_behavior();
         let decompression_slots = Arc::new(Semaphore::new(cfg.decompression_concurrency));
         let resolved_partitions = Arc::new(OnceLock::new());
         if !cfg.partition_group_ids.is_empty() {

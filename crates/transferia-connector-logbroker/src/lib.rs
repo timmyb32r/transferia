@@ -12,6 +12,7 @@ pub use connectors::logbroker;
 
 use std::sync::Arc;
 use transferia_delivery_contracts::metrics::MetricsRegistry;
+use transferia_delivery_contracts::semantics::RecordSemantics;
 use transferia_registry::{ComponentRegistration, DeliveryMode, RegistryBuilder};
 
 pub fn register(
@@ -47,6 +48,7 @@ pub fn register_with_parsers(
                     )
                 },
             )?
+            .source_record_semantics(vec![RecordSemantics::AppendOnly, RecordSemantics::Changelog])?
             .source_schema_previewer(move |raw, request, _cancellation| {
                 let parser_plugins = schema_preview_plugins.clone();
                 async move {
