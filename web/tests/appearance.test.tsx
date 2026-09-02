@@ -158,7 +158,7 @@ describe("appearance preferences", () => {
     });
   });
 
-  it("derives every matrix cell from catalog record semantics", () => {
+  it("derives delivery modes without confusing them with record semantics", () => {
     const routes = compatibilityRoutes(CATALOG);
 
     expect(routes).toHaveLength(4);
@@ -167,8 +167,9 @@ describe("appearance preferences", () => {
         (route) => route.source.key === "postgres" && route.sink.key === "s3",
       ),
     ).toMatchObject({
-      supported: ["append_only"],
-      unsupported: ["changelog"],
+      supported: ["batch"],
+      unsupported: ["stream"],
+      partial: [],
     });
     expect(
       routes.find(
@@ -176,8 +177,18 @@ describe("appearance preferences", () => {
           route.source.key === "postgres" && route.sink.key === "postgres",
       ),
     ).toMatchObject({
-      supported: ["append_only", "changelog"],
+      supported: ["batch", "stream"],
       unsupported: [],
+      partial: [],
+    });
+    expect(
+      routes.find(
+        (route) => route.source.key === "kafka" && route.sink.key === "s3",
+      ),
+    ).toMatchObject({
+      supported: ["stream"],
+      unsupported: [],
+      partial: [],
     });
   });
 
@@ -220,6 +231,23 @@ describe("appearance preferences", () => {
         "PostgreSQL to PostgreSQL: Batch and Stream supported",
       ),
     ).toBeTruthy();
+
+    const intersection = view.getByLabelText(
+      "PostgreSQL to S3: Batch supported; Stream not supported",
+    );
+    fireEvent.mouseEnter(intersection);
+    expect(intersection.classList.contains("active-intersection")).toBe(true);
+    expect(intersection.closest("tr")?.classList.contains("active-row")).toBe(
+      true,
+    );
+    expect(
+      view
+        .getByRole("columnheader", { name: "S3" })
+        .classList.contains("active-column"),
+    ).toBe(true);
+
+    fireEvent.mouseLeave(view.getByRole("table"));
+    expect(intersection.classList.contains("active-intersection")).toBe(false);
     expect(view.getByRole("button", { name: /Settings/ })).toBe(settings);
 
     fireEvent.keyDown(document, { key: "Escape" });

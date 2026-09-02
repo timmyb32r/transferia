@@ -1,23 +1,39 @@
 import { createPortal } from "preact/compat";
-import { useEffect, useMemo, useRef } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import type {
   ConnectorDefinition,
+  DeliveryMode,
   RecordSemantics,
   UiCatalog,
 } from "../generated/apiContract";
 import { Button } from "./Button";
 
-const SEMANTICS_LABEL: Record<RecordSemantics, string> = {
-  append_only: "Batch",
-  changelog: "Stream",
+const DELIVERY_MODE_LABEL: Record<DeliveryMode, string> = {
+  batch: "Batch",
+  stream: "Stream",
 };
 
 export interface CompatibilityRoute {
   source: ConnectorDefinition;
   sink: ConnectorDefinition;
-  supported: RecordSemantics[];
-  unsupported: RecordSemantics[];
+  supported: DeliveryMode[];
+  unsupported: DeliveryMode[];
+  partial: DeliveryMode[];
+}
+
+function semanticsForMode(
+  modes: DeliveryMode[],
+  semantics: RecordSemantics[],
+  mode: DeliveryMode,
+): RecordSemantics[] {
+  if (mode === "batch") return ["append_only"];
+  if (!modes.includes("batch")) return semantics;
+
+  const streamSemantics = semantics.filter(
+    (candidate) => candidate !== "append_only",
+  );
+  return streamSemantics.length > 0 ? streamSemantics : ["append_only"];
 }
 
 export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
@@ -29,13 +45,32 @@ export function compatibilityRoutes(catalog: UiCatalog): CompatibilityRoute[] {
   );
   return sources.flatMap((source) =>
     sinks.map((sink) => {
-      const produced = source.source!.record_semantics;
+      const modes = source.source!.delivery_modes;
       const accepted = new Set(sink.sink!.record_semantics);
+      const supported: DeliveryMode[] = [];
+      const unsupported: DeliveryMode[] = [];
+      const partial: DeliveryMode[] = [];
+      for (const mode of modes) {
+        const produced = semanticsForMode(
+          modes,
+          source.source!.record_semantics,
+          mode,
+        );
+        const acceptedCount = produced.filter((semantics) =>
+          accepted.has(semantics),
+        ).length;
+        if (acceptedCount === 0) unsupported.push(mode);
+        else {
+          supported.push(mode);
+          if (acceptedCount < produced.length) partial.push(mode);
+        }
+      }
       return {
         source,
         sink,
-        supported: produced.filter((semantics) => accepted.has(semantics)),
-        unsupported: produced.filter((semantics) => !accepted.has(semantics)),
+        supported,
+        unsupported,
+        partial,
       };
     }),
   );
@@ -50,6 +85,10 @@ export function CompatibilityMatrixDialog({
 }) {
   const dialog = useRef<HTMLElement>(null);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const [activeCell, setActiveCell] = useState<{
+    source: string;
+    sink: string;
+  } | null>(null);
   const sources = useMemo(
     () => catalog.connectors.filter((connector) => connector.source),
     [catalog],
@@ -101,8 +140,8 @@ export function CompatibilityMatrixDialog({
             <small>LIVE CONNECTOR CATALOG</small>
             <h2 id="compatibility-title">Transfer compatibility</h2>
             <p id="compatibility-description">
-              Batch is an append-only flow. Stream includes inserts, updates,
-              and deletes.
+              Batch and Stream are delivery modes. Compatibility also accounts
+              for append-only and change-event semantics.
             </p>
           </div>
           <Button
@@ -115,9 +154,9 @@ export function CompatibilityMatrixDialog({
         </header>
 
         <div class="compatibility-legend" aria-label="Legend">
-          <span class="compatibility-badge append-only">Batch</span>
+          <span class="compatibility-badge batch">Batch</span>
           <span>Batch flow is supported</span>
-          <span class="compatibility-badge changelog">Stream</span>
+          <span class="compatibility-badge stream">Stream</span>
           <span>Stream flow is supported</span>
           <span class="compatibility-unavailable" aria-hidden="true">
             —
@@ -126,13 +165,23 @@ export function CompatibilityMatrixDialog({
         </div>
 
         <div class="compatibility-table-scroll">
-          <table class="compatibility-table">
+          <table
+            class="compatibility-table"
+            onMouseLeave={() => setActiveCell(null)}
+          >
             <caption>Sources by destinations</caption>
             <thead>
               <tr>
                 <th scope="col">Source ↓ / Destination →</th>
                 {sinks.map((sink) => (
-                  <th scope="col" key={sink.key} title={sink.title}>
+                  <th
+                    scope="col"
+                    key={sink.key}
+                    title={sink.title}
+                    class={
+                      activeCell?.sink === sink.key ? "active-column" : undefined
+                    }
+                  >
                     {sink.title}
                   </th>
                 ))}
@@ -140,7 +189,12 @@ export function CompatibilityMatrixDialog({
             </thead>
             <tbody>
               {sources.map((source) => (
-                <tr key={source.key}>
+                <tr
+                  key={source.key}
+                  class={
+                    activeCell?.source === source.key ? "active-row" : undefined
+                  }
+                >
                   <th scope="row">
                     <strong>{source.title}</strong>
                     <small>{source.source!.delivery_modes.join(" · ")}</small>
@@ -149,6 +203,14 @@ export function CompatibilityMatrixDialog({
                     <CompatibilityCell
                       key={sink.key}
                       route={route(source.key, sink.key)}
+                      activeColumn={activeCell?.sink === sink.key}
+                      activeIntersection={
+                        activeCell?.source === source.key &&
+                        activeCell.sink === sink.key
+                      }
+                      onActivate={() =>
+                        setActiveCell({ source: source.key, sink: sink.key })
+                      }
                     />
                   ))}
                 </tr>
@@ -168,14 +230,24 @@ export function CompatibilityMatrixDialog({
   );
 }
 
-function CompatibilityCell({ route }: { route: CompatibilityRoute }) {
+function CompatibilityCell({
+  route,
+  activeColumn,
+  activeIntersection,
+  onActivate,
+}: {
+  route: CompatibilityRoute;
+  activeColumn: boolean;
+  activeIntersection: boolean;
+  onActivate: () => void;
+}) {
   const sourceName = route.source.title;
   const sinkName = route.sink.title;
   const supportedLabels = route.supported.map(
-    (semantics) => SEMANTICS_LABEL[semantics],
+    (mode) => DELIVERY_MODE_LABEL[mode],
   );
   const unsupportedLabels = route.unsupported.map(
-    (semantics) => SEMANTICS_LABEL[semantics],
+    (mode) => DELIVERY_MODE_LABEL[mode],
   );
   const description =
     route.supported.length === 0
@@ -189,7 +261,16 @@ function CompatibilityCell({ route }: { route: CompatibilityRoute }) {
     <td
       aria-label={description}
       title={description}
-      class={route.unsupported.length > 0 ? "partial" : undefined}
+      class={[
+        route.unsupported.length > 0 || route.partial.length > 0
+          ? "partial"
+          : "",
+        activeColumn ? "active-column" : "",
+        activeIntersection ? "active-intersection" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onMouseEnter={onActivate}
     >
       {route.supported.length === 0 ? (
         <span class="compatibility-unavailable" aria-hidden="true">
@@ -197,12 +278,12 @@ function CompatibilityCell({ route }: { route: CompatibilityRoute }) {
         </span>
       ) : (
         <span class="compatibility-badges" aria-hidden="true">
-          {route.supported.map((semantics) => (
+          {route.supported.map((mode) => (
             <span
-              key={semantics}
-              class={`compatibility-badge ${semantics.replace("_", "-")}`}
+              key={mode}
+              class={`compatibility-badge ${mode}`}
             >
-              {SEMANTICS_LABEL[semantics]}
+              {DELIVERY_MODE_LABEL[mode]}
             </span>
           ))}
         </span>
