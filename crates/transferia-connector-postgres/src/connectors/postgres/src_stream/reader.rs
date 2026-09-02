@@ -18,8 +18,8 @@ use super::pgoutput::{PgOutputDecoder, PgOutputEvent};
 use super::slot_recovery::{advance_slot, ReplicationSlotTracker};
 use super::wal2json;
 use crate::connectors::postgres::source::{
-    old_key_column_name, old_value_column_name, DiscoveredTable, POSTGRES_SOURCE_METADATA_COLUMNS,
-    POSTGRES_REPLICATION_SYSTEM_COLUMNS,
+    old_key_column_name, old_value_column_name, DiscoveredTable,
+    POSTGRES_REPLICATION_SYSTEM_COLUMNS, POSTGRES_SOURCE_METADATA_COLUMNS,
 };
 use crate::metrics::SourceCounters;
 use transferia_core::data::message::SourceBatch;

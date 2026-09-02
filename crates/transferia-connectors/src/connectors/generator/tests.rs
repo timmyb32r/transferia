@@ -264,16 +264,19 @@ fn clickbench_generation_matches_representative_reference_distributions() -> any
         .copied()
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(unique_watch_ids.len(), rows);
-    assert!(watch_ids.values().iter().all(|value| {
-        (4_611_686_018_427_387_904..=i64::MAX).contains(value)
-    }));
+    assert!(watch_ids
+        .values()
+        .iter()
+        .all(|value| { (4_611_686_018_427_387_904..=i64::MAX).contains(value) }));
 
     let title = batch
         .column(2)
         .as_any()
         .downcast_ref::<BinaryArray>()
         .expect("Title must preserve arbitrary bytes");
-    let empty_titles = (0..rows).filter(|row| title.value_length(*row) == 0).count();
+    let empty_titles = (0..rows)
+        .filter(|row| title.value_length(*row) == 0)
+        .count();
     assert!(empty_titles.abs_diff(3_501) < 250);
     let title_lengths = (0..rows)
         .map(|row| usize::try_from(title.value_length(row)))

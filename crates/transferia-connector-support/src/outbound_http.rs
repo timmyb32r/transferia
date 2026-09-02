@@ -284,10 +284,10 @@ impl OutboundHttpRequest {
 
 fn http_target(url: &Url) -> String {
     let host = url.host_str().unwrap_or("<missing-host>");
-    match url.port() {
-        Some(port) => format!("{}://{host}:{port}", url.scheme()),
-        None => format!("{}://{host}", url.scheme()),
-    }
+    url.port().map_or_else(
+        || format!("{}://{host}", url.scheme()),
+        |port| format!("{}://{host}:{port}", url.scheme()),
+    )
 }
 
 #[cfg(test)]

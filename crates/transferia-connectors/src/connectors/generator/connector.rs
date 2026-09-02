@@ -120,8 +120,7 @@ impl DataGeneratorConfig {
         remaining: u64,
         target_bytes: u64,
     ) -> anyhow::Result<u64> {
-        let mut rows = remaining
-            .min((target_bytes / self.row_bytes()?).max(1));
+        let mut rows = remaining.min((target_bytes / self.row_bytes()?).max(1));
         loop {
             let bytes = self.batch_bytes(start, rows)?;
             if bytes <= target_bytes || rows == 1 {

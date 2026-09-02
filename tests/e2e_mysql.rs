@@ -483,8 +483,8 @@ async fn mysql_sink_commits_atomically_and_rolls_back_failed_delivery() -> anyho
     sink.prepare(
         SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("datasets"),
     )
-        .await
-        .context("prepare MySQL sink tables")?;
+    .await
+    .context("prepare MySQL sink tables")?;
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let built = sink

@@ -196,11 +196,9 @@ pub(super) fn preview_message(
         });
     }
     if let Some(headers) = record.headers() {
-        message_metadata.extend(headers.iter().map(|header| {
-            SourcePreviewMetadataItem {
-                key: header.key.to_owned(),
-                value: header.value.unwrap_or_default().to_vec(),
-            }
+        message_metadata.extend(headers.iter().map(|header| SourcePreviewMetadataItem {
+            key: header.key.to_owned(),
+            value: header.value.unwrap_or_default().to_vec(),
         }));
     }
     Ok(SourcePreview {

@@ -104,7 +104,10 @@ async fn append_only_rows_are_byte_exact_debezium_snapshot_events() {
     let encoded = encoder.encode_batch(&batch, usize::MAX).unwrap();
 
     assert_eq!(encoded.messages.len(), 1);
-    assert_eq!(encoded.messages[0].key.as_deref(), Some(br#"{"id":1}"#.as_slice()));
+    assert_eq!(
+        encoded.messages[0].key.as_deref(),
+        Some(br#"{"id":1}"#.as_slice())
+    );
     assert_eq!(
         encoded.messages[0].value.as_deref(),
         Some(

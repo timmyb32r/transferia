@@ -315,9 +315,7 @@ async fn postgres_sink_applies_changelog_atomically_and_replay_is_idempotent() -
     );
     connector.limits().validate_discovery(&discovery)?;
     connector
-        .prepare(
-            SinkPrepare::from_discovery(&discovery, false, "test-transfer")?.expect("dataset"),
-        )
+        .prepare(SinkPrepare::from_discovery(&discovery, false, "test-transfer")?.expect("dataset"))
         .await?;
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let sink = connector
@@ -526,18 +524,27 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
         "LocalStack bucket creation failed: {create_bucket_stderr}"
     );
     let s3_yaml = format!(
-        "bucket: postgres-source-e2e\nobject_layout_version: 5\npath_prefix: pg\nregion: us-east-1\nendpoint: 'http://{s3_host}:{s3_port}'\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 100 }}\n"
+        "bucket: postgres-source-e2e\nobject_layout_version: 5\npath_prefix: pg\nregion: us-east-1\nendpoint: 'http://{s3_host}:{s3_port}'\ncredentials: {{ access_key: test, secret_key: test }}\nformat: {{ type: json }}\nrotation: {{ max_rows: 100 }}\n"
     );
     let s3_sink = S3SinkConnector::from_config(serde_yaml::from_str(&s3_yaml)?)?;
     run_pipeline(&source, &s3_sink, Arc::clone(&discovery)).await?;
     let store = serde_yaml::from_str::<S3SinkConfig>(&s3_yaml)?.build_store()?;
-    let mut objects = store.list(Some(&Path::from("pg/events")));
-    let object = objects
-        .next()
+    let objects = store
+        .list(Some(&Path::from("pg/events")))
+        .collect::<Vec<_>>()
         .await
-        .transpose()?
-        .expect("PostgreSQL source must create an S3 object");
-    assert!(objects.next().await.is_none());
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        objects.len(),
+        1,
+        "expected one S3 data object, got {:?}",
+        objects
+            .iter()
+            .map(|object| object.location.as_ref())
+            .collect::<Vec<_>>()
+    );
+    let object = &objects[0];
     let json = store.get(&object.location).await?.bytes().await?;
     let mut rows = json
         .split(|byte| *byte == b'\n')
@@ -583,8 +590,7 @@ async fn postgres_source_without_primary_key_reaches_clickhouse_and_s3_and_binar
     postgres_sink.limits().validate_discovery(&copy_discovery)?;
     postgres_sink
         .prepare(
-            SinkPrepare::from_discovery(&copy_discovery, true, "test-transfer")?
-                .expect("dataset"),
+            SinkPrepare::from_discovery(&copy_discovery, true, "test-transfer")?.expect("dataset"),
         )
         .await?;
     let sink = postgres_sink
@@ -887,14 +893,17 @@ async fn postgres_source_reads_builtin_and_user_defined_types_losslessly() -> an
     };
     let replication_batch = &replication_tables[0].batch;
     let replication_schema = replication_batch.schema();
-    for snapshot_field in batch.schema().fields().iter().take(batch.num_columns() - 4) {
-        let name = snapshot_field.name();
+    let snapshot_schema = batch.schema();
+    for column in &dataset.stored_schema.columns {
+        let name = &column.name;
+        let snapshot_field = snapshot_schema
+            .field_with_name(name)
+            .expect("snapshot field");
         let replication_field = replication_schema
             .field_with_name(name)
             .expect("replication field");
         assert_eq!(
-            snapshot_field.as_ref(),
-            replication_field,
+            snapshot_field, replication_field,
             "Arrow field mismatch for {name}"
         );
         assert_eq!(

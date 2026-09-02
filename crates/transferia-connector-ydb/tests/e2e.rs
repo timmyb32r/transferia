@@ -257,7 +257,7 @@ async fn ydb_sink_bulk_upserts_arrow_and_replay_replaces_the_same_key() -> anyho
     sink.prepare(
         SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("datasets"),
     )
-        .await?;
+    .await?;
 
     let memory = PipelineMemory::new(16 * 1024 * 1024);
     let built = sink

@@ -524,7 +524,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     );
 
     let yaml = format!(
-        "bucket: transferia-e2e\nobject_layout_version: 5\npath_prefix: e2e\nregion: us-east-1\nendpoint: 'http://{host}:{port}'\ncredentials: {{ access_key: test, secret_key: test }}\nrotation: {{ max_rows: 1 }}\n"
+        "bucket: transferia-e2e\nobject_layout_version: 5\npath_prefix: e2e\nregion: us-east-1\nendpoint: 'http://{host}:{port}'\ncredentials: {{ access_key: test, secret_key: test }}\nformat: {{ type: json }}\nrotation: {{ max_rows: 1 }}\n"
     );
     let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
     config.check_connection().await?;
@@ -563,8 +563,7 @@ async fn s3_sink_writes_to_a_real_s3_api() -> anyhow::Result<()> {
     connector.limits().validate_discovery(&discovery)?;
     connector
         .prepare(
-            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?
-                .expect("row discovery"),
+            SinkPrepare::from_discovery(&discovery, true, "test-transfer")?.expect("row discovery"),
         )
         .await?;
 

@@ -10,10 +10,11 @@ use tokio_util::sync::CancellationToken;
 use crate::durable::DurableStorage;
 use crate::metrics::SinkCounters;
 use crate::serializer::JsonBatchEncoder;
-use transferia_core::delivery::{validate_batch_against_discovery, DeliveryDiscovery};
+use transferia_core::delivery::DeliveryDiscovery;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::memory::MemoryReservation;
 use transferia_core::sink::{Delivery, DeliveryId, Sink, SinkEvent, SinkIo};
+use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 use transferia_delivery_contracts::delivery_tracker::DeliveryTracker;
 
 use super::config::{PartitionPathChange, S3SinkConfig};
@@ -218,14 +219,27 @@ impl S3Sink {
         delivery: Delivery,
         memory: &transferia_core::memory::PipelineMemory,
     ) -> anyhow::Result<PendingDelivery> {
-        for output in &delivery.outputs {
-            validate_batch_against_discovery(&self.discovery, output).map_err(|error| {
-                anyhow::anyhow!(
-                    "S3 delivery validation failed for dataset '{}': {error}",
-                    output.table,
-                )
-            })?;
-        }
+        anyhow::ensure!(
+            self.keep_system_columns == self.discovery.keep_system_columns,
+            "S3 sink projection does not match delivery discovery"
+        );
+        let encoders = delivery
+            .outputs
+            .iter()
+            .map(|output| {
+                let ProjectedSinkBatch::AppendOnly(batch) =
+                    project_sink_batch(&self.discovery, output).map_err(|error| {
+                        anyhow::anyhow!(
+                            "S3 delivery validation failed for dataset '{}': {error}",
+                            output.table
+                        )
+                    })?
+                else {
+                    anyhow::bail!("S3 cannot serialize a changelog dataset")
+                };
+                JsonBatchEncoder::new(&batch, |_| true)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let route_bound = delivery.outputs.iter().try_fold(0_usize, |bytes, output| {
             let fixed = output
                 .rows()
@@ -259,19 +273,6 @@ impl S3Sink {
                 route_reservations.push(memory.reserve_transform(route_bytes - route_bound));
             }
         }
-        let encoders = delivery
-            .outputs
-            .iter()
-            .map(|output| {
-                let mut visible = vec![true; output.batch.num_columns()];
-                if !self.keep_system_columns {
-                    for column in output.system_columns.iter() {
-                        visible[column.index] = false;
-                    }
-                }
-                JsonBatchEncoder::new(&output.batch, |index| visible[index])
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
         self.progress
             .accept(delivery_id, pending_rows, delivery.meta.source_messages)?;
         let input_reservations = delivery

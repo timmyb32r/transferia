@@ -19,10 +19,10 @@ use tokio::task::JoinSet;
 
 use super::client::{
     dynamic_conversion_attributes, dynamic_table_attributes, json_header_value,
-    normalize_rpc_proxy_roles, resolved_link_suggestion, rich_read_path,
-    rpc_proxy_discovery_url, sort_operation_parameters, static_table_attributes,
-    suggestion_directory, table_path_suggestions, table_writer_spec, uniform_reshard_parameters,
-    yson_header_value, ListedNode,
+    normalize_rpc_proxy_roles, resolved_link_suggestion, rich_read_path, rpc_proxy_discovery_url,
+    sort_operation_parameters, static_table_attributes, suggestion_directory,
+    table_path_suggestions, table_writer_spec, uniform_reshard_parameters, yson_header_value,
+    ListedNode,
 };
 use super::config::{
     YTsaurusAtomicity, YTsaurusBigValuePolicy, YTsaurusOptimizeFor, YTsaurusPrimaryKeySemantics,
@@ -377,7 +377,7 @@ fn rpc_proxy_role_options_are_sorted_deduplicated_and_never_empty() {
     assert_eq!(
         normalize_rpc_proxy_roles(vec![
             "shared".to_owned(),
-            "".to_owned(),
+            String::new(),
             "dedicated".to_owned(),
             "shared".to_owned(),
         ]),
@@ -436,20 +436,16 @@ fn only_dynamic_sink_without_a_proxy_role_recommends_dedicated_proxies() -> anyh
     let dedicated = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: dynamic_tables, replace_tables: true, path: //tmp/output, proxy_role: dedicated }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\ntrusted_native_rpc_plaintext: true\n",
     )?;
-    assert!(
-        YTsaurusSinkConnector::from_config(dedicated)?
-            .performance_advice()
-            .is_empty()
-    );
+    assert!(YTsaurusSinkConnector::from_config(dedicated)?
+        .performance_advice()
+        .is_empty());
 
     let static_tables = serde_yaml::from_str::<YTsaurusSinkConfig>(
         "tables: { type: static_tables, replace_tables: true, path: //tmp/output }\nauth: { type: token, token: test }\nhost: localhost\nport: 8000\ntrusted_plaintext: true\n",
     )?;
-    assert!(
-        YTsaurusSinkConnector::from_config(static_tables)?
-            .performance_advice()
-            .is_empty()
-    );
+    assert!(YTsaurusSinkConnector::from_config(static_tables)?
+        .performance_advice()
+        .is_empty());
     Ok(())
 }
 

@@ -208,8 +208,7 @@ fn decode_fields(
                 });
             }
             3 => {
-                let (nested, bytes) =
-                    decode_fields(input.get(offset..)?, depth + 1, Some(number))?;
+                let (nested, bytes) = decode_fields(input.get(offset..)?, depth + 1, Some(number))?;
                 offset = offset.checked_add(bytes)?;
                 fields.push(WireField {
                     number,
@@ -217,7 +216,6 @@ fn decode_fields(
                 });
             }
             4 if expected_end_group == Some(number) => return Some((fields, offset)),
-            4 => return None,
             5 => {
                 let end = offset.checked_add(4)?;
                 let bytes: [u8; 4] = input.get(offset..end)?.try_into().ok()?;
@@ -282,8 +280,8 @@ fn render_fields(output: &mut String, fields: &[WireField], depth: usize) {
     }
     for field in fields {
         let indent = "  ".repeat(depth);
-        let repeated = (counts[&field.number] > 1)
-            .then(|| format!(", repeated ×{}", counts[&field.number]));
+        let repeated =
+            (counts[&field.number] > 1).then(|| format!(", repeated ×{}", counts[&field.number]));
         let repeated = repeated.as_deref().unwrap_or_default();
         match &field.value {
             WireValue::Varint(value) => {

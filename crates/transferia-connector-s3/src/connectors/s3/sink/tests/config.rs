@@ -37,7 +37,8 @@ fn rejects_zero_operation_timeout() -> anyhow::Result<()> {
 #[test]
 fn rejects_zero_rotation_intervals() -> anyhow::Result<()> {
     for field in ["record_time_interval", "wall_clock_interval"] {
-        let yaml = format!("bucket: test\nrotation: {{ {field}: 0ms }}\n");
+        let yaml =
+            format!("bucket: test\nformat: {{ type: json }}\nrotation: {{ {field}: 0ms }}\n");
         let config: S3SinkConfig = serde_yaml::from_str(&yaml)?;
         let error = config
             .validate()

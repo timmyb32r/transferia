@@ -10,8 +10,10 @@ use parquet::file::properties::WriterProperties;
 use super::config::{ParquetCompression, ParquetRowGroupConfig, S3SinkConfig};
 use super::upload::{ObjectUploader, S3Uploader, UploadError};
 use crate::metrics::SinkCounters;
+use transferia_core::delivery::DeliveryDiscovery;
 use transferia_core::failure::DataPlaneFailure;
 use transferia_core::sink::{Delivery, Sink, SinkEvent, SinkIo};
+use transferia_core::{project_sink_batch, ProjectedSinkBatch};
 
 pub(super) struct S3ParquetSink {
     config: S3SinkConfig,
@@ -19,6 +21,8 @@ pub(super) struct S3ParquetSink {
     counters: Arc<SinkCounters>,
     partition_id: i64,
     keep_system_columns: bool,
+
+    discovery: Arc<DeliveryDiscovery>,
 }
 
 impl S3ParquetSink {
@@ -28,6 +32,7 @@ impl S3ParquetSink {
         counters: Arc<SinkCounters>,
         partition_id: i64,
         keep_system_columns: bool,
+        discovery: Arc<DeliveryDiscovery>,
     ) -> Self {
         Self {
             config,
@@ -35,27 +40,29 @@ impl S3ParquetSink {
             counters,
             partition_id,
             keep_system_columns,
+            discovery,
         }
     }
 
     async fn write(&self, delivery: Delivery, io: &SinkIo) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.keep_system_columns == self.discovery.keep_system_columns,
+            "S3 Parquet projection does not match delivery discovery"
+        );
         let (compression, row_group) = self.config.parquet_settings()?;
         let source_messages = delivery.meta.source_messages;
         let concurrency = self.config.upload.max_in_flight_objects;
         let mut jobs = Vec::new();
         for output in delivery.outputs {
-            let batch = if self.keep_system_columns || output.system_columns.is_empty() {
-                output.batch
-            } else {
-                let visible = (0..output.batch.num_columns())
-                    .filter(|column| {
-                        !output
-                            .system_columns
-                            .iter()
-                            .any(|item| item.index == *column)
-                    })
-                    .collect::<Vec<_>>();
-                output.batch.project(&visible)?
+            let ProjectedSinkBatch::AppendOnly(batch) =
+                project_sink_batch(&self.discovery, &output).map_err(|error| {
+                    anyhow::anyhow!(
+                        "S3 Parquet delivery validation failed for dataset '{}': {error}",
+                        output.table
+                    )
+                })?
+            else {
+                anyhow::bail!("S3 cannot serialize a changelog dataset")
             };
             for batch in split_for_object_limits(
                 batch,

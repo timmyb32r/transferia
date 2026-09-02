@@ -117,7 +117,7 @@ fn publishes_and_enforces_the_s3_destination_contract() -> anyhow::Result<()> {
 #[test]
 fn field_partitioning_is_checked_against_discovered_columns() -> anyhow::Result<()> {
     let connector = S3SinkConnector::from_config(serde_yaml::from_str(
-        "bucket: test\npartitioning: { type: fields, columns: [value] }\n",
+        "bucket: test\nformat: { type: json }\npartitioning: { type: fields, columns: [value] }\n",
     )?)?;
     connector
         .limits()
@@ -170,7 +170,7 @@ fn discovery_rejects_static_object_key_overhead() -> anyhow::Result<()> {
 fn record_time_discovery_validates_the_rendered_namespace_without_rewriting() -> anyhow::Result<()>
 {
     let mut connector = S3SinkConnector::from_config(serde_yaml::from_str(
-        "bucket: test\npartitioning: { type: record_time, window: 1h, path: 'year=%Y', timezone: UTC }\n",
+        "bucket: test\nformat: { type: json }\npartitioning: { type: record_time, window: 1h, path: 'year=%Y', timezone: UTC }\n",
     )?)?;
     let probe = connector.cfg.main_partition_path_probe()?;
     assert_eq!(probe, "year=9999");

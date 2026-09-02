@@ -92,7 +92,10 @@ pub async fn preview_message(
     cancellation: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<transferia_registry::SourcePreview> {
     validate_source_config(config)?;
-    anyhow::ensure!(max_bytes > 0, "Kafka message preview max_bytes must be positive");
+    anyhow::ensure!(
+        max_bytes > 0,
+        "Kafka message preview max_bytes must be positive"
+    );
     let sequence = PREVIEW_GROUP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let group = format!("transferia-preview-{}-{sequence}", std::process::id());
     let consumer = source_consumer(config, &group)?;
@@ -113,11 +116,8 @@ pub async fn preview_message(
 }
 
 fn source_consumer(config: &KafkaSourceConfig, group: &str) -> anyhow::Result<StreamConsumer> {
-    let mut client = config::base_client_config(
-        &config.brokers,
-        &config.security,
-        config.request_timeout_ms,
-    )?;
+    let mut client =
+        config::base_client_config(&config.brokers, &config.security, config.request_timeout_ms)?;
     client
         .set("group.id", group)
         .set("enable.auto.commit", "false")

@@ -42,7 +42,7 @@ impl DataGeneratorPreset {
         match self {
             Self::TransferLogs => Ok(512),
 
-            Self::ClickBench => Ok(clickbench::logical_row_bytes()),
+            Self::ClickBench => clickbench::logical_row_bytes(),
 
             Self::Numeric { column_count } => u64::try_from(*column_count)?
                 .checked_mul(8)
@@ -88,7 +88,7 @@ impl DataGeneratorPreset {
         let columns = match self {
             Self::TransferLogs => transfer_log_arrays(start, rows),
 
-            Self::ClickBench => unreachable!("ClickBench batches use their cached schema"),
+            Self::ClickBench => return clickbench::batch(start, rows as u64),
 
             Self::Numeric { column_count } => (0..*column_count)
                 .map(|column| {

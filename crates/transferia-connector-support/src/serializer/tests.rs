@@ -18,8 +18,8 @@ fn schema_registry_serializer_exposes_connection_subject_and_format() {
 
 #[test]
 fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
-    let schema = serde_json::to_string(&schemars::schema_for!(SerializerConfig))
-        .expect("schema serializes");
+    let schema =
+        serde_json::to_string(&schemars::schema_for!(SerializerConfig)).expect("schema serializes");
     assert!(schema.contains("\"title\":\"Debezium\""));
     for title in [
         "JSON (without Schema Registry)",
@@ -27,7 +27,10 @@ fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
         "Avro",
         "Protobuf",
     ] {
-        assert!(schema.contains(&format!("\"title\":\"{title}\"")), "{title}");
+        assert!(
+            schema.contains(&format!("\"title\":\"{title}\"")),
+            "{title}"
+        );
     }
     assert!(!schema.contains("debezium_json"));
     assert!(!schema.contains("debezium_schema_registry"));
@@ -49,7 +52,6 @@ fn debezium_is_one_serializer_with_four_conditionally_typed_formats() {
         let config: SerializerConfig = serde_yaml::from_str(&yaml).unwrap();
         config.validate().unwrap();
     }
-
 }
 
 #[test]
@@ -91,10 +93,7 @@ fn serializers_publish_their_record_semantics() {
     use transferia_delivery_contracts::semantics::RecordSemantics;
 
     let serializers = [
-        (
-            SerializerConfig::Json,
-            &[RecordSemantics::AppendOnly][..],
-        ),
+        (SerializerConfig::Json, &[RecordSemantics::AppendOnly][..]),
         (
             SerializerConfig::SchemaRegistry {
                 connection: registry_connection(),
@@ -305,10 +304,15 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
         (SYSTEM_ROLE_EVENT_TIMESTAMP_NS, DataType::Int64),
     ];
     let mut incoming = vec![id.clone()];
-    incoming.extend(roles.into_iter().enumerate().map(|(index, (role, data_type))| {
-        SchemaColumn::new(format!("_system_role_{index}"), data_type, false)
-            .with_system_role(role)
-    }));
+    incoming.extend(
+        roles
+            .into_iter()
+            .enumerate()
+            .map(|(index, (role, data_type))| {
+                SchemaColumn::new(format!("_system_role_{index}"), data_type, false)
+                    .with_system_role(role)
+            }),
+    );
     incoming.push(SchemaColumn::new(
         SystemColumnKind::Offset.default_name().to_owned(),
         DataType::Int64,
@@ -339,7 +343,10 @@ fn debezium_discovery_accepts_snapshot_metadata_without_cdc_old_values() {
         .incoming_schema
         .columns
         .retain(|column| column.system_role.as_deref() != Some(SYSTEM_ROLE_SOURCE_SCHEMA));
-    let error = config.validate_discovery(&discovery).unwrap_err().to_string();
+    let error = config
+        .validate_discovery(&discovery)
+        .unwrap_err()
+        .to_string();
     assert!(error.contains(SYSTEM_ROLE_SOURCE_SCHEMA), "{error}");
 }
 

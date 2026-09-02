@@ -256,11 +256,7 @@ impl ExtensionRegistry {
         self.parser_plugins.register(spec, build)
     }
 
-    pub fn register_parser_detector<D>(
-        &mut self,
-        kind: &str,
-        detector: D,
-    ) -> anyhow::Result<()>
+    pub fn register_parser_detector<D>(&mut self, kind: &str, detector: D) -> anyhow::Result<()>
     where
         D: ParserDetector + 'static,
     {
@@ -994,7 +990,9 @@ impl Transferia {
         payloads: &[&[u8]],
         max_rows: usize,
     ) -> Vec<transferia_connector_support::parsers::ParserDetection> {
-        self.registry().parser_plugins().detect_samples(payloads, max_rows)
+        self.registry()
+            .parser_plugins()
+            .detect_samples(payloads, max_rows)
     }
 }
 

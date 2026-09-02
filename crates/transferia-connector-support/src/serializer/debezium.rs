@@ -231,19 +231,21 @@ impl DebeziumBatchEncoder {
         )?;
         let old_key = JsonBatchEncoder::projected_debezium(
             &batch.batch,
-            primary_keys.iter().map(|(index, name)| JsonColumnProjection {
-                output_name: (*name).clone(),
-                source_index: old_value
-                    .get(name.as_str())
-                    .or_else(|| old_key.get(name.as_str()))
-                    .copied()
-                    .or_else(|| {
-                        (!batch
-                            .system_columns
-                            .contains(SystemColumnKind::ChangeOperation))
-                        .then_some(*index)
-                    }),
-            }),
+            primary_keys
+                .iter()
+                .map(|(index, name)| JsonColumnProjection {
+                    output_name: (*name).clone(),
+                    source_index: old_value
+                        .get(name.as_str())
+                        .or_else(|| old_key.get(name.as_str()))
+                        .copied()
+                        .or_else(|| {
+                            (!batch
+                                .system_columns
+                                .contains(SystemColumnKind::ChangeOperation))
+                            .then_some(*index)
+                        }),
+                }),
         )?;
         let mut user_ordinal_by_source_index = vec![None; batch.batch.num_columns()];
         for (ordinal, (index, _)) in user_columns.iter().enumerate() {
@@ -299,6 +301,13 @@ impl DebeziumBatchEncoder {
         include_before: bool,
         source_is_update: bool,
     ) -> anyhow::Result<Vec<u8>> {
+        let changed_columns = if source_is_update {
+            Some(self.changed_columns.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("Debezium updates require the changed-column mask")
+            })?)
+        } else {
+            None
+        };
         let mut output = Vec::with_capacity(512);
         output.extend_from_slice(b"{\"before\":");
         if include_before {
@@ -315,15 +324,12 @@ impl DebeziumBatchEncoder {
                     else {
                         return false;
                     };
-                    if source_is_update
-                        && self
-                            .changed_columns
-                            .as_ref()
-                            .expect("updates require the changed-column mask")
+                    if changed_columns.is_some_and(|columns| {
+                        columns
                             .value(row)
                             .get(ordinal / 8)
                             .is_some_and(|byte| byte & (1 << (ordinal % 8)) == 0)
-                    {
+                    }) {
                         output.extend_from_slice(UNAVAILABLE_VALUE);
                         return true;
                     }
@@ -339,10 +345,7 @@ impl DebeziumBatchEncoder {
         output.extend_from_slice(b",\"ts_ms\":");
         write_i64(&mut output, self.source_timestamp_ms.value(row));
         output.extend_from_slice(b",\"snapshot\":");
-        write_json_string(
-            &mut output,
-            if operation == "r" { "true" } else { "false" },
-        );
+        write_json_string(&mut output, if operation == "r" { "true" } else { "false" });
         output.extend_from_slice(b",\"db\":");
         write_json_string(&mut output, self.database.value(row));
         output.extend_from_slice(b",\"sequence\":null,\"ts_us\":");
@@ -415,10 +418,7 @@ where
     Ok(array)
 }
 
-fn optional_system_array<T>(
-    batch: &SinkBatch,
-    kind: SystemColumnKind,
-) -> anyhow::Result<Option<T>>
+fn optional_system_array<T>(batch: &SinkBatch, kind: SystemColumnKind) -> anyhow::Result<Option<T>>
 where
     T: arrow::array::Array + Clone + 'static,
 {

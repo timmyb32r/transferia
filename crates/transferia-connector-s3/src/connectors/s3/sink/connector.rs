@@ -383,6 +383,7 @@ impl SinkConnector for S3SinkConnector {
                 context.counters,
                 context.partition_id,
                 context.keep_system_columns,
+                context.discovery,
             );
             return Box::pin(async move { Ok(Box::new(sink) as Box<dyn Sink>) });
         }

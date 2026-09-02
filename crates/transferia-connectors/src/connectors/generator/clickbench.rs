@@ -1,8 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
 use arrow::array::{
-    ArrayRef, BinaryBuilder, Date32Array, Int16Array, Int32Array, Int64Array,
-    TimestampSecondArray,
+    ArrayRef, BinaryBuilder, Date32Array, Int16Array, Int32Array, Int64Array, TimestampSecondArray,
 };
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -11,8 +10,9 @@ use transferia_core::data::schema::{DatasetSchema, SchemaColumn};
 
 const PERCENTILE_COUNT: usize = 101;
 const CLICKBENCH_UNIQUE_ROW_LIMIT: u64 = 1_u64 << 62;
-const WATCH_ID_BASE: u64 = 1_u64 << 62;
+const WATCH_ID_BASE_I64: i64 = 1_i64 << 62;
 const WATCH_ID_MULTIPLIER: u64 = 2_862_933_555_777_941_757;
+const ALPHABET: &[u8; 64] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
 
 #[derive(Clone, Copy)]
 enum ColumnKind {
@@ -25,7 +25,7 @@ enum ColumnKind {
 }
 
 impl ColumnKind {
-    fn arrow_type(self) -> DataType {
+    const fn arrow_type(self) -> DataType {
         match self {
             Self::Binary => DataType::Binary,
             Self::Date32 => DataType::Date32,
@@ -204,29 +204,29 @@ struct Distribution {
     nonzero_percentiles_0_to_100: Vec<i64>,
 }
 
-static DISTRIBUTIONS: LazyLock<DistributionFile> = LazyLock::new(|| {
+static DISTRIBUTIONS: LazyLock<Result<DistributionFile, String>> = LazyLock::new(|| {
     let parsed: DistributionFile = serde_json::from_str(include_str!("clickbench_profile.json"))
-        .expect("bundled ClickBench distribution profile must be valid JSON");
+        .map_err(|error| format!("bundled ClickBench profile is invalid JSON: {error}"))?;
     validate_distributions(&parsed)
-        .expect("bundled ClickBench distribution profile must match its Arrow schema");
-    parsed
+        .map_err(|error| format!("bundled ClickBench profile is invalid: {error:#}"))?;
+    Ok(parsed)
 });
 
 static ARROW_SCHEMA: LazyLock<Arc<Schema>> = LazyLock::new(|| {
     Arc::new(Schema::new(
-        schema().columns
+        schema()
+            .columns
             .into_iter()
             .map(|column| {
                 let metadata = column.arrow_metadata();
-                Field::new(column.name, column.data_type, column.nullable)
-                    .with_metadata(metadata)
+                Field::new(column.name, column.data_type, column.nullable).with_metadata(metadata)
             })
             .collect::<Vec<_>>(),
     ))
 });
 
-pub(super) fn logical_row_bytes() -> u64 {
-    logical_row_bytes_from(&DISTRIBUTIONS)
+pub(super) fn logical_row_bytes() -> anyhow::Result<u64> {
+    Ok(logical_row_bytes_from(distributions()?))
 }
 
 pub(super) fn validate_range(start: u64, rows: u64) -> anyhow::Result<()> {
@@ -254,17 +254,19 @@ pub(super) fn schema() -> DatasetSchema {
 
 pub(super) fn batch(start: u64, rows: u64) -> anyhow::Result<RecordBatch> {
     validate_range(start, rows)?;
+    let distributions = distributions()?;
     let rows = usize::try_from(rows)?;
     let arrays = COLUMNS
         .iter()
         .enumerate()
-        .map(|(index, column)| array(index, *column, start, rows))
+        .map(|(index, column)| array(index, *column, distributions, start, rows))
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(RecordBatch::try_new(Arc::clone(&ARROW_SCHEMA), arrays)?)
 }
 
 pub(super) fn batch_bytes(start: u64, rows: u64) -> anyhow::Result<u64> {
     validate_range(start, rows)?;
+    let distributions = distributions()?;
     let mut bytes = 0_u64;
     for (index, column) in COLUMNS.iter().enumerate() {
         if let Some(width) = column.kind.fixed_width() {
@@ -286,7 +288,7 @@ pub(super) fn batch_bytes(start: u64, rows: u64) -> anyhow::Result<u64> {
             let mut value_bytes = 0_u64;
             for row in start..start + rows {
                 value_bytes = value_bytes
-                    .checked_add(u64::try_from(binary_length(index, row))?)
+                    .checked_add(u64::try_from(binary_length(distributions, index, row))?)
                     .ok_or_else(|| anyhow::anyhow!("ClickBench generator batch size overflow"))?;
             }
             bytes = bytes
@@ -304,14 +306,20 @@ fn aligned_buffer_bytes(bytes: u64) -> anyhow::Result<u64> {
         .ok_or_else(|| anyhow::anyhow!("ClickBench generator buffer size overflow"))
 }
 
-fn array(index: usize, column: Column, start: u64, rows: usize) -> anyhow::Result<ArrayRef> {
+fn array(
+    index: usize,
+    column: Column,
+    distributions: &DistributionFile,
+    start: u64,
+    rows: usize,
+) -> anyhow::Result<ArrayRef> {
     let range = start..start + u64::try_from(rows)?;
     let array: ArrayRef = match column.kind {
         ColumnKind::Binary => {
             let mut lengths = Vec::with_capacity(rows);
             let mut value_bytes = 0_usize;
             for row in range.clone() {
-                let length = binary_length(index, row);
+                let length = binary_length(distributions, index, row);
                 lengths.push(length);
                 value_bytes = value_bytes.checked_add(length).ok_or_else(|| {
                     anyhow::anyhow!("ClickBench generator binary data size overflow")
@@ -320,43 +328,47 @@ fn array(index: usize, column: Column, start: u64, rows: usize) -> anyhow::Resul
             let mut builder = BinaryBuilder::with_capacity(rows, value_bytes);
             let mut scratch = Vec::new();
             for (row, length) in range.zip(lengths) {
-                fill_binary(index, row, length, &mut scratch);
+                fill_binary(distributions, index, row, length, &mut scratch);
                 builder.append_value(&scratch);
             }
             Arc::new(builder.finish())
         }
-        ColumnKind::Date32 => Arc::new(Date32Array::from_iter_values(range.map(|row| {
-            i32::try_from(integer_value(index, row)).expect("validated ClickBench Date32 profile")
-        }))),
-        ColumnKind::Int16 => Arc::new(Int16Array::from_iter_values(range.map(|row| {
-            i16::try_from(integer_value(index, row)).expect("validated ClickBench Int16 profile")
-        }))),
-        ColumnKind::Int32 => Arc::new(Int32Array::from_iter_values(range.map(|row| {
-            i32::try_from(integer_value(index, row)).expect("validated ClickBench Int32 profile")
-        }))),
+        ColumnKind::Date32 => Arc::new(Date32Array::from(
+            range
+                .map(|row| i32::try_from(integer_value(distributions, index, row)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        ColumnKind::Int16 => Arc::new(Int16Array::from(
+            range
+                .map(|row| i16::try_from(integer_value(distributions, index, row)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        ColumnKind::Int32 => Arc::new(Int32Array::from(
+            range
+                .map(|row| i32::try_from(integer_value(distributions, index, row)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
         ColumnKind::Int64 => Arc::new(Int64Array::from_iter_values(range.map(|row| {
             if index == 0 {
                 watch_id(row)
             } else {
-                integer_value(index, row)
+                integer_value(distributions, index, row)
             }
         }))),
         ColumnKind::TimestampSecond => Arc::new(TimestampSecondArray::from_iter_values(
-            range.map(|row| integer_value(index, row)),
+            range.map(|row| integer_value(distributions, index, row)),
         )),
     };
     Ok(array)
 }
 
-fn watch_id(row: u64) -> i64 {
-    let permuted = row
-        .wrapping_mul(WATCH_ID_MULTIPLIER)
-        & (CLICKBENCH_UNIQUE_ROW_LIMIT - 1);
-    i64::try_from(WATCH_ID_BASE + permuted).expect("ClickBench WatchID fits Int64")
+const fn watch_id(row: u64) -> i64 {
+    let permuted = row.wrapping_mul(WATCH_ID_MULTIPLIER) & (CLICKBENCH_UNIQUE_ROW_LIMIT - 1);
+    WATCH_ID_BASE_I64 + i64::from_le_bytes(permuted.to_le_bytes())
 }
 
-fn integer_value(index: usize, row: u64) -> i64 {
-    let profile = &DISTRIBUTIONS.columns[index];
+fn integer_value(distributions: &DistributionFile, index: usize, row: u64) -> i64 {
+    let profile = &distributions.columns[index];
     let selection = mix64(row ^ column_salt(index));
     if selection % 1_000_000 < profile.zero_or_empty_ppm {
         return 0;
@@ -364,17 +376,13 @@ fn integer_value(index: usize, row: u64) -> i64 {
     sampled_nonzero(profile, distinct_id(profile, index, row))
 }
 
-fn binary_length(index: usize, row: u64) -> usize {
-    let profile = &DISTRIBUTIONS.columns[index];
+fn binary_length(distributions: &DistributionFile, index: usize, row: u64) -> usize {
+    let profile = &distributions.columns[index];
     let selection = mix64(row ^ column_salt(index));
     if selection % 1_000_000 < profile.zero_or_empty_ppm {
         return 0;
     }
-    usize::try_from(sampled_nonzero(
-        profile,
-        distinct_id(profile, index, row),
-    ))
-    .expect("validated ClickBench binary length profile")
+    sampled_nonzero(profile, distinct_id(profile, index, row)) as usize
 }
 
 fn distinct_id(profile: &Distribution, index: usize, row: u64) -> u64 {
@@ -393,22 +401,27 @@ fn sampled_nonzero(profile: &Distribution, distinct_id: u64) -> i64 {
     }
     let percentile = mix64(distinct_id ^ 0xa076_1d64_78bd_642f) % 1_000_001;
     let scaled = percentile * (PERCENTILE_COUNT as u64 - 1);
-    let lower = usize::try_from(scaled / 1_000_000).expect("percentile index fits usize");
+    let lower = (scaled / 1_000_000) as usize;
     let upper = (lower + 1).min(PERCENTILE_COUNT - 1);
     let low_value = i128::from(quantiles[lower]);
     let difference = i128::from(quantiles[upper]) - low_value;
     let remainder = i128::from(scaled % 1_000_000);
-    i64::try_from(low_value + difference * remainder / 1_000_000)
-        .expect("interpolated ClickBench profile value fits Int64")
+    (low_value + difference * remainder / 1_000_000) as i64
 }
 
-fn fill_binary(index: usize, row: u64, length: usize, output: &mut Vec<u8>) {
+fn fill_binary(
+    distributions: &DistributionFile,
+    index: usize,
+    row: u64,
+    length: usize,
+    output: &mut Vec<u8>,
+) {
     output.clear();
     output.resize(length, b'a');
     if length == 0 {
         return;
     }
-    let profile = &DISTRIBUTIONS.columns[index];
+    let profile = &distributions.columns[index];
     let value_id = distinct_id(profile, index, row);
     let prefix: &[u8] = match COLUMNS[index].name {
         "URL" | "Referer" | "OriginalURL" | "SocialSourcePage" => b"https://",
@@ -418,8 +431,6 @@ fn fill_binary(index: usize, row: u64, length: usize, output: &mut Vec<u8>) {
     let prefix_length = prefix.len().min(length);
     output[..prefix_length].copy_from_slice(&prefix[..prefix_length]);
 
-    const ALPHABET: &[u8; 64] =
-        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
     let mut encoded = value_id;
     for byte in &mut output[prefix_length..] {
         *byte = ALPHABET[(encoded & 63) as usize];
@@ -434,10 +445,16 @@ const fn column_salt(index: usize) -> u64 {
     (index as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15)
 }
 
-fn mix64(mut value: u64) -> u64 {
+const fn mix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     value ^ (value >> 31)
+}
+
+fn distributions() -> anyhow::Result<&'static DistributionFile> {
+    DISTRIBUTIONS
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!(error.clone()))
 }
 
 fn validate_distributions(distributions: &DistributionFile) -> anyhow::Result<()> {
@@ -469,7 +486,8 @@ fn validate_distributions(distributions: &DistributionFile) -> anyhow::Result<()
             column.name
         );
         anyhow::ensure!(
-            distribution.mean.is_finite() && distribution.mean >= 0.0,
+            distribution.mean.is_finite()
+                && (!matches!(column.kind, ColumnKind::Binary) || distribution.mean >= 0.0),
             "ClickBench distribution '{}' has an invalid mean",
             column.name
         );
@@ -498,8 +516,7 @@ fn validate_distributions(distributions: &DistributionFile) -> anyhow::Result<()
         }
     }
     anyhow::ensure!(
-        logical_row_bytes_from(distributions)
-            <= distributions.mean_arrow_row_bytes_upper_bound,
+        logical_row_bytes_from(distributions) <= distributions.mean_arrow_row_bytes_upper_bound,
         "ClickBench mean row width exceeds its conservative bound"
     );
     Ok(())

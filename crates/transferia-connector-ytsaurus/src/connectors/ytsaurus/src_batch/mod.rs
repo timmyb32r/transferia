@@ -424,8 +424,7 @@ impl SourceConnector for YTsaurusSourceConnector {
             if self.config.benchmark_discard.is_some() {
                 let performance_advice = performance_advice(
                     &tables,
-                    (!self.config.proxy_role.is_empty())
-                        .then_some(self.config.proxy_role.as_str()),
+                    (!self.config.proxy_role.is_empty()).then_some(self.config.proxy_role.as_str()),
                 );
                 let datasets = tables
                     .iter()

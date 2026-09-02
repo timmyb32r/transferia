@@ -438,9 +438,8 @@ impl SinkConnector for YTsaurusSinkConnector {
                 None
             };
             let limits: Arc<dyn SinkLimits> = Arc::clone(&self.config) as Arc<dyn SinkLimits>;
-            let table_attributes = Arc::new(
-                self.table_attributes_for_transfer(context.durable.delivery_id.as_ref()),
-            );
+            let table_attributes =
+                Arc::new(self.table_attributes_for_transfer(context.durable.delivery_id.as_ref()));
             Ok(Box::new(YTsaurusSink {
                 client: self.client.clone(),
                 dynamic_writer,

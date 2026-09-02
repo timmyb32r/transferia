@@ -167,7 +167,9 @@ impl Source for PostgresSource {
                     Arc::from(self.table.name.as_str()),
                     false,
                     batch,
-                    routing_system_columns(self.statement.columns().len()),
+                    routing_system_columns(
+                        self.statement.columns().len() + POSTGRES_SOURCE_METADATA_COLUMNS.len(),
+                    ),
                 )],
                 source_rows,
                 commit_marker: Some(CommitMarker::new(self.offset)),
@@ -311,10 +313,7 @@ fn snapshot_metadata_fields() -> Vec<Field> {
         .collect()
 }
 
-fn snapshot_metadata_arrays(
-    snapshot: SnapshotMetadata<'_>,
-    len: usize,
-) -> Vec<ArrayRef> {
+fn snapshot_metadata_arrays(snapshot: SnapshotMetadata<'_>, len: usize) -> Vec<ArrayRef> {
     let timestamp_us = snapshot.timestamp_ns / 1_000;
     let timestamp_ms = snapshot.timestamp_ns / 1_000_000;
     vec![

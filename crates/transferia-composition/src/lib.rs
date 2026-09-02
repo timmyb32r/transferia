@@ -101,9 +101,9 @@ pub async fn run(transferia: Transferia) -> anyhow::Result<()> {
     let cli = Cli::parse();
     if cli.server {
         let allow_non_loopback = cli.listen_all.is_some();
-        let bind = cli
-            .listen_all
-            .map_or(cli.bind, |port| std::net::SocketAddr::from(([0, 0, 0, 0], port)));
+        let bind = cli.listen_all.map_or(cli.bind, |port| {
+            std::net::SocketAddr::from(([0, 0, 0, 0], port))
+        });
         let supervisor = std::sync::Arc::new(LocalWorkerSupervisor::new(
             std::env::current_exe()?,
             cli.state_dir.clone(),
