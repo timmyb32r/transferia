@@ -66,7 +66,11 @@ fn catalog_defines_every_runtime_endpoint_once() -> anyhow::Result<()> {
             .iter()
             .map(|variant| variant["title"].as_str())
             .collect::<Vec<_>>(),
-        vec![Some("Transfer logs"), Some("Numeric")]
+        vec![
+            Some("Transfer logs"),
+            Some("ClickBench hits"),
+            Some("Numeric")
+        ]
     );
     assert_eq!(generator.schema["properties"]["amount"]["title"], "Amount");
     assert_eq!(

@@ -8914,6 +8914,20 @@
                   "additionalProperties": false
                 },
                 {
+                  "title": "ClickBench hits",
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "clickbench"
+                    }
+                  },
+                  "required": [
+                    "type"
+                  ],
+                  "additionalProperties": false
+                },
+                {
                   "title": "Numeric",
                   "type": "object",
                   "properties": {

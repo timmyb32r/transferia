@@ -28,6 +28,14 @@ requires an explicit logical-to-physical table mapping plus a non-null primary
 key. The batch-only data generator and non-durable `discard` sink are explicit
 benchmark components.
 
+The generator includes numeric, transfer-log, and ClickBench `hits` presets.
+The ClickBench preset keeps the reference dataset's 105-column Arrow schema,
+temporal types, primary-key column set, value ranges, empty-value rates, string
+lengths, and cardinalities. Its compact distribution profile is reproducibly
+derived from bounded, evenly spaced samples of `hits.csv` by
+`scripts/analyze_clickbench_csv.py`; the source file itself is never embedded in
+the binary.
+
 Shared source configuration, discovery, and mode dispatch live in `source`.
 `src_batch` contains finite snapshot readers, while `src_stream` contains live
 queue streams and ordinary database replication. `src_dblog` is reserved for

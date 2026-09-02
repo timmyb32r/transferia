@@ -1,3 +1,4 @@
+mod clickbench;
 mod connector;
 mod preset;
 mod source;

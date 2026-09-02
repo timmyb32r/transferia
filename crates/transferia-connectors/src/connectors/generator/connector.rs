@@ -94,6 +94,7 @@ impl DataGeneratorConfig {
             .start_row
             .checked_add(total_rows)
             .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
+        self.preset.validate_range(self.start_row, total_rows)?;
         Ok(())
     }
 
@@ -107,6 +108,32 @@ impl DataGeneratorConfig {
 
     pub(super) fn schema(&self) -> DatasetSchema {
         self.preset.schema()
+    }
+
+    pub(super) fn batch_bytes(&self, start: u64, rows: u64) -> anyhow::Result<u64> {
+        self.preset.batch_bytes(start, rows)
+    }
+
+    pub(super) fn rows_for_batch(
+        &self,
+        start: u64,
+        remaining: u64,
+        target_bytes: u64,
+    ) -> anyhow::Result<u64> {
+        let mut rows = remaining
+            .min((target_bytes / self.row_bytes()?).max(1));
+        loop {
+            let bytes = self.batch_bytes(start, rows)?;
+            if bytes <= target_bytes || rows == 1 {
+                return Ok(rows);
+            }
+            let scaled = rows
+                .saturating_mul(target_bytes)
+                .checked_div(bytes)
+                .unwrap_or(0)
+                .max(1);
+            rows = scaled.min(rows - 1);
+        }
     }
 }
 

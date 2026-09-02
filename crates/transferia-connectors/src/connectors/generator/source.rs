@@ -19,7 +19,7 @@ pub(super) struct DataGeneratorSource {
     counters: Arc<SourceCounters>,
     next_row: u64,
     end_row: u64,
-    rows_per_batch: u64,
+    batch_target_bytes: u64,
 }
 
 impl DataGeneratorSource {
@@ -28,7 +28,6 @@ impl DataGeneratorSource {
         memory: PipelineMemory,
         counters: Arc<SourceCounters>,
     ) -> anyhow::Result<Self> {
-        let row_bytes = config.row_bytes()?;
         let total_rows = config.total_rows()?;
         let next_row = config.start_row;
         let end_row = next_row
@@ -36,14 +35,13 @@ impl DataGeneratorSource {
             .ok_or_else(|| anyhow::anyhow!("generator row range overflows u64"))?;
         let memory_limit = u64::try_from(memory.limit())?;
         let batch_target_bytes = memory_limit.min(GENERATED_BATCH_TARGET_BYTES);
-        let rows_per_batch = (batch_target_bytes / row_bytes).max(1);
         Ok(Self {
             config,
             memory,
             counters,
             next_row,
             end_row,
-            rows_per_batch,
+            batch_target_bytes,
         })
     }
 }
@@ -55,12 +53,14 @@ impl Source for DataGeneratorSource {
                 return Ok(SourceBatch::Finished);
             }
             let remaining = self.end_row - self.next_row;
-            let rows = remaining.min(self.rows_per_batch);
-            let batch_bytes_u64 = rows
-                .checked_mul(self.config.row_bytes().map_err(DataPlaneFailure::fatal)?)
-                .ok_or_else(|| {
-                    DataPlaneFailure::fatal(anyhow::anyhow!("generator batch size overflow"))
-                })?;
+            let rows = self
+                .config
+                .rows_for_batch(self.next_row, remaining, self.batch_target_bytes)
+                .map_err(DataPlaneFailure::fatal)?;
+            let batch_bytes_u64 = self
+                .config
+                .batch_bytes(self.next_row, rows)
+                .map_err(DataPlaneFailure::fatal)?;
             let batch_bytes = usize::try_from(batch_bytes_u64)
                 .map_err(|error| DataPlaneFailure::fatal(error.into()))?;
             let reservation = self.memory.reserve(batch_bytes).await;

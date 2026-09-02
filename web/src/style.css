@@ -3321,10 +3321,10 @@ button::after {
 }
 @keyframes data-widget-ready {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 55%, transparent);
   }
   45% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--blue) 0%, transparent);
   }
   100% {
     box-shadow: none;

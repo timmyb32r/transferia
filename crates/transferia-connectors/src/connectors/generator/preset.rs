@@ -7,11 +7,18 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use transferia_core::data::schema::{DatasetSchema, SchemaColumn, ARROW_JSON_EXTENSION_NAME};
 
+use super::clickbench;
+
 #[derive(Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DataGeneratorPreset {
     #[schemars(title = "Transfer logs")]
     TransferLogs,
+
+    #[schemars(title = "ClickBench hits")]
+    #[serde(rename = "clickbench")]
+    ClickBench,
+
     #[schemars(title = "Numeric")]
     Numeric {
         #[schemars(title = "Column count", range(min = 1))]
@@ -34,6 +41,9 @@ impl DataGeneratorPreset {
     pub(super) fn logical_row_bytes(&self) -> anyhow::Result<u64> {
         match self {
             Self::TransferLogs => Ok(512),
+
+            Self::ClickBench => Ok(clickbench::logical_row_bytes()),
+
             Self::Numeric { column_count } => u64::try_from(*column_count)?
                 .checked_mul(8)
                 .ok_or_else(|| anyhow::anyhow!("generator numeric row width overflow")),
@@ -43,6 +53,9 @@ impl DataGeneratorPreset {
     pub(super) fn schema(&self) -> DatasetSchema {
         match self {
             Self::TransferLogs => transfer_logs_schema(),
+
+            Self::ClickBench => clickbench::schema(),
+
             Self::Numeric { column_count } => DatasetSchema::new(
                 (1..=*column_count)
                     .map(|index| {
@@ -55,6 +68,9 @@ impl DataGeneratorPreset {
     }
 
     pub(super) fn batch(&self, start: u64, rows: u64) -> anyhow::Result<RecordBatch> {
+        if matches!(self, Self::ClickBench) {
+            return clickbench::batch(start, rows);
+        }
         let rows = usize::try_from(rows)?;
         let schema = self.schema();
         let fields = schema
@@ -71,6 +87,9 @@ impl DataGeneratorPreset {
             .collect::<Vec<_>>();
         let columns = match self {
             Self::TransferLogs => transfer_log_arrays(start, rows),
+
+            Self::ClickBench => unreachable!("ClickBench batches use their cached schema"),
+
             Self::Numeric { column_count } => (0..*column_count)
                 .map(|column| {
                     Arc::new(UInt64Array::from_iter_values(
@@ -83,6 +102,22 @@ impl DataGeneratorPreset {
             Arc::new(Schema::new(fields)),
             columns,
         )?)
+    }
+
+    pub(super) fn batch_bytes(&self, start: u64, rows: u64) -> anyhow::Result<u64> {
+        match self {
+            Self::ClickBench => clickbench::batch_bytes(start, rows),
+            _ => rows
+                .checked_mul(self.logical_row_bytes()?)
+                .ok_or_else(|| anyhow::anyhow!("generator batch size overflow")),
+        }
+    }
+
+    pub(super) fn validate_range(&self, start: u64, rows: u64) -> anyhow::Result<()> {
+        if matches!(self, Self::ClickBench) {
+            clickbench::validate_range(start, rows)?;
+        }
+        Ok(())
     }
 }
 
