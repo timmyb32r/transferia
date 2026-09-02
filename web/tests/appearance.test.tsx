@@ -245,14 +245,14 @@ describe("appearance preferences", () => {
       <CompatibilityMatrixLauncher catalog={catalog} />,
     );
     const launcher = view.getByRole("button", {
-      name: "Transfer compatibility",
+      name: "Matrix",
     });
     launcher.focus();
     fireEvent.mouseDown(launcher);
     fireEvent.click(launcher);
 
     const dialog = view.getByRole("dialog", {
-      name: "Transfer compatibility",
+      name: "Matrix",
     });
     expect(dialog).toBeTruthy();
     expect(dialog.parentElement?.parentElement).toBe(document.body);

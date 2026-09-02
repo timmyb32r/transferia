@@ -226,7 +226,7 @@ export function CompatibilityMatrixLauncher({
         class="sidebar-tool-button compatibility-launcher"
         onClick={() => setOpen(true)}
       >
-        Transfer compatibility
+        Matrix
       </Button>
       {open && (
         <CompatibilityMatrixDialog
@@ -346,7 +346,7 @@ export function CompatibilityMatrixDialog({
         <header>
           <div>
             <small>LIVE CONNECTOR CATALOG</small>
-            <h2 id="compatibility-title">Transfer compatibility</h2>
+            <h2 id="compatibility-title">Matrix</h2>
             <p id="compatibility-description">
               Batch and Stream are delivery modes. Compatibility also accounts
               for append-only and change-event semantics.
