@@ -3,6 +3,7 @@ import { isDirty } from "../state";
 import type { DeliverySummary, UiCatalog } from "../types";
 import { AppearanceSettings } from "../ui/AppearanceSettings";
 import { Button } from "../ui/Button";
+import { CompatibilityMatrixLauncher } from "../ui/CompatibilityMatrixDialog";
 import { InstantTooltip } from "../ui/InstantTooltip";
 import type { Appearance } from "../ui/appearance";
 import { StatusPill } from "./EditorViews";
@@ -238,9 +239,9 @@ export function DeliverySidebar({
           Data widget
         </Button>
       </InstantTooltip>
+      <CompatibilityMatrixLauncher catalog={catalog} />
       <AppearanceSettings
         value={appearance}
-        catalog={catalog}
         onChange={onAppearance}
       />
     </aside>

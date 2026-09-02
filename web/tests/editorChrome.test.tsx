@@ -381,5 +381,20 @@ describe("editor chrome", () => {
     expect(onOpen).toHaveBeenNthCalledWith(1, "delivery-1");
     expect(onOpen).toHaveBeenNthCalledWith(2, "delivery-1");
     expect(onToggleDataWidget).toHaveBeenCalledOnce();
+    const sidebarButtons = view.getAllByRole("button");
+    expect(
+      sidebarButtons.indexOf(view.getByRole("button", { name: "Data widget" })),
+    ).toBeLessThan(
+      sidebarButtons.indexOf(
+        view.getByRole("button", { name: "Transfer compatibility" }),
+      ),
+    );
+    expect(
+      sidebarButtons.indexOf(
+        view.getByRole("button", { name: "Transfer compatibility" }),
+      ),
+    ).toBeLessThan(
+      sidebarButtons.indexOf(view.getByRole("button", { name: /Settings/ })),
+    );
   });
 });

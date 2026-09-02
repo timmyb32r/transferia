@@ -186,6 +186,27 @@ export interface CompatibilityRoute {
   partial: DeliveryMode[];
 }
 
+export function CompatibilityMatrixLauncher({ catalog }: { catalog: UiCatalog }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <Button
+        class="sidebar-tool-button compatibility-launcher"
+        onClick={() => setOpen(true)}
+      >
+        Transfer compatibility
+      </Button>
+      {open && (
+        <CompatibilityMatrixDialog
+          catalog={catalog}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function semanticsForMode(
   modes: DeliveryMode[],
   semantics: RecordSemantics[],

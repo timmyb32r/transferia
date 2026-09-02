@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppearanceSettings } from "../src/ui/AppearanceSettings";
 import {
   catalogCapabilityGroups,
+  CompatibilityMatrixLauncher,
   compatibilityRoutes,
 } from "../src/ui/CompatibilityMatrixDialog";
 import {
@@ -118,7 +119,6 @@ describe("appearance preferences", () => {
     const onChange = vi.fn();
     const view = render(
       <AppearanceSettings
-        catalog={CATALOG}
         value={{
           design: "classic",
           theme: "dark",
@@ -255,19 +255,11 @@ describe("appearance preferences", () => {
       },
     };
     const view = render(
-      <AppearanceSettings
-        catalog={catalog}
-        value={{
-          design: "classic",
-          theme: "dark",
-          autoShowSchemaWidget: true,
-        }}
-        onChange={vi.fn()}
-      />,
+      <CompatibilityMatrixLauncher catalog={catalog} />,
     );
-    const settings = view.getByRole("button", { name: /Settings/ });
-    fireEvent.click(settings);
-    const launcher = view.getByRole("button", { name: "View matrix" });
+    const launcher = view.getByRole("button", {
+      name: "Transfer compatibility",
+    });
     launcher.focus();
     fireEvent.mouseDown(launcher);
     fireEvent.click(launcher);
@@ -320,8 +312,6 @@ describe("appearance preferences", () => {
 
     fireEvent.mouseLeave(view.getByRole("table"));
     expect(intersection.classList.contains("active-intersection")).toBe(false);
-    expect(view.getByRole("button", { name: /Settings/ })).toBe(settings);
-
     fireEvent.keyDown(document, { key: "Escape" });
     expect(view.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(launcher);
