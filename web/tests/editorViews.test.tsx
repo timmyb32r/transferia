@@ -47,6 +47,48 @@ afterEach(() => {
 });
 
 describe("endpoint connection check", () => {
+  it("shows only serializers that accept the selected source semantics", () => {
+    const serializerEndpoint: EndpointDefinition = {
+      ...endpoint,
+      schema: {
+        type: "object",
+        properties: {
+          serializer: {
+            oneOf: [
+              serializer("json", "JSON", ["append_only"]),
+              serializer("debezium", "Debezium", [
+                "append_only",
+                "changelog",
+              ]),
+            ],
+            "x-ui": { widget: "serializer" },
+          },
+        },
+        required: ["serializer"],
+      },
+      initial: { serializer: {} },
+    };
+    const view = render(
+      <EndpointCard
+        title="Destination"
+        role="sink"
+        selectedKey="kafka"
+        connectors={[{ key: "kafka", title: "Kafka", sink: serializerEndpoint }]}
+        endpoint={serializerEndpoint}
+        config={{ sink: { kafka: { serializer: {} } } }}
+        readOnly={false}
+        showRequiredErrors={false}
+        requiredRecordSemantics={["changelog"]}
+        onChoose={() => undefined}
+        onConfig={() => undefined}
+      />,
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Serializer" }));
+    expect(view.queryByRole("option", { name: "JSON" })).toBeNull();
+    expect(view.getByRole("option", { name: "Debezium" })).toBeTruthy();
+  });
+
   it("shows batch-only endpoint fields only for batch deliveries", () => {
     const deliveryAwareEndpoint: EndpointDefinition = {
       ...endpoint,
@@ -407,3 +449,19 @@ describe("endpoint connection check", () => {
     parserSettings.remove();
   });
 });
+
+function serializer(type: string, title: string, semantics: string[]) {
+  return {
+    type: "object",
+    title,
+    properties: { type: { type: "string", const: type } },
+    required: ["type"],
+    "x-ui": {
+      capabilities: {
+        component: "serializer",
+        key: type,
+        record_semantics: semantics,
+      },
+    },
+  };
+}

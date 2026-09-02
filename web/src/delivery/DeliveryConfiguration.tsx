@@ -19,6 +19,7 @@ import { TopField } from "../ui/FormField";
 import { SelectControl } from "../ui/SelectControl";
 import { useControlPlane } from "../bootstrap/ApplicationServicesProvider";
 import { SourceSampleProvider } from "../features/middleware/SourceSampleContext";
+import { sourceRecordSemantics } from "./recordSemantics";
 
 type EndpointSelection = ReturnType<typeof selectedEndpoints>;
 
@@ -52,6 +53,19 @@ export function DeliveryConfiguration({
     (selection?.sinkKey ?? "") !== "";
   const sourceConnectors = orderedEndpointConnectors(catalog, "source");
   const sinkConnectors = orderedEndpointConnectors(catalog, "sink");
+  const requiredSinkRecordSemantics =
+    selection?.error === undefined &&
+    selection?.source !== undefined &&
+    (editor.config.delivery_type === "batch" ||
+      editor.config.delivery_type === "stream" ||
+      editor.config.delivery_type === "batch_and_stream")
+      ? sourceRecordSemantics(
+          selection.source,
+          compiledSchema(selection.source.schema, widgets),
+          endpointValue(editor.config, "source", selection.sourceKey),
+          editor.config.delivery_type,
+        )
+      : undefined;
   const sourceSampleLoader =
     selection?.error === undefined && selection?.source !== undefined
       ? async () => {
@@ -160,6 +174,9 @@ export function DeliveryConfiguration({
               readOnly={readOnly}
               showSettings={routeSelectionComplete}
               showRequiredErrors={requiredErrorScope === "all"}
+              {...(requiredSinkRecordSemantics === undefined
+                ? {}
+                : { requiredRecordSemantics: requiredSinkRecordSemantics })}
               onChoose={onChooseEndpoint}
               onConfig={onConfig}
             />

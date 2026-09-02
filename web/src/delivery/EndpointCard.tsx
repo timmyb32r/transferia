@@ -8,6 +8,7 @@ import type {
   ConnectorDefinition,
   EndpointDefinition,
   JsonObject,
+  RecordSemantics,
 } from "../types";
 import { compiledSchema, endpointValue, isObject } from "./editorConfig";
 import { MessagePreviewDialog } from "./MessagePreviewDialog";
@@ -23,6 +24,7 @@ export function EndpointCard(props: {
   readOnly: boolean;
   showSettings?: boolean;
   showRequiredErrors: boolean;
+  requiredRecordSemantics?: readonly RecordSemantics[];
   onChoose: (role: "source" | "sink", key: string) => void;
   onConfig: (config: JsonObject) => void;
 }) {
@@ -131,6 +133,12 @@ export function EndpointCard(props: {
                     ? ".parser-details-card"
                     : ".serializer-details-card",
                 ),
+              ...(props.requiredRecordSemantics === undefined
+                ? {}
+                : {
+                    requiredRecordSemantics:
+                      props.requiredRecordSemantics,
+                  }),
             }}
             optionOverrides={check.options}
             connectionAction={
