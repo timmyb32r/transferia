@@ -6,13 +6,11 @@ export type ColorTheme = "light" | "dark";
 export interface Appearance {
   design: InterfaceDesign;
   theme: ColorTheme;
-  autoShowSchemaWidget: boolean;
 }
 
 export const DEFAULT_APPEARANCE: Appearance = {
   design: "classic",
   theme: "dark",
-  autoShowSchemaWidget: true,
 };
 
 const isDesign = (value: unknown): value is InterfaceDesign =>
@@ -43,11 +41,6 @@ export function loadAppearance(storage: Pick<Storage, "getItem">): Appearance {
       return {
         design: value.design,
         theme: value.theme,
-        autoShowSchemaWidget:
-          "autoShowSchemaWidget" in value &&
-          typeof value.autoShowSchemaWidget === "boolean"
-            ? value.autoShowSchemaWidget
-            : true,
       };
     }
   } catch {

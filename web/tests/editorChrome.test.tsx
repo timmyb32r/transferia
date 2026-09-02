@@ -366,7 +366,6 @@ describe("editor chrome", () => {
         appearance={{
           design: "classic",
           theme: "dark",
-          autoShowSchemaWidget: true,
         }}
         onAppearance={() => undefined}
         dataWidgetAvailable
@@ -383,6 +382,13 @@ describe("editor chrome", () => {
     fireEvent.click(deliveryItem.querySelector(".delivery-item-name")!);
     fireEvent.click(deliveryItem.querySelector(".status")!);
     fireEvent.click(view.getByRole("button", { name: "Data widget" }));
+
+    expect(
+      view.getByRole("button", { name: "Data widget" }).classList,
+    ).toContain("primary");
+    expect(
+      view.getByRole("button", { name: "Data widget" }).classList,
+    ).toContain("data-widget-ready");
 
     expect(onNew).toHaveBeenCalledTimes(2);
     expect(onOpen).toHaveBeenCalledTimes(2);
@@ -404,5 +410,43 @@ describe("editor chrome", () => {
     ).toBeLessThan(
       sidebarButtons.indexOf(view.getByRole("button", { name: /Settings/ })),
     );
+  });
+
+  it("enables and highlights the data widget without remounting nearby controls", () => {
+    const props = {
+      catalog: { common_schema: {}, initial: {}, connectors: [] },
+      deliveries: [],
+      selectedId: undefined,
+      appearance: { design: "classic" as const, theme: "dark" as const },
+      onAppearance: () => undefined,
+      dataWidgetUnavailableReason: "Discover data first",
+      dataWidgetVisible: false,
+      onToggleDataWidget: () => undefined,
+      onNew: () => undefined,
+      onOpen: () => undefined,
+    };
+    const view = render(
+      <DeliverySidebar {...props} dataWidgetAvailable={false} />,
+    );
+    const unavailable = view.getByRole("button", {
+      name: "Data widget",
+    }) as HTMLButtonElement;
+    const matrix = view.getByRole("button", { name: "Transfer compatibility" });
+    const settings = view.getByRole("button", { name: /Settings/ });
+    expect(unavailable.disabled).toBe(true);
+    expect(unavailable.classList).not.toContain("data-widget-ready");
+
+    view.rerender(<DeliverySidebar {...props} dataWidgetAvailable />);
+    const available = view.getByRole("button", {
+      name: "Data widget",
+    }) as HTMLButtonElement;
+    expect(available).toBe(unavailable);
+    expect(available.disabled).toBe(false);
+    expect(available.classList).toContain("primary");
+    expect(available.classList).toContain("data-widget-ready");
+    expect(view.getByRole("button", { name: "Transfer compatibility" })).toBe(
+      matrix,
+    );
+    expect(view.getByRole("button", { name: /Settings/ })).toBe(settings);
   });
 });

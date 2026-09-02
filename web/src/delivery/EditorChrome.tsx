@@ -236,7 +236,12 @@ export function DeliverySidebar({
         }
       >
         <Button
-          class="sidebar-tool-button"
+          variant={dataWidgetAvailable ? "primary" : "default"}
+          class={
+            dataWidgetAvailable
+              ? "sidebar-tool-button data-widget-ready"
+              : "sidebar-tool-button"
+          }
           aria-pressed={dataWidgetVisible}
           disabled={!dataWidgetAvailable}
           onClick={onToggleDataWidget}

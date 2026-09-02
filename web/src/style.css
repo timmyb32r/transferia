@@ -3315,9 +3315,33 @@ button::after {
   border-color: transparent;
   color: var(--text-secondary);
 }
+.sidebar-tool-button.data-widget-ready {
+  color: var(--on-accent);
+  animation: data-widget-ready 900ms ease-out;
+}
+@keyframes data-widget-ready {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  45% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-tool-button.data-widget-ready {
+    animation: none;
+  }
+}
 .sidebar-tool-button:hover:not(:disabled),
 .sidebar-tool-button[aria-pressed="true"] {
   background: var(--surface-hover);
+}
+.sidebar-tool-button.data-widget-ready:hover:not(:disabled),
+.sidebar-tool-button.data-widget-ready[aria-pressed="true"] {
+  background: var(--blue-hover);
 }
 .appearance-settings {
   flex: 0 0 auto;

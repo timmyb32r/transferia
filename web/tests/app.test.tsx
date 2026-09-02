@@ -617,17 +617,8 @@ describe("App request orchestration", () => {
     expect(cloned.delivery_type).toBe("batch");
   });
 
-  it("does not auto-open the data widget for an existing delivery", async () => {
-    const existing = {
-      ...delivery("existing", "Existing"),
-      config: {
-        delivery_id: "existing",
-        delivery_type: "batch",
-        source: { source: {} },
-        sink: { sink: {} },
-      },
-    } satisfies DeliveryRecord;
-    installApiMocks([existing]);
+  it("does not auto-open the data widget when a new delivery becomes discoverable", async () => {
+    installApiMocks([]);
     vi.mocked(api.catalog).mockResolvedValue({
       ...CATALOG,
       connectors: [
@@ -659,7 +650,6 @@ describe("App request orchestration", () => {
         },
       ],
     });
-    vi.mocked(api.delivery).mockResolvedValue(existing);
     vi.mocked(api.discover).mockResolvedValue({
       ...discovery(),
       datasets: [
@@ -673,14 +663,18 @@ describe("App request orchestration", () => {
     });
     const view = render(<App />);
     const app = within(view.container as HTMLElement);
-    await app.findByText("Existing");
-
-    fireEvent.click(app.getByText("Existing").closest("button")!);
-    await app.findByRole("heading", { name: "Existing" });
+    await app.findByRole("heading", { name: "Untitled delivery" });
+    chooseFromSelect(app, "Delivery type", "Batch");
+    chooseFromSelect(app, "Source", "Test source");
+    chooseFromSelect(app, "Destination", "Test sink");
     await waitFor(() => expect(api.discover).toHaveBeenCalled());
 
     expect(app.queryByRole("dialog", { name: "Final schema" })).toBeNull();
-    expect(app.getByRole("button", { name: "Data widget" })).toBeTruthy();
+    expect(
+      app
+        .getByRole("button", { name: "Data widget" })
+        .classList.contains("data-widget-ready"),
+    ).toBe(true);
   });
 
   it("ignores an action response after navigating to another delivery", async () => {

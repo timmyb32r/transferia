@@ -274,12 +274,8 @@ export function DeliveryApplication() {
     return "Waiting for data schema discovery";
   })();
   useEffect(() => {
-    if (!dataSchemaAvailable) {
-      setSchemaInspectorVisible(false);
-    } else if (appearance.autoShowSchemaWidget && editor.id === undefined) {
-      setSchemaInspectorVisible(true);
-    }
-  }, [dataSchemaAvailable, appearance.autoShowSchemaWidget, editor.id]);
+    if (!dataSchemaAvailable) setSchemaInspectorVisible(false);
+  }, [dataSchemaAvailable]);
   const yamlEditor = useYamlEditor({
     enabled: catalog !== undefined,
     editable: !isReadOnly(editor),
